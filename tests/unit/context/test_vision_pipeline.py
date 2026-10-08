@@ -130,6 +130,20 @@ def test_a_successful_window_vote_keeps_the_model_ranges():
     assert assessment["usable_ranges"] == [[0, 10.0]]
 
 
+def test_merge_objects_drops_malformed_appearance_timestamps():
+    objects = [{
+        "label": "person",
+        "appearances": [
+            [None, 2.0], [1.0, None], ["unknown", 2.0],
+            [float("nan"), 2.0], [0.0, 4.0], [40.0, 45.0],
+        ],
+    }]
+
+    merged = vp.merge_objects(objects, max_duration=10.0)
+
+    assert merged == [{"label": "person", "appearances": [[0.0, 4.0]]}]
+
+
 def _sample_compact_answer():
     return {
         "a": [[0, 10, "speaking to camera, gesturing",

@@ -187,3 +187,118 @@ def test_foreground_alpha_softens_only_the_relative_depth_transition():
 def test_even_resolution_helper_reduces_odd_dimension():
     assert even(960) == 960
     assert even(539) == 538
+
+
+# --------------------------------------------------------------------------
+# Content-keyed reuse: a stored matte measuring these exact bytes is
+# served from disk, never re-segmented.
+
+
+def _seg_step_module():
+    import library.steps.step_1_06_object_segmentation.step as seg_step
+    return seg_step
+
+
+def _write_clip(tmp_path, name="clip.mp4", payload=b"x" * 300000):
+    clip = tmp_path / name
+    clip.write_bytes(payload)
+    return str(clip)
+
+
+def _stored_doc(video_path, n_objects=2):
+    return {
+        "video_path": video_path,
+        "frame_count": 10,
+        "resolution": [1920, 1080],
+        "sample_fps": 2.0,
+        "seed_note": "face-seeded",
+        "objects": [{"id": i} for i in range(n_objects)],
+    }
+
+
+def test_a_stamped_matte_reuses_identical_bytes(tmp_path):
+    seg_step = _seg_step_module()
+    clip_path = _write_clip(tmp_path)
+    target = tmp_path / "c1_segmentation.json"
+    target.write_text(json.dumps(_stored_doc(clip_path)))
+    face_box = [0.1, 0.1, 0.5, 0.5]
+
+    seg_step._stamp_segmentation_identity(
+        target, clip_path, face_box, seg_step.SEGMENT_SAMPLE_FPS)
+
+    cached = seg_step._stored_segmentation_reusable(
+        target, clip_path, face_box, seg_step.SEGMENT_SAMPLE_FPS)
+    assert cached == {"object_count": 2, "seed_note": "face-seeded"}
+
+
+def test_a_refreshed_source_remeasures(tmp_path):
+    seg_step = _seg_step_module()
+    clip_path = _write_clip(tmp_path)
+    target = tmp_path / "c1_segmentation.json"
+    target.write_text(json.dumps(_stored_doc(clip_path)))
+    face_box = [0.1, 0.1, 0.5, 0.5]
+    seg_step._stamp_segmentation_identity(
+        target, clip_path, face_box, seg_step.SEGMENT_SAMPLE_FPS)
+
+    with open(clip_path, "wb") as f:
+        f.write(b"y" * 300000)
+
+    assert seg_step._stored_segmentation_reusable(
+        target, clip_path, face_box, seg_step.SEGMENT_SAMPLE_FPS) is None
+
+
+def test_a_legacy_matte_without_identity_remeasures(tmp_path):
+    seg_step = _seg_step_module()
+    clip_path = _write_clip(tmp_path)
+    target = tmp_path / "c1_segmentation.json"
+    target.write_text(json.dumps(_stored_doc(clip_path)))
+
+    assert seg_step._stored_segmentation_reusable(
+        target, clip_path, [0.1, 0.1, 0.5, 0.5],
+        seg_step.SEGMENT_SAMPLE_FPS) is None
+
+
+def test_a_new_face_box_remeasures(tmp_path):
+    seg_step = _seg_step_module()
+    clip_path = _write_clip(tmp_path)
+    target = tmp_path / "c1_segmentation.json"
+    target.write_text(json.dumps(_stored_doc(clip_path)))
+    seg_step._stamp_segmentation_identity(
+        target, clip_path, [0.1, 0.1, 0.5, 0.5],
+        seg_step.SEGMENT_SAMPLE_FPS)
+
+    assert seg_step._stored_segmentation_reusable(
+        target, clip_path, [0.2, 0.2, 0.6, 0.6],
+        seg_step.SEGMENT_SAMPLE_FPS) is None
+
+
+def test_run_step_serves_a_cached_matte_without_loading_the_model(
+        tmp_path, monkeypatch):
+    seg_step = _seg_step_module()
+    clip_path = _write_clip(tmp_path)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    cached_file = out_dir / "c1_segmentation.json"
+    cached_file.write_text(json.dumps(_stored_doc(clip_path)))
+    face_box = [0.1, 0.1, 0.5, 0.5]
+    seg_step._stamp_segmentation_identity(
+        cached_file, clip_path, face_box, seg_step.SEGMENT_SAMPLE_FPS)
+
+    def _no_model():
+        raise AssertionError("segmenter must not load on a cache hit")
+
+    monkeypatch.setattr(seg_step, "get_segmenter", _no_model)
+
+    result = seg_step.run_step(
+        [],
+        [{"clip_id": "c1", "path": clip_path}],
+        str(out_dir),
+        face_boxes_by_clip={"c1": face_box},
+        color_grade_spec={"subject_grades": [
+            {"clip_id": "c1", "scope": "subject-only"}]},
+    )
+
+    assert result["matte_trigger"]["reused"] == ["c1"]
+    assert result["matte_trigger"]["segmented"] == ["c1"]
+    assert result["object_segmentation"][0]["reused"] is True
+    assert result["object_segmentation"][0]["object_count"] == 2

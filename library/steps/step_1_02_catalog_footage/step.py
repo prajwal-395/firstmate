@@ -22,6 +22,8 @@ import subprocess
 import sys
 from datetime import datetime
 
+from library.tools.concurrency_routing import run_lanes
+
 
 class ProgramStreamRefused(ValueError):
     """No stream reaches the timeline without a declaration or evidence.
@@ -817,33 +819,35 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
     entries = []
     skipped = []
 
-    for file_info in raw_footage_files:
+    def _one(file_info):
+        # One file's probe: independent of every other file (its own
+        # ffprobe subprocess, no shared state), so the free-lane pool
+        # may run these beside each other. A raise aborts the batch
+        # exactly as the serial loop's raise did.
         filepath = file_info["path"]
 
         if not os.path.isfile(filepath):
-            skipped.append({
-                "path": filepath,
-                "reason": "file not found"
-            })
             print(
                 f"WARNING: File not found, skipping: {filepath}",
                 file=sys.stderr,
             )
-            continue
+            return ("skipped", {
+                "path": filepath,
+                "reason": "file not found"
+            })
 
         metadata = extract_metadata(
             filepath, program_stream=program_stream,
             measure_program_stream=measure_program_stream)
         if metadata is None or "error" in metadata:
             err = metadata.get("error", "metadata extraction failed") if metadata else "metadata extraction failed"
-            skipped.append({
+            return ("skipped", {
                 "path": filepath,
                 "reason": err,
                 "timeout_duration": metadata.get("timeout_duration") if metadata else None
             })
-            continue
 
-        entries.append({
+        return ("entry", {
             "path": filepath,
             "source_file": filepath,  # Alias for downstream steps (3.1, 3.3)
             "filename": file_info["filename"],
@@ -851,6 +855,12 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
             "clip_id": file_info.get("clip_id", ""),
             **metadata,
         })
+
+    for kind, record in run_lanes(_one, raw_footage_files):
+        if kind == "entry":
+            entries.append(record)
+        else:
+            skipped.append(record)
 
     if not entries:
         raise ValueError(
@@ -987,7 +997,13 @@ def _catalog_audio(raw_audio_files: list, program_stream=None,
     the same chronological reading.
     """
     cataloged = []
-    for position, file_info in enumerate(raw_audio_files or []):
+
+    def _one_audio(positioned):
+        # Same independence as video: one file, its own ffprobe
+        # subprocess, no shared state. Position is captured up front
+        # so the default `audio_001` numbering cannot shift when lanes
+        # reorder execution; `run_lanes` still returns input order.
+        position, file_info = positioned
         filepath = file_info.get("path", "") if isinstance(
             file_info, dict) else str(file_info)
         filename = (file_info.get("filename", "") if isinstance(
@@ -998,7 +1014,7 @@ def _catalog_audio(raw_audio_files: list, program_stream=None,
         if not filepath or not os.path.isfile(filepath):
             print(f"WARNING: audio file not found, skipping: "
                   f"{filepath or audio_id}", file=sys.stderr)
-            continue
+            return None
 
         metadata = extract_metadata(
             filepath, program_stream=program_stream,
@@ -1008,7 +1024,7 @@ def _catalog_audio(raw_audio_files: list, program_stream=None,
                    if metadata else "metadata extraction failed")
             print(f"WARNING: audio metadata failed, skipping "
                   f"{filename}: {err}", file=sys.stderr)
-            continue
+            return None
 
         if "width" in metadata:
             # An audio-enumerated file carrying a video stream - usually
@@ -1033,14 +1049,18 @@ def _catalog_audio(raw_audio_files: list, program_stream=None,
             except OSError:
                 size = 0
 
-        cataloged.append({
+        return {
             "path": filepath,
             "source_file": filepath,
             "filename": filename,
             "file_size_bytes": size,
             "audio_id": audio_id,
             **metadata,
-        })
+        }
+
+    for probed in run_lanes(_one_audio, list(enumerate(raw_audio_files or []))):
+        if probed is not None:
+            cataloged.append(probed)
 
     for entry in cataloged:
         if not entry.get("creation_time"):

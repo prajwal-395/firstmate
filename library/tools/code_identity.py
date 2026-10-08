@@ -97,6 +97,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # The executed measurement: the SAM 2 tracker the step segments
         # each triggered clip with.
         "library/tools/analysis/object_segmentation.py",
+        # Imported by step.py: the content identity a stored matte is
+        # served from, so a fix here changes which mattes are reused.
+        "library/tools/footage_identity.py",
+        # Imported by footage_identity: the declaration parsing chain
+        # it reads through (same chain as the scan and catalog rows).
+        "library/schemas/project_config.py",
+        "library/tools/delivery_spec.py",
+        "library/tools/portable_paths.py",
+        "library/tools/stable_json.py",
+        "library/tools/project_format.py",
+        "library/tools/overlay_mode.py",
+        "library/tools/graphics_renderer.py",
+        "library/tools/safe_zone_policy.py",
+        "library/tools/platform_safe_zones.py",
     ),
     "step_1_01_scan_project": (
         # enumerate_footage produces raw_footage_files, the step's output.
@@ -175,6 +189,13 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by safe_zone_policy: the platform zones a policy
         # names and is checked against.
         "library/tools/platform_safe_zones.py",
+        # Imported by step.py: the per-file lanes, so a fix here
+        # changes how many probes measure at once.
+        "library/tools/concurrency_routing.py",
+        # Imported by concurrency_routing: the lane bound is this
+        # machine's measured core count. (Its capabilities read is
+        # exempt plumbing.)
+        "library/tools/resource_scheduler.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).

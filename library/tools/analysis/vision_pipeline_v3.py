@@ -2104,6 +2104,20 @@ def merge_objects(all_objects, max_duration=None):
     ts_limit = (max_duration * 2) if max_duration else None
 
     merged = {}
+
+    def valid_range(value):
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            return None
+        try:
+            start, end = float(value[0]), float(value[1])
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(start) or not math.isfinite(end):
+            return None
+        if ts_limit is not None and (start > ts_limit or end > ts_limit):
+            return None
+        return [start, end]
+
     for obj in all_objects:
         if not isinstance(obj, dict):
             continue
@@ -2127,14 +2141,12 @@ def merge_objects(all_objects, max_duration=None):
     for obj in merged.values():
         apps = obj.get("appearances", [])
         if apps:
-            # Filter out absurd timestamps before consolidating
-            if ts_limit:
-                apps = [
-                    a for a in apps
-                    if isinstance(a, (list, tuple)) and len(a) == 2
-                    and float(a[0]) <= ts_limit and float(a[1]) <= ts_limit
-                ]
-            obj["appearances"] = _consolidate_ranges(apps)
+            # Model responses can carry null or nonnumeric timestamps even
+            # when the surrounding JSON parses. Drop only those ranges;
+            # one malformed entity must not discard every clip in the batch.
+            valid_apps = [clean for app in apps
+                          if (clean := valid_range(app)) is not None]
+            obj["appearances"] = _consolidate_ranges(valid_apps)
 
     return list(merged.values())
 

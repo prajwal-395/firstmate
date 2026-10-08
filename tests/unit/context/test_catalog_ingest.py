@@ -310,3 +310,67 @@ def test_identical_takes_under_different_names_are_grouped(tmp_path):
         "clip_id": "clip_003",
     }])
     assert result["duplicate_groups"] == [["clip_001", "clip_002"]]
+
+
+# ── Parallel probing ─────────────────────────────────────────────
+
+def test_catalog_footage_probes_independent_files_beside_each_other(
+        tmp_path, monkeypatch):
+    """Each file's ffprobe is independent of every other file, so the
+    free-lane pool runs them beside each other. The catalog reads back
+    exactly as the serial loop wrote it: every file cataloged, skips
+    recorded in input order, `source_order` sequential, clip ids
+    unique - whatever order the lanes finished in."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    names = [f"clip_{letter}.mp4" for letter in "abcdef"]
+    for name in names:
+        (raw / name).write_bytes(b"fixture-" + name.encode())
+
+    def probe_for(name):
+        return {
+            "streams": [{
+                "index": 0, "codec_type": "video",
+                "codec_name": "h264", "width": 1920, "height": 1080,
+                "r_frame_rate": "30/1", "avg_frame_rate": "30/1",
+                "pix_fmt": "yuv420p",
+            }],
+            "format": {"duration": "10.0"},
+        }
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[0] == "ffprobe":
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=json.dumps(probe_for(cmd[-1])), stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(catalog_step.subprocess, "run", fake_run)
+    files = [{
+        "path": str(raw / name),
+        "filename": name,
+        "extension": ".mp4",
+        "size_bytes": 16,
+        "clip_id": f"clip_{i + 1:03d}",
+    } for i, name in enumerate(names)]
+    files.append({
+        "path": str(raw / "missing.mp4"),
+        "filename": "missing.mp4",
+        "extension": ".mp4",
+        "size_bytes": 0,
+        "clip_id": "clip_007",
+    })
+
+    result = catalog_step.catalog_footage(files)
+
+    assert result["total_clips"] == len(names)
+    assert {e["filename"] for e in result["clip_catalog"]} == set(names)
+    assert [e["source_order"] for e in result["clip_catalog"]] == list(
+        range(1, len(names) + 1))
+    ids = [e["clip_id"] for e in result["clip_catalog"]]
+    assert len(ids) == len(set(ids))
+    assert result["skipped_files"] == [{
+        "path": str(raw / "missing.mp4"),
+        "reason": "file not found",
+    }]

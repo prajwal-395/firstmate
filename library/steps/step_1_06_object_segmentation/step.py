@@ -10,6 +10,74 @@ sys.path.insert(0, str(repo_root))
 from library.tools.analysis.object_segmentation import get_segmenter
 from library.tools.project_layout import Area, ProjectLayout
 
+#: Frames sampled per second by `segmenter.segment_clip` on this step.
+#: Named here because the content-keyed skip below must compare the
+#: rate a stored matte was measured at, not restate a literal.
+SEGMENT_SAMPLE_FPS = 2.0
+
+
+def _stored_segmentation_reusable(path: Path, clip_path: str,
+                                  face_box, sample_fps: float):
+    """A stored matte that already measures this exact source, or None.
+
+    The key is the source file's content identity
+    (`footage_identity.fingerprint`: size plus both ends) together
+    with the seeding face box and the sample rate: same bytes under a
+    new name reuse, while a re-encode, a new face box or a new rate
+    re-measures. Files written before identity keys existed carry no
+    key and re-measure once, then carry it.
+    """
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    identity = stored.get("source_identity")
+    if not isinstance(identity, dict):
+        return None
+    try:
+        from library.tools.footage_identity import fingerprint
+        current = fingerprint(clip_path)
+    except OSError:
+        return None
+    if identity.get("content_digest") != current.get("content_digest"):
+        return None
+    if identity.get("size_bytes") != current.get("size_bytes"):
+        return None
+    if identity.get("sample_fps") != sample_fps:
+        return None
+    if identity.get("face_box") != [float(v) for v in (face_box or [])]:
+        return None
+    objects = stored.get("objects")
+    if not isinstance(objects, list):
+        return None
+    return {"object_count": len(objects),
+            "seed_note": stored.get("seed_note")}
+
+
+def _stamp_segmentation_identity(path: Path, clip_path: str,
+                                 face_box, sample_fps: float) -> None:
+    """Record what source a freshly written matte measures.
+
+    Best-effort like the ledger: a stamp that fails to land never
+    takes down the run - the next run simply re-measures.
+    """
+    try:
+        from library.tools.footage_identity import fingerprint
+        identity = fingerprint(clip_path)
+    except OSError:
+        return
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored["source_identity"] = {
+            "content_digest": identity.get("content_digest"),
+            "size_bytes": identity.get("size_bytes"),
+            "sample_fps": sample_fps,
+            "face_box": [float(v) for v in (face_box or [])],
+        }
+        path.write_text(json.dumps(stored, indent=2), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
 #: THE TRIGGER. This step segments ONLY the clips a matte-needing plan
 #: names on this run - never every clip on every run (measured 6.1x
 #: realtime and 58.3 MB for 807s at 2 fps on 001, so a full pass is a
@@ -232,9 +300,13 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     if face_boxes_by_clip is None:
         face_boxes_by_clip = face_boxes_from_temporal_index(temporal_index)
 
-    segmenter = get_segmenter()
+    # The segmenter loads SAM 2 weights, so it is built only when a
+    # clip actually needs measuring: an all-cached run never touches
+    # the model, the same way an empty trigger already returns above.
+    segmenter = None
     results = []
     declined = []
+    reused = []
 
     for clip in clip_catalog:
         clip_path = clip["path"]
@@ -265,10 +337,36 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             print(f"Declining {clip_path}: no face box", file=sys.stderr)
             continue
 
+        # Content-keyed reuse: SAM 2 runs at ~6x realtime, so a matte
+        # that already measures these exact bytes - seeded from this
+        # exact face box at this exact rate - is served from disk.
+        # The serial loop stays serial (the generator and propagation
+        # share the GPU budget), but seen content is never re-measured.
+        new_file_name = f"{clip_id}_segmentation.json"
+        cached = _stored_segmentation_reusable(
+            out_dir_path / new_file_name, clip_path,
+            face_box, SEGMENT_SAMPLE_FPS)
+        if cached is not None:
+            print(f"Reusing {clip_path}: content unchanged "
+                  f"({cached['object_count']} objects)", file=sys.stderr)
+            reused.append(clip_id)
+            results.append({
+                "clip_id": clip_id,
+                "video_path": clip_path,
+                "segmentation_file": new_file_name,
+                "object_count": cached["object_count"],
+                "seed_note": cached["seed_note"],
+                "trigger": wanted[clip_id],
+                "reused": True,
+            })
+            continue
+
         print(f"Segmenting {clip_path}...", file=sys.stderr)
         try:
+            if segmenter is None:
+                segmenter = get_segmenter()
             seg_result = segmenter.segment_clip(
-                clip_path, sample_fps=2.0,
+                clip_path, sample_fps=SEGMENT_SAMPLE_FPS,
                 face_box=face_box, require_face=True)
 
             # Save the detailed masks and metadata to output_dir
@@ -277,10 +375,11 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             # Rename output to use clip_id instead of stem to prevent collisions
             stem = Path(clip_path).stem
             old_file = out_dir_path / f"{stem}_segmentation.json"
-            new_file_name = f"{clip_id}_segmentation.json"
             new_file = out_dir_path / new_file_name
             if old_file.exists() and old_file != new_file:
                 os.rename(old_file, new_file)
+            _stamp_segmentation_identity(new_file, clip_path,
+                                         face_box, SEGMENT_SAMPLE_FPS)
 
             # Add summary to step results
             results.append({
@@ -300,6 +399,7 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
         "matte_trigger": trigger_record | {
             "segmented": [r["clip_id"] for r in results],
             "declined": declined,
+            "reused": reused,
         },
     }
 
