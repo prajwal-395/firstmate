@@ -108,6 +108,8 @@ def snapshot_handle(snapshot, operations, *, include_transform=False):
     native = rust()
     if native is None:
         return snapshot
+    if isinstance(snapshot, native.SnapshotHandle):
+        return snapshot
     property_projection = all(
         operation["op"] == "clip.set_property" for operation in operations
     )

@@ -9,7 +9,7 @@ use ren_protocol::edit::{EditOp, EditPatch};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::algebra::{algebra, key, meet, MergeSemantics, TemporalEffect};
+use crate::algebra::{MergeSemantics, TemporalEffect, algebra, key, meet};
 use crate::conditions::judge_all;
 use crate::patch::validate_patch;
 use crate::snapshot::Snapshot;
@@ -88,22 +88,104 @@ pub struct Composition {
 }
 
 /// A capability's declared patch semantics, as compose reads them.
-#[derive(Deserialize)]
+#[derive(Clone, Copy)]
 pub struct Semantics {
-    pub temporal_effect: String,
-    pub merge_semantics: String,
+    pub temporal_effect: Option<TemporalEffect>,
+    pub merge_semantics: Option<MergeSemantics>,
 }
 
 fn semantics_of(value: &Value) -> Option<Semantics> {
-    serde_json::from_value(value.clone()).ok()
+    let temporal_effect = value.get("temporal_effect")?.as_str()?;
+    let merge_semantics = value.get("merge_semantics")?.as_str()?;
+    Some(Semantics {
+        temporal_effect: TemporalEffect::parse(temporal_effect),
+        merge_semantics: MergeSemantics::parse(merge_semantics),
+    })
 }
 
-fn strictest(semantics: &[&str]) -> Option<&'static str> {
+fn strictest(semantics: &[Option<MergeSemantics>]) -> Option<&'static str> {
     semantics
         .iter()
-        .filter_map(|s| MergeSemantics::parse(s))
+        .flatten()
         .max_by_key(|m| m.rank())
-        .map(|m| m.as_str())
+        .map(MergeSemantics::as_str)
+}
+
+fn compose_nonmeeting_property_pair(
+    earlier: &EditPatch,
+    later: &EditPatch,
+    base: &Snapshot,
+    a_temporal: Option<TemporalEffect>,
+) -> Option<Composition> {
+    let (
+        [
+            EditOp::ClipSetProperty {
+                unique_id: mine_id,
+                key: mine_key,
+                ..
+            },
+        ],
+        [
+            EditOp::ClipSetProperty {
+                unique_id: theirs_id,
+                key: theirs_key,
+                ..
+            },
+        ],
+    ) = (earlier.operations.as_slice(), later.operations.as_slice())
+    else {
+        return None;
+    };
+    if mine_id == theirs_id && mine_key == theirs_key {
+        return None;
+    }
+    let commute = || Composition {
+        verdict: Verdict::Commute,
+        reason: "no write of one meets a write of the other".into(),
+    };
+    if a_temporal != Some(TemporalEffect::Ripple) {
+        return Some(commute());
+    }
+    let Some(point) = earlier.affected_spans.iter().map(|span| span.0).min() else {
+        return Some(commute());
+    };
+    let op = &later.operations[0];
+    let Some(decl) = crate::algebra::declaration(op.op_id()) else {
+        return None;
+    };
+    let Some(span) = crate::algebra::span(op, base) else {
+        return Some(Composition {
+            verdict: Verdict::Conflict,
+            reason: format!(
+                "{} targets clip {}, which is not exactly once on the generation before {}",
+                op.op_id(),
+                python_repr(&theirs_id.0),
+                python_repr(&earlier.id)
+            ),
+        });
+    };
+    if span.1 <= point {
+        return Some(commute());
+    }
+    if !decl.item {
+        return Some(Composition {
+            verdict: Verdict::Conflict,
+            reason: format!(
+                "{} addresses frame {}, past where patch {} ripples from ({point}), and a frame does not move with the cut",
+                op.op_id(),
+                crate::algebra::op_frame(op).unwrap_or(-1),
+                python_repr(&earlier.id)
+            ),
+        });
+    }
+    Some(Composition {
+        verdict: Verdict::Rebase,
+        reason: format!(
+            "patch {} ripples from frame {point}, past clip {}: its span is re-measured",
+            python_repr(&earlier.id),
+            python_repr(&theirs_id.0)
+        ),
+    })
 }
 
 /// How `later` lands once `earlier` has; both planned on `base`.
@@ -112,8 +194,8 @@ pub fn compose(
     earlier: &EditPatch,
     later: &EditPatch,
     base: &Snapshot,
-    a_sem: &Value,
-    b_sem: &Value,
+    a_sem: Option<&Semantics>,
+    b_sem: Option<&Semantics>,
 ) -> Composition {
     if (earlier.project.as_str(), earlier.timeline.as_str())
         != (later.project.as_str(), later.timeline.as_str())
@@ -123,19 +205,14 @@ pub fn compose(
             reason: "they address different timelines".into(),
         };
     }
-    let (Some(a), Some(b)) = (semantics_of(a_sem), semantics_of(b_sem)) else {
+    let (Some(a), Some(b)) = (a_sem, b_sem) else {
         return Composition {
             verdict: Verdict::Commute,
             reason: "no write of one meets a write of the other".into(),
         };
     };
-    let mut found = vec![Composition {
-        verdict: Verdict::Commute,
-        reason: "no write of one meets a write of the other".into(),
-    }];
-
-    let a_temporal = TemporalEffect::parse(&a.temporal_effect);
-    let b_temporal = TemporalEffect::parse(&b.temporal_effect);
+    let a_temporal = a.temporal_effect;
+    let b_temporal = b.temporal_effect;
     let shared: Vec<&String> = earlier
         .conflict_domains
         .iter()
@@ -159,6 +236,15 @@ pub fn compose(
             reason: format!("a global effect on [{names}] meets the other patch wherever it acts"),
         };
     }
+
+    if let Some(result) = compose_nonmeeting_property_pair(earlier, later, base, a_temporal) {
+        return result;
+    }
+
+    let mut found = vec![Composition {
+        verdict: Verdict::Commute,
+        reason: "no write of one meets a write of the other".into(),
+    }];
 
     if a_temporal == Some(TemporalEffect::Ripple) {
         let Some(point) = earlier.affected_spans.iter().map(|s| s.0).min() else {
@@ -212,23 +298,28 @@ pub fn compose(
         }
     }
 
+    let later_keyed: Vec<_> = later
+        .operations
+        .iter()
+        .map(|op| (op, crate::algebra::declaration(op.op_id()), key(op)))
+        .collect();
     for mine in &earlier.operations {
-        let Some(mine_decl) = algebra().iter().find(|d| d.id == mine.op_id()) else {
+        let Some(mine_decl) = crate::algebra::declaration(mine.op_id()) else {
             continue;
         };
-        for theirs in &later.operations {
-            let Some(theirs_decl) = algebra().iter().find(|d| d.id == theirs.op_id()) else {
+        let mine_key = key(mine);
+        for (theirs, theirs_decl, theirs_key) in &later_keyed {
+            let Some(theirs_decl) = theirs_decl else {
                 continue;
             };
-            let theirs_key = key(theirs);
-            if !meet(&key(mine), &theirs_key) {
+            if !meet(&mine_key, theirs_key) {
                 continue;
             }
             let Some(semantics) = strictest(&[
-                &a.merge_semantics,
-                &b.merge_semantics,
-                mine_decl.merge.as_str(),
-                theirs_decl.merge.as_str(),
+                a.merge_semantics,
+                b.merge_semantics,
+                Some(mine_decl.merge),
+                Some(theirs_decl.merge),
             ]) else {
                 continue;
             };
@@ -252,7 +343,7 @@ pub fn compose(
                     reason: what,
                 };
             }
-            if mine == theirs {
+            if mine == *theirs {
                 found.push(Composition {
                     verdict: Verdict::Merge,
                     reason: format!("{what}, identically"),
@@ -325,12 +416,14 @@ pub fn carry(patch: &EditPatch, rows: &[CarryRow], semantics: &Value) -> Result<
             continue;
         };
         let earlier_semantics = row.semantics.clone().unwrap_or_else(|| semantics.clone());
+        let earlier_semantics = semantics_of(&earlier_semantics);
+        let current_semantics = semantics_of(semantics);
         let found = compose(
             earlier_patch,
             &moved,
             &base_snap,
-            &earlier_semantics,
-            semantics,
+            earlier_semantics.as_ref(),
+            current_semantics.as_ref(),
         );
         if found.verdict == Verdict::Conflict {
             return Err(format!(

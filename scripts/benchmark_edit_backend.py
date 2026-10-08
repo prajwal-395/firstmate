@@ -66,9 +66,10 @@ def timed(call, repetitions: int) -> tuple[float, float]:
 
 def main() -> None:
     repetitions = int(os.environ.get("EDIT_BENCH_REPETITIONS", "100"))
+    edits_per_handle = int(os.environ.get("EDIT_BENCH_EDITS_PER_HANDLE", "100"))
     cases = ((12, 1), (120, 8), (600, 64))
     print(f"machine={platform.platform()} python={sys.version.split()[0]} "
-          f"repetitions={repetitions}")
+          f"repetitions={repetitions} edits_per_handle={edits_per_handle}")
     for clips, patch_size in cases:
         base = snapshot(clips)
         left_ops = [{"op": "clip.set_property", "unique_id": f"clip-{i}",
@@ -81,6 +82,12 @@ def main() -> None:
         right = patch("right", right_ops, clips * 100)
         print(f"case clips={clips} operations_each={patch_size} "
               f"snapshot_bytes={len(json.dumps(base))}")
+        # Capability declarations are process initialization shared by both
+        # backends, not the first edit call being measured.
+        patch_algebra._semantics_dict(left)
+        patch_algebra._semantics_dict(right)
+        patch_algebra.semantics_of(patch_algebra.edit_patch.EditPatch.from_dict(left))
+        patch_algebra.semantics_of(patch_algebra.edit_patch.EditPatch.from_dict(right))
         results = {}
         verdicts = {}
         for backend in ("python", "rust"):
@@ -98,21 +105,31 @@ def main() -> None:
             def call():
                 return patch_algebra.compose(left, right, base_arg)
 
+            first_started = time.perf_counter_ns()
             verdict = call()
+            first_ms = (time.perf_counter_ns() - first_started) / 1e6
             if verdict.verdict not in {"commute", "merge", "serialize",
                                        "rebase", "conflict"}:
                 raise AssertionError(verdict)
             verdicts[backend] = (verdict.verdict, verdict.reason)
-            cold, warm = timed(call, repetitions)
-            results[backend] = (cold, warm)
+            warm_samples = []
+            for _ in range(repetitions):
+                started = time.perf_counter_ns()
+                call()
+                warm_samples.append((time.perf_counter_ns() - started) / 1e6)
+            warm = statistics.median(warm_samples)
+            results[backend] = (first_ms, warm)
             preparation = (f" snapshot_prepare_ms={prepare_ms:.4f}"
                            if backend == "rust" else "")
-            print(f"  {backend}: first_ms={cold:.4f} "
+            print(f"  {backend}: first_ms={first_ms:.4f} "
                   f"warm_median_ms={warm:.4f}{preparation}")
         if verdicts["python"] != verdicts["rust"]:
             raise AssertionError(("compose parity", verdicts))
         py_ms, rust_ms = results["python"][1], results["rust"][1]
-        print(f"  warm_speedup={py_ms / rust_ms:.3f}x")
+        amortized_compose = prepare_ms / edits_per_handle + rust_ms
+        print(f"  warm_speedup={py_ms / rust_ms:.3f}x "
+              f"rust_amortized_ms_per_edit_N={edits_per_handle}:"
+              f"{amortized_compose:.4f}")
         operations = [{"op": "clip.set_property", "unique_id": f"clip-{i}",
                        "key": "ZoomX", "value": 1.0}
                       for i in range(patch_size)]
@@ -122,7 +139,7 @@ def main() -> None:
             return ([edit_algebra.span(op, base) for op in operations],
                     [edit_algebra.verify(op, base) for op in operations])
 
-        _, python_loop_ms = timed(python_loop, repetitions)
+        python_first_ms, python_loop_ms = timed(python_loop, repetitions)
         python_result = python_loop()
         os.environ[edit_backend.BACKEND_ENV] = "rust"
         native = edit_backend.rust()
@@ -138,14 +155,18 @@ def main() -> None:
             return (edit_algebra.spans(operations, span_handle),
                     edit_algebra.verifies(operations, verify_handle))
 
+        rust_first_ms, rust_batch_ms = timed(rust_batch, repetitions)
         rust_result = rust_batch()
         if python_result != rust_result:
             raise AssertionError(("span/verify parity", clips, patch_size))
-        _, rust_batch_ms = timed(rust_batch, repetitions)
-        print(f"  python_span_verify_loop_ms={python_loop_ms:.4f} "
+        print(f"  python_span_verify_first_ms={python_first_ms:.4f} "
+              f"python_span_verify_loop_ms={python_loop_ms:.4f} "
+              f"rust_batch_first_ms={rust_first_ms:.4f} "
               f"rust_resident_batch_ms={rust_batch_ms:.4f} "
               f"snapshot_prepare_ms={prepare_ms:.4f} "
-              f"batch_speedup={python_loop_ms / rust_batch_ms:.3f}x")
+              f"batch_speedup={python_loop_ms / rust_batch_ms:.3f}x "
+              f"rust_amortized_ms_per_edit_N={edits_per_handle}:"
+              f"{prepare_ms / edits_per_handle + rust_batch_ms:.4f}")
 
 
 if __name__ == "__main__":

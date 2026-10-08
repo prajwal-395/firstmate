@@ -53,6 +53,7 @@ operation that needs one does not have to invent its own.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from functools import lru_cache
 
 from library.tools import edit_backend
 from library.tools import edit_patch
@@ -82,16 +83,9 @@ def semantics_of(patch: edit_patch.EditPatch):
         return None
 
 
-def _semantics_dict(patch):
-    """The capability's declared patch semantics as a dict, for the Rust
-    backend. `compose` reads `temporal_effect`/`merge_semantics`; the
-    carry's `validate_patch` reads `operations`/`conflict_domains` - one
-    dict carries all four, and each reader ignores the rest. Accepts an
-    `EditPatch` or its dict form."""
-    if isinstance(patch, dict):
-        capability = patch.get("capability")
-    else:
-        capability = patch.capability
+@lru_cache(maxsize=128)
+def _semantics_for(capability):
+    """The capability's declared patch semantics as a reusable dict."""
     from library.tools import operations
     try:
         sem = operations.get(capability).execution.patch
@@ -103,6 +97,15 @@ def _semantics_dict(patch):
             "conflict_domains": list(sem.conflict_domains),
             "temporal_effect": sem.temporal_effect,
             "merge_semantics": sem.merge_semantics}
+
+
+def _semantics_dict(patch):
+    """The declared patch semantics for a patch dict or EditPatch."""
+    if isinstance(patch, dict):
+        capability = patch.get("capability")
+    else:
+        capability = patch.capability
+    return _semantics_for(capability)
 
 
 def _as_dict(patch):

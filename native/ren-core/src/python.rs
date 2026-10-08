@@ -8,7 +8,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyModule};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyModule, PyString, PyTuple};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -17,12 +17,12 @@ use ren_protocol::edit::{Condition, EditOp, EditPatch};
 use ren_protocol::{CapabilityId, ClipId, Generation};
 
 use crate::algebra::{
-    declaration as algebra_declaration, key_strings, op_ids as algebra_op_ids,
-    patch_op_ids as algebra_patch_op_ids, span as op_span, MergeSemantics,
+    MergeSemantics, declaration as algebra_declaration, key_strings, op_ids as algebra_op_ids,
+    patch_op_ids as algebra_patch_op_ids, span as op_span,
 };
 use crate::compose::{
-    carry as compose_carry, compose as compose_patches, problems as composition_problems,
-    respan as compose_respan, CarryRow,
+    CarryRow, Semantics, carry as compose_carry, compose as compose_patches,
+    problems as composition_problems, respan as compose_respan,
 };
 use crate::conditions::judge_all;
 use crate::patch::{covered as span_covered, validate_patch as validate_patch_dict};
@@ -78,6 +78,32 @@ fn py_to_json(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
         "cannot read {} as JSON",
         obj.get_type().name()?
     )))
+}
+
+/// Property values are usually scalar Resolve values. Check their exact
+/// Python type first so the hot property-edit path does not probe every
+/// container type before extracting a float or integer.
+fn property_value_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if obj.is_none() {
+        return Ok(Value::Null);
+    }
+    if obj.is_instance_of::<PyBool>() {
+        return Ok(Value::Bool(obj.extract()?));
+    }
+    if obj.is_instance_of::<PyInt>() {
+        if let Ok(value) = obj.extract::<i64>() {
+            return Ok(Value::from(value));
+        }
+    }
+    if obj.is_instance_of::<PyFloat>() {
+        return Ok(serde_json::Number::from_f64(obj.extract::<f64>()?)
+            .map(Value::Number)
+            .unwrap_or(Value::Null));
+    }
+    if let Ok(text) = obj.extract::<String>() {
+        return Ok(Value::String(text));
+    }
+    py_to_json(obj)
 }
 
 fn json_to_py<'py>(py: Python<'py>, value: &Value) -> PyResult<Bound<'py, PyAny>> {
@@ -354,10 +380,10 @@ fn property_operations_from_py(operations: &Bound<'_, PyAny>) -> PyResult<Option
         let Ok(operation) = operation.cast::<PyDict>() else {
             return Ok(None);
         };
-        let op_id = operation
-            .get_item("op")?
-            .and_then(|value| value.extract::<String>().ok());
-        if op_id.as_deref() != Some("clip.set_property") {
+        let Some(op_id) = operation.get_item("op")? else {
+            return Ok(None);
+        };
+        if op_id.extract::<&str>().ok() != Some("clip.set_property") {
             return Ok(None);
         }
         let (Some(unique_id), Some(key), Some(value)) = (
@@ -374,7 +400,7 @@ fn property_operations_from_py(operations: &Bound<'_, PyAny>) -> PyResult<Option
         typed.push(EditOp::ClipSetProperty {
             unique_id: ClipId(unique_id),
             key,
-            value: py_to_json(&value)?,
+            value: property_value_from_py(&value)?,
         });
     }
     Ok(Some(typed))
@@ -404,14 +430,19 @@ fn property_patch_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<EditPatch
             .get_item(key)?
             .and_then(|value| value.extract::<String>().ok()))
     };
-    let (Some(id), Some(project), Some(timeline), Some(capability)) = (
+    let (Some(id), Some(project), Some(timeline)) = (
         read_text("id")?,
         read_text("project")?,
         read_text("timeline")?,
-        read_text("capability")?,
     ) else {
         return Ok(None);
     };
+    let Some(capability) = dict.get_item("capability")? else {
+        return Ok(None);
+    };
+    if !capability.is_instance_of::<PyString>() {
+        return Ok(None);
+    }
     let Some(base_generation) = dict
         .get_item("base_generation")?
         .and_then(|value| value.extract::<u64>().ok())
@@ -432,10 +463,10 @@ fn property_patch_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<EditPatch
         let Ok(operation) = operation.cast::<PyDict>() else {
             return Ok(None);
         };
-        let op_id = operation
-            .get_item("op")?
-            .and_then(|value| value.extract::<String>().ok());
-        if op_id.as_deref() != Some("clip.set_property") {
+        let Some(op_id) = operation.get_item("op")? else {
+            return Ok(None);
+        };
+        if op_id.extract::<&str>().ok() != Some("clip.set_property") {
             return Ok(None);
         }
         let (Some(unique_id), Some(key), Some(value)) = (
@@ -452,38 +483,101 @@ fn property_patch_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<EditPatch
         typed_ops.push(EditOp::ClipSetProperty {
             unique_id: ClipId(unique_id),
             key,
-            value: py_to_json(&value)?,
+            value: property_value_from_py(&value)?,
         });
     }
-    let spans = dict.get_item("affected_spans")?;
-    let Some(spans) = spans else {
+    let Some(spans) = dict.get_item("affected_spans")? else {
         return Ok(None);
     };
-    let spans: Vec<(i64, i64)> =
-        match serde_json::from_value::<Vec<(i64, i64)>>(py_to_json(&spans)?) {
-            Ok(spans) if !spans.is_empty() => spans,
-            _ => return Ok(None),
+    let Ok(spans) = spans.cast::<PyList>() else {
+        return Ok(None);
+    };
+    if spans.is_empty() {
+        return Ok(None);
+    }
+    let mut typed_spans = Vec::with_capacity(spans.len());
+    for span in spans.iter() {
+        let pair = if let Ok(pair) = span.cast::<PyTuple>() {
+            pair
+        } else if let Ok(pair) = span.cast::<PyList>() {
+            if pair.len() != 2 {
+                return Ok(None);
+            }
+            let (Ok(start), Ok(end)) = (pair.get_item(0)?.extract(), pair.get_item(1)?.extract())
+            else {
+                return Ok(None);
+            };
+            if pair.get_item(0)?.is_instance_of::<PyBool>()
+                || pair.get_item(1)?.is_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            typed_spans.push((start, end));
+            continue;
+        } else {
+            return Ok(None);
         };
-    let domains = dict.get_item("conflict_domains")?;
-    let Some(domains) = domains else {
+        if pair.len() != 2 {
+            return Ok(None);
+        }
+        let (Ok(start), Ok(end)) = (pair.get_item(0)?.extract(), pair.get_item(1)?.extract())
+        else {
+            return Ok(None);
+        };
+        if pair.get_item(0)?.is_instance_of::<PyBool>()
+            || pair.get_item(1)?.is_instance_of::<PyBool>()
+        {
+            return Ok(None);
+        }
+        typed_spans.push((start, end));
+    }
+    let Some(domains) = dict.get_item("conflict_domains")? else {
         return Ok(None);
     };
-    let domains: Vec<String> = match serde_json::from_value::<Vec<String>>(py_to_json(&domains)?) {
-        Ok(domains) => domains,
-        _ => return Ok(None),
+    let Ok(domains) = domains.cast::<PyList>() else {
+        return Ok(None);
     };
+    let mut typed_domains = Vec::with_capacity(domains.len());
+    for domain in domains.iter() {
+        let Ok(domain) = domain.extract::<String>() else {
+            return Ok(None);
+        };
+        typed_domains.push(domain);
+    }
     Ok(Some(EditPatch {
         id,
         project,
         timeline,
         base_generation: Generation(base_generation),
-        capability: CapabilityId(capability),
-        affected_spans: spans,
-        conflict_domains: domains,
+        capability: CapabilityId(String::new()),
+        affected_spans: typed_spans,
+        conflict_domains: typed_domains,
         operations: typed_ops,
         preconditions: Vec::new(),
         postconditions: Vec::new(),
         base_git_sha: String::new(),
+    }))
+}
+
+fn semantics_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<Semantics>> {
+    let Ok(dict) = value.cast::<PyDict>() else {
+        return Ok(None);
+    };
+    let Some(temporal_value) = dict.get_item("temporal_effect")? else {
+        return Ok(None);
+    };
+    let Some(merge_value) = dict.get_item("merge_semantics")? else {
+        return Ok(None);
+    };
+    let (Ok(temporal_text), Ok(merge_text)) = (
+        temporal_value.extract::<&str>(),
+        merge_value.extract::<&str>(),
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(Semantics {
+        temporal_effect: crate::algebra::TemporalEffect::parse(temporal_text),
+        merge_semantics: MergeSemantics::parse(merge_text),
     }))
 }
 
@@ -720,20 +814,24 @@ fn compose<'py>(
         .operations
         .iter()
         .all(|op| op.op_id() == "clip.set_property");
-    let a_sem = py_to_json(a_sem)?;
-    let b_sem = py_to_json(b_sem)?;
-    let targets = property_only.then(|| target_ids(&later.operations));
+    let a_sem = semantics_from_py(a_sem)?;
+    let b_sem = semantics_from_py(b_sem)?;
+    let base_is_handle = base.extract::<PyRef<'_, SnapshotHandle>>().is_ok();
+    let targets = if property_only && !base_is_handle {
+        Some(target_ids(&later.operations))
+    } else {
+        None
+    };
     with_snapshot(
         base,
         property_only.then_some(false),
         targets.as_ref(),
         |base| {
-            let found = compose_patches(&earlier, &later, base, &a_sem, &b_sem);
-            let value = serde_json::json!({
-                "verdict": found.verdict.as_str(),
-                "reason": found.reason,
-            });
-            json_to_py(py, &value)
+            let found = compose_patches(&earlier, &later, base, a_sem.as_ref(), b_sem.as_ref());
+            let result = PyDict::new(py);
+            result.set_item("verdict", found.verdict.as_str())?;
+            result.set_item("reason", found.reason)?;
+            Ok(result.into_any())
         },
     )
 }
