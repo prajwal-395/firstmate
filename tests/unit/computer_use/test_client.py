@@ -32,6 +32,54 @@ def test_press_reaches_the_driver_with_the_ref_find_element_issued(client):
     assert client.call("press", {"element": ref}) == {"pressed": True}
 
 
+def test_resolve_driver_calls_take_shared_or_exclusive_broker_lease(
+        client, monkeypatch):
+    """The Python client is the choke point for recipes, replay and model
+    assisted calls. A driver call that skips the queue can overlap a script."""
+    from contextlib import contextmanager
+
+    from library.tools.computer_use import client as driver_client
+
+    leases = []
+
+    @contextmanager
+    def lease(purpose, exclusive=True, **kwargs):
+        leases.append((purpose, exclusive))
+        yield None
+
+    monkeypatch.setattr("library.tools.resolve_lock.resolve_lease", lease)
+    client.call("get_windows")
+    found = client.call("find_element", {"title": "Workspace"})
+    client.call("press", {"element": found["elements"][0]["ref"]})
+    client.call("set_value", {"element": found["elements"][0]["ref"],
+                              "value": "Edit"})
+    client.call("focus", {"element": found["elements"][0]["ref"]})
+
+    assert [exclusive for _purpose, exclusive in leases] == [
+        False, False, True, True, True]
+    assert all(purpose.startswith("resolve-control ")
+               for purpose, _exclusive in leases)
+    assert driver_client.RESOLVE_READ_METHODS == frozenset({
+        "get_windows", "get_accessibility_tree", "find_element",
+        "list_commands", "capture_window", "capture_region", "wait_for",
+        "read_text", "get_pointer_state", "get_frontmost_app",
+        "debug_window_list", "debug_raw_window_list",
+    })
+
+
+def test_broker_executor_does_not_queue_behind_itself(client, monkeypatch):
+    """resolve.ui_transaction calls the same client on the broker executor;
+    it already owns the exclusive transaction turn."""
+    from library.tools.resolved import client as broker_client
+
+    monkeypatch.setattr(broker_client, "in_broker", lambda: True)
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.resolve_lease",
+        lambda *args, **kwargs: pytest.fail("nested broker turn"),
+    )
+    assert client.call("get_windows")["windows"]
+
+
 def test_an_explicit_driver_binary_does_not_refresh_native_builds(
         client, monkeypatch):
     from library.tools import native_refresh

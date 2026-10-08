@@ -20,9 +20,14 @@ ONLY Python side of that protocol. It owns exactly four things:
   the foreground gate and the locked screen reach the caller the way
   every other Ren refusal does.
 
-The client owns NO gates. Coordinates stay window-relative points, the
-window frame and backing scale come back with every capture, and a
-refusal from the driver is surfaced here, never worked around.
+Resolve calls take a Resolve lease here before reaching the driver (the broker
+queue when it is serving): reads use the shared lease and state-changing calls
+use the exclusive lease. The broker executor skips this wrapper because it
+already owns the turn. Chrome's explicit target remains on its separately
+gated route.
+Coordinates stay window-relative points, the window frame and backing scale
+come back with every capture, and a refusal from the driver is surfaced here,
+never worked around.
 
 `RESOLVE_CONTROL_BIN` names the binary; tests point it at a mock. The
 default is the release build beside the checkout, and a missing binary
@@ -32,12 +37,15 @@ is a refusal naming the path to build, not a silent skip.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Self
 
 from library.tools.ren_refusal import RenRefusal
+
+_logger = logging.getLogger(__name__)
 
 #: Where the driver binary is built (`cargo build --release` in
 #: `native/resolve-control`). An explicit environment wins, so a test or
@@ -53,6 +61,18 @@ REF_PRODUCING = frozenset({"find_element", "get_accessibility_tree"})
 #: Methods that take an element ref. The ref must be one this client
 #: issued; the driver decides whether it is still valid.
 REF_CONSUMING = frozenset({"press", "set_value", "focus"})
+
+# This is the side-effect-free subset of READ_ONLY_METHODS in
+# native/resolve-control/src/driver.rs. `activate_resolve` passes the driver's
+# project gate, but changes which app owns the foreground, so it stays exclusive.
+# Everything else can alter Resolve state (including focus and app activation),
+# so it takes the exclusive broker turn. New driver methods default to writes.
+RESOLVE_READ_METHODS = frozenset({
+    "get_windows", "get_accessibility_tree", "find_element", "list_commands",
+    "capture_window", "capture_region", "wait_for", "read_text",
+    "get_pointer_state", "get_frontmost_app", "debug_window_list",
+    "debug_raw_window_list",
+})
 
 
 class DriverError(RenRefusal):
@@ -146,8 +166,8 @@ class DriverClient:
                 from library.tools import native_refresh
                 from ren.engine_root import require_engine_root
                 native_refresh.ensure_current(require_engine_root())
-            except Exception:  # noqa: BLE001 - refresh never breaks a spawn
-                pass
+            except Exception:
+                _logger.debug("native driver refresh failed", exc_info=True)
         process = subprocess.Popen(
             [str(self._binary)],
             stdin=subprocess.PIPE,
@@ -180,8 +200,9 @@ class DriverClient:
         # process table carries. Bounded like close().
         try:
             proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
-        except Exception:  # noqa: BLE001 - TimeoutExpired or a dead handle
-            pass
+        except Exception:
+            _logger.debug("resolve-control did not exit on stdin EOF",
+                          exc_info=True)
 
     #: How long a closing driver gets to exit on stdin EOF before it is
     #: terminated, and how long a terminated one gets before SIGKILL. A
@@ -215,8 +236,9 @@ class DriverClient:
             proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
             self._refs.clear()
             return
-        except Exception:  # noqa: BLE001 - TimeoutExpired or a dead handle
-            pass
+        except Exception:
+            _logger.debug("resolve-control did not exit during close",
+                          exc_info=True)
         try:
             proc.terminate()
             proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
@@ -224,8 +246,9 @@ class DriverClient:
             try:
                 proc.kill()
                 proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
-            except Exception:  # noqa: BLE001 - nothing more to do
-                pass
+            except Exception:
+                _logger.debug("resolve-control could not be reaped",
+                              exc_info=True)
         self._refs.clear()
 
     def __enter__(self) -> Self:
@@ -272,6 +295,22 @@ class DriverClient:
         body = dict(params or {})
         if method in REF_CONSUMING:
             self._check_ref(method, body)
+        # Chrome's explicit target is a separate, experimental surface. All
+        # Resolve calls enter the broker queue before touching the native
+        # driver. The broker executor itself already owns that queue turn
+        # (notably resolve.ui_transaction), so it calls the driver directly.
+        from library.tools.resolved import client as resolved_client
+        target = body.get("target", "resolve")
+        if target != "chrome" and not resolved_client.in_broker():
+            from library.tools.resolve_lock import resolve_lease
+            with resolve_lease(
+                    f"resolve-control {method}",
+                    exclusive=method not in RESOLVE_READ_METHODS):
+                return self._call_driver(method, body)
+        return self._call_driver(method, body)
+
+    def _call_driver(self, method: str, body: dict) -> dict:
+        """Exchange one request while the caller owns the broker turn."""
         try:
             return self._exchange(method, body)
         except (BrokenPipeError, OSError, EOFError):

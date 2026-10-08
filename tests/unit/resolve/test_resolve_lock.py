@@ -1369,6 +1369,85 @@ def test_a_lease_waits_for_the_broker_grant_another_client_holds(
                for job in broker.store.recent())
 
 
+def test_resolve_ui_actions_and_scripted_jobs_share_priority_queue(
+        serving, unguarded_2, monkeypatch):
+    """Both directions use the same exclusive broker grant: a UI action
+    waits behind a running script, and a script waits behind a UI action."""
+    from library.tools.computer_use.client import DriverClient
+
+    broker, _ = serving
+    order = []
+    script_holding = threading.Event()
+    release_script = threading.Event()
+
+    def scripted_job():
+        with client.grant({"purpose": "scripted edit", "exclusive": True}):
+            order.append("script in")
+            script_holding.set()
+            assert release_script.wait(5)
+            order.append("script out")
+
+    script = threading.Thread(target=scripted_job, daemon=True)
+    script.start()
+    assert script_holding.wait(5)
+
+    ui_entered = threading.Event()
+    release_ui = threading.Event()
+    ui_done = threading.Event()
+    errors = []
+    ui = DriverClient(binary=Path("/unused-resolve-control"))
+
+    def driver_call(method, params):
+        order.append(f"ui {method} in")
+        ui_entered.set()
+        assert release_ui.wait(5)
+        order.append(f"ui {method} out")
+        return {"activated": True}
+
+    monkeypatch.setattr(ui, "_call_driver", driver_call)
+
+    def ui_action():
+        try:
+            ui.call("activate_resolve", {"allow_foreground": True})
+        except Exception as exc:  # noqa: BLE001 - report thread failures
+            errors.append(exc)
+        finally:
+            ui_done.set()
+
+    ui_thread = threading.Thread(target=ui_action, daemon=True)
+    ui_thread.start()
+    time.sleep(0.1)
+    assert not ui_entered.is_set()
+    release_script.set()
+    assert ui_entered.wait(5)
+
+    script2_entered = threading.Event()
+    script2_done = threading.Event()
+
+    def second_script():
+        with client.grant({"purpose": "scripted readback", "exclusive": True}):
+            order.append("script2 in")
+            script2_entered.set()
+        script2_done.set()
+
+    script2 = threading.Thread(target=second_script, daemon=True)
+    script2.start()
+    time.sleep(0.1)
+    assert not script2_entered.is_set()
+    release_ui.set()
+    assert ui_done.wait(5)
+    assert script2_done.wait(5)
+    assert not errors, errors
+    assert order == [
+        "script in", "script out", "ui activate_resolve in",
+        "ui activate_resolve out", "script2 in",
+    ]
+    assert any(job["params"].get("purpose") == "resolve-control activate_resolve"
+               and job["state"] == "done"
+               and job["priority"] == "mutation"
+               for job in broker.store.recent())
+
+
 def test_a_stale_patch_is_rejected_with_what_a_rebase_needs(
         serving, unguarded_2, monkeypatch):
     from library.tools import edit_patch
