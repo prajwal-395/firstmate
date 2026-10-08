@@ -16,7 +16,8 @@ Two tiers. Tier-1 is the fast signal; Tier-2 is the merge verdict.
   GATE into the queue, not a merge verdict.
 - **Tier-2, integration in a timebox.** Ready PRs cluster within an
   adaptive window (short on a quiet machine, long on a busy one) and
-  the FULL suite (`scripts/full_suite_gate.sh`) runs once on the exact
+  the FULL suite (`scripts/full_suite_gate.sh`, under the required
+  `not real_model and not resolve_live` marker policy) runs once on the exact
   stacked tree that would land (main + cluster in queue order). Green
   merges the whole cluster in order with a freshness re-check chained
   on each merge's landed SHA; red bisects to the culprit, kicks only

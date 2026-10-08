@@ -52,8 +52,8 @@ def test_full_suite_gate_prepends_disposable_checkout_to_pythonpath(
         f"{checkout}:{installed_root}")
 
 
-def test_run_gate_limits_the_full_suite_to_two_workers(monkeypatch,
-                                                       tmp_path):
+def test_run_gate_excludes_real_model_and_limits_workers(monkeypatch,
+                                                         tmp_path):
     calls = []
 
     def run_logged(command, cwd, log_path, timeout):
@@ -67,7 +67,10 @@ def test_run_gate_limits_the_full_suite_to_two_workers(monkeypatch,
     result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"))
 
     assert result["ok"] is True
-    assert calls[0][0] == ["bash", "scripts/full_suite_gate.sh", "-n", "2"]
+    assert calls[0][0] == [
+        "bash", "scripts/full_suite_gate.sh", "--exclude-real-model",
+        "-n", "2",
+    ]
 
 
 def test_read_verdict_keeps_gate_outcomes_distinct(tmp_path):

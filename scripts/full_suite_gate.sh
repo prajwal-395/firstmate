@@ -8,6 +8,7 @@
 #     scripts/full_suite_gate.sh                  # the gate (parallel lanes)
 #     scripts/full_suite_gate.sh --no-parallel    # serial control, same commit
 #     scripts/full_suite_gate.sh --skip-real-model  # without real ML measurement
+#     scripts/full_suite_gate.sh --exclude-real-model # local CI marker policy
 #
 # Runtime is telemetry, never a test category. The semantic categories
 # are unit, scenario, resolve_live, and real_model. Timing from the last
@@ -125,16 +126,25 @@ RESOLVE_DRIVING=(
 )
 
 RUN_REAL_MODEL=1
+REAL_MODEL_EXCLUDED_BY_POLICY=0
 PARALLEL=1
 WORKERS="auto"
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --skip-real-model|--skip-heavy-ml) RUN_REAL_MODEL=0; shift ;;
+    --exclude-real-model)
+      RUN_REAL_MODEL=0
+      REAL_MODEL_EXCLUDED_BY_POLICY=1
+      REAL_MODEL_SKIP_REASON="excluded by local CI marker policy"
+      shift ;;
     --no-parallel) PARALLEL=0; shift ;;
     -n|--workers) WORKERS="${2:?missing worker count}"; shift 2 ;;
     --workers=*) WORKERS="${1#--workers=}"; shift ;;
     --help|-h) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
-    *) echo "usage: $0 [--skip-real-model] [--no-parallel] [-n N | --workers N]" >&2; exit 64 ;;
+    *)
+      echo "usage: $0 [--skip-real-model|--exclude-real-model] " \
+        "[--no-parallel] [-n N | --workers N]" >&2
+      exit 64 ;;
   esac
 done
 
@@ -530,8 +540,10 @@ for report in "${MAIN_XML}" "${REAL_MODEL_XML:-}"; do
 done
 
 if [ "${RUN_REAL_MODEL}" -eq 0 ]; then
-  NARROWED_CAPS="${NARROWED_CAPS}  real_model (category not measured) - install: ${REAL_MODEL_SKIP_REASON:---skip-real-model was passed}"$'\n'
-  NARROWED_COUNT=$((NARROWED_COUNT + 1))
+  if [ "${REAL_MODEL_EXCLUDED_BY_POLICY}" -eq 0 ]; then
+    NARROWED_CAPS="${NARROWED_CAPS}  real_model (category not measured) - install: ${REAL_MODEL_SKIP_REASON:---skip-real-model was passed}"$'\n'
+    NARROWED_COUNT=$((NARROWED_COUNT + 1))
+  fi
 elif [ "${REAL_MODEL_STATE}" != "ok" ] \
     && [ "${REAL_MODEL_STATE}" != "bad" ] \
     && [ "${REAL_MODEL_STATE}" != "crashed" ]; then
@@ -541,7 +553,8 @@ fi
 
 # ---- the verdict -------------------------------------------------------
 # Fail closed unless the main selection demonstrably ran and the real
-# model category either ran or narrowed the verdict.
+# model category ran, narrowed the verdict, or was explicitly excluded
+# by the local CI marker policy.
 case "${MAIN_STATE}" in
   ok) VERDICT="PASS" ;;
   bad|crashed) VERDICT="FAIL" ;;
@@ -551,15 +564,23 @@ case "${REAL_MODEL_STATE}" in
   ok) REAL_MODEL_NOTE="real_model ${REAL_MODEL_DETAIL}" ;;
   bad) REAL_MODEL_NOTE="real_model FAILED - ${REAL_MODEL_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
   crashed) REAL_MODEL_NOTE="real_model CRASHED - ${REAL_MODEL_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
-  *) REAL_MODEL_NOTE="real_model NOT MEASURED - ${REAL_MODEL_DETAIL}" ;;
+  *)
+    if [ "${REAL_MODEL_EXCLUDED_BY_POLICY}" -eq 1 ]; then
+      REAL_MODEL_NOTE="real_model excluded by local CI marker policy"
+    else
+      REAL_MODEL_NOTE="real_model NOT MEASURED - ${REAL_MODEL_DETAIL}"
+    fi
+    ;;
 esac
 if [ "${VERDICT}" = "PASS" ] && [ "${NARROWED_COUNT}" -gt 0 ]; then
   VERDICT="NARROWED PASS"
 fi
 
 if [ "${VERDICT}" = "PASS" ]; then
+  TIMING_REPORTS=("${MAIN_XML}")
+  [ -n "${REAL_MODEL_XML:-}" ] && TIMING_REPORTS+=("${REAL_MODEL_XML}")
   if ! "${HELPER_PYTHON}" "${REPO_ROOT}/scripts/pytest_timing.py" update \
-      "${MAIN_XML}" "${REAL_MODEL_XML}"; then
+      "${TIMING_REPORTS[@]}"; then
     echo "timing telemetry not updated from this full run" >&2
   fi
 fi

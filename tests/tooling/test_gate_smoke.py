@@ -239,6 +239,27 @@ def test_a_missing_capability_skip_narrows_the_verdict_by_name(tmp_path):
     assert result.returncode != 0
 
 
+def test_local_ci_real_model_exclusion_is_not_environment_narrowing(tmp_path):
+    shim = _report_shim(
+        tmp_path,
+        """\
+        <?xml version="1.0" encoding="utf-8"?>
+        <testsuites><testsuite name="pytest" tests="2" skipped="0"
+          failures="0" errors="0">
+          <testcase name="test_a" classname="m"/>
+          <testcase name="test_b" classname="m"/>
+        </testsuite></testsuites>
+        """,
+    )
+
+    result = _run_gate(shim, "--exclude-real-model", "--no-parallel")
+
+    assert _verdict(result).startswith("FULL-SUITE GATE: PASS")
+    assert "real_model excluded by local CI marker policy" in result.stdout
+    assert "pytest -m real_model" not in result.stdout
+    assert result.returncode == 0
+
+
 def test_parallel_lane_exit_codes_reach_the_verdict(tmp_path):
     shim = _write_shim(
         tmp_path,
