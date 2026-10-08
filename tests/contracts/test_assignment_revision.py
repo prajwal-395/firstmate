@@ -93,3 +93,23 @@ def test_revision_id_cannot_be_reused_for_a_different_note(tmp_path):
             str(tmp_path), "assignment-1", "revision-1", note="Different note",
             current={}, result={}, creative_difference={}, base_generation=7,
             variants=[{"name": "One", "summary": "One", "patch": _patch(str(tmp_path), 7, "one")}])
+
+
+def test_assignment_revision_carries_creative_qa_for_review_consumers(tmp_path):
+    report = {"version": 1, "assignment_id": "assignment-1", "render_id": "render-7",
+              "status": "creator_review", "blocks_delivery": False,
+              "repair_budget": 1, "repair_attempts": [], "deterministic": [],
+              "subjective": [{"id": "render-7:subjective:0", "kind": "subjective",
+                              "metric": "opening_tone", "passed": False,
+                              "span": {"start": 0, "end": 2, "label": "opening"},
+                              "intent": {"key": "story.pacing",
+                                         "provenance": "intent_model.intro"},
+                              "action": "ask_creator"}]}
+    revision.capture_review(
+        str(tmp_path), "assignment-1", "revision-qa", note="Please review this finding.",
+        current={"generation": 7}, result={"generation": 7}, creative_difference={},
+        base_generation=7,
+        variants=[{"name": "Keep current", "summary": "No change",
+                   "patch": _patch(str(tmp_path), 7, "qa-review")}],
+        qa_report=report)
+    assert revision.load_review(str(tmp_path), "assignment-1", "revision-qa")["qa_report"] == report

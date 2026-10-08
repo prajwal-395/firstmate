@@ -3,12 +3,11 @@
 Step 6.01's deterministic half builds the timeline and exports the
 file; its model half WATCHES the export (frame strips drawn off the
 file itself behind `PIPELINE_PERCEPTUAL_QA`, manifest and measurements
-otherwise) and writes `render_review`. That verdict has no downstream
-step to act on it - 6.02's own validation is the gate with teeth - so
-its reader is the run summary, the way the rough-cut review's
-unplaced findings are (`cut_verdicts.summary_lines`). Reading is not
-gating: a review that disliked the render cannot fail it here; 6.02
-decides that under its own classification.
+otherwise) and writes `render_review`. Its summary reader keeps the
+operator informed. Span-grounded notes also feed assignment creative QA,
+which carries them into the assignment revision record for the creator
+and slice 3. Subjective notes never gate delivery; 6.02 owns the
+deterministic file checks and their gate classification.
 
 This module is also what makes the step's ask honest. The model used
 to be asked for `render_watch_frames` and `visual_qa` - both measured
@@ -21,6 +20,32 @@ here.
 """
 
 from typing import Any
+
+
+def subjective_observations(render_review: Any) -> list[dict]:
+    """Return only notes with an explicit measured span and intent reference.
+
+    Old free-text notes remain printable as historical advisory output, but
+    cannot enter assignment QA because neither their span nor target is known.
+    """
+    if not isinstance(render_review, dict):
+        return []
+    notes = render_review.get("notes") or []
+    observations = []
+    for note in notes:
+        if not isinstance(note, dict):
+            continue
+        required = {"detail", "span", "intent"}
+        if required.issubset(note):
+            observations.append({
+                "metric": str(note.get("metric", "render_observation")),
+                "detail": str(note["detail"]),
+                "span": dict(note["span"]),
+                "intent": dict(note["intent"]),
+                "passed": bool(note.get("passed", False)),
+                "severity": str(note.get("severity", "review")),
+            })
+    return observations
 
 
 def summary_lines(render_review: Any) -> list:
@@ -37,6 +62,13 @@ def summary_lines(render_review: Any) -> list:
         return []
     lines = [f"  Render review: {overall or 'no overall verdict'}"]
     for note in notes:
-        if isinstance(note, str) and note.strip():
+        if isinstance(note, dict) and note.get("detail"):
+            detail = str(note["detail"]).strip()
+            if detail:
+                span = note.get("span") or {}
+                if "start" in span and "end" in span:
+                    detail = f"{float(span['start']):.2f}-{float(span['end']):.2f}s: {detail}"
+                lines.append(f"    - {detail[:400]}")
+        elif isinstance(note, str) and note.strip():
             lines.append(f"    - {note.strip()[:400]}")
     return lines

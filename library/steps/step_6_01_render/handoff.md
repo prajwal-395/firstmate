@@ -53,13 +53,23 @@ the deterministic build, not authored here.
 {
   "render_review": {
     "overall": "clean | concerns | not_watched",
-    "notes": ["one line per span watched or concern found"]
+    "notes": [{
+      "metric": "caption_readability",
+      "detail": "The caption at this beat is obscured by the foreground",
+      "span": {"start": 3.0, "end": 4.2, "label": "caption card 2"},
+      "intent": {"key": "captions.readable", "provenance": "intent_model.beat.intro"},
+      "passed": false,
+      "severity": "review"
+    }]
   }
 }
 ```
 
+Every note is one subjective observation with a timestamp span from the
+export and an intent reference from the supplied intent model or brief.
+Do not infer a target: if no intent applies, leave the observation out.
 `clean` means every strip watched reads as intended; `concerns` names
-what looked wrong, one line each; `not_watched` - with the reason - is
+what looked wrong, one object per finding; `not_watched` - with the reason - is
 the honest answer when `render_watch_frames` is absent and the
 manifest and measurements alone say nothing about the picture. The
 verdict is advisory: it is printed on the run summary for the operator

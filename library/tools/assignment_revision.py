@@ -11,12 +11,11 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Callable, Mapping
 
 from library.tools import assignment_lifecycle as lifecycle
-from library.tools import edit_patch
-from library.tools import review_gate
+from library.tools import edit_patch, review_gate
 
 
 class RevisionRefused(ValueError):
@@ -53,7 +52,7 @@ def _write(path: Path, value: dict) -> None:
 def capture_review(project: str, assignment_id: str, revision_id: str, *,
                    note: str, current: Mapping, result: Mapping,
                    creative_difference: Mapping, base_generation: int,
-                   variants: list[Mapping]) -> dict:
+                   variants: list[Mapping], qa_report: Mapping | None = None) -> dict:
     """Capture a natural-language review and explicitly named alternatives.
 
     Each variant has ``name``, ``summary`` and a serializable ``patch``.
@@ -64,6 +63,24 @@ def capture_review(project: str, assignment_id: str, revision_id: str, *,
         raise ValueError("a review note must contain natural-language feedback")
     if base_generation < 1:
         raise ValueError("base_generation must identify a recorded timeline state")
+    if (qa_report is not None
+            and (qa_report.get("version") != 1
+                 or qa_report.get("assignment_id") != assignment_id
+                 or not qa_report.get("render_id")
+                 or not isinstance(qa_report.get("deterministic"), list)
+                 or not isinstance(qa_report.get("subjective"), list))):
+        raise ValueError("qa_report must be a versioned report for this assignment")
+    if qa_report is not None:
+        for kind in ("deterministic", "subjective"):
+            for finding in qa_report[kind]:
+                span = finding.get("span", {})
+                intent = finding.get("intent", {})
+                if (finding.get("kind") != kind or not finding.get("action")
+                        or not intent.get("key") or not intent.get("provenance")
+                        or not isinstance(span, Mapping)
+                        or not {"start", "end"}.issubset(span)):
+                    raise ValueError(
+                        "qa_report findings need kind, span, intent and action")
     if not variants:
         raise ValueError("a revision needs at least one named variant")
     named = {}
@@ -86,6 +103,9 @@ def capture_review(project: str, assignment_id: str, revision_id: str, *,
         "comparison": {"current": dict(current), "result": dict(result),
                        "creative_difference": dict(creative_difference)},
         "base_generation": base_generation, "variants": named,
+        # Slice 4's report is carried as data on the same review record so
+        # chat hosts and review surfaces consume one assignment contract.
+        "qa_report": dict(qa_report) if qa_report is not None else None,
         "selected_variant": None, "receipt": None,
         "recovery": {"resumable": True, "action": "await_creator_choice"},
     }
