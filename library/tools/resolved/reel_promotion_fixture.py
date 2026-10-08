@@ -15,9 +15,9 @@ from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
 KIND = "reel.prepare_qualification_fixture"
 MASTER = "Q Spine"
-FINAL = "Q Promotion Proof R4"
+FINAL = "Q Promotion Proof R5"
 STAGING = FINAL + " (rebuild staging)"
-AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R4"
+AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R5"
 AMBIGUOUS_STAGING = AMBIGUOUS_FINAL + " (rebuild staging)"
 MARKER_NAME = "Ren live promotion anchor"
 MARKER_NOTE = "Keep this clip anchored note on qual_b."
@@ -228,6 +228,17 @@ def _build(project, manager) -> dict:
         ren_created_names=names, ren_created_ids=fixture_ids.values())
     plan_provenance.finish_timeline_inventory(
         review_dir, operation, reel_replace_guard.timeline_inventory(project))
+    # The ambiguous proof deliberately has two source-identical placements
+    # on staging and one on its retiring final.  Without an explicit Ren
+    # baseline, replacement detection falls back to staging on first contact
+    # and mistakes that fixture shape for an editor change.  Record the
+    # fixture finals as the known state before either promotion is attempted.
+    for timeline in (final, ambiguous_final):
+        snapshot = reel_replace_guard.full_timeline_snapshot(
+            timeline, project, str(promotion_project_folder()))
+        plan_provenance.record_timeline_snapshot(
+            review_dir, timeline.GetName(), snapshot,
+            action="qualification_promotion_fixture_baseline")
     from library.tools.resolve_lock import assert_current_timeline
     assert_current_timeline(project, _exact_timeline(project, MASTER))
     current = project.GetCurrentTimeline()

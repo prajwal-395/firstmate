@@ -254,6 +254,15 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         "library.tools.plan_provenance.finish_timeline_inventory",
         lambda _review_dir, operation, after: completed.append(
             (operation, after)))
+    snapshots = []
+    monkeypatch.setattr(
+        "library.tools.reel_replace_guard.full_timeline_snapshot",
+        lambda timeline, _project, folder: {
+            "timeline": {"name": timeline.GetName()}, "folder": folder})
+    monkeypatch.setattr(
+        "library.tools.plan_provenance.record_timeline_snapshot",
+        lambda review_dir, name, snapshot, **kwargs: snapshots.append(
+            (review_dir, name, snapshot, kwargs)))
     monkeypatch.setattr("library.tools.resolve_lock.assert_current_timeline",
                         lambda _project, _timeline: None)
 
@@ -272,6 +281,12 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         timeline.GetUniqueId() for timeline in
         (final, staging, ambiguous_final, ambiguous_staging)}
     assert completed == [("fixture-operation", [{"name": "after"}])]
+    assert [entry[1] for entry in snapshots] == [
+        fixture.FINAL, fixture.AMBIGUOUS_FINAL]
+    assert all(entry[2]["timeline"]["name"] == entry[1]
+               and entry[3]["action"] ==
+               "qualification_promotion_fixture_baseline"
+               for entry in snapshots)
     assert comp_handle.effect.values == {
         "Gain": 1.0, "Gamma": 1.0, "Lift": 0.0, "Contrast": 1.0,
         "Saturation": 1.0}
@@ -281,9 +296,9 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
     assert original_comp_handle.effect.values == comp_handle.effect.values
     assert [index for _path, index in export_calls] == [1, 1, 1]
     assert [path.rsplit("/", 1)[-1] for path in report["files"]] == [
-        "Q_Promotion_Proof_R4__V01_item000_c1.comp"]
+        "Q_Promotion_Proof_R5__V01_item000_c1.comp"]
     assert (tmp_path / "pipeline_output" / "steps" / "7_01_build_reels"
-            / "fusion_comps" / "Q_Promotion_Proof_R4__V01_item000_c1.comp"
+            / "fusion_comps" / "Q_Promotion_Proof_R5__V01_item000_c1.comp"
             ).is_file()
 
 
