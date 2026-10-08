@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import sys
 import zipfile
 from pathlib import Path
 
-from scripts import ren_fresh_machine_qualify as qualify
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_QUALIFY_SPEC = importlib.util.spec_from_file_location(
+    "_ren_fresh_machine_qualify",
+    REPO_ROOT / "scripts" / "ren_fresh_machine_qualify.py",
+)
+qualify = importlib.util.module_from_spec(_QUALIFY_SPEC)
+sys.modules[_QUALIFY_SPEC.name] = qualify
+_QUALIFY_SPEC.loader.exec_module(qualify)
 
 
 def test_build_artifact_matches_installer_layout(tmp_path, monkeypatch):

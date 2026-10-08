@@ -34,8 +34,9 @@ if [ "${1:-}" = "--as-admin" ]; then
     }
     trap cleanup_account EXIT
     PASSWORD="$(openssl rand -hex 32)"
-    sysadminctl -addUser "$TEST_USER" -fullName "Ren Qualification" \
-        -password "$PASSWORD" -home "$TEST_HOME" -admin no
+    PYTHONDONTWRITEBYTECODE=1 "$PYTHON" \
+        "$REPO/scripts/qualification_account.py" \
+        "$TEST_USER" "$PASSWORD" "$TEST_HOME"
     unset PASSWORD
     TEST_UID="$(dscl . -read "/Users/$TEST_USER" UniqueID | awk '{print $2}')"
     case "$TEST_UID" in
