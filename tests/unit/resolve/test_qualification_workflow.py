@@ -137,3 +137,91 @@ def test_workflow_analysis_selects_only_supported_analysis_capabilities(
                                     "--skip", "prosody.analyse"]
     assert seen["kwargs"]["encoding"] == "utf-8"
     assert result["evidence"]["command"][1] == "analyze"
+
+
+class _ShapeProject:
+    def __init__(self, settings):
+        self.settings = dict(settings)
+        self.set_calls = []
+
+    def GetSetting(self, key):
+        return self.settings.get(key)
+
+    def SetSetting(self, key, value):
+        self.set_calls.append((key, value))
+        return True
+
+
+class _ShapeTimeline(_ShapeProject):
+    def __init__(self, settings, *, refuse=(), freeze=()):
+        super().__init__(settings)
+        self.refuse = set(refuse)
+        self.freeze = set(freeze)
+
+    def SetSetting(self, key, value):
+        self.set_calls.append((key, value))
+        if key in self.refuse:
+            return False
+        if key not in self.freeze:
+            self.settings[key] = value
+        return True
+
+
+class TestTimelineShape:
+    """The workflow never mutates project settings under the
+    Qualification project's existing timelines."""
+
+    def test_project_standard_is_read_and_never_written(self):
+        """Defect: the job called project.SetSetting for the timeline
+        rate, which Resolve refuses on a project with timelines."""
+        project = _ShapeProject({"timelineFrameRate": "24",
+                                 "timelineResolutionWidth": "1920",
+                                 "timelineResolutionHeight": "1080"})
+
+        standard = qw._check_project_standard(project)
+
+        assert standard == {"timelineFrameRate": 24.0,
+                            "timelineResolutionWidth": 1920,
+                            "timelineResolutionHeight": 1080}
+        assert project.set_calls == []
+
+    def test_drifted_project_standard_refuses_with_reset_hint(self):
+        """Defect: a drifted project standard silently carried the wrong
+        rate into the export."""
+        project = _ShapeProject({"timelineFrameRate": "23.976",
+                                 "timelineResolutionWidth": "1920",
+                                 "timelineResolutionHeight": "1080"})
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="ren qualification reset"):
+            qw._check_project_standard(project)
+
+    def test_timeline_shape_is_custom_with_readback(self):
+        """Defect: the timeline inherited the project rate instead of
+        carrying the media rate it was cut at."""
+        timeline = _ShapeTimeline({"timelineFrameRate": "24"})
+
+        applied = qw._apply_timeline_shape(timeline, fps=24000 / 1001)
+
+        assert abs(float(applied["timelineFrameRate"]) - 24000 / 1001) <= 0.0001
+        assert applied["timelineResolutionWidth"] == "1920"
+        assert timeline.settings["useCustomSettings"] == "1"
+
+    def test_timeline_refusing_custom_settings_fails(self):
+        """Defect: a timeline that refused custom settings kept project
+        settings and failed later at render QA."""
+        timeline = _ShapeTimeline({}, refuse=("useCustomSettings",))
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="refused custom settings"):
+            qw._apply_timeline_shape(timeline, fps=24.0)
+
+    def test_timeline_ignoring_the_write_fails_by_name(self):
+        """Defect: SetSetting returning True is a claim; only the
+        GetSetting readback decides."""
+        timeline = _ShapeTimeline({"timelineFrameRate": "24"},
+                                  freeze=("timelineFrameRate",))
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="timelineFrameRate"):
+            qw._apply_timeline_shape(timeline, fps=24000 / 1001)

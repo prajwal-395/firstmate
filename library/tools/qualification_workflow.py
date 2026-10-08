@@ -116,6 +116,62 @@ def _analyzed_hit(index_file: Path, query: str) -> dict:
     raise WorkflowQualificationError("analysis index returned no timed span")
 
 
+def _check_project_standard(project) -> dict:
+    """Read the Qualification project standard back; the workflow never
+    mutates project settings under existing timelines. The engine refuses
+    that write, and the reset fixture owns the 24fps 1080p standard."""
+    try:
+        rate_raw = project.GetSetting("timelineFrameRate")
+        width_raw = project.GetSetting("timelineResolutionWidth")
+        height_raw = project.GetSetting("timelineResolutionHeight")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise WorkflowQualificationError(
+            f"could not read the Qualification project standard: {exc}"
+        ) from exc
+    try:
+        rate, width, height = (float(rate_raw), int(width_raw),
+                               int(height_raw))
+    except (TypeError, ValueError):
+        rate = width = height = None
+    if (rate is None or abs(rate - 24.0) > 0.0001
+            or width != 1920 or height != 1080):
+        raise WorkflowQualificationError(
+            "Ren Qualification project standard drifted: frame rate "
+            f"{rate_raw!r}, {width_raw!r}x{height_raw!r} (want 24, "
+            "1920x1080); run `ren qualification reset` first")
+    return {"timelineFrameRate": rate, "timelineResolutionWidth": width,
+            "timelineResolutionHeight": height}
+
+
+def _apply_timeline_shape(timeline, *, fps: float,
+                          width: int = 1920, height: int = 1080) -> dict:
+    """Per-timeline custom settings with readback, following the render
+    path: SetSetting returning True is a claim, GetSetting is the
+    evidence, and it is the evidence that decides."""
+    rate = str(int(fps)) if float(fps).is_integer() else str(fps)
+    if not timeline.SetSetting("useCustomSettings", "1"):
+        raise WorkflowQualificationError(
+            "timeline refused custom settings")
+    applied = {}
+    for key, value in (("timelineResolutionWidth", str(width)),
+                       ("timelineResolutionHeight", str(height)),
+                       ("timelineFrameRate", rate)):
+        timeline.SetSetting(key, value)
+        readback = timeline.GetSetting(key)
+        if key == "timelineFrameRate":
+            try:
+                match = abs(float(readback) - float(fps)) <= 0.0001
+            except (TypeError, ValueError):
+                match = False
+        else:
+            match = str(readback) == str(value)
+        if not match:
+            raise WorkflowQualificationError(
+                f"timeline refused {key}={value}: reads {readback!r}")
+        applied[key] = readback
+    return applied
+
+
 def _broker_call(kind: str, params: dict, *, idempotency_key: str,
                  wait_seconds: int) -> dict:
     from library.tools.resolved import client
@@ -221,12 +277,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
                for index in range(1, int(project.GetTimelineCount() or 0) + 1)):
             raise WorkflowQualificationError(
                 f"timeline already exists: {params['timeline']}")
-        for key, value in (("timelineFrameRate", "23.976"),
-                           ("timelineResolutionWidth", "1920"),
-                           ("timelineResolutionHeight", "1080")):
-            if not project.SetSetting(key, value):
-                raise WorkflowQualificationError(
-                    f"Resolve refused qualification setting {key}={value}")
+        _check_project_standard(project)
         pool = project.GetMediaPool()
         media_item = None
         for item in pool.GetRootFolder().GetClipList() or []:
@@ -261,6 +312,11 @@ def _run_broker_job(job: dict, resolve, current: dict,
         timeline = pool.CreateEmptyTimeline(params["timeline"])
         if not timeline:
             raise WorkflowQualificationError("Resolve could not create timeline")
+        _apply_timeline_shape(timeline, fps=fps)
+        timeline_shape = {key: timeline.GetSetting(key)
+                          for key in ("timelineFrameRate",
+                                      "timelineResolutionWidth",
+                                      "timelineResolutionHeight")}
         if timeline.GetTrackCount("audio") == 0 and not timeline.AddTrack("audio"):
             raise WorkflowQualificationError("Resolve could not create A1")
         from library.tools.resolve_lock import assert_current_timeline
@@ -299,7 +355,8 @@ def _run_broker_job(job: dict, resolve, current: dict,
         stages.append({"name": "edit construction", "status": "passed",
                        "evidence": {"build_receipt": build,
                                     "video_clips": len(video),
-                                    "audio_clips": len(audio)}})
+                                    "audio_clips": len(audio),
+                                    "timeline_shape": timeline_shape}})
         current["name"] = "scripted human change"
         human_frame = int(timeline.GetStartFrame()) + 24
         manual = edit_patch.apply_live_patch(
