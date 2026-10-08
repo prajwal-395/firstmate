@@ -982,6 +982,175 @@ def test_keep_plans_nothing_and_an_unknown_setting_refuses(
 
 
 # --------------------------------------------------------------------------
+# Geo-podcast bloat purge (2026-10-08): the reel asset areas and trash.
+#
+# The build_reels OUTPUT areas (`REEL_POST_HEADERS`, `REEL_CARDS`,
+# `REEL_FRAME_OVERLAYS`, `REEL_SAFE_ZONE_GUIDES`) accumulate previous
+# carriages the still migration left behind, legacy holds new builds
+# never create, and dead content-hash groups - none of which the four
+# original classes named. Trash (`asset_gc` collections) is the same
+# shape: already moved aside, re-proved here. Every test below is a
+# file that must SURVIVE beside one that must go.
+
+
+def _reel_dir(root, area):
+    return str(ProjectLayout(root).read_dir(area))
+
+
+@pytest.mark.usefixtures("_lean")
+def test_reel_card_orphan_planned_but_placed_freeze_survives(tmp_path):
+    """A legacy hold no timeline plays goes; its placed twin stays -
+    through plan AND apply. The referenced artifact is the regression
+    this test exists for."""
+    root = _project(tmp_path)
+    cards = _reel_dir(root, Area.REEL_CARDS)
+    placed = _write(os.path.join(cards, "reel_freeze_aaaaaaaaaa.mov"))
+    loose = _write(os.path.join(cards, "reel_freeze_bbbbbbbbbb.mov"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [placed], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+    names = {c.path: c.category for c in plan.candidates}
+    assert names.get(loose) == retention.SUPERSEDED_REEL_ASSET
+    assert placed not in names
+
+    manifest = retention.write_plan(plan)
+    retention.apply_purge(manifest, [db], project_folder=root)
+
+    assert os.path.isfile(placed)
+    assert not os.path.exists(loose)
+
+
+@pytest.mark.usefixtures("_lean")
+def test_post_header_still_carriage_supersedes_mov_but_group_record_stays(
+        tmp_path):
+    """The still migration's rule, file by file: a dead group's movie,
+    stills and props all go; a live group's movie goes alone, while the
+    placed still and its render record (full still, props, older still)
+    stay with the placed file."""
+    root = _project(tmp_path)
+    headers = _reel_dir(root, Area.REEL_POST_HEADERS)
+    live_still = _write(os.path.join(
+        headers, "post_header_00c52cefc8_tight_still.png"))
+    live_full = _write(os.path.join(headers, "post_header_00c52cefc8.png"))
+    live_props = _write(os.path.join(
+        headers, "post_header_00c52cefc8_props.json"))
+    live_older = _write(os.path.join(
+        headers, "post_header_00c52cefc8_tight.png"))
+    live_mov = _write(os.path.join(
+        headers, "post_header_00c52cefc8_tight.mov"))
+    dead_mov = _write(os.path.join(
+        headers, "post_header_deadbeef01_tight.mov"))
+    dead_still = _write(os.path.join(
+        headers, "post_header_deadbeef01_tight_still.png"))
+    dead_props = _write(os.path.join(
+        headers, "post_header_deadbeef01_props.json"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [live_still],
+                   [SIGNED])
+
+    names = {c.path for c in retention.plan_purge(root, [db]).candidates}
+    assert {dead_mov, dead_still, dead_props} <= names
+    assert live_mov in names
+    assert not names & {live_still, live_full, live_props, live_older}
+
+
+@pytest.mark.usefixtures("_lean")
+def test_safe_zone_guide_orphan_planned(tmp_path):
+    """A guide movie no timeline - enabled row or disabled - still
+    references is a superseded render, re-carried by `guide_movie`."""
+    root = _project(tmp_path)
+    guides = _reel_dir(root, Area.REEL_SAFE_ZONE_GUIDES)
+    loose = _write(os.path.join(
+        guides, "safe_zones_combined_40530_1790351333.mov"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    names = {c.path: c.category
+             for c in retention.plan_purge(root, [db]).candidates}
+    assert names.get(loose) == retention.SUPERSEDED_REEL_ASSET
+
+
+@pytest.mark.usefixtures("_lean")
+def test_trash_orphans_planned_but_manifest_and_rereferenced_stay(tmp_path):
+    """Trashed files are re-proved, not trusted: the collection's
+    manifest stays, and a file placed again since the move stays."""
+    root = _project(tmp_path)
+    collection = os.path.join(root, "pipeline_output", "trash",
+                              "asset_gc_2026-10-07T042058Z")
+    loose = _write(os.path.join(collection, "post_header_xx_tight.mov"))
+    record = _write(os.path.join(collection, "manifest.json"))
+    revived = _write(os.path.join(collection, "reel_freeze_cccccccccc.mov"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [revived], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+    names = {c.path: c.category for c in plan.candidates}
+    assert names.get(loose) == retention.TRASHED_ASSET
+    assert revived not in names
+    assert record not in names
+
+    manifest = retention.write_plan(plan)
+    retention.apply_purge(manifest, [db], project_folder=root)
+
+    assert not os.path.exists(loose)
+    assert os.path.isfile(revived) and os.path.isfile(record)
+
+
+@pytest.mark.usefixtures("_lean")
+def test_drt_drp_otio_never_planned_in_any_class(tmp_path):
+    """Interchange and recovery archives are the way back for work no
+    render reproduces. The scratch sweep named a caption-smoke `.drt`
+    before this guard; now every class refuses them and says why."""
+    root = _project(tmp_path)
+    smoke = _write(os.path.join(root, "pipeline_output", "scratch",
+                                "master_caption_smoke",
+                                "GEO Podcast - Synced (caption smoke).drt"))
+    archived = _write(os.path.join(root, "pipeline_output", "quarantine",
+                                   "recovery.drt"))
+    interchange = _write(os.path.join(root, "pipeline_output", "scratch",
+                                      "timeline.otio"))
+    package = _write(os.path.join(root, "pipeline_output", "scratch",
+                                  "archive.drp"))
+    loose = _write(os.path.join(root, "pipeline_output", "scratch",
+                                "unneeded.tmp"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+    names = {c.path for c in plan.candidates}
+    assert loose in names
+    assert not names & {smoke, archived, interchange, package}
+    kept = {item["path"]: item["why"] for item in plan.kept}
+    for path in (smoke, archived, interchange, package):
+        assert "never purged" in kept[path]
+
+    manifest = retention.write_plan(plan)
+    with open(manifest, "a", encoding="utf-8") as stream:
+        stream.write(f"\n1\t{retention.SCRATCH}\t{smoke}\n")
+    with pytest.raises(retention.PurgeRefused):
+        retention.apply_purge(manifest, [db], project_folder=root)
+    assert os.path.isfile(smoke) and os.path.isfile(loose)
+
+
+@pytest.mark.usefixtures("_lean")
+def test_carry_still_reused_without_rendering_when_long_enough(
+        tmp_path, monkeypatch):
+    """`safe_zone_guide.guide_movie` imports `carry_still` from
+    `reel_post_header`; the still migration deleted it and the import
+    fails at call time. It is restored, and a movie that already holds
+    enough frames comes back untouched - no ffmpeg is run."""
+    import library.tools.reel_look as reel_look
+    import library.tools.reel_post_header as post_header
+
+    assert callable(post_header.carry_still)
+    monkeypatch.setattr(reel_look, "_rendered_frame_count",
+                        lambda _path: 240)
+    calls = []
+    monkeypatch.setattr(post_header.subprocess, "run",
+                        lambda *a, **k: calls.append((a, k)))
+    out = post_header.carry_still("guide.png", 120, 23.976,
+                                  str(tmp_path / "guide.mov"))
+    assert out == str(tmp_path / "guide.mov")
+    assert calls == []
+
+
+# --------------------------------------------------------------------------
 # From test_task_worktrees.py
 #
 # Concurrent tasks on one project each hold their own semantic state.

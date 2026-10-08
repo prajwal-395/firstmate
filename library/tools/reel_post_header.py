@@ -449,6 +449,32 @@ def render_still(props: dict, out_png: str,
     return out_png
 
 
+def carry_still(png: str, frames: int, fps: float, out_mov: str) -> str:
+    """The still as a looped ProRes 4444 movie of at least ``frames``.
+
+    The safe-zone guide's carriage (`safe_zone_guide.guide_movie`):
+    a still cannot be placed for an arbitrary length through Resolve's
+    API, so the guide is carried as a movie. A file that already holds
+    enough frames is reused untouched.
+    """
+    from library.tools.reel_look import _rendered_frame_count
+
+    if _rendered_frame_count(out_mov) >= frames:
+        return out_mov
+    result = subprocess.run([
+        "ffmpeg", "-y", "-loop", "1", "-i", png,
+        "-t", f"{frames / fps:.5f}", "-r", f"{fps:.6f}",
+        "-c:v", "prores_ks", "-profile:v", "4444",
+        "-pix_fmt", "yuva444p10le", out_mov,
+    ], capture_output=True, encoding="utf-8", check=False)
+    if result.returncode != 0 or not os.path.isfile(out_mov):
+        raise PostHeaderError(
+            f"the post header could not be carried to {frames} frames: "
+            f"ffmpeg exited {result.returncode}. "
+            f"{(result.stderr or '').strip()[-400:]}")
+    return out_mov
+
+
 def tight_still(png: str, frame: tuple[int, int]
                 ) -> tuple[str, tuple[int, int, int, int]]:
     """The full-frame still cut to its ink: ``(tight png, canvas box)``.

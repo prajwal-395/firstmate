@@ -17,7 +17,7 @@ the captain's own default. Anything else REFUSES: a misspelt `keep`
 read as `lean` would delete what its owner asked to keep.
 
 - `keep`: nothing is purged, ever. The plan says so and lists nothing.
-- `lean`: after a sign-off, four classes go (`CATEGORIES`).
+- `lean`: after a sign-off, six classes go (`CATEGORIES`).
 
 The mechanism: plan, manifest, apply
 ------------------------------------
@@ -55,13 +55,32 @@ built on rather than restated:
   family stays. `reel_proposals_v2.json`, `reel_signoffs.json`,
   `staging_holds.json`, `rounds.json` and every other unstamped record
   match no family, so they cannot be named.
+- **Timeline interchange and recovery archives.** A path ending in
+  `NEVER_PURGE_SUFFIXES` (`.drt`, `.drp`, `.otio`) is never a
+  candidate, in any class: an interchange export or a recovery archive
+  is the way back for work no render can reproduce. Measured
+  2026-10-08 on geo-podcast: the scratch sweep named a caption-smoke
+  `.drt` its class would otherwise have taken.
+- **A live asset's render record.** In the reel asset areas a sidecar
+  (props, full-frame still) belongs to its content-hash group, not to
+  a mov the way caption siblings do: when any file of the group is
+  placed, the group's non-movie files stay with it. Movies are judged
+  one by one - a previous carriage (`post_header_*_tight.mov`,
+  `tv_frame_*.mov`) or a legacy hold (`reel_freeze_*.mov`) no timeline
+  plays is superseded whatever its group holds.
+- **A trash collection's manifest.** `asset_gc`'s `manifest.json` is
+  the record of what the collection moved and why; the purge removes
+  the trashed files and keeps their map, the same way it keeps its own
+  `purge_plans/` out of the quarantine class.
 
 A purge also refuses while a pipeline run holds the project
 (`run_control.is_running`).
 
 Deletion, not quarantine: `lean` is the owner's instruction that these
-bytes go. Every render class is regenerable by the command
-`build_sweep.REGENERATE` names, and the manifest is kept.
+bytes go. Every render class is regenerable - the swept caption areas
+by the command `build_sweep.REGENERATE` names, the reel asset areas by
+`REEL_REGENERATE`, a trashed file by re-rendering the step that made
+it - and the manifest is kept.
 
 `tests/unit/context/test_project_layout.py`.
 """
@@ -97,7 +116,10 @@ SUPERSEDED_RENDER = "superseded-render"
 QUARANTINED = "quarantine"
 SCRATCH = "scratch"
 STALE_JOURNAL = "stale-journal"
-CATEGORIES = (SUPERSEDED_RENDER, QUARANTINED, SCRATCH, STALE_JOURNAL)
+SUPERSEDED_REEL_ASSET = "superseded-reel-asset"
+TRASHED_ASSET = "trashed-asset"
+CATEGORIES = (SUPERSEDED_RENDER, QUARANTINED, SCRATCH, STALE_JOURNAL,
+              SUPERSEDED_REEL_ASSET, TRASHED_ASSET)
 """Everything `lean` removes. COMPLETE: a class not here is never planned."""
 
 PURGE_PLAN_DIR = "purge_plans"
@@ -105,6 +127,57 @@ PURGE_PLAN_DIR = "purge_plans"
 manifest is the record of what went, so a purge must not take it."""
 
 PURGE_PREFIX = "purge"
+
+NEVER_PURGE_SUFFIXES = (".drt", ".drp", ".otio")
+"""Timelines and interchange a purge must never name, in any class.
+
+`.drt` recovery archives are the way back for timeline work no render
+reproduces; `.drp`/`.otio` are interchange exports of the same. The
+suffix is the whole rule: no area, record shape or ledger entry can
+re-admit one."""
+
+REEL_ASSET_AREAS = (
+    Area.REEL_POST_HEADERS,
+    Area.REEL_CARDS,
+    Area.REEL_FRAME_OVERLAYS,
+    Area.REEL_SAFE_ZONE_GUIDES,
+)
+"""`build_reels` OUTPUT areas whose unreferenced files purge as
+`SUPERSEDED_REEL_ASSET`. COMPLETE for the reel build's placed files:
+every file a reel timeline places lives in one of these four, so a
+file here no root names is a previous carriage the still migration
+left behind (`post_header_*_tight.mov`, `tv_frame_*.mov`), a legacy
+hold new builds never create (`reel_freeze_*.mov`), or a dead
+content-hash group - all judged by the same roots as the swept caption
+areas, through `caption_asset_gc.mark`."""
+
+REEL_REGENERATE = {
+    Area.REEL_POST_HEADERS:
+        "manage_project.py run <project> --only build_reels "
+        "--rerun build_reels",
+    Area.REEL_CARDS:
+        "manage_project.py run <project> --only build_reels "
+        "--rerun build_reels",
+    Area.REEL_FRAME_OVERLAYS:
+        "manage_project.py run <project> --only build_reels "
+        "--rerun build_reels",
+    Area.REEL_SAFE_ZONE_GUIDES:
+        "manage_project.py safe-zones <project> --overlay combined "
+        "(library/tools/safe_zone_guide.py)",
+}
+"""The command that brings each reel area's files back. Post headers
+re-render on demand when the still is missing (`reel_post_header`),
+so a purged still costs a render, never the reel."""
+
+TRASH_DIRNAME = "trash"
+"""Under `pipeline_output/`, owned by `library/tools/asset_gc.py`: one
+`asset_gc_<stamp>/` collection per run. Not a layout `Area` - nothing
+writes here but the collector - so the purge walks it by name and the
+layout guard reads it as the writable output root."""
+
+TRASH_MANIFEST_BASENAMES = ("manifest.json",)
+"""Collection records the purge keeps. The files a collection moved go;
+their map stays, beside the purge's own manifest."""
 
 JOURNAL_FAMILIES = (
     (Area.REVIEW, "reel_proposals_v2"),
@@ -366,8 +439,81 @@ def _journal_candidates(layout: ProjectLayout) -> list:
     return out
 
 
+_POST_HEADER_GROUP = re.compile(r"^(post_header_[0-9a-f]{10})")
+"""The content-hash group a post-header file belongs to.
+
+`reel_post_header` renders `post_header_<stamp>.png` keyed by its
+props and cuts `<stamp>_tight.png` / `<stamp>_tight_still.png` from
+it, so every file one render left shares the stem. A sidecar belongs
+to that group, never to a mov the way caption siblings do."""
+
+
+def _reel_group_stem(path: str) -> str | None:
+    """The render group `path` belongs to, or None when it has none."""
+    match = _POST_HEADER_GROUP.match(os.path.basename(path))
+    return match.group(1) if match else None
+
+
+def _reel_asset_candidates(project_folder: str, layout: ProjectLayout,
+                            roots: list, plan: PurgePlan) -> list:
+    """Orphaned files in the reel asset areas, group-aware.
+
+    `caption_asset_gc.mark` judges every file by the same roots the
+    swept caption areas use. Movies go one by one; a sidecar of a
+    group with a placed member stays with it - the render record of a
+    live asset is not debris. Returns `(path, category, reason)` like
+    every other class below.
+    """
+    found = []
+    for area in REEL_ASSET_AREAS:
+        asset_dir = str(layout.read_dir(area))
+        if not os.path.isdir(asset_dir):
+            continue
+        plan.render_fingerprints[asset_dir] = gc.fingerprint_dir(asset_dir)
+        marked = gc.mark(project_folder, asset_dir, roots)
+        live_stems = {_reel_group_stem(a.path) for a in marked.live}
+        live_stems.discard(None)
+        for asset in marked.orphans:
+            stem = _reel_group_stem(asset.path)
+            if stem in live_stems and not asset.path.endswith(".mov"):
+                plan.kept.append(
+                    {"path": asset.path, "category": SUPERSEDED_REEL_ASSET,
+                     "why": (f"render record of live group {stem}: "
+                             f"a placed file of the same render stays")})
+                continue
+            found.append((asset.path, SUPERSEDED_REEL_ASSET, asset.reason))
+    return found
+
+
+def _trash_candidates(project_folder: str, plan: PurgePlan) -> list:
+    """Files `asset_gc` moved aside, re-proved unreferenced.
+
+    The collection already proved each file unplaced when it moved it;
+    the purge proves it again against the current roots before naming
+    it, the same as every other class. Collection manifests stay (the
+    record of what the collector did); the files go.
+    """
+    trash_root = os.path.join(project_folder, "pipeline_output",
+                              TRASH_DIRNAME)
+    if not os.path.isdir(trash_root):
+        return []
+    plan.render_fingerprints[trash_root] = gc.fingerprint_dir(trash_root)
+    found = []
+    for path in _files_under(Path(trash_root)):
+        if os.path.basename(path) in TRASH_MANIFEST_BASENAMES:
+            plan.kept.append(
+                {"path": path, "category": TRASHED_ASSET,
+                 "why": "trash collection manifest: the record of what "
+                        "the collector moved"})
+            continue
+        found.append((path, TRASHED_ASSET,
+                      "moved aside by asset_gc; placed on no timeline "
+                      "and named by no pipeline record or manifest"))
+    return found
+
+
 def plan_purge(project_folder: str, db_paths, mode: str | None = None
-               ) -> PurgePlan:
+                ) -> PurgePlan:
     """The removal set, computed and nothing more. Writes NOTHING."""
     from library.tools import run_control
 
@@ -416,6 +562,9 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
                                      "the step that wrote it")))
     for path, reason in _journal_candidates(layout):
         found.append((path, STALE_JOURNAL, reason))
+    found.extend(_reel_asset_candidates(project_folder, layout, roots,
+                                        plan))
+    found.extend(_trash_candidates(project_folder, plan))
 
     declared_inputs = _declared_step_file_inputs(project_folder)
     for path, category, reason in found:
@@ -428,6 +577,12 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
         if path in reachable:
             plan.kept.append({"path": path, "category": category,
                               "why": "referenced by a current root"})
+            continue
+        if path.endswith(NEVER_PURGE_SUFFIXES):
+            plan.kept.append(
+                {"path": path, "category": category,
+                 "why": ("timeline interchange or recovery archive "
+                         "(.drt/.drp/.otio): never purged, in any class")})
             continue
         try:
             layout.assert_writable(path)
@@ -460,7 +615,8 @@ def render_manifest(plan: PurgePlan, manifest_path: str) -> str:
         f"# planned: {plan.created_at}",
         f"# {len(plan.candidates)} path(s), {gib:.2f} GiB reclaimable.",
         (f"# Kept though a class would take them: {len(plan.kept)} "
-         f"(a current root references them)."),
+         f"(referenced, declared, recorded or never-purged - see the "
+         f"JSON)."),
         (f"# Apply: ren purge {plan.project_folder!r} --apply "
          f"{manifest_path!r}"),
         ("# Delete a line to keep that path: apply removes only what is "
@@ -609,10 +765,14 @@ def apply_purge(manifest_path: str, db_paths,
 
 
 def _drop_empty_dirs(project_folder: str) -> None:
-    """Directories the purge emptied inside scratch and quarantine."""
+    """Directories the purge emptied inside scratch, quarantine and trash."""
     layout = ProjectLayout(project_folder)
-    for area in (Area.SCRATCH, Area.QUARANTINE):
-        root = layout.read_dir(area)
+    areas = [layout.read_dir(area)
+             for area in (Area.SCRATCH, Area.QUARANTINE)]
+    trash_root = Path(project_folder) / "pipeline_output" / TRASH_DIRNAME
+    if trash_root.is_dir():
+        areas.append(trash_root)
+    for root in areas:
         if not root.is_dir():
             continue
         for dirpath, _, _ in sorted(os.walk(root), reverse=True):
