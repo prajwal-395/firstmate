@@ -431,7 +431,8 @@ def _file_digest(path) -> str:
     reel rather than reading as unchanged.
     """
     try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        from library.tools.file_measurements import cached_sha256
+        return cached_sha256(path)
     except OSError:
         return f"missing:{os.path.basename(str(path))}"
 

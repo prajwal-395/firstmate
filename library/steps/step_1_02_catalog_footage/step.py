@@ -23,6 +23,7 @@ import sys
 from datetime import datetime
 
 from library.tools.concurrency_routing import run_lanes
+from library.tools.file_measurements import cached_ffprobe
 
 
 class ProgramStreamRefused(ValueError):
@@ -436,19 +437,9 @@ def extract_metadata(filepath: str, program_stream=None,
     indecisive measurement refuses the same way.
     """
     try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
-                "-show_format",
-                "-show_streams",
-                filepath,
-            ],
-            capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
-            timeout=30,
-        )
+        result = cached_ffprobe(
+            filepath, ["-v", "quiet", "-print_format", "json",
+                       "-show_format", "-show_streams"], timeout=30)
     except FileNotFoundError:
         raise RuntimeError(
             "ffprobe not found. Install ffmpeg: brew install ffmpeg"

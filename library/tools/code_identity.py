@@ -151,6 +151,11 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/platform_safe_zones.py",
     ),
     "step_1_02_catalog_footage": (
+        # The exact-file probe cache changes the measurement reused for
+        # unchanged footage, so changes here must invalidate catalog rows.
+        "library/tools/file_measurements.py",
+        # Catalog publishes its first usable result through this writer.
+        "library/tools/assignment_artifacts.py",
         # Read by step.py for the source block's declared program stream
         # and measure flag: which audio stream counts as the program mix
         # decides what the catalog records, so a fix here changes the
