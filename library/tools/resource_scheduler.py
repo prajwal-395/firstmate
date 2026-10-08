@@ -396,14 +396,24 @@ class Scheduler:
     def _try_admit(self, conn, token, demand, cap) -> list:
         """Admit the job in this transaction, or name what it waits for."""
         self._reap(conn)
-        mine = conn.execute("SELECT id FROM jobs WHERE token = ?",
+        mine = conn.execute("SELECT id, pid FROM jobs WHERE token = ?",
                             (token,)).fetchone()
         if mine is None:
             raise RuntimeError("resource scheduler: queued job row vanished")
+        nested_holder = conn.execute(
+            "SELECT 1 FROM jobs WHERE state = 'running' AND pid = ? LIMIT 1",
+            (mine[1],)).fetchone() is not None
         ahead = conn.execute(
             "SELECT owner, pid, state, demand FROM jobs WHERE id != ? AND"
             " (state = 'running' OR id < ?) ORDER BY id",
             (mine[0], mine[0])).fetchall()
+        # A nested acquisition by a process already holding resources must
+        # not sit behind a waiter that needs those resources released first.
+        # Keep every running grant as a constraint, but let the holder's
+        # request backfill past queued jobs. Once its grants are released,
+        # ordinary FIFO admission resumes, so large jobs still make progress.
+        if nested_holder:
+            ahead = [row for row in ahead if row[2] == "running"]
         legacy = self._legacy_owner()
         if legacy is not None:
             return [f"lock held by {_label(legacy)}"]

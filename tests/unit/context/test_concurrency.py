@@ -529,6 +529,13 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
     run queued forever while each one fits beside the running one."""
     vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
         "semantics.analyse:inference"))
+    # Model a separate process: nested requests from this process are now
+    # allowed to backfill past waiters that require its grant to be released.
+    other_process = subprocess.Popen([
+        sys.executable, "-c", "import time; time.sleep(30)"])
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute("UPDATE jobs SET pid = ? WHERE token = ?",
+                     (other_process.pid, vlm))
     second, _ = _acquire_in_thread(
         scheduler, "gemma 2", "semantics.analyse:inference")
     time.sleep(0.1)  # the second model run queues first, on the gpu
@@ -538,6 +545,35 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
     assert not placement.wait(0.3)
     scheduler.release(vlm)
     assert second.wait(5)
+    other_process.terminate()
+    other_process.wait(timeout=5)
+
+
+def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
+    """A nested request cannot queue behind work waiting for its release."""
+    memory = scheduler.acquire(
+        "analysis memory", resource_scheduler.demand_for(
+            "semantics.analyse:model_memory"))
+    large, large_box = _acquire_in_thread(scheduler, "full machine",
+                                          "machine")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if any(job["owner"] == "full machine" and job["state"] == "waiting"
+               for job in scheduler.jobs()):
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("full-machine job did not enter the queue")
+
+    inference = scheduler.acquire(
+        "analysis inference", resource_scheduler.demand_for(
+            "semantics.analyse:inference"),
+        announce=lambda line: None, timeout=2)
+    scheduler.release(inference)
+    scheduler.release(memory)
+
+    assert large.wait(5), "queued full-machine job must run after holder releases"
+    scheduler.release(large_box[0])
 
 
 def test_a_dead_holder_is_reaped(scheduler):
