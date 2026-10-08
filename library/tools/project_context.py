@@ -253,7 +253,7 @@ def build_context_map(project_folder: str) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-def project_context_for_step(project_folder: str, node_id: str) -> str:
+def project_context_for_step(project_folder: str, node_id: str, *, state=None) -> str:
     """The one key a declaring step receives: the folder map plus the
     learnings routed to that step. Each half says who said it - the
     captain's folder, the pipeline's write-back - so the model (and the
@@ -262,11 +262,18 @@ def project_context_for_step(project_folder: str, node_id: str) -> str:
     context_map = build_context_map(project_folder)
     learnings = learned_context.render_for_prompt(project_folder, node_id)
     if learnings:
-        return (context_map + "\n--- what the project already learned ---\n"
-                + learnings)
-    return (context_map + "\nNo learnings are routed to this step: the "
-            "project has learned nothing you are scoped to read, or "
-            "nothing at all. Stated, not hidden.")
+        result = (context_map + "\n--- what the project already learned ---\n"
+                  + learnings)
+    else:
+        result = (context_map + "\nNo learnings are routed to this step: the "
+                  "project has learned nothing you are scoped to read, or "
+                  "nothing at all. Stated, not hidden.")
+    # The same explicitly scoped view reaches every step that declares this
+    # shared context input. It is a reading only; source stores remain owned
+    # by their existing writers and correction commands.
+    from library.tools.scoped_intent import for_project, prompt_section
+    view = for_project(project_folder, node_id, state=state)
+    return result + "\n" + prompt_section(view)
 
 
 def map_path_for(built: str, filename: str) -> str:

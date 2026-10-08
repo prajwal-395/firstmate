@@ -1540,7 +1540,7 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
             from library.tools.project_context import (
                 project_context_for_step)
             inputs["project_context"] = project_context_for_step(
-                project_folder, node_id)
+                project_folder, node_id, state=state)
 
         # The captain's own notes off the built timeline, routed to the
         # step that owns the decision each one is about.  This is the ONE
