@@ -15,9 +15,9 @@ from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
 KIND = "reel.prepare_qualification_fixture"
 MASTER = "Q Spine"
-FINAL = "Q Promotion Proof R2"
+FINAL = "Q Promotion Proof R3"
 STAGING = FINAL + " (rebuild staging)"
-AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R2"
+AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R3"
 AMBIGUOUS_STAGING = AMBIGUOUS_FINAL + " (rebuild staging)"
 MARKER_NAME = "Ren live promotion anchor"
 MARKER_NOTE = "Keep this clip anchored note on qual_b."
@@ -53,8 +53,16 @@ def _create_timeline(project, pool, media, name: str, copies: int):
     timeline = pool.CreateEmptyTimeline(name)
     if not timeline:
         raise JobRefused(f"{KIND} could not create {name!r}")
+    # Pin every placement to the same source range. Resolve's default
+    # append behavior may advance the source in a second placement, which
+    # would make the duplicate-source marker case a miss instead of an
+    # ambiguity.
+    left = int(media.GetLeftOffset() or 0)
+    end = left + int(media.GetDuration() or 0) - 1
     placed = pool.AppendToTimeline([
-        {"mediaPoolItem": media, "mediaType": 1} for _ in range(copies)])
+        {"mediaPoolItem": media, "mediaType": 1,
+         "startFrame": left, "endFrame": end}
+        for _ in range(copies)])
     items = timeline.GetItemListInTrack("video", 1) or []
     if not placed or len(items) != copies:
         raise JobRefused(
@@ -189,6 +197,7 @@ def _build(project, manager) -> dict:
     marker = _add_clip_marker(original_items[0])
     staging, staged_items = _create_timeline(
         project, pool, media, STAGING, 1)
+    final_comp = _add_exportable_fusion_comp(original_items[0], FINAL)
     staging_comp = _add_exportable_fusion_comp(staged_items[0], STAGING)
     ambiguous_final, ambiguous_original_items = _create_timeline(
         project, pool, media, AMBIGUOUS_FINAL, 1)
@@ -226,6 +235,7 @@ def _build(project, manager) -> dict:
         "final_timeline_name": FINAL,
         "staging_timeline_name": STAGING,
         "staging_fusion_comp": staging_comp,
+        "final_fusion_comp": final_comp,
         "track_plan": _track_plan(staged_items),
         "marker": marker,
         "ambiguous_final_timeline_name": AMBIGUOUS_FINAL,

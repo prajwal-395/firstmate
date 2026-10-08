@@ -103,6 +103,54 @@ def test_qualification_fixture_job_is_closed_and_qualification_only():
             "timeline": "Podcast (field test)"})
 
 
+def test_fixture_duplicate_placements_use_the_same_source_range():
+    from library.tools.resolved import reel_promotion_fixture as fixture
+
+    class Media:
+        def GetLeftOffset(self):
+            return 5
+
+        def GetDuration(self):
+            return 72
+
+    class Timeline:
+        def __init__(self):
+            self.items = []
+            self.track_name = ""
+
+        def GetItemListInTrack(self, _kind, _index):
+            return self.items
+
+        def SetTrackName(self, _kind, _index, name):
+            self.track_name = name
+            return True
+
+        def GetTrackName(self, _kind, _index):
+            return self.track_name
+
+    class Pool:
+        def __init__(self):
+            self.timeline = Timeline()
+            self.specs = []
+
+        def CreateEmptyTimeline(self, _name):
+            return self.timeline
+
+        def AppendToTimeline(self, specs):
+            self.specs = specs
+            self.timeline.items = [object() for _ in specs]
+            return self.timeline.items
+
+    pool = Pool()
+    timeline, items = fixture._create_timeline(
+        object(), pool, Media(), fixture.AMBIGUOUS_STAGING, 2)
+
+    assert timeline is pool.timeline
+    assert len(items) == 2
+    assert [(spec["startFrame"], spec["endFrame"])
+            for spec in pool.specs] == [(5, 76), (5, 76)]
+
+
 def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         tmp_path, monkeypatch):
     from library.tools import reel_fusion_comps
@@ -142,6 +190,9 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
     staging.SetTrackName("video", 1, "A-Roll")
     comp_handle = FusionComp()
     item.AddFusionComp = lambda: item._add_comp(comp_handle)
+    original_comp_handle = FusionComp()
+    original.AddFusionComp = lambda: original._add_comp(
+        original_comp_handle)
 
     export_calls = []
 
@@ -153,6 +204,7 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         return True
 
     item.ExportFusionComp = export_comp
+    original.ExportFusionComp = export_comp
 
     batches = iter([
         (final, [original]), (staging, [item]),
@@ -232,11 +284,13 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         "Saturation": 1.0}
     assert report["comp_count"] == 1
     assert report["errors"] == []
-    assert [index for _path, index in export_calls] == [1, 1]
+    assert result["final_fusion_comp"]["count"] == 1
+    assert original_comp_handle.effect.values == comp_handle.effect.values
+    assert [index for _path, index in export_calls] == [1, 1, 1]
     assert [path.rsplit("/", 1)[-1] for path in report["files"]] == [
-        "Q_Promotion_Proof_R2__V01_item000_c1.comp"]
+        "Q_Promotion_Proof_R3__V01_item000_c1.comp"]
     assert (tmp_path / "pipeline_output" / "steps" / "7_01_build_reels"
-            / "fusion_comps" / "Q_Promotion_Proof_R2__V01_item000_c1.comp"
+            / "fusion_comps" / "Q_Promotion_Proof_R3__V01_item000_c1.comp"
             ).is_file()
 
 
