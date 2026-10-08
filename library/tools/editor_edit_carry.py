@@ -138,6 +138,41 @@ def _edit_id(final: str, kind: str, item: dict, field: str = "") -> str:
     return sha256(key.encode("utf-8")).hexdigest()[:24]
 
 
+def _is_still_read(item: dict) -> bool:
+    """A still as a read reports it: a zero-length source range.
+
+    Resolve gives an image item one source frame and reads back its
+    start and end as the same frame (Reel 23's post header: `39..39`
+    with a left offset of 86,313), so a still is never told apart from
+    another still by the source passage it plays.
+    """
+    start, end = _source(item)
+    return isinstance(start, int) and start == end
+
+
+def _replaced_still(edit: dict, items: list[dict]) -> list[dict]:
+    """The still that replaced the one an in-place edit names.
+
+    Reel 23, 2026-10-05: a rebuild re-renders the post header under a
+    new file and media pool item (`post_header_7b7411c39f_tight.png` ->
+    `..._60bd7f7ded_tight.png`), so the editor's Pan and Tilt on the old
+    still match nothing by identity, and a still has no source passage
+    to match by. The edit lands on the still on the same row spanning
+    the same record frames the editor's did; none or several match
+    nothing, and the edit refuses by name as before.
+    """
+    if edit["kind"] not in ("transform", "enabled") or not \
+            _is_still_read(edit):
+        return []
+    span = (edit.get("record_in_when_detected"),
+            edit.get("record_out_when_detected"))
+    if not all(isinstance(frame, int) for frame in span):
+        return []
+    return [item for item in items
+            if _row(item) == edit["row"] and _is_still_read(item)
+            and (item.get("record_in"), item.get("record_out")) == span]
+
+
 def _governs(edit: dict, item: dict) -> bool:
     """`item` is the source passage or planned graphic `edit` names."""
     if _row(item) != edit["row"]:
@@ -1424,6 +1459,8 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
             plan["delete" if edit["kind"] == "cut" else "trim"].extend(
                 {"edit": edit, "item": item} for item in exact)
             continue
+        if not exact:
+            exact = _replaced_still(edit, items)
         if len(exact) != 1:
             problems.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
@@ -2418,6 +2455,8 @@ def verify_carried_edits(report: dict, staged_after: dict,
                                  for item in exact + beyond) or "none of it"))
             continue
         exact, problem = _landed_items(edit, items)
+        if not exact and not problem:
+            exact = _replaced_still(edit, items)
         if problem:
             missed.append(problem)
         elif len(exact) != 1:

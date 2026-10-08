@@ -2197,3 +2197,53 @@ def test_a_composed_edit_waits_for_a_touchup_on_the_staging(
     assert returned_at >= released_at[0], \
         "the funnel returned mid-touch-up"
     assert calls == [[]]
+
+
+def _header(name, *, record_out=2183, tilt=1836.0):
+    """A post-header PNG still as a read reports it (zero-length source)."""
+    still = _item("Post Header", name, 39, 39, 0, record_out, track_index=7)
+    return {**still, "transform": {"Tilt": tilt}, "left_offset": 86313}
+
+
+def test_a_still_transform_lands_on_the_rerendered_still():
+    """Reel 23, 2026-10-05: the editor's Tilt on the post header named
+    `..._7b7411c39f_tight.png`, a still reading source 39..39. The rebuild
+    re-rendered it as `..._60bd7f7ded_tight.png`; the edit had no single
+    item to land on and the promotion refused. It lands on the one still
+    on the same row over the same record span."""
+    record = _change_record([_header("post_header_7b7411c39f_tight.png")],
+                            [_header("post_header_7b7411c39f_tight.png",
+                                     tilt=459.0)])
+    edits, uncarried = carry.derive_edits(record)
+    assert uncarried == []
+    (tilt,) = edits
+    staged = _header("post_header_60bd7f7ded_tight.png")
+    plan = carry.plan_application([tilt], {"items": [staged]}, FINAL)
+    assert [step["item"]["name"] for step in plan["set_transform"]] == [
+        "post_header_60bd7f7ded_tight.png"]
+    carry.verify_carried_edits(
+        {"edits": [tilt]},
+        {"items": [{**staged, "transform": {"Tilt": 459.0}}]}, FINAL)
+
+
+def test_a_still_transform_refuses_without_one_still_over_its_span():
+    record = _change_record([_header("post_header_7b7411c39f_tight.png")],
+                            [_header("post_header_7b7411c39f_tight.png",
+                                     tilt=459.0)])
+    (tilt,), _ = carry.derive_edits(record)
+    shorter = _header("post_header_60bd7f7ded_tight.png", record_out=2100)
+    for items in ([shorter],
+                  [_header("a.png"), _header("b.png")]):
+        with pytest.raises(carry.EditorEditCarryRefused,
+                           match="no single item to land on"):
+            carry.plan_application([tilt], {"items": items}, FINAL)
+
+
+def test_the_guard_finds_a_rerendered_still_by_row_and_span():
+    old = _header("post_header_7b7411c39f_tight.png")
+    record = _change_record([old], [{**old, "transform": {"Tilt": 459.0}}])
+    (change,) = record["changes"]
+    rebuilt = _header("post_header_60bd7f7ded_tight.png", tilt=459.0)
+    assert guard._change_is_carried(change, {"items": [rebuilt]})
+    assert not guard._change_is_carried(
+        change, {"items": [{**rebuilt, "transform": {"Tilt": 1836.0}}]})

@@ -728,6 +728,31 @@ def _note_landed_on_row(change: dict, staged: dict) -> bool:
     return (after - before) <= on_row and not ((before - after) & on_row)
 
 
+def _replaced_stills(change: dict, staged: dict) -> list[dict]:
+    """Staged stills that re-render the still `change` names.
+
+    A rebuild re-renders a still overlay (the post header) under a new
+    file and media pool item, and a still reads a zero-length source
+    range, so neither identity nor source passage finds it. The one
+    still on the same row over the same record span is the same overlay;
+    `editor_edit_carry._replaced_still` lands the editor's edit there.
+    """
+    item = change.get("after") or {}
+    start, end = item.get("source_in_frame"), item.get("source_out_frame")
+    if change.get("kind") != "item_changed" or not (
+            isinstance(start, int) and start == end):
+        return []
+    row = (item.get("track_type"), item.get("track_index"),
+           item.get("track_name"))
+    span = (item.get("record_in"), item.get("record_out"))
+    return [other for other in staged.get("items", ())
+            if (other.get("track_type"), other.get("track_index"),
+                other.get("track_name")) == row
+            and isinstance(other.get("source_in_frame"), int)
+            and other.get("source_in_frame") == other.get("source_out_frame")
+            and (other.get("record_in"), other.get("record_out")) == span]
+
+
 def _change_is_carried(change: dict, staged: dict) -> bool:
     kind = change["kind"]
     if kind.startswith("item_"):
@@ -758,7 +783,8 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
         if not candidates and _note_landed_on_row(change, staged):
             return True
         if not candidates:
-            candidates = _replanned_caption_cards(change, staged)
+            candidates = (_replanned_caption_cards(change, staged)
+                          or _replaced_stills(change, staged))
             fields = _CAPTION_SPAN_FIELDS
         if not candidates:
             return False
