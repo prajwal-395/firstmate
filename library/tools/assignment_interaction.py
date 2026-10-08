@@ -181,3 +181,38 @@ def file_transport(request: Mapping[str, Any]) -> dict:
     llm_handshake.publish_operation_response(request_path, response_path,
                                              {"request": req.to_dict(), "envelope": envelope})
     return envelope
+
+
+def capture_review(project: str, assignment_id: str, revision_id: str,
+                   **review) -> dict:
+    """Assignment contract entry point for chat-first proposal review."""
+    from library.tools import assignment_revision
+    record = assignment_revision.capture_review(
+        project, assignment_id, revision_id, **review)
+    return {"version": ENVELOPE_VERSION, "assignment_id": assignment_id,
+            "operation_id": "assignment.review", "stage": "review",
+            "status": "accepted", "progress": {
+                "status": "completed", "fraction": 1.0,
+                "message": "Review captured; awaiting creator choice."},
+            "result": record,
+            "recovery": {"resumable": True, "resume_with": {
+                "assignment_id": assignment_id, "revision_id": revision_id,
+                "stage": "review"}}}
+
+
+def decide_revision(project: str, assignment_id: str, revision_id: str,
+                    **decision) -> dict:
+    """Apply one explicitly approved variant through its EditPatch writer."""
+    from library.tools import assignment_revision
+    record = assignment_revision.decide(
+        project, assignment_id, revision_id, **decision)
+    status = "refused" if record["status"] in {"stale", "rejected"} else "completed"
+    return {"version": ENVELOPE_VERSION, "assignment_id": assignment_id,
+            "operation_id": "assignment.revise", "stage": "revise",
+            "status": status,
+            "progress": {"status": status, "fraction": 1.0,
+                         "message": f"Revision {record['status']}."},
+            "result": record,
+            "recovery": {"resumable": True, "resume_with": {
+                "assignment_id": assignment_id, "revision_id": revision_id,
+                "stage": "revise"}}}
