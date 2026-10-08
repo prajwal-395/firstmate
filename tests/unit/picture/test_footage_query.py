@@ -912,6 +912,8 @@ def stub_m2(monkeypatch):
     monkeypatch.setattr(footage_frames.source_memory, "is_fresh", fake_is_fresh)
     monkeypatch.setattr(footage_frames.source_memory, "frame_abspath",
                         fake_frame_abspath)
+    monkeypatch.setattr(footage_frames.source_memory, "m2_frames_present",
+                        lambda *_args, **_kwargs: True)
 
 
 @pytest.fixture

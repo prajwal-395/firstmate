@@ -367,10 +367,12 @@ def test_build_frames_writes_m2_and_fills_gop_in_m0(tmp_path, memory_root,
     source_memory.write_json(
         source_memory.source_dir(digest) / source_memory.SLOT_SOURCE, m0)
 
-    pairs = [("/fake/frame_000000.jpg", 0.0), ("/fake/frame_000001.jpg", 0.5),
-             ("/fake/frame_000002.jpg", 1.0)]
-
     def fake_extract(source_file, out_dir, width, use_hwaccel):
+        pairs = []
+        for index, timestamp in enumerate((0.0, 0.5, 1.0)):
+            frame = Path(out_dir) / f"frame_{index:06d}.jpg"
+            frame.write_bytes(b"jpeg")
+            pairs.append((str(frame), timestamp))
         return pairs, True
 
     monkeypatch.setattr(source_memory, "extract_iframes", fake_extract)
@@ -396,6 +398,40 @@ def test_build_frames_writes_m2_and_fills_gop_in_m0(tmp_path, memory_root,
 
     monkeypatch.setattr(source_memory, "extract_iframes", must_not_extract)
     assert source_memory.build_frames(str(media), digest)["reused"] is True
+
+
+def test_missing_m2_frame_directory_invalidates_the_cached_sample(
+        tmp_path, memory_root, monkeypatch):
+    """A surviving M2 index cannot make a missing shared frame directory
+    look fresh to the lane or its consumers."""
+    from library.tools import footage_analysis
+
+    media = _media(tmp_path, "TAKE.MXF", b"lost-frames")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    project = _project_with_clip(tmp_path, "clip_002", media, digest)
+    frame_record = {"file": "frames/frame_000000.jpg", "t": 0.0}
+    source_memory.write_json(
+        source_memory.source_dir(digest, memory_root)
+        / source_memory.SLOT_FRAMES_INDEX,
+        {"content_digest": digest, "size_bytes": media.stat().st_size,
+         "frames": [frame_record], "frame_count": 1})
+
+    assert not footage_analysis.slot_is_fresh(
+        footage_analysis._BY_NAME["frames"], digest, memory_root)
+    clip = {"clip_id": "clip_002", "source_file": str(media)}
+    assert source_memory.read_m2_for_clip(str(project), clip,
+                                          root=memory_root) == (None, "stale")
+
+    def restore_frame(source_file, out_dir, width, use_hwaccel):
+        frame = Path(out_dir) / "frame_000000.jpg"
+        frame.write_bytes(b"frame")
+        return [(str(frame), 0.0)], False
+
+    monkeypatch.setattr(source_memory, "extract_iframes", restore_frame)
+    rebuilt = source_memory.build_frames(str(media), digest, root=memory_root)
+    assert rebuilt["reused"] is False
+    assert source_memory.m2_frames_present(
+        digest, source_memory.read_m2(digest, memory_root), memory_root)
 
 
 def test_m2_project_report_skips_offline_media(tmp_path, memory_root):

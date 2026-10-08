@@ -203,6 +203,9 @@ def slot_is_fresh(lane: Lane, digest: str, root: Optional[Path]) -> bool:
         doc = _record(digest, slot, root)
         if doc is None or doc.get("content_digest") != digest:
             return False
+        if (slot == source_memory.SLOT_FRAMES_INDEX
+                and not source_memory.m2_frames_present(digest, doc, root)):
+            return False
         if (sdir / slot).stat().st_mtime < newest_input:
             return False
     return True

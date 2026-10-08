@@ -254,7 +254,9 @@ def build_frame_index(project_folder, index_dir=None,
                             "reason": "no content digest (file unreadable)"})
             continue
         m2 = source_memory.read_m2(digest)
-        if m2 is None or (basis == "live" and not source_memory.is_fresh(m2, src)):
+        if (m2 is None
+                or not source_memory.m2_frames_present(digest, m2)
+                or (basis == "live" and not source_memory.is_fresh(m2, src))):
             skipped.append({
                 "clip_id": clip_id,
                 "reason": ("no fresh frame sample (M2); build it with "

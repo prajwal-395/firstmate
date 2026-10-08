@@ -691,6 +691,8 @@ def read_m2_for_clip(project_folder: str, clip: dict,
     doc = read_m2(digest, root)
     if doc is None:
         return None, "missing"
+    if not m2_frames_present(digest, doc, root):
+        return None, "stale"
     if basis == "live":
         path = clip.get("source_file") or clip.get("path") or ""
         if not is_fresh(doc, path):
@@ -709,6 +711,28 @@ def frame_abspath(content_digest: str, frame: dict,
     memory contract).
     """
     return str(source_dir(content_digest, root) / frame["file"])
+
+
+def m2_frames_present(content_digest: str, record: dict,
+                      root: Optional[Path] = None) -> bool:
+    """Whether an M2 index still has its shared thumbnail directory.
+
+    The JSON index alone is not a complete M2 cache entry: its frame paths
+    are consumed by both the frame index and the per-frame analysis lanes.
+    A killed or partially cleaned run can leave the index behind after the
+    shared ``frames/`` directory is gone, so that record must be rebuilt.
+    """
+    frames_dir = source_dir(content_digest, root) / SLOT_FRAMES_DIR
+    if not frames_dir.is_dir():
+        return False
+    frames = record.get("frames")
+    if not isinstance(frames, list):
+        return False
+    return all(
+        isinstance(frame, dict)
+        and isinstance(frame.get("file"), str)
+        and Path(frame_abspath(content_digest, frame, root)).is_file()
+        for frame in frames)
 
 
 # ── M1b / M4 / M5: the reserved lanes, now written ──────────────────
@@ -1191,7 +1215,8 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
     target = source_dir(digest, root)
 
     existing = read_m2(digest, root)
-    if is_fresh(existing, source_file):
+    if (is_fresh(existing, source_file)
+            and m2_frames_present(digest, existing, root)):
         return {"source_file": os.path.abspath(source_file),
                 "content_digest": digest, "reused": True,
                 "frame_count": existing.get("frame_count", 0),
