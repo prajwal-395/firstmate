@@ -115,7 +115,7 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     assert "override func hitTest(_ point: NSPoint)" in source
     assert "return self" in source
     assert "frontmost:" in source
-    assert '"op": "list"' in source
+    assert '"op": "status"' in source
     assert '"op": "cancel"' in source
     assert "Elapsed %02d:%02d" in source
 

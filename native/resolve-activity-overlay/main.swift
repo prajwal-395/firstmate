@@ -243,26 +243,25 @@ private final class OverlayController: NSObject, NSApplicationDelegate {
     }
 
     private func currentActivity() -> Activity? {
-        if let reply = brokerRequest(["op": "list", "limit": 100]),
-           let jobs = reply["jobs"] as? [[String: Any]] {
-            let running = jobs.filter { ($0["state"] as? String) == "running" }
-            if let job = running.first,
-               let id = job["id"] as? String,
-               let kind = job["kind"] as? String {
-                let params = job["params"] as? [String: Any] ?? [:]
-                let purpose = (params["purpose"] as? String) ?? kind
-                return Activity(
-                    jobID: id, purpose: purpose,
-                    owner: (job["owner"] as? String) ?? "Ren",
-                    started: (job["started"] as? Double)
-                        ?? (job["submitted"] as? Double)
-                        ?? Date().timeIntervalSince1970,
-                    cancellable: kind == "resolve.activity_probe",
-                    additionalJobs: max(0, running.count - 1))
-            }
-        }
         guard let lease = readLease() else { return nil }
         let parts = lease.purpose.split(separator: " ")
+        if parts.count >= 3, parts[0] == "ren-resolved",
+           let id = parts.last.map(String.init),
+           let reply = brokerRequest(["op": "status", "id": id]),
+           let job = reply["job"] as? [String: Any],
+           (job["state"] as? String) == "running",
+           let kind = job["kind"] as? String {
+            let params = job["params"] as? [String: Any] ?? [:]
+            let purpose = (params["purpose"] as? String) ?? kind
+            return Activity(
+                jobID: id, purpose: purpose,
+                owner: (job["owner"] as? String) ?? lease.owner,
+                started: (job["started"] as? Double)
+                    ?? (job["submitted"] as? Double)
+                    ?? lease.since,
+                cancellable: kind == "resolve.activity_probe",
+                additionalJobs: 0)
+        }
         return Activity(
             jobID: parts.last.map(String.init) ?? "",
             purpose: lease.purpose,
