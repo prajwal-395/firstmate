@@ -144,47 +144,34 @@ def _check_project_standard(project) -> dict:
             "timelineResolutionHeight": height}
 
 
-def _timeline_rate_string(fps: float) -> str:
-    """The timeline menu label for a measured rate: Resolve holds a fixed
-    menu (23.976, 29.97, 59.94, integer rates), and a full-precision
-    float string is refused while the timeline keeps the project rate."""
-    value = float(fps)
-    for exact, label in ((24000 / 1001, "23.976"),
-                         (30000 / 1001, "29.97"),
-                         (60000 / 1001, "59.94")):
-        if abs(value - exact) <= 0.0001:
-            return label
-    return str(int(value)) if value.is_integer() else str(round(value, 3))
-
-
-def _apply_timeline_shape(timeline, *, fps: float,
-                          width: int = 1920, height: int = 1080) -> dict:
-    """Per-timeline custom settings with readback, following the render
-    path: SetSetting returning True is a claim, GetSetting is the
-    evidence, and it is the evidence that decides."""
-    rate = _timeline_rate_string(fps)
-    if (not timeline.SetSetting("useCustomSettings", "1")
-            or str(timeline.GetSetting("useCustomSettings")) != "1"):
+def _check_timeline_inherits_standard(timeline) -> dict:
+    """Read the new timeline's inherited shape back and require the
+    project standard. Three consecutive live runs refused a custom
+    timeline rate (menu label and full precision alike) while the
+    timeline kept the project rate, so the cut rides the 24fps project
+    standard instead: source frames are indexed at the media rate, record
+    extents match 1:1, and the 0.1% rate drift sits a hundredfold inside
+    render QA's duration tolerance."""
+    try:
+        rate_raw = timeline.GetSetting("timelineFrameRate")
+        width_raw = timeline.GetSetting("timelineResolutionWidth")
+        height_raw = timeline.GetSetting("timelineResolutionHeight")
+    except (AttributeError, TypeError, ValueError) as exc:
         raise WorkflowQualificationError(
-            "timeline refused custom settings")
-    applied = {}
-    for key, value in (("timelineResolutionWidth", str(width)),
-                       ("timelineResolutionHeight", str(height)),
-                       ("timelineFrameRate", rate)):
-        timeline.SetSetting(key, value)
-        readback = timeline.GetSetting(key)
-        if key == "timelineFrameRate":
-            try:
-                match = abs(float(readback) - float(fps)) <= 0.0001
-            except (TypeError, ValueError):
-                match = False
-        else:
-            match = str(readback) == str(value)
-        if not match:
-            raise WorkflowQualificationError(
-                f"timeline refused {key}={value}: reads {readback!r}")
-        applied[key] = readback
-    return applied
+            f"could not read the new timeline shape: {exc}") from exc
+    try:
+        rate, width, height = (float(rate_raw), int(width_raw),
+                               int(height_raw))
+    except (TypeError, ValueError):
+        rate = width = height = None
+    if (rate is None or abs(rate - 24.0) > 0.0001
+            or width != 1920 or height != 1080):
+        raise WorkflowQualificationError(
+            "new timeline did not inherit the project standard: frame "
+            f"rate {rate_raw!r}, {width_raw!r}x{height_raw!r} (want 24, "
+            "1920x1080)")
+    return {"timelineFrameRate": rate, "timelineResolutionWidth": width,
+            "timelineResolutionHeight": height}
 
 
 def _probe_source_frames(source: Path) -> tuple:
@@ -342,13 +329,13 @@ def _run_broker_job(job: dict, resolve, current: dict,
                     f"Resolve imported {len(imported_items)} source items")
             media_item = imported_items[0]
             imported = True
-        fps, total_frames = _probe_source_frames(source)
+        media_fps, total_frames = _probe_source_frames(source)
         # Pool clips start at their own zero; the offset is a timeline
         # notion, and some essence items expose no offset method at all.
         left = 0
-        source_in = left + round(float(params["source_start"]) * fps)
+        source_in = left + round(float(params["source_start"]) * media_fps)
         source_count = max(1, round(
-            (float(params["source_end"]) - float(params["source_start"])) * fps))
+            (float(params["source_end"]) - float(params["source_start"])) * media_fps))
         source_out = min(left + total_frames,
                          source_in + source_count)
         if source_out <= source_in:
@@ -362,11 +349,8 @@ def _run_broker_job(job: dict, resolve, current: dict,
         if project.GetCurrentTimeline().GetName() != params["timeline"]:
             raise WorkflowQualificationError("qualification timeline did not read back")
         current["name"] = "edit construction: timeline shape"
-        _apply_timeline_shape(timeline, fps=fps)
-        timeline_shape = {key: timeline.GetSetting(key)
-                          for key in ("timelineFrameRate",
-                                      "timelineResolutionWidth",
-                                      "timelineResolutionHeight")}
+        timeline_shape = _check_timeline_inherits_standard(timeline)
+        timeline_fps = float(timeline_shape["timelineFrameRate"])
         if timeline.GetTrackCount("audio") == 0 and not timeline.AddTrack("audio"):
             raise WorkflowQualificationError("Resolve could not create A1")
         for media_type, name in (("video", "A-Roll"), ("audio", "Production Audio")):
@@ -405,7 +389,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
                                     "audio_clips": len(audio),
                                     "timeline_shape": timeline_shape}})
         current["name"] = "scripted human change"
-        human_frame = int(timeline.GetStartFrame()) + 24
+        human_frame = int(timeline.GetStartFrame()) + round(timeline_fps)
         manual = edit_patch.apply_live_patch(
             project=project, timeline=timeline, capability="reel.touchup",
             operations=[{"op": "marker.add", "frame": human_frame,
@@ -422,8 +406,8 @@ def _run_broker_job(job: dict, resolve, current: dict,
 
         current["name"] = "Ren revision preservation"
         record_in = int(timeline.GetEndFrame())
-        revision_count = max(1, round(fps))
-        revision_source_in = min(source_out, source_in + round(2 * fps))
+        revision_count = max(1, round(timeline_fps))
+        revision_source_in = min(source_out, source_in + round(2 * media_fps))
         revision_source_out = min(source_out, revision_source_in + revision_count)
         if revision_source_out <= revision_source_in:
             revision_source_in, revision_source_out = source_in, source_out
@@ -488,8 +472,8 @@ def _run_broker_job(job: dict, resolve, current: dict,
                        "evidence": render})
         duration_frames = int(timeline.GetEndFrame() - timeline.GetStartFrame())
         return {"project": QUALIFICATION_PROJECT,
-                "timeline": params["timeline"], "fps": fps,
-                "duration_seconds": duration_frames / fps,
+                "timeline": params["timeline"], "fps": timeline_fps,
+                "duration_seconds": duration_frames / timeline_fps,
                 "media_imported": imported,
                 "media_path": str(source),
                 "media_unique_id": media_item.GetUniqueId(),
