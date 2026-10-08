@@ -44,8 +44,35 @@ def test_work_state_reports_pending_review_and_latest_request(tmp_path):
     assert state["open_work"][0]["kind"] == "edit_spec"
 
 
+def test_work_state_includes_resumable_assignment_checkpoints(tmp_path):
+    project = tmp_path / "show"
+    project.mkdir()
+    (project / "project.yaml").write_text('name: Show\nslug: show\n', encoding="utf-8")
+    assignments = project / "pipeline_output" / "llm_requests" / "assignments"
+    assignments.mkdir(parents=True)
+    (assignments / "assignment.json").write_text(json.dumps({
+        "version": 1,
+        "assignment_id": "assignment-1",
+        "state": "review",
+        "checkpoint": "picture.plan:abc123",
+        "operations": {"picture.plan:abc123": {
+            "operation_id": "picture.plan", "status": "interrupted"}},
+    }), encoding="utf-8")
+
+    state = project_work_state(str(project))
+
+    assert state["assignments"] == [{
+        "assignment_id": "assignment-1",
+        "state": "review",
+        "checkpoint": "picture.plan",
+        "recovery": "resume",
+    }]
+    assert {"kind": "assignment", **state["assignments"][0]} in state["open_work"]
+
+
 def test_work_state_verb_is_registered_in_both_front_doors():
     from pathlib import Path
+
     from ren.commands import VERBS
 
     repo = Path(__file__).resolve().parents[3]

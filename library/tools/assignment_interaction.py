@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from library.tools import assignment_lifecycle as lifecycle
 from library.tools import operations
 from library.tools.ren_refusal import RenRefusal
 
@@ -81,6 +82,34 @@ def _json_value(value: Any) -> Any:
 def execute(request: AssignmentRequest | Mapping[str, Any]) -> dict:
     """Execute one registry operation and return the common typed envelope."""
     req = request if isinstance(request, AssignmentRequest) else AssignmentRequest.from_dict(request)
+    with lifecycle.assignment_lock(req.project, req.assignment_id):
+        return _execute_locked(req)
+
+
+def _execute_locked(req: AssignmentRequest) -> dict:
+    """Execute while holding this assignment's cross-process lock."""
+    effect = lifecycle.operation_effect(req.project, req.assignment_id,
+                                       req.operation_id, dict(req.inputs))
+    if not effect["allowed"]:
+        refusal = RenRefusal(
+            effect["reason"],
+            f"the operation effect {effect['effect']!r} requires a human decision",
+            "resolve the decision for this assignment, then resubmit",
+            code="REN_ASSIGNMENT_DECISION_REQUIRED", recovery_class="needs_question").to_dict()
+        return {
+            "version": ENVELOPE_VERSION, "assignment_id": req.assignment_id,
+            "operation_id": req.operation_id, "stage": req.stage,
+            "status": "refused",
+            "progress": {"status": "refused", "fraction": 1.0,
+                         "message": "Operation paused for a human decision."},
+            "inputs": dict(req.inputs), "effect": effect, "result": None,
+            "refusal": refusal,
+            "recovery": {"resumable": True, "resume_with": req.to_dict()},
+        }
+    checkpoint = lifecycle.begin_operation(req.project, req.assignment_id,
+                                           req.operation_id, req.to_dict())
+    if checkpoint.get("status") == "completed":
+        return checkpoint["envelope"]
     result = operations.get(req.operation_id).execute(req.project, **dict(req.inputs))
     refused = result.refused
     refusal = None
@@ -96,7 +125,7 @@ def execute(request: AssignmentRequest | Mapping[str, Any]) -> dict:
             refusal["unsatisfied"] = [
                 {"name": item.name, "produced_by": item.produced_by}
                 for item in result.unsatisfied]
-    return {
+    envelope = {
         "version": ENVELOPE_VERSION,
         "assignment_id": req.assignment_id,
         "operation_id": result.operation,
@@ -105,10 +134,14 @@ def execute(request: AssignmentRequest | Mapping[str, Any]) -> dict:
         "progress": {"status": "refused" if refused else "completed", "fraction": 1.0,
                      "message": "Operation refused; nothing ran." if refused else "Operation completed."},
         "inputs": dict(req.inputs),
+        "effect": effect,
         "result": None if refused else _json_value(result.payload),
         "refusal": refusal,
         "recovery": {"resumable": True, "resume_with": req.to_dict()},
     }
+    lifecycle.finish_operation(req.project, req.assignment_id,
+                               req.operation_id, envelope)
+    return envelope
 
 
 def structured_transport(request: Mapping[str, Any]) -> dict:
@@ -137,7 +170,10 @@ def file_transport(request: Mapping[str, Any]) -> dict:
     if response_path.is_file():
         parsed = llm_handshake.validate_response(_file_stem(req), response_path.read_text(encoding="utf-8"), str(root))
         if parsed.get("request") == req.to_dict() and isinstance(parsed.get("envelope"), dict):
-            return parsed["envelope"]
+            envelope = parsed["envelope"]
+            refusal = envelope.get("refusal") or {}
+            if refusal.get("code") != "REN_ASSIGNMENT_DECISION_REQUIRED":
+                return envelope
     request_path.parent.mkdir(parents=True, exist_ok=True)
     response_path.parent.mkdir(parents=True, exist_ok=True)
     llm_handshake.publish_operation_request(request_path, response_path, req.to_dict())

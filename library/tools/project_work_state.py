@@ -34,8 +34,17 @@ def _latest_request(root: Path):
 
 def project_work_state(project_ref: str) -> dict:
     """Compose a structured work-state view using existing records only."""
-    from library.schemas.project_config import load_project_config, project_config_to_dict
-    from library.tools import captain_edits, edit_ledger, event_log, reel_proposal, review_gate
+    from library.schemas.project_config import (
+        load_project_config,
+        project_config_to_dict,
+    )
+    from library.tools import (
+        captain_edits,
+        edit_ledger,
+        event_log,
+        reel_proposal,
+        review_gate,
+    )
     from library.tools.project_registry import resolve_project_path, scan_projects
 
     yaml_path = resolve_project_path(project_ref)
@@ -73,6 +82,24 @@ def project_work_state(project_ref: str) -> dict:
         for path in sorted(requests.glob("edit_spec_*.json")):
             if not (responses / path.name).exists():
                 pending_specs.append(path.stem)
+    assignments = []
+    assignment_dir = requests / "assignments"
+    if assignment_dir.is_dir():
+        for path in sorted(assignment_dir.glob("*.json")):
+            record = _json(path)
+            if record is None or record.get("version") != 1:
+                continue
+            assignment_id = record["assignment_id"]
+            state = record["state"]
+            checkpoint_id = record.get("checkpoint")
+            checkpoint = record.get("operations", {}).get(checkpoint_id, {})
+            assignments.append({
+                "assignment_id": assignment_id,
+                "state": state,
+                "checkpoint": checkpoint.get("operation_id"),
+                "recovery": "resume" if checkpoint.get("status") in {"running", "interrupted"}
+                else "continue",
+            })
     run = _json(root / "pipeline_run.json")
     brief = config_data.get("creative_brief") or config_data.get("pipeline", {}).get("creative_brief")
     settled = []
@@ -92,6 +119,8 @@ def project_work_state(project_ref: str) -> dict:
                           "current_step": run.get("current_step")})
     open_work.extend({"kind": "edit_spec", "request_id": request_id,
                       "status": "awaiting host response"} for request_id in pending_specs)
+    open_work.extend({"kind": "assignment", **assignment} for assignment in assignments
+                     if assignment["state"] != "delivered" or assignment["recovery"] == "resume")
     if not pending_approvals and not open_work:
         open_work.append({"kind": "next step", "status": "No recorded work is waiting"})
     last_request = _latest_request(root)
@@ -112,6 +141,7 @@ def project_work_state(project_ref: str) -> dict:
                          if last_event else []),
         "pending_approvals": pending_approvals,
         "open_work": open_work,
+        "assignments": assignments,
         "last_requested_change": last_request,
     }
     state["summary"] = _summary(state)
