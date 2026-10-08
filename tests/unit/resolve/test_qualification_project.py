@@ -302,3 +302,95 @@ def test_session_marker_cleared_when_restore_fails(lock_dir):
             resolve.LoadProject(qp.QUALIFICATION_PROJECT)
             podcast.timelines.pop()
     assert qp.qualification_session_active() is None
+
+
+def _borrowing_job(monkeypatch, resolve, kind="qualification.workflow"):
+    """A borrowing qualification job executed by the Rust-daemon worker
+    path while the captain's project is open."""
+    from library.tools.resolved import cancellation
+    from library.tools.resolved import jobs as job_kinds
+    from library.tools.resolved import worker
+
+    @contextmanager
+    def _lease(purpose, exclusive=False):
+        yield
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", _lease)
+    monkeypatch.setattr(cancellation, "begin", lambda job_id: None)
+    monkeypatch.setattr(worker, "_connect_cached", lambda: resolve)
+    calls = []
+    monkeypatch.setattr(
+        job_kinds, "run",
+        lambda job, handle: calls.append(job) or {"ran": kind})
+    job = {"id": "qw-test", "kind": kind, "mode": "exclusive",
+           "qualification": True, "executed": True,
+           "project": qp.QUALIFICATION_PROJECT}
+    return worker._execute_job(job), calls
+
+
+def test_rust_worker_runs_borrowing_jobs_from_the_captains_project(monkeypatch):
+    """Defect (Rust daemon default): worker.py rejected every qualification
+    job unless Ren Qualification was already open, while server.py exempts
+    borrowing kinds - so the workflow job died with 'needs Ren
+    Qualification open' on the captain's project instead of borrowing it."""
+    resolve, podcast = _captain()
+    assert resolve.GetCurrentProject() is podcast
+
+    reply, calls = _borrowing_job(monkeypatch, resolve)
+
+    assert reply["ok"] is True, reply
+    assert reply["result"] == {"ran": "qualification.workflow"}
+    assert [job["kind"] for job in calls] == ["qualification.workflow"]
+
+
+def test_rust_worker_still_refuses_a_wrong_target_for_borrowing_jobs(monkeypatch):
+    """Defect: exempting borrowing jobs must not open any project - a
+    borrowing job naming a user project is refused before the borrow."""
+    from library.tools.resolved import cancellation
+    from library.tools.resolved import worker
+
+    resolve, _ = _captain()
+
+    @contextmanager
+    def _lease(purpose, exclusive=False):
+        yield
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", _lease)
+    monkeypatch.setattr(cancellation, "begin", lambda job_id: None)
+    monkeypatch.setattr(worker, "_connect_cached", lambda: resolve)
+    job = {"id": "qw-test", "kind": "qualification.workflow",
+           "mode": "exclusive", "qualification": True, "executed": True,
+           "project": "Podcast (field test)"}
+
+    reply = worker._execute_job(job)
+
+    assert reply["ok"] is False
+    assert reply.get("refused") is True
+    assert "may only target 'Ren Qualification'" in reply["error"]
+
+
+def test_rust_worker_keeps_the_open_project_gate_for_other_kinds(monkeypatch):
+    """Defect: the mirror exemption must not leak - a non-borrowing
+    qualification job on the captain's project is still refused."""
+    from library.tools.resolved import worker
+
+    resolve, podcast = _captain()
+    job = {"id": "qw-test", "kind": "timeline.observe_current",
+           "mode": "shared", "qualification": True, "executed": False,
+           "project": qp.QUALIFICATION_PROJECT}
+
+    @contextmanager
+    def _lease(purpose, exclusive=False):
+        yield
+
+    from library.tools.resolved import cancellation
+    monkeypatch.setattr(resolve_lock, "resolve_lease", _lease)
+    monkeypatch.setattr(cancellation, "begin", lambda job_id: None)
+    monkeypatch.setattr(worker, "_connect_cached", lambda: resolve)
+
+    reply = worker._execute_job(job)
+
+    assert reply["ok"] is False
+    assert reply.get("refused") is True
+    assert "needs 'Ren Qualification' open" in reply["error"]
+    assert resolve.GetCurrentProject() is podcast

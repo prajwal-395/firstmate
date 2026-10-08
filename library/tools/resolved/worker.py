@@ -132,12 +132,19 @@ def _execute_job(job: dict) -> dict:
                     resolve = deadline_proxy(
                         resolve, label=f"{kind} {job['id']}")
             if job["qualification"]:
-                found = job_kinds.open_project_name(resolve)
-                if found != job_kinds.QUALIFICATION_PROJECT:
-                    return _reply(job["id"], False, error=(
-                        f"a qualification job needs "
-                        f"{job_kinds.QUALIFICATION_PROJECT!r} open; Resolve "
-                        f"has {found or 'no project'!r}"), refused=True)
+                if kind in job_kinds.BORROWING_QUALIFICATION_KINDS:
+                    # These fixed Qualification jobs borrow and restore
+                    # the currently open project inside their whole-take
+                    # lease, mirroring the Python daemon path in
+                    # server.py: their runners enforce the exact target.
+                    job_kinds.refuse_qualification(job.get("project", ""))
+                else:
+                    found = job_kinds.open_project_name(resolve)
+                    if found != job_kinds.QUALIFICATION_PROJECT:
+                        return _reply(job["id"], False, error=(
+                            f"a qualification job needs "
+                            f"{job_kinds.QUALIFICATION_PROJECT!r} open; Resolve "
+                            f"has {found or 'no project'!r}"), refused=True)
             if not job["executed"]:
                 # A grant: checked, and the caller takes Resolve now that
                 # the broker has let go of its turn.
