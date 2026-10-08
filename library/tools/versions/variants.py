@@ -1028,6 +1028,10 @@ workflow cannot become the clutter the captain has complained about.
 class ChoiceRefused(RenRefusal):
     """The choice declined to proceed, and says exactly why."""
 
+    USER_MESSAGE = ("I couldn't make this choice as asked, so nothing "
+                    "changed. Check the issue below and ask again with a "
+                    "choice I can carry out.")
+
 
 # ── What is alive ────────────────────────────────────────────────
 

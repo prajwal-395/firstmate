@@ -2,12 +2,21 @@
 
 A REFUSAL is not a failure: nothing ran, nothing is half-written, and
 the next step is known. Every refusal a user or host LLM meets on a
-`ren` verb's path carries the same three lines - what happened, why,
-and the fix (the exact next command or edit):
+`ren` verb's path carries the same shape - a first line stating the
+consequence in plain creative terms, then the technical detail
+(what happened, why, and the fix: the exact next command or edit):
 
-    ren: refused - <what happened>
+    ren: refused - <consequence and next step, in plain language>
+      what: <what happened>
       why: <why it refused>
       fix: <the exact next command or edit>
+
+The first line is what a host relays to the editor; `what`/`why`/`fix`
+stay in the prose for the technical explanation on request. Every
+refusal also carries a recovery class - `auto_recoverable` (the host
+may perform only the named safe recovery), `needs_question` (ask the
+smallest question that unblocks) or `blocked` (state what must be
+resolved first) - so the host knows whether to act, ask or wait.
 
 `RenRefusal` is the type; the `ren` CLI boundary (each process a verb
 can land in: `ren` itself, `manage_project.py`, `run_pipeline.py`,
@@ -32,7 +41,9 @@ so every existing subclass is coded without touching its file; a
 subclass that needs a code that survives a rename sets `CODE`
 explicitly, and a raise site that needs one for this instance passes
 `code=`. The human shape `render()` never carries the code - it stays
-the pinned three lines - and `to_dict()` carries all four fields.
+out of prose a machine would parse - and `to_dict()` carries all six
+fields (`code`, `what`, `why`, `fix`, `user_message`,
+`recovery_class`).
 """
 
 from __future__ import annotations
@@ -72,7 +83,19 @@ class RenRefusal(RuntimeError, ValueError):
     (`SpliceRefused` -> `REN_SPLICE_REFUSED`); set this when the code
     must survive a class rename."""
 
-    def __init__(self, what: str, why: str, fix: str, code: str = "") -> None:
+    USER_MESSAGE = ("I couldn't safely finish this step. The requested "
+                    "change has not been confirmed; resolve the issue "
+                    "below before continuing.")
+    """Plain-language consequence and next step shown to the editor.
+    A refusal family may override this; the detailed `what`, `why` and
+    `fix` remain available for a technical explanation."""
+
+    RECOVERY_CLASS = "blocked"
+    """One of auto_recoverable, needs_question or blocked. Families
+    override this only when their safe recovery is known."""
+
+    def __init__(self, what: str, why: str, fix: str, code: str = "",
+                 user_message: str = "", recovery_class: str = "") -> None:
         missing = [name for name, value in
                    (("what", what), ("why", why), ("fix", fix))
                    if not (isinstance(value, str) and value.strip())]
@@ -87,18 +110,30 @@ class RenRefusal(RuntimeError, ValueError):
         self.fix = fix.strip()
         self.code = (code.strip() or type(self).CODE.strip()
                      or _default_code(type(self).__name__))
+        self.user_message = (user_message.strip()
+                             or type(self).USER_MESSAGE.strip()
+                             or f"I couldn't safely finish this step. {self.fix}")
+        self.recovery_class = (recovery_class.strip()
+                               or type(self).RECOVERY_CLASS.strip())
+        if self.recovery_class not in {
+                "auto_recoverable", "needs_question", "blocked"}:
+            raise ValueError("recovery_class must be auto_recoverable, "
+                             "needs_question or blocked")
         super().__init__(self.render())
 
     def render(self) -> str:
-        """The one shape, as the `ren` boundary prints it."""
-        return (f"ren: refused - {self.what}\n"
+        """The host-facing consequence, with technical detail retained."""
+        return (f"ren: refused - {self.user_message}\n"
+                f"  what: {self.what}\n"
                 f"  why: {self.why}\n"
                 f"  fix: {self.fix}")
 
     def to_dict(self) -> dict:
-        """All four fields, for structured logs and the support bundle."""
+        """Structured refusal, including editor guidance and recovery."""
         return {"code": self.code, "what": self.what,
-                "why": self.why, "fix": self.fix}
+                "why": self.why, "fix": self.fix,
+                "user_message": self.user_message,
+                "recovery_class": self.recovery_class}
 
 
 def _default_code(class_name: str) -> str:

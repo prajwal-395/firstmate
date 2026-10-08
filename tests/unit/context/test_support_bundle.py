@@ -174,7 +174,7 @@ def test_refusal_codes_default_from_the_class_name():
     assert SpliceRefused("w", "y", "f").code == "REN_SPLICE_REFUSED"
 
 
-def test_refusal_code_explicit_wins_and_to_dict_carries_all_four():
+def test_refusal_code_explicit_wins_and_to_dict_carries_all_six():
     class Pinned(RenRefusal):
         CODE = "REN_STABLE_ACROSS_RENAMES"
 
@@ -184,19 +184,24 @@ def test_refusal_code_explicit_wins_and_to_dict_carries_all_four():
     assert Pinned("w", "y", "f", code="REN_X").code == "REN_X"
 
     assert explicit.to_dict() == {
-        "code": "REN_ONE_OFF", "what": "w", "why": "y", "fix": "f"}
+        "code": "REN_ONE_OFF", "what": "w", "why": "y", "fix": "f",
+        "user_message": explicit.user_message,
+        "recovery_class": "blocked"}
 
 
 def test_render_shape_is_unchanged():
-    """The human three lines stay the pinned shape; the code travels
-    in `to_dict`, never in prose a machine would parse."""
+    """The human shape stays pinned: a plain-language consequence first,
+    then the technical detail; the code travels in `to_dict`, never in
+    prose a machine would parse."""
     refused = RenRefusal("the plan names no reel 9",
                          "a touchup never invents one",
                          "run `ren propose <project>` first")
     assert refused.render() == (
-        "ren: refused - the plan names no reel 9\n"
+        f"ren: refused - {refused.user_message}\n"
+        "  what: the plan names no reel 9\n"
         "  why: a touchup never invents one\n"
         "  fix: run `ren propose <project>` first")
+    assert refused.render().startswith("ren: refused - ")
     assert "REN_" not in refused.render()
 
 

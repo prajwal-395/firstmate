@@ -127,9 +127,15 @@ MODE_KEYS = frozenset({
 class PatchRefused(RenRefusal):
     """The patch cannot be applied as stated. Nothing was written."""
 
+    USER_MESSAGE = ("I couldn't apply this edit as prepared, so nothing "
+                    "on the timeline changed. Resolve the issue below, "
+                    "then ask me to try again.")
+
 
 class StalePatch(PatchRefused):
     """The patch was planned on a generation that is no longer the head."""
+
+    RECOVERY_CLASS = "needs_question"
 
     def __init__(self, patch: EditPatch, head: int, *, observed: bool,
                  rebase_possible: bool, reason: str) -> None:
@@ -146,7 +152,12 @@ class StalePatch(PatchRefused):
                  f"re-plan the patch against generation {head} "
                  f"(`python3 -m library.tools.timeline_shadow show "
                  f"--project {patch.project!r} --timeline "
-                 f"{patch.timeline!r}`)"))
+                 f"{patch.timeline!r}`)"),
+            user_message=(
+                "The timeline changed since I prepared this edit. Your "
+                "recent work is preserved, and I refreshed my read. Should "
+                "I apply this change to the updated cut?"),
+            recovery_class="needs_question")
 
 
 # ── The patch ──────────────────────────────────────────────────────────

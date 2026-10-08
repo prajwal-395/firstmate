@@ -319,7 +319,11 @@ scope.
   the Resolve project, or any timeline the user did not name.
 - No API-mode LLM calls on this path; no inventing creative judgement
   the prompts did not ask for; no answering from outside `context`.
-- One refusal shape note: a file this lane does not own may refuse in
-  words this skill did not teach. Read the refusal, do what it says,
-  and report it - refusal wording across the codebase belongs to lane
-  (b), not to this skill.
+- When `ren` refuses, relay the first-line user-facing consequence in
+  plain language. Use its recovery class to decide what happens next:
+  `auto_recoverable` means perform only the named safe recovery,
+  `needs_question` means ask the smallest question in the message, and
+  `blocked` means explain what must be resolved before continuing. Do
+  not expose the technical `why` and `fix` unless the editor asks; keep
+  them available for that explanation. Structured refusal consumers
+  read `user_message` and `recovery_class` from `RenRefusal.to_dict()`.

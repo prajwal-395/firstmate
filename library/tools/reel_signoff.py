@@ -95,6 +95,10 @@ SIGNOFF_FORMAT = "reel_signoffs/1"
 class SignOffsUnreadable(RenRefusal):
     """The sign-off file exists but cannot be parsed, and this says so."""
 
+    USER_MESSAGE = ("I couldn't read the sign-off record, so nothing was "
+                    "promoted. Recover the file from backup or version "
+                    "history, then ask me to try again.")
+
     def __init__(self, message: str) -> None:
         super().__init__(
             what=message,
@@ -109,6 +113,11 @@ class SignOffsUnreadable(RenRefusal):
 
 class SignOffNotDeclared(RenRefusal):
     """A promotion would replace a signed-off reel and did not say so."""
+
+    USER_MESSAGE = ("This promotion would replace a reel the captain signed "
+                    "off, and it didn't say so, so nothing was promoted. "
+                    "Declare the replacement deliberately, then ask me to "
+                    "promote again.")
 
     def __init__(self, message: str) -> None:
         super().__init__(

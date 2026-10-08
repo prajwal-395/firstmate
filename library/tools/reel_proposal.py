@@ -119,9 +119,17 @@ person yapping and not really a convo'."""
 class ProposalError(RenRefusal):
     """A proposal is not something that could be built."""
 
+    USER_MESSAGE = ("This proposal isn't something I can build, so nothing "
+                    "was staged. Revise the proposal, then ask me to look "
+                    "again.")
+
 
 class NotApproved(RenRefusal):
     """A build path was handed a moment the captain has not approved."""
+
+    USER_MESSAGE = ("The captain hasn't approved this reel for building yet, "
+                    "so nothing was built. Get the approval first, then ask "
+                    "me to build.")
 
 
 class Approval(str, Enum):

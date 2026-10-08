@@ -135,6 +135,10 @@ class UnguardedPlacementError(RuntimeError):
 class ResolveBusy(RenRefusal):
     """Another writer holds the instance. Carries who, since when."""
 
+    USER_MESSAGE = ("Resolve is busy with another edit right now, so this "
+                    "change is waiting. Nothing changed. Try again once "
+                    "the other edit finishes.")
+
 
 class CaptainPresent(ResolveBusy):
     """The captain is in Resolve, by their own signal. Wait, then this.
@@ -146,6 +150,10 @@ class CaptainPresent(ResolveBusy):
     working, with the message naming the signal, its age, and how to
     clear it instead of naming a lane.
     """
+
+    USER_MESSAGE = ("You are working in Resolve right now, so I'm holding "
+                    "off to keep your work safe. Nothing changed. Tell me "
+                    "when you're done and I'll go ahead.")
 
 
 # ── Where the lease lives ───────────────────────────────────────────

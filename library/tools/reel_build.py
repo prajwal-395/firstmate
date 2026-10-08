@@ -1228,6 +1228,10 @@ class ReplaceGuardPromotionRefused(RenRefusal, ReelBuildError):
     never who catches it.
     """
 
+    USER_MESSAGE = ("Promoting this rebuild would drop rows the approved "
+                    "timeline has, so nothing was promoted. Declare each "
+                    "dropped row deliberately, then ask me to promote again.")
+
     def __init__(self, message: str, allow_drop_specs=()) -> None:
         import shlex
 

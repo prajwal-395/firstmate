@@ -137,9 +137,18 @@ STATUS_UNDO_FAILED = "undo_failed"
 class UndoRefused(RenRefusal):
     """An undo that declined before changing anything. Always by name."""
 
+    USER_MESSAGE = ("I couldn't undo this as asked, so nothing changed. "
+                    "Check the issue below before asking again.")
+
 
 class TimelineMovedSinceTouch(UndoRefused):
     """The live timeline no longer reads as the touch left it."""
+
+    USER_MESSAGE = ("The timeline changed since this touch was made, so I "
+                    "held off undoing to keep your recent work safe. "
+                    "Should I undo against the updated cut?")
+
+    RECOVERY_CLASS = "needs_question"
 
 
 class UndoNotVerified(RuntimeError):

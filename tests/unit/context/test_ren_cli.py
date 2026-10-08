@@ -37,9 +37,13 @@ def test_the_shape_carries_what_why_and_fix_and_requires_all_three():
                          "a touchup never invents one",
                          "run `ren propose <project>` first")
     rendered = refused.render()
-    assert rendered.startswith("ren: refused - the plan names no reel 9")
+    assert rendered.startswith("ren: refused - I couldn't safely finish this step.")
+    assert "\n  what: the plan names no reel 9" in rendered
     assert "\n  why: a touchup never invents one" in rendered
     assert "\n  fix: run `ren propose <project>` first" in rendered
+    assert refused.recovery_class == "blocked"
+    assert refused.to_dict()["user_message"] == refused.user_message
+    assert refused.to_dict()["recovery_class"] == "blocked"
     assert str(refused) == rendered
 
     with pytest.raises(ValueError, match="fix"):
@@ -59,6 +63,145 @@ def test_a_refusal_stays_catchable_as_before():
         raise refused
     with pytest.raises(RuntimeError):
         raise refused
+
+
+def _inventoried_refusal_families():
+    """Every `RenRefusal` family, found statically.
+
+    Maps `module.ClassName` to the defining module. A class counts when
+    it subclasses `RenRefusal` directly or a same-module class that
+    does, resolved to a fixpoint - so chains like
+    `StalePatch(PatchRefused)` count, while the legacy
+    `feedback_patch_apply.PatchRefused(RuntimeError)` family does not.
+    Static so a family in a module no test imports yet is still
+    inventoried; the test below imports each defining module and
+    proves the runtime walk covers them all.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[3]
+    counted: dict[str, set[str]] = {}
+
+    def bases_of(path: Path) -> dict[str, list[str]]:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            return {}
+        out: dict[str, list[str]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                names = []
+                for base in node.bases:
+                    if isinstance(base, ast.Name):
+                        names.append(base.id)
+                    elif isinstance(base, ast.Attribute):
+                        names.append(base.attr)
+                out[node.name] = names
+        return out
+
+    modules: dict[str, Path] = {}
+    for base in ("library", "ren"):
+        for path in sorted((root / base).rglob("*.py")):
+            module = (path.relative_to(root).with_suffix("")
+                      .as_posix().replace("/", "."))
+            modules[module] = path
+
+    classes = {module: bases_of(path)
+               for module, path in modules.items()}
+    changed = True
+    while changed:
+        changed = False
+        for module, class_bases in classes.items():
+            known = counted.setdefault(module, set())
+            for name, bases in class_bases.items():
+                if name in known:
+                    continue
+                if "RenRefusal" in bases or known.intersection(bases):
+                    known.add(name)
+                    changed = True
+    return {f"{module}.{name}": module
+            for module, names in counted.items() for name in names}
+
+
+def test_every_ren_refusal_family_declares_editor_recovery_metadata():
+    """Every inherited refusal kind has a consequence and a bounded
+    recovery class, including families with their own constructors."""
+    import importlib
+
+    inventoried = _inventoried_refusal_families()
+    assert len(inventoried) >= 60, (
+        f"the inventory found only {len(inventoried)} families - "
+        "the scan is broken, not the codebase")
+    for module in sorted(set(inventoried.values())):
+        importlib.import_module(module)
+
+    valid = {"auto_recoverable", "needs_question", "blocked"}
+    pending = [RenRefusal]
+    seen = set()
+    runtime = set()
+    while pending:
+        family = pending.pop()
+        if family in seen:
+            continue
+        seen.add(family)
+        pending.extend(family.__subclasses__())
+        if family is RenRefusal:
+            continue
+        runtime.add(f"{family.__module__}.{family.__name__}")
+        message = getattr(family, "USER_MESSAGE", "")
+        assert isinstance(message, str) and message.strip(), family.__name__
+        assert getattr(family, "RECOVERY_CLASS", "") in valid, family.__name__
+
+    missing = set(inventoried) - runtime
+    assert not missing, (
+        "inventoried families the runtime walk never reached: "
+        + ", ".join(sorted(missing)))
+
+
+def test_co_editor_refusals_carry_tailored_consequence_messages():
+    """The refusals a co-editor host relays define their own consequence
+    message, not just the inherited default."""
+    from library.tools import edit_patch, operations, reel_proposal
+    from library.tools import reel_touchup, resolve_lock, undo_journal
+    from library.tools import reel_build, reel_signoff
+    from library.tools.versions import variants
+
+    tailored = [
+        edit_patch.PatchRefused,
+        reel_touchup.TouchupRefused,
+        reel_proposal.ProposalError,
+        reel_proposal.NotApproved,
+        resolve_lock.ResolveBusy,
+        resolve_lock.CaptainPresent,
+        operations.OperationError,
+        undo_journal.UndoRefused,
+        undo_journal.TimelineMovedSinceTouch,
+        reel_build.ReplaceGuardPromotionRefused,
+        reel_signoff.SignOffsUnreadable,
+        reel_signoff.SignOffNotDeclared,
+        variants.ChoiceRefused,
+    ]
+    valid = {"auto_recoverable", "needs_question", "blocked"}
+    for family in tailored:
+        message = family.__dict__.get("USER_MESSAGE", "")
+        assert isinstance(message, str) and message.strip(), family.__name__
+        assert "—" not in message, family.__name__
+        assert family.RECOVERY_CLASS in valid, family.__name__
+    assert undo_journal.TimelineMovedSinceTouch.RECOVERY_CLASS == "needs_question"
+
+
+def test_stale_patch_asks_before_reapplying_to_changed_timeline():
+    from library.tools.edit_patch import EditPatch, StalePatch
+
+    patch = EditPatch("p1", "Project", "Reel", 1, "reel.touchup", (),
+                      (), ())
+    refused = StalePatch(patch, 2, observed=True,
+                         rebase_possible=False,
+                         reason="the live timeline changed")
+    assert "recent work is preserved" in refused.user_message
+    assert "Should I apply" in refused.user_message
+    assert refused.recovery_class == "needs_question"
+    assert str(refused).startswith("ren: refused - " + refused.user_message)
 
 
 def test_ren_config_init_refuses_in_shape_with_exit_4(tmp_path, monkeypatch):

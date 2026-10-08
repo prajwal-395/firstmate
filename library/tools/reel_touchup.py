@@ -191,6 +191,10 @@ _logger = logging.getLogger(__name__)
 class TouchupRefused(RenRefusal):
     """A touchup that refused. Fail closed, always by name."""
 
+    USER_MESSAGE = ("I couldn't make this touchup as asked, so the reel "
+                    "is unchanged. Check the issue below and ask again "
+                    "with a touchup I can stage.")
+
 
 class TouchupError(RuntimeError):
     """A touchup that failed mid-flight. The staging still stands."""

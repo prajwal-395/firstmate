@@ -113,6 +113,10 @@ STEPS_ROOT = REPO_ROOT / "library" / "steps"
 class OperationError(RenRefusal):
     """The registry cannot serve this request."""
 
+    USER_MESSAGE = ("I can't serve this request as asked, so nothing ran. "
+                    "Check the issue below and ask again with an operation "
+                    "I support.")
+
 
 class UnknownOperation(OperationError):
     """No operation by that name."""
