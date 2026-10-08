@@ -388,7 +388,8 @@ def test_doctor_section_matches_doctor_json_shape(monkeypatch, tmp_path):
     _stub_doctor(monkeypatch, tmp_path / "hf-cache")
     section = support_bundle.doctor_section()
     assert set(section) == {
-        "ren", "checks", "required_failures", "capabilities"}
+        "ren", "runtime_backends", "checks", "required_failures",
+        "capabilities"}
     from ren.version import build_info
     assert section["ren"]["version"] == build_info()["version"]
     assert section["ren"]["channel"] == build_info()["channel"]

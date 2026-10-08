@@ -436,6 +436,9 @@ STEP_IMPLEMENTATION_DEPS = {
 # above, each with the reason.  Anything else a step references must be
 # declared: an undeclared measurement import is D1 again.
 EXEMPT_IMPORTS = {
+    # Runtime-backend attribution is run metadata only. It neither changes
+    # measurements nor their cached outputs.
+    "library/tools/runtime_backends.py",
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
     # Project-format migration bookkeeping and refusal rendering. The

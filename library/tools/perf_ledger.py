@@ -61,6 +61,7 @@ LEDGER_FILE = "perf_ledger.jsonl"
 LEDGER_ENV = "REN_PERF_LEDGER"
 RUN_ENV = "REN_PERF_RUN"
 CAPABILITY_ENV = "REN_PERF_CAPABILITY"
+BACKENDS_ENV = "REN_PERF_BACKENDS"
 
 CAPABILITY = "capability"
 SPAN = "span"
@@ -96,6 +97,19 @@ def _append(path, row: Dict[str, Any]) -> None:
         pass
 
 
+def _attach_backends(row: Dict[str, Any]) -> None:
+    """Carry the run's selected implementations onto every performance row."""
+    raw = os.environ.get(BACKENDS_ENV)
+    if not raw:
+        return
+    try:
+        backends = json.loads(raw)
+    except ValueError:
+        return
+    if isinstance(backends, dict):
+        row["runtime_backends"] = backends
+
+
 def _cpu_s(who: int) -> float:
     usage = resource.getrusage(who)
     return usage.ru_utime + usage.ru_stime
@@ -128,10 +142,19 @@ class OpenCapability:
         self.path = (Path(ledger_path_override) if ledger_path_override
                      else ledger_path(project_folder))
         self._saved = {k: os.environ.get(k)
-                       for k in (LEDGER_ENV, RUN_ENV, CAPABILITY_ENV)}
+                       for k in (LEDGER_ENV, RUN_ENV, CAPABILITY_ENV,
+                                 BACKENDS_ENV)}
         os.environ[LEDGER_ENV] = str(self.path)
         os.environ[RUN_ENV] = str(run_id)
         os.environ[CAPABILITY_ENV] = str(capability_id)
+        try:
+            from library.tools.runtime_backends import snapshot
+            self._runtime_backends = snapshot(project_folder)
+            os.environ[BACKENDS_ENV] = json.dumps(
+                self._runtime_backends, sort_keys=True)
+        except Exception:  # noqa: BLE001 - diagnostic metadata never blocks a run
+            self._runtime_backends = {}
+            os.environ[BACKENDS_ENV] = "{}"
         self.row: Dict[str, Any] = {
             "kind": CAPABILITY, "run_id": run_id,
             "capability": capability_id, "node": node, "status": "ok",
@@ -162,6 +185,7 @@ class OpenCapability:
             row["children_peak_rss_mb"] = children_rss
         row["self_peak_rss_mb"] = _maxrss_mb(resource.RUSAGE_SELF)
         if persist:
+            row["runtime_backends"] = self._runtime_backends
             _append(self.path, row)
         return dict(row)
 
@@ -271,6 +295,7 @@ def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
             "cpu_s": round(max(0.0, cpu - frame["child_cpu"]), 3),
             "self_peak_rss_mb": _maxrss_mb(resource.RUSAGE_SELF),
         })
+        _attach_backends(row)
         _append(path, row)
 
 
@@ -294,11 +319,13 @@ def record(layer: str, wall_s: float, started_at: Optional[float] = None,
     if stack:
         stack[-1]["child_wall"] += wall_s
         stack[-1]["children"].append((started_at, started_at + wall_s))
-    _append(path, {**fields, "kind": SPAN, "layer": layer,
-                   "run_id": os.environ.get(RUN_ENV),
-                   "capability": os.environ.get(CAPABILITY_ENV),
-                   "started_at": round(started_at, 3),
-                   "wall_s": round(wall_s, 3)})
+    row = {**fields, "kind": SPAN, "layer": layer,
+           "run_id": os.environ.get(RUN_ENV),
+           "capability": os.environ.get(CAPABILITY_ENV),
+           "started_at": round(started_at, 3),
+           "wall_s": round(wall_s, 3)}
+    _attach_backends(row)
+    _append(path, row)
 
 
 def run(layer: str, *args: Any, fields: Optional[Dict[str, Any]] = None,

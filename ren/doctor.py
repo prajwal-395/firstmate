@@ -1091,6 +1091,7 @@ def _line(check: Check, width: int) -> list:
 
 def render(checks: list) -> str:
     from library.tools import machine_needs
+    from library.tools.runtime_backends import doctor_line
     from ren.version import build_info
     info = build_info()
     width = max(len(check.name) for check in checks)
@@ -1099,6 +1100,7 @@ def render(checks: list) -> str:
              f"{info['channel']}) - "
              f"what can this Mac do with Ren? (read-only: changes nothing)",
              f"Python compatibility: {info['requires_python']}",
+             doctor_line(),
              "FAIL: every capability needs it.  MISS: limits the capabilities below.  "
              "UNKNOWN: the check could not determine the answer.",
              f"Engine: {_engine_root()}",
@@ -1178,7 +1180,9 @@ def main(argv=None, probe=None) -> int:
     from ren.version import build_info
     engine_root = _engine_root()
     from library.tools import machine_needs
+    from library.tools.runtime_backends import snapshot as runtime_backend_snapshot
     ren_build = {**build_info(), "engine_root": str(engine_root)}
+    runtime_backends = runtime_backend_snapshot()
     parser = argparse.ArgumentParser(prog="ren doctor", description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true", help="Print the checks as JSON")
     parser.add_argument(
@@ -1201,6 +1205,7 @@ def main(argv=None, probe=None) -> int:
             machine_needs.availability(args.capability, failing, undetermined)
         if args.json:
             print(json.dumps({"ren": ren_build,
+                              "runtime_backends": runtime_backends,
                               "capability": args.capability, "verdict": verdict,
                               "missing": list(missing), "degraded": degraded,
                               "undetermined": list(undetermined_missing),
@@ -1214,6 +1219,7 @@ def main(argv=None, probe=None) -> int:
     if args.json:
         print(json.dumps({
             "ren": ren_build,
+            "runtime_backends": runtime_backends,
             "checks": [asdict(check) for check in checks],
             "required_failures": [check.name for check in failed],
             "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d,

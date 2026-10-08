@@ -15,6 +15,7 @@ Run with:  bin/vep scripts/measure_media_infrastructure.py
 from __future__ import annotations
 
 import cProfile
+import datetime
 import hashlib
 import json
 import subprocess
@@ -92,7 +93,7 @@ def count_call_sites(name: str) -> int:
     """Count call sites for a function in library/."""
     result = subprocess.run(
         ["grep", "-rn", f"{name}(", str(REPO / "library/"), "--include=*.py"],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, encoding="utf-8", check=False,
     )
     lines = [l for l in result.stdout.strip().split("\n")
              if l and f"def {name}" not in l]
@@ -113,7 +114,7 @@ def main() -> None:
     from library.tools.render_cache import renderer_fingerprint
 
     print("=" * 100)
-    print("Ren media infrastructure measurement (2026-10-05, real scale)")
+    print(f"Ren media infrastructure measurement ({datetime.date.today()}, real scale)")
     print("=" * 100)
 
     # ── 1. Content fingerprinting ─────────────────────────────────────

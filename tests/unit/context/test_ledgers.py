@@ -1874,6 +1874,7 @@ def test_a_second_journal_in_the_same_second_does_not_overwrite_the_first(
 
 def _shares(project):
     rows = perf_ledger.read_rows(project)
+    assert all(isinstance(row.get("runtime_backends"), dict) for row in rows)
     report = perf_ledger.profile(rows, "r1")
     return report, {line["name"]: line["wall_s"] for line in report["lines"]}
 

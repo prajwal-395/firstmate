@@ -354,6 +354,18 @@ def test_the_previous_account_survives_the_next_run(tmp_path):
     assert on_disk["restart"]["stopped_at_step"] == "mesh_spine"
 
 
+def test_run_record_captures_runtime_backends(tmp_path, monkeypatch):
+    from library.tools import runtime_backends
+
+    monkeypatch.setattr(runtime_backends, "snapshot", lambda _project: {
+        "edit_core": "rust", "resolve_broker": "python",
+        "resolve_ui_driver": "rust", "graphics_renderer": "fframes"})
+    record = run_control.begin_run_status(str(tmp_path), "full run", [])
+    assert record["runtime_backends"] == {
+        "edit_core": "rust", "resolve_broker": "python",
+        "resolve_ui_driver": "rust", "graphics_renderer": "fframes"}
+
+
 # ── It reaches the outputs, not only a log ──────────────────────────
 
 def test_the_state_file_carries_the_restart():

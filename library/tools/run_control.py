@@ -376,6 +376,11 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         "run_group": run_group,
     }
     try:
+        from library.tools.runtime_backends import snapshot
+        record["runtime_backends"] = snapshot(project_dir)
+    except Exception:  # noqa: BLE001 - diagnostic metadata never blocks a run
+        record["runtime_backends"] = {"status": "unavailable"}
+    try:
         _write_json(run_status_path(project_dir), record)
     except OSError:
         return {}
