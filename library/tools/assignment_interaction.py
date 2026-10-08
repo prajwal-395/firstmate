@@ -125,6 +125,17 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             refusal["unsatisfied"] = [
                 {"name": item.name, "produced_by": item.produced_by}
                 for item in result.unsatisfied]
+    payload = None if refused else _json_value(result.payload)
+    if not refused and req.operation_id == "footage.catalog":
+        from library.tools import assignment_artifacts
+        artifact_path = assignment_artifacts.publish_first_value(
+            req.project, payload, assignment_id=req.assignment_id)
+        payload["first_value_artifact"] = {
+            "path": str(artifact_path),
+            "kind": "footage_map",
+            "available_after": "footage.catalog",
+            "deeper_analysis_complete": False,
+        }
     envelope = {
         "version": ENVELOPE_VERSION,
         "assignment_id": req.assignment_id,
@@ -135,7 +146,7 @@ def _execute_locked(req: AssignmentRequest) -> dict:
                      "message": "Operation refused; nothing ran." if refused else "Operation completed."},
         "inputs": dict(req.inputs),
         "effect": effect,
-        "result": None if refused else _json_value(result.payload),
+        "result": payload,
         "refusal": refusal,
         "recovery": {"resumable": True, "resume_with": req.to_dict()},
     }
@@ -215,4 +226,56 @@ def decide_revision(project: str, assignment_id: str, revision_id: str,
             "result": record,
             "recovery": {"resumable": True, "resume_with": {
                 "assignment_id": assignment_id, "revision_id": revision_id,
-                "stage": "revise"}}}
+            "stage": "revise"}}}
+
+
+def contextual_onboarding(project: str, assignment_id: str, *, context: str) -> dict:
+    """Return onboarding at the relevant point in the shared assignment loop."""
+    from library.tools import assignment_artifacts
+    result = assignment_artifacts.load_onboarding(
+        project, assignment_id, context=context)
+    stage_by_context = {"catalog_ready": "understand", "review_ready": "review",
+                        "revision_ready": "revise", "delivery_ready": "deliver"}
+    stage = result["lessons"][0]["stage"] if result["lessons"] else stage_by_context[context]
+    return {"version": ENVELOPE_VERSION, "assignment_id": assignment_id,
+            "operation_id": "assignment.onboarding", "stage": stage,
+            "status": "completed", "progress": {
+                "status": "completed", "fraction": 1.0,
+                "message": "Contextual onboarding loaded."},
+            "result": result,
+            "recovery": {"resumable": True, "resume_with": {
+                "assignment_id": assignment_id, "stage": stage}}}
+
+
+def dismiss_contextual_onboarding(project: str, assignment_id: str) -> dict:
+    """Dismiss onboarding for this assignment without affecting other projects."""
+    from library.tools import assignment_artifacts
+    result = assignment_artifacts.dismiss_onboarding(project, assignment_id)
+    return {"version": ENVELOPE_VERSION, "assignment_id": assignment_id,
+            "operation_id": "assignment.onboarding.dismiss", "stage": "understand",
+            "status": "completed", "progress": {
+                "status": "completed", "fraction": 1.0,
+                "message": "Onboarding dismissed for this assignment."},
+            "result": result,
+            "recovery": {"resumable": True, "resume_with": {
+                "assignment_id": assignment_id, "stage": "understand"}}}
+
+
+def delivery_receipt(project: str, *, assignment_id: str,
+                     approved_version: Mapping, files: list, qc: Mapping,
+                     resume_point: Mapping, selected_platforms=()) -> dict:
+    """Publish a receipt only from the files/specs/QC supplied by delivery."""
+    from library.tools import assignment_artifacts
+    path, record = assignment_artifacts.publish_delivery_receipt(
+        project, assignment_id=assignment_id, approved_version=approved_version,
+        files=files, qc=qc, resume_point=resume_point,
+        selected_platforms=selected_platforms)
+    return {"version": ENVELOPE_VERSION, "assignment_id": assignment_id,
+            "operation_id": "assignment.deliver", "stage": "deliver",
+            "status": "completed",
+            "progress": {"status": record["status"], "fraction": 1.0,
+                         "message": "Delivery receipt written."},
+            "result": {"path": str(path), "receipt": record},
+            "recovery": {"resumable": True, "resume_with": {
+                "assignment_id": assignment_id, "stage": "deliver",
+                "action": resume_point["action"]}}}

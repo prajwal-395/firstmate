@@ -84,9 +84,9 @@ from __future__ import annotations
 
 import ast
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _LIBRARY_ROOT.parent
@@ -168,16 +168,6 @@ REPORTED_NOT_CONSUMED = {
         "to `step_1_02_catalog_footage/step.py:297`, which is the "
         "CATALOG's own key of the same name being WRITTEN.",
 
-    ("catalog", "total_clips"):
-        "A count. DECISION: it stays unread - it is `len(clip_catalog)`, "
-        "which is carried by nine edges. 17 and 17 on 001. It was "
-        "credited to `step_1_05_prosody_analysis/step.py:318` and "
-        "`analysis/vision_pipeline_v3.py:1794`, both of which are those "
-        "modules' own counts of their own work.",
-    ("catalog", "skipped_files"):
-        "The same listing, one step later, and the same decision. It was "
-        "credited to `step_1_01_scan_project/step.py:99`, which is SCAN's "
-        "own `skipped_files` being written, and runs BEFORE the catalog.",
     ("catalog", "source_resolution"):
         "The footage's modal stored resolution, measured by 1.02. "
         "DECISION (2026-09-07): it stays unread, and it should. Every "
@@ -302,6 +292,11 @@ UNREAD_FINDINGS = {
 # which are writes.
 
 KNOWN_NAME_COLLISIONS = {
+    ("scan", "skipped_files"):
+        "`assignment_artifacts.first_value_catalog` reads the catalog "
+        "output's `skipped_files` to explain which footage was omitted. "
+        "The identical key on scan is a different listing, produced before "
+        "cataloging; this reader must not be credited to scan.",
     ("temporal_index", "source"):
         "`source` is one of the most generic keys in this tree. The "
         "readers credited to it - `dashboard/server.py:406` "
@@ -325,16 +320,16 @@ class OutputRow:
     node: str
     step_dir: str
     name: str
-    edge_consumers: Tuple[Tuple[str, str], ...] = ()
+    edge_consumers: tuple[tuple[str, str], ...] = ()
     own_prompt: str = ""
-    code_readers: Tuple[Tuple[str, int], ...] = ()
+    code_readers: tuple[tuple[str, int], ...] = ()
     name_collision: bool = False
     """This output's `code_readers` are recorded in
     `KNOWN_NAME_COLLISIONS` as reading something else of the same name,
     so they do not carry it."""
 
     @property
-    def routes(self) -> Tuple[str, ...]:
+    def routes(self) -> tuple[str, ...]:
         found = []
         if self.edge_consumers:
             found.append(ROUTE_EDGE)
@@ -349,7 +344,7 @@ class OutputRow:
         return not self.routes
 
     @property
-    def key(self) -> Tuple[str, str]:
+    def key(self) -> tuple[str, str]:
         return (self.node, self.name)
 
     def evidence(self) -> str:
@@ -364,7 +359,7 @@ class OutputRow:
         return ""
 
 
-def _string_constants(path: Path) -> Dict[str, List[int]]:
+def _string_constants(path: Path) -> dict[str, list[int]]:
     """Every string literal in a file, with the lines it appears on.
 
     Literals rather than a text search: a key named in a COMMENT is a
@@ -379,14 +374,14 @@ def _string_constants(path: Path) -> Dict[str, List[int]]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, ValueError):
         return {}
-    found: Dict[str, List[int]] = {}
+    found: dict[str, list[int]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             found.setdefault(node.value, []).append(node.lineno)
     return found
 
 
-def _read_literals(path: Path) -> Dict[str, List[int]]:
+def _read_literals(path: Path) -> dict[str, list[int]]:
     """String literals a file uses to READ a value out of something.
 
     The `code` route asks who READS an output, and a bare name match
@@ -416,7 +411,7 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, ValueError):
         return {}
-    found: Dict[str, List[int]] = {}
+    found: dict[str, list[int]] = {}
 
     def note(node: ast.Constant) -> None:
         found.setdefault(node.value, []).append(node.lineno)
@@ -454,7 +449,7 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
     return found
 
 
-def _python_files() -> List[Path]:
+def _python_files() -> list[Path]:
     """The engine's own modules - not the tests.
 
     A test naming a key is not a consumer: it is a test of the producer,
@@ -472,7 +467,7 @@ def _python_files() -> List[Path]:
     return [f for f in files if f.is_file()]
 
 
-def survey() -> List[OutputRow]:
+def survey() -> list[OutputRow]:
     """Every declared output of every process, with its routes.
 
     Reads `library/tools/processes.every_dag`, so a process that exists
@@ -486,7 +481,7 @@ def survey() -> List[OutputRow]:
     for classifier in CLASSIFIERS:
         constants.pop(classifier, None)
 
-    rows: List[OutputRow] = []
+    rows: list[OutputRow] = []
     for process_id, dag in processes.every_dag().items():
         node_dir = {node["id"]: node.get("step_ref", "").split("/")[-1]
                     for node in dag.get("nodes", [])}
@@ -536,13 +531,13 @@ def survey() -> List[OutputRow]:
     return rows
 
 
-def unread(rows: Sequence[OutputRow] = None) -> List[OutputRow]:
+def unread(rows: Sequence[OutputRow] | None = None) -> list[OutputRow]:
     """The outputs no route carries."""
     return [row for row in (rows if rows is not None else survey())
             if row.unread]
 
 
-def disagreements(rows: Sequence[OutputRow] = None) -> List[str]:
+def disagreements(rows: Sequence[OutputRow] | None = None) -> list[str]:
     """Where the survey and the two tables above do not agree.
 
     Fails BOTH ways, which is what stops a table from being a way to go
@@ -556,7 +551,7 @@ def disagreements(rows: Sequence[OutputRow] = None) -> List[str]:
     recorded = set(REPORTED_NOT_CONSUMED) | set(UNREAD_FINDINGS)
     live = {row.key for row in rows}
 
-    problems: List[str] = []
+    problems: list[str] = []
     for key in sorted(found - recorded):
         problems.append(
             f"{key[0]}.{key[1]}: declared as an output and NO ROUTE "
@@ -596,7 +591,7 @@ def disagreements(rows: Sequence[OutputRow] = None) -> List[str]:
 
 # ── The field-level half that IS mechanical ─────────────────────────
 
-def uncalled_functions() -> List[Tuple[str, str, int]]:
+def uncalled_functions() -> list[tuple[str, str, int]]:
     """Module-level public functions in `library/` that nothing calls.
 
     `enforce_min_duration` was "defined, documented and NEVER CALLED"
@@ -622,7 +617,7 @@ def uncalled_functions() -> List[Tuple[str, str, int]]:
     captain's decision - the same posture `input_contract` takes with
     `unread_by_a_prompt_less_step`.
     """
-    defined: Dict[str, List[Tuple[str, int]]] = {}
+    defined: dict[str, list[tuple[str, int]]] = {}
     for path in sorted((_LIBRARY_ROOT).rglob("*.py")):
         text = path.as_posix()
         if "__pycache__" in text or "/tests/" in text:
@@ -685,7 +680,7 @@ def uncalled_functions() -> List[Tuple[str, str, int]]:
 # ── CLI ──────────────────────────────────────────────────────────────
 
 def format_survey(rows: Sequence[OutputRow]) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     current = ""
     for row in rows:
         if row.node != current:
@@ -697,14 +692,14 @@ def format_survey(rows: Sequence[OutputRow]) -> str:
     orphans = unread(rows)
     lines += [
         "",
-        f"{len(rows)} declared outputs across {len({r.node for r in rows})} "
-        f"steps in {len({r.process for r in rows})} process(es).",
-        f"  carried by an edge          : "
-        f"{sum(1 for r in rows if ROUTE_EDGE in r.routes)}",
-        f"  read by their own prompt    : "
-        f"{sum(1 for r in rows if r.routes and r.routes[0] == ROUTE_OWN_PROMPT)}",
-        f"  named by a module elsewhere : "
-        f"{sum(1 for r in rows if r.routes == (ROUTE_CODE,))}",
+        (f"{len(rows)} declared outputs across {len({r.node for r in rows})} "
+         f"steps in {len({r.process for r in rows})} process(es)."),
+        (f"  carried by an edge          : "
+         f"{sum(1 for r in rows if ROUTE_EDGE in r.routes)}"),
+        (f"  read by their own prompt    : "
+         f"{sum(1 for r in rows if r.routes and r.routes[0] == ROUTE_OWN_PROMPT)}"),
+        (f"  named by a module elsewhere : "
+         f"{sum(1 for r in rows if r.routes == (ROUTE_CODE,))}"),
         f"  NO ROUTE AT ALL             : {len(orphans)}",
     ]
     return "\n".join(lines)

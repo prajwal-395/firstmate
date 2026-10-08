@@ -967,7 +967,7 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
             file=sys.stderr,
         )
 
-    return {
+    result = {
         "clip_catalog": entries,
         "total_clips": len(entries),
         "skipped_files": skipped,
@@ -976,6 +976,12 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         "audio_catalog": audio_catalog,
         "duplicate_groups": duplicate_groups,
     }
+    # Publish the human-usable first value as soon as lightweight cataloging
+    # finishes. Semantic and temporal analysis are downstream and may still run.
+    if project_folder:
+        from library.tools.assignment_artifacts import publish_first_value
+        publish_first_value(project_folder, result)
+    return result
 
 
 def _catalog_audio(raw_audio_files: list, program_stream=None,
