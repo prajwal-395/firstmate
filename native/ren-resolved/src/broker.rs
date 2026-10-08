@@ -89,6 +89,9 @@ impl Broker {
     }
 
     pub fn start(&mut self) {
+        if let Err(error) = self.prepare_worker.lock().unwrap().warm_prepare() {
+            eprintln!("ren-resolved: could not warm prepare worker: {error}");
+        }
         let state = Arc::clone(&self.state);
         let store = Arc::clone(&self.store);
         self.schedule_thread = Some(std::thread::spawn(move || {
@@ -145,6 +148,8 @@ impl Broker {
             coalesce_key: shape.coalesce_key.clone(),
             interrupt_policy: shape.interrupt_policy.clone(),
             owner: owner.to_string(),
+            description: shape.description.clone(),
+            progress: shape.progress.clone(),
             state: "queued".to_string(),
             subscribers: 1,
             submitted: now,
@@ -230,6 +235,10 @@ impl Broker {
             coalesce_key: result.get("coalesce_key")
                 .and_then(|v| v.as_str()).map(String::from),
             interrupt_policy: result.get("interrupt_policy")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: result.get("description")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            progress: result.get("progress")
                 .and_then(|v| v.as_str()).unwrap_or("").to_string(),
         })
     }
@@ -418,6 +427,8 @@ struct PreparedShape {
     locality: String,
     coalesce_key: Option<String>,
     interrupt_policy: String,
+    description: String,
+    progress: String,
 }
 
 fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
@@ -706,6 +717,7 @@ mod tests {
                 timeline: String::new(), qualification: true,
                 coalesce_key: None, owner: "test".to_string(),
                 interrupt_policy: policy.to_string(),
+                description: "test job".to_string(), progress: String::new(),
                 state: "running".to_string(), subscribers: 1,
                 submitted: crate::store::now(),
             }).unwrap();

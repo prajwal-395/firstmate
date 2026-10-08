@@ -3,77 +3,78 @@
 ## Setup
 
 - Machine: macOS 26.3, arm64 (Apple Silicon); Python 3.12.13 (ren venv)
-- Source tree: this checkout at `5eaf17ba` (Rust-broker-default stack:
-  2172 merged, worker borrowing exemption + parity-harness default fix
-  in the worktree)
-- Rust daemon: `native/target/release/ren-resolved` (same tree)
-- Python daemon: `python -m library.tools.resolved serve` (same tree)
-- Both daemons throwaway, own sockets under `/tmp/bench-brokers-*/`,
-  store beside the socket (fully isolated from the shared broker);
-  `REN_SHADOW_WATCHER=0`
-- Live Resolve contact is limited to `watchdog_status` (bounded
-  shared-lease probe) and the probe sample below (borrow + restore).
-  Everything else never leaves the daemon process.
-- Raw JSON: benchmark script at `/tmp/bench_brokers.py`,
-  probe re-run at `/tmp/bench_probes.py`
-  (scratch outside the worktree, not committed)
+- Source tree: this checkout; throwaway Python and Rust daemons each used
+  their own socket and SQLite store under `/tmp/bench-brokers-*/`.
+- Rust daemon: `native/target/release/ren-resolved` (built through
+  `scripts/build_ren_resolved.sh`)
+- Python daemon: `python -m library.tools.resolved serve`
+- `REN_SHADOW_WATCHER=0`; the synthetic workload does not contact Resolve.
+- Raw JSON: `/tmp/bench_brokers_before.json` and
+  `/tmp/bench_brokers_after.json`; benchmark script:
+  `/tmp/bench_brokers.py` (scratch outside the worktree).
 
 ## Correctness
 
-`tests/tooling/protocol_parity.py` (same request bytes to both
-daemons): **14/14 identical, 0 failures** - ping, submit
-(lease / unknown kind / snapshot-missing-name), list, watchdog_status,
-status/result/cancel unknown id, release with no grant, unknown op,
-status, result, list-after-leases.
+`tests/tooling/protocol_parity.py` compares the same request bytes to both
+daemons: **14/14 identical, 0 failures** - ping, submit (lease / unknown
+kind / snapshot-missing-name), list, watchdog_status, status/result/cancel
+unknown id, release with no grant, unknown op, status, result, and
+list-after-leases.
 
-Two live behaviours observed identical on both daemons:
+A separate throwaway-daemon shutdown check after the final build returned
+the shutdown reply in 0.13 ms and observed process exit in 139.50 ms.
 
-- `resolve.activity_probe` while the captain's project cannot be saved
-  fails **closed and identically**: `QualificationError: could not
-  save 'Podcast (field test)'; not borrowing` (first attempt, both).
-- Retry minutes later: both `done`, `elapsed: 1.0`,
-  `restored: true` (captain's project, timeline and page read back).
+The full benchmark attempted three `resolve.activity_probe` samples per
+daemon. All six remained queued for the 60-second result timeout. The
+preceding synthetic schedule burst leaves shared lease jobs running, so the
+probe's exclusive lease cannot start. No Resolve work occurred in these
+benchmark runs. The final latency repeat measured the same five synthetic
+operations and omitted the blocked probe section. An earlier isolated live
+sample, before this rerun, borrowed and restored `Ren Qualification`; it
+completed in 14.9 seconds on Python and 13.9 seconds on Rust, with 1.0 second
+of probe execution on each.
 
-## Tail latency (same synthetic scheduling workload)
+## Tail latency
 
-200x ping, 200x list(limit 5), 100x submit/result/cancel of
-shared-mode lease jobs (full schedule path, no Resolve contact):
+Same synthetic workload in both runs: 200 ping requests, 200 list(limit 5)
+requests, and 100 each of submit, result, and cancel for shared-mode lease
+jobs. Values are p50 / p99 in milliseconds.
 
-| op | Python p50 | Python p99 | Rust p50 | Rust p99 |
-|---|---|---|---|---|
-| ping | 0.15 ms | 0.24 ms | 52.81 ms | 55.95 ms |
-| list | 0.35 ms | 0.68 ms | 105.95 ms | 111.68 ms |
-| submit | 0.67 ms | 36.55 ms | 106.45 ms | 201.15 ms |
-| result | 0.38 ms | 0.87 ms | 106.35 ms | 110.08 ms |
-| cancel | 0.36 ms | 0.66 ms | 106.52 ms | 110.10 ms |
+| Operation | Python before | Rust before | Python after | Rust after |
+|---|---:|---:|---:|---:|
+| ping | 0.16 / 0.34 | 53.71 / 57.59 | 0.15 / 0.38 | 0.06 / 0.35 |
+| list | 0.40 / 0.71 | 106.68 / 110.89 | 0.35 / 0.76 | 0.19 / 0.69 |
+| submit | 4.07 / 96.26 | 106.74 / 171.87 | 6.20 / 22.22 | 0.59 / 0.97 |
+| result | 0.46 / 3.34 | 106.43 / 110.27 | 0.51 / 7.08 | 0.28 / 0.43 |
+| cancel | 0.52 / 2.08 | 107.24 / 110.16 | 0.56 / 3.48 | 0.23 / 0.40 |
 
-The Rust daemon answers on an approximately **50 ms floor**
-(ping p50 52.8 ms, every op a multiple of it) - the serve loop's
-short poll interval (`native/ren-resolved/src/main.rs`), against the
-Python daemon's threaded socketserver. One Python submit outlier at
-36 ms (max); otherwise sub-millisecond throughout.
+The accept loop caused the original request floor. It slept 50 ms after an
+empty nonblocking `accept`, while each client request opened a fresh socket.
+Rust now blocks in `accept`, so requests wake it directly. Shutdown sends a
+local wake connection after writing its reply, allowing the same blocking
+loop to exit promptly.
 
-Live probe sample (`resolve.activity_probe`, seconds=1, borrowed +
-restored): python wall 14.9 s, rust wall 13.9 s - both dominated by
-shared-lease acquisition while the machine's Resolve was busy, not by
-the daemon; execution 1.0 s each.
+The first post-change run exposed a submit p99 outlier from the lazy Python
+prepare worker startup. Rust now warms that worker with a harmless `lease`
+validation at daemon startup. In the final run Rust was faster than Python at
+both p50 and p99 for all five operations. The slowest Rust p99 was submit at
+0.97 ms, below Python's 22.22 ms in the same run. Receipt reads use an
+explicit column projection and indexed SQLite access rather than repeated
+column-name lookup.
 
 ## Memory / CPU
 
 | | Python daemon | Rust daemon |
-|---|---|---|
-| RSS before / after | 26,784 / 22,896 KB | 3,424 / 3,360 KB |
-| cputime before / after | 0:00.05 / 0:00.50 | 0:00.01 / 0:00.31 |
+|---|---:|---:|
+| RSS before / after | 26,832 / 31,616 KB | 3,296 / 4,304 KB |
+| cputime before / after | 0:00.04 / 0:00.56 | 0:00.01 / 0:00.10 |
 
-The Rust daemon holds roughly **7x less memory** (3.4 MB vs 23 MB);
-CPU is noise-level on both for this workload.
+Rust retained its lower memory footprint after warming the prepare worker.
 
 ## Decision
 
-No broker changes. Correctness is identical (14/14 + matching live
-fail-closed and borrow/restore behaviour); the Rust daemon is far
-leaner in memory; its ~50 ms per-request floor is the serve loop's
-poll interval, not a scheduling defect - narrowing it is a
-responsiveness trade, not a correctness fix, and out of scope for
-this task. Revisit only if client-visible latency (e.g. overlay
-cancel snappiness) measures worse, not on synthetic burst numbers.
+The Rust daemon now meets or beats Python p50 and p99 on every operation in
+the measured workload. The original 50 ms floor came from accept polling;
+the remaining first-submit tail came from lazy worker startup. Both are
+removed without changing protocol replies, and shutdown wakes the blocked
+accept loop instead of waiting for a polling tick.

@@ -15,6 +15,10 @@ use std::sync::Mutex;
 /// The terminal states (`store.TERMINAL`).
 pub const TERMINAL: [&str; 4] = ["done", "failed", "rejected", "cancelled"];
 
+const RECEIPT_COLUMNS: &str = "id, kind, priority, mode, executed, params, \
+    project, timeline, qualification, coalesce_key, owner, description, \
+    progress, state, subscribers, submitted, started, finished, result, error";
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -29,6 +33,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     coalesce_key TEXT,
     interrupt_policy TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    progress TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL,
     subscribers INTEGER NOT NULL DEFAULT 1,
     submitted REAL NOT NULL,
@@ -66,6 +72,8 @@ pub struct Receipt {
     pub qualification: bool,
     pub coalesce_key: Option<String>,
     pub owner: String,
+    pub description: String,
+    pub progress: String,
     pub state: String,
     pub subscribers: i64,
     pub submitted: f64,
@@ -110,6 +118,8 @@ pub struct JobRecord {
     pub coalesce_key: Option<String>,
     pub interrupt_policy: String,
     pub owner: String,
+    pub description: String,
+    pub progress: String,
     pub state: String,
     pub subscribers: i64,
     pub submitted: f64,
@@ -134,6 +144,16 @@ impl JobStore {
                 [],
             )?;
         }
+        for column in ["description", "progress"] {
+            let mut statement = conn.prepare("PRAGMA table_info(jobs)")?;
+            let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+            if !columns.filter_map(Result::ok).any(|name| name == column) {
+                conn.execute(
+                    &format!("ALTER TABLE jobs ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"),
+                    [],
+                )?;
+            }
+        }
         // A job left queued or running by a daemon that died is closed as
         // failed: its client lost its connection with that daemon, so
         // nobody is waiting on it any more.
@@ -150,8 +170,8 @@ impl JobStore {
         self.conn.lock().unwrap().execute(
             "INSERT INTO jobs (id, kind, priority, mode, executed, params, \
              project, timeline, qualification, coalesce_key, interrupt_policy, \
-             owner, state, subscribers, submitted) VALUES \
-             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             owner, description, progress, state, subscribers, submitted) VALUES \
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 job.id,
                 job.kind,
@@ -165,6 +185,8 @@ impl JobStore {
                 job.coalesce_key,
                 job.interrupt_policy,
                 job.owner,
+                job.description,
+                job.progress,
                 job.state,
                 job.subscribers,
                 job.submitted,
@@ -300,7 +322,7 @@ impl JobStore {
     pub fn get(&self, job_id: &str) -> Option<Receipt> {
         self.conn.lock().unwrap()
             .query_row(
-                "SELECT * FROM jobs WHERE id=?1",
+                &format!("SELECT {RECEIPT_COLUMNS} FROM jobs WHERE id=?1"),
                 params![job_id],
                 receipt_from_row,
             )
@@ -320,7 +342,9 @@ impl JobStore {
     pub fn recent(&self, limit: i64) -> Vec<Receipt> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = match conn
-            .prepare("SELECT * FROM jobs ORDER BY submitted DESC LIMIT ?1")
+            .prepare(&format!(
+                "SELECT {RECEIPT_COLUMNS} FROM jobs ORDER BY submitted DESC LIMIT ?1"
+            ))
         {
             Ok(stmt) => stmt,
             Err(_) => return Vec::new(),
@@ -334,25 +358,27 @@ impl JobStore {
 }
 
 fn receipt_from_row(row: &Row) -> rusqlite::Result<Receipt> {
-    let params: String = row.get("params")?;
-    let result: Option<String> = row.get("result")?;
-    let started: Option<f64> = row.get("started")?;
-    let finished: Option<f64> = row.get("finished")?;
-    let submitted: f64 = row.get("submitted")?;
+    let params: String = row.get(5)?;
+    let result: Option<String> = row.get(18)?;
+    let started: Option<f64> = row.get(16)?;
+    let finished: Option<f64> = row.get(17)?;
+    let submitted: f64 = row.get(15)?;
     Ok(Receipt {
-        id: row.get("id")?,
-        kind: row.get("kind")?,
-        priority: row.get("priority")?,
-        mode: row.get("mode")?,
-        executed: row.get::<_, i64>("executed")? != 0,
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        priority: row.get(2)?,
+        mode: row.get(3)?,
+        executed: row.get::<_, i64>(4)? != 0,
         params: serde_json::from_str(&params).unwrap_or(Value::Null),
-        project: row.get("project")?,
-        timeline: row.get("timeline")?,
-        qualification: row.get::<_, i64>("qualification")? != 0,
-        coalesce_key: row.get("coalesce_key")?,
-        owner: row.get("owner")?,
-        state: row.get("state")?,
-        subscribers: row.get("subscribers")?,
+        project: row.get(6)?,
+        timeline: row.get(7)?,
+        qualification: row.get::<_, i64>(8)? != 0,
+        coalesce_key: row.get(9)?,
+        owner: row.get(10)?,
+        description: row.get(11)?,
+        progress: row.get(12)?,
+        state: row.get(13)?,
+        subscribers: row.get(14)?,
         submitted,
         started,
         finished,
@@ -360,7 +386,7 @@ fn receipt_from_row(row: &Row) -> rusqlite::Result<Receipt> {
             Some(text) => serde_json::from_str(&text).ok(),
             None => None,
         },
-        error: row.get("error")?,
+        error: row.get(19)?,
         wait_seconds: started.map(|started| round3(started - submitted)),
         hold_seconds: match (started, finished) {
             (Some(started), Some(finished)) => Some(round3(finished - started)),
@@ -433,4 +459,61 @@ pub fn now() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_job_tables_migrate_receipt_fields() {
+        let scratch = std::env::temp_dir().join(format!(
+            "ren-resolved-store-migration-{}-{}.sqlite3",
+            std::process::id(),
+            now().to_bits(),
+        ));
+        {
+            let conn = Connection::open(&scratch).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE jobs (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    priority TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    executed INTEGER NOT NULL,
+                    params TEXT NOT NULL,
+                    project TEXT NOT NULL DEFAULT '',
+                    timeline TEXT NOT NULL DEFAULT '',
+                    qualification INTEGER NOT NULL DEFAULT 0,
+                    coalesce_key TEXT,
+                    interrupt_policy TEXT NOT NULL DEFAULT '',
+                    owner TEXT NOT NULL DEFAULT '',
+                    state TEXT NOT NULL,
+                    subscribers INTEGER NOT NULL DEFAULT 1,
+                    submitted REAL NOT NULL,
+                    started REAL,
+                    finished REAL,
+                    result TEXT,
+                    error TEXT NOT NULL DEFAULT ''
+                );
+                INSERT INTO jobs (
+                    id, kind, priority, mode, executed, params, owner, state,
+                    submitted
+                ) VALUES (
+                    'legacy', 'lease', 'read', 'shared', 0, '{}', '', 'done', 1.0
+                );",
+            )
+            .unwrap();
+        }
+
+        let store = JobStore::open(&scratch).unwrap();
+        let receipt = store.get("legacy").unwrap();
+        assert_eq!(receipt.description, "");
+        assert_eq!(receipt.progress, "");
+        drop(store);
+
+        let _ = std::fs::remove_file(&scratch);
+        let _ = std::fs::remove_file(scratch.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(scratch.with_extension("sqlite3-shm"));
+    }
 }

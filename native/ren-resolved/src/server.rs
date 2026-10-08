@@ -167,7 +167,7 @@ impl Daemon {
             Request::Shutdown => {
                 self.broker.stop();
                 self.shutdown
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                    .store(true, std::sync::atomic::Ordering::Release);
                 protocol::wire(&OkReply { ok: true })
             }
         }
@@ -255,10 +255,9 @@ fn active_lease() -> Option<protocol::LeaseStatus> {
 
 /// Serve on the socket until `shutdown` or a signal.
 ///
-/// A short poll interval, as the Python daemon's `serve_forever`:
-/// `shutdown` is answered at once, but the serve loop notices on its next
-/// tick - and a client that was asked to stop should be gone by the time
-/// `stop` returns.
+/// `accept` blocks until a client arrives. The shutdown handler connects once
+/// after replying, waking the accept loop without imposing a polling delay on
+/// ordinary requests.
 pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
     if path.exists() {
         // A dead broker's socket: nobody answers it.
@@ -266,28 +265,18 @@ pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
     }
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-    listener.set_nonblocking(true)?;
     daemon.start_shadow_watcher();
     loop {
-        if daemon.shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-            break;
-        }
         match listener.accept() {
             Ok((stream, _)) => {
+                if daemon.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
                 let daemon = Arc::clone(&daemon);
+                let wake_path = path.to_path_buf();
                 std::thread::spawn(move || {
-                    // The listener is nonblocking for the accept poll; an
-                    // accepted stream inherits that, and a read with no
-                    // data ready (a client idle between requests, such as
-                    // a grant held across a sleep) would fail as EAGAIN
-                    // and look like a disconnect. Connections are
-                    // blocking, as the Python daemon's are.
-                    let _ = stream.set_nonblocking(false);
-                    handle_connection(stream, &daemon);
+                    handle_connection(stream, &daemon, &wake_path);
                 });
-            }
-            Err(exc) if exc.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Err(_) => break,
         }
@@ -326,7 +315,7 @@ fn parse_request(line: &str) -> Result<Request, String> {
     }
 }
 
-fn handle_connection(stream: UnixStream, daemon: &Daemon) {
+fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
     let mut reader = BufReader::new(stream.try_clone().expect("socket clone"));
     let mut writer = stream;
     let mut grant: Option<String> = None;
@@ -354,6 +343,8 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon) {
             break;
         }
         if matches!(request, Request::Shutdown) {
+            // Wake the blocking accept so the server can exit promptly.
+            let _ = UnixStream::connect(wake_path);
             break;
         }
     }

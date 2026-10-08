@@ -78,6 +78,9 @@ def _execute_prepare(submit: dict) -> dict:
         # The refusal's message, without the class name - the Python
         # daemon's dispatch answers `{"error": str(exc), "refused": true}`.
         return _reply(submit.get("id", ""), False, error=str(exc), refused=True)
+    shape["description"] = job_kinds.activity_description(
+        submit["kind"], submit["params"])
+    shape["progress"] = str(submit["params"].get("progress") or "")
     return _reply(submit.get("id", ""), True, result=shape)
 
 

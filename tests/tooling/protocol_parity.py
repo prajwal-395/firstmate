@@ -113,9 +113,9 @@ def compare(python_reply, rust_reply) -> list:
         if isinstance(a, dict) and isinstance(b, dict):
             for key in sorted(set(a) | set(b)):
                 if key not in a:
-                    diffs.append(f"{path}.{key}: Python has it, Rust does not")
-                elif key not in b:
                     diffs.append(f"{path}.{key}: Rust has it, Python does not")
+                elif key not in b:
+                    diffs.append(f"{path}.{key}: Python has it, Rust does not")
                 else:
                     walk(f"{path}.{key}", a[key], b[key])
         elif isinstance(a, list) and isinstance(b, list):

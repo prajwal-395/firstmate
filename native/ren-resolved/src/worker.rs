@@ -100,6 +100,21 @@ impl Worker {
         Ok(())
     }
 
+    /// Start the prepare worker and complete a harmless validation request.
+    /// This moves Python startup/import cost out of the first client submit.
+    pub fn warm_prepare(&mut self) -> Result<(), String> {
+        let response = self.run(&prepare_request(
+            "lease",
+            &serde_json::json!({"exclusive": false}),
+            false,
+        ))?;
+        if response.ok {
+            Ok(())
+        } else {
+            Err(format!("prepare worker warmup failed: {}", response.error))
+        }
+    }
+
     /// Send one request, read one response. A worker that dies answering is
     /// restarted; the caller sees the failure.
     pub fn run(&mut self, request: &Value) -> Result<WorkerResponse, String> {

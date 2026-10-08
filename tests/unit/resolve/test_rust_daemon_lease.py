@@ -118,8 +118,8 @@ def _stop(sock: Path, lock_dir: Path, pid: int | None = None) -> None:
     """Stop whatever serves on `sock` and remove the lock dir.
 
     Runs in `finally`, so a failed assertion never leaks the detached
-    daemon: the shutdown is answered at once but the broker exits on
-    its next serve tick, so the rm happens only after the socket goes
+    daemon: the shutdown is answered at once and wakes the broker's
+    accept loop, so the rm happens only after the socket goes
     quiet (a broker still shutting down when its directory is removed
     is left holding a socket file that no longer exists). Where the
     process lingers past the shutdown, the exact starting pid - never

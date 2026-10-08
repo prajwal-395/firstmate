@@ -68,8 +68,8 @@ fn main() {
     };
     let daemon = Arc::new(Daemon::new(store));
 
-    // A short poll interval: `shutdown` is answered at once, but the serve
-    // loop notices on its next tick.
+    // The blocking accept loop is woken by the shutdown handler after it
+    // replies to the client.
     let daemon_for_serve = Arc::clone(&daemon);
     let path = socket_path.clone();
     let serve_thread = std::thread::spawn(move || {
