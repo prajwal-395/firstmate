@@ -134,8 +134,11 @@ def compose(earlier, later, base: dict) -> Composition:
     if rust is not None:
         a_sem = _semantics_dict(earlier)
         b_sem = _semantics_dict(later)
+        snapshot = edit_backend.snapshot_handle(
+            base, later["operations"] if isinstance(later, dict)
+            else later.operations)
         result = rust.compose(_as_dict(earlier), _as_dict(later),
-                              base, a_sem, b_sem)
+                              snapshot, a_sem, b_sem)
         return Composition(result["verdict"], result["reason"])
     return _compose_python(earlier, later, base)
 

@@ -95,3 +95,25 @@ def rust():
                         "scripts/build_ren_native.sh <venv-bin-dir>."
                     )
     return _ren_native
+
+
+def snapshot_handle(snapshot, operations, *, include_transform=False):
+    """Prepare or reuse a Rust-resident timeline snapshot for a batch.
+
+    A measured clip-property batch needs only clip identity and timeline
+    bounds, plus transforms for read-back. Other operation sets retain the
+    complete snapshot contract. With Python selected, return the original
+    snapshot unchanged.
+    """
+    native = rust()
+    if native is None:
+        return snapshot
+    property_projection = all(
+        operation["op"] == "clip.set_property" for operation in operations
+    )
+    return native.snapshot_handle(
+        snapshot,
+        operations,
+        property_projection=property_projection,
+        include_transform=include_transform,
+    )

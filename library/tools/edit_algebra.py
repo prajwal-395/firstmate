@@ -2781,7 +2781,8 @@ def spans(operations, base):
     """The spans for operations sharing one base snapshot."""
     rust = edit_backend.rust()
     if rust is not None:
-        return rust.span_many(operations, base)
+        base_handle = edit_backend.snapshot_handle(base, operations)
+        return rust.span_many(operations, base_handle)
     return [span(op, base) for op in operations]
 
 
@@ -2831,5 +2832,7 @@ def verifies(operations, after):
         return [verify(op, after) for op in operations]
     rust = edit_backend.rust()
     if rust is not None:
-        return rust.verify_many(operations, after)
+        after_handle = edit_backend.snapshot_handle(
+            after, operations, include_transform=True)
+        return rust.verify_many(operations, after_handle)
     return [verify(op, after) for op in operations]

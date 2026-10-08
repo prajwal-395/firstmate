@@ -750,6 +750,26 @@ def test_production_batch_wrappers_match_individual_calls(monkeypatch):
         edit_algebra.verify(op, base) for op in operations]
 
 
+def test_snapshot_handle_reuses_and_updates_confirmed_property_writes():
+    """A native handle keeps its snapshot resident and accepts measured edits."""
+    base = _base_snapshot()
+    operation = {"op": "clip.set_property", "unique_id": "a",
+                 "key": "ZoomX", "value": 1.5}
+    handle = ren_native.snapshot_handle(
+        base, property_projection=True, include_transform=True)
+
+    assert ren_native.span(operation, handle) == ren_native.span(operation, base)
+    assert ren_native.verify(operation, handle) == ren_native.verify(operation, base)
+    assert handle.apply_confirmed(operation)
+    assert ren_native.verify(operation, handle) is None
+    assert ren_native.verify(operation, base) is not None
+
+    refreshed = copy.deepcopy(base)
+    refreshed["tracks"][0]["clips"][0]["transform"]["ZoomX"] = 1.25
+    handle.replace(refreshed)
+    assert ren_native.verify(operation, handle) is not None
+
+
 # ── Conflicts: meet, strictest, compose, carry ──────────────────────────
 
 
@@ -877,8 +897,9 @@ def test_compose_parity(declared_semantics):
                                   _semantics_of(earlier),
                                   _semantics_of(later))
         counts[py.verdict] = counts.get(py.verdict, 0) + 1
-        if py.verdict != rust["verdict"]:
-            mismatches.append((label, py.verdict, rust["verdict"]))
+        if (py.verdict, py.reason) != (rust["verdict"], rust["reason"]):
+            mismatches.append((label, py.verdict, py.reason,
+                               rust["verdict"], rust["reason"]))
     assert not mismatches, mismatches
     print(f"compose parity: {counts}")
 

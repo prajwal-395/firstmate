@@ -15,6 +15,38 @@ use crate::patch::validate_patch;
 use crate::snapshot::Snapshot;
 use crate::verify::verify;
 
+/// Python's `repr(str)` spelling, used because the Rust boundary returns
+/// conflict explanations that must match the Python implementation byte
+/// for byte.
+fn python_repr(value: &str) -> String {
+    let quote = if value.contains('\'') && !value.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push(quote);
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch == quote => {
+                out.push('\\');
+                out.push(ch);
+            }
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\x{:02x}", ch as u32);
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 /// The composition verdicts, least to most constraining
 /// (`patch_algebra.VERDICTS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,12 +149,14 @@ pub fn compose(
     {
         let mut names: Vec<&String> = shared;
         names.sort();
+        let names = names
+            .iter()
+            .map(|name| python_repr(name))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Composition {
             verdict: Verdict::Conflict,
-            reason: format!(
-                "a global effect on {:?} meets the other patch wherever it acts",
-                names
-            ),
+            reason: format!("a global effect on [{names}] meets the other patch wherever it acts"),
         };
     }
 
@@ -138,13 +172,16 @@ pub fn compose(
                 continue;
             };
             let Some(span) = crate::algebra::span(op, base) else {
+                let uid = crate::algebra::op_unique_id(op)
+                    .map(|uid| python_repr(&uid))
+                    .unwrap_or_else(|| "None".into());
                 return Composition {
                     verdict: Verdict::Conflict,
                     reason: format!(
-                        "{} targets clip {:?}, which is not exactly once on the generation before {:?}",
+                        "{} targets clip {}, which is not exactly once on the generation before {}",
                         op.op_id(),
-                        crate::algebra::op_unique_id(op).unwrap_or_else(|| "None".into()),
-                        earlier.id
+                        uid,
+                        python_repr(&earlier.id)
                     ),
                 };
             };
@@ -155,19 +192,21 @@ pub fn compose(
                 return Composition {
                     verdict: Verdict::Conflict,
                     reason: format!(
-                        "{} addresses frame {}, past where patch {:?} ripples from ({point}), and a frame does not move with the cut",
+                        "{} addresses frame {}, past where patch {} ripples from ({point}), and a frame does not move with the cut",
                         op.op_id(),
                         crate::algebra::op_frame(op).unwrap_or(-1),
-                        earlier.id
+                        python_repr(&earlier.id)
                     ),
                 };
             }
             found.push(Composition {
                 verdict: Verdict::Rebase,
                 reason: format!(
-                    "patch {:?} ripples from frame {point}, past clip {:?}: its span is re-measured",
-                    earlier.id,
-                    crate::algebra::op_unique_id(op).unwrap_or_else(|| "None".into())
+                    "patch {} ripples from frame {point}, past clip {}: its span is re-measured",
+                    python_repr(&earlier.id),
+                    crate::algebra::op_unique_id(op)
+                        .map(|uid| python_repr(&uid))
+                        .unwrap_or_else(|| "None".into())
                 ),
             });
         }
@@ -193,17 +232,19 @@ pub fn compose(
             ]) else {
                 continue;
             };
+            let key_repr = theirs_key
+                .iter()
+                .map(|part| match part {
+                    crate::algebra::KeyPart::Text(text) => python_repr(text),
+                    crate::algebra::KeyPart::Num(number) => number.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             let what = format!(
-                "{} and {} both write {:?} under {semantics:?}",
+                "{} and {} both write [{key_repr}] under {}",
                 mine.op_id(),
                 theirs.op_id(),
-                key(theirs)
-                    .iter()
-                    .map(|p| match p {
-                        crate::algebra::KeyPart::Text(t) => t.clone(),
-                        crate::algebra::KeyPart::Num(n) => n.to_string(),
-                    })
-                    .collect::<Vec<_>>()
+                python_repr(semantics)
             );
             if semantics == "exclusive" {
                 return Composition {
@@ -232,7 +273,11 @@ pub fn compose(
 
     found
         .into_iter()
-        .max_by_key(|c| c.verdict.rank())
+        .fold(None, |best: Option<Composition>, candidate| match best {
+            None => Some(candidate),
+            Some(current) if candidate.verdict.rank() > current.verdict.rank() => Some(candidate),
+            Some(current) => Some(current),
+        })
         .unwrap_or(Composition {
             verdict: Verdict::Commute,
             reason: "no write of one meets a write of the other".into(),
@@ -289,8 +334,10 @@ pub fn carry(patch: &EditPatch, rows: &[CarryRow], semantics: &Value) -> Result<
         );
         if found.verdict == Verdict::Conflict {
             return Err(format!(
-                "generation {} (patch {:?}): {}",
-                row.generation, earlier_patch.id, found.reason
+                "generation {} (patch {}): {}",
+                row.generation,
+                python_repr(&earlier_patch.id),
+                found.reason
             ));
         }
         if found.verdict == Verdict::Rebase {

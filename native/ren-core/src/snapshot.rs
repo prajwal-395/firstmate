@@ -130,16 +130,18 @@ impl Snapshot {
     /// The clip holding `unique_id`, only when it is present EXACTLY
     /// once (`edit_algebra._clip`): a duplicate id is not an address.
     pub fn clip(&self, unique_id: &str) -> Option<&Clip> {
-        let found: Vec<&Clip> = self
-            .clips()
-            .into_iter()
-            .filter(|clip| clip.unique_id == unique_id)
-            .collect();
-        if found.len() == 1 {
-            found.into_iter().next()
-        } else {
-            None
+        let mut found = None;
+        for track in &self.tracks {
+            for clip in &track.clips {
+                if clip.unique_id == unique_id {
+                    if found.is_some() {
+                        return None;
+                    }
+                    found = Some(clip);
+                }
+            }
         }
+        found
     }
 
     /// The row of `track_type` at `index`, or None.

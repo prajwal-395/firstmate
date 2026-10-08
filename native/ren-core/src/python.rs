@@ -10,8 +10,11 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyModule};
 use serde_json::Value;
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
 
 use ren_protocol::edit::{Condition, EditOp, EditPatch};
+use ren_protocol::{CapabilityId, ClipId, Generation};
 
 use crate::algebra::{
     declaration as algebra_declaration, key_strings, op_ids as algebra_op_ids,
@@ -23,7 +26,7 @@ use crate::compose::{
 };
 use crate::conditions::judge_all;
 use crate::patch::{covered as span_covered, validate_patch as validate_patch_dict};
-use crate::snapshot::Snapshot;
+use crate::snapshot::{Clip, ColorInfo, FusionInfo, Markers, Snapshot, Track};
 use crate::verify::verify as op_verify;
 
 // ── Python <-> JSON conversion ───────────────────────────────────────
@@ -119,6 +122,7 @@ fn snapshot_from_value(value: &Value) -> PyResult<Snapshot> {
 fn edit_core_snapshot_from_py(
     value: &Bound<'_, PyAny>,
     include_transform: bool,
+    target_ids: Option<&HashSet<String>>,
 ) -> PyResult<Snapshot> {
     let dict = value.cast::<PyDict>()?;
     let start_frame: i64 = dict
@@ -136,14 +140,7 @@ fn edit_core_snapshot_from_py(
     let mut projected = Vec::with_capacity(tracks.len());
     for track in tracks.iter() {
         let track = track.cast::<PyDict>()?;
-        let track_type: String = track
-            .get_item("type")?
-            .ok_or_else(|| PyValueError::new_err("track missing type"))?
-            .extract()?;
-        let index: i64 = track
-            .get_item("index")?
-            .ok_or_else(|| PyValueError::new_err("track missing index"))?
-            .extract()?;
+        let mut track_info: Option<(String, i64)> = None;
         let clips_obj = track
             .get_item("clips")?
             .ok_or_else(|| PyValueError::new_err("track missing clips"))?;
@@ -155,6 +152,24 @@ fn edit_core_snapshot_from_py(
                 .get_item("unique_id")?
                 .ok_or_else(|| PyValueError::new_err("clip missing unique_id"))?
                 .extract()?;
+            if target_ids.is_some_and(|ids| !ids.contains(&unique_id)) {
+                continue;
+            }
+            let (track_type, index) = match &track_info {
+                Some((track_type, index)) => (track_type.clone(), *index),
+                None => {
+                    let track_type: String = track
+                        .get_item("type")?
+                        .ok_or_else(|| PyValueError::new_err("track missing type"))?
+                        .extract()?;
+                    let index: i64 = track
+                        .get_item("index")?
+                        .ok_or_else(|| PyValueError::new_err("track missing index"))?
+                        .extract()?;
+                    track_info = Some((track_type.clone(), index));
+                    (track_type, index)
+                }
+            };
             let record_in: i64 = clip
                 .get_item("record_in")?
                 .ok_or_else(|| PyValueError::new_err("clip missing record_in"))?
@@ -163,28 +178,161 @@ fn edit_core_snapshot_from_py(
                 .get_item("record_out")?
                 .ok_or_else(|| PyValueError::new_err("clip missing record_out"))?
                 .extract()?;
-            let mut projected_clip = serde_json::json!({
-                "unique_id": unique_id, "record_in": record_in,
-                "record_out": record_out
-            });
+            let mut transform_map = serde_json::Map::new();
             if include_transform {
-                let transform = clip.get_item("transform")?;
-                projected_clip["transform"] = match transform {
-                    Some(ref value) => py_to_json(value)?,
-                    None => serde_json::json!({}),
-                };
+                if let Some(transform) = clip.get_item("transform")? {
+                    let transform = transform.cast::<PyDict>()?;
+                    for (key, value) in transform.iter() {
+                        transform_map.insert(key.extract()?, py_to_json(&value)?);
+                    }
+                }
             }
-            projected_clips.push(projected_clip);
+            projected_clips.push(Clip {
+                unique_id,
+                name: String::new(),
+                track_type: track_type.clone(),
+                track_index: index,
+                track_name: String::new(),
+                record_in,
+                record_out,
+                duration: 0,
+                source_in_frame: None,
+                source_out_frame: None,
+                source_file: String::new(),
+                enabled: None,
+                speed: None,
+                transform: transform_map,
+                keyframes: serde_json::Map::new(),
+                fusion: FusionInfo::default(),
+                color: ColorInfo::default(),
+                markers: Vec::new(),
+            });
         }
-        projected.push(serde_json::json!({
-            "type": track_type, "index": index, "clips": projected_clips
-        }));
+        if let (Some((track_type, index)), false) = (track_info, projected_clips.is_empty()) {
+            projected.push(Track {
+                track_type,
+                index,
+                name: String::new(),
+                clips: projected_clips,
+            });
+        }
     }
-    let value = serde_json::json!({
-        "start_frame": start_frame, "end_frame": end_frame,
-        "tracks": projected
-    });
-    snapshot_from_value(&value)
+    Ok(Snapshot {
+        start_frame,
+        end_frame,
+        tracks: projected,
+        markers: Markers::default(),
+    })
+}
+
+/// A parsed timeline snapshot that survives across native edit-core calls.
+/// The lock also lets callers incrementally apply measured property writes.
+#[pyclass]
+struct SnapshotHandle {
+    snapshot: Arc<RwLock<Snapshot>>,
+}
+
+#[pymethods]
+impl SnapshotHandle {
+    /// Apply a property write confirmed by a read-back measurement.
+    /// Unsupported operations return false so the caller can refresh from
+    /// a complete post-edit snapshot.
+    fn apply_confirmed(&self, operation: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let value = py_to_json(operation)?;
+        let Some(EditOp::ClipSetProperty {
+            unique_id,
+            key,
+            value,
+        }) = op_from_value(&value)
+        else {
+            return Ok(false);
+        };
+        let mut snapshot = self
+            .snapshot
+            .write()
+            .map_err(|_| PyValueError::new_err("snapshot handle lock poisoned"))?;
+        let mut found = None;
+        for (track_index, track) in snapshot.tracks.iter().enumerate() {
+            for (clip_index, clip) in track.clips.iter().enumerate() {
+                if clip.unique_id == unique_id.0 {
+                    if found.is_some() {
+                        return Ok(false);
+                    }
+                    found = Some((track_index, clip_index));
+                }
+            }
+        }
+        let Some((track_index, clip_index)) = found else {
+            return Ok(false);
+        };
+        snapshot.tracks[track_index].clips[clip_index]
+            .transform
+            .insert(key, value);
+        Ok(true)
+    }
+
+    /// Replace the resident value after a non-incremental edit.
+    fn replace(&self, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let snapshot = snapshot_from_value(&py_to_json(value)?)?;
+        *self
+            .snapshot
+            .write()
+            .map_err(|_| PyValueError::new_err("snapshot handle lock poisoned"))? = snapshot;
+        Ok(())
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (value, operations=None, *, property_projection=false, include_transform=false))]
+fn snapshot_handle(
+    value: &Bound<'_, PyAny>,
+    operations: Option<&Bound<'_, PyAny>>,
+    property_projection: bool,
+    include_transform: bool,
+) -> PyResult<SnapshotHandle> {
+    if let Ok(handle) = value.extract::<PyRef<'_, SnapshotHandle>>() {
+        return Ok(SnapshotHandle {
+            snapshot: Arc::clone(&handle.snapshot),
+        });
+    }
+    let targets = operations
+        .map(property_operations_from_py)
+        .transpose()?
+        .flatten()
+        .map(|ops| {
+            ops.iter()
+                .filter_map(crate::algebra::op_unique_id)
+                .collect::<HashSet<_>>()
+        });
+    let snapshot = if property_projection {
+        edit_core_snapshot_from_py(value, include_transform, targets.as_ref())?
+    } else {
+        snapshot_from_value(&py_to_json(value)?)?
+    };
+    Ok(SnapshotHandle {
+        snapshot: Arc::new(RwLock::new(snapshot)),
+    })
+}
+
+fn with_snapshot<T>(
+    value: &Bound<'_, PyAny>,
+    property_projection: Option<bool>,
+    target_ids: Option<&HashSet<String>>,
+    compute: impl FnOnce(&Snapshot) -> PyResult<T>,
+) -> PyResult<T> {
+    if let Ok(handle) = value.extract::<PyRef<'_, SnapshotHandle>>() {
+        let snapshot = handle
+            .snapshot
+            .read()
+            .map_err(|_| PyValueError::new_err("snapshot handle lock poisoned"))?;
+        return compute(&snapshot);
+    }
+    let snapshot = if let Some(include_transform) = property_projection {
+        edit_core_snapshot_from_py(value, include_transform, target_ids)?
+    } else {
+        snapshot_from_value(&py_to_json(value)?)?
+    };
+    compute(&snapshot)
 }
 
 /// The typed op for a JSON op, or None when the op id is not in the
@@ -197,8 +345,146 @@ fn op_from_value(value: &Value) -> Option<EditOp> {
     serde_json::from_value(value.clone()).ok()
 }
 
+fn property_operations_from_py(operations: &Bound<'_, PyAny>) -> PyResult<Option<Vec<EditOp>>> {
+    let Ok(operations) = operations.cast::<PyList>() else {
+        return Ok(None);
+    };
+    let mut typed = Vec::with_capacity(operations.len());
+    for operation in operations.iter() {
+        let Ok(operation) = operation.cast::<PyDict>() else {
+            return Ok(None);
+        };
+        let op_id = operation
+            .get_item("op")?
+            .and_then(|value| value.extract::<String>().ok());
+        if op_id.as_deref() != Some("clip.set_property") {
+            return Ok(None);
+        }
+        let (Some(unique_id), Some(key), Some(value)) = (
+            operation
+                .get_item("unique_id")?
+                .and_then(|value| value.extract::<String>().ok()),
+            operation
+                .get_item("key")?
+                .and_then(|value| value.extract::<String>().ok()),
+            operation.get_item("value")?,
+        ) else {
+            return Ok(None);
+        };
+        typed.push(EditOp::ClipSetProperty {
+            unique_id: ClipId(unique_id),
+            key,
+            value: py_to_json(&value)?,
+        });
+    }
+    Ok(Some(typed))
+}
+
+fn target_ids(operations: &[EditOp]) -> HashSet<String> {
+    operations
+        .iter()
+        .filter_map(crate::algebra::op_unique_id)
+        .collect()
+}
+
 fn patch_from_value(value: &Value) -> Result<EditPatch, String> {
     serde_json::from_value(value.clone()).map_err(|err| format!("not an EditPatch: {err}"))
+}
+
+/// Decode the measured property-write patch shape directly from Python.
+/// It avoids recursively materializing a JSON tree and then deserializing
+/// it back into the typed patch for every compose call. Other edit ops use
+/// the exhaustive serde path.
+fn property_patch_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<EditPatch>> {
+    let Ok(dict) = value.cast::<PyDict>() else {
+        return Ok(None);
+    };
+    let read_text = |key: &str| -> PyResult<Option<String>> {
+        Ok(dict
+            .get_item(key)?
+            .and_then(|value| value.extract::<String>().ok()))
+    };
+    let (Some(id), Some(project), Some(timeline), Some(capability)) = (
+        read_text("id")?,
+        read_text("project")?,
+        read_text("timeline")?,
+        read_text("capability")?,
+    ) else {
+        return Ok(None);
+    };
+    let Some(base_generation) = dict
+        .get_item("base_generation")?
+        .and_then(|value| value.extract::<u64>().ok())
+    else {
+        return Ok(None);
+    };
+    let Some(operations_value) = dict.get_item("operations")? else {
+        return Ok(None);
+    };
+    let Ok(operations) = operations_value.cast::<PyList>() else {
+        return Ok(None);
+    };
+    if operations.is_empty() {
+        return Ok(None);
+    }
+    let mut typed_ops = Vec::with_capacity(operations.len());
+    for operation in operations.iter() {
+        let Ok(operation) = operation.cast::<PyDict>() else {
+            return Ok(None);
+        };
+        let op_id = operation
+            .get_item("op")?
+            .and_then(|value| value.extract::<String>().ok());
+        if op_id.as_deref() != Some("clip.set_property") {
+            return Ok(None);
+        }
+        let (Some(unique_id), Some(key), Some(value)) = (
+            operation
+                .get_item("unique_id")?
+                .and_then(|value| value.extract::<String>().ok()),
+            operation
+                .get_item("key")?
+                .and_then(|value| value.extract::<String>().ok()),
+            operation.get_item("value")?,
+        ) else {
+            return Ok(None);
+        };
+        typed_ops.push(EditOp::ClipSetProperty {
+            unique_id: ClipId(unique_id),
+            key,
+            value: py_to_json(&value)?,
+        });
+    }
+    let spans = dict.get_item("affected_spans")?;
+    let Some(spans) = spans else {
+        return Ok(None);
+    };
+    let spans: Vec<(i64, i64)> =
+        match serde_json::from_value::<Vec<(i64, i64)>>(py_to_json(&spans)?) {
+            Ok(spans) if !spans.is_empty() => spans,
+            _ => return Ok(None),
+        };
+    let domains = dict.get_item("conflict_domains")?;
+    let Some(domains) = domains else {
+        return Ok(None);
+    };
+    let domains: Vec<String> = match serde_json::from_value::<Vec<String>>(py_to_json(&domains)?) {
+        Ok(domains) => domains,
+        _ => return Ok(None),
+    };
+    Ok(Some(EditPatch {
+        id,
+        project,
+        timeline,
+        base_generation: Generation(base_generation),
+        capability: CapabilityId(capability),
+        affected_spans: spans,
+        conflict_domains: domains,
+        operations: typed_ops,
+        preconditions: Vec::new(),
+        postconditions: Vec::new(),
+        base_git_sha: String::new(),
+    }))
 }
 
 fn semantics_from_value(value: &Value) -> PyResult<Value> {
@@ -265,40 +551,51 @@ fn declaration<'py>(op_id: &str, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>
 #[pyfunction]
 fn span(op: &Bound<'_, PyAny>, base: &Bound<'_, PyAny>) -> PyResult<Option<(i64, i64)>> {
     let op_value = py_to_json(op)?;
-    let base = if op_value.get("op").and_then(Value::as_str) == Some("clip.set_property") {
-        edit_core_snapshot_from_py(base, false)?
-    } else {
-        snapshot_from_value(&py_to_json(base)?)?
-    };
-    Ok(op_from_value(&op_value).and_then(|op| op_span(&op, &base)))
+    let projection =
+        (op_value.get("op").and_then(Value::as_str) == Some("clip.set_property")).then_some(false);
+    let targets = op_from_value(&op_value).and_then(|op| crate::algebra::op_unique_id(&op));
+    let targets = targets.map(|id| HashSet::from([id]));
+    with_snapshot(base, projection, targets.as_ref(), |base| {
+        Ok(op_from_value(&op_value).and_then(|op| op_span(&op, base)))
+    })
 }
 
 /// The spans for a batch of ops over one snapshot. Conversion is paid
-/// once for the shared snapshot, and the Rust loop runs without the GIL.
+/// once for the shared snapshot, and the Rust loop runs without Python
+/// object conversion inside the operation loop.
 #[pyfunction]
 fn span_many(
     ops: &Bound<'_, PyAny>,
     base: &Bound<'_, PyAny>,
-    py: Python<'_>,
+    _py: Python<'_>,
 ) -> PyResult<Vec<Option<(i64, i64)>>> {
+    if let Some(ops) = property_operations_from_py(ops)? {
+        let targets = target_ids(&ops);
+        return with_snapshot(base, Some(false), Some(&targets), |base| {
+            Ok(ops.iter().map(|op| op_span(op, base)).collect())
+        });
+    }
     let ops_value = py_to_json(ops)?;
     let ops = ops_value
         .as_array()
         .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
         .clone();
-    let base = if ops
+    let property_only = ops
         .iter()
-        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"))
-    {
-        edit_core_snapshot_from_py(base, false)?
-    } else {
-        snapshot_from_value(&py_to_json(base)?)?
-    };
-    Ok(py.detach(|| {
-        ops.iter()
-            .map(|value| op_from_value(value).and_then(|op| op_span(&op, &base)))
-            .collect()
-    }))
+        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"));
+    let typed: Vec<EditOp> = ops.iter().filter_map(op_from_value).collect();
+    let targets = target_ids(&typed);
+    with_snapshot(
+        base,
+        property_only.then_some(false),
+        Some(&targets),
+        |base| {
+            Ok(ops
+                .iter()
+                .map(|value| op_from_value(value).and_then(|op| op_span(&op, base)))
+                .collect())
+        },
+    )
 }
 
 /// The write key of one op, as string parts (numbers rendered as
@@ -318,12 +615,13 @@ fn key(op: &Bound<'_, PyAny>) -> Vec<String> {
 #[pyfunction]
 fn verify(op: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Option<String>> {
     let op_value = py_to_json(op)?;
-    let after = if op_value.get("op").and_then(Value::as_str) == Some("clip.set_property") {
-        edit_core_snapshot_from_py(after, true)?
-    } else {
-        snapshot_from_value(&py_to_json(after)?)?
-    };
-    Ok(op_from_value(&op_value).and_then(|op| op_verify(&op, &after)))
+    let projection =
+        (op_value.get("op").and_then(Value::as_str) == Some("clip.set_property")).then_some(true);
+    let targets = op_from_value(&op_value).and_then(|op| crate::algebra::op_unique_id(&op));
+    let targets = targets.map(|id| HashSet::from([id]));
+    with_snapshot(after, projection, targets.as_ref(), |after| {
+        Ok(op_from_value(&op_value).and_then(|op| op_verify(&op, after)))
+    })
 }
 
 /// Read-back judgements for a batch of ops against one snapshot.
@@ -331,26 +629,35 @@ fn verify(op: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Option<St
 fn verify_many(
     ops: &Bound<'_, PyAny>,
     after: &Bound<'_, PyAny>,
-    py: Python<'_>,
+    _py: Python<'_>,
 ) -> PyResult<Vec<Option<String>>> {
+    if let Some(ops) = property_operations_from_py(ops)? {
+        let targets = target_ids(&ops);
+        return with_snapshot(after, Some(true), Some(&targets), |after| {
+            Ok(ops.iter().map(|op| op_verify(op, after)).collect())
+        });
+    }
     let ops_value = py_to_json(ops)?;
     let ops = ops_value
         .as_array()
         .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
         .clone();
-    let after = if ops
+    let property_only = ops
         .iter()
-        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"))
-    {
-        edit_core_snapshot_from_py(after, true)?
-    } else {
-        snapshot_from_value(&py_to_json(after)?)?
-    };
-    Ok(py.detach(|| {
-        ops.iter()
-            .map(|value| op_from_value(value).and_then(|op| op_verify(&op, &after)))
-            .collect()
-    }))
+        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"));
+    let typed: Vec<EditOp> = ops.iter().filter_map(op_from_value).collect();
+    let targets = target_ids(&typed);
+    with_snapshot(
+        after,
+        property_only.then_some(true),
+        Some(&targets),
+        |after| {
+            Ok(ops
+                .iter()
+                .map(|value| op_from_value(value).and_then(|op| op_verify(&op, after)))
+                .collect())
+        },
+    )
 }
 
 /// Judge conditions on a snapshot: each failure as `"{kind}: {failure}"`.
@@ -399,27 +706,36 @@ fn compose<'py>(
     b_sem: &Bound<'_, PyAny>,
     py: Python<'py>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let earlier: EditPatch = serde_json::from_value(py_to_json(earlier)?)
-        .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?;
-    let later: EditPatch = serde_json::from_value(py_to_json(later)?)
-        .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?;
-    let base = if later
+    let earlier = match property_patch_from_py(earlier)? {
+        Some(patch) => patch,
+        None => serde_json::from_value(py_to_json(earlier)?)
+            .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?,
+    };
+    let later = match property_patch_from_py(later)? {
+        Some(patch) => patch,
+        None => serde_json::from_value(py_to_json(later)?)
+            .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?,
+    };
+    let property_only = later
         .operations
         .iter()
-        .all(|op| op.op_id() == "clip.set_property")
-    {
-        edit_core_snapshot_from_py(base, false)?
-    } else {
-        snapshot_from_value(&py_to_json(base)?)?
-    };
+        .all(|op| op.op_id() == "clip.set_property");
     let a_sem = py_to_json(a_sem)?;
     let b_sem = py_to_json(b_sem)?;
-    let found = compose_patches(&earlier, &later, &base, &a_sem, &b_sem);
-    let value = serde_json::json!({
-        "verdict": found.verdict.as_str(),
-        "reason": found.reason,
-    });
-    json_to_py(py, &value)
+    let targets = property_only.then(|| target_ids(&later.operations));
+    with_snapshot(
+        base,
+        property_only.then_some(false),
+        targets.as_ref(),
+        |base| {
+            let found = compose_patches(&earlier, &later, base, &a_sem, &b_sem);
+            let value = serde_json::json!({
+                "verdict": found.verdict.as_str(),
+                "reason": found.reason,
+            });
+            json_to_py(py, &value)
+        },
+    )
 }
 
 /// A stale patch moved onto the head, or the reason it cannot.
@@ -526,6 +842,8 @@ fn problems(declarations: &Bound<'_, PyAny>, capability_ids: &Bound<'_, PyAny>) 
 /// The `ren_native` extension module.
 #[pymodule]
 fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<SnapshotHandle>()?;
+    m.add_function(wrap_pyfunction!(snapshot_handle, m)?)?;
     m.add_function(wrap_pyfunction!(op_ids, m)?)?;
     m.add_function(wrap_pyfunction!(patch_op_ids, m)?)?;
     m.add_function(wrap_pyfunction!(source_fingerprint, m)?)?;

@@ -82,39 +82,70 @@ def main() -> None:
         print(f"case clips={clips} operations_each={patch_size} "
               f"snapshot_bytes={len(json.dumps(base))}")
         results = {}
+        verdicts = {}
         for backend in ("python", "rust"):
             os.environ[edit_backend.BACKEND_ENV] = backend
             native = edit_backend.rust()
             if backend == "rust" and native is None:
                 raise SystemExit("fresh ren_native extension unavailable")
+            base_arg = base
+            prepare_ms = 0.0
+            if backend == "rust":
+                prepare_started = time.perf_counter_ns()
+                base_arg = edit_backend.snapshot_handle(base, right_ops)
+                prepare_ms = (time.perf_counter_ns() - prepare_started) / 1e6
+
             def call():
-                return patch_algebra.compose(left, right, base)
+                return patch_algebra.compose(left, right, base_arg)
+
             verdict = call()
             if verdict.verdict not in {"commute", "merge", "serialize",
                                        "rebase", "conflict"}:
                 raise AssertionError(verdict)
+            verdicts[backend] = (verdict.verdict, verdict.reason)
             cold, warm = timed(call, repetitions)
             results[backend] = (cold, warm)
-            print(f"  {backend}: first_ms={cold:.4f} warm_median_ms={warm:.4f}")
+            preparation = (f" snapshot_prepare_ms={prepare_ms:.4f}"
+                           if backend == "rust" else "")
+            print(f"  {backend}: first_ms={cold:.4f} "
+                  f"warm_median_ms={warm:.4f}{preparation}")
+        if verdicts["python"] != verdicts["rust"]:
+            raise AssertionError(("compose parity", verdicts))
         py_ms, rust_ms = results["python"][1], results["rust"][1]
         print(f"  warm_speedup={py_ms / rust_ms:.3f}x")
         operations = [{"op": "clip.set_property", "unique_id": f"clip-{i}",
                        "key": "ZoomX", "value": 1.0}
                       for i in range(patch_size)]
-        for backend in ("python", "rust"):
-            os.environ[edit_backend.BACKEND_ENV] = backend
-            def one_by_one():
-                return ([edit_algebra.span(op, base) for op in operations],
-                        [edit_algebra.verify(op, base) for op in operations])
+        os.environ[edit_backend.BACKEND_ENV] = "python"
 
-            def batched():
-                return (edit_algebra.spans(operations, base),
-                        edit_algebra.verifies(operations, base))
-            _, singles_ms = timed(one_by_one, repetitions)
-            _, batched_ms = timed(batched, repetitions)
-            print(f"  {backend}_span_verify_loop_ms={singles_ms:.4f} "
-                  f"{backend}_span_verify_batch_ms={batched_ms:.4f} "
-                  f"batch_speedup={singles_ms / batched_ms:.3f}x")
+        def python_loop():
+            return ([edit_algebra.span(op, base) for op in operations],
+                    [edit_algebra.verify(op, base) for op in operations])
+
+        _, python_loop_ms = timed(python_loop, repetitions)
+        python_result = python_loop()
+        os.environ[edit_backend.BACKEND_ENV] = "rust"
+        native = edit_backend.rust()
+        if native is None:
+            raise SystemExit("fresh ren_native extension unavailable")
+        prepare_started = time.perf_counter_ns()
+        span_handle = edit_backend.snapshot_handle(base, operations)
+        verify_handle = edit_backend.snapshot_handle(
+            base, operations, include_transform=True)
+        prepare_ms = (time.perf_counter_ns() - prepare_started) / 1e6
+
+        def rust_batch():
+            return (edit_algebra.spans(operations, span_handle),
+                    edit_algebra.verifies(operations, verify_handle))
+
+        rust_result = rust_batch()
+        if python_result != rust_result:
+            raise AssertionError(("span/verify parity", clips, patch_size))
+        _, rust_batch_ms = timed(rust_batch, repetitions)
+        print(f"  python_span_verify_loop_ms={python_loop_ms:.4f} "
+              f"rust_resident_batch_ms={rust_batch_ms:.4f} "
+              f"snapshot_prepare_ms={prepare_ms:.4f} "
+              f"batch_speedup={python_loop_ms / rust_batch_ms:.3f}x")
 
 
 if __name__ == "__main__":
