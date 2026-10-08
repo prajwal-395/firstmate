@@ -2416,23 +2416,6 @@ def run_pipeline(
               f"'steps_completed' ledger into preflight/edit",
               file=sys.stderr)
 
-    # The chat interview, conducted before anything decides. When no
-    # brief was attached and a host drives (`agent` backend), the first
-    # handshake request is the interview itself: the host asks the user
-    # in chat and answers back through the handshake, instead of the
-    # questions landing unasked in the run summary. Every other path
-    # returns state untouched. See library/tools/briefing_chat.py.
-    if not dry_run and not single_step:
-        try:
-            state = briefing_chat.conduct_if_needed(
-                project_dir, state, normalize_full_auto(full_auto),
-                llm_timeout=llm_timeout, save=save_pipeline_state)
-        except RenRefusal:
-            raise
-        except Exception as exc:  # noqa: BLE001 - never fail a run here
-            print(f"  Briefing interview skipped ({exc}); continuing "
-                  f"without a brief.", file=sys.stderr)
-
     # The run profile, read first: it contributes to the selection and to
     # the breakpoints, and a profile that cannot be read must refuse
     # before --rerun deletes anything.  A profile carries no power of its
@@ -3046,6 +3029,22 @@ def run_pipeline(
         run_control.write_run_status(
             project_dir, last_completed_step=node_id, **active_run_fields())
 
+    def conduct_briefing_after_inventory():
+        """Ask after the cheap catalog is committed, before analysis starts."""
+        nonlocal state
+        if (dry_run or single_step
+                or not step_ledger.is_completed(state, "catalog")):
+            return
+        try:
+            state = briefing_chat.conduct_if_needed(
+                project_dir, state, normalize_full_auto(full_auto),
+                llm_timeout=llm_timeout, save=save_pipeline_state)
+        except RenRefusal:
+            raise
+        except Exception as exc:  # noqa: BLE001 - preserve existing fallback
+            print(f"  Briefing interview skipped ({exc}); continuing "
+                  f"without a brief.", file=sys.stderr)
+
     def coordinated_order():
         """Yield one node for the runner to commit, then replan readiness.
 
@@ -3057,9 +3056,13 @@ def run_pipeline(
         """
         nonlocal scheduler_halted
         if executor is None:
-            yield from enumerate(steps_to_run)
+            conduct_briefing_after_inventory()
+            for item in enumerate(steps_to_run):
+                yield item
+                conduct_briefing_after_inventory()
             return
 
+        conduct_briefing_after_inventory()
         pending = set(steps_to_run)
         order_index = {node_id: index
                        for index, node_id in enumerate(steps_to_run)}
@@ -3074,6 +3077,7 @@ def run_pipeline(
                               key=order_index.__getitem__)
                 pending.remove(node_id)
                 yield order_index[node_id], node_id
+                conduct_briefing_after_inventory()
                 continue
 
             if run_control.hold_requested(project_dir):
@@ -3098,6 +3102,7 @@ def run_pipeline(
                     node_id = min(reusable, key=order_index.__getitem__)
                     pending.remove(node_id)
                     yield order_index[node_id], node_id
+                    conduct_briefing_after_inventory()
                     continue
 
                 for candidate in ready:
@@ -3178,6 +3183,7 @@ def run_pipeline(
                     continue
                 pending.remove(node_id)
                 yield order_index[node_id], node_id
+                conduct_briefing_after_inventory()
                 continue
 
             if pending:
@@ -3188,6 +3194,7 @@ def run_pipeline(
                 node_id = min(pending, key=order_index.__getitem__)
                 pending.remove(node_id)
                 yield order_index[node_id], node_id
+                conduct_briefing_after_inventory()
 
     for step_index, node_id in coordinated_order():
         pending_predecessors = selected_parents[node_id] & (

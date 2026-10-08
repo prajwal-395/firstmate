@@ -21,6 +21,7 @@ import pytest
 import yaml
 
 from library.tools import capability_outputs
+from library.tools import briefing_chat
 from library.processes.edit_video.run_pipeline import (
     load_pipeline_state,
     run_pipeline,
@@ -151,6 +152,27 @@ def test_the_run_stops_at_the_armed_step_and_nowhere_else(runner, project):
     assert review_gate.get_gate_status(str(project), "catalog") == "pending"
     # And nothing was armed at the step before it.
     assert review_gate.get_gate_status(str(project), "scan") == "none"
+
+
+def test_chat_briefing_waits_for_catalog_and_precedes_analysis(runner):
+    """The host gets the cheap inventory before expensive analysis runs."""
+    observed_steps = []
+
+    def interview(project_folder, state, full_auto, **kwargs):
+        if state.get("brief_answers") is not None:
+            return state
+        observed_steps.append(tuple(runner.ran))
+        state["brief_answers"] = []
+        return state
+
+    with patch.object(briefing_chat, "conduct_if_needed", side_effect=interview), \
+         patch("library.processes.edit_video.run_pipeline.parallel_workers_enabled",
+               return_value=False):
+        summary = runner.run(full_auto="agent")
+
+    assert summary["status"] == "SUCCESS"
+    assert observed_steps == [("scan", "catalog")]
+    assert runner.ran == ["scan", "catalog", "temporal_index"]
 
 
 # ── The three actions ────────────────────────────────────────────────

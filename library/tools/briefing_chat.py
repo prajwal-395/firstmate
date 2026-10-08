@@ -39,6 +39,7 @@ an attached brief.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 #: The handshake step id for the chat interview. Not a DAG node - no
@@ -74,10 +75,11 @@ def should_interview(brief_attached: bool, full_auto: str) -> bool:
     return (not brief_attached) and full_auto == "agent"
 
 
-def build_prompt(questions) -> str:
+def build_prompt(questions, footage_inventory=None) -> str:
     """How the host conducts the interview, as request prompt text."""
     lines = [
-        "Conduct the briefing interview with the user, IN CHAT, now.",
+        "Conduct the briefing interview with the user, IN CHAT, now. The quick footage inventory below is evidence, not creative intent.",
+        "Ask only unresolved questions whose answer could change the creative direction. Phrase each as a goal or outcome, never as a tool or editing method. State the assumed default visibly and record it even if the user declines. The user can correct methods later.",
         "",
         "Ask each question below in conversation, in plain language, one at a "
         "time. Do not paste this JSON at them. When they have answered (or "
@@ -89,12 +91,87 @@ def build_prompt(questions) -> str:
         "Then the run continues with those answers attached to every planning "
         "step. Questions:",
     ]
+    if footage_inventory:
+        lines.extend(["", "Quick footage inventory:"])
+        lines.extend(f"  - {fact}" for fact in footage_inventory)
     for q in questions:
         if isinstance(q, dict):
-            lines.append(f"  - [{q.get('step_id', '?')}] {q.get('question', '')}")
+            lines.append(
+                f"  - [{q.get('step_id', '?')}] {q.get('question', '')} "
+                f"(assumed default: {q.get('what_assumed_instead') or 'continue without a preference'})")
         else:
             lines.append(f"  - {q}")
     return "\n".join(lines) + "\n"
+
+
+def footage_inventory(state) -> list[str]:
+    """A compact, catalog-only inventory safe to show before analysis."""
+    from library.tools import capability_outputs
+
+    clips = capability_outputs.value(state or {}, "footage.catalog", "clip_catalog") or []
+    if not isinstance(clips, list):
+        return []
+    rows = []
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        filename = (clip.get("filename") or clip.get("file_name")
+                    or (os.path.basename(clip["path"])
+                        if clip.get("path") else None)
+                    or clip.get("clip_id"))
+        duration = clip.get("duration_seconds")
+        if filename:
+            fact = str(filename)
+            if isinstance(duration, (int, float)):
+                fact += f" ({duration:g} seconds)"
+            rows.append(fact)
+    return [f"{len(clips)} video clip(s) cataloged.", *rows[:30]]
+
+
+def unresolved_questions(prior_records, intent_view=None) -> list:
+    """Deduplicate banked questions and omit topics already declared."""
+    questions = collect_questions(prior_records)
+    view = intent_view or {}
+    values = view.get("values", {})
+    sources = view.get("influenced_by", {})
+    settled = set()
+    for key, value in values.items():
+        normalized = str(key).lower().replace("_", " ")
+        source = sources.get(key, {}).get("source")
+        # Inference is evidence for this project, not a confirmed creator
+        # decision that should silence its question.
+        if (value not in (None, "", [], {})
+                and source not in ("inference", None)):
+            settled.add(normalized)
+    kept, seen = [], set()
+    for row in questions:
+        question = " ".join(str(row.get("question", "")).lower().split())
+        if not question or question in seen:
+            continue
+        seen.add(question)
+        if not row.get("why_it_matters"):
+            continue
+        if any(term in question for term in (
+                "software", "which tool", "what tool", "editing method",
+                "how should we edit", "which effect", "which transition")):
+            continue
+        terms = {
+            "audience": ("audience", "who is this", "who should watch"),
+            "goal": ("goal", "what should", "do or feel", "purpose"),
+            "avoid": ("avoid", "must not", "not do", "rule out"),
+            "music": ("music", "soundtrack", "bed"),
+        }
+        covered = False
+        for topic, aliases in terms.items():
+            if any(alias in question for alias in aliases) and any(
+                topic in key or any(alias in key for alias in aliases)
+                for key in settled
+            ):
+                covered = True
+                break
+        if not covered:
+            kept.append(row)
+    return kept
 
 
 def collect_questions(prior_records) -> list:
@@ -239,13 +316,29 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
     import sys as _sys
     import time as _time
 
-    questions = collect_questions(state.get("briefing_questions"))
-    prompt = build_prompt(questions)
+    from library.tools import scoped_intent
+    intent_view = scoped_intent.for_project(
+        project_folder, "creative_direction", state=state)
+    questions = unresolved_questions(state.get("briefing_questions"), intent_view)
+    if not questions:
+        state["brief_answers"] = []
+        state["briefing_assumptions"] = []
+        if save is not None:
+            save(project_folder, state)
+        return state
+    inventory = footage_inventory(state)
+    prompt = build_prompt(questions, inventory)
     payload = {
         "step_id": STEP_ID,
         "kind": "briefing_interview",
         "prompt": prompt,
         "questions": questions,
+        "footage_inventory": inventory,
+        "intent_view": intent_view,
+        "assumptions": [{
+            "question": q["question"],
+            "assumed_default": q["what_assumed_instead"],
+        } for q in questions],
         "project_folder": project_folder,
         "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
@@ -284,6 +377,13 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
         state["brief_answers"] = answers
         print(f"  Briefing interview: {len(answers)} answer(s) recorded.",
               file=_sys.stderr)
+    state["briefing_assumptions"] = [{
+        "question": q["question"],
+        "assumed_default": q["what_assumed_instead"],
+        "creator_answered": any(
+            a.get("question") == q["question"] and bool(a.get("answer", "").strip())
+            for a in state["brief_answers"]),
+    } for q in questions]
     if save is not None:
         save(project_folder, state)
     else:

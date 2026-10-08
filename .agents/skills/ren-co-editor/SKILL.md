@@ -215,12 +215,14 @@ briefing interview. A run that stops asking has finished or failed;
 
 ### The briefing interview happens in chat
 
-When no creative brief is attached, the run's FIRST request is the
-chat interview (`llm_requests/briefing_interview.json`,
-`kind=briefing_interview`). It lists `questions` the run banked (or a
-small starter set on a first run). Ask the user each one **in
-conversation**, in plain language, one at a time - do not paste JSON
-at them. Then write:
+When no creative brief is attached, the chat interview
+(`llm_requests/briefing_interview.json`, `kind=briefing_interview`)
+starts after the quick footage catalog is committed and before deeper
+analysis. The request includes a compact inventory, scoped intent, and
+only unresolved, decision-changing questions. State the visible assumed
+default, ask about goals or outcomes rather than editing methods, and
+let the creator correct methods later. Ask in conversation, one at a
+time - do not paste JSON at them. Then write:
 
 ```json
 {"brief_answers": [{"question": "...", "answer": "..."}]}

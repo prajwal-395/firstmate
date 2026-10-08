@@ -78,6 +78,44 @@ def test_banked_questions_first_starters_on_a_first_run():
     assert all(q["question"] for q in questions)
 
 
+def test_briefing_selects_only_unresolved_decision_changing_questions():
+    records = [{"step_id": "creative_direction", "entries": [
+        {"question": "Who is this video for, and what should they do or feel after watching it?",
+         "why_it_matters": "changes audience and outcome",
+         "what_you_assumed_instead": "a general audience"},
+        {"question": "Who is this video for, and what should they do or feel after watching it?",
+         "why_it_matters": "duplicate", "what_you_assumed_instead": ""},
+        {"question": "What editing software should we use?",
+         "why_it_matters": "method only", "what_you_assumed_instead": ""},
+        {"question": "What should viewers remember?",
+         "why_it_matters": "changes the creative direction",
+         "what_you_assumed_instead": "a useful overview"},
+    ]}]
+    selected = briefing_chat.unresolved_questions(
+        records, {"values": {"audience": "new parents"},
+                  "influenced_by": {"audience": {"source": "project"}}})
+    assert [q["question"] for q in selected] == [
+        "What should viewers remember?"]
+
+    inferred = briefing_chat.unresolved_questions(
+        records[:1], {"values": {"audience": "new parents"},
+                      "influenced_by": {"audience": {"source": "inference"}}})
+    assert inferred
+
+
+def test_catalog_inventory_is_compact_and_uses_catalog_facts():
+    state = {"capability_outputs": {"footage.catalog": {
+        "clip_catalog": [
+            {"path": "/footage/interview.mov", "duration_seconds": 12.5},
+            {"filename": "b-roll.mp4", "duration_seconds": 4},
+        ]}}}
+    assert briefing_chat.footage_inventory(state) == [
+        "2 video clip(s) cataloged.",
+        "interview.mov (12.5 seconds)",
+        "b-roll.mp4 (4 seconds)",
+    ]
+
+
 def test_interview_answer_without_key_refuses():
     with pytest.raises(llm_handshake.HandshakeRefusal):
         briefing_chat.parse_answer({"something_else": []})
@@ -87,7 +125,13 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
     """The host asks in chat and answers back through the files."""
     project = tmp_path / "proj"
     project.mkdir()
-    state = {"project_folder": str(project)}
+    state = {
+        "project_folder": str(project),
+        "project_config": {"audience": "new parents"},
+        "capability_outputs": {"footage.catalog": {"clip_catalog": [
+            {"path": "/footage/first-steps.mp4", "duration_seconds": 18},
+        ]}},
+    }
 
     def host():
         deadline = time.time() + 25
@@ -99,7 +143,13 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
             if req.exists():
                 request = json.loads(req.read_text(encoding="utf-8"))
                 assert request["kind"] == "briefing_interview"
-                assert request["questions"]
+                assert request["footage_inventory"] == [
+                    "1 video clip(s) cataloged.", "first-steps.mp4 (18 seconds)"]
+                assert all("audience" not in q["question"].lower()
+                           for q in request["questions"])
+                assert request["assumptions"]
+                assert "assumed default" in request["prompt"]
+                assert "a general audience" not in request["prompt"]
                 res.parent.mkdir(parents=True, exist_ok=True)
                 res.write_text(json.dumps(
                     {"brief_answers": [
@@ -115,6 +165,8 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
     thread.join(timeout=30)
     assert out["brief_answers"] == [
         {"question": "Who is this for?", "answer": "New parents"}]
+    assert out["briefing_assumptions"]
+    assert all("assumed_default" in row for row in out["briefing_assumptions"])
 
 
 def test_the_interview_never_blocks_or_reasks(tmp_path):
@@ -125,6 +177,9 @@ def test_the_interview_never_blocks_or_reasks(tmp_path):
     out = briefing_chat.conduct_if_needed(
         str(project), {}, "agent", llm_timeout=0, save=lambda p, s: None)
     assert out["brief_answers"] == []
+    assert out["briefing_assumptions"]
+    assert all(row["creator_answered"] is False
+               for row in out["briefing_assumptions"])
 
     project = tmp_path / "proj2"
     project.mkdir()
