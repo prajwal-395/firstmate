@@ -113,6 +113,80 @@ fn snapshot_from_value(value: &Value) -> PyResult<Snapshot> {
         .map_err(|err| PyValueError::new_err(format!("not a timeline snapshot: {err}")))
 }
 
+/// The measured property-write paths read only clip identity and record
+/// bounds, plus transforms for read-back. Extract that projection directly
+/// instead of JSON-encoding unrelated Fusion, color and marker data.
+fn edit_core_snapshot_from_py(
+    value: &Bound<'_, PyAny>,
+    include_transform: bool,
+) -> PyResult<Snapshot> {
+    let dict = value.cast::<PyDict>()?;
+    let start_frame: i64 = dict
+        .get_item("start_frame")?
+        .ok_or_else(|| PyValueError::new_err("snapshot missing start_frame"))?
+        .extract()?;
+    let end_frame: i64 = dict
+        .get_item("end_frame")?
+        .ok_or_else(|| PyValueError::new_err("snapshot missing end_frame"))?
+        .extract()?;
+    let tracks_obj = dict
+        .get_item("tracks")?
+        .ok_or_else(|| PyValueError::new_err("snapshot missing tracks"))?;
+    let tracks = tracks_obj.cast::<PyList>()?;
+    let mut projected = Vec::with_capacity(tracks.len());
+    for track in tracks.iter() {
+        let track = track.cast::<PyDict>()?;
+        let track_type: String = track
+            .get_item("type")?
+            .ok_or_else(|| PyValueError::new_err("track missing type"))?
+            .extract()?;
+        let index: i64 = track
+            .get_item("index")?
+            .ok_or_else(|| PyValueError::new_err("track missing index"))?
+            .extract()?;
+        let clips_obj = track
+            .get_item("clips")?
+            .ok_or_else(|| PyValueError::new_err("track missing clips"))?;
+        let clips = clips_obj.cast::<PyList>()?;
+        let mut projected_clips = Vec::with_capacity(clips.len());
+        for clip in clips.iter() {
+            let clip = clip.cast::<PyDict>()?;
+            let unique_id: String = clip
+                .get_item("unique_id")?
+                .ok_or_else(|| PyValueError::new_err("clip missing unique_id"))?
+                .extract()?;
+            let record_in: i64 = clip
+                .get_item("record_in")?
+                .ok_or_else(|| PyValueError::new_err("clip missing record_in"))?
+                .extract()?;
+            let record_out: i64 = clip
+                .get_item("record_out")?
+                .ok_or_else(|| PyValueError::new_err("clip missing record_out"))?
+                .extract()?;
+            let mut projected_clip = serde_json::json!({
+                "unique_id": unique_id, "record_in": record_in,
+                "record_out": record_out
+            });
+            if include_transform {
+                let transform = clip.get_item("transform")?;
+                projected_clip["transform"] = match transform {
+                    Some(ref value) => py_to_json(value)?,
+                    None => serde_json::json!({}),
+                };
+            }
+            projected_clips.push(projected_clip);
+        }
+        projected.push(serde_json::json!({
+            "type": track_type, "index": index, "clips": projected_clips
+        }));
+    }
+    let value = serde_json::json!({
+        "start_frame": start_frame, "end_frame": end_frame,
+        "tracks": projected
+    });
+    snapshot_from_value(&value)
+}
+
 /// The typed op for a JSON op, or None when the op id is not in the
 /// algebra (the Python side's `ALGEBRA.get` returns None there too).
 fn op_from_value(value: &Value) -> Option<EditOp> {
@@ -191,7 +265,11 @@ fn declaration<'py>(op_id: &str, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>
 #[pyfunction]
 fn span(op: &Bound<'_, PyAny>, base: &Bound<'_, PyAny>) -> PyResult<Option<(i64, i64)>> {
     let op_value = py_to_json(op)?;
-    let base = snapshot_from_value(&py_to_json(base)?)?;
+    let base = if op_value.get("op").and_then(Value::as_str) == Some("clip.set_property") {
+        edit_core_snapshot_from_py(base, false)?
+    } else {
+        snapshot_from_value(&py_to_json(base)?)?
+    };
     Ok(op_from_value(&op_value).and_then(|op| op_span(&op, &base)))
 }
 
@@ -208,7 +286,14 @@ fn span_many(
         .as_array()
         .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
         .clone();
-    let base = snapshot_from_value(&py_to_json(base)?)?;
+    let base = if ops
+        .iter()
+        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"))
+    {
+        edit_core_snapshot_from_py(base, false)?
+    } else {
+        snapshot_from_value(&py_to_json(base)?)?
+    };
     Ok(py.detach(|| {
         ops.iter()
             .map(|value| op_from_value(value).and_then(|op| op_span(&op, &base)))
@@ -233,7 +318,11 @@ fn key(op: &Bound<'_, PyAny>) -> Vec<String> {
 #[pyfunction]
 fn verify(op: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Option<String>> {
     let op_value = py_to_json(op)?;
-    let after = snapshot_from_value(&py_to_json(after)?)?;
+    let after = if op_value.get("op").and_then(Value::as_str) == Some("clip.set_property") {
+        edit_core_snapshot_from_py(after, true)?
+    } else {
+        snapshot_from_value(&py_to_json(after)?)?
+    };
     Ok(op_from_value(&op_value).and_then(|op| op_verify(&op, &after)))
 }
 
@@ -249,7 +338,14 @@ fn verify_many(
         .as_array()
         .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
         .clone();
-    let after = snapshot_from_value(&py_to_json(after)?)?;
+    let after = if ops
+        .iter()
+        .all(|op| op.get("op").and_then(Value::as_str) == Some("clip.set_property"))
+    {
+        edit_core_snapshot_from_py(after, true)?
+    } else {
+        snapshot_from_value(&py_to_json(after)?)?
+    };
     Ok(py.detach(|| {
         ops.iter()
             .map(|value| op_from_value(value).and_then(|op| op_verify(&op, &after)))
@@ -307,7 +403,15 @@ fn compose<'py>(
         .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?;
     let later: EditPatch = serde_json::from_value(py_to_json(later)?)
         .map_err(|err| PyValueError::new_err(format!("not an EditPatch: {err}")))?;
-    let base = snapshot_from_value(&py_to_json(base)?)?;
+    let base = if later
+        .operations
+        .iter()
+        .all(|op| op.op_id() == "clip.set_property")
+    {
+        edit_core_snapshot_from_py(base, false)?
+    } else {
+        snapshot_from_value(&py_to_json(base)?)?
+    };
     let a_sem = py_to_json(a_sem)?;
     let b_sem = py_to_json(b_sem)?;
     let found = compose_patches(&earlier, &later, &base, &a_sem, &b_sem);
