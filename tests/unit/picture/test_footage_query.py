@@ -324,14 +324,79 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
     monkeypatch.setattr(footage_query, "load_embedder", lambda: (None, "none"))
     before = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
     index_dir = tmp_path / "nodense"
-    build_index(project, index_dir=index_dir)
+    stats = build_index(project, index_dir=index_dir)
     after = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
     assert before == after, "building the index must not touch the project"
     assert (index_dir / footage_query.SEGMENTS_FILE).exists()
+    payload = json.loads((index_dir / footage_query.SEGMENTS_FILE).read_text())
+    assert payload["text_lane"]["status"] == "degraded"
+    assert stats["text_lane"]["status"] == "degraded"
     idx = FootageIndex(project, index_dir=index_dir)
     assert idx.matrix is None
-    assert idx.search("pollen", top_k=1, mode="hybrid")[0]["kind"] == "speech"
+    report = idx.search_report("pollen", top_k=1, mode="hybrid")
+    assert report["results"][0]["kind"] == "speech"
+    assert report["backend_answered"] == "bm25"
+    assert "keyword match only" in report["degraded"]
     assert "error" in idx.search("pollen", mode="dense")[0]
+
+
+def test_visual_intent_on_transcript_only_index_says_not_analysed(
+        project, tmp_path, monkeypatch):
+    """The GEO cup/shot distractor cannot turn transcript words into picture evidence."""
+    for profile in (project / "pipeline_output" / "steps" /
+                    "1_03_semantic_analysis").glob("clip_profile_*.json"):
+        profile.unlink()
+    monkeypatch.setattr(footage_query, "load_embedder", lambda: (None, "missing"))
+    index_dir = tmp_path / "transcript-only"
+    build_index(project, index_dir=index_dir)
+    idx = FootageIndex(project, index_dir=index_dir)
+
+    report = idx.search_report("find the shot of a cup", mode="hybrid")
+
+    assert report["query_intent"] == "visual"
+    assert report["answer_status"] == "not_analysed"
+    assert report["results"] == []
+    assert "not analysed" in report["error"]
+    assert report["coverage"]["per_clip"]["clip_001"]["picture"] is False
+
+
+def test_visual_intent_returns_measured_picture_rows_not_speech(offline_index):
+    idx, _ = offline_index
+    report = idx.search_report("find the shot of a bicycle", mode="lexical")
+    assert report["answer_status"] == "found"
+    assert report["results"]
+    assert all(hit["kind"] != "speech" for hit in report["results"])
+
+
+def test_index_coverage_records_modalities_per_clip(offline_index):
+    idx, _ = offline_index
+    coverage = idx.payload["coverage"]["per_clip"]
+    assert coverage["clip_001"]["speech"] is True
+    assert coverage["clip_001"]["scene"] is True
+    assert coverage["clip_001"]["action"] is True
+    assert coverage["clip_001"]["object"] is True
+    assert coverage["clip_001"]["ocr"] is False
+    assert coverage["clip_001"]["expressions"] is False
+    assert coverage["clip_001"]["video_embeddings"] is False
+
+
+def test_visual_query_can_return_ocr_evidence_without_a_transcript_row(
+        project, tmp_path, monkeypatch):
+    ocr_path = (project / "pipeline_output" / "steps" /
+                "1_07_ocr_extraction" / "clip_001" / "ocr_result.json")
+    _write(ocr_path, {"detections": [{"text": "BLUE CUP", "confidence": 0.91,
+                                      "appearances": [[4.0, 6.0]]}]})
+    monkeypatch.setattr(footage_query, "load_embedder", lambda: (None, "missing"))
+    index_dir = tmp_path / "ocr-index"
+    build_index(project, index_dir=index_dir)
+    idx = FootageIndex(project, index_dir=index_dir)
+
+    report = idx.search_report("find the shot of a cup", mode="hybrid")
+
+    assert report["coverage"]["per_clip"]["clip_001"]["ocr"] is True
+    assert report["results"][0]["kind"] == "ocr"
+    assert report["results"][0]["text"] == "BLUE CUP"
+    assert report["results"][0]["start"] == 4.0
 
 
 # ─── The floor, and the abstain ───────────────────────────────────

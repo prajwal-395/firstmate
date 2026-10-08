@@ -853,13 +853,42 @@ def coverage_report(project_folder) -> dict:
     # these count what search can actually hear.
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     memory_utterances = memory_words = memory_clips = 0
+    per_clip = {}
     for clip in catalog:
         doc, status = source_memory.read_m1_for_clip(
             project_folder, clip, recorded)
+        clip_id = clip.get("clip_id")
+        vision_doc = vision.get(clip_id) or {}
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        sound_doc = source_memory.read_sound(digest) if digest else None
+        memory_transcribed = doc is not None and status == "fresh"
         if doc is not None and status == "fresh":
             memory_clips += 1
             memory_utterances += doc.get("utterance_count", 0)
             memory_words += doc.get("word_count", 0)
+
+        # Keep modality coverage at the clip boundary.  This is a record
+        # of measurements that exist, not a claim that they describe every
+        # frame of the source.
+        temporal_path = (_steps_root(project_folder) / "1_04_temporal_index"
+                         / "index" / f"{clip_id}.json")
+        ocr_path = (_steps_root(project_folder) / "1_07_ocr_extraction"
+                    / clip_id / "ocr_result.json")
+        expressions_path = (source_memory.source_dir(digest)
+                            / source_memory.SLOT_EXPRESSIONS
+                            if digest else None)
+        per_clip[clip_id] = {
+            "speech": bool(memory_transcribed or temporal_path.is_file()),
+            "picture": bool(vision_doc),
+            "scene": bool(vision_doc.get("scene")),
+            "action": bool(vision_doc.get("actions")),
+            "object": bool(vision_doc.get("objects")),
+            "ocr": ocr_path.is_file(),
+            "expressions": bool(expressions_path and expressions_path.is_file()),
+            "sound": bool(sound_doc),
+            "video_embeddings": False,
+        }
 
     return {
         "clips_in_catalog": len(catalog),
@@ -878,6 +907,7 @@ def coverage_report(project_folder) -> dict:
         "memory_transcribed_clips": memory_clips,
         "memory_utterances": memory_utterances,
         "memory_words": memory_words,
+        "per_clip": per_clip,
     }
 
 

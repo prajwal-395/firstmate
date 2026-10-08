@@ -659,6 +659,17 @@ def _rrf(*halves: np.ndarray, k: int = RRF_K) -> np.ndarray:
     return fused
 
 
+_VISUAL_INTENT = re.compile(
+    r"\b(shot|picture|image|frame|visual|visually|scene|footage|"
+    r"on[- ]screen|what does .+ look like|what is shown|what can you see|"
+    r"find .+ (?:showing|with|of)|show me)\b", re.IGNORECASE)
+
+
+def _has_visual_intent(query: str) -> bool:
+    """Whether the query explicitly asks what the picture contains."""
+    return bool(_VISUAL_INTENT.search(query or ""))
+
+
 # ─── Building ─────────────────────────────────────────────────────
 
 
@@ -865,6 +876,15 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     sound_events, sound_methods = sound_events_for_project(project_folder)
     audio_classification = audio_classification_for_project(project_folder)
     ocr_texts, ocr_methods = ocr_texts_for_project(project_folder)
+    coverage = coverage_report(project_folder)
+    for clip_id, clip_coverage in coverage["per_clip"].items():
+        clip_coverage["video_embeddings"] = any(
+            row["clip_id"] == clip_id for row in video_rows)
+    text_lane = {
+        "status": "built" if dimension else "degraded",
+        "backend": backend,
+        "dimension": dimension,
+    }
 
     payload = {
         "project_folder": str(project_folder),
@@ -877,7 +897,8 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # What this index was built FROM.  An index cannot notice that the
         # ingest moved under it unless it recorded the ingest it read.
         "ingest_fingerprint": ingest_fingerprint(project_folder),
-        "coverage": coverage_report(project_folder),
+        "coverage": coverage,
+        "text_lane": text_lane,
         "segments": [s.to_dict() for s in segments],
         # The M5 sound lane: PANNs labels per clip, reachable from search.
         "sound_events": sound_events,
@@ -933,6 +954,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
             p.stat().st_size for p in target.iterdir() if p.is_file()
         ),
         "coverage": payload["coverage"],
+        "text_lane": text_lane,
     }
     if verbose:
         print(json.dumps(stats, indent=2))
@@ -1778,6 +1800,19 @@ class FootageIndex:
         else:
             mode_floor, weak_floor = float(floor), DENSE_WEAK_FLOOR
             floor_source = "explicit floor argument (--floor)"
+        visual_intent = _has_visual_intent(query)
+        coverage = self.payload.get("coverage", {})
+        per_clip_coverage = coverage.get("per_clip", {})
+        visual_modalities = ("picture", "scene", "action", "object", "ocr",
+                             "video_embeddings")
+        visual_covered = any(
+            any(clip.get(modality, False) for modality in visual_modalities)
+            for clip in per_clip_coverage.values()
+        )
+        if not per_clip_coverage:
+            visual_covered = any(
+                segment["kind"] in {"action", "scene", "camera", "object"}
+                for segment in self.segments)
         report = {
             "query": query,
             "mode": mode,
@@ -1794,7 +1829,28 @@ class FootageIndex:
             "abstained": False,
             "degraded": None,
             "error": None,
+            "backend_answered": ("bm25" if mode == "lexical" else
+                                self.payload.get("embed_backend") or "bm25"),
+            "text_lane": self.payload.get("text_lane", {
+                "status": "built" if self.payload.get("embed_dimension") else "degraded",
+                "backend": self.payload.get("embed_backend"),
+                "dimension": self.payload.get("embed_dimension", 0),
+            }),
+            "coverage": coverage,
+            "query_intent": "visual" if visual_intent else "general",
+            "answer_status": None,
         }
+        if (mode in ("hybrid", "dense")
+                and not self.payload.get("embed_dimension")):
+            report["degraded"] = (
+                "no dense text embeddings - this answer is keyword-only")
+        if visual_intent and not visual_covered:
+            report["abstained"] = True
+            report["answer_status"] = "not_analysed"
+            report["error"] = "not analysed: this index has no visual evidence coverage"
+            if external_hits is not None:
+                merge_external_evidence(report, external_hits)
+            return report
         if not self.segments:
             report["error"] = "This index has no segments; build it against a project with ingest output."
             if external_hits is not None:
@@ -1835,14 +1891,51 @@ class FootageIndex:
                 "no embedder loaded - this answer is keyword match only, and a "
                 "keyword floor cannot tell 'absent' from 'phrased differently'"
             )
+            report["backend_answered"] = "bm25"
+        elif mode == "lexical":
+            report["backend_answered"] = "bm25"
 
         tags = {"sound": sound, "ocr": ocr, "object": obj,
                 "person": person}
         keep = mask & self._eligible(dense, lexical, sound, ocr, obj, person,
                                      mode_floor)
+        if visual_intent:
+            keep &= np.array([s["kind"] in {"action", "scene", "camera", "object"}
+                              for s in self.segments], dtype=bool)
         report["retained"] = int(keep.sum())
         report["results"] = self._rank(query, combined, dense, lexical, tags,
                                        keep, top_k)
+        if visual_intent:
+            # OCR is picture evidence but has no natural row in the text
+            # segment table. Preserve its measured source span directly,
+            # rather than attaching OCR confidence to a transcript row.
+            filenames = {s["clip_id"]: s["filename"] for s in self.segments}
+            ocr_hits = []
+            for clip_id, detections in (self.payload.get("ocr_texts") or {}).items():
+                for number, detection in enumerate(detections):
+                    if not self._text_matches(_tokenize(query),
+                                              detection.get("text", "")):
+                        continue
+                    spans = detection.get("appearances") or [[0.0, 0.0]]
+                    for start, end in spans:
+                        confidence = float(detection.get("confidence") or 0.0)
+                        hit = {
+                            "segment_id": f"{clip_id}#ocr#{number:03d}",
+                            "clip_id": clip_id,
+                            "filename": filenames.get(clip_id, clip_id),
+                            "kind": "ocr",
+                            "start": float(start), "end": float(end),
+                            "duration": round(float(end) - float(start), 3),
+                            "timecode": (f"{self._timecode(start)}-"
+                                         f"{self._timecode(end)}"),
+                            "text": detection["text"],
+                            "score": round(confidence, 4),
+                            "ocr_score": round(confidence, 4),
+                            "visual_evidence": True,
+                        }
+                        ocr_hits.append(hit)
+            if ocr_hits:
+                report["results"] = (ocr_hits + report["results"])[:max(0, top_k)]
 
         # The weak band: what the floor turned away, and how close it came.
         # An abstain that cannot name its near miss reads as a broken search.
@@ -1860,6 +1953,8 @@ class FootageIndex:
                     "kind": self.segments[best]["kind"],
                 }
         report["abstained"] = not report["results"]
+        report["answer_status"] = ("found" if report["results"] else
+                                   "not_found" if visual_intent else "abstained")
         if external_hits is not None:
             merge_external_evidence(report, external_hits)
         return report
@@ -3139,8 +3234,15 @@ def _print_report(report):
             f"floor={report['floor']:.2f}",
             f"{report['considered']}/{report['segment_count']} segments considered"]
     print("  ".join(bits))
-    if report.get("embed_backend"):
-        print(f"backend: {report['embed_backend']}")
+    print(f"backend: {report.get('backend_answered') or 'unknown'}")
+    coverage = report.get("coverage", {})
+    per_clip = coverage.get("per_clip", {})
+    if per_clip:
+        modalities = ("speech", "picture", "scene", "action", "object",
+                      "ocr", "expressions", "sound", "video_embeddings")
+        counts = [f"{name}={sum(bool(c.get(name)) for c in per_clip.values())}/{len(per_clip)}"
+                  for name in modalities]
+        print("coverage: " + "  ".join(counts))
     if report.get("degraded"):
         print(f"DEGRADED: {report['degraded']}")
     if report.get("error"):
