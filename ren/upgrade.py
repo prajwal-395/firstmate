@@ -299,7 +299,16 @@ def upgrade(source: str | Path, home: Path | None = None,
             except Exception:
                 _restore_previous(home, old_previous)
                 raise
-            _rebuild_ren_native(candidate, home)
+            try:
+                _rebuild_ren_native(candidate, home)
+            except Exception:
+                # Activation and its post-switch maintenance are one
+                # transaction from the customer's perspective. Restore both
+                # pointers before reporting failure so `current` never names
+                # a candidate whose activation did not finish.
+                switch_current(home, old_version)
+                _restore_previous(home, old_previous)
+                raise
             return candidate
         except RenRefusal:
             if candidate is not None:

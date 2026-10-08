@@ -209,6 +209,32 @@ def test_failed_current_pointer_switch_restores_previous_pointer(
     assert not candidate.exists()
 
 
+def test_failed_post_switch_step_restores_both_engine_pointers(
+        tmp_path, monkeypatch):
+    home = tmp_path / "support" / "Ren"
+    _fake_engine(home / "versions" / "old")
+    _fake_engine(home / "versions" / "prior")
+    candidate = _fake_engine(home / "versions" / "candidate")
+    (home / "current").symlink_to(Path("versions") / "old")
+    (home / "previous").symlink_to(Path("versions") / "prior")
+    monkeypatch.setattr(
+        upgrade, "stage_versioned", lambda *_args, **_kwargs: candidate)
+    monkeypatch.setattr(upgrade, "_verify_doctor", lambda *_args: None)
+    monkeypatch.setattr(upgrade, "_verify_project_formats", lambda *_args: None)
+
+    def post_switch_fails(*_args):
+        raise RuntimeError("simulated post-switch failure")
+
+    monkeypatch.setattr(upgrade, "_rebuild_ren_native", post_switch_fails)
+
+    with pytest.raises(RenRefusal, match="simulated post-switch failure"):
+        upgrade.upgrade(tmp_path / "source", home=home)
+
+    assert _current_version(home) == "old"
+    assert _previous_version(home) == "prior"
+    assert not candidate.exists()
+
+
 def _proof_env(home: Path, box: Path) -> dict:
     env = dict(os.environ)
     env.pop("REN_ENGINE_ROOT", None)
@@ -232,7 +258,8 @@ def _run_ren(home: Path, box: Path, *args: str):
         capture_output=True, encoding="utf-8", timeout=360, check=False)
 
 
-def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(tmp_path):
+def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(
+        tmp_path, monkeypatch):
     """Exercise the installed CLI with isolated HOME and project storage."""
     from ren.package_engine import install_versioned
 
@@ -247,6 +274,65 @@ def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(tmp_path):
     media = project / "raw" / "keep.mov"
     media.write_bytes(b"customer media")
 
+    # Populate the same durable state stores real installations use before
+    # upgrading. These records must remain readable by each installed tree.
+    from library.tools.resolved.server import db_path
+    from library.tools.resolved.store import JobStore
+    from library.tools import resolve_script_store
+    from library.tools.versions import reel_versions
+
+    lock_dir = box / "resolve-state"
+    lock_dir.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(lock_dir))
+    jobs = JobStore(db_path())
+    job = {
+        "id": "upgrade-validation-job", "kind": "read", "priority": "normal",
+        "mode": "read", "executed": 1, "params": {"query": "survives"},
+        "project": "Ren Qualification", "timeline": "",
+        "qualification": 1, "coalesce_key": None, "owner": "test",
+        "state": "done", "submitted": 1.0, "started": 1.0,
+        "finished": 2.0, "result": json.dumps({"answer": "A"}),
+        "error": "",
+    }
+    jobs.insert(job)
+    jobs.close()
+    script_record = {
+        "run_id": "upgrade-validation-script", "scope": "project",
+        "purpose": "upgrade validation", "script": "result = 42",
+        "script_hash": "script-hash", "purpose_hash": "purpose-hash",
+        "at": "2026-10-08T00:00:00+00:00", "outcome": "success",
+    }
+    resolve_script_store.save_run("project", script_record, project)
+    reel_versions.record(project, "reel-01", kind="build",
+                         rows={"clips": [{"name": "kept"}]},
+                         built_with="engine-A")
+
+    def read_state(engine_root: Path) -> dict:
+        env = _proof_env(home, box)
+        env["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
+        env["PYTHONPATH"] = os.pathsep.join(
+            (str(engine_root), str(REPO_ROOT)))
+        reader = """
+import json
+from pathlib import Path
+from library.tools.resolved.server import db_path
+from library.tools.resolved.store import JobStore
+from library.tools import resolve_script_store
+from library.tools.versions import reel_versions
+project = Path(__import__('sys').argv[1])
+store = JobStore(db_path())
+job = store.get('upgrade-validation-job')
+store.close()
+scripts = resolve_script_store.list_runs('project', project)
+reels = reel_versions.versions_of(project, 'reel-01')
+print(json.dumps({'job': job, 'scripts': scripts, 'reels': reels}))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", reader, str(project)], cwd=box, env=env,
+            capture_output=True, encoding="utf-8", timeout=30, check=False)
+        assert result.returncode == 0, result.stderr + result.stdout
+        return json.loads(result.stdout)
+
     old_tree = install_versioned(
         home, REPO_ROOT, channel="test", sha="old-build",
         built_at="2026-10-04")
@@ -254,12 +340,27 @@ def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(tmp_path):
     env = _proof_env(home, box)
     Path(env["HOME"]).mkdir(parents=True)
     Path(env["XDG_DATA_HOME"]).mkdir(parents=True)
+    expected_state = read_state(old_tree)
+    assert expected_state["job"]["result"] == {"answer": "A"}
+    assert expected_state["scripts"][0]["script"] == "result = 42"
+    assert expected_state["reels"][0]["rows"] == {"clips": [{"name": "kept"}]}
+
+    # A rejected candidate must leave the original installed CLI and its
+    # customer state usable before the successful upgrade is attempted.
+    failed_from_a = _run_ren(home, box, "upgrade", str(box / "missing-engine"))
+    assert failed_from_a.returncode == 4, failed_from_a.stderr + failed_from_a.stdout
+    assert _current_version(home) == old_version
+    old_cli_still_works = _run_ren(home, box, "--version")
+    assert old_cli_still_works.returncode == 0, old_cli_still_works.stderr
+    assert old_version in old_cli_still_works.stdout
+    assert read_state(home / "current") == expected_state
 
     upgraded = _run_ren(home, box, "upgrade", str(REPO_ROOT))
     assert upgraded.returncode == 0, upgraded.stderr + upgraded.stdout
     new_version = _current_version(home)
     assert new_version and new_version != old_version
     assert _previous_version(home) == old_version
+    assert read_state(home / "current") == expected_state
 
     failed = _run_ren(home, box, "upgrade", str(box / "missing-engine"))
     assert failed.returncode == 4, failed.stderr + failed.stdout
@@ -273,6 +374,7 @@ def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(tmp_path):
     assert rolled_back.returncode == 0, rolled_back.stderr + rolled_back.stdout
     assert _current_version(home) == old_version
     assert _previous_version(home) == new_version
+    assert read_state(home / "current") == expected_state
     assert project_yaml.read_text(encoding="utf-8") == (
         "name: Sample\nproject_format_version: 1\n")
     assert media.read_bytes() == b"customer media"
