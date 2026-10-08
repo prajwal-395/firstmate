@@ -90,7 +90,8 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "resolve.ui_transaction", "reel.promote_staged",
          "reel.prepare_qualification_fixture",
          "reel.probe_qualification_marker_loss",
-          "resolve.qualification_session", "resolve.activity_probe",
+          "resolve.qualification_session", "qualification.workflow",
+          "resolve.activity_probe",
           "timeline.drt_export_probe",
           "reel.copy_tv_ending")
 
@@ -102,6 +103,7 @@ BORROWING_QUALIFICATION_KINDS = frozenset({
     "reel.promote_staged",
     "reel.prepare_qualification_fixture",
     "reel.probe_qualification_marker_loss",
+    "qualification.workflow",
 })
 
 # A job may opt into running Stop only with a named safe boundary. A
@@ -118,6 +120,7 @@ INTERRUPT_POLICIES = {
     "reel.prepare_qualification_fixture": "commit:fixture-saved",
     "reel.probe_qualification_marker_loss": "inverse:marker-restored-and-saved",
     "reel.copy_tv_ending": "backup:drt+inverse:inventory-verified",
+    "qualification.workflow": "commit:timeline-exported-and-read-back",
 }
 MUTATING_KINDS = frozenset(INTERRUPT_POLICIES)
 MUTATING_KINDS = MUTATING_KINDS - {"resolve.activity_probe"}
@@ -410,6 +413,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": "",
                  "locality": "project",
                  "coalesce_key": None}
+    elif kind == "qualification.workflow":
+        from library.tools.qualification_workflow import prepare_broker_job
+        shape = prepare_broker_job(params)
+        qualification = True
     elif kind == "timeline.drt_export_probe":
         from library.tools.resolved import drt_export_probe
         shape = drt_export_probe.prepare(params)
@@ -603,6 +610,10 @@ def run(job: dict, resolve) -> dict | None:
                          run_id=job.get("id")):
             return _commit_checkpoint(
                 job, reel_promotion_fixture.run(job, resolve))
+    if kind == "qualification.workflow":
+        from library.tools.qualification_workflow import run_broker_job
+        _start_checkpoint(job)
+        return _commit_checkpoint(job, run_broker_job(job, resolve))
     if kind == "reel.probe_qualification_marker_loss":
         from library.tools.resolved import marker_loss_probe
         _start_checkpoint(job)

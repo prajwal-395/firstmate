@@ -300,3 +300,34 @@ def test_offline_and_post_render_wrappers_contain_no_resolve_calls():
             if escaped:
                 violations.append(f"{filename}:{node.name}: {escaped}")
     assert not violations, "Resolve calls escaped the leased worker: " + "; ".join(violations)
+
+
+def test_heavy_work_wait_notice_leaves_stdout_clean(capsys):
+    """Defect: the scheduler wait notice printed to stdout, so
+    `ren analyze --json` emitted a non-JSON first line and the
+    qualification workflow could not parse its run record."""
+    from library.tools import heavy_work_lock
+
+    heavy_work_lock._announce(
+        "heavy-work: waiting for running Gemma semantic model memory (pid 1)")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "waiting" in captured.err
+
+
+def test_heavy_work_acquisitions_announce_to_stderr():
+    """Defect: an announce callback printing to stdout returns and the
+    JSON contract breaks again."""
+    tree = ast.parse(
+        (REPO_ROOT / "library/tools/heavy_work_lock.py").read_text(
+            encoding="utf-8"))
+    inline_announcers = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.keyword) and node.arg == "announce"
+        and isinstance(node.value, ast.Lambda)
+    ]
+    assert not inline_announcers, (
+        "inline announce callbacks at heavy_work_lock.py lines "
+        f"{inline_announcers}: acquisitions must announce through "
+        "_announce (stderr) so --json stays parseable")

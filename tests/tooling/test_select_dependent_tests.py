@@ -40,6 +40,18 @@ CONTRACT_SETS = _selector.CONTRACT_SETS
 select = _selector.select
 
 MG_CONTRACT = CONTRACT_SETS["motion_graphics_plan"]
+WORKFLOW_CONTRACT = CONTRACT_SETS["qualification_workflow"]
+
+
+def test_workflow_qualification_selects_the_october_failure_classes():
+    selected = select(["library/tools/qualification_workflow.py"])
+    for contract in WORKFLOW_CONTRACT:
+        assert contract in selected, contract
+
+
+def test_dependent_selection_never_passes_conftest_as_a_test():
+    selected = select(["library/tools/qualification_workflow.py"])
+    assert not any(path.endswith("/conftest.py") for path in selected)
 
 
 def test_the_resolver_change_selects_the_speaker_contract_test():

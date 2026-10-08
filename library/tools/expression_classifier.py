@@ -119,10 +119,14 @@ def _crop_face(source_path: str, timestamp: float, box: List[float],
         "-f", "image2pipe", "-vcodec", "png", "-",
     ]
     try:
+        # Binary capture: ffmpeg writes PNG bytes to stdout, so no text
+        # encoding is set here. Decoding the PNG header as UTF-8 raises
+        # UnicodeDecodeError on its leading 0x89 byte and fails the
+        # whole expressions lane on any footage with a face.
         result = subprocess.run(cmd, capture_output=True, timeout=10,
-                                encoding="utf-8", check=False)
+                                check=False)
         if result.returncode == 0 and result.stdout:
-            return result.stdout.encode("latin-1")
+            return bytes(result.stdout)
     except (subprocess.TimeoutExpired, OSError):
         pass
     return None

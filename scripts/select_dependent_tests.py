@@ -44,6 +44,14 @@ TESTS = os.path.join(REPO_ROOT, "tests")
 # feed entries through it. Any change to the resolver runs the whole
 # set. Pinned by `tests/tooling/test_select_dependent_tests.py`.
 CONTRACT_SETS = {
+    "qualification_workflow": [
+        "tests/unit/reels/test_reel_build_whole_lease.py",
+        "tests/unit/resolve/test_reel_promotion_job.py",
+        "tests/unit/reels/test_reel_conformance_verifier.py",
+        "tests/unit/picture/test_picture_qa.py",
+        "tests/unit/resolve/test_resolve_render.py",
+        "tests/scenarios/test_golden_conversation.py",
+    ],
     "motion_graphics_plan": [
         "tests/unit/audio/test_speaker_identity.py",
         "tests/unit/captions/test_caption_layout.py",
@@ -208,7 +216,12 @@ def select(changed):
         for resolver in resolvers:
             selected.update(CONTRACT_SETS[resolver])
 
-    return sorted(selected)
+    # Pytest treats conftest.py as configuration, not a test module. It can
+    # enter the import graph as a carrier, but passing it as a path causes
+    # module-name collisions when another subsystem has its own conftest.
+    return sorted(path for path in selected
+                  if os.path.basename(path).startswith("test_")
+                  and path.endswith(".py"))
 
 
 def loop(changed):

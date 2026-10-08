@@ -228,7 +228,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "timeline", group: "Resolve", summary: "Answer what a timeline holds from its recorded generations; touches no Resolve" },
     Verb { name: "resolved", group: "Resolve", summary: "Run or ask the broker that schedules the one Resolve (serve|ensure|status|list|submit|result|stop|kpi)" },
     Verb { name: "shadow-watch", group: "Resolve", summary: "Watch the current timeline for hand edits on a schedule (standalone; the broker hosts it)" },
-    Verb { name: "qualification", group: "Resolve", summary: "Build the Ren Qualification project live tests use, or qualify the broker on it (media|reset|qualify)" },
+    Verb { name: "qualification", group: "Resolve", summary: "Build, qualify or run the full real-footage workflow in Ren Qualification (media|reset|qualify|workflow)" },
     Verb { name: "computer-use", group: "Resolve", summary: "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)" },
     Verb { name: "effects", group: "Resolve", summary: "Search the installed ResolveFX/OFX effects: route and verification state (read only)" },
     Verb { name: "search", group: "Footage", summary: "Find where in a project's footage something happens" },

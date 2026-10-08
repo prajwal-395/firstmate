@@ -51,6 +51,13 @@ _memory_reservation: dict | None = None
 _F = TypeVar("_F", bound=Callable)
 
 
+def _announce(line: str) -> None:
+    """Scheduler wait notices go to stderr, never stdout: stdout is the
+    machine-readable channel (`ren analyze --json`), and a wait notice
+    there breaks every consumer that parses it."""
+    print(line, file=sys.stderr, flush=True)
+
+
 def _scheduler() -> resource_scheduler.Scheduler:
     return resource_scheduler.Scheduler(HEAVY_LOCK_DIR)
 
@@ -116,7 +123,7 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
             watch_resolve=bool(demand.get("resolve_cursor")))
         try:
             token = _scheduler().acquire(
-                owner, demand, announce=lambda line: print(line, flush=True),
+                owner, demand, announce=_announce,
                 cancelled=cancelled, timeout=timeout)
         except BaseException:
             sampler.stop()
@@ -175,7 +182,7 @@ def take_heavy_memory_reservation(
         sampler = resource_scheduler.TreeSampler()
         try:
             token = _scheduler().acquire(
-                owner, demand, announce=lambda line: print(line, flush=True),
+                owner, demand, announce=_announce,
                 cancelled=cancelled)
         except BaseException:
             sampler.stop()

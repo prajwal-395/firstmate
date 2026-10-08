@@ -148,6 +148,7 @@ def _render_timeline_under_lease(
     fmt: str = "mp4",
     codec: str = "H264",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    resolve_override=None,
 ) -> dict:
     """Queue, start and await a render of the timeline. Returns a report.
 
@@ -155,7 +156,10 @@ def _render_timeline_under_lease(
     freshness, size and audio validation belong to the public wrapper after
     both leases have been released.
     """
-    resolve = _connect()
+    # Qualification broker jobs already own the shared Resolve lease and
+    # pass its deadline-wrapped handle. The ordinary CLI still connects
+    # here, under this function's own lease.
+    resolve = resolve_override if resolve_override is not None else _connect()
     project = resolve.GetProjectManager().GetCurrentProject()
     if not project:
         raise RenderError("No project is open in Resolve")
@@ -392,6 +396,36 @@ def render_timeline(
         codec=codec,
         timeout_seconds=timeout_seconds,
     )
+    return _validate_render_output(render)
+
+
+def render_timeline_under_existing_lease(
+    *, timeline_name: str, output_dir: str, output_name: str,
+    resolve, fmt: str = "mp4", codec: str = "H264",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Queue a render inside an existing broker-owned exclusive lease.
+
+    Qualification jobs use this seam with the broker's deadline-wrapped
+    Resolve handle. File validation stays with the caller after the broker
+    releases Resolve, matching the ordinary render path.
+    """
+    from library.tools.resolve_lock import exclusive_held
+
+    if not exclusive_held():
+        raise RenderError(
+            "render_timeline_under_existing_lease needs the broker's "
+            "exclusive Resolve lease")
+    if not output_dir:
+        raise RenderError("output_dir is required")
+    render_body = _render_timeline_under_lease.__wrapped__
+    return render_body(
+        timeline_name=timeline_name, output_dir=output_dir,
+        output_name=output_name, fmt=fmt, codec=codec,
+        timeout_seconds=timeout_seconds, resolve_override=resolve)
+
+
+def _validate_render_output(render: dict) -> dict:
     produced = _files_written_since(
         render["output_dir"], render["output_name"],
         render["render_started_at"])

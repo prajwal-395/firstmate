@@ -253,6 +253,56 @@ class TestReadM3C:
         assert result["frame_count"] == 10
 
 
+class TestCropFaceBinaryCapture:
+    """`_crop_face` returns ffmpeg's PNG bytes without text decoding."""
+
+    def test_png_bytes_pass_through_undecoded(self, monkeypatch):
+        """Defect: stdout captured with encoding="utf-8", so the PNG
+        header byte 0x89 raised UnicodeDecodeError and failed the whole
+        expressions lane on any footage with a face."""
+        import subprocess
+
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+        seen = {}
+
+        class _Result:
+            returncode = 0
+            stdout = png
+            stderr = b""
+
+        def fake_run(cmd, **kwargs):
+            seen.update(kwargs)
+            if kwargs.get("encoding") is not None or kwargs.get("text"):
+                # Behave like the stdlib: text capture decodes stdout,
+                # which raises on the PNG header exactly as in production.
+                png.decode(kwargs.get("encoding") or "utf-8")
+            return _Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        out = ec._crop_face("source.MXF", 1.0, [0.1, 0.1, 0.5, 0.5],
+                            [640, 480])
+
+        assert out == png
+        assert seen.get("encoding") is None
+        assert not seen.get("text")
+
+    def test_failed_crop_returns_none(self, monkeypatch):
+        """Defect: a failed ffmpeg crop raises instead of measuring no crop."""
+        import subprocess
+
+        class _Result:
+            returncode = 1
+            stdout = b""
+            stderr = b""
+
+        monkeypatch.setattr(subprocess, "run",
+                            lambda cmd, **kwargs: _Result())
+
+        assert ec._crop_face("source.MXF", 1.0, [0.1, 0.1, 0.5, 0.5],
+                             [640, 480]) is None
+
+
 class TestExpressionLanes:
     """`build_project_expressions` runs one lane per source on the
     bounded FREE lanes. Digest dedup is decided serially up front (a

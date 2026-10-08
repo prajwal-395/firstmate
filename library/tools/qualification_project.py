@@ -9,6 +9,7 @@ KNOWN timelines, so a test can assert exact frames and names.
     ren qualification media      # FREE: render the synthetic clips
     ren qualification reset      # borrow Resolve, rebuild the project
     ren qualification qualify    # reset, then qualify ren-resolved live
+    ren qualification workflow   # two full real-footage editing/export runs
 
 Synthetic media
 ---------------
@@ -102,6 +103,107 @@ def media_dir() -> Path:
     root = os.environ.get(MEDIA_ROOT_ENV) or str(
         Path.home() / ".local" / "share" / "vep" / "qualification")
     return Path(root) / recipe_key()
+
+
+def real_media_dir() -> Path:
+    """The immutable qualification copies of indexed source footage."""
+    return media_dir() / "real_footage"
+
+
+def copy_indexed_source(index_path: str | Path, query: str, *,
+                        max_seconds: float = 300.0) -> dict:
+    """Search a built footage index and copy its best short source file.
+
+    Only the index is read to choose the source. The original media is
+    opened read-only and copied byte-for-byte; an existing content-addressed
+    copy is reused and never overwritten.
+    """
+    import hashlib
+
+    from library.tools.analysis.footage_query import FootageIndex
+
+    index_path = Path(index_path).expanduser().resolve()
+    if not index_path.is_file():
+        raise QualificationError(f"footage index is missing: {index_path}")
+    index_dir = index_path.parent
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    project_folder = index_payload["project_folder"]
+    index = FootageIndex(project_folder, index_dir=index_dir)
+    result = index.search_report(query, top_k=20, mode="hybrid")
+    if result.get("error"):
+        raise QualificationError(
+            f"footage index search failed: {result['error']}")
+
+    by_clip = {}
+    for row in index_payload["segments"]:
+        by_clip.setdefault(row["clip_id"], row["source_file"])
+    selected = None
+    for hit in result["results"]:
+        source = by_clip.get(hit["clip_id"])
+        if not source:
+            continue
+        path = Path(source).expanduser()
+        if not path.is_file():
+            continue
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format=duration:stream=codec_type", "-of", "json", str(path)],
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+            check=False)
+        if probe.returncode != 0:
+            continue
+        try:
+            measured = json.loads(probe.stdout)
+            duration = float(measured["format"]["duration"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        stream_types = {row.get("codec_type")
+                        for row in measured.get("streams", [])}
+        if (0 < duration <= max_seconds
+                and {"video", "audio"}.issubset(stream_types)):
+            selected = (path, hit, duration)
+            break
+    if selected is None:
+        raise QualificationError(
+            f"the index search found no readable source at or below "
+            f"{max_seconds:g} seconds")
+
+    source, hit, duration = selected
+
+    def file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    sha256 = file_sha256(source)
+    target_dir = real_media_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{source.stem}-{sha256[:12]}{source.suffix}"
+    if target.exists():
+        existing = file_sha256(target)
+        if existing != sha256:
+            raise QualificationError(
+                f"content-addressed qualification copy changed: {target}")
+    else:
+        temporary = target.with_name(f".{target.name}.partial")
+        try:
+            shutil.copy2(source, temporary)
+            if file_sha256(temporary) != sha256:
+                raise QualificationError(
+                    f"copied media hash did not match source: {source}")
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return {"index": str(index_path), "query": query,
+            "clip_id": hit["clip_id"], "filename": source.name,
+            "source_file": str(source), "qualification_copy": str(target),
+            "duration_seconds": duration, "bytes": target.stat().st_size,
+            "sha256": sha256,
+            "search_hit": {key: hit[key] for key in
+                           ("clip_id", "start", "end", "score", "dense")
+                           if key in hit}}
 
 
 def promotion_project_folder() -> Path:
@@ -720,10 +822,14 @@ def qualify() -> dict:
 
 def main(argv=None) -> int:
     import argparse
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "workflow":
+        from library.tools.qualification_workflow import main as workflow_main
+        return workflow_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="ren qualification",
         description=f"The {QUALIFICATION_PROJECT!r} project live tests use.")
-    parser.add_argument("verb", choices=("media", "reset", "qualify"))
+    parser.add_argument("verb", choices=("media", "reset", "qualify", "workflow"))
     args = parser.parse_args(argv)
     if args.verb == "media":
         report = {name: str(path) for name, path in ensure_media().items()}
