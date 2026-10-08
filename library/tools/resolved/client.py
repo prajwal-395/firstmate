@@ -307,10 +307,9 @@ def _broker_python() -> str:
 def _rust_daemon() -> Optional[Path]:
     """The Rust ren-resolved binary, where it is built.
 
-    The strangler switch (`REN_RESOLVED_DAEMON=rust`) starts this binary
-    instead of the Python daemon; the client is otherwise unchanged, and
-    `client.call(...)` does not care which daemon serves it. The binary
-    lives in the crate's target dir, release first, then debug.
+    The Rust broker binary, selected by default unless
+    `REN_RESOLVED_DAEMON=python` is set. It lives in the crate's target
+    dir, release first, then debug.
     """
     root = _engine_root()
     if root is None:
@@ -331,9 +330,9 @@ def _start_detached(path: Path) -> subprocess.Popen:
     socket rather than the worker's pipes, which would otherwise stay
     open for the broker's lifetime.
 
-    The daemon is the Python one by default; `REN_RESOLVED_DAEMON=rust`
-    starts the Rust daemon (the same protocol, the same socket) - the
-    strangler migration's one switch.
+    The Rust daemon is the default; `REN_RESOLVED_DAEMON=python` selects
+    the Python fallback for one migration cycle. Both use the same
+    protocol and socket.
     """
     env = dict(os.environ)
     root = _engine_root()
@@ -348,13 +347,27 @@ def _start_detached(path: Path) -> subprocess.Popen:
         # Resolve with timeline.snapshot jobs). Forced here, not
         # trusted to the test's environment.
         env["REN_SHADOW_WATCHER"] = "0"
-    if os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower() == "rust":
+    daemon = os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower()
+    if daemon != "python":
+        if daemon != "rust" and root is not None:
+            from library.tools import native_refresh
+            state, detail = native_refresh.status(root, "ren-resolved")
+            if state != "fresh":
+                raise RuntimeError(
+                    "the default Rust broker is unavailable or stale "
+                    f"({detail}); run scripts/build_ren_resolved.sh")
         binary = _rust_daemon()
         if binary is None:
+            target = (root / "native" / "target" if root is not None
+                      else "the engine's native/target directory")
+            if daemon == "rust":
+                raise RuntimeError(
+                    "REN_RESOLVED_DAEMON=rust but the ren-resolved binary is "
+                    f"not built under {target} - "
+                    "run scripts/build_ren_resolved.sh")
             raise RuntimeError(
-                "REN_RESOLVED_DAEMON=rust but the ren-resolved binary is not "
-                f"built (looked under {root / 'native' / 'target'}) - run "
-                "cargo build --release in native/")
+                "the default Rust broker is unavailable: ren-resolved was "
+                f"not built under {target}")
         argv = [str(binary), "serve"]
     else:
         argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]

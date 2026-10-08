@@ -105,3 +105,14 @@ def test_fresh_tree_never_invokes_the_script(tmp_path):
     report = native_refresh.ensure_current(
         tmp_path, parts=parts, runner=_nope)
     assert report == {"demo": "fresh"}
+
+
+def test_refresh_progress_does_not_pollute_stdout(tmp_path, capsys):
+    _write_source(tmp_path)
+    native_refresh.ensure_current(
+        tmp_path, parts=_parts(tmp_path), runner=_Runner(tmp_path))
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "native: demo is missing" in output.err
+    assert "native: demo rebuilt from this tree" in output.err

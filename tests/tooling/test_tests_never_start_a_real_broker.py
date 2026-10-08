@@ -24,8 +24,9 @@ Three lines of defence, all pinned here:
    as well - refuses to SPAWN on any other socket unless the test
    explicitly opts in (`REN_TESTS_ALLOW_BROKER_SPAWN=1`, which a
    lock-dir fixture sets for the suite that IS the spawn path), and
-   `client._start_detached` launches the broker with Ren's venv
-   interpreter rather than whatever Python ran the caller, with the
+   `client._start_detached` launches the Python fallback with Ren's venv
+   interpreter rather than whatever Python ran the caller (the default
+   Rust path launches the built ren-resolved binary instead), with the
    shadow watcher forced off.
 3. A test's subprocess children inherit the isolation: the update
    install test carries `PYTEST_CURRENT_TEST`,
@@ -188,21 +189,23 @@ def test_ensure_refuses_the_default_socket_from_a_test_child_process(
 
 
 def test_the_broker_spawns_with_the_ren_venv_interpreter(tmp_path, monkeypatch):
-    """`ensure` starts the broker with Ren's interpreter, not the caller's.
+    """The Python fallback starts with Ren's interpreter, not the caller's.
 
     The orphans ran under homebrew Python 3.14 - `sys.executable` of
-    whichever test worker started them. The spawn path resolves the
+    whichever test worker started them. The fallback spawn path resolves the
     ladder in `shared_environment` instead.
 
-    With `REN_RESOLVED_DAEMON=rust` the broker is the Rust binary - the
-    same protocol, a different process - and the spawn path is the binary,
-    not the interpreter.
+    The Rust broker is the default - the spawn path there is the built
+    binary, pinned by `test_the_rust_broker_spawns_with_the_built_binary`
+    below - so this guard pins the fallback explicitly via
+    `REN_RESOLVED_DAEMON=python`.
     """
     from library.tools import shared_environment
 
     expected, why_not = shared_environment.python_interpreter(str(REPO_ROOT))
     if not expected:
         pytest.skip(f"no Ren venv on this machine: {why_not}")
+    monkeypatch.setenv("REN_RESOLVED_DAEMON", "python")
     seen = []
 
     class _Child:
@@ -217,18 +220,53 @@ def test_the_broker_spawns_with_the_ren_venv_interpreter(tmp_path, monkeypatch):
     sock_dir = tmp_path / "locks"
     sock_dir.mkdir()
     client._start_detached(sock_dir / SOCKET_NAME)
-    if os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower() == "rust":
-        binary = client._rust_daemon()
-        assert binary is not None, "REN_RESOLVED_DAEMON=rust but no binary"
-        assert seen and seen[0][0] == str(binary), (
-            f"the Rust broker would spawn with {seen[0][0] if seen else 'nothing'} "
-            f"instead of {binary}")
+    assert seen and seen[0][0] == expected, (
+        f"the broker would spawn with {seen[0][0] if seen else 'nothing'} "
+        f"instead of Ren's interpreter {expected}")
+    assert seen[0][1:4] == ["-m", "library.tools.resolved", "serve"]
+
+
+def test_the_rust_broker_spawns_with_the_built_binary(tmp_path, monkeypatch):
+    """The default (Rust) spawn path is the built binary, not an interpreter.
+
+    With Rust the default, `ensure` starts the ren-resolved binary - the
+    same protocol, a different process. The freshness check against
+    `native_refresh` is mocked to fresh here so the guard pins the argv
+    shape without requiring a real build; a stale or missing binary must
+    still refuse in `_start_detached` itself. Both the unset default and
+    the explicit `REN_RESOLVED_DAEMON=rust` take this path.
+    """
+    from library.tools import native_refresh
+
+    fake_binary = tmp_path / "ren-resolved"
+    monkeypatch.setattr(client, "_rust_daemon", lambda: fake_binary)
+    monkeypatch.setattr(
+        native_refresh, "status", lambda root, name: ("fresh", "test"))
+    seen = []
+
+    class _Child:
+        def poll(self):
+            return None
+
+    def fake_popen(argv, **kwargs):
+        seen.append(argv)
+        return _Child()
+
+    monkeypatch.setattr(client.subprocess, "Popen", fake_popen)
+    sock_dir = tmp_path / "locks"
+    sock_dir.mkdir()
+    for daemon_env in (None, "rust"):
+        if daemon_env is None:
+            monkeypatch.delenv("REN_RESOLVED_DAEMON", raising=False)
+        else:
+            monkeypatch.setenv("REN_RESOLVED_DAEMON", daemon_env)
+        seen.clear()
+        client._start_detached(sock_dir / SOCKET_NAME)
+        label = "default" if daemon_env is None else "REN_RESOLVED_DAEMON=rust"
+        assert seen and seen[0][0] == str(fake_binary), (
+            f"the Rust broker ({label}) would spawn with "
+            f"{seen[0][0] if seen else 'nothing'} instead of {fake_binary}")
         assert seen[0][1:] == ["serve"]
-    else:
-        assert seen and seen[0][0] == expected, (
-            f"the broker would spawn with {seen[0][0] if seen else 'nothing'} "
-            f"instead of Ren's interpreter {expected}")
-        assert seen[0][1:4] == ["-m", "library.tools.resolved", "serve"]
 
 
 # ── 2. The incident's shape, replayed in a subprocess ────────────────

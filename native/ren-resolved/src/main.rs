@@ -3,8 +3,8 @@
 //! Speaks the EXISTING Unix-socket JSON protocol of
 //! `library/tools/resolved/server.py` byte-compatibly, so
 //! `client.call(...)` does not care whether the daemon on the other side
-//! is Python or Rust - a strangler migration. The Python daemon stays the
-//! default; this daemon is selectable by `REN_RESOLVED_DAEMON=rust`.
+//! is Python or Rust. The Rust daemon is the default; the Python daemon is
+//! selectable by `REN_RESOLVED_DAEMON=python` for one migration cycle.
 //!
 //! It owns the queue, priorities and scheduling, exclusive/shared resource
 //! admission, idempotency and coalescing, leases, deadlines, the watchdog,
@@ -80,5 +80,6 @@ fn main() {
     let _ = serve_thread.join();
     daemon.watchdog.stop();
     daemon.broker.stop();
+    daemon.stop();
     let _ = std::fs::remove_file(&socket_path);
 }

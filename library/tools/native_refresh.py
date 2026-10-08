@@ -76,6 +76,17 @@ PARTS = {
         "script": ("scripts", "build_resolve_control.sh"),
         "args": (),
     },
+    "ren-resolved": {
+        "scope": (
+            "native/ren-resolved/Cargo.toml",
+            "native/ren-resolved/src",
+            "native/Cargo.toml",
+            "scripts/build_ren_resolved.sh",
+        ),
+        "binary": ("native", "target", "release", "ren-resolved"),
+        "script": ("scripts", "build_ren_resolved.sh"),
+        "args": (),
+    },
     "resolve-activity-overlay": {
         "scope": (
             "native/resolve-activity-overlay/main.swift",
@@ -254,7 +265,7 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                     report[name] = "fresh (rebuilt by another lane)"
                     continue
                 print(f"native: {name} is {state} ({detail}) - rebuilding",
-                      flush=True)
+                      file=sys.stderr, flush=True)
                 try:
                     if runner is None:
                         done = subprocess.run(
@@ -267,19 +278,23 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                 except (OSError, subprocess.SubprocessError) as exc:
                     report[name] = (
                         f"build could not start ({exc}); kept the previous build")
-                    print(f"native: {name} {report[name]}", flush=True)
+                    print(f"native: {name} {report[name]}",
+                          file=sys.stderr, flush=True)
                     continue
                 if code == 0:
                     record(root, name, specs)
                     report[name] = "rebuilt"
-                    print(f"native: {name} rebuilt from this tree", flush=True)
+                    print(f"native: {name} rebuilt from this tree",
+                          file=sys.stderr, flush=True)
                 elif code == 4:
                     report[name] = ("no toolchain; kept the previous build")
-                    print(f"native: {name} {report[name]}", flush=True)
+                    print(f"native: {name} {report[name]}",
+                          file=sys.stderr, flush=True)
                 else:
                     report[name] = (
                         f"build failed (exit {code}); kept the previous build")
-                    print(f"native: {name} {report[name]}", flush=True)
+                    print(f"native: {name} {report[name]}",
+                          file=sys.stderr, flush=True)
         except Exception as exc:  # noqa: BLE001 - refresh never breaks startup
             report[name] = f"refresh skipped ({exc}); left alone"
     return report

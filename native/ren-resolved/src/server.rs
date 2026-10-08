@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 
 use crate::broker::Broker;
@@ -52,6 +53,7 @@ pub struct Daemon {
     pub watchdog: Arc<Watchdog>,
     /// Set by the `shutdown` op; the serve loop notices and exits.
     pub shutdown: Arc<std::sync::atomic::AtomicBool>,
+    shadow_watcher: std::sync::Mutex<Option<Child>>,
 }
 
 impl Daemon {
@@ -67,6 +69,19 @@ impl Daemon {
             broker: Arc::new(broker),
             watchdog: Arc::new(watchdog),
             shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            shadow_watcher: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn start_shadow_watcher(&self) {
+        *self.shadow_watcher.lock().unwrap() = start_shadow_watcher();
+    }
+
+    /// Stop the hosted watcher along with the broker process.
+    pub fn stop(&self) {
+        if let Some(mut child) = self.shadow_watcher.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 
@@ -211,6 +226,26 @@ impl Daemon {
     }
 }
 
+fn start_shadow_watcher() -> Option<Child> {
+    if std::env::var("REN_SHADOW_WATCHER").unwrap_or_default() == "0" {
+        return None;
+    }
+    let python = std::env::var("PIPELINE_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    match Command::new(&python)
+        .args(["-m", "library.tools.resolved.shadow_watcher_host"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(child) => Some(child),
+        Err(error) => {
+            eprintln!("ren-resolved: could not start shadow watcher ({python}): {error}");
+            None
+        }
+    }
+}
+
 /// Read the diagnostic lease record without entering the Resolve worker.
 fn active_lease() -> Option<protocol::LeaseStatus> {
     let path = lock_dir().join(LEASE_NAME);
@@ -232,6 +267,7 @@ pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     listener.set_nonblocking(true)?;
+    daemon.start_shadow_watcher();
     loop {
         if daemon.shutdown.load(std::sync::atomic::Ordering::Relaxed) {
             break;

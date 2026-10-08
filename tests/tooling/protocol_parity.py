@@ -84,14 +84,14 @@ def normalize(value):
 
 
 def without_watcher(reply):
-    """Drop the shadow watcher's side-effect jobs from a list reply.
+    """Drop shadow-watcher side-effect jobs from a list reply.
 
-    The Python broker hosts the watcher (PR 1807): it submits
-    timeline.snapshot jobs on a schedule (owner 'shadow_watcher') and
+    Both brokers host the watcher in production: they submit
+    timeline.observe_current jobs on a schedule (owner 'shadow_watcher') and
     takes a lease each tick to read the open project (owner 'pid-<pid>').
-    The Rust broker does not host the watcher - yet. The list comparison
-    is about the protocol both daemons speak, so the watcher's own jobs
-    are filtered from both sides; this test's submissions carry owner ''.
+    This protocol probe disables it on both sides, but filtering keeps
+    the comparison stable if a watcher job lands during a run. This
+    test's submissions carry owner ''.
     """
     if not isinstance(reply, dict):
         return reply

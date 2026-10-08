@@ -6,9 +6,9 @@ store behind the one Resolve instance.
 Speaks the EXISTING Unix-socket JSON protocol of
 `library/tools/resolved/server.py` byte-compatibly, so
 `client.call(...)` does not care whether the daemon on the other side is
-Python or Rust - a strangler migration. The Python daemon stays the
-default; this daemon is selectable by `REN_RESOLVED_DAEMON=rust` (read by
-`client._start_detached`, the one place that starts a daemon).
+Python or Rust. The Rust daemon is the default; set
+`REN_RESOLVED_DAEMON=python` to select the Python fallback for one migration
+cycle.
 
 ## What it owns
 
@@ -17,6 +17,9 @@ default; this daemon is selectable by `REN_RESOLVED_DAEMON=rust` (read by
 - Exclusive/shared resource admission, idempotency and coalescing
   (`broker.rs` - a port of `server.py`'s `Broker`).
 - The watchdog (`watchdog.rs` - a port of `resolve_watchdog.py`).
+- The continuous timeline shadow watcher, hosted by a Python process that
+  submits observations through the broker socket
+  (`library/tools/resolved/shadow_watcher_host.py`).
 - SQLite persistence - the same schema and file as the Python daemon, so
   a client that survives a daemon switch sees one continuous job history
   (`store.rs`).
@@ -51,7 +54,8 @@ than marked. Both are the 2026-10-05 regressions' fixes, preserved.
     cargo build --release          # the binary at native/target/release/ren-resolved
 
 The client's `_start_detached` finds it there (release first, then
-debug) when `REN_RESOLVED_DAEMON=rust` is set.
+debug). `scripts/build_ren_resolved.sh` builds it, and `native_refresh`
+keeps it current when a broker needs to start.
 
 ## Tests
 
