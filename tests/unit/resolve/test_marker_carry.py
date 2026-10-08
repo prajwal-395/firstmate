@@ -531,6 +531,34 @@ def test_two_placements_of_one_file_refuse_rather_than_guess(capsys):
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
+def test_two_exactly_overlapping_same_row_placements_are_ambiguous():
+    retiring = FakeTimeline("Reel 09", video=[
+        ("Motion Graphics", [timeline_item(
+            "cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0,
+            markers={12: {"color": "Blue", "name": "feedback",
+                          "note": CTA_NOTE, "duration": 1,
+                          "customData": ""}})]),
+    ])
+    notes = marker_carry.read_clip_markers(retiring, "Reel 09")
+    replacement = FakeTimeline("staging", video=[
+        ("Motion Graphics", [
+            timeline_item("cta card", 500, 560, path="/f/mg_cta.mov",
+                          left_offset=0),
+            timeline_item("cta card duplicate", 500, 560,
+                          path="/f/mg_cta.mov", left_offset=0),
+        ]),
+    ])
+
+    carried, uncarried = marker_carry.plan_clip_carry(
+        notes, replacement, "Reel 09")
+
+    assert carried == []
+    assert len(uncarried) == 1
+    assert uncarried[0]["refusal"] == "ambiguous_source_frame"
+    assert "2 different clips" in uncarried[0]["why"]
+
+
+@pytest.mark.usefixtures("fake_preservation_snapshots")
 def test_a_note_on_a_rerendered_overlay_lands_on_its_row_at_its_frame():
     """The captain's ruling, 2026-10-05 (Reel 13's post header, once a
     movie, now a PNG still): the rebuild replaced the file, so the note

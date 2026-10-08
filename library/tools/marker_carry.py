@@ -871,10 +871,11 @@ def _clip_candidates(anchor: dict, replacement) -> list:
                 <= key < candidate["source_end"]):
             continue
         candidate = {**candidate, "source_frame": key}
-        if any(all(candidate.get(k) == seen[1].get(k)
-                   for k in ("source_file", "timeline_start",
-                             "timeline_end", "source_start",
-                             "source_end"))
+        if any(candidate.get("track_type") != seen[1].get("track_type")
+               and all(candidate.get(k) == seen[1].get(k)
+                       for k in ("source_file", "timeline_start",
+                                 "timeline_end", "source_start",
+                                 "source_end"))
                for seen in found):
             continue
         found.append((item, candidate))
