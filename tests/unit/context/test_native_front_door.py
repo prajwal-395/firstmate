@@ -49,7 +49,8 @@ def _build_tree(dest: Path) -> Path:
 # ── The packaging wiring ─────────────────────────────────────
 
 
-def test_a_built_tree_ships_the_native_front_door_with_cargo(tmp_path):
+def test_a_built_tree_ships_the_native_front_door_with_cargo(
+        tmp_path, packageable_native_runtime):
     dest = _build_tree(tmp_path / "engine")
     front_door = dest / "bin" / "ren"
     assert front_door.is_file()
@@ -60,7 +61,8 @@ def test_a_built_tree_ships_the_native_front_door_with_cargo(tmp_path):
         assert front_door.read_bytes() == BASH_FRONT_DOOR.read_bytes()
 
 
-def test_the_native_front_door_still_runs_the_python_implementation(tmp_path):
+def test_the_native_front_door_still_runs_the_python_implementation(
+        tmp_path, packageable_native_runtime):
     """The placed binary is a front door, not a different product: it
     answers `ren --version` off the tree it sits in."""
     if not _cargo_available():

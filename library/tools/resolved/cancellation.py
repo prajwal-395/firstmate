@@ -28,6 +28,11 @@ def _suspend_clock() -> float:
     return time.monotonic()
 
 
+def _agent_clock() -> float:
+    """Wall clock seam for cancellation's sleep-gap measurement."""
+    return time.time()
+
+
 class CancelRequested(Exception):
     """The broker requested a safe stop at a runner checkpoint."""
 
@@ -44,7 +49,7 @@ def marker_path(job_id: str) -> Path:
 def begin(job_id: str) -> None:
     """Record wall and monotonic clocks at broker-job admission."""
     with _clock_lock:
-        _job_clocks[job_id] = (time.time(), _suspend_clock())
+        _job_clocks[job_id] = (_agent_clock(), _suspend_clock())
 
 
 def end(job_id: str) -> None:
@@ -58,7 +63,8 @@ def _sleep_gap(job_id: str) -> float:
     if started is None:
         return 0.0
     wall, monotonic = started
-    return max(0.0, (time.time() - wall) - (_suspend_clock() - monotonic))
+    return max(0.0, (_agent_clock() - wall) -
+               (_suspend_clock() - monotonic))
 
 
 def requested(job_id: str) -> bool:

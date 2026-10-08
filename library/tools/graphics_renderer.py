@@ -170,6 +170,12 @@ def _fframes_binary() -> str | None:
     if found:
         return found
     root = Path(__file__).resolve().parent.parent.parent
+    packaged = root / "native" / "bin" / FFRAMES_BINARY_NAME
+    if packaged.is_file():
+        return str(packaged)
+    prebuilt = root / "native" / "prebuilt" / FFRAMES_BINARY_NAME
+    if prebuilt.is_file():
+        return str(prebuilt)
     for target_dir in ("release", "debug"):
         candidate = (root / "native" / "target" / target_dir
                      / FFRAMES_BINARY_NAME)

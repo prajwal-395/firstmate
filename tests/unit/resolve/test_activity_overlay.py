@@ -192,7 +192,7 @@ def test_interrupt_policy_survives_store_reopen_without_receipt_leak(tmp_path):
 def test_sleep_wake_gap_stops_at_checkpoint_and_keeps_commit(tmp_path,
                                                             monkeypatch):
     wall, suspend_clock = [100.0], [50.0]
-    monkeypatch.setattr(cancellation.time, "time", lambda: wall[0])
+    monkeypatch.setattr(cancellation, "_agent_clock", lambda: wall[0])
     monkeypatch.setattr(cancellation, "_suspend_clock",
                         lambda: suspend_clock[0])
     monkeypatch.setattr(cancellation, "marker_path",

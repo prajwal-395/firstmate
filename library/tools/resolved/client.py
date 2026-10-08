@@ -314,6 +314,12 @@ def _rust_daemon() -> Optional[Path]:
     root = _engine_root()
     if root is None:
         return None
+    packaged = root / "native" / "bin" / "ren-resolved"
+    if packaged.is_file() and os.access(packaged, os.X_OK):
+        return packaged
+    prebuilt = root / "native" / "prebuilt" / "ren-resolved"
+    if prebuilt.is_file() and os.access(prebuilt, os.X_OK):
+        return prebuilt
     for profile in ("release", "debug"):
         candidate = root / "native" / "target" / profile / "ren-resolved"
         if candidate.is_file() and os.access(candidate, os.X_OK):

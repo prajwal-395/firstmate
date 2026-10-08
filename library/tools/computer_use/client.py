@@ -109,6 +109,12 @@ def default_binary() -> Path:
     from ren.engine_root import require_engine_root
 
     root = require_engine_root()
+    packaged = root / "native" / "bin" / "resolve-control"
+    if packaged.is_file():
+        return packaged
+    prebuilt = root / "native" / "prebuilt" / "resolve-control"
+    if prebuilt.is_file():
+        return prebuilt
     return root.joinpath(*DEFAULT_BIN)
 
 

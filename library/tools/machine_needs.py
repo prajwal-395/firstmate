@@ -82,6 +82,8 @@ NEEDS: dict = {n.id: n for n in (
          "from this engine's native/ sources"),
     Need("resolve.control", "the resolve-control driver binary, built "
          "from this engine's native/ sources"),
+    Need("resolve.broker", "the ren-resolved Rust broker binary"),
+    Need("resolve.activity_overlay", "the Resolve activity overlay binary"),
     Need("config.projects_root", "PIPELINE_PROJECTS_ROOT exists"),
     Need("config.sfx_library", "PIPELINE_SFX_LIBRARY names a library"),
     Need("config.music_library", "PIPELINE_MUSIC_LIBRARY names a library"),

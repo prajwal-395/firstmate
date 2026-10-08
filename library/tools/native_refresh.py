@@ -83,6 +83,7 @@ PARTS = {
         "scope": (
             "native/ren-resolved/Cargo.toml",
             "native/ren-resolved/src",
+            "native/ren-protocol/src",
             "native/Cargo.toml",
             "scripts/build_ren_resolved.sh",
         ),
@@ -165,16 +166,25 @@ def current_fingerprint(root: str | Path, part: str,
     return digest.hexdigest()
 
 
-def sidecar_path(root: str | Path, part: str) -> Path:
-    """Where `part`'s recorded fingerprint lives: beside the build
-    output, never beside tracked files."""
-    return Path(root) / "native" / "target" / ".ren-fingerprints" / part
+def sidecar_path(root: str | Path, part: str,
+                 parts: dict | None = None) -> Path:
+    """Where `part`'s recorded fingerprint lives beside its selected binary."""
+    repo = Path(root)
+    binary = _binary_path(repo, part, parts)
+    if binary is None or not binary.is_file():
+        base = repo / "native" / "target"
+    elif binary.parent.name in {"release", "debug"}:
+        base = binary.parent.parent
+    else:
+        base = binary.parent
+    return base / ".ren-fingerprints" / part
 
 
-def recorded_fingerprint(root: str | Path, part: str) -> str | None:
+def recorded_fingerprint(root: str | Path, part: str,
+                         parts: dict | None = None) -> str | None:
     """The fingerprint recorded at the last successful build, if any."""
     try:
-        return sidecar_path(root, part).read_text(
+        return sidecar_path(root, part, parts).read_text(
             encoding="utf-8").strip() or None
     except OSError:
         return None
@@ -186,7 +196,7 @@ def record(root: str | Path, part: str, parts: dict | None = None) -> str | None
     hex_hash = current_fingerprint(root, part, parts)
     if hex_hash is None:
         return None
-    sidecar = sidecar_path(root, part)
+    sidecar = sidecar_path(root, part, parts)
     sidecar.parent.mkdir(parents=True, exist_ok=True)
     sidecar.write_text(hex_hash + "\n", encoding="utf-8")
     return hex_hash
@@ -196,7 +206,14 @@ def _binary_path(root: str | Path, part: str, parts: dict | None = None) -> Path
     spec = (parts or PARTS)[part]
     if spec["binary"] is None:
         return None
-    return Path(root).joinpath(*spec["binary"])
+    packaged = Path(root) / "native" / "bin" / Path(spec["binary"][-1])
+    if packaged.is_file():
+        return packaged
+    target = Path(root).joinpath(*spec["binary"])
+    if target.is_file():
+        return target
+    prebuilt = Path(root) / "native" / "prebuilt" / Path(spec["binary"][-1])
+    return prebuilt
 
 
 def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str, str]:
@@ -216,7 +233,7 @@ def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str,
             return "missing", f"no build at {binary}"
     elif importlib.util.find_spec("ren_native") is None:
         return "missing", "the ren_native extension is not installed"
-    recorded = recorded_fingerprint(root, part)
+    recorded = recorded_fingerprint(root, part, parts)
     if recorded is None:
         return "stale", "built, but no fingerprint was recorded for this tree"
     if recorded != current:
@@ -292,6 +309,11 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                           file=sys.stderr, flush=True)
                     continue
                 if code == 0:
+                    packaged = Path(root) / "native" / "bin" / name
+                    built = Path(root).joinpath(*specs[name]["binary"])
+                    if packaged.is_file() and built.is_file():
+                        import shutil
+                        shutil.copy2(built, packaged)
                     record(root, name, specs)
                     report[name] = "rebuilt"
                     print(f"native: {name} rebuilt from this tree",

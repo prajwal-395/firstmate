@@ -155,7 +155,8 @@ def _build_tree(dest: Path) -> Path:
                              sha="abc123def456", built_at="2026-10-04")
 
 
-def test_the_built_tree_holds_every_entry_a_verb_reads(tmp_path):
+def test_the_built_tree_holds_every_entry_a_verb_reads(
+        tmp_path, packageable_native_runtime):
     """A tree missing `bin/vep` once built fine, then refused every
     non-builtin verb - so the manifest is asserted, not assumed."""
     dest = _build_tree(tmp_path / "engine")
@@ -166,6 +167,10 @@ def test_the_built_tree_holds_every_entry_a_verb_reads(tmp_path):
     assert (dest / "library" / "processes" / "edit_video" / "dag.json").is_file()
     assert (dest / "library" / "processes" / "reels" / "dag.json").is_file()
     assert (dest / "library" / "schemas" / "project_config.py").is_file()
+    assert (dest / "native" / "Cargo.toml").is_file()
+    assert (dest / "native" / "ren-graphics-fframes" / "Cargo.toml").is_file()
+    assert (dest / "native" / "resolve-control" / "Cargo.toml").is_file()
+    assert (dest / "native" / "ren-resolved" / "Cargo.toml").is_file()
     assert (dest / "library" / "presets").is_dir()
     assert (dest / "library" / "skills").is_dir()
     assert (dest / ".agents" / "skills").is_dir()
@@ -183,9 +188,62 @@ def test_the_built_tree_holds_every_entry_a_verb_reads(tmp_path):
     # The packaged build record answers `ren --version` off the tree.
     record = (dest / "ren" / "_build.py").read_text(encoding="utf-8")
     assert "BUILD_CHANNEL = 'test'" in record
+    for part in ("ren-graphics-fframes", "resolve-control", "ren-resolved",
+                 "resolve-activity-overlay"):
+        assert os.access(dest / "native" / "bin" / part, os.X_OK)
+        assert (dest / "native" / "bin" / ".ren-fingerprints" / part).is_file()
+        assert os.access(dest / "native" / "prebuilt" / part, os.X_OK)
+        assert (dest / "native" / "prebuilt" / ".ren-fingerprints" / part).is_file()
 
 
-def test_rebuilding_a_version_directory_refuses(tmp_path):
+def test_packaged_native_binaries_resolve_without_the_checkout(
+        tmp_path, packageable_native_runtime):
+    """The immutable engine's own tree supplies every native runtime binary."""
+    dest = _build_tree(tmp_path / "engine")
+    probe = r"""
+import os, sys
+from pathlib import Path
+from library.tools.fframes_render import fframes_binary
+from library.tools.computer_use.client import default_binary
+from library.tools.resolved.client import _rust_daemon
+from library.tools.resolve_lock import _activity_overlay_binary
+root = Path(os.environ['REN_ENGINE_ROOT']).resolve()
+expected = {
+    'ren-graphics-fframes': Path(fframes_binary()),
+    'resolve-control': default_binary(),
+    'ren-resolved': _rust_daemon(),
+    'resolve-activity-overlay': _activity_overlay_binary(),
+}
+assert all(path == root / 'native' / 'bin' / name
+           for name, path in expected.items()), expected
+assert str(Path(os.environ['SOURCE_CHECKOUT']).resolve()) not in sys.path
+"""
+    env = dict(os.environ)
+    env.update({"REN_ENGINE_ROOT": str(dest), "SOURCE_CHECKOUT": str(REPO_ROOT),
+                "PYTHONPATH": str(dest)})
+    env.pop("PYTHONHOME", None)
+    done = subprocess.run(
+        [sys.executable, "-c", probe], cwd=tmp_path, env=env,
+        capture_output=True, encoding="utf-8", timeout=30, check=False)
+    assert done.returncode == 0, done.stderr
+
+
+def test_packager_refuses_stale_native_runtime(
+        tmp_path, monkeypatch, packageable_native_runtime):
+    from library.tools import native_refresh
+    from ren.package_engine import _install_native_runtime
+
+    monkeypatch.setattr(
+        native_refresh, "status",
+        lambda _root, _part, _parts=None:
+        ("stale", "built, but no fingerprint was recorded for this tree"))
+
+    with pytest.raises(RuntimeError, match="refusing to package native"):
+        _install_native_runtime(REPO_ROOT, tmp_path / "engine")
+
+
+def test_rebuilding_a_version_directory_refuses(
+        tmp_path, packageable_native_runtime):
     from ren import package_engine
     home = tmp_path / "vep"
     build_id = f"{__version__}+abc123.test.personal.2026-10-04"
@@ -207,7 +265,8 @@ def test_rebuilding_a_version_directory_refuses(tmp_path):
         package_engine.switch_current(home, "0.0.0-missing")
 
 
-def test_failed_version_build_keeps_the_active_tree(tmp_path, monkeypatch):
+def test_failed_version_build_keeps_the_active_tree(
+        tmp_path, monkeypatch, packageable_native_runtime):
     from ren import package_engine
     home = tmp_path / "vep"
     _fake_engine(home / "versions" / "old")
@@ -228,7 +287,8 @@ def test_failed_version_build_keeps_the_active_tree(tmp_path, monkeypatch):
     assert not list((home / "versions").glob(".*.staging"))
 
 
-def test_versioned_staging_does_not_switch_the_active_engine(tmp_path, monkeypatch):
+def test_versioned_staging_does_not_switch_the_active_engine(
+        tmp_path, monkeypatch, packageable_native_runtime):
     from ren import package_engine
     home = tmp_path / "vep"
     old = _fake_engine(home / "versions" / "old")
@@ -335,7 +395,8 @@ def _run_box(args: list, tree: Path, box: Path, cwd: Path) -> subprocess.Complet
         cwd=str(cwd), env=_proof_env(tree, box))
 
 
-def test_version_doctor_and_new_run_with_no_checkout_on_the_path(tmp_path):
+def test_version_doctor_and_new_run_with_no_checkout_on_the_path(
+        tmp_path, packageable_native_runtime):
     tree = _build_tree(tmp_path / "engine")
     box = tmp_path / "box"
     box.mkdir()
@@ -370,7 +431,8 @@ def test_version_doctor_and_new_run_with_no_checkout_on_the_path(tmp_path):
     assert __version__ in text
 
 
-def test_installed_engine_wins_when_the_current_directory_is_a_checkout(tmp_path):
+def test_installed_engine_wins_when_the_current_directory_is_a_checkout(
+        tmp_path, packageable_native_runtime):
     """An installed build launched from a checkout must keep its build identity.
 
     The Python -m invocation prepended the current directory ahead of

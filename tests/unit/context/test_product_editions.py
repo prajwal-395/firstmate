@@ -100,7 +100,8 @@ def _active_requirement_lines(path: Path) -> list[str]:
             if line.strip() and not line.lstrip().startswith("#")]
 
 
-def test_public_build_excludes_personal_only_components(tmp_path, monkeypatch):
+def test_public_build_excludes_personal_only_components(
+        tmp_path, monkeypatch, packageable_native_runtime):
     monkeypatch.delenv(edition.EDITION_ENV, raising=False)
     from ren.package_engine import build_engine_tree
 
@@ -151,7 +152,8 @@ def test_versioned_staging_carries_the_requested_edition(tmp_path, monkeypatch):
     assert ".public." in staged.name
 
 
-def test_personal_build_keeps_current_renderer_and_components(tmp_path, monkeypatch):
+def test_personal_build_keeps_current_renderer_and_components(
+        tmp_path, monkeypatch, packageable_native_runtime):
     monkeypatch.delenv(edition.EDITION_ENV, raising=False)
     from ren.package_engine import build_engine_tree
 

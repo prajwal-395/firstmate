@@ -408,7 +408,7 @@ def test_every_algebra_op_has_a_matching_edit_op_variant():
 
 
 def test_a_built_tree_holds_the_schemas_and_prepare_accepts_a_job(
-    tmp_path, monkeypatch):
+    tmp_path, monkeypatch, packageable_native_runtime):
     """An installed engine validates broker jobs against the packaged
     schemas: `package_engine` copies them, and a built tree's
     `jobs.prepare` accepts a normal job.

@@ -764,12 +764,8 @@ def ren_native_check() -> Check:
 def native_freshness_checks() -> list:
     """Are the binary native parts built from this tree?
 
-    `ren_native` has its own baked-fingerprint check above; these are
-    the two binaries Ren refreshes itself
-    (`library/tools/native_refresh.py`): a stale one renders or drives
-    with code that predates this tree, so it is a FAIL naming the
-    rebuild. A missing FFrames binary is owned by the graphics-engine
-    checks (it falls back); a missing driver has no fallback.
+    `ren_native` has its own baked-fingerprint check above; every binary
+    part in native_refresh gets an explicit presence and freshness row.
     """
     from library.tools import native_refresh
     from ren.engine_root import require_engine_root
@@ -805,7 +801,9 @@ def native_freshness_checks() -> list:
         checks.append(Check("native ren-resolved", True,
                             f"freshness unavailable ({exc})"))
     for part, need in (("ren-graphics-fframes", "renderer.fframes"),
-                       ("resolve-control", "resolve.control")):
+                       ("resolve-control", "resolve.control"),
+                       ("ren-resolved", "resolve.broker"),
+                       ("resolve-activity-overlay", "resolve.activity_overlay")):
         try:
             state, detail = native_refresh.status(root, part)
         except Exception as exc:  # noqa: BLE001 - doctor must finish
@@ -819,11 +817,11 @@ def native_freshness_checks() -> list:
                 f"stale - {detail}; it would run code that predates this tree",
                 "run ren setup, or the next safe point rebuilds it",
                 need=need))
-        elif part == "resolve-control":
+        else:
             checks.append(Check(
                 f"native {part}", False,
                 f"missing - {detail}",
-                "build it with scripts/build_resolve_control.sh",
+                f"build it with scripts/build_{part.replace('-', '_')}.sh",
                 need=need))
     return checks
 
@@ -1031,7 +1029,8 @@ GROUPS = (
     ("dialogue cleanup DeepFilter", "deepfilternet_check", ("deepfilter",)),
     ("ren_native Rust backend", "ren_native_check", ("ren_native",)),
     ("native builds freshness", "native_freshness_checks",
-     ("renderer.fframes", "resolve.control")),
+     ("renderer.fframes", "resolve.control", "resolve.broker",
+      "resolve.activity_overlay")),
     ("configuration", "config_checks",
      ("config.projects_root", "config.sfx_library", "config.music_library")),
     ("chat harness", "harness_check", ("chat_harness",)),

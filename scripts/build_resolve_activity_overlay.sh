@@ -26,3 +26,5 @@ swiftc -O \
   -o "$OUTPUT"
 codesign --force -s - --identifier com.ren.resolve-activity-overlay "$OUTPUT"
 echo "build_resolve_activity_overlay: built and signed $OUTPUT" >&2
+python3 "$REPO_ROOT/library/tools/native_refresh.py" record \
+  resolve-activity-overlay --root "$REPO_ROOT"

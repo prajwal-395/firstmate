@@ -107,6 +107,22 @@ def test_fresh_tree_never_invokes_the_script(tmp_path):
     assert report == {"demo": "fresh"}
 
 
+def test_prebuilt_binary_is_used_when_no_checkout_target_exists(tmp_path):
+    _write_source(tmp_path)
+    parts = _parts(tmp_path)
+    binary = tmp_path / "native" / "prebuilt" / "demo"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"release-binary")
+    fingerprint = native_refresh.current_fingerprint(tmp_path, "demo", parts)
+    sidecar = tmp_path / "native" / "prebuilt" / ".ren-fingerprints" / "demo"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(fingerprint + "\n", encoding="utf-8")
+
+    assert native_refresh._binary_path(tmp_path, "demo", parts) == binary
+    assert native_refresh.status(tmp_path, "demo", parts) == (
+        "fresh", "built from this tree")
+
+
 def test_refresh_progress_does_not_pollute_stdout(tmp_path, capsys):
     _write_source(tmp_path)
     native_refresh.ensure_current(

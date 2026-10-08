@@ -68,15 +68,10 @@ COPY_DIRS = (
     "hyperframes",
     ".agents/skills",
     "docs",
-    # The Rust edit-algebra sources. The `ren_native` extension is built
-    # from them (scripts/build_ren_native.sh, run by `ren setup` and
-    # `ren upgrade`) and its source fingerprint is computed over them
-    # (library/tools/ren_native_source.py), so an installed engine tree
-    # carries both crates: without them the extension cannot be rebuilt
-    # or verified against the tree it runs from. `ren-protocol/schemas`
-    # comes along inside the whole `ren-protocol` crate above.
-    "native/ren-core",
-    "native/ren-protocol",
+    # Native sources and Cargo workspace are retained for fingerprinting
+    # and support. Release executables are copied separately to
+    # native/bin so installed engines never depend on checkout targets.
+    "native",
 )
 
 #: Single files copied beside them.
@@ -352,6 +347,7 @@ def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
                             symlinks=False)
         else:
             shutil.copy2(target, dest / entry)
+    _install_native_runtime(src, dest)
     for entry in COPY_FILES:
         target = src / entry
         relative = Path(entry).as_posix()
@@ -386,6 +382,31 @@ def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
         build_date,
         selected_edition)
     return dest
+
+
+def _install_native_runtime(src: Path, dest: Path) -> None:
+    """Package the prebuilt native runtime and its source fingerprints."""
+    from library.tools import native_refresh
+
+    parts = ("ren-graphics-fframes", "resolve-control", "ren-resolved",
+             "resolve-activity-overlay")
+    destination = dest / "native" / "bin"
+    fingerprints = destination / ".ren-fingerprints"
+    for part in parts:
+        state, detail = native_refresh.status(src, part)
+        if state != "fresh":
+            raise RuntimeError(
+                f"refusing to package native {part}: {state} ({detail}); "
+                "build it from this checkout before packaging")
+        binary = native_refresh._binary_path(src, part)
+        if binary is None or not binary.is_file():
+            raise RuntimeError(f"refusing to package native {part}: binary absent")
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(binary, destination / part)
+        fingerprints.mkdir(parents=True, exist_ok=True)
+        (fingerprints / part).write_text(
+            native_refresh.current_fingerprint(src, part) + "\n",
+            encoding="utf-8")
 
 
 def version_dir(home: Path, version: str) -> Path:

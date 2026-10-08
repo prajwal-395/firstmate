@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +42,30 @@ def _current_version(home: Path) -> str | None:
 
 def _previous_version(home: Path) -> str | None:
     return engine_root.version_at_pointer(engine_root.previous_link(home), home)
+
+
+def _checkout_with_native_stubs(tmp_path: Path) -> Path:
+    """Create a clean packaging source with fingerprinted test binaries."""
+    source = tmp_path / "source-checkout"
+    ignored = shutil.ignore_patterns(
+        ".git", "__pycache__", "*.pyc", "node_modules", "target",
+    )
+    shutil.copytree(REPO_ROOT, source, ignore=ignored)
+
+    from library.tools import native_refresh
+
+    prebuilt = source / "native" / "prebuilt"
+    fingerprints = prebuilt / ".ren-fingerprints"
+    fingerprints.mkdir(parents=True, exist_ok=True)
+    for part in (
+            "ren-graphics-fframes", "resolve-control", "ren-resolved",
+            "resolve-activity-overlay"):
+        binary = prebuilt / part
+        binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        binary.chmod(0o755)
+        fingerprint = native_refresh.current_fingerprint(source, part)
+        (fingerprints / part).write_text(fingerprint + "\n", encoding="utf-8")
+    return source
 
 
 def test_upgrade_stages_then_switches_and_rollback_only_swaps_pointers(
@@ -263,6 +288,7 @@ def test_upgrade_failed_upgrade_and_rollback_in_a_throwaway_home(
     """Exercise the installed CLI with isolated HOME and project storage."""
     from ren.package_engine import install_versioned
 
+    source = _checkout_with_native_stubs(tmp_path)
     home = tmp_path / "support" / "Ren"
     box = tmp_path / "customer"
     box.mkdir()
@@ -334,7 +360,7 @@ print(json.dumps({'job': job, 'scripts': scripts, 'reels': reels}))
         return json.loads(result.stdout)
 
     old_tree = install_versioned(
-        home, REPO_ROOT, channel="test", sha="old-build",
+        home, source, channel="test", sha="old-build",
         built_at="2026-10-04")
     old_version = old_tree.name
     env = _proof_env(home, box)
@@ -355,7 +381,7 @@ print(json.dumps({'job': job, 'scripts': scripts, 'reels': reels}))
     assert old_version in old_cli_still_works.stdout
     assert read_state(home / "current") == expected_state
 
-    upgraded = _run_ren(home, box, "upgrade", str(REPO_ROOT))
+    upgraded = _run_ren(home, box, "upgrade", str(source))
     assert upgraded.returncode == 0, upgraded.stderr + upgraded.stdout
     new_version = _current_version(home)
     assert new_version and new_version != old_version

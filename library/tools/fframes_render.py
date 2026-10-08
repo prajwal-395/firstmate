@@ -69,21 +69,27 @@ def _perf_ledger():
 def fframes_binary() -> str:
     """The path to the precompiled ``ren-graphics-fframes`` binary.
 
-    Searches PATH first, then the repo's ``native/target/release/`` and
-    ``native/target/debug/`` directories. Refuses with a clear message
+    Searches PATH first, then the installed engine's ``native/bin/``,
+    then the checkout's release/debug targets. Refuses with a clear message
     when the binary is missing - never silently falls back to another
     engine.
     """
     found = shutil.which(FFRAMES_BINARY_NAME)
     if found:
         return found
+    packaged = _PILOT_ROOT / "native" / "bin" / FFRAMES_BINARY_NAME
+    if packaged.is_file():
+        return str(packaged)
+    prebuilt = _PILOT_ROOT / "native" / "prebuilt" / FFRAMES_BINARY_NAME
+    if prebuilt.is_file():
+        return str(prebuilt)
     for target_dir in ("release", "debug"):
         candidate = (_PILOT_ROOT / "native" / "target" / target_dir
                      / FFRAMES_BINARY_NAME)
         if candidate.is_file():
             return str(candidate)
     raise FFramesUnavailable(
-        f"{FFRAMES_BINARY_NAME} not found on PATH or in native/target/. "
+        f"{FFRAMES_BINARY_NAME} not found on PATH, native/bin, or native/target/. "
         f"Build it with scripts/build_fframes_runtime.sh, or select a "
         f"different graphics engine.")
 

@@ -1046,8 +1046,14 @@ def _write_lease(lease: Lease) -> None:
 
 
 def _activity_overlay_binary() -> Path:
-    return (Path(__file__).resolve().parents[2] / "native" / "target"
-            / "release" / "resolve-activity-overlay")
+    root = Path(__file__).resolve().parents[2]
+    packaged = root / "native" / "bin" / "resolve-activity-overlay"
+    if packaged.is_file():
+        return packaged
+    prebuilt = root / "native" / "prebuilt" / "resolve-activity-overlay"
+    if prebuilt.is_file():
+        return prebuilt
+    return root / "native" / "target" / "release" / "resolve-activity-overlay"
 
 
 def _ensure_activity_overlay() -> None:
