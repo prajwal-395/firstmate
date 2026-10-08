@@ -9,6 +9,7 @@ whole setup; no paths or caller code cross the job boundary.
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
@@ -107,6 +108,69 @@ def _add_clip_marker(item) -> dict:
             "note": MARKER_NOTE}
 
 
+def _add_exportable_fusion_comp(item, timeline_name: str) -> dict:
+    """Give the success staging reel one comp for the promotion record.
+
+    The live fixture's synthetic clips otherwise have no Fusion comps, so
+    ``record_reel_promotion`` correctly exports zero files and its proof gate
+    cannot verify the comp export. Add a neutral BrightnessContrast node to
+    the new comp; AddTool inserts it into the live flow when possible, without
+    importing a .comp into a timeline created in this same process.
+    """
+    before = list(item.GetFusionCompNameList() or [])
+    added = item.AddFusionComp()
+    after = list(item.GetFusionCompNameList() or [])
+    new_names = [name for name in after if name not in before]
+    count = int(item.GetFusionCompCount() or 0)
+    if (not added or len(new_names) != 1
+            or len(after) != len(before) + 1 or count != len(after)):
+        raise JobRefused(
+            f"{KIND} could not add one exportable Fusion comp to "
+            f"{timeline_name!r}; AddFusionComp returned {added!r}, "
+            f"names changed by {new_names!r}, count is {count}")
+    name = new_names[0]
+    index = after.index(name) + 1
+    comp = item.GetFusionCompByIndex(index)
+    if comp is None:
+        raise JobRefused(
+            f"{KIND} added Fusion comp {name!r} to {timeline_name!r} but "
+            "it did not read back by index")
+    effect = comp.AddTool("BrightnessContrast", -32768, -32768)
+    if effect is None:
+        raise JobRefused(
+            f"{KIND} could not add a no-op BrightnessContrast node to "
+            f"{timeline_name!r} Fusion comp {name!r}")
+    attributes = effect.GetAttrs() or {}
+    if attributes.get("TOOLS_RegID") != "BrightnessContrast":
+        raise JobRefused(
+            f"{KIND} added an unexpected Fusion tool to {timeline_name!r}: "
+            f"{attributes!r}")
+    neutral_inputs = {"Gain": 1.0, "Gamma": 1.0, "Lift": 0.0,
+                      "Contrast": 1.0, "Saturation": 1.0}
+    for key, value in neutral_inputs.items():
+        effect.SetInput(key, value)
+        actual = effect.GetInput(key)
+        try:
+            matches = abs(float(actual) - value) <= 1e-6
+        except (TypeError, ValueError):
+            matches = False
+        if not matches:
+            raise JobRefused(
+                f"{KIND} neutral Fusion input {key!r} did not read back "
+                f"as {value!r} on {timeline_name!r}; got {actual!r}")
+    with TemporaryDirectory(prefix="ren_qualification_comp_") as scratch:
+        exported_path = Path(scratch) / "fixture.comp"
+        exported = item.ExportFusionComp(str(exported_path), index)
+        if not exported or not exported_path.is_file() \
+                or exported_path.stat().st_size == 0:
+            raise JobRefused(
+                f"{KIND} Fusion comp {name!r} on {timeline_name!r} did not "
+                "export a non-empty comp before promotion")
+    return {"name": name, "index": index, "count": count,
+            "tool": "BrightnessContrast", "neutral": True,
+            "preflight_exported": True}
+
+
 def _build(project, manager) -> dict:
     names = {FINAL, STAGING, AMBIGUOUS_FINAL, AMBIGUOUS_STAGING}
     existing = []
@@ -125,6 +189,7 @@ def _build(project, manager) -> dict:
     marker = _add_clip_marker(original_items[0])
     staging, staged_items = _create_timeline(
         project, pool, media, STAGING, 1)
+    staging_comp = _add_exportable_fusion_comp(staged_items[0], STAGING)
     ambiguous_final, ambiguous_original_items = _create_timeline(
         project, pool, media, AMBIGUOUS_FINAL, 1)
     ambiguous_marker = _add_clip_marker(ambiguous_original_items[0])
@@ -144,6 +209,7 @@ def _build(project, manager) -> dict:
         "master_timeline_name": MASTER,
         "final_timeline_name": FINAL,
         "staging_timeline_name": STAGING,
+        "staging_fusion_comp": staging_comp,
         "track_plan": _track_plan(staged_items),
         "marker": marker,
         "ambiguous_final_timeline_name": AMBIGUOUS_FINAL,

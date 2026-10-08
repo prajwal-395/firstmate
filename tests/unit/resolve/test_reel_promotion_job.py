@@ -103,6 +103,117 @@ def test_qualification_fixture_job_is_closed_and_qualification_only():
             "timeline": "Podcast (field test)"})
 
 
+def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
+        tmp_path, monkeypatch):
+    from library.tools import reel_fusion_comps
+    from library.tools.resolved import reel_promotion_fixture as fixture
+    from tests.resolve_double import FakeTimelineItem
+
+    class NeutralEffect:
+        def __init__(self):
+            self.values = {}
+
+        def GetAttrs(self):
+            return {"TOOLS_RegID": "BrightnessContrast"}
+
+        def SetInput(self, key, value):
+            self.values[key] = value
+
+        def GetInput(self, key):
+            return self.values.get(key)
+
+    class FusionComp:
+        def AddTool(self, name, *_position):
+            assert name == "BrightnessContrast"
+            self.effect = NeutralEffect()
+            return self.effect
+
+    master = FakeTimeline(fixture.MASTER)
+    final = FakeTimeline(fixture.FINAL)
+    staging = FakeTimeline(fixture.STAGING)
+    ambiguous_final = FakeTimeline(fixture.AMBIGUOUS_FINAL)
+    ambiguous_staging = FakeTimeline(fixture.AMBIGUOUS_STAGING)
+    original = FakeTimelineItem("qual_b", final)
+    item = FakeTimelineItem("qual_b", staging)
+    ambiguous_original = FakeTimelineItem("qual_b", ambiguous_final)
+    ambiguous_items = [FakeTimelineItem("qual_b", ambiguous_staging)
+                       for _ in range(2)]
+    staging.add_item("video", 1, item)
+    staging.SetTrackName("video", 1, "A-Roll")
+    comp_handle = FusionComp()
+    item.AddFusionComp = lambda: item._add_comp(comp_handle)
+
+    export_calls = []
+
+    def export_comp(path, index):
+        from pathlib import Path
+
+        export_calls.append((path, index))
+        Path(path).write_text("-- neutral fixture comp\n", encoding="utf-8")
+        return True
+
+    item.ExportFusionComp = export_comp
+
+    batches = iter([
+        (final, [original]), (staging, [item]),
+        (ambiguous_final, [ambiguous_original]),
+        (ambiguous_staging, ambiguous_items),
+    ])
+
+    def create_timeline(_project, _pool, _media, name, copies):
+        timeline, items = next(batches)
+        assert timeline.GetName() == name
+        assert len(items) == copies
+        return timeline, items
+
+    class Project:
+        def GetTimelineCount(self):
+            return 0
+
+        def GetCurrentTimeline(self):
+            return master
+
+        def GetMediaPool(self):
+            return object()
+
+    class Manager:
+        def SaveProject(self):
+            return True
+
+    monkeypatch.setattr(fixture, "_exact_timeline",
+                        lambda _project, _name: master)
+    monkeypatch.setattr(fixture, "_pool_clip", lambda _project: object())
+    monkeypatch.setattr(fixture, "_create_timeline", create_timeline)
+    monkeypatch.setattr(fixture, "_add_clip_marker",
+                        lambda _item: {"source_frame": 24})
+    monkeypatch.setattr(fixture, "_track_plan",
+                        lambda _items: {"video_tracks": [],
+                                        "audio_tracks": [],
+                                        "material": {}})
+    monkeypatch.setattr("library.tools.resolve_lock.assert_current_timeline",
+                        lambda _project, _timeline: None)
+
+    result = fixture._build(Project(), Manager())
+    report = reel_fusion_comps.export_reel_comps(
+        staging, fixture.FINAL, str(tmp_path))
+
+    assert result["staging_fusion_comp"] == {
+        "name": "Composition 1", "index": 1, "count": 1,
+        "tool": "BrightnessContrast", "neutral": True,
+        "preflight_exported": True}
+    assert comp_handle.effect.values == {
+        "Gain": 1.0, "Gamma": 1.0, "Lift": 0.0, "Contrast": 1.0,
+        "Saturation": 1.0}
+    assert report["comp_count"] == 1
+    assert report["errors"] == []
+    assert [index for _path, index in export_calls] == [1, 1]
+    assert [path.rsplit("/", 1)[-1] for path in report["files"]] == [
+        "Q_Promotion_Proof__V01_item000_c1.comp"]
+    assert (tmp_path / "pipeline_output" / "steps" / "7_01_build_reels"
+            / "fusion_comps" / "Q_Promotion_Proof__V01_item000_c1.comp"
+            ).is_file()
+
+
 def test_broker_submit_persists_the_shape_qualification_fence(
         tmp_path, monkeypatch):
     from library.tools.resolved.server import Broker
