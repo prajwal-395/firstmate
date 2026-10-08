@@ -479,6 +479,8 @@ def record_touch_commit(project_folder, *, journal: Mapping,
         "journal": journal.get("id"),
         "reel": timeline,
     }
+    if journal.get("fps"):
+        artifacts["fps"] = journal["fps"]
     if version is not None:
         artifacts["version"] = version
     return record_commit(
@@ -1495,6 +1497,12 @@ def open_entry(project_folder, *, final: str, reel: int,
         "before": {"tracks": before},
         "removed": removed,
     }
+    try:
+        fps = float(source_timeline.GetSetting("timelineFrameRate"))
+    except (AttributeError, TypeError, ValueError):
+        fps = 0.0
+    if fps > 0:
+        entry["fps"] = fps
     if preservation_before is not None:
         entry["preservation_before"] = preservation_before
     if fusion_manifest is not None:

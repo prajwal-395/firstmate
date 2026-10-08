@@ -82,6 +82,18 @@ def test_moved_item_is_one_move_not_a_removal_and_an_addition():
     assert adds == []
 
 
+def test_creator_summary_names_region_and_avoids_unproven_category_claims():
+    changes = timeline_diff.diff_timelines(
+        _timeline(_track("video", 1, "V1", [_clip("clip_001", 0, 100)])),
+        _timeline(_track("video", 1, "V1", [_clip("clip_001", 30, 130)])))
+    summary = timeline_diff.creative_summary(changes, fps=30)
+    assert summary["changes"][0]["timecode"] == "00:00:00:00"
+    assert summary["changes"][0]["end_timecode"] == "00:00:04:10"
+    assert summary["category_status"]["sequence"] == "changed"
+    assert summary["category_status"]["captions"] == "unknown"
+    assert summary["untouched_categories"] == []
+
+
 def test_trimmed_item_is_a_trim_not_a_move():
     """A clip whose source in/out moved but whose span did not is a trim.
 

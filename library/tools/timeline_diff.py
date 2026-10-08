@@ -271,6 +271,95 @@ def summarize(changes: Sequence[Mapping]) -> dict:
     return dict(sorted(counts.items()))
 
 
+def creative_summary(changes: Sequence[Mapping], *, fps: float | None = None) -> dict:
+    """Describe one recorded revision in creator-facing timeline terms.
+
+    The diff only proves edits to timeline rows. Category claims are kept
+    conservative: audio rows establish audio changes, video rows establish
+    picture/sequence changes, and other categories remain explicitly
+    unknown unless the row name identifies them. Timecodes are emitted only
+    when a frame rate was recorded by the caller.
+    """
+    rows = []
+    changed_categories = set()
+    for change in changes or ():
+        op = change.get("op")
+        if op not in CHANGE_OPS:
+            continue
+        before, after = change.get("before"), change.get("after")
+        start_values = [state.get("start") for state in (before, after)
+                        if isinstance(state, Mapping)
+                        and isinstance(state.get("start"), (int, float))]
+        end_values = [state.get("end") for state in (before, after)
+                      if isinstance(state, Mapping)
+                      and isinstance(state.get("end"), (int, float))]
+        row = str(change.get("row") or "")
+        label = row.lower()
+        if label.startswith("a"):
+            changed_categories.add("audio")
+        elif label.startswith("v"):
+            changed_categories.add("sequence")
+        for category, words in {
+                "captions": ("caption", "subtitle"),
+                "graphics": ("graphic", "overlay", "title"),
+                "color": ("color", "colour", "grade"),
+                "dialogue": ("dialogue", "speech", "voice")}.items():
+            if any(word in label for word in words):
+                changed_categories.add(category)
+        record = {"op": op, "row": row, "item": change.get("item") or ""}
+        if start_values:
+            record["start_frame"] = min(start_values)
+            if fps:
+                record["timecode"] = _timecode(min(start_values), fps)
+        if end_values:
+            record["end_frame"] = max(end_values)
+            if fps:
+                record["end_timecode"] = _timecode(max(end_values), fps)
+        rows.append(record)
+    categories = ("dialogue", "sequence", "captions", "graphics", "color", "audio")
+    category_status = {c: ("changed" if c in changed_categories else "unknown")
+                       for c in categories}
+    return {
+        "changes": rows,
+        "changed_categories": [c for c in categories if c in changed_categories],
+        "untouched_categories": [],
+        "category_status": category_status,
+        "summary": _creative_sentence(rows),
+    }
+
+
+def _timecode(frame: int | float, fps: float) -> str:
+    """Format a nonnegative timeline frame as HH:MM:SS:FF."""
+    from library.tools.marker_feedback import frames_to_timecode
+    return frames_to_timecode(int(frame), fps)
+
+
+def _creative_sentence(rows: Sequence[Mapping]) -> str:
+    if not rows:
+        return "No timeline changes recorded."
+    ops = {row["op"] for row in rows}
+    if ops <= {OP_TRIM, OP_MOVE}:
+        verb = "Adjusted"
+    elif OP_REPLACE in ops:
+        verb = "Replaced"
+    elif OP_ADD in ops:
+        verb = "Added"
+    elif OP_REMOVE in ops:
+        verb = "Removed"
+    else:
+        verb = "Changed"
+    if len(rows) == 1:
+        row = rows[0]
+        subject = row["item"] or row["row"]
+        when = row.get("timecode")
+        return f"{verb} {subject}" + (f" at {when}." if when else ".")
+    locations = [row.get("timecode") for row in rows if row.get("timecode")]
+    suffix = f" across {len(locations)} timeline regions" if locations else f" across {len(rows)} timeline changes"
+    if locations:
+        suffix += f" starting at {', '.join(locations[:4])}"
+    return verb + suffix + "."
+
+
 class Uninvertible(ValueError):
     """A change the record cannot invert.
 

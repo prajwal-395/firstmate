@@ -42,6 +42,24 @@ def _spec():
     }
 
 
+def test_proposal_is_read_only_and_names_typed_change_and_untouched_categories(tmp_path):
+    from library.tools import llm_handshake
+
+    project = _project(tmp_path)
+    request_id, _path, _note_id = edit_spec.prepare_request(
+        str(project), "isolate the host mic")
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps(_spec()), encoding="utf-8")
+
+    proposal = edit_spec.proposal_for_spec(str(project), request_id)
+
+    assert proposal["status"] == "proposal"
+    assert proposal["planned_changes"][0]["op"] == "voice_isolation"
+    assert proposal["planned_changes"][0]["category"] == "audio"
+    assert "captions" in proposal["untouched_categories"]
+    assert edit_ledger.load_rows(str(project)) == []
+
+
 def test_every_edit_operation_reaches_a_prompt_or_declared_replayer():
     """Every typed operation has a live prompt owner or ledger replayer.
 

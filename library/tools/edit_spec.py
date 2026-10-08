@@ -1330,6 +1330,48 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
     return validate_spec(response)
 
 
+def proposal_for_spec(project_folder: str, spec_id: str) -> dict:
+    """Render a resolved edit spec as a reviewable proposal, without writes."""
+    spec = load_response_spec(project_folder, spec_id)
+    questions = questions_for_spec(spec)
+    clauses = spec.get("clauses") or []
+    program = spec.get("program") or {}
+    if program:
+        clauses = program.get("ops") or []
+    categories = {
+        "voice_isolation": "audio", "clip_lut": "color",
+        "span_retime": "sequence", "drop_fragment": "sequence",
+        "caption_fix": "captions", "retime": "sequence",
+        "grade": "color", "angle_plan": "sequence",
+        "transition": "sequence", "shot_selection": "sequence",
+        "speech_selection": "dialogue", "story_pacing": "sequence",
+        "music_selection": "audio", "audio_mix": "audio",
+        "look": "color", "visual_effect": "graphics",
+        "sound_effect": "audio", "subject_effect": "graphics",
+        "motion_graphic": "graphics", "brand_asset": "graphics",
+        "end_card": "graphics", "transform_override": "sequence",
+        "redraw_closer": "sequence",
+    }
+    planned = []
+    for clause in clauses:
+        op = clause.get("op") or ""
+        anchor = clause.get("anchor") or {}
+        planned.append({"op": op, "change": clause.get("text") or "",
+                        "anchor": anchor.get("stated") or anchor.get("phrase") or "",
+                        "category": categories.get(op, "unknown"),
+                        "values": clause.get("values") or {}})
+    changed = {row["category"] for row in planned if row["category"] != "unknown"}
+    all_categories = ("dialogue", "sequence", "captions", "graphics", "color", "audio")
+    complete = not questions and all(row["category"] != "unknown" for row in planned)
+    return {"status": "needs_clarification" if questions else "proposal",
+            "request": spec.get("request") or "",
+            "reel": spec.get("reel") or program.get("reel") or "",
+            "planned_changes": planned, "questions": questions,
+            "untouched_categories": [c for c in all_categories if c not in changed]
+                if complete else [],
+            "note": "Proposed edits only. No timeline changes have been made."}
+
+
 def pending_note_states(project_folder: str, rows: list | None = None,
                         include_untranslated: bool = True) -> dict:
     """Marker notes that must not reach edit planning yet.
@@ -1531,6 +1573,9 @@ def main(argv=None) -> int:
     resolve = sub.add_parser("resolve", help="clarify and record a translation")
     resolve.add_argument("project", help="project folder path")
     resolve.add_argument("--id", required=True, help="request id from prepare")
+    proposal = sub.add_parser("proposal", help="show the resolved plan before recording it")
+    proposal.add_argument("project", help="project folder path")
+    proposal.add_argument("--id", required=True, help="request id from prepare")
     intent = sub.add_parser(
         "intent", help="inspect built timeline and export against each op")
     intent_sub = intent.add_subparsers(dest="intent_command", required=True)
@@ -1599,6 +1644,10 @@ def main(argv=None) -> int:
                 "proxy_preview": PROXY_PREVIEW,
             }, indent=2, ensure_ascii=False))
             return 0
+        if args.command == "proposal":
+            result = proposal_for_spec(args.project, args.id)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 4 if result["status"] == "needs_clarification" else 0
         if args.command == "intent":
             if args.intent_command == "prepare":
                 request_id, path = prepare_intent(

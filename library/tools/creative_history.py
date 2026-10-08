@@ -82,10 +82,13 @@ def _change_counts(changes) -> str:
 
 
 def _commit_line(commit: dict) -> str:
+    creative = _creative_summary(commit)
     return (f"#{commit.get('sequence')} {_short(commit.get('id'))} "
             f"[{commit.get('timeline')}] ({commit.get('agent')}) "
             f"{commit.get('intent')} "
-            f"({_change_counts(commit.get('changes'))})")
+            f"({_change_counts(commit.get('changes'))}) - "
+            f"{creative['summary']} "
+            f"[changed: {', '.join(creative['changed_categories']) or 'unknown'}]")
 
 
 def _render_commit(commit: dict) -> str:
@@ -97,11 +100,32 @@ def _render_commit(commit: dict) -> str:
     if commit.get("second_parent"):
         lines.append(f"second_parent: {commit.get('second_parent')}")
     lines.append(f"changes: {_change_counts(commit.get('changes'))}")
+    creative = _creative_summary(commit)
+    lines.append(f"creator summary: {creative['summary']}")
+    if creative["changes"]:
+        for change in creative["changes"]:
+            region = change.get("timecode") or change.get("start_frame")
+            location = f" at {region}" if region is not None else ""
+            lines.append(f"  {change['op']} {change['item'] or change['row']}{location}")
+    lines.append("category status: " + ", ".join(
+        f"{name} {status}" for name, status in creative["category_status"].items()))
     if commit.get("evaluation"):
         lines.append(f"evaluation: {json.dumps(commit['evaluation'], sort_keys=True)}")
     if commit.get("artifacts"):
         lines.append(f"artifacts: {json.dumps(commit['artifacts'], sort_keys=True)}")
     return "\n".join(lines)
+
+
+def _creative_summary(commit: dict) -> dict:
+    from library.tools import timeline_diff
+    fps = (commit.get("artifacts") or {}).get("fps")
+    return timeline_diff.creative_summary(commit.get("changes") or (), fps=fps)
+
+
+def _with_creative_summary(commit: dict) -> dict:
+    result = dict(commit)
+    result["creative_summary"] = _creative_summary(commit)
+    return result
 
 
 def _cmd_commits(project: str, args) -> int:
@@ -125,7 +149,7 @@ def _cmd_commits(project: str, args) -> int:
         except HistoryRefused as refused:
             print(f"creative_history: {refused}", file=sys.stderr)
             return 2
-        print(json.dumps(commit, indent=2, sort_keys=True, default=str)
+        print(json.dumps(_with_creative_summary(commit), indent=2, sort_keys=True, default=str)
               if args.json else _render_commit(commit))
         return 0
     commits = uj.list_commits(project)
@@ -145,7 +169,7 @@ def _cmd_commits(project: str, args) -> int:
               f"no touch-up has recorded one yet", file=sys.stderr)
         return 1
     if args.json:
-        print(json.dumps(commits, indent=2, sort_keys=True, default=str))
+        print(json.dumps([_with_creative_summary(c) for c in commits], indent=2, sort_keys=True, default=str))
     else:
         print("\n".join(_commit_line(c) for c in commits))
     return 0

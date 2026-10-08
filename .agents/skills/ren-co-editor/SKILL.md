@@ -282,12 +282,22 @@ and source each value. If a brand, logo, or shot is missing or ambiguous,
 ask the user in chat and return the clause as `needs_clarification` with
 one direct question. Do not guess or write `could_not_determine`.
 
-Run `ren spec resolve <project> --id <request id>`. If it returns
-questions, ask them in chat, update that same response file with the user's
-answer, and resolve again. A linked note blocks `ren edit` until every
-clause is resolved and recorded in `external/edit_ledger.json`. The route
-to each planning step comes from the operation type. Proxy preview is out
-of scope for this rung.
+Before recording or executing a translated request, show its proposal with
+`ren spec proposal <project> --id <request id>`. Present the planned edits,
+their anchors and any categories the typed operations prove will stay
+untouched. If the creator corrects the plan, update the same response and
+show the proposal again before `ren spec resolve` or a build. Then run
+`ren spec resolve <project> --id <request id>`. If it returns questions,
+ask them in chat, update that same response file with the user's answer,
+show the proposal again, and resolve again. A linked note blocks `ren edit`
+until every clause is resolved and recorded in `external/edit_ledger.json`.
+The route to each planning step comes from the operation type. Proxy preview
+is out of scope for this rung today. After the
+revision, report the result and its `ren commits <project> --show <commit>`
+creative summary: changed regions, jump timecodes when the history has a
+recorded frame rate, and category status. Unknown means the timeline history
+cannot prove that category stayed untouched. Before/after playback is a
+follow-up unless an existing render or proxy can provide it cheaply.
 
 After the build, check the exact timeline readback and final export against
 the recorded spec:
