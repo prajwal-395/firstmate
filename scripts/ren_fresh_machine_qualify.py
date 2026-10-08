@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fresh-machine qualification: install a built release into an isolated
-sandbox and exercise it exactly as a customer gets it.
+"""Fresh-user qualification: install a release-shaped local artifact into an
+isolated sandbox and exercise it through the customer installer.
 
 Creates a throwaway HOME and install root under /tmp, strips PATH to
 system defaults, installs the built release via the customer installer,
@@ -17,6 +17,7 @@ MANUAL_ONLY with why.
 
 Usage:
     python3 scripts/ren_fresh_machine_qualify.py [--src <checkout>]
+        [--artifact <engine.zip>]
         [--sandbox-root <dir>] [--skip-install] [--case <name>]
 
 Heavy steps (model downloads, renders) are out of scope; their failure
@@ -26,6 +27,7 @@ modes are simulated with small fakes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -162,32 +164,36 @@ def build_engine(src: Path, dest: Path) -> None:
     )
 
 
-def install_release(src: Path, sandbox: Path) -> None:
-    """Install the built release into the sandbox via the customer installer."""
+def install_artifact(artifact: Path, sandbox: Path) -> None:
+    """Install the exact local engine ZIP through the customer download path."""
     home = sandbox / "home"
     vep_home = sandbox / "vep"
     home.mkdir(parents=True, exist_ok=True)
     vep_home.mkdir(parents=True, exist_ok=True)
-
-    env = {
-        "HOME": str(home),
-        "PATH": SYSTEM_PATH,
-        "PIPELINE_VEP_HOME": str(vep_home),
-    }
+    artifact = artifact.resolve()
     subprocess.run(
-        [
-            "bash", str(src / "scripts" / "install_ren.sh"),
-            "--source", str(src),
-            "--home", str(vep_home),
-            "--skip-system-deps",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=env,
-        timeout=600,
+        ["bash", str(Path(__file__).resolve().with_name("install_ren.sh")),
+         "--url", artifact.as_uri(), "--home", str(vep_home),
+         "--skip-system-deps"],
+        check=True, capture_output=True, text=True, encoding="utf-8",
+        env={"HOME": str(home), "PATH": SYSTEM_PATH,
+             "PIPELINE_VEP_HOME": str(vep_home)}, timeout=600,
     )
+
+
+def build_artifact(src: Path, sandbox: Path) -> Path:
+    """Package an engine tree using the same directory shape as release ZIPs."""
+    built = sandbox / "engine-build"
+    package = sandbox / "ren-engine"
+    build_engine(src, built)
+    shutil.copytree(built, package)
+    artifact = sandbox / "ren-engine-qualification.zip"
+    shutil.make_archive(str(artifact.with_suffix("")), "zip",
+                        root_dir=sandbox, base_dir="ren-engine")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    (sandbox / "SHA256SUMS.txt").write_text(
+        f"{digest}  {artifact.name}\n", encoding="utf-8")
+    return artifact
 
 
 def _doctor_json(sandbox: Path, env_overrides: dict[str, str] | None = None) -> dict:
@@ -481,7 +487,6 @@ def case_upgrade_rollback(sandbox: Path, report: QualificationReport) -> CaseRes
 
 
 MANUAL_ONLY_CASES = [
-    ("non_admin_account", "requires a non-admin macOS user account; cannot simulate without root"),
     ("resolve_free", "requires DaVinci Resolve Free edition installed; not present on this Mac"),
     ("scripting_disabled", "requires Resolve with scripting disabled in preferences; needs GUI access"),
 ]
@@ -510,12 +515,28 @@ def run_edge_case_matrix(sandbox: Path, report: QualificationReport) -> None:
         report.cases.append(result)
     for name, why in MANUAL_ONLY_CASES:
         report.cases.append(CaseResult(name, "manual_only", why))
+    groups = subprocess.run(["id", "-Gn"], capture_output=True, text=True,
+                            encoding="utf-8", timeout=10)
+    if groups.returncode != 0:
+        report.cases.append(CaseResult("non_admin_account", "fail", groups.stderr[:200]))
+    elif "admin" in groups.stdout.split():
+        report.cases.append(CaseResult(
+            "non_admin_account", "fail",
+            "qualification account belongs to admin group"))
+    else:
+        report.cases.append(CaseResult("non_admin_account", "pass", "qualification runs without admin membership"))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--src", default=".", help="Engine source checkout")
-    parser.add_argument("--sandbox-root", default=None, help="Sandbox root (default: /tmp/ren-qualify-XXXX)")
+    parser.add_argument(
+        "--src", default=".",
+        help="Engine source checkout used to build the local artifact")
+    parser.add_argument("--artifact", type=Path,
+                        help="Install this already-built engine ZIP instead of building from --src")
+    parser.add_argument(
+        "--sandbox-root", default=None,
+        help="Sandbox root (default: /tmp/ren-qualify-XXXX)")
     parser.add_argument("--skip-install", action="store_true", help="Skip install, use existing sandbox")
     parser.add_argument("--case", default=None, help="Run only this case")
     args = parser.parse_args()
@@ -530,27 +551,31 @@ def main() -> int:
     report = QualificationReport(sandbox_root=sandbox)
 
     if not args.skip_install:
-        print(f"Building engine from {src}...")
-        engine_build = sandbox / "engine-build"
-        build_engine(src, engine_build)
-        report.engine_version = "qualify-local"
+        if args.artifact:
+            artifact = args.artifact.resolve()
+            if not artifact.is_file():
+                parser.error(f"artifact does not exist: {artifact}")
+        else:
+            print(f"Building local engine artifact from {src}...")
+            artifact = build_artifact(src, sandbox)
+        report.engine_version = "local-artifact"
 
-        print(f"Installing release into sandbox {sandbox}...")
-        install_release(src, sandbox)
+        print(f"Installing local engine artifact into sandbox {sandbox}...")
+        install_artifact(artifact, sandbox)
         report.install_ok = True
     else:
         report.install_ok = True
 
     print("Running ren doctor...")
     doctor_result = run_ren(sandbox, ["doctor", "--json"], timeout=120)
-    report.doctor_ok = doctor_result.returncode in (0, 1)
+    report.doctor_ok = doctor_result.returncode == 0
     if not report.doctor_ok:
         print(f"  FAIL: exit={doctor_result.returncode}")
         print(doctor_result.stderr[:500])
 
     print("Running ren setup...")
     setup_result = run_ren(sandbox, ["setup", "--skip-system-deps"], timeout=300)
-    report.setup_ok = setup_result.returncode in (0, REFUSAL_EXIT_CODE)
+    report.setup_ok = setup_result.returncode == 0
     if not report.setup_ok:
         print(f"  FAIL: exit={setup_result.returncode}")
         print(setup_result.stderr[:500])
