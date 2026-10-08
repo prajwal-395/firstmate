@@ -2,8 +2,8 @@
 
 The Rust port (`native/ren-core`, the `ren_native` extension) sits
 behind one switch (`library/tools/edit_backend.py`,
-`REN_EDIT_BACKEND=rust`) with the Python implementation as the default
-and the fallback. This harness runs BOTH implementations over the same
+`REN_EDIT_BACKEND=python`) with the Python implementation selectable as
+the fallback. This harness runs BOTH implementations over the same
 corpus - every algebra op, and the patch cases the existing test suite
 (`tests/unit/resolve/test_edit_patch.py`) exercises - and compares the
 outputs the migration's proof names: span, keys, conflicts, inverse and

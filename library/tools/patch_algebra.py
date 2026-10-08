@@ -147,7 +147,7 @@ def compose(earlier, later, base: dict) -> Composition:
 
 
 def _compose_python(earlier, later, base: dict) -> Composition:
-    """The composition, in Python (the default and the fallback)."""
+    """The composition, in Python (the selectable fallback)."""
     earlier = edit_patch.EditPatch.from_dict(earlier)
     later = edit_patch.EditPatch.from_dict(later)
     if (earlier.project, earlier.timeline) != (later.project, later.timeline):
@@ -243,7 +243,7 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
 
 def _carry_python(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
                   project: str, timeline_id: str) -> tuple:
-    """The carry, in Python (the default and the fallback)."""
+    """The carry, in Python (the selectable fallback)."""
     moved = patch
     rows = store.since_with_snapshots(project, timeline_id,
                                       since=patch.base_generation)
@@ -326,7 +326,7 @@ def problems(declarations: dict | None = None,
 
 def _problems_python(declarations: dict | None = None,
                      capability_ids=None) -> list:
-    """The declaration check, in Python (the default and the fallback)."""
+    """The declaration check, in Python (the selectable fallback)."""
     from library.tools import capabilities
 
     if declarations is None:

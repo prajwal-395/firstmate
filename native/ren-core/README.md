@@ -32,10 +32,10 @@ the target venv with `maturin develop`.
 
 ## The switch
 
-`library/tools/edit_backend.py` (`REN_EDIT_BACKEND=rust`) routes the
-computations through the extension. Python is the default and the
-fallback: a missing or broken extension falls back to the Python
-implementation rather than refusing to edit.
+`library/tools/edit_backend.py` routes the computations through the
+extension by default. Set `REN_EDIT_BACKEND=python` to select the Python
+implementation. A missing or broken extension falls back to Python rather
+than refusing to edit.
 
 ## Parity
 

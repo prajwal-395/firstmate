@@ -420,7 +420,7 @@ def validate(patch: EditPatch, base: dict) -> None:
 
 
 def _validate_python(patch: EditPatch, base: dict, declared) -> None:
-    """The semantic checks, in Python (the default and the fallback)."""
+    """The semantic checks, in Python (the selectable fallback)."""
     beyond = set(patch.conflict_domains) - set(declared.conflict_domains)
     if beyond:
         _refuse(patch, f"declares domains {sorted(beyond)}, beyond what "

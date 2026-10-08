@@ -1,7 +1,7 @@
 """A stale ren_native build is refused, not used silently.
 
 The defect: the Rust edit-algebra extension imported fine when it was
-older than the source tree, and with `REN_EDIT_BACKEND=rust` a stale
+older than the source tree, and with the Rust backend selected a stale
 extension returned `None` verdicts for ops the current algebra had
 rewritten (`mask.delete`/`mask.track`) with no warning. Nothing noticed
 or rebuilt it.
@@ -46,6 +46,16 @@ def backend(monkeypatch):
     monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.RUST)
     yield edit_backend
     monkeypatch.delenv(edit_backend.BACKEND_ENV, raising=False)
+
+
+def test_rust_is_selected_when_no_backend_is_configured(backend, monkeypatch):
+    monkeypatch.delenv(edit_backend.BACKEND_ENV, raising=False)
+    assert backend.use_rust()
+
+
+def test_python_remains_selectable(backend, monkeypatch):
+    monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.PYTHON)
+    assert not backend.use_rust()
 
 
 def test_a_build_whose_fingerprint_differs_is_never_used(

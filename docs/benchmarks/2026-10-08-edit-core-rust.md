@@ -36,7 +36,7 @@ The composition measurement calls `patch_algebra.compose` from Python, including
 
 The previous post-projection measurements were 0.1076/0.5922/5.0471 ms warm Rust compose (12/120/600 clips) and 0.2339/2.1592/12.0727 ms Rust span/verify batch. The resident and target-limited paths cut the large compose case by 69% and the large batch case by 98% relative to that prior post-projection batch, while adding measured preparation cost outside steady-state calls.
 
-## Decision after snapshot projection
+## Historical decision after snapshot projection
 
 At this earlier measurement point, Python remained the default and Rust stayed selectable with `REN_EDIT_BACKEND=rust`. The native path was slower on every warm compose and batch case. The resident-call follow-up below supersedes those timings and records the remaining small-case limitation. Broker latency remains out of scope.
 
@@ -52,4 +52,4 @@ The benchmark reports snapshot preparation amortized across N calls on one timel
 | 120 clips | 8 | 0.1161 / 0.0469 ms | 0.1372 / 0.0268 ms | 0.2732 ms | 0.0295 ms | 0.0488 / 0.0288 ms | 0.0687 / 0.0242 ms | 0.2354 ms | 0.0266 ms |
 | 600 clips | 64 | 2.2191 / 2.1144 ms | 0.3445 / 0.2983 ms | 0.3546 ms | 0.3018 ms | 1.0264 / 1.0203 ms | 0.2550 / 0.2248 ms | 0.9576 ms | 0.2344 ms |
 
-At 12 clips/1 operation, warm Rust compose is within measurement noise of Python and slightly slower (0.0074 vs 0.0070 ms); its preparation-amortized result is slower. The resident span/verify batch is slower at 12 clips (0.0052 vs 0.0016 ms) because two native calls and conversion of two one-element results cost more than the tiny Python work; preparation amortized across 100 calls remains slower. The 120- and 600-clip resident compose and span/verify cases beat Python on warm calls and at N=100 amortization. The 12-clip compose is effectively tied and slightly slower; the 12-clip span/verify batch remains several times slower because Python can compute and return a one-item result without crossing the extension boundary. Keep Python as the default; the all-cases gate for enabling Rust by default is still unmet.
+At 12 clips/1 operation, warm Rust compose is within measurement noise of Python and slightly slower (0.0074 vs 0.0070 ms); its preparation-amortized result is slower. The resident span/verify batch is slower at 12 clips (0.0052 vs 0.0016 ms) because two native calls and conversion of two one-element results cost more than the tiny Python work; preparation amortized across 100 calls remains slower. The 120- and 600-clip resident compose and span/verify cases beat Python on warm calls and at N=100 amortization. The captain approved Rust as the default after PR 2213 merged. Python remains selectable with `REN_EDIT_BACKEND=python` and remains the fallback when the extension is missing, stale, or broken. The 12-clip cases are the measured limitation behind that choice.

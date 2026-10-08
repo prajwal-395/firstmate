@@ -1,16 +1,15 @@
 """One switch for the edit algebra's computational backend.
 
-Python is the default and the fallback. The Rust extension (`ren_native`,
-crate `native/ren-core`) is opted into with the environment variable::
+Rust is the default. Set the environment variable to select Python::
 
-    REN_EDIT_BACKEND=rust
+    REN_EDIT_BACKEND=python
 
-A missing or broken extension falls back to the Python implementation
-rather than refusing to edit: the switch is an optimisation, never a
-prerequisite. `edit_algebra`, `edit_patch` and `patch_algebra` route
-their computations (span, key, verify, validate, compose, carry,
-conditions) through `rust()`; with the switch off, or the extension
-absent, the Python implementations run unchanged.
+If the extension is missing, stale, or broken, the backend falls back to
+Python rather than refusing to edit. `edit_algebra`, `edit_patch` and
+`patch_algebra` route their native-supported computations (span, verify,
+validate, compose, carry, conditions) through `rust()`. `edit_algebra.key`
+keeps the typed Python key contract; selecting Python runs all Python
+implementations unchanged.
 
 A build that predates the tree it runs against is refused the same way.
 The extension carries a fingerprint of the `native/` sources it was
@@ -36,8 +35,8 @@ _ren_native_said_stale = False
 
 
 def use_rust() -> bool:
-    """Whether the switch asks for the Rust backend."""
-    return os.environ.get(BACKEND_ENV, PYTHON).strip().lower() == RUST
+    """Whether the switch selects Rust; Rust is the default backend."""
+    return os.environ.get(BACKEND_ENV, RUST).strip().lower() == RUST
 
 
 def _engine_root():

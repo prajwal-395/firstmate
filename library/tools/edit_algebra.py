@@ -2759,10 +2759,11 @@ def patch_op_ids() -> tuple[str, ...]:
 
 # ── The backend switch ──────────────────────────────────────────────
 #
-# The computational core (span, key, verify) is ported to Rust
+# The computational core (span, verify) is ported to Rust
 # (`native/ren-core`, the `ren_native` extension). One switch
-# (`library/tools/edit_backend.py`) routes these through it; Python is
-# the default and the fallback. The declarations above (`ALGEBRA`) stay
+# (`library/tools/edit_backend.py`) routes these through it by default;
+# Python is the selectable fallback. The typed `key` API remains Python;
+# Rust composition uses its own native key parts. Declarations above stay
 # the Python source of truth - the parity harness compares the two.
 
 
@@ -2787,10 +2788,11 @@ def spans(operations, base):
 
 
 def key(op):
-    """What an op writes, as a key, on the active backend."""
-    rust = edit_backend.rust()
-    if rust is not None:
-        return rust.key(op)
+    """What an op writes, preserving the typed declaration key contract."""
+    # The Python contract preserves typed key parts (notably integer indices)
+    # and validates GUI-only color operations that are not edit-patch ops.
+    # Rust's string projection is for the parity boundary; compose uses its
+    # own typed native keys internally.
     spec = ALGEBRA.get(op.get("op"))
     if spec is None:
         return ()

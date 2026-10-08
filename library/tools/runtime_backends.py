@@ -17,7 +17,7 @@ def snapshot(project_folder=None) -> dict[str, str]:
     root = find_engine_root()
     backends = {}
 
-    requested_edit = os.environ.get(edit_backend.BACKEND_ENV, edit_backend.PYTHON).strip().lower()
+    requested_edit = os.environ.get(edit_backend.BACKEND_ENV, edit_backend.RUST).strip().lower()
     try:
         active_edit = "rust" if edit_backend.rust() is not None else "python"
     except Exception:  # noqa: BLE001 - diagnostics must remain available

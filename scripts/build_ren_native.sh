@@ -2,7 +2,7 @@
 #
 # Build the `ren_native` extension module (crate native/ren-core) into a
 # Python environment, so `import ren_native` works and the edit backend
-# switch (REN_EDIT_BACKEND=rust) has its Rust implementation.
+# has its default Rust implementation.
 #
 #   scripts/build_ren_native.sh <venv-bin-dir>
 #
@@ -19,7 +19,7 @@
 #
 # The Rust toolchain is per-machine (~/.cargo/bin), never assumed: when
 # cargo or maturin is absent the script exits 4 and the caller keeps the
-# Python backend, which is the default and the fallback anyway. Exit 2
+# Python fallback. Exit 2
 # is a usage mistake, exit 1 a build that ran and failed. A tree with
 # no native/ren-core sources (an engine predating the Rust core) also
 # exits 4: there is nothing to build from and nothing to fingerprint.
