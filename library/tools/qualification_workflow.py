@@ -13,6 +13,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import traceback
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -243,7 +244,8 @@ def run_broker_job(job: dict, resolve) -> dict:
             f"{current['name']} failed: {exc}",
             result={"broker_stages": stages,
                     "failed_stage": current["name"],
-                    "detail": str(exc)}) from exc
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc()}) from exc
     result["broker_stages"] = stages
     return result
 
@@ -266,7 +268,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
     if not isinstance(resolve, DeadlineProxy):
         raise WorkflowQualificationError(
             "qualification Resolve handle is missing per-call deadlines")
-    current["name"] = "edit construction"
+    current["name"] = "edit construction: switch project"
     with qp.borrowed(resolve) as borrowed_from:
         manager = resolve.GetProjectManager()
         project = qp.switch_project(manager, QUALIFICATION_PROJECT)
@@ -278,6 +280,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
             raise WorkflowQualificationError(
                 f"timeline already exists: {params['timeline']}")
         _check_project_standard(project)
+        current["name"] = "edit construction: import media"
         pool = project.GetMediaPool()
         media_item = None
         for item in pool.GetRootFolder().GetClipList() or []:
@@ -312,6 +315,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
         timeline = pool.CreateEmptyTimeline(params["timeline"])
         if not timeline:
             raise WorkflowQualificationError("Resolve could not create timeline")
+        current["name"] = "edit construction: timeline shape"
         _apply_timeline_shape(timeline, fps=fps)
         timeline_shape = {key: timeline.GetSetting(key)
                           for key in ("timelineFrameRate",
@@ -328,6 +332,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
                 raise WorkflowQualificationError(
                     f"could not name {media_type}1 {name!r}")
         store = timeline_shadow.ShadowStore()
+        current["name"] = "edit construction: place clips"
         timeline_shadow.observe(project, timeline, store)
         build = edit_patch.apply_live_patch(
             project=project, timeline=timeline, capability="reel.build",
