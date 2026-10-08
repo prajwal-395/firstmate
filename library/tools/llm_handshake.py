@@ -148,6 +148,39 @@ def publish_request(request: Path, response: Path, payload: dict) -> None:
             temp_path.unlink(missing_ok=True)
 
 
+def publish_operation_request(request: Path, response: Path,
+                              envelope: dict) -> None:
+    """Publish a host-neutral assignment operation through the same
+    atomic request/response slots used by the legacy host handshake.
+
+    Existing LLM step request payloads are unchanged; this is an additive
+    compatibility path for structured operation envelopes.
+    """
+    publish_request(request, response,
+                    {"kind": "assignment_operation", "envelope": envelope})
+
+
+def publish_operation_response(request: Path, response: Path,
+                               payload: dict) -> None:
+    """Atomically checkpoint an operation envelope as a handshake response."""
+    response = Path(response)
+    response.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=response.parent,
+                prefix=f".{response.name}.", suffix=".tmp",
+                delete=False) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, response)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 def resume_command(project_folder: str) -> str:
     """How to resume after repairing a response.
 
@@ -280,11 +313,11 @@ def validate_response(step_id: str, raw_text: str, project_folder: str):
 def _assert_layout_agrees() -> None:
     """The layout owns the directory names; this module must agree."""
     try:
-        from library.tools.project_layout import Area, _AREAS
+        from library.tools.project_layout import _AREAS, Area
         assert _AREAS[Area.LLM_REQUESTS].reldir.endswith("llm_requests")
         assert _AREAS[Area.LLM_RESPONSES].reldir.endswith("llm_responses")
-    except Exception:
-        pass  # layout refactors rename here first; tests catch drift
+    except (ImportError, AttributeError, KeyError):
+        return  # layout refactors rename here first; tests catch drift
 
 
 _assert_layout_agrees()
