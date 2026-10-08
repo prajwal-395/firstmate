@@ -874,7 +874,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        overlay_geometry: str = None,
                        overlay_container: str = None,
                        project_folder: str = "",
-                       draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
+                       draw_gain: float = FALLBACK_DRAW_GAIN,
+                       three_line_texts: tuple = ()) -> dict:
     """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
@@ -948,6 +949,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     reel's LIVE verdict off `reel_proposals_v2.json`
     (`library/tools/reel_proposal.py`). The master timeline names no
     reel and passes through untouched.
+
+    `three_line_texts` is the per-card exception to the two-line cap:
+    exact subtitle texts allowed to wrap to three lines in THIS call.
+    The global cap (`MAX_CAPTION_LINES`) is unchanged and the default
+    is empty, so every card is still held to two lines unless its text
+    matches the allowlist verbatim. A redraw that cannot split one
+    passage at the display floor passes that passage's text here rather
+    than lowering the cap for every card.
     """
     refuse_rejected_reel_timeline(timeline_label, project_folder)
     remotion_dir = remotion_dir or REMOTION_DIR
@@ -1007,15 +1016,19 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
 
             fitter = build_caption_fitter(
                 style, resolve_safe_area(project_folder), project_folder)
+            allowed_texts = set(three_line_texts or ())
             for index, subtitle in enumerate(props["subtitles"]):
                 lines = fitter.line_count(
                     subtitle["text"], subtitle.get("emphasisWords"))
-                if lines > MAX_CAPTION_LINES:
+                allowed = (MAX_CAPTION_LINES + 1
+                           if subtitle["text"] in allowed_texts
+                           else MAX_CAPTION_LINES)
+                if lines > allowed:
                     raise ValueError(
                         f"Subtitle {index} in {timeline_label!r} wraps to "
                         f"{lines} lines at the rendered emphasis and width; "
                         f"the caption plan must split it to at most "
-                        f"{MAX_CAPTION_LINES} lines before rendering.")
+                        f"{allowed} lines before rendering.")
 
     block_pos = props.get("_block_position")
     tl_start = props.get("_timeline_start")
@@ -2202,7 +2215,8 @@ def _resolve_live_project(project_folder: str):
 
 
 def rerender_and_swap(project_folder: str, pairs: list,
-                      swap: bool = True, draw_gain: float = None) -> dict:
+                      swap: bool = True, draw_gain: float = None,
+                      three_line_texts: tuple = ()) -> dict:
     """Re-render named caption segments and swap them onto every timeline.
 
     The entry point a caption fix calls instead of writing its own
@@ -2246,6 +2260,11 @@ def rerender_and_swap(project_folder: str, pairs: list,
     rebuild merges it, so the reclaim sweep reads the same entries
     either way; batching changes when the bundle is paid, never what
     is drawn or recorded.
+
+    `three_line_texts` is passed straight to `render_one_segment`:
+    exact subtitle texts allowed to wrap to three lines in this call.
+    Empty by default, so the two-line cap holds everywhere unless the
+    caller names the one card the captain allowed.
     """
     if not project_folder:
         raise ValueError(
@@ -2332,7 +2351,8 @@ def rerender_and_swap(project_folder: str, pairs: list,
                 progress=f"[{index}/{len(checked)}]",
                 reuse=True, renderer=engine,
                 project_folder=project_folder,
-                draw_gain=draw_gain)
+                draw_gain=draw_gain,
+                three_line_texts=three_line_texts)
             if entry.get("provenance") == "failed":
                 failures.append({
                     "old_mov": os.path.basename(pair["old_mov"]),

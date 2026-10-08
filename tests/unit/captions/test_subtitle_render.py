@@ -3064,6 +3064,71 @@ def test_render_refuses_a_caption_that_wraps_over_two_emphasized_lines(
     assert renderer.calls == 0
 
 
+def test_render_allows_an_allowlisted_three_line_caption(tmp_path):
+    """The Reel 24 exception: one named card may wrap to three lines.
+
+    The allowlist carries the exact text, so the two-line cap holds
+    for every other card in the same call.
+    """
+    project = _project_with_proposals(tmp_path, [])
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    text = "a lot of different marketing directors."
+    props = _props_3(text=text)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    style = resolve_subtitle_style({}, {}, project)
+    style["fontSize"] = 58
+    style["outlineWidth"] = 4
+    props["style"] = style
+    props["subtitles"] = [{
+        "text": text,
+        "emphasisWords": ["different", "marketing"],
+        "fitScale": 1.0,
+        "words": [],
+    }]
+    renderer = _Renderer_2()
+
+    entry = r405_2.render_one_segment(
+        props, str(out_dir), "tl", renderer=renderer,
+        project_folder=project, overlay_geometry="full",
+        overlay_container="video", three_line_texts=[text])
+
+    assert entry["provenance"] in (r405_2.RENDERED, r405_2.REUSED)
+    assert renderer.calls == 1
+
+
+def test_render_still_refuses_a_non_allowlisted_three_line_caption(
+        tmp_path):
+    """Naming one card must not lower the cap for any other card."""
+    project = _project_with_proposals(tmp_path, [])
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    props = _props_3(text="a lot of different marketing directors.")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    style = resolve_subtitle_style({}, {}, project)
+    style["fontSize"] = 58
+    style["outlineWidth"] = 4
+    props["style"] = style
+    props["subtitles"] = [{
+        "text": "a lot of different marketing directors.",
+        "emphasisWords": ["different", "marketing"],
+        "fitScale": 1.0,
+        "words": [],
+    }]
+    renderer = _Renderer_2()
+
+    with pytest.raises(ValueError, match="wraps to 3 lines"):
+        r405_2.render_one_segment(
+            props, str(out_dir), "tl", renderer=renderer,
+            project_folder=project, overlay_geometry="full",
+            overlay_container="video",
+            three_line_texts=["some other card's text"])
+
+    assert renderer.calls == 0
+
+
 def test_a_failed_render_is_REPORTED_not_dropped(tmp_path):
     """MUTATION 8: return None on failure again.
 
