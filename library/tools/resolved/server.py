@@ -273,9 +273,11 @@ class Broker:
             with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
                                exclusive=job["mode"] == "exclusive"):
                 if (job["qualification"]
-                        and job["kind"] == "reel.promote_staged"):
-                    # The payload target is fixed to Qualification. Its
-                    # runner borrows the current project before opening it.
+                        and job["kind"] in
+                        job_kinds.BORROWING_QUALIFICATION_KINDS):
+                    # These fixed Qualification jobs borrow and restore
+                    # the currently open project inside their whole-take
+                    # lease. Their runners enforce the exact target.
                     job_kinds.refuse_qualification(job.get("project", ""))
                 resolve = (self._resolve_handle()
                            if job["qualification"] or job["executed"]
@@ -285,7 +287,8 @@ class Broker:
                     resolve = deadline_proxy(
                         resolve, label=f"{job['kind']} {job['id']}")
                 if (job["qualification"]
-                        and job["kind"] != "reel.promote_staged"):
+                        and job["kind"] not in
+                        job_kinds.BORROWING_QUALIFICATION_KINDS):
                     found = job_kinds.open_project_name(resolve)
                     if found != job_kinds.QUALIFICATION_PROJECT:
                         raise job_kinds.JobRefused(

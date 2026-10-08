@@ -186,6 +186,51 @@ def test_broker_worker_allows_borrowed_promotion_from_captains_project(
     assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
 
 
+def test_broker_worker_borrows_for_fixture_setup_and_restores_captain(
+        monkeypatch, lock_dir):
+    from library.tools import resolve_switch_guard
+    from library.tools.resolved import reel_promotion_fixture as fixture
+    from library.tools.resolved import server
+    from library.tools.resolve_deadline import DeadlineProxy
+
+    resolve, manager, captain, _project, *_ = _borrowable_resolve()
+    monkeypatch.setattr(resolve_switch_guard, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(resolve_switch_guard, "note_project_switch",
+                        lambda: None)
+    monkeypatch.setattr(
+        "library.tools.qualification_project.begin_qualification_session",
+        lambda _name: None)
+    monkeypatch.setattr(
+        "library.tools.qualification_project.end_qualification_session",
+        lambda: None)
+
+    def build(project, project_manager):
+        assert isinstance(project, DeadlineProxy)
+        assert isinstance(project_manager, DeadlineProxy)
+        assert project.GetName() == QUALIFICATION_PROJECT
+        return {"project": QUALIFICATION_PROJECT,
+                "timelines_created": [fixture.FINAL, fixture.STAGING]}
+
+    monkeypatch.setattr(fixture, "_build", build)
+    broker = object.__new__(server.Broker)
+    broker._resolve_handle = lambda: resolve
+    params = {"project": QUALIFICATION_PROJECT}
+    shape = jobs.prepare(fixture.KIND, params)
+    job = {"id": "borrow-for-fixture", "kind": fixture.KIND,
+           **shape, "params": params}
+
+    state, result, error = server.Broker._run(broker, job)
+
+    assert state == "done", error
+    assert result["project"] == QUALIFICATION_PROJECT
+    assert result["restored"]["project"] == "Podcast (field test)"
+    assert result["restored"]["timeline_id"] == "captain-timeline"
+    assert manager.loaded == [QUALIFICATION_PROJECT, "Podcast (field test)"]
+    assert manager.saved == ["Podcast (field test)", QUALIFICATION_PROJECT]
+    assert manager.GetCurrentProject() is captain
+    assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
+
+
 def test_other_qualification_jobs_still_require_qualification_open(
         monkeypatch):
     from contextlib import nullcontext

@@ -92,6 +92,14 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
           "resolve.qualification_session", "timeline.drt_export_probe",
           "reel.copy_tv_ending")
 
+# These qualification-only writes deliberately enter from the currently
+# open captain project, preserve it, and restore it around their fixed Q
+# operation. The server still validates their project field before borrow.
+BORROWING_QUALIFICATION_KINDS = frozenset({
+    "reel.promote_staged",
+    "reel.prepare_qualification_fixture",
+})
+
 
 #: The resolve-axi commands the broker will run, by name. The broker is
 #: customer runtime: a queued command runs on the shared Resolve
