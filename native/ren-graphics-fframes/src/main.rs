@@ -1810,11 +1810,22 @@ fn main() {
         return;
     }
     if args.len() < 3 || args[1] != "render" {
-        eprintln!("Usage: ren-graphics-fframes render <scene.json> [output_dir] [--raw]");
+        eprintln!("Usage: ren-graphics-fframes render <scene.json> [output_dir] [--raw] [--premultiply] [--background #rrggbb]");
         eprintln!("       ren-graphics-fframes --version");
         std::process::exit(1);
     }
     let raw = args.iter().any(|a| a == "--raw");
+    let premultiply = args.iter().any(|a| a == "--premultiply");
+    let background = match args.iter().position(|a| a == "--background") {
+        Some(i) => match args.get(i + 1) {
+            Some(value) => Some(value.as_str()),
+            None => {
+                eprintln!("ERROR: --background requires a #rrggbb value");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
     let scene_path = PathBuf::from(&args[2]);
     let output_dir = args.get(3).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("frames"));
 
@@ -1837,7 +1848,7 @@ fn main() {
         std::process::exit(1);
     }
     let result = if raw {
-        render_scene_raw(scene)
+        render_scene_raw(scene, premultiply, background)
     } else {
         render_scene(scene, &output_dir)
     };
@@ -2034,7 +2045,24 @@ fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String
 
 /// Raw RGBA mode: a header (width, height as u32 LE) then straight-alpha RGBA
 /// frames on stdout, so the encoder can pipe them into ffmpeg directly.
-fn render_scene_raw(scene: Scene) -> Result<(), String> {
+fn render_scene_raw(
+    scene: Scene,
+    premultiply: bool,
+    background: Option<&str>,
+) -> Result<(), String> {
+    let ground = if let Some(value) = background {
+        if !value.is_ascii() || value.len() != 7 || !value.starts_with('#') {
+            return Err(format!("invalid background {value:?}; expected #rrggbb"));
+        }
+        let mut rgb = [0u8; 3];
+        for (i, channel) in rgb.iter_mut().enumerate() {
+            *channel = u8::from_str_radix(&value[1 + i * 2..3 + i * 2], 16)
+                .map_err(|_| format!("invalid background {value:?}; expected #rrggbb"))?;
+        }
+        Some(rgb)
+    } else {
+        None
+    };
     let setup = setup_render(scene)?;
     let (mut previewer, mut renderer) = build_renderer(&setup)?;
     let stdout = std::io::stdout();
@@ -2050,10 +2078,32 @@ fn render_scene_raw(scene: Scene) -> Result<(), String> {
         setup.height,
         setup.total_frames,
         |pixels| {
-            out.write_all(&pixels.pixels)
-                .map_err(|e| format!("cannot write frame: {}", e))
+            if premultiply || ground.is_some() {
+                let mut adapted = pixels.pixels.clone();
+                for rgba in adapted.chunks_exact_mut(4) {
+                    let alpha = u32::from(rgba[3]);
+                    if let Some(rgb) = ground {
+                        for c in 0..3 {
+                            rgba[c] = ((u32::from(rgba[c]) * alpha
+                                + u32::from(rgb[c]) * (255 - alpha)
+                                + 127)
+                                / 255) as u8;
+                        }
+                        rgba[3] = 255;
+                    } else if premultiply {
+                        for c in 0..3 {
+                            rgba[c] = ((u32::from(rgba[c]) * alpha + 127) / 255) as u8;
+                        }
+                    }
+                }
+                out.write_all(&adapted)
+            } else {
+                out.write_all(&pixels.pixels)
+            }
+            .map_err(|e| format!("cannot write frame: {}", e))
         },
     )?;
-    out.flush().map_err(|e| format!("cannot flush stdout: {}", e))?;
+    out.flush()
+        .map_err(|e| format!("cannot flush stdout: {}", e))?;
     Ok(())
 }

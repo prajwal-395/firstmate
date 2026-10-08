@@ -1,18 +1,12 @@
-"""The FFrames encode step: raw RGBA streamed to prores_videotoolbox, with a
-named prores_ks fallback, and the overlay carriage left unchanged.
+"""The FFrames encode step streams native-adapted raw RGBA into ffmpeg.
 
-The change under test moves the opaque ProRes encode off a PNG round-trip
-and onto the raw RGBA the renderer produces, streamed straight through the
-hardware encoder where it exists. These tests pin the decisions that change -
-which encoder is chosen, that the raw bytes (not PNGs) reach ffmpeg, that a
-truncated frame refuses by name, that ffmpeg's own error survives a failure,
-and that the fallback is named - without paying for a render or an encode.
-subprocess is stubbed throughout.
+These tests pin the choices that change: premultiplication or flattening is
+requested from the native renderer, raw bytes reach ffmpeg, truncated frames
+refuse by name, ffmpeg errors survive, and the VideoToolbox fallback is named.
+They do not pay for a render or an encode; subprocess is stubbed throughout.
 """
 
 import json
-import os
-import shutil
 import subprocess
 import sys
 
@@ -211,12 +205,13 @@ def test_opaque_encode_streams_raw_rgba_through_videotoolbox(monkeypatch,
     assert argv[argv.index("-s") + 1] == "8x8"
 
 
-def test_opaque_encode_flattens_over_the_ground(monkeypatch, tmp_path):
+def test_opaque_encode_requests_native_flattening(monkeypatch, tmp_path):
     stubs, _ = _run_opaque(monkeypatch, tmp_path, vt=True)
+    binary = next(s for s in stubs if s.argv[0] != "ffmpeg")
     written = bytes(_ffmpeg_stub(stubs).stdin.data)
-    assert len(written) == 2 * 8 * 8 * 4
-    for i in range(3, len(written), 4):
-        assert written[i] == 255
+    assert written == _raw_bytes(8, 8, 2)[8:]
+    assert "--background" in binary.argv
+    assert binary.argv[binary.argv.index("--background") + 1] == "#102030"
 
 
 def test_opaque_encode_falls_back_to_software_and_names_it(monkeypatch,
@@ -245,11 +240,10 @@ def test_opaque_encode_survives_ffmpeg_failure(monkeypatch, tmp_path):
                     ffmpeg_stderr="boom: no such filter")
 
 
-# ── The overlay carriage is unchanged ─────────────────────────────────
+# ── The overlay codec and pixel contract are unchanged ────────────────
 
 def test_overlay_encode_still_uses_qtrle(monkeypatch, tmp_path):
-    """The raw-RGBA work touches only the opaque ProRes path; overlays keep
-    the qtrle/argb carriage that Resolve reads."""
+    """Overlays keep the qtrle/argb carriage that Resolve reads."""
     frames_dir = tmp_path / "frames"
     frames_dir.mkdir()
     (frames_dir / "frame_000001.png").write_bytes(b"x")

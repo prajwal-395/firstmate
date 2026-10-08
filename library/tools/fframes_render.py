@@ -2,10 +2,9 @@
 
 The third engine behind ``library/tools/graphics_renderer.py``. FFrames
 renders an SVG scene graph through Skia on the GPU (Metal on macOS,
-Vulkan elsewhere), writing straight-alpha RGBA frames. Overlays arrive as
-PNG that the carriage premultiplies into its own ``qtrle`` artefact; opaque
-cards pipe the same pixels as raw RGBA straight into ffmpeg's
-``prores_videotoolbox`` encoder.
+Vulkan elsewhere), writing straight-alpha RGBA frames. Both paths stream
+raw RGBA directly to ffmpeg: the native renderer premultiplies overlays
+for ``qtrle`` and flattens opaque cards over their declared ground for ProRes.
 
 The binary is a single precompiled executable - ``ren-graphics-fframes`` -
 built once by ``scripts/build_fframes_runtime.sh`` and shipped. Ren never
@@ -29,7 +28,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 FFRAMES_BINARY_NAME = "ren-graphics-fframes"
 """The precompiled binary's name on PATH."""
@@ -45,7 +43,7 @@ SEQUENCE_PATTERN = "frame_%06d.png"
 _PILOT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def fframes_source_dir(repo_root: Optional[str | Path] = None) -> Path:
+def fframes_source_dir(repo_root: str | Path | None = None) -> Path:
     """The ``native/ren-graphics-fframes`` crate directory: the fingerprint's tree."""
     if repo_root is not None:
         return Path(repo_root) / "native" / "ren-graphics-fframes"
@@ -128,7 +126,7 @@ def require_fframes() -> None:
             f"and retry.")
 
 
-_VIDEOTOOLBOX: Optional[bool] = None
+_VIDEOTOOLBOX: bool | None = None
 """Whether this machine's ffmpeg can encode through VideoToolbox, cached."""
 
 
@@ -300,97 +298,99 @@ def _encode_overlay(frames: list, out_path: str, fps: float,
     return out_path
 
 
-def _encode_opaque(scene_path: str, out_path: str, fps: float,
-                   background: str, timeout: int, stream,
-                   encoder: Optional[str] = None,
-                   expected: int = 0) -> str:
-    """Stream the renderer's raw RGBA into ffmpeg, flattening over the ground.
-
-    The binary's ``--raw`` stdout is read frame by frame and written straight
-    to ffmpeg's stdin - both running at once, no intermediate file - so a
-    long card never holds more than one frame in memory or on disk. Each
-    frame is flattened over the card's ground as it passes. Encodes with
-    ``prores_videotoolbox``; where VideoToolbox is unavailable the encoder
-    falls back to ``prores_ks`` and the fallback is named. Alpha and the
-    4444 profile are kept either way. A truncated final frame refuses by
-    name rather than shipping a shorter card.
-    """
-    import numpy as np
+def _encode_raw(scene_path: str, out_path: str, fps: float, timeout: int,
+                stream, codec_args, *, background: str | None = None,
+                premultiply: bool = False, expected: int = 0) -> str:
+    """Pipe adapted native RGBA frames directly into ffmpeg."""
+    def read_exact(pipe, size: int) -> bytes:
+        result = bytearray()
+        while len(result) < size:
+            chunk = pipe.read(size - len(result))
+            if not chunk:
+                break
+            result.extend(chunk)
+        return bytes(result)
 
     from ren.edition import require_component
 
     require_component("renderer.fframes", action="fetch or load")
+    binary = fframes_binary()
     with open(scene_path, encoding="utf-8") as handle:
         scene_meta = json.load(handle)
     width = int(scene_meta["width"])
     height = int(scene_meta["height"])
     frame_size = width * height * 4
-    ground = _parse_colour(background)
-    if encoder is None:
-        encoder = prores_encoder_name()
-    if encoder != "prores_videotoolbox":
-        print(f"  FFrames: VideoToolbox unavailable, encoding "
-              f"{encoder} (software fallback)", file=stream)
-    binary = fframes_binary()
-    ffmpeg_cmd = ["ffmpeg", "-y", "-v", "error",
-                  "-f", "rawvideo", "-pix_fmt", "rgba",
-                  "-s", f"{width}x{height}", "-r", f"{float(fps):.6f}",
-                  "-i", "-",
-                  "-c:v", encoder, "-profile:v", "4",
-                  "-pix_fmt", "yuva444p12le", out_path]
+    args = ["--raw"]
+    if background is not None:
+        _parse_colour(background)
+        args.extend(["--background", background])
+    elif premultiply:
+        args.append("--premultiply")
+    if ("prores_videotoolbox" in codec_args
+            and prores_encoder_name() != "prores_videotoolbox"):
+        codec_args = [
+            prores_encoder_name() if arg == "prores_videotoolbox" else arg
+            for arg in codec_args]
+    ffmpeg_cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo",
+                  "-pix_fmt", "rgba", "-s", f"{width}x{height}",
+                  "-r", f"{float(fps):.6f}", "-i", "-", *codec_args,
+                  out_path]
     frames_written = 0
-    binary_rc = -1
-    ffmpeg_rc = -1
-    with tempfile.TemporaryFile() as binary_err, \
-            tempfile.TemporaryFile() as ffmpeg_err:
+    binary_rc = ffmpeg_rc = -1
+    with (tempfile.TemporaryFile() as binary_err,
+          tempfile.TemporaryFile() as ffmpeg_err):
         with _perf_ledger().span("ffmpeg_encode", subprocesses=2):
             binary_proc = subprocess.Popen(
-                [binary, "render", scene_path, "--raw"],
+                [binary, "render", scene_path, *args],
                 stdout=subprocess.PIPE, stderr=binary_err)
+            ffmpeg_proc = None
             try:
                 ffmpeg_proc = subprocess.Popen(
                     ffmpeg_cmd, stdin=subprocess.PIPE, stderr=ffmpeg_err)
-                try:
-                    header = binary_proc.stdout.read(8)
-                    if len(header) != 8:
+                header = read_exact(binary_proc.stdout, 8)
+                if len(header) != 8:
+                    raise FFramesRenderError(
+                        "FFrames raw render wrote no header")
+                actual_size = (int.from_bytes(header[:4], "little"),
+                               int.from_bytes(header[4:], "little"))
+                if actual_size != (width, height):
+                    raise FFramesRenderError(
+                        f"FFrames raw render size {actual_size} does not "
+                        f"match scene size {(width, height)}")
+                while True:
+                    frame = read_exact(binary_proc.stdout, frame_size)
+                    if not frame:
+                        break
+                    if len(frame) != frame_size:
                         raise FFramesRenderError(
-                            "FFrames raw render wrote no header")
-                    while True:
-                        frame = binary_proc.stdout.read(frame_size)
-                        if len(frame) == 0:
-                            break
-                        if len(frame) < frame_size:
-                            raise FFramesRenderError(
-                                f"FFrames raw render wrote a truncated frame: "
-                                f"{len(frame)} of {frame_size} bytes")
-                        arr = np.frombuffer(
-                            frame, dtype=np.uint8
-                        ).reshape(height, width, 4).astype(np.uint16)
-                        alpha = arr[..., 3:4]
-                        rgb = (arr[..., :3] * alpha
-                                + ground * (255 - alpha) + 127) // 255
-                        flattened = np.dstack([
-                            rgb.astype(np.uint8),
-                            np.full((height, width), 255, dtype=np.uint8)])
-                        ffmpeg_proc.stdin.write(flattened.tobytes())
-                        frames_written += 1
-                    ffmpeg_proc.stdin.close()
-                    binary_rc = binary_proc.wait(timeout=timeout)
-                    ffmpeg_rc = ffmpeg_proc.wait(timeout=timeout)
-                except BrokenPipeError:
-                    binary_rc = binary_proc.wait(timeout=timeout)
-                    ffmpeg_rc = ffmpeg_proc.wait(timeout=timeout)
-                finally:
-                    try:
-                        ffmpeg_proc.stdin.close()
-                    except OSError:
-                        pass
-                    if ffmpeg_proc.poll() is None:
-                        ffmpeg_proc.wait(timeout=timeout)
+                            f"FFrames raw render wrote a truncated frame: "
+                            f"{len(frame)} of {frame_size} bytes")
+                    ffmpeg_proc.stdin.write(frame)
+                    frames_written += 1
+                ffmpeg_proc.stdin.close()
+                binary_rc = binary_proc.wait(timeout=timeout)
+                ffmpeg_rc = ffmpeg_proc.wait(timeout=timeout)
             finally:
                 binary_proc.stdout.close()
                 if binary_proc.poll() is None:
-                    binary_proc.wait(timeout=timeout)
+                    binary_proc.terminate()
+                    try:
+                        binary_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        binary_proc.kill()
+                        binary_proc.wait()
+                if ffmpeg_proc is not None:
+                    try:
+                        ffmpeg_proc.stdin.close()
+                    except (OSError, ValueError):
+                        pass
+                    if ffmpeg_proc.poll() is None:
+                        ffmpeg_proc.terminate()
+                        try:
+                            ffmpeg_proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            ffmpeg_proc.kill()
+                            ffmpeg_proc.wait()
         if binary_rc != 0:
             binary_err.seek(0)
             raise FFramesRenderError(
@@ -399,12 +399,40 @@ def _encode_opaque(scene_path: str, out_path: str, fps: float,
         if ffmpeg_rc != 0 or not os.path.isfile(out_path):
             ffmpeg_err.seek(0)
             raise FFramesRenderError(
-                f"could not encode FFrames raw frames to {out_path}: "
+                f"could not encode FFrames raw frames: "
                 f"{ffmpeg_err.read().decode('utf-8', 'replace')[-400:]}")
     if expected and frames_written != expected:
         print(f"  FFrames: rendered {frames_written} frame(s), props "
               f"declare {expected}; encoding what rendered", file=stream)
     return out_path
+
+
+def _encode_opaque(scene_path: str, out_path: str, fps: float,
+                   background: str, timeout: int, stream,
+                   encoder: str | None = None, expected: int = 0) -> str:
+    """Flatten in the native renderer, then stream opaque frames to ProRes."""
+    if encoder is None:
+        encoder = prores_encoder_name()
+    if encoder != "prores_videotoolbox":
+        print(f"  FFrames: VideoToolbox unavailable, encoding "
+              f"{encoder} (software fallback)", file=stream)
+    return _encode_raw(scene_path, out_path, fps, timeout, stream,
+                       ["-c:v", encoder, "-profile:v", "4", "-pix_fmt",
+                        "yuva444p12le"],
+                       background=background, expected=expected)
+
+
+def _encode_raw_overlay(scene_path: str, out_path: str, fps: float,
+                        timeout: int, stream=sys.stderr,
+                        expected: int = 0) -> str:
+    """Premultiply in the native renderer and stream directly into qtrle."""
+    try:
+        from library.tools.overlay_carriage import OVERLAY_ENCODE_ARGS
+    except ImportError:
+        from tools.overlay_carriage import OVERLAY_ENCODE_ARGS
+    return _encode_raw(scene_path, out_path, fps, timeout, stream,
+                       list(OVERLAY_ENCODE_ARGS), premultiply=True,
+                       expected=expected)
 
 
 def encode_frames(frames, out_path: str, *,
@@ -417,11 +445,13 @@ def encode_frames(frames, out_path: str, *,
     """Stitch adapted frames into the artefact the call site names.
 
     The overlay path (``opaque=False``) reads the renderer's PNG sequence
-    and stitches ``qtrle`` - the overlay carriage, unchanged. The opaque
-    path (``opaque=True``) streams the renderer's raw RGBA straight into
-    ffmpeg, flattening each frame over the card's ground, and encodes with
-    ``prores_videotoolbox`` - falling back to ``prores_ks`` where
-    VideoToolbox is unavailable, named either way.
+    and stitches ``qtrle`` - the overlay carriage, unchanged; it is kept
+    for callers that already hold adapted frames. New overlay renders go
+    through ``_encode_raw_overlay`` instead, which streams native-adapted
+    raw frames with no intermediate files. The opaque path (``opaque=True``)
+    takes the scene path and streams natively flattened raw RGBA straight
+    into ffmpeg, encoding with ``prores_videotoolbox`` - falling back to
+    ``prores_ks`` where VideoToolbox is unavailable, named either way.
     """
     if opaque:
         try:
@@ -464,16 +494,15 @@ class FFramesCaptionRenderer:
     """The FFrames renderer behind the same two-method seam.
 
     ``HyperFramesCaptionRenderer`` draws through staged HTML projects;
-    this one through the precompiled ``ren-graphics-fframes`` binary -
-    one IR scene per card, rendered to a PNG sequence, premultiplied
-    into the overlay carriage (or stitched to ``qtrle`` for video
-    carrying). Selection, provenance and reporting cannot tell which
+    this one uses the precompiled ``ren-graphics-fframes`` binary and
+    streams adapted raw frames into the overlay or opaque carriage.
+    Selection, provenance and reporting cannot tell which
     renderer drew the card: the contract is ``render`` / ``close`` and
     nothing else.
     """
 
     def __init__(self, project_folder: str = "",
-                 remotion_dir: str = None):
+                 remotion_dir: str | None = None):
         self.project_folder = project_folder or ""
         self.repo_root = str(Path(remotion_dir).resolve().parent) \
             if remotion_dir else None
@@ -672,23 +701,20 @@ def render_one_card(composition: str,
                     out_path: str,
                     work_dir: str,
                     project_folder: str = "",
-                    repo_root: Optional[str | Path] = None,
+                    repo_root: str | Path | None = None,
                     stream=sys.stderr) -> dict:
     """Draw one card through FFrames into the artefact *out_path* names.
 
-    Lowers the composition to an IR scene, writes scene.json, renders
-    through the precompiled binary, adapts the alpha (premultiply for
-    overlays, flatten for opaque V1 cards), and encodes. Overlays stitch
-    ``qtrle`` from PNG - the overlay carriage, unchanged. Opaque cards
-    stream the renderer's raw RGBA straight into ffmpeg and encode
+    Lowers the composition to an IR scene, writes scene.json, and streams
+    adapted raw frames from the precompiled renderer directly into ffmpeg.
+    Overlays are premultiplied in Rust and encoded as ``qtrle`` - the
+    overlay carriage, unchanged. Opaque cards are flattened in Rust and encode
     ``prores_videotoolbox``, falling back to ``prores_ks`` where
     VideoToolbox is unavailable.
     """
     card_name = Path(out_path).stem
     staging = os.path.join(work_dir, f"ff_{card_name}")
-    frames_dir = os.path.join(work_dir, f"ff_{card_name}_frames")
     shutil.rmtree(staging, ignore_errors=True)
-    shutil.rmtree(frames_dir, ignore_errors=True)
     os.makedirs(staging, exist_ok=True)
     try:
         fps = float(props.get("fps") or 30.0)
@@ -701,17 +727,12 @@ def render_one_card(composition: str,
                           background=str(props.get("background") or ""),
                           stream=stream, expected=expected)
         else:
-            frames = _render_frames(composition, props, frames_dir, staging,
-                                    project_folder)
-            if expected and len(frames) != expected:
-                print(f"  FFrames {composition}: rendered {len(frames)} "
-                      f"frame(s), props declare {expected}; encoding what "
-                      f"rendered", file=stream)
-            premultiply_frames(frames)
-            encode_frames(frames, out_path, fps=fps, opaque=False)
+            scene_path = _build_scene(composition, props, staging,
+                                      project_folder)
+            _encode_raw_overlay(scene_path, out_path, fps,
+                                RENDER_TIMEOUT_SECONDS, stream, expected)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-        shutil.rmtree(frames_dir, ignore_errors=True)
     return {
         "composition": composition,
         "asset_path": out_path,
@@ -725,7 +746,7 @@ def render_one_card_frames(composition: str,
                            frames_dir: str,
                            work_dir: str,
                            project_folder: str = "",
-                           repo_root: Optional[str | Path] = None) -> dict:
+                           repo_root: str | Path | None = None) -> dict:
     """Render one FFrames card to its adapted PNG frames without encoding."""
     staging = os.path.join(work_dir, f"ff_{Path(frames_dir).name}")
     shutil.rmtree(staging, ignore_errors=True)
