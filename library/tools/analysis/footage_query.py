@@ -760,7 +760,8 @@ def ocr_texts_for_project(project_folder) -> tuple:
 
 
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
-                embedder="minilm", video_chunks=False) -> dict:
+                embedder="minilm", video_chunks=False,
+                unified_anchors=False) -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
     Reads the project's ingest output; writes ONLY into `index_dir`,
@@ -772,6 +773,10 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     of each clip's media into the same EG2 space (`chunk_embeddings`
     aligned to `video_chunks` descriptors); clips whose media is absent
     are reported in `video_unembedded`, never silently dropped.
+    `unified_anchors` additionally builds the five linked per-window
+    anchors (video, still, audio, description, transcript) through
+    `unified_anchors.build_unified` into the same directory - opt-in,
+    never the default.
     """
     if embedder not in TEXT_EMBEDDER_MODELS:
         raise RenRefusal(
@@ -911,9 +916,22 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
                             raise ValueError(
                                 f"video encoder returned {vectors.shape}; expected "
                                 f"({len(owners)}, {EG2_TEXT_DIM})")
-                        vmat[offset:offset + len(owners)] = vectors
-                        video_rows.extend(owners)
-                        offset += len(owners)
+                        # The encoder emits NaN for short tail windows
+                        # (measured on 001): a non-finite row is not a
+                        # measurement and must never reach the matrix.
+                        finite = np.isfinite(vectors).all(axis=1)
+                        for owner, ok in zip(owners, finite):
+                            if not ok:
+                                video_unembedded.append({
+                                    "clip_id": owner["clip_id"],
+                                    "reason": ("video encoder returned a "
+                                               "non-finite vector for "
+                                               f"{owner['chunk_id']}")})
+                        good = vectors[finite]
+                        good_owners = [o for o, ok in zip(owners, finite) if ok]
+                        vmat[offset:offset + len(good_owners)] = good
+                        video_rows.extend(good_owners)
+                        offset += len(good_owners)
                         vmat.flush()
                     checkpoint_tmp.write_text(json.dumps({
                         "signature": signature,
@@ -1058,6 +1076,21 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     }
     if verbose:
         print(json.dumps(stats, indent=2))
+    if unified_anchors:
+        # The unified lane lives beside the text/video lanes in the same
+        # directory (distinct file names), and its summary is patched
+        # onto the payload the text lane just wrote - so one directory
+        # answers both `ren search` and `ren search --unified`.
+        from library.tools.analysis import unified_anchors as ua
+        unified_stats = ua.build_unified(project_folder, index_dir=target)
+        stats["unified"] = unified_stats
+        payload["unified_backend"] = unified_stats["backend"]
+        payload["unified_window_count"] = unified_stats["window_count"]
+        payload["unified_anchor_dimensions"] = unified_stats["anchor_dimensions"]
+        payload["unified_anchor_floors"] = unified_stats["anchor_floors"]
+        index_path.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+        if verbose:
+            print(json.dumps({"unified": unified_stats}, indent=2))
     return stats
 
 
@@ -2190,6 +2223,23 @@ class FootageIndex:
                 }
         report["abstained"] = not report["results"]
         return report
+
+    def search_unified(self, query: str, top_k: int = 5,
+                       mode: str = "hybrid",
+                       floor: float | None = None,
+                       query_image=None) -> dict:
+        """The opt-in unified backend: five linked anchors, one space.
+
+        Reads the anchors `build --unified-anchors` wrote beside this
+        index and fuses their scores with keyword and OCR.  The default
+        text path is untouched; this only runs when asked for.
+        """
+        from library.tools.analysis.unified_anchors import UnifiedIndex
+        return UnifiedIndex(
+            self.project_folder,
+            index_dir=self.index_dir).search_unified(
+                query, top_k=top_k, mode=mode, floor=floor,
+                query_image=query_image)
 
     # ── sound events (the M5 lane) ──────────────────────────────────
 
@@ -3397,6 +3447,38 @@ def _print_chunk_report(report):
                   f"dense {hit['dense_score']:.3f}")
 
 
+def _print_unified_report(report):
+    """A unified-anchor report as a person reads it, abstain included."""
+    bits = [f"query: {report['query']!r}", "mode=unified",
+            f"floor={report['floor']:.2f}",
+            f"{report['considered']} windows considered",
+            f"anchors: {','.join(report['anchors'])}"]
+    print("  ".join(bits))
+    if report.get("error") and not report["results"]:
+        print(report["error"])
+        return
+    if report.get("degraded"):
+        print(f"DEGRADED: {report['degraded']}")
+    if report["results"]:
+        for i, hit in enumerate(report["results"]):
+            anchors = " ".join(
+                f"{k}={hit[k]:.3f}" for k in sorted(hit)
+                if k.endswith("_score") and k not in ("score", "lexical_score"))
+            print(f"\n{i + 1}. {hit['clip_id']} {hit['timecode']}  "
+                  f"score {hit['score']:.3f}  {anchors}")
+            if hit.get("description_text"):
+                print(f"   desc: {hit['description_text'][:120]}")
+        return
+    print("\nNOTHING in this footage cleared the floor - that is the answer, "
+          "not an empty result set.")
+    if report["weak"]:
+        print(f"\n  {len(report['weak'])} weak match(es) between "
+              f"{report['weak_floor']:.2f} and {report['floor']:.2f} - not confident:")
+        for hit in report["weak"]:
+            print(f"  {hit['clip_id']} {hit.get('anchor_id')}  "
+                  f"dense {hit['dense_score']:.3f}")
+
+
 def _print_frame_report(report):
     """A frame search report as a person reads it: ranges, never absence."""
     print(f"query: {report['query']!r}  scope={report['scope']}  "
@@ -3522,6 +3604,10 @@ def main(argv=None):
                          help="Also embed one 8s video vector per media window "
                               "with EmbeddingGemma 2 (needs the model; clips "
                               "without media are named, never silently dropped)")
+    p_build.add_argument("--unified-anchors", action="store_true",
+                         help="Also build the five linked per-window anchors "
+                              "(video, still, audio, description, transcript) "
+                              "in the one EG2 space (opt-in; needs the model)")
 
     p_search = sub.add_parser("search", help="Semantic + keyword search")
     p_search.add_argument("project")
@@ -3536,6 +3622,11 @@ def main(argv=None):
                           help="Search the 8s VIDEO CHUNKS with EmbeddingGemma 2 "
                                "instead of the text index: top windows per clip, "
                                "with the recording encoder's floor and abstain")
+    p_search.add_argument("--unified", action="store_true",
+                          help="Search the five linked UNIFIED ANCHORS with "
+                               "EmbeddingGemma 2 instead of the text index: "
+                               "top windows per clip with per-anchor scores, "
+                               "fused with keyword and OCR (opt-in backend)")
     p_search.add_argument("--sound", action="store_true",
                           help="Search the PANNs SOUND-EVENT labels (the M5 sound lane) "
                                "instead of text: 'ren search --sound laughter' returns "
@@ -3717,7 +3808,8 @@ def main(argv=None):
     if args.command == "build":
         stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds),
                             embedder=args.embedder,
-                            video_chunks=args.video_chunks)
+                            video_chunks=args.video_chunks,
+                            unified_anchors=args.unified_anchors)
         print(json.dumps(stats, indent=2))
         if args.frames:
             from library.tools.analysis import footage_frames
@@ -3838,6 +3930,17 @@ def main(argv=None):
         return 0
 
     idx = FootageIndex(args.project, index_dir=args.index_dir)
+
+    if args.command == "search" and args.unified:
+        from library.tools.analysis.unified_anchors import UnifiedIndex
+        started = time.perf_counter()
+        uidx = UnifiedIndex(args.project, index_dir=args.index_dir)
+        report = uidx.search_unified(args.query, top_k=args.top_k,
+                                     mode=args.mode, floor=args.floor)
+        elapsed = time.perf_counter() - started
+        _print_unified_report(report)
+        print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
 
     if args.command == "search" and args.chunks:
         started = time.perf_counter()

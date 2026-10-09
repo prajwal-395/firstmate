@@ -1,0 +1,6 @@
+{"name": "001-minilm", "wall_s": 8.0, "peak_rss_mib": 490.1, "segments": 265, "embed_dim": 384, "video_chunks": 0, "unified": null, "bytes": 847364}
+{"name": "geo-minilm", "wall_s": 5.9, "peak_rss_mib": 490.1, "segments": 4219, "embed_dim": 384, "video_chunks": 0, "unified": null, "bytes": 10757143}
+{"name": "001-eg2text", "wall_s": 22.6, "peak_rss_mib": 1226.8, "segments": 265, "embed_dim": 256, "video_chunks": 0, "unified": null, "bytes": 711756}
+{"name": "geo-eg2text", "wall_s": 29.5, "peak_rss_mib": 1432.6, "segments": 4219, "embed_dim": 256, "video_chunks": 0, "unified": null, "bytes": 8597086}
+{"name": "001-eg2full", "wall_s": 1727.5, "peak_rss_mib": 1542.8, "segments": 265, "embed_dim": 256, "video_chunks": 109, "unified": 109, "bytes": 838750}
+{"name": "001-eg2full", "wall_s": 1190.8, "peak_rss_mib": 1628.5, "segments": 265, "embed_dim": 256, "video_chunks": 109, "unified": 109, "bytes": 838773}

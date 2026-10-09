@@ -1,0 +1,1407 @@
+{
+ "name": "unified-multimodal-bakeoff-v1",
+ "registered": "2026-10-08",
+ "registered_before": "any bakeoff scoring run",
+ "corpora": {
+  "001": "/private/tmp/fm-analysis-scheduling-reuse-20261008/001",
+  "geo-podcast": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast"
+ },
+ "scoring": {
+  "top_k": 5,
+  "overlap_tolerance_seconds": 1.0,
+  "hit": "a returned window/segment on a gold clip overlapping the gold span",
+  "localization": "overlap seconds / gold span seconds for the best hit",
+  "recall": "gold items with >=1 hit / gold items",
+  "precision": "returned rows that hit / returned rows",
+  "abstention": "absent queries with zero results / absent queries"
+ },
+ "queries": [
+  {
+   "id": "U001",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "just gotta find a place to park now",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 17.3,
+     "end": 19.0
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U002",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "there is a topgolf right there",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 17.5,
+     "end": 23.1
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U003",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "the pollen is definitely going to eat away at me",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 41.4,
+     "end": 43.2
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U004",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "today is march 25th 2026",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 9.7,
+     "end": 12.7
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U005",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "casey neistat posted his very first vlog",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 34.1,
+     "end": 48.0
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U006",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "i might have to just voiceover this entire part",
+   "gold": [
+    {
+     "clip_id": "clip_009",
+     "start": 30.7,
+     "end": 42.7
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U007",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "good boy",
+   "gold": [
+    {
+     "clip_id": "clip_010",
+     "start": 3.8,
+     "end": 4.3
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U008",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "i can feel the silent judgment of the people behind me",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 0.8,
+     "end": 3.2
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U009",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "okay we are here we are here",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 14.7,
+     "end": 16.1
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U010",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "where is a good spot to film",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 11.2,
+     "end": 12.7
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U011",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "there is a staircase here",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 23.2,
+     "end": 25.7
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U012",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "a little bit shy of being on camera in front of other people",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 62.5,
+     "end": 81.9
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U013",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "i might come back to this",
+   "gold": [
+    {
+     "clip_id": "clip_008",
+     "start": 3.3,
+     "end": 6.8
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U014",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "it is not my 34th birthday",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 12.8,
+     "end": 16.4
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U015",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "that way that way that way",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 33.2,
+     "end": 34.2
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "U016",
+   "corpus": "001",
+   "category": "spoken_phrase",
+   "query": "time is a-wasting",
+   "gold": [
+    {
+     "clip_id": "clip_007",
+     "start": 54.1,
+     "end": 55.1
+    }
+   ],
+   "verified_from": "temporal-index speech row"
+  },
+  {
+   "id": "O01",
+   "corpus": "001",
+   "category": "object",
+   "query": "where is the blue sedan parked",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.5
+    }
+   ],
+   "verified_from": "still+vision row"
+  },
+  {
+   "id": "O02",
+   "corpus": "001",
+   "category": "object",
+   "query": "mazda steering wheel with red stitching",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 10.0,
+     "end": 17.1
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O03",
+   "corpus": "001",
+   "category": "object",
+   "query": "mazda logo on the steering wheel",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 10.0,
+     "end": 17.1
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O04",
+   "corpus": "001",
+   "category": "object",
+   "query": "navigation screen showing a map",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 0.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O05",
+   "corpus": "001",
+   "category": "object",
+   "query": "traffic light with a red light",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O06",
+   "corpus": "001",
+   "category": "object",
+   "query": "street sign for chattahoochee avenue",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O07",
+   "corpus": "001",
+   "category": "object",
+   "query": "building with red brick",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 0.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O08",
+   "corpus": "001",
+   "category": "object",
+   "query": "a person's hand with a silver bracelet and ring",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "still+vision row"
+  },
+  {
+   "id": "O09",
+   "corpus": "001",
+   "category": "object",
+   "query": "person wearing blue jeans and white sneakers",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 17.0
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O10",
+   "corpus": "001",
+   "category": "object",
+   "query": "car dashboard and steering wheel",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 0.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "still+vision row"
+  },
+  {
+   "id": "O11",
+   "corpus": "001",
+   "category": "object",
+   "query": "speedometer and tachometer",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O12",
+   "corpus": "001",
+   "category": "object",
+   "query": "trees in the background of the parking lot",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.5
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O13",
+   "corpus": "001",
+   "category": "object",
+   "query": "white suv parked in the second row",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.5
+    }
+   ],
+   "verified_from": "vision row"
+  },
+  {
+   "id": "O14",
+   "corpus": "001",
+   "category": "object",
+   "query": "road with lane markings",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "still+vision row"
+  },
+  {
+   "id": "A01",
+   "corpus": "001",
+   "category": "action",
+   "query": "driving a vehicle and looking at the road",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 10.0,
+     "end": 17.1
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A02",
+   "corpus": "001",
+   "category": "action",
+   "query": "holding a phone and recording a scene",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A03",
+   "corpus": "001",
+   "category": "action",
+   "query": "moving camera through a parking lot",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A04",
+   "corpus": "001",
+   "category": "action",
+   "query": "driving a car on a road at sunset",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 0.0,
+     "end": 8.0
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A05",
+   "corpus": "001",
+   "category": "action",
+   "query": "walking forward with a shaky handheld camera",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A06",
+   "corpus": "001",
+   "category": "action",
+   "query": "hands on the steering wheel while driving",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 10.0,
+     "end": 17.1
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "A07",
+   "corpus": "001",
+   "category": "action",
+   "query": "a car passing in the next lane",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision action/camera row"
+  },
+  {
+   "id": "S01",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "show me the wide handheld walking shot",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "S02",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "show me the medium stationary shot inside the car",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "S03",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "find the shaky handheld footage",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "S04",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "show me the car interior",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "S05",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "show me the parking lot scene in daylight",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "S06",
+   "corpus": "001",
+   "category": "shot_type",
+   "query": "show me the sunset sky while driving",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "vision scene/camera row"
+  },
+  {
+   "id": "T01",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "SHOP",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 4.8,
+     "end": 4.9
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T02",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "TAB",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 4.8,
+     "end": 4.9
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T03",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "Tetta Blvd NW",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 0.9,
+     "end": 1.0
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T04",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "Chattahoochee Ave NW",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T05",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "show me the street sign on screen",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T06",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "what does the on-screen text TAB say",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 4.8,
+     "end": 4.9
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "T07",
+   "corpus": "001",
+   "category": "on_screen_text",
+   "query": "show me the road sign",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 5.0,
+     "end": 7.8
+    }
+   ],
+   "verified_from": "step 1.07 OCR string"
+  },
+  {
+   "id": "H01",
+   "corpus": "001",
+   "category": "person",
+   "query": "where is the person in blue jeans",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 17.0
+    }
+   ],
+   "verified_from": "vision person row or speech row"
+  },
+  {
+   "id": "H02",
+   "corpus": "001",
+   "category": "person",
+   "query": "show me the person holding a phone",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "vision person row or speech row"
+  },
+  {
+   "id": "H03",
+   "corpus": "001",
+   "category": "person",
+   "query": "the silent judgment of the people behind me",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 0.8,
+     "end": 3.2
+    }
+   ],
+   "verified_from": "vision person row or speech row"
+  },
+  {
+   "id": "H04",
+   "corpus": "001",
+   "category": "person",
+   "query": "show me the person driving the car",
+   "gold": [
+    {
+     "clip_id": "clip_002",
+     "start": 10.0,
+     "end": 17.1
+    }
+   ],
+   "verified_from": "vision person row or speech row"
+  },
+  {
+   "id": "H05",
+   "corpus": "001",
+   "category": "person",
+   "query": "shout out casey neistat",
+   "gold": [
+    {
+     "clip_id": "clip_011",
+     "start": 34.1,
+     "end": 48.0
+    }
+   ],
+   "verified_from": "vision person row or speech row"
+  },
+  {
+   "id": "E01",
+   "corpus": "001",
+   "category": "expression",
+   "query": "neutral expression",
+   "gold": [
+    {
+     "clip_id": "clip_001",
+     "start": 0.0,
+     "end": 3.6
+    },
+    {
+     "clip_id": "clip_002",
+     "start": 0.0,
+     "end": 10.0
+    }
+   ],
+   "verified_from": "vision action prose (no expression lane)"
+  },
+  {
+   "id": "E02",
+   "corpus": "001",
+   "category": "expression",
+   "query": "person laughing out loud",
+   "gold": "absent",
+   "verified_from": "no expression lane; vision rows say neutral"
+  },
+  {
+   "id": "E03",
+   "corpus": "001",
+   "category": "expression",
+   "query": "person crying",
+   "gold": "absent",
+   "verified_from": "no expression lane; vision rows say neutral"
+  },
+  {
+   "id": "E04",
+   "corpus": "001",
+   "category": "expression",
+   "query": "smiling at the camera",
+   "gold": "absent",
+   "verified_from": "no expression lane; vision rows say neutral"
+  },
+  {
+   "id": "X01",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a birthday cake with candles",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X02",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a motorcycle parked outdoors",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X03",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a helicopter hovering overhead",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X04",
+   "corpus": "001",
+   "category": "absent",
+   "query": "an underwater coral reef",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X05",
+   "corpus": "001",
+   "category": "absent",
+   "query": "someone playing the piano on stage",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X06",
+   "corpus": "001",
+   "category": "absent",
+   "query": "snowboarding down a mountain",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X07",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a horse galloping on a beach",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X08",
+   "corpus": "001",
+   "category": "absent",
+   "query": "find the shot with the cup",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X09",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a dog barking loudly",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X10",
+   "corpus": "001",
+   "category": "absent",
+   "query": "snow falling outside",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X11",
+   "corpus": "001",
+   "category": "absent",
+   "query": "an airplane taking off",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "X12",
+   "corpus": "001",
+   "category": "absent",
+   "query": "a baby crying",
+   "gold": "absent",
+   "verified_from": "absent from all 001 analysis rows and stills"
+  },
+  {
+   "id": "G-S01",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "running a customer's question through google and chatgpt side by side",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 205.7,
+     "end": 224.6
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 201.9,
+     "end": 220.8
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 267.0,
+     "end": 289.9
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 263.2,
+     "end": 286.1
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S02",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "google is a search engine but chatgpt is a decision engine",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 285.3,
+     "end": 291.4
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 281.5,
+     "end": 287.6
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S03",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "a ten person agency recommended over a company fifty times its size",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 832.4,
+     "end": 841.5
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 828.6,
+     "end": 837.7
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 856.9,
+     "end": 885.4
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 853.1,
+     "end": 881.6
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S04",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "people who spent fifty to a hundred grand redesigning their website",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 1425.3,
+     "end": 1447.2
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 1421.5,
+     "end": 1443.4
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S05",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "an audit where the website said enterprise software but linkedin said startup consulting",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 1597.9,
+     "end": 1639.5
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 1594.1,
+     "end": 1635.7
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S06",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "a nail salon that specializes in 3d nail art",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 2752.5,
+     "end": 2765.1
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 2748.7,
+     "end": 2761.3
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 2776.8,
+     "end": 2779.5
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 2773.0,
+     "end": 2775.7
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 2800.2,
+     "end": 2813.2
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 2796.4,
+     "end": 2809.4
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S07",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "being featured in the atlanta journal constitution builds trust",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 3016.6,
+     "end": 3047.6
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3012.8,
+     "end": 3043.8
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S08",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "the visibility system's seven modules",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 3135.6,
+     "end": 3165.2
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3131.8,
+     "end": 3161.4
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 3216.1,
+     "end": 3222.5
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3212.3,
+     "end": 3218.7
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S09",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "competitors getting mentioned nine times more often",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 3409.5,
+     "end": 3431.9
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3405.7,
+     "end": 3428.1
+    },
+    {
+     "clip_id": "clip_003",
+     "start": 3458.5,
+     "end": 3506.0
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3454.7,
+     "end": 3502.2
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S10",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "a beautiful website is only twenty percent of what ai looks at",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 3562.1,
+     "end": 3610.9
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 3558.3,
+     "end": 3607.1
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S11",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "why ai treats youtube as a trustworthy source",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 4015.5,
+     "end": 4045.5
+    },
+    {
+     "clip_id": "clip_006",
+     "start": 4011.7,
+     "end": 4041.7
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G-S12",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "chatgpt shows a map of nail salons with their google reviews",
+   "gold": [
+    {
+     "clip_id": "clip_003",
+     "start": 4566.5,
+     "end": 4580.6
+    },
+    {
+     "clip_id": "clip_007",
+     "start": 463.11,
+     "end": 477.21
+    }
+   ],
+   "verified_from": "retrieval_eval_set (standing hand-marked set)"
+  },
+  {
+   "id": "G13",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "keyword stuffing in the late nineties",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 212.4,
+     "end": 222.9
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G14",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "the lucy visibility score",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 241.9,
+     "end": 248.4
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G15",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "people stopped searching they started asking",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 93.2,
+     "end": 96.2
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G16",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "hvac company or attorney or solo consultant",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 4.2,
+     "end": 17.4
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G17",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "rapid fire like one video after another",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 271.5,
+     "end": 274.7
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G18",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "search did not change the question changed",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 456.0,
+     "end": 461.9
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G19",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "throw the graphic up there",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 370.8,
+     "end": 374.1
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G20",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "seo team stuffed all the keywords",
+   "gold": [
+    {
+     "clip_id": "clip_005",
+     "start": 158.1,
+     "end": 165.8
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G21",
+   "corpus": "geo-podcast",
+   "category": "spoken_phrase",
+   "query": "you want her to look at the camera",
+   "gold": [
+    {
+     "clip_id": "clip_006",
+     "start": 342.3,
+     "end": 346.9
+    }
+   ],
+   "verified_from": "source-memory transcript row"
+  },
+  {
+   "id": "G22",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "a birthday cake with candles",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G23",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "a motorcycle parked outdoors",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G24",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "a helicopter hovering overhead",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G25",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "an underwater coral reef",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G26",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "someone playing the piano on stage",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G27",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "snowboarding down a mountain",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G28",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "a horse galloping on a beach",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  },
+  {
+   "id": "G29",
+   "corpus": "geo-podcast",
+   "category": "absent",
+   "query": "find the shot with the cup",
+   "gold": "absent",
+   "verified_from": "absent from GEO transcripts; studio footage"
+  }
+ ]
+}
