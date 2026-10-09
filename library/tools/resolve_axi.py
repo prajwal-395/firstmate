@@ -4059,6 +4059,9 @@ def _replace_item(timeline, pool, orig, source_in: int,
     if pool_item is None:
         return None, ("the item carries no pool clip (a generator or "
                       "title?) - nothing was changed.")
+    # Measured against live Resolve 21.0.0b.28: AppendToTimeline's
+    # endFrame is exclusive. For [4, 60] inclusive, endFrame=61 yields
+    # 57 record frames; GetSourceEndFrame on that new item returns 61.
     payload = {"mediaPoolItem": pool_item,
                "startFrame": source_in, "endFrame": source_out + 1,
                "mediaType": media_type,
@@ -4066,7 +4069,8 @@ def _replace_item(timeline, pool, orig, source_in: int,
     if track_index is not None:
         payload["trackIndex"] = track_index
     try:
-        before = _presence(timeline, _item_span(orig)["uid"])
+        before = (_presence(timeline, _item_span(orig)["uid"])
+                  if orig is not None else False)
         placed = pool.AppendToTimeline([payload])
         new_items = list(placed or []) if placed else []
     except Exception as exc:
@@ -4084,15 +4088,170 @@ def _replace_item(timeline, pool, orig, source_in: int,
             and int(readback["record_out"]) - int(readback["record_in"])
             == int(source_out) - int(source_in) + 1
             and int(readback["source_in"]) == int(source_in)
-            and int(readback["source_out"]) == int(source_out)
+            # Live Resolve reports the exclusive endpoint for appended
+            # subranges, but clamps an endpoint at the media's final
+            # frame to that final inclusive frame. The record duration
+            # and source start are the stable proof of the requested
+            # range; accept exactly those two measured endpoint forms.
+            and int(readback["source_out"]) in {
+                int(source_out), int(source_out) + 1}
             and _presence(timeline, readback["uid"]))
     except (TypeError, ValueError):
         verified = False
     if not verified:
         return None, ("the re-place returned an item that did not verify "
-                      "at the requested source range and record frame - "
-                      "the original is untouched.")
+                      "at the requested source range and record frame.")
     return replacement, ""
+
+
+def _timeline_trim_snapshot(timeline):
+    """Capture every timeline item with source duration normalized.
+
+    Resolve reports inclusive source ends on existing clips and the
+    exclusive AppendToTimeline endpoint on newly placed clips. Source
+    end plus duration is therefore not a stable equality; start plus
+    the record duration is the measured source end-exclusive span for
+    this unit-speed replacement operation.
+    """
+    rows = []
+    for track_type in ("video", "audio"):
+        try:
+            count = int(timeline.GetTrackCount(track_type) or 0)
+        except Exception as exc:
+            raise AxiError(
+                f"timeline snapshot could not read {track_type} track count: "
+                f"{exc}") from exc
+        for track_index in range(1, count + 1):
+            try:
+                items = list(timeline.GetItemListInTrack(
+                    track_type, track_index) or [])
+            except Exception as exc:
+                raise AxiError(
+                    f"timeline snapshot could not read {track_type}{track_index}: "
+                    f"{exc}") from exc
+            for item in items:
+                span = _item_span(item)
+                try:
+                    start = int(span["record_in"])
+                    end = int(span["record_out"])
+                    source_start = int(span["source_in"])
+                    source_out = int(span["source_out"])
+                    duration = end - start
+                except (TypeError, ValueError):
+                    raise AxiError(
+                        "timeline snapshot could not read every item span")
+                if not span["uid"] or duration <= 0:
+                    raise AxiError(
+                        "timeline snapshot found an item without a stable "
+                        "identity or positive duration")
+                pool_item = None
+                try:
+                    pool_item = item.GetMediaPoolItem()
+                    pool_uid = (str(pool_item.GetUniqueId())
+                                if pool_item else "")
+                except Exception:
+                    pool_uid = ""
+                rows.append({
+                    "track_type": track_type,
+                    "track_index": track_index,
+                    "uid": str(span["uid"] or ""),
+                    "name": str(span["name"] or ""),
+                    "record_in": start,
+                    "record_out": end,
+                    "source_in": source_start,
+                    "source_out": source_out,
+                    "source_end_exclusive": source_start + duration,
+                    "pool_uid": pool_uid,
+                    "pool_item": pool_item,
+                })
+    return rows
+
+
+def _trim_row_signature(row):
+    return tuple(row[key] for key in (
+        "track_type", "track_index", "name", "record_in", "record_out",
+        "source_in", "source_out", "source_end_exclusive", "pool_uid"))
+
+
+def _trim_row_semantic_signature(row):
+    """Same source/record content across Resolve's measured endpoint forms."""
+    return tuple(row[key] for key in (
+        "track_type", "track_index", "name", "record_in", "record_out",
+        "source_in", "source_end_exclusive", "pool_uid"))
+
+
+def _restore_trim_snapshot(timeline, pool, before, target_uid):
+    """Remove trim attempts, restore the original span, prove all rows.
+
+    The failed attempt can have caused Resolve to split the original at
+    the append point. Remove every row that differs from the captured
+    snapshot, recreate each missing row from its cached pool handle, and
+    compare the complete live inventory before returning success.
+    """
+    try:
+        before_by_uid = {row["uid"]: row for row in before if row["uid"]}
+        current = _timeline_trim_snapshot(timeline)
+        current_by_uid = {row["uid"]: row for row in current if row["uid"]}
+        unchanged = {
+            uid for uid, row in current_by_uid.items()
+            if uid in before_by_uid
+            and _trim_row_signature(row)
+            == _trim_row_signature(before_by_uid[uid])}
+        handles = {}
+        for kind in ("video", "audio"):
+            for index in range(1, int(timeline.GetTrackCount(kind) or 0) + 1):
+                for item in timeline.GetItemListInTrack(kind, index) or []:
+                    span = _item_span(item)
+                    if span["uid"]:
+                        handles[str(span["uid"])] = item
+        for row in current:
+            if row["uid"] in unchanged:
+                continue
+            item = handles.get(row["uid"])
+            if item is None:
+                return None, "cannot identify every changed item for cleanup"
+            timeline.DeleteClips([item], False)
+        cleared = _timeline_trim_snapshot(timeline)
+        cleared_by_uid = {row["uid"]: row for row in cleared if row["uid"]}
+        if any(uid not in cleared_by_uid
+               or _trim_row_signature(cleared_by_uid[uid])
+               != _trim_row_signature(row)
+               for uid, row in before_by_uid.items() if uid in unchanged):
+            return None, "unchanged timeline rows did not survive trim cleanup"
+        if any(row["uid"] not in unchanged for row in cleared):
+            return None, "changed timeline rows remain after trim cleanup"
+
+        missing = [row for row in before
+                   if row["uid"] not in unchanged]
+        for row in missing:
+            source_pool = row["pool_item"]
+            if source_pool is None:
+                return None, (f"cannot restore {row['name']!r}: its captured "
+                              "media-pool item is unavailable")
+            duration = row["record_out"] - row["record_in"]
+            source_end = row["source_in"] + duration - 1
+            restored, error = _replace_item(
+                timeline, pool, None, row["source_in"], source_end,
+                row["record_in"], row["track_index"],
+                1 if row["track_type"] == "video" else 2,
+                pool_item=source_pool)
+            if error:
+                return None, (f"could not restore {row['name']!r} from the "
+                              f"captured snapshot: {error}")
+        after = _timeline_trim_snapshot(timeline)
+        expected = [_trim_row_semantic_signature(row) for row in before]
+        observed = [_trim_row_semantic_signature(row) for row in after]
+        if sorted(expected, key=repr) != sorted(observed, key=repr):
+            return None, "full timeline inventory differs from the captured snapshot"
+        restored_target = next(
+            (row for row in after
+             if _trim_row_semantic_signature(row)
+             == _trim_row_semantic_signature(next(row for row in before
+                                                  if row["uid"] == target_uid))),
+            None)
+        return restored_target, ""
+    except Exception as exc:
+        return None, f"snapshot restoration raised ({exc})"
 
 
 def _drop_original(project, timeline, uid: str):
@@ -4358,10 +4517,16 @@ def cmd_edit_trim(args) -> int:
             orig_in = int(span["source_in"])
             orig_out = int(span["source_out"])
             orig_rec = int(span["record_in"])
+            orig_rec_out = int(span["record_out"])
         except (TypeError, ValueError):
             return fail(
                 f"{span['name']!r} would not report its spans - the "
                 f"trim cannot be re-placed faithfully.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if orig_rec_out - orig_rec != orig_out - orig_in + 1:
+            return fail(
+                f"{span['name']!r} has a source-to-record duration mismatch; "
+                "trim refuses because a lossless restore cannot be proven.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         new_in = orig_in if args.source_in is None else args.source_in
         new_out = (orig_out if args.source_out is None
@@ -4416,6 +4581,12 @@ def cmd_edit_trim(args) -> int:
                     "the item carries no pool clip (a generator or title?) "
                     "- nothing was changed.",
                     f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            try:
+                before_snapshot = _timeline_trim_snapshot(timeline)
+            except AxiError as exc:
+                return fail(
+                    f"trim refused before writing: {exc}",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
             drop_error = _drop_original(project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline "
@@ -4424,17 +4595,15 @@ def cmd_edit_trim(args) -> int:
                 timeline, pool, item, new_in, new_out,
                 new_rec, track_index, media_type, pool_item=pool_item)
             if error:
-                restored, restore_error = _replace_item(
-                    timeline, pool, item, orig_in, orig_out,
-                    orig_rec, track_index, media_type,
-                    pool_item=pool_item)
+                restored, restore_error = _restore_trim_snapshot(
+                    timeline, pool, before_snapshot, uid)
                 if restore_error:
                     return fail(
-                        f"trim failed ({error}); original recovery also "
-                        f"needs attention ({restore_error})",
+                        f"trim failed ({error}); full timeline restoration "
+                        f"could not be proven ({restore_error})",
                         f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-                return fail(f"trim failed ({error}); the original was "
-                            f"restored and verified",
+                return fail(f"trim failed ({error}); the original full "
+                            f"timeline snapshot was restored and verified",
                             f"{TOOL} items --timeline "
                             f"\"{timeline.GetName()}\"")
             journal_state["success"] = True

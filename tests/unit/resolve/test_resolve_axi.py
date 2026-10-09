@@ -200,13 +200,17 @@ class _MediaPool:
             start = entry.get("recordFrame")
             src_in = entry.get("startFrame", 0)
             api_end = entry.get("endFrame")
-            src_out = (api_end - 1 if api_end is not None
-                       else src_in + 49)
+            duration = (api_end - src_in if api_end is not None else 50)
+            # Live Resolve returns the AppendToTimeline exclusive endpoint
+            # from GetSourceEndFrame, while the placed duration is the
+            # difference between endFrame and startFrame.
+            src_out = (api_end if api_end is not None
+                       else src_in + duration - 1)
             if start is None:
                 items = self._current._tracks.get(("video", 1),
                                                   {}).get("items", [])
                 start = max([i.GetEnd() for i in items] or [0])
-            end = start + (src_out - src_in + 1)
+            end = start + duration
             item = _Item(name, start, end, pool=clip,
                          track_type="video",
                          track_index=entry.get("trackIndex", 1))
@@ -2369,7 +2373,7 @@ def _moved(env, _out):
     return ([i.GetUniqueId() for i in items] == ["uid-2", "uid-LC0001.MXF"]
             and (moved.GetStart(), moved.GetEnd()) == (200, 250)
             and (moved.GetSourceStartFrame(),
-                 moved.GetSourceEndFrame()) == (1000, 1049))
+                 moved.GetSourceEndFrame()) == (1000, 1050))
 
 
 def _trimmed(env, _out):
@@ -2377,7 +2381,7 @@ def _trimmed(env, _out):
     trimmed = items[1]
     return ([i.GetUniqueId() for i in items] == ["uid-2", "uid-LC0001.MXF"]
             and (trimmed.GetSourceStartFrame(),
-                 trimmed.GetSourceEndFrame()) == (1010, 1049)
+                 trimmed.GetSourceEndFrame()) == (1010, 1050)
             and trimmed.GetStart() == 10)
 
 
@@ -2906,6 +2910,74 @@ def test_edit_trim_caches_pool_item_before_deleting_source(
     assert env["project"].GetMediaPool().appended[-1]["endFrame"] == 1050
     assert any(item.GetMediaPoolItem() is pool_item for item in _items(env))
     assert "verified: yes" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("source_in", "source_out", "reported_end", "duration"),
+    [(0, 9, 10, 10), (4, 60, 61, 57), (0, 95, 95, 96)],
+)
+def test_replace_item_matches_live_resolve_endpoint_measurements(
+        edit_patched, monkeypatch, source_in, source_out,
+        reported_end, duration):
+    """Live (Append endFrame, readback end, record duration) readings:
+    (10, 10, 10), (61, 61, 57), and media-clamped (96, 95, 96).
+    """
+    env = edit_patched
+    timeline = env["timeline"]
+    pool = env["project"].GetMediaPool()
+    original = _items(env)[0]
+    pool_item = original.GetMediaPoolItem()
+    append = pool.AppendToTimeline
+
+    def append_measured(payload):
+        placed = append(payload)
+        for item in placed:
+            item.GetSourceEndFrame = lambda value=reported_end: value
+        return placed
+
+    monkeypatch.setattr(pool, "AppendToTimeline", append_measured)
+    replacement, error = resolve_axi._replace_item(
+        timeline, pool, original, source_in, source_out, 300, 1, 1,
+        pool_item=pool_item)
+
+    assert error == ""
+    assert replacement is not None
+    assert replacement.GetEnd() - replacement.GetStart() == duration
+    assert replacement.GetSourceEndFrame() == reported_end
+    assert pool.appended[-1]["endFrame"] == source_out + 1
+
+
+def test_edit_trim_failed_verification_restores_exact_timeline(
+        edit_patched, monkeypatch, capsys):
+    """A failed post-append verification removes that append before restore."""
+    env = edit_patched
+    before = resolve_axi._timeline_trim_snapshot(env["timeline"])
+    replace = resolve_axi._replace_item
+    calls = 0
+
+    def fail_after_landing(*args, **kwargs):
+        nonlocal calls
+        item, error = replace(*args, **kwargs)
+        calls += 1
+        if calls == 1 and not error:
+            return None, "forced live-readback failure"
+        return item, error
+
+    monkeypatch.setattr(resolve_axi, "_replace_item", fail_after_landing)
+    result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
+
+    assert result == 1
+    after = resolve_axi._timeline_trim_snapshot(env["timeline"])
+    before_target = next(row for row in before if row["uid"] == "uid-1")
+    after_target = next(row for row in after
+                        if row["record_in"] == before_target["record_in"])
+    assert resolve_axi._trim_row_semantic_signature(before_target) == \
+        resolve_axi._trim_row_semantic_signature(after_target)
+    assert len(after) == len(before)
+    assert sorted(row["uid"] for row in after if row["uid"] != after_target["uid"]) == \
+        sorted(row["uid"] for row in before if row["uid"] != before_target["uid"])
+    assert "full timeline snapshot was restored and verified" in \
+        capsys.readouterr().out
 
 
 def test_edit_speed_apply_journals(edit_patched, tmp_path, capsys):
