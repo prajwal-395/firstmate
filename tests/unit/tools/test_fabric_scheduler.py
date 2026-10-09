@@ -7,7 +7,6 @@ that loses a task on restart, is a defect the tests pin.
 """
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
@@ -170,6 +169,42 @@ def test_two_compatible_tasks_run_concurrently(lock_dir, tmp_path):
                         runner, poll=0.005).run()
     assert states == {"a": DONE, "b": DONE}
     assert sorted(runner.ran) == ["a", "b"]
+
+
+def test_conflicting_tasks_on_one_resource_run_serially(lock_dir, tmp_path):
+    """Scheduler-held leases remain exclusive after work moves to a thread.
+
+    Defect caught: the coordinator thread mistook a second task's lease for
+    a nested operation under the first task's lease, allowing two writers to
+    replace the same per-source directory at once.
+    """
+    graph = TaskGraph(tasks={
+        task_id: Task(
+            id=task_id, name=task_id,
+            resources=LeaseDeclaration(
+                exclusive=frozenset({ResourceRef("clip", "same-source")})),
+        )
+        for task_id in ("a", "b")
+    })
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def runner(_task):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return 0
+
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        runner, poll=0.005).run()
+
+    assert states == {"a": DONE, "b": DONE}
+    assert peak == 1
 
 
 # ── Checkpoints and restart ─────────────────────────────────────────

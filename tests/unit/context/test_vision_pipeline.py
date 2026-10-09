@@ -817,8 +817,9 @@ def test_failed_host_object_branch_writes_no_partial_profile(
 
     monkeypatch.setattr(vp, "_LazyAnalyzer",
                         lambda *_args, **_kwargs: nullcontext(analyzer))
-    monkeypatch.setattr(vp.measurement_layers, "method_digest",
-                        lambda *_args: "fake-method")
+    monkeypatch.setattr(
+        vp.measurement_layers, "method_digests",
+        lambda _module, layers: {layer: "fake-method" for layer in layers})
     monkeypatch.setattr(vp.measurement_layers, "canonical_digest",
                         lambda *_args: "fake-inputs")
     monkeypatch.setattr(vp.measurement_layers.LayerCache, "for_source",

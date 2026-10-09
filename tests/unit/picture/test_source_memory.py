@@ -5,24 +5,26 @@ test reaches a real project (§8), runs ffmpeg or voz, or opens
 Resolve: digests are computed off small scratch files, and M1
 documents are written directly in the shape `build_source` emits.
 """
-import json
-from pathlib import Path
-import pytest
-from library.tools import source_memory
-from library.tools.analysis import footage_segments
-import textwrap
-from unittest.mock import patch
-from library.tools.analysis import measurement_layers as ml
-from library.tools.analysis import vision_pipeline_v3 as vp
 import importlib.util
-import os
+import json
 import sys
+import textwrap
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+
 import numpy as np
-from library.tools import footage_identity, person_entity
+import pytest
+
 from library.tools import (
     face_identity_study,
+    footage_identity,
+    person_entity,
+    source_memory,
 )
+from library.tools.analysis import footage_segments
+from library.tools.analysis import measurement_layers as ml
+from library.tools.analysis import vision_pipeline_v3 as vp
 
 
 @pytest.fixture
@@ -238,10 +240,10 @@ def test_memory_transcript_supersedes_without_doubling(tmp_path,
     speech = [s for s in segments if s.kind == "speech"]
     assert len(speech) == 2, [s.segment_id for s in speech]
 
-    first = [s for s in speech if s.clip_id == "clip_001"][0]
+    first = next(s for s in speech if s.clip_id == "clip_001")
     assert first.facets["transcript_source"] == "source-memory"
     assert first.text == "memory words here"
-    second = [s for s in speech if s.clip_id == "clip_002"][0]
+    second = next(s for s in speech if s.clip_id == "clip_002")
     assert second.facets["transcript_source"] == "temporal-index"
     assert second.text == "second clip speaks"
 
@@ -547,6 +549,7 @@ def test_concurrent_same_file_ensure_demuxes_once(tmp_path, memory_root,
     loser's hearing is keyed to bytes that were never on disk together.
     """
     import threading
+
     from library.tools import source_primitives
 
     media = _media(tmp_path, "DUP.MOV", b"dup-bytes")
@@ -657,6 +660,70 @@ def test_a_layer_key_moves_with_its_own_code_and_no_one_elses(tmp_path):
     prose = _tree(tmp_path, MODULE.replace("Windows pass.", "Reworded.")
                   .replace("return x * 2", "return x * 2  # comment"))
     assert prose == base
+
+
+def test_measurement_source_parse_cache_reuses_and_invalidates(tmp_path,
+                                                               monkeypatch):
+    path = tmp_path / "mod.py"
+    path.write_text("def measure():\n    return 1\n")
+    original_parse = ml.ast.parse
+    parsed_sources = []
+
+    def counting_parse(source):
+        parsed_sources.append(source)
+        return original_parse(source)
+
+    monkeypatch.setattr(ml.ast, "parse", counting_parse)
+    first = ml._parse(path)
+    assert ml._parse(path) is first
+
+    path.write_text("def measure():\n    return 2\n")
+    changed = ml._parse(path)
+    assert changed is not first
+    assert parsed_sources == [
+        "def measure():\n    return 1\n",
+        "def measure():\n    return 2\n",
+    ]
+
+
+def test_measurement_import_cache_tracks_changed_dependencies(tmp_path):
+    tools = tmp_path / "library" / "tools"
+    tools.mkdir(parents=True)
+    module = tmp_path / "measure.py"
+    helper = tools / "helper.py"
+    first = tools / "first.py"
+    second = tools / "second.py"
+    module.write_text(
+        "from library.tools import helper\n\n"
+        "def measure():\n    return helper.value\n")
+    first.write_text("value = 1\n")
+    second.write_text("value = 2\n")
+    helper.write_text("from library.tools import first\n")
+
+    _, first_dependencies = ml.reach(module, ["measure"], tmp_path)
+    helper.write_text("from library.tools import second\n")
+    _, second_dependencies = ml.reach(module, ["measure"], tmp_path)
+
+    assert first in first_dependencies
+    assert first not in second_dependencies
+    assert second in second_dependencies
+
+
+def test_batched_measurement_digests_match_independent_digests(tmp_path):
+    path = tmp_path / "mod.py"
+    path.write_text(MODULE)
+    layers = {name: [name] for name in ("windows", "objects")}
+    independent = {
+        name: ml.method_digest(path, entry_points, tmp_path)
+        for name, entry_points in layers.items()
+    }
+
+    assert ml.method_digests(path, layers, tmp_path) == independent
+
+    path.write_text(MODULE.replace("x * 2", "x * 3"))
+    changed = ml.method_digests(path, layers, tmp_path)
+    assert changed["windows"] == independent["windows"]
+    assert changed["objects"] != independent["objects"]
 
 
 def test_the_store_is_source_memory(tmp_path, monkeypatch):
@@ -908,7 +975,7 @@ def _media_2(tmp_path: Path, name: str, seed: bytes) -> Path:
     return path
 
 
-def _project_with_clips(tmp_path: Path, clips: list, extra_source: dict = None) -> Path:
+def _project_with_clips(tmp_path: Path, clips: list, extra_source: dict | None = None) -> Path:
     """`clips`: `[(clip_id, media_path, digest)]`."""
     root = tmp_path / "proj"
     catalog = [{"clip_id": cid, "filename": media.name,

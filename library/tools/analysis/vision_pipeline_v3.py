@@ -4019,10 +4019,8 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
 
     # One method identity per layer for the whole run; each clip adds
     # its own source digest and parameters.
-    layer_methods = {
-        layer: measurement_layers.method_digest(__file__, entry_points)
-        for layer, entry_points in MEASUREMENT_LAYERS.items()
-    }
+    layer_methods = measurement_layers.method_digests(
+        __file__, MEASUREMENT_LAYERS)
     from library.tools.still_vision import (
         HOST_SEES_IMAGES, direct_cli_for_harness, resolve_harness)
     still_viewer = resolve_harness(harness)

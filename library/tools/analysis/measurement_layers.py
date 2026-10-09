@@ -71,8 +71,10 @@ import ast
 import hashlib
 import json
 import os
+import threading
+from collections import OrderedDict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional
 
 try:
     from library.tools import footage_identity
@@ -126,11 +128,64 @@ def _strip_docstrings(tree: ast.AST) -> ast.AST:
     return tree
 
 
+_PARSE_CACHE_LIMIT = 512
+_PARSE_CACHE: OrderedDict[bytes, ast.Module] = OrderedDict()
+_MODULE_IMPORT_CACHE_LIMIT = 1024
+_MODULE_IMPORT_CACHE: OrderedDict[tuple[str, bytes, str], dict] = OrderedDict()
+_PARSE_CACHE_LOCK = threading.Lock()
+
+
+def _parse_snapshot(path: Path, source_cache: dict | None = None
+                    ) -> tuple[ast.Module, bytes]:
+    """Parse a source snapshot once and return its content identity.
+
+    ``method_digests`` walks overlapping dependency closures for several
+    layers. Its batch cache pins the first exact source snapshot of each
+    path, so those identities stay consistent while avoiding repeated
+    reads; a later batch reads and hashes the new contents. Standalone
+    ``method_digest`` calls take a fresh snapshot. Key by content rather
+    than mtime so identity remains correct on filesystems with coarse or
+    restored timestamps.
+    """
+    path = Path(path)
+    resolved = path.resolve()
+    if source_cache is not None and resolved in source_cache:
+        return source_cache[resolved]
+    source = path.read_text(encoding="utf-8")
+    key = hashlib.sha256(source.encode("utf-8")).digest()
+    with _PARSE_CACHE_LOCK:
+        cached = _PARSE_CACHE.get(key)
+        if cached is not None:
+            _PARSE_CACHE.move_to_end(key)
+            result = (cached, key)
+            if source_cache is not None:
+                source_cache[resolved] = result
+            return result
+    parsed = _strip_docstrings(ast.parse(source))
+    with _PARSE_CACHE_LOCK:
+        # Another thread may have parsed the same source while this one was
+        # walking it. Keep the first immutable tree and bound retained ASTs.
+        cached = _PARSE_CACHE.get(key)
+        if cached is not None:
+            _PARSE_CACHE.move_to_end(key)
+            result = (cached, key)
+            if source_cache is not None:
+                source_cache[resolved] = result
+            return result
+        _PARSE_CACHE[key] = parsed
+        while len(_PARSE_CACHE) > _PARSE_CACHE_LIMIT:
+            _PARSE_CACHE.popitem(last=False)
+    result = (parsed, key)
+    if source_cache is not None:
+        source_cache[resolved] = result
+    return result
+
+
 def _parse(path: Path) -> ast.Module:
-    return _strip_docstrings(ast.parse(path.read_text(encoding="utf-8")))
+    return _parse_snapshot(path)[0]
 
 
-def _repo_module_file(module: str, repo_root: Path) -> Optional[Path]:
+def _repo_module_file(module: str, repo_root: Path) -> Path | None:
     """The repo file a dotted import names, or None outside the repo."""
     parts = module.split(".")
     if parts[0] == "tools":  # the `tools.*` spelling used inside library/
@@ -145,7 +200,7 @@ def _repo_module_file(module: str, repo_root: Path) -> Optional[Path]:
 
 
 def _imported_files(nodes: Iterable[ast.AST], repo_root: Path,
-                    only_names: Optional[set] = None) -> dict:
+                    only_names: set | None = None) -> dict:
     """{bound name: repo file} for the imports inside ``nodes``.
 
     ``from library.tools.analysis import picture_quality`` binds a
@@ -176,13 +231,48 @@ def _imported_files(nodes: Iterable[ast.AST], repo_root: Path,
     return out
 
 
-def _module_file_closure(path: Path, repo_root: Path, seen: set) -> None:
+def _module_imports(path: Path, repo_root: Path,
+                    source_cache: dict | None = None,
+                    imports_cache: dict | None = None) -> dict:
+    """Repo imports for a whole module, cached by its exact source bytes."""
+    tree, digest = _parse_snapshot(path, source_cache)
+    key = (str(path.resolve()), digest, str(repo_root.resolve()))
+    if imports_cache is not None and key in imports_cache:
+        return imports_cache[key]
+    with _PARSE_CACHE_LOCK:
+        cached = _MODULE_IMPORT_CACHE.get(key)
+        if cached is not None:
+            _MODULE_IMPORT_CACHE.move_to_end(key)
+            if imports_cache is not None:
+                imports_cache[key] = cached
+            return cached
+    imported = _imported_files(tree.body, repo_root)
+    with _PARSE_CACHE_LOCK:
+        cached = _MODULE_IMPORT_CACHE.get(key)
+        if cached is not None:
+            _MODULE_IMPORT_CACHE.move_to_end(key)
+            if imports_cache is not None:
+                imports_cache[key] = cached
+            return cached
+        _MODULE_IMPORT_CACHE[key] = imported
+        while len(_MODULE_IMPORT_CACHE) > _MODULE_IMPORT_CACHE_LIMIT:
+            _MODULE_IMPORT_CACHE.popitem(last=False)
+    if imports_cache is not None:
+        imports_cache[key] = imported
+    return imported
+
+
+def _module_file_closure(path: Path, repo_root: Path, seen: set,
+                         source_cache: dict | None = None,
+                         imports_cache: dict | None = None) -> None:
     """``path`` and every repo module it imports, transitively."""
     if path in seen:
         return
     seen.add(path)
-    for dep in _imported_files([_parse(path)], repo_root).values():
-        _module_file_closure(dep, repo_root, seen)
+    for dep in _module_imports(path, repo_root, source_cache,
+                               imports_cache).values():
+        _module_file_closure(dep, repo_root, seen, source_cache,
+                             imports_cache)
 
 
 def _top_level_definitions(tree: ast.Module) -> dict:
@@ -202,7 +292,9 @@ def _top_level_definitions(tree: ast.Module) -> dict:
     return defs
 
 
-def reach(module_file, entry_points: Iterable[str], repo_root=None):
+def reach(module_file, entry_points: Iterable[str], repo_root=None,
+          *, _source_cache: dict | None = None,
+          _imports_cache: dict | None = None):
     """(reached top-level nodes in source order, reached repo files).
 
     Walks the names each reached top-level definition references, so a
@@ -212,9 +304,10 @@ def reach(module_file, entry_points: Iterable[str], repo_root=None):
     """
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
     module_file = Path(module_file)
-    tree = _parse(module_file)
+    tree, _ = _parse_snapshot(module_file, _source_cache)
     defs = _top_level_definitions(tree)
-    module_imports = _imported_files(tree.body, root)
+    module_imports = _module_imports(module_file, root, _source_cache,
+                                     _imports_cache)
 
     reached, files, stack = set(), set(), list(entry_points)
     for name in stack:
@@ -226,7 +319,8 @@ def reach(module_file, entry_points: Iterable[str], repo_root=None):
             continue
         reached.add(name)
         if name in module_imports:
-            _module_file_closure(module_imports[name], root, files)
+            _module_file_closure(module_imports[name], root, files,
+                                 _source_cache, _imports_cache)
             continue
         node = defs.get(name)
         if node is None:
@@ -234,7 +328,8 @@ def reach(module_file, entry_points: Iterable[str], repo_root=None):
         # Imports local to the definition (``from x import y`` inside a
         # function body) are part of what it executes.
         for path in _imported_files([node], root).values():
-            _module_file_closure(path, root, files)
+            _module_file_closure(path, root, files, _source_cache,
+                                 _imports_cache)
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and sub.id not in reached:
                 stack.append(sub.id)
@@ -244,17 +339,40 @@ def reach(module_file, entry_points: Iterable[str], repo_root=None):
 
 
 def method_digest(module_file, entry_points: Iterable[str],
-                  repo_root=None) -> str:
+                  repo_root=None, *, _source_cache: dict | None = None,
+                  _imports_cache: dict | None = None) -> str:
     """The identity of the code ``entry_points`` reach (see ``reach``)."""
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
-    nodes, files = reach(module_file, entry_points, root)
+    nodes, files = reach(module_file, entry_points, root,
+                         _source_cache=_source_cache,
+                         _imports_cache=_imports_cache)
     digest = hashlib.sha256()
     for node in nodes:
         digest.update(ast.dump(node).encode("utf-8"))
     for path in files:
         digest.update(str(path.relative_to(root)).encode("utf-8"))
-        digest.update(ast.dump(_parse(path)).encode("utf-8"))
+        tree, _ = _parse_snapshot(path, _source_cache)
+        digest.update(ast.dump(tree).encode("utf-8"))
     return digest.hexdigest()
+
+
+def method_digests(module_file, layers: dict[str, Iterable[str]],
+                   repo_root=None) -> dict[str, str]:
+    """Digest several layers against one exact source/import snapshot.
+
+    A semantic run asks for multiple layer identities from the same module.
+    Their dependency graphs overlap heavily, so share parsed source and
+    resolved import maps across the batch without weakening content-based
+    invalidation between runs.
+    """
+    source_cache: dict = {}
+    imports_cache: dict = {}
+    return {
+        layer: method_digest(
+            module_file, entry_points, repo_root,
+            _source_cache=source_cache, _imports_cache=imports_cache)
+        for layer, entry_points in layers.items()
+    }
 
 
 # ── The store ──────────────────────────────────────────────────────
@@ -297,7 +415,7 @@ class LayerCache:
 
     @classmethod
     def for_source(cls, source_file, methods: dict, params: dict,
-                   force: bool = False, root=None) -> Optional["LayerCache"]:
+                   force: bool = False, root=None) -> LayerCache | None:
         """A cache for ``source_file``, or None when it cannot be read.
 
         No identity means no cache: the layers are measured as they

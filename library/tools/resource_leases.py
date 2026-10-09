@@ -811,7 +811,8 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                    owner: Optional[str] = None,
                    heartbeat_thread: bool = True,
                    project: str = "",
-                   actor: Optional[str] = None):
+                   actor: Optional[str] = None,
+                   allow_reentrant: bool = True):
     """Hold a resource lease for one task's destructive section.
 
     Acquire the lease, heartbeat it, and release it on exit. The
@@ -857,6 +858,12 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     so a touch-up holding a timeline may build that same timeline
     without refusing itself. The nested handle writes nothing to disk;
     the outer lease's heartbeat keeps the declaration alive.
+
+    ``allow_reentrant=False`` forces even a same-thread acquisition to
+    contend against the on-disk lease. Schedulers that acquire leases on
+    their coordinating thread and then hand work to worker threads use
+    this so a second task cannot mistake the first task's lease for a
+    nested operation by its worker.
     """
     if actor is not None:
         from library.tools import fabric_permissions as _permissions
@@ -877,7 +884,7 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     resolved_timeout = (resolve_lock.default_timeout() if timeout is None
                         else float(timeout))
     owner_name = owner or default_owner()
-    if _covered_by_held(declaration, owner_name):
+    if allow_reentrant and _covered_by_held(declaration, owner_name):
         record = ResourceLease(
             owner=owner_name, purpose=purpose,
             pid=os.getpid(), host=socket.gethostname(),

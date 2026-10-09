@@ -214,7 +214,8 @@ class Scheduler:
         try:
             lease_ctx = resource_leases.resource_lease(
                 task.resources, f"fabric task {task.id}", wait=False,
-                heartbeat_interval=task.heartbeat_interval)
+                heartbeat_interval=task.heartbeat_interval,
+                allow_reentrant=False)
             lease = lease_ctx.__enter__()
         except ResourceLeaseBusy:
             return None
