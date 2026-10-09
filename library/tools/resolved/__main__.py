@@ -67,6 +67,24 @@ def main(argv=None) -> int:
             print(json.dumps(client.call({"op": "list",
                                            "limit": args.limit}), indent=2))
         elif args.verb == "stop":
+            # The production broker is one instance serving every lane:
+            # a linked worktree must never stop it (a broker started
+            # there would serve production Resolve calls on unmerged
+            # code, and stopping it takes every lane's Resolve with
+            # it), and neither must the test suite (its brokers live
+            # on private sockets). Both refusals are judged by the
+            # TARGET, like `ensure`'s: stopping a private-socket broker
+            # from anywhere stays allowed.
+            target = client._path(None)
+            if client._is_default_socket(target) and (
+                    client._in_pytest()
+                    or client._is_linked_worktree(client._engine_root())):
+                print("ren-resolved: refusing to stop the production "
+                      "broker from here - run from the installed engine "
+                      "checkout; a linked worktree stops only the broker "
+                      "on its own socket",
+                      file=sys.stderr)
+                return 1
             try:
                 client.call({"op": "shutdown"})
             except ConnectionError:

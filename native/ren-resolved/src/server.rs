@@ -343,6 +343,14 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
             break;
         }
         if matches!(request, Request::Shutdown) {
+            // Landed in the broker log with when: the 2026-10-08 stop
+            // was found with no known cause because neither starts nor
+            // stops were logged.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            eprintln!("{now} ren-resolved: shutdown requested - stopping");
             // Wake the blocking accept so the server can exit promptly.
             let _ = UnixStream::connect(wake_path);
             break;

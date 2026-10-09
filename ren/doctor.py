@@ -584,7 +584,7 @@ VENV_BYTES_PER_PACKAGE = 15_000_000
 The lock file pins the distributions but not their installed size, so
 the venv's footprint is a derivation: the pinned count is read from the
 lock at call time and multiplied by this mean, measured 2026-10-05
-against the shipped venv (2.0 GB installed across 132 locked
+against the shipped venv (2.0 GB installed across the locked
 distributions)."""
 
 ENGINE_BYTES = 1_000_000_000
@@ -726,15 +726,28 @@ def ren_native_check() -> Check:
 
     The Rust edit backend is an optimisation with the Python
     implementation as the fallback, so a missing or stale build is a
-    MISS, never a FAIL: the run keeps the Python backend. A stale build
-    - its baked-in source fingerprint does not match this engine's
-    `native/` sources - is named as such: it predates the algebra the
-    current `library/tools` speaks and would answer ops with verdicts
-    that no longer hold, so `edit_backend.rust()` refuses it.
+    MISS, never a FAIL: the run keeps the Python backend. The per-tree
+    cache (`library/tools/ren_native_cache.py`) is checked first; the
+    shared venv's copy is the legacy fallback, accepted only where its
+    baked-in fingerprint matches. A stale build - its baked-in source
+    fingerprint does not match this engine's `native/` sources - is
+    named as such: it predates the algebra the current `library/tools`
+    speaks and would answer ops with verdicts that no longer hold, so
+    `edit_backend.rust()` refuses it.
     """
-    from library.tools import ren_native_source
+    from library.tools import ren_native_cache, ren_native_source
 
     root = _engine_root()
+    if root is not None:
+        current = ren_native_source.source_fingerprint(root)
+        if current is not None:
+            entry = ren_native_cache.entry_dir(current)
+            if (ren_native_cache.extension_file(entry) is not None
+                    and ren_native_cache.read_recorded(entry) == current):
+                return Check(
+                    "ren_native Rust backend", True,
+                    f"built for this tree (source fingerprint {current[:12]})",
+                    need="ren_native")
     try:
         import ren_native
     except Exception:  # noqa: BLE001 - doctor must finish

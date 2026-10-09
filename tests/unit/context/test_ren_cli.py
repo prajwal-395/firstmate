@@ -509,7 +509,15 @@ def test_the_venv_footprint_is_derived_from_the_lock_file(tmp_path):
     assert doctor.disk_footprint(one)["venv"] == doctor.VENV_BYTES_PER_PACKAGE
 
     shipped = Path(__file__).resolve().parents[3] / "requirements" / "lock" / "macos-arm64-py312.txt"
-    assert doctor.disk_footprint(shipped)["venv"] == 132 * doctor.VENV_BYTES_PER_PACKAGE
+    # Derived, never hardcoded: the shipped lock gains distributions
+    # over time (133 after the EG2 multimodal lane), and a hardcoded
+    # count breaks on every dependency change - the exact failure this
+    # test's docstring rules out. The empty/one cases above already pin
+    # the parse; this pins that the shipped file parses to a real
+    # count and the footprint is built from it.
+    assert doctor._pinned_packages(shipped) > 0
+    assert doctor.disk_footprint(shipped)["venv"] == (
+        doctor._pinned_packages(shipped) * doctor.VENV_BYTES_PER_PACKAGE)
 
 
 def _stub_sysctl(monkeypatch, gib):

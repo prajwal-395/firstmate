@@ -8,9 +8,11 @@ or rebuilt it.
 
 The fix bakes a source fingerprint into the extension at build time
 (`native/ren-core/build.rs`, from `library/tools/ren_native_source.py`)
-and has `edit_backend.rust()` compare it against the running tree. These
-cases pin that behaviour: a build whose fingerprint differs from the
-tree is never used, a matching build is, and the refusal is said once.
+and has `edit_backend.rust()` select this tree's per-tree cache entry
+first, comparing the shared venv's copy against the running tree only
+as a legacy fallback. These cases pin that behaviour: a build whose
+fingerprint differs from the tree is never used, a matching build is,
+and the refusal is said once.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import edit_backend, ren_native_source
+from library.tools import edit_backend, ren_native_cache, ren_native_source
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -36,14 +38,17 @@ class _FakeModule:
 
 
 @pytest.fixture
-def backend(monkeypatch):
+def backend(monkeypatch, tmp_path):
     """A fresh edit_backend state per test, with the engine root pinned
-    to this repo so the tree fingerprint is the repo's own."""
+    to this repo so the tree fingerprint is the repo's own, and the
+    per-tree cache pointed at an empty dir so these cases pin the
+    shared-venv fallback path rather than whatever the machine holds."""
     monkeypatch.setattr(edit_backend, "_ren_native", None)
     monkeypatch.setattr(edit_backend, "_ren_native_tried", False)
     monkeypatch.setattr(edit_backend, "_ren_native_said_stale", False)
     monkeypatch.setattr(edit_backend, "_engine_root", lambda: REPO_ROOT)
     monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.RUST)
+    monkeypatch.setenv(ren_native_cache.CACHE_ENV, str(tmp_path / "cache"))
     yield edit_backend
     monkeypatch.delenv(edit_backend.BACKEND_ENV, raising=False)
 
@@ -63,16 +68,16 @@ def test_a_build_whose_fingerprint_differs_is_never_used(
     """The defect: a stale build is refused, and the Python backend runs."""
     monkeypatch.setitem(sys.modules, "ren_native", _FakeModule("a" * 64))
     assert backend.rust() is None
-    out = capsys.readouterr().out
-    assert "refusing the installed build" in out
-    assert "source fingerprint does not match" in out
+    err = capsys.readouterr().err
+    assert "refusing the installed build" in err
+    assert "source fingerprint does not match" in err
 
 
 def test_a_build_with_no_fingerprint_is_never_used(backend, monkeypatch, capsys):
     """A build that predates the fingerprint mechanism is refused too."""
     monkeypatch.setitem(sys.modules, "ren_native", _FakeModule("unknown"))
     assert backend.rust() is None
-    assert "refusing the installed build" in capsys.readouterr().out
+    assert "refusing the installed build" in capsys.readouterr().err
 
 
 def test_a_matching_build_is_used(backend, monkeypatch):
@@ -88,15 +93,15 @@ def test_the_refusal_is_said_once(backend, monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "ren_native", _FakeModule("b" * 64))
     assert backend.rust() is None
     assert backend.rust() is None
-    out = capsys.readouterr().out
-    assert out.count("refusing the installed build") == 1
+    err = capsys.readouterr().err
+    assert err.count("refusing the installed build") == 1
 
 
 def test_a_missing_extension_falls_back(backend, monkeypatch, capsys):
     """No extension: the Python backend runs, with no refusal warning."""
     monkeypatch.setitem(sys.modules, "ren_native", None)
     assert backend.rust() is None
-    assert "refusing" not in capsys.readouterr().out
+    assert "refusing" not in capsys.readouterr().err
 
 
 def test_the_switch_off_never_imports(backend, monkeypatch):

@@ -18,13 +18,23 @@ heavy-work lock only to rebuild, rechecking first in case another lane
 already did. Renders hold that same lock while they draw, so a rebuild
 never lands mid-render.
 
+`ren_native` is the exception to "beside the build output": the
+extension is loaded from a machine-wide content-addressed cache keyed
+by source fingerprint (`library/tools/ren_native_cache.py`), so its
+record lives inside its own cache entry rather than beside any one
+checkout's target dir - and the shared venv is never consulted, so a
+venv copy built from another tree can neither read as fresh nor
+trigger a rebuild here.
+
 Safe points that call `ensure_current`: a pipeline run starting
 (`run_pipeline.main`), the broker starter (`resolved.client.ensure`,
 with a short wait bound so a serving broker can start on its current
 binary), an idle broker refresh (`resolved.client.ensure`), and a driver
-session starting (`computer_use.client` where it spawns). A deferred
-broker refresh is retried by a later safe point; an idle broker is
-restarted after its Rust binary is rebuilt. `ren setup` builds at install;
+session starting (`computer_use.client` where it spawns, scoped to the
+`resolve-control` driver part only - a UI session must never rebuild
+the edit extension). A deferred broker refresh is retried by a later
+safe point; an idle broker is restarted after its Rust binary is
+rebuilt. `ren setup` builds at install;
 `ren upgrade` rebuilds `ren_native` post-switch as before. `ren doctor`
 reports each part's freshness.
 
@@ -104,11 +114,17 @@ PARTS = {
         "scope": (),
         "binary": None,
         "script": ("scripts", "build_ren_native.sh"),
-        "args": None,  # filled per call: the running venv's bin dir
+        "args": None,  # filled per call: the running venv's bin dir, cache dir
     },
 }
 """Every compiled part Ren refreshes itself: the sources its build
-reads, the build output it checks, and the script that rebuilds it."""
+reads, the build output it checks, and the script that rebuilds it.
+
+`ren_native` names no binary because the extension is not a file in
+any checkout: it lives in the per-tree cache
+(`library/tools/ren_native_cache.py`), and `binary is None` is the
+marker every helper below keys off - an extension-style part whose
+freshness is its cache entry, never the shared venv."""
 
 
 def _walk_files(root: Path, base: Path) -> list[tuple[str, str]]:
@@ -143,16 +159,23 @@ def _scope_entries(root: Path, scope: tuple) -> list[tuple[str, str]]:
 def current_fingerprint(root: str | Path, part: str,
                         parts: dict | None = None) -> str | None:
     """The fingerprint of what `part` would be built from, or None when
-    the tree holds no such sources."""
+    the tree holds no such sources.
+
+    `ren_native` delegates to the one implementation in
+    `ren_native_source`: the build script bakes exactly that value into
+    the extension, and the importer compares exactly it, so a second
+    hashing here (over repo-root-relative rather than
+    `native/`-relative paths) would fingerprint the same tree
+    differently and no build could ever read as fresh.
+    """
     repo = Path(root)
     spec = (parts or PARTS)[part]
     if part == "ren_native" and not spec["scope"]:
         _lib()
         from library.tools import ren_native_source
 
-        scope = tuple("native/" + s for s in ren_native_source.SCOPE)
-    else:
-        scope = spec["scope"]
+        return ren_native_source.source_fingerprint(repo)
+    scope = spec["scope"]
     entries = _scope_entries(repo, scope)
     if not entries:
         return None
@@ -168,8 +191,25 @@ def current_fingerprint(root: str | Path, part: str,
 
 def sidecar_path(root: str | Path, part: str,
                  parts: dict | None = None) -> Path:
-    """Where `part`'s recorded fingerprint lives beside its selected binary."""
+    """Where `part`'s recorded fingerprint lives beside its selected binary.
+
+    Extension-style parts (`binary is None`, today only `ren_native`)
+    record inside their own cache entry instead: the entry directory
+    already names the fingerprint, so the record is the entry's proof
+    of a completed build rather than any one checkout's memory of one.
+    """
     repo = Path(root)
+    spec = (parts or PARTS)[part]
+    if spec["binary"] is None:
+        _lib()
+        from library.tools import ren_native_cache
+
+        current = current_fingerprint(root, part, parts)
+        if current is None:
+            return (ren_native_cache.cache_dir() / "unknown"
+                    / ren_native_cache.FINGERPRINT_FILENAME)
+        return ren_native_cache.fingerprint_file(
+            ren_native_cache.entry_dir(current))
     binary = _binary_path(repo, part, parts)
     if binary is None or not binary.is_file():
         base = repo / "native" / "target"
@@ -221,19 +261,38 @@ def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str,
 
     The extension check answers the running environment, so callers run
     it in the live tree - which is exactly where the safe points run.
+
+    Extension-style parts (`binary is None`, today only `ren_native`)
+    are answered from the per-tree cache alone: the shared venv is
+    never consulted, so a venv copy built from an unrelated checkout
+    neither reads as fresh nor provokes a rebuild here - only the
+    absence of THIS tree's own entry builds, from THIS tree's sources.
     """
     import importlib.util
 
-    current = current_fingerprint(root, part, parts)
+    specs = parts or PARTS
+    current = current_fingerprint(root, part, specs)
     if current is None:
         return "missing", "the tree holds no sources for it"
-    binary = _binary_path(root, part, parts)
+    if specs[part]["binary"] is None:
+        _lib()
+        from library.tools import ren_native_cache
+
+        entry = ren_native_cache.entry_dir(current)
+        built = ren_native_cache.extension_file(entry)
+        recorded = ren_native_cache.read_recorded(entry)
+        if built is not None and recorded == current:
+            return "fresh", "built from this tree"
+        if built is None and recorded is None:
+            return "missing", f"no build for this tree in {entry}"
+        return "stale", "the entry holds no recorded build for this tree"
+    binary = _binary_path(root, part, specs)
     if binary is not None:
         if not binary.is_file():
             return "missing", f"no build at {binary}"
     elif importlib.util.find_spec("ren_native") is None:
         return "missing", "the ren_native extension is not installed"
-    recorded = recorded_fingerprint(root, part, parts)
+    recorded = recorded_fingerprint(root, part, specs)
     if recorded is None:
         return "stale", "built, but no fingerprint was recorded for this tree"
     if recorded != current:
@@ -246,7 +305,14 @@ def _script_argv(root: str | Path, part: str, parts: dict | None = None) -> list
     script = str(Path(root).joinpath(*spec["script"]))
     args = spec["args"]
     if args is None:
-        args = (str(Path(sys.executable).parent),)
+        _lib()
+        if spec["binary"] is None:
+            from library.tools import ren_native_cache
+
+            args = (str(Path(sys.executable).parent),
+                    str(ren_native_cache.cache_dir()))
+        else:
+            args = (str(Path(sys.executable).parent),)
     return ["bash", script, *args]
 
 
@@ -308,11 +374,20 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                           file=sys.stderr, flush=True)
                     continue
                 if code == 0:
-                    packaged = Path(root) / "native" / "bin" / name
-                    built = Path(root).joinpath(*specs[name]["binary"])
-                    if packaged.is_file() and built.is_file():
-                        import shutil
-                        shutil.copy2(built, packaged)
+                    if specs[name]["binary"] is not None:
+                        packaged = Path(root) / "native" / "bin" / name
+                        built = Path(root).joinpath(*specs[name]["binary"])
+                        if packaged.is_file() and built.is_file():
+                            import shutil
+                            shutil.copy2(built, packaged)
+                    # Extension-style parts (binary None) install into
+                    # their cache entry from the build script itself;
+                    # there is no per-checkout binary to promote. The
+                    # copy must be SKIPPED, not attempted: joining a
+                    # None binary raised TypeError here, which skipped
+                    # the record below and rebuilt successfully on
+                    # every safe point thereafter (measured 2026-10-08:
+                    # 551 stale rebuilds, zero completions).
                     record(root, name, specs)
                     report[name] = "rebuilt"
                     print(f"native: {name} rebuilt from this tree",

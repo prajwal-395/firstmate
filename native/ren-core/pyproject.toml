@@ -6,11 +6,13 @@
 # The `extension-module` feature is maturin's own convention and is
 # enabled by the build automatically.
 #
-#     scripts/build_ren_native.sh <venv-bin-dir>
+#     scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>
 #
-# A wheel (`maturin build`) works too; the script installs into the
-# pipeline's venv with `maturin develop`. No binary is ever committed:
-# native/target/ is gitignored and the wheel lands in dist/ (ignored).
+# The script builds a wheel (`maturin build`) and unpacks only the
+# extension into the machine's per-tree cache
+# (`library/tools/ren_native_cache.py`) - never into the venv, so
+# checkouts on different trees never fight over one artifact. No
+# binary is ever committed: native/target/ is gitignored.
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

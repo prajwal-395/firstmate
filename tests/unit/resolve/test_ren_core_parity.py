@@ -48,24 +48,19 @@ from library.tools import timeline_shadow as shadow
 def _load_ren_native():
     """The ren_native extension, or a module-level skip naming why not.
 
-    Skipped, naming the missing build, when the extension is not
-    importable: a tree without `scripts/build_ren_native.sh` runs the
-    Python implementation unchanged, and there is nothing to compare.
+    Selected the way production selects it (`edit_backend.rust()`:
+    this tree's per-tree cache entry first, the shared venv's copy
+    where it matches): a tree without a build for its own sources runs
+    the Python implementation unchanged, and there is nothing to
+    compare.
 
-    Skipped, naming the stale build, when the extension's baked-in
-    source fingerprint does not match this tree: an older binary
-    predates the algebra the current `library/tools` speaks, and
-    `edit_backend.rust()` refuses it the same way. The skip is not a
-    pass - a fresh build that genuinely disagrees still fails below.
+    Skipped, naming the stale build, when no matching build exists
+    while a build from another tree does: an older binary predates the
+    algebra the current `library/tools` speaks, and `edit_backend`
+    refuses it the same way. The skip is not a pass - a fresh build
+    that genuinely disagrees still fails below.
     """
-    try:
-        import ren_native
-    except ImportError:
-        pytest.skip(
-            "the ren_native extension is not built - run "
-            "scripts/build_ren_native.sh <venv-bin-dir>",
-            allow_module_level=True,
-        )
+    from library.tools import edit_backend
     from library.tools.ren_native_source import source_fingerprint
 
     root = Path(__file__).resolve().parents[3]
@@ -76,15 +71,24 @@ def _load_ren_native():
             "carries no native/ sources",
             allow_module_level=True,
         )
-    baked = getattr(ren_native, "source_fingerprint", lambda: "unknown")()
-    if baked != current:
+    selected = edit_backend.rust()
+    if selected is not None:
+        return selected
+    try:
+        import ren_native
+    except ImportError:
         pytest.skip(
-            f"the ren_native extension is stale - built from a different "
-            f"tree (fingerprint {baked[:12]} vs this tree {current[:12]}); "
-            f"rebuild with scripts/build_ren_native.sh <venv-bin-dir>",
+            "the ren_native extension is not built - run "
+            "scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>",
             allow_module_level=True,
         )
-    return ren_native
+    baked = getattr(ren_native, "source_fingerprint", lambda: "unknown")()
+    pytest.skip(
+        f"the ren_native extension is stale - built from a different "
+        f"tree (fingerprint {baked[:12]} vs this tree {current[:12]}); "
+        f"rebuild with scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>",
+        allow_module_level=True,
+    )
 
 
 ren_native = _load_ren_native()

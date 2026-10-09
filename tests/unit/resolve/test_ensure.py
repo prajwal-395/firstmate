@@ -42,10 +42,29 @@ def lock_dir(monkeypatch):
     the `started` fixture plus the session teardown stop what is
     started. Any other suite spawning without opting in fails loudly
     in `client.ensure` instead of leaking.
+
+    Seeds this checkout's ren_native cache entry (an unloaded
+    stand-in, never built): broker startup runs the real refresh, and
+    without an entry it would compile the extension for real - minutes
+    on a cold target - into the machine's cache. The seed reads as
+    fresh so startup never builds; nothing here loads it.
     """
     directory = Path(tempfile.mkdtemp(prefix="ren-ensure-", dir="/tmp"))
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
     monkeypatch.setenv(client.TESTS_ALLOW_SPAWN_ENV, "1")
+    from library.tools import ren_native_cache, ren_native_source
+
+    cache = directory / "native-cache"
+    monkeypatch.setenv(ren_native_cache.CACHE_ENV, str(cache))
+    root = client._engine_root()
+    fingerprint = (ren_native_source.source_fingerprint(root)
+                   if root is not None else None)
+    if fingerprint is not None:
+        entry = cache / fingerprint
+        entry.mkdir(parents=True, exist_ok=True)
+        (entry / "ren_native.test-seed.so").write_bytes(b"test-seed")
+        (entry / ren_native_cache.FINGERPRINT_FILENAME).write_text(
+            fingerprint + "\n", encoding="utf-8")
     yield directory
     shutil.rmtree(directory, ignore_errors=True)
 
@@ -345,6 +364,76 @@ def test_the_cli_status_reports_an_absent_socket_as_not_serving(
 def test_the_cli_stop_reports_when_nothing_serves(lock_dir, capsys):
     assert resolved_cli.main(["stop"]) == 1
     assert "nothing to stop" in capsys.readouterr().out
+
+
+def test_the_cli_stop_refuses_the_production_socket_in_pytest(
+        monkeypatch, capsys):
+    """`ren resolved stop` inside the suite must never reach the shared
+    broker - whatever answers on the default socket is production, and
+    stopping it takes every lane's Resolve with it. The refusal fires
+    before any connection is opened, so this test is safe to run while
+    the shared broker serves."""
+    monkeypatch.delenv(resolve_lock.LOCK_DIR_ENV, raising=False)
+    calls = []
+    monkeypatch.setattr(
+        client, "call",
+        lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert resolved_cli.main(["stop"]) == 1
+    assert calls == []
+    assert "refusing to stop the production broker" in capsys.readouterr().err
+
+
+def test_the_cli_stop_refuses_the_production_socket_from_a_linked_worktree(
+        monkeypatch, capsys):
+    """A lane worktree stops only the broker on its own socket: the
+    shared one outlives every lane."""
+    monkeypatch.delenv(resolve_lock.LOCK_DIR_ENV, raising=False)
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: True)
+    calls = []
+    monkeypatch.setattr(
+        client, "call",
+        lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert resolved_cli.main(["stop"]) == 1
+    assert calls == []
+    assert "refusing to stop the production broker" in capsys.readouterr().err
+
+
+def test_the_broker_logs_its_lifecycle_to_its_log(lock_dir, monkeypatch):
+    """Every start and every stop lands timestamped in the broker log
+    with which tree serves: the 2026-10-08 stop was found with no
+    known cause because neither was logged. (The Python daemon here;
+    the Rust daemon logs the same three lines.)"""
+    from library.tools import native_refresh
+    from library.tools.resolved import client as broker_client
+
+    monkeypatch.setenv("REN_RESOLVED_DAEMON", "python")
+    monkeypatch.setattr(
+        native_refresh, "ensure_current", lambda *args, **kwargs: {})
+    target = lock_dir / SOCKET_NAME
+    try:
+        answer = broker_client.ensure(path=target)
+        assert answer is not None
+        log = lock_dir / "ren-resolved.log"
+        assert "serving on" in log.read_text(encoding="utf-8")
+        broker_client.call({"op": "shutdown"}, target)
+        deadline = time.time() + 10.0
+        while broker_client.ping(target) is not None \
+                and time.time() < deadline:
+            time.sleep(0.05)
+        assert broker_client.ping(target) is None
+        text = log.read_text(encoding="utf-8")
+        assert "shutdown requested" in text
+        assert "stopping" in text
+    finally:
+        try:
+            broker_client.call({"op": "shutdown"}, target)
+        except (ConnectionError, broker_client.BrokerError, OSError):
+            pass
+        deadline = time.time() + 10.0
+        while broker_client.ping(target) is not None \
+                and time.time() < deadline:
+            time.sleep(0.05)
 
 
 def test_a_lease_acquisition_starts_the_broker_on_demand(lock_dir, unguarded):

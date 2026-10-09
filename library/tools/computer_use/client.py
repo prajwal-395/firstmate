@@ -166,12 +166,22 @@ class DriverClient:
     def _spawn(self) -> subprocess.Popen:
         # A session start is a safe point: refresh the driver build
         # first, while it is not running. Best-effort - a refresh
-        # failure must not break the spawn it precedes.
+        # failure must not break the spawn it precedes. Scoped to the
+        # driver part ONLY: an unscoped refresh rebuilt the ren_native
+        # extension into the shared venv from every driver spawn -
+        # including spawns inside the broker, whose engine root is
+        # another checkout's tree - and each attempt held the machine
+        # heavy-work slot for a full compile (measured 2026-10-08:
+        # hundreds of stale-rebuild lines in the shared broker log,
+        # zero completions).
         if self._refresh_native:
             try:
                 from library.tools import native_refresh
                 from ren.engine_root import require_engine_root
-                native_refresh.ensure_current(require_engine_root())
+                native_refresh.ensure_current(
+                    require_engine_root(),
+                    parts={"resolve-control":
+                           native_refresh.PARTS["resolve-control"]})
             except Exception:
                 _logger.debug("native driver refresh failed", exc_info=True)
         process = subprocess.Popen(

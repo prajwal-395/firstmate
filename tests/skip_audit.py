@@ -316,12 +316,13 @@ ENVIRONMENT_CONDITIONS = (
                      "the firstmate home",
     ),
     # The ren_native Rust edit-algebra extension is a build artifact in
-    # the shared venv, not a fact about this repository: the tree always
-    # carries the native/ sources, and whether the venv holds a build
-    # from them - and a CURRENT one - varies by machine, exactly as the
-    # venv's installed packages do. A machine without a current build
-    # runs the Python backend, so the parity harness skips; the skip
-    # fires only where the build is absent or stale, so it is narrowing.
+    # the per-tree machine cache, not a fact about this repository: the
+    # tree always carries the native/ sources, and whether the cache
+    # holds a build from them - and a CURRENT one - varies by machine,
+    # exactly as the venv's installed packages do. A machine without a
+    # current build runs the Python backend, so the parity harness
+    # skips; the skip fires only where the build is absent or stale, so
+    # it is narrowing.
     EnvironmentCondition(
         pattern=r"the ren_native extension is (not built|stale)",
         false_when="the ren_native extension is built from this tree's "
@@ -330,7 +331,7 @@ ENVIRONMENT_CONDITIONS = (
                    "upgrade run it automatically - so its fingerprint "
                    "matches and the parity harness runs",
         capability="ren_native",
-        install_hint="run scripts/build_ren_native.sh <venv-bin-dir> "
+        install_hint="run scripts/build_ren_native.sh <venv-bin-dir> <cache-dir> "
                      "(ren setup and ren upgrade build it automatically)",
     ),
     # The ren-resolved broker daemon and the ml-worker-client are cargo

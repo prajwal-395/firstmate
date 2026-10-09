@@ -89,10 +89,37 @@ def test_an_explicit_driver_binary_does_not_refresh_native_builds(
                         lambda root: refreshes.append(root))
 
     result = client.call("find_element", {"path": ["Workspace"],
-                                           "title": "Switch to Page"})
+                                            "title": "Switch to Page"})
 
     assert result["elements"]
     assert refreshes == []
+
+
+def test_a_default_driver_spawn_refreshes_only_the_driver_part(
+        mock_bin, monkeypatch):
+    """A driver session is a safe point for the DRIVER, not the world:
+    an unscoped spawn refreshed ren_native into the shared venv from
+    inside the broker on every respawn (measured 2026-10-08: hundreds
+    of stale-rebuild lines in the shared broker log, zero
+    completions). Only resolve-control may rebuild here."""
+    from library.tools import native_refresh
+
+    refreshed = []
+    monkeypatch.delenv(client_module.ENV_BIN, raising=False)
+    monkeypatch.setattr(client_module, "resolve_binary", lambda: mock_bin)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: refreshed.append(kwargs.get("parts")))
+    spawned = DriverClient()
+    try:
+        spawned._spawn()
+    finally:
+        spawned.close()
+
+    assert len(refreshed) == 1
+    assert set(refreshed[0]) == {"resolve-control"}
+    assert (refreshed[0]["resolve-control"]
+            is native_refresh.PARTS["resolve-control"])
 
 
 def test_a_driver_refusal_becomes_a_ren_refusal_carrying_the_code(client, monkeypatch):

@@ -1,12 +1,13 @@
 """The source fingerprint that ties a `ren_native` build to its tree.
 
 The Rust edit-algebra extension (`ren_native`, crate `native/ren-core`)
-is built by `scripts/build_ren_native.sh` into the shared venv. A build
-that predates the tree it is asked to run against is a correctness
-hazard: it answers ops with verdicts the current `library/tools` no
-longer agrees with. The mask-op port (PR 1786) left a stale extension
-returning `None` for `mask.delete`/`mask.track` with no warning, and
-nothing noticed or rebuilt it.
+is built by `scripts/build_ren_native.sh` into the machine's per-tree
+cache (`library/tools/ren_native_cache.py`), one entry per fingerprint.
+A build that predates the tree it is asked to run against is a
+correctness hazard: it answers ops with verdicts the current
+`library/tools` no longer agrees with. The mask-op port (PR 1786) left
+a stale extension returning `None` for `mask.delete`/`mask.track`
+with no warning, and nothing noticed or rebuilt it.
 
 So the build bakes a fingerprint of the `native/` sources into the
 extension (`native/ren-core/build.rs`, exposed as

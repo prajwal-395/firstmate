@@ -26,9 +26,11 @@ dead holder.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import socketserver
+import sys
 import threading
 import time
 import uuid
@@ -53,6 +55,18 @@ except ImportError:  # pragma: no cover - not POSIX
 SOCKET_NAME = "ren-resolved.sock"
 DB_NAME = "ren-resolved.sqlite3"
 BIND_LOCK_NAME = "ren-resolved.bind.lock"
+
+
+def _log_broker(message: str) -> None:
+    """One timestamped line on stderr: the broker's stdio is its log
+    file, so this is what makes the next "already stopped, no known
+    cause" answerable - every start and every stop lands here with
+    when and which tree. Logging never breaks the broker."""
+    try:
+        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        print(f"{stamp} {message}", file=sys.stderr, flush=True)
+    except Exception:  # noqa: BLE001 - the log must not break serving
+        pass
 
 
 def socket_path() -> Path:
@@ -507,6 +521,7 @@ class _Handler(socketserver.StreamRequestHandler):
             broker.release(grant)
             return {"released": grant}
         if op == "shutdown":
+            _log_broker("ren-resolved: shutdown requested - stopping")
             broker.stop()
             return {"ok": True}
         return {"error": f"unknown op {op!r}"}
@@ -547,6 +562,10 @@ def serve(path: Path | None = None, connect=None) -> None:
             server = _Server(str(path), _Handler)
             server.broker = broker
             os.chmod(path, 0o600)
+            _log_broker(
+                "ren-resolved: serving on "
+                f"{path} (pid {os.getpid()}, "
+                f"engine {client._engine_root()})")
 
             # The shadow watcher lives inside the broker: it starts when the
             # broker starts, stops when the broker stops, and follows whatever
@@ -602,6 +621,7 @@ def serve(path: Path | None = None, connect=None) -> None:
         # asked to stop should be gone by the time `stop` returns.
         server.serve_forever(poll_interval=0.05)
     finally:
+        _log_broker(f"ren-resolved: stopping (pid {os.getpid()})")
         watcher.stop()
         watchdog.stop()
         broker.stop()

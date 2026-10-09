@@ -1,21 +1,32 @@
 #!/usr/bin/env bash
 #
-# Build the `ren_native` extension module (crate native/ren-core) into a
-# Python environment, so `import ren_native` works and the edit backend
-# has its default Rust implementation.
+# Build the `ren_native` extension module (crate native/ren-core) into
+# the machine's per-tree cache, so `import ren_native` works and the
+# edit backend has its default Rust implementation.
 #
-#   scripts/build_ren_native.sh <venv-bin-dir>
+#   scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>
 #
-# <venv-bin-dir> is the bin/ of the target environment - the pipeline's
-# shared venv (~/.local/share/vep/venv-py312/bin) for a Ren install. The
-# build runs under that venv's maturin and installs the extension into
-# it with `maturin develop`.
+# <venv-bin-dir> is the bin/ of the environment whose maturin runs the
+# build - the pipeline's shared venv (~/.local/share/vep/venv-py312/bin)
+# for a Ren install. <cache-dir> is the per-tree build cache
+# (`library/tools/ren_native_cache.py`); the entry is named by the
+# source fingerprint computed below, so checkouts on different trees
+# never fight over one artifact.
+#
+# The build NEVER installs into the venv (`maturin develop` did, and
+# every checkout's refresh then rebuilt the one shared copy,
+# invalidating the others - measured 2026-10-08: 551 stale-rebuild
+# lines, zero completions). `maturin build` writes a wheel, and only
+# the built `ren_native*.so` is unpacked into the entry; the wheel and
+# the cargo target dir stay per-checkout scratch. The caller records
+# the fingerprint beside the entry (`native_refresh.record`); a `.so`
+# with no record still reads as unbuilt.
 #
 # The build bakes a fingerprint of the `native/` sources into the
 # extension (REN_NATIVE_SOURCE_FINGERPRINT, computed by the one
 # implementation in library/tools/ren_native_source.py and read by
-# native/ren-core/build.rs), so `edit_backend.rust()` can refuse a build
-# that predates the tree it runs against.
+# native/ren-core/build.rs), so the importer loads only the entry
+# matching its own tree.
 #
 # The Rust toolchain is per-machine (~/.cargo/bin), never assumed: when
 # cargo or maturin is absent the script exits 4 and the caller keeps the
@@ -26,12 +37,13 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: build_ren_native.sh <venv-bin-dir>" >&2
-  exit 2
+if [ "$#" -ne 2 ]; then
+    echo "usage: build_ren_native.sh <venv-bin-dir> <cache-dir>" >&2
+    exit 2
 fi
 
 VENV_BIN_DIR="$1"
+CACHE_DIR="$2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -56,10 +68,34 @@ from library.tools.ren_native_source import source_fingerprint
 print(source_fingerprint(sys.argv[1]))
 " "$REPO_ROOT")"
 
-# maturin develop installs into the environment it is invoked from; the
-# venv need not be activated, only its interpreter first on PATH.
-export VIRTUAL_ENV="$(cd "$VENV_BIN_DIR/.." && pwd -P)"
-export PATH="$VENV_BIN_DIR:$PATH"
-export REN_NATIVE_SOURCE_FINGERPRINT="$FINGERPRINT"
+ENTRY_DIR="$CACHE_DIR/$FINGERPRINT"
+mkdir -p "$ENTRY_DIR"
+
+# maturin build writes a wheel; only the extension itself is unpacked
+# into the entry. The interpreter runs the build so the wheel targets
+# the environment that will load it.
+WHEEL_DIR="$ENTRY_DIR/wheels"
+rm -rf "$WHEEL_DIR"
+mkdir -p "$WHEEL_DIR"
 cd "$REPO_ROOT/native/ren-core"
-exec maturin develop --locked
+export REN_NATIVE_SOURCE_FINGERPRINT="$FINGERPRINT"
+"$VENV_BIN_DIR/maturin" build --locked -i "$VENV_BIN_DIR/python3" --out "$WHEEL_DIR"
+
+# Exactly one wheel, exactly one extension inside it.
+set -- "$WHEEL_DIR"/*.whl
+if [ "$#" -ne 1 ]; then
+    echo "build_ren_native: expected one wheel in $WHEEL_DIR, found $#." >&2
+    exit 1
+fi
+"$VENV_BIN_DIR/python3" -c "
+import sys, zipfile
+wheel, entry = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(wheel) as archive:
+    members = [m for m in archive.namelist() if m.endswith('.so')]
+    if len(members) != 1:
+        raise SystemExit(f'expected one .so in {wheel}, found {len(members)}')
+    with archive.open(members[0]) as source, open(entry + '/' + members[0].rsplit('/', 1)[-1], 'wb') as target:
+        target.write(source.read())
+" "$1" "$ENTRY_DIR"
+rm -rf "$WHEEL_DIR"
+echo "build_ren_native: built $FINGERPRINT into $ENTRY_DIR." >&2

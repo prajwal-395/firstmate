@@ -488,6 +488,15 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                         != "python"
                         and refreshed.get("ren-resolved") == "rebuilt"):
                     try:
+                        print(
+                            "ren-resolved: retiring the idle broker "
+                            f"(pid {answer.get('pid')}) after rebuilding "
+                            f"ren-resolved from {_engine_root()} - the "
+                            "replacement starts below",
+                            file=sys.stderr, flush=True)
+                    except Exception:  # noqa: BLE001 - retirement is reported
+                        pass
+                    try:
                         call({"op": "shutdown"}, target)
                     except Exception:  # noqa: BLE001 - verify by ping below
                         pass

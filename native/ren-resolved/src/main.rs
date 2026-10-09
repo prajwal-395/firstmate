@@ -30,6 +30,13 @@ mod worker;
 
 use server::Daemon;
 
+fn broker_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let verb = argv.first().map(String::as_str).unwrap_or("serve");
@@ -68,6 +75,20 @@ fn main() {
     };
     let daemon = Arc::new(Daemon::new(store));
 
+    // Lifecycle lines on stderr - the broker's stdio is its log file,
+    // so the next "already stopped, no known cause" is answerable:
+    // every start and every stop lands here with when and which tree.
+    let engine = std::env::current_dir()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_else(|_| String::from("unknown"));
+    eprintln!(
+        "{} ren-resolved: serving on {} (pid {}, engine {})",
+        broker_now(),
+        socket_path.display(),
+        std::process::id(),
+        engine,
+    );
+
     // The blocking accept loop is woken by the shutdown handler after it
     // replies to the client.
     let daemon_for_serve = Arc::clone(&daemon);
@@ -78,6 +99,11 @@ fn main() {
 
     // Wait for the serve thread to finish (on shutdown or an error).
     let _ = serve_thread.join();
+    eprintln!(
+        "{} ren-resolved: stopping (pid {})",
+        broker_now(),
+        std::process::id()
+    );
     daemon.watchdog.stop();
     daemon.broker.stop();
     daemon.stop();

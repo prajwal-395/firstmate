@@ -14,8 +14,11 @@ implementations unchanged.
 A build that predates the tree it runs against is refused the same way.
 The extension carries a fingerprint of the `native/` sources it was
 built from (`ren_native.source_fingerprint()`, baked in by
-`native/ren-core/build.rs`); `edit_backend.rust()` compares it against
-the running tree and, on a mismatch, falls back to Python and says so
+`native/ren-core/build.rs`); `edit_backend.rust()` first selects the
+per-tree build from the machine's content-addressed cache
+(`library/tools/ren_native_cache.py`) and falls back to the shared
+venv's copy only where that copy matches the running tree. On a
+mismatch it falls back to Python and says so
 once. `ren setup` and `ren upgrade` run the rebuild;
 `ren doctor` names a stale one. The parity harness
 (`tests/unit/resolve/test_ren_core_parity.py`) skips naming a stale
@@ -24,6 +27,7 @@ fresh build genuinely disagrees.
 """
 
 import os
+import sys
 
 BACKEND_ENV = "REN_EDIT_BACKEND"
 RUST = "rust"
@@ -58,22 +62,36 @@ def _tree_fingerprint():
 
 
 def rust():
-    """The ren_native module when the switch is on, it imports, and its
-    baked-in source fingerprint matches the running tree; else None.
+    """The ren_native module when the switch is on and a build matching
+    this tree is found; else None.
 
     The import is attempted once; a failed import is remembered so a run
     without the extension does not retry (and fail) on every call.
 
-    A build whose fingerprint does not match the tree is refused, not
-    used: it predates the algebra the current `library/tools` speaks and
-    would answer ops with verdicts that no longer hold. The Python
-    implementation runs instead, and the refusal is said once.
+    Selection is per-tree: the machine's content-addressed cache
+    (`library/tools/ren_native_cache.py`) holds one build per source
+    fingerprint, and the entry matching the running tree is loaded -
+    checkouts on different trees never share an artifact. The shared
+    venv's copy is the legacy fallback, accepted only where its baked
+    fingerprint matches the tree. A build whose fingerprint does not
+    match the tree is refused, not used: it predates the algebra the
+    current `library/tools` speaks and would answer ops with verdicts
+    that no longer hold. The Python implementation runs instead, and
+    the refusal is said once.
     """
     global _ren_native, _ren_native_tried, _ren_native_said_stale
     if not use_rust():
         return None
     if not _ren_native_tried:
         _ren_native_tried = True
+        try:
+            from library.tools import ren_native_cache
+            selected = ren_native_cache.select(_engine_root())
+        except Exception:  # noqa: BLE001 - selection never breaks the switch
+            selected = None
+        if selected is not None:
+            _ren_native = selected
+            return _ren_native
         try:
             import ren_native
         except ImportError:
@@ -91,7 +109,8 @@ def rust():
                         "ren_native: refusing the installed build - its "
                         "source fingerprint does not match this engine "
                         "tree; the Python edit backend runs. Rebuild with "
-                        "scripts/build_ren_native.sh <venv-bin-dir>."
+                        "scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>.",
+                        file=sys.stderr,
                     )
     return _ren_native
 

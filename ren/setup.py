@@ -270,6 +270,11 @@ def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> int | 
     """Run the ren_native build script; return its exit code, or None
     when it could not be started.
 
+    The build lands in the machine's per-tree cache
+    (`library/tools/ren_native_cache.py`), keyed by this engine's
+    source fingerprint - never in the venv, so checkouts on other
+    trees keep their own entries.
+
     Exit 4 is the script's "keep the Python backend" (no cargo, no
     maturin, no Rust sources); any other non-zero is a build that ran
     and failed. Both are the caller's to report, never to raise: the
@@ -281,8 +286,14 @@ def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> int | 
     if not script.is_file():
         return None
     try:
+        sys.path.insert(0, str(engine_root))
+        from library.tools import ren_native_cache
+        cache = str(ren_native_cache.cache_dir())
+    except Exception:  # noqa: BLE001 - the script usage-errors without it
+        cache = ""
+    try:
         done = subprocess.run(
-            ["bash", str(script), str(venv_bin_dir)],
+            ["bash", str(script), str(venv_bin_dir), cache],
             env=env, capture_output=True, encoding="utf-8",
             timeout=1800, check=False,
         )
