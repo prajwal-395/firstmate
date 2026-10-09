@@ -4,9 +4,6 @@ Each test names a behavioral defect the fix prevents.
 """
 
 import json
-from pathlib import Path
-
-import pytest
 
 from library.tools import expression_classifier as ec
 
@@ -122,21 +119,21 @@ class TestClassifyExpression:
         """Defect: neutral face misclassified as an expression."""
         features = {"mouth_curvature": 0.0, "mouth_openness": 0.1,
                     "eye_edge_density": 0.05, "nose_edge_density": 0.02}
-        expr, conf = ec.classify_expression(features)
+        expr, _conf = ec.classify_expression(features)
         assert expr == "neutral", f"neutral should be neutral, got {expr}"
 
     def test_high_eye_density_classified_as_angry(self):
         """Defect: furrowed brows not detected, anger missed."""
         features = {"mouth_curvature": 0.0, "mouth_openness": 0.1,
                     "eye_edge_density": 0.18, "nose_edge_density": 0.02}
-        expr, conf = ec.classify_expression(features)
+        expr, _conf = ec.classify_expression(features)
         assert expr == "angry", f"high eye density should be angry, got {expr}"
 
     def test_high_nose_density_classified_as_disgusted(self):
         """Defect: nose wrinkling not detected, disgust missed."""
         features = {"mouth_curvature": 0.0, "mouth_openness": 0.1,
                     "eye_edge_density": 0.05, "nose_edge_density": 0.25}
-        expr, conf = ec.classify_expression(features)
+        expr, _conf = ec.classify_expression(features)
         assert expr == "disgusted", f"high nose density should be disgusted, got {expr}"
 
 
@@ -253,54 +250,25 @@ class TestReadM3C:
         assert result["frame_count"] == 10
 
 
-class TestCropFaceBinaryCapture:
-    """`_crop_face` returns ffmpeg's PNG bytes without text decoding."""
+class TestCachedFrameCrops:
+    """Face crops reuse the M2 sample that produced the face boxes."""
 
-    def test_png_bytes_pass_through_undecoded(self, monkeypatch):
-        """Defect: stdout captured with encoding="utf-8", so the PNG
-        header byte 0x89 raised UnicodeDecodeError and failed the whole
-        expressions lane on any footage with a face."""
-        import subprocess
+    def test_crop_uses_normalized_coordinates_and_padding(self):
+        import numpy as np
 
-        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
-        seen = {}
+        image = np.zeros((100, 200, 3), dtype=np.uint8)
+        crop = ec._crop_face_from_frame(
+            image, [0.25, 0.2, 0.5, 0.6], [200, 100])
 
-        class _Result:
-            returncode = 0
-            stdout = png
-            stderr = b""
+        # 50x40 face with 20% padding on each side.
+        assert crop.shape == (56, 70, 3)
 
-        def fake_run(cmd, **kwargs):
-            seen.update(kwargs)
-            if kwargs.get("encoding") is not None or kwargs.get("text"):
-                # Behave like the stdlib: text capture decodes stdout,
-                # which raises on the PNG header exactly as in production.
-                png.decode(kwargs.get("encoding") or "utf-8")
-            return _Result()
+    def test_crop_rejects_wrong_sized_frame(self):
+        import numpy as np
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        out = ec._crop_face("source.MXF", 1.0, [0.1, 0.1, 0.5, 0.5],
-                            [640, 480])
-
-        assert out == png
-        assert seen.get("encoding") is None
-        assert not seen.get("text")
-
-    def test_failed_crop_returns_none(self, monkeypatch):
-        """Defect: a failed ffmpeg crop raises instead of measuring no crop."""
-        import subprocess
-
-        class _Result:
-            returncode = 1
-            stdout = b""
-            stderr = b""
-
-        monkeypatch.setattr(subprocess, "run",
-                            lambda cmd, **kwargs: _Result())
-
-        assert ec._crop_face("source.MXF", 1.0, [0.1, 0.1, 0.5, 0.5],
-                             [640, 480]) is None
+        image = np.zeros((99, 200, 3), dtype=np.uint8)
+        assert ec._crop_face_from_frame(
+            image, [0.25, 0.2, 0.5, 0.6], [200, 100]) is None
 
 
 class TestExpressionLanes:

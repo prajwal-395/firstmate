@@ -1,3 +1,6 @@
+import json
+import threading
+
 from library.tools import perf_ledger
 
 
@@ -35,3 +38,38 @@ def test_external_layer_overlap_is_subtracted_once_from_own_code():
 
     assert result["own_code_s"] == 2.0
     assert result["external_s"] == 6.0
+
+
+def test_recording_is_thread_local_and_counts_calls(tmp_path):
+    path = tmp_path / "perf.jsonl"
+    rows_before = perf_ledger.read_rows(tmp_path, path)
+    assert rows_before == []
+
+    def work():
+        with (perf_ledger.recording(path, "r1", "qualification_workflow"),
+              perf_ledger.span("fframes_render", calls=2, subprocesses=1)):
+            pass
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    thread.join()
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    counts = {row["family"]: row["count"] for row in rows
+              if row["kind"] == perf_ledger.COUNT}
+    assert counts == {"subprocess_spawns": 1, "graphics_renders": 2}
+    assert all(row["run_id"] == "r1" for row in rows)
+    assert all(row["capability"] == "qualification_workflow" for row in rows)
+
+
+def test_profile_cli_reads_a_standalone_ledger(tmp_path, capsys):
+    path = tmp_path / "perf.jsonl"
+    path.write_text(json.dumps({
+        "kind": "capability", "run_id": "r1",
+        "capability": "qualification_workflow", "wall_s": 1.0,
+    }) + "\n", encoding="utf-8")
+
+    assert perf_ledger.main(["--ledger", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "Ren own code 1.0s (100.0%)" in output
+    assert "qualification_workflow" in output

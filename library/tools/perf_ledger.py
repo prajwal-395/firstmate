@@ -60,9 +60,10 @@ import resource
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any
 
 LEDGER_FILE = "perf_ledger.jsonl"
 LEDGER_ENV = "REN_PERF_LEDGER"
@@ -79,15 +80,25 @@ COUNT = "count"
 # instead of implying that it was measured.
 COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
                   "probes", "hashes", "subprocess_spawns", "cli_starts")
+GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
+                   "graphics_render", "hyperframes-caption",
+                   "ffframes-caption"}
 
 # Time spent waiting for or executing a separately scheduled engine. All
 # other span and capability remainder time belongs to Ren. This list is kept
 # explicit so a newly added layer is not silently called external.
 EXTERNAL_LAYERS = {
     "gemma_inference": "model_inference", "mfa_align": "model_inference",
+    "host_model": "model_inference",
+    "semantic_inference_attempt": "model_inference",
+    "model_load": "model_runtime",
+    "demux": "ffmpeg",
     "resolve_render": "resolve_api", "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
     "broker_request": "resolve_broker",
+    "fframes_render": "graphics_engine",
+    "fframes-caption": "graphics_engine",
+    "hyperframes-caption": "graphics_engine",
     "transcribe": "model_inference", "language_id": "model_inference",
     "remotion_render": "graphics_engine",
     "hyperframes_render": "graphics_engine",
@@ -111,7 +122,7 @@ def ledger_path(project_folder) -> Path:
     return ProjectLayout(project_folder).read_dir(Area.LOGS) / LEDGER_FILE
 
 
-def _append(path, row: Dict[str, Any]) -> None:
+def _append(path, row: dict[str, Any]) -> None:
     try:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,9 +136,9 @@ def _append(path, row: Dict[str, Any]) -> None:
         pass
 
 
-def _attach_backends(row: Dict[str, Any]) -> None:
+def _attach_backends(row: dict[str, Any]) -> None:
     """Carry the run's selected implementations onto every performance row."""
-    raw = os.environ.get(BACKENDS_ENV)
+    raw = _env(BACKENDS_ENV)
     if not raw:
         return
     try:
@@ -147,7 +158,7 @@ def _maxrss_mb(who: int) -> float:
     return round(resource.getrusage(who).ru_maxrss * _RSS_TO_MB, 1)
 
 
-def bytes_written(before: Dict[str, Any], after: Dict[str, Any]) -> int:
+def bytes_written(before: dict[str, Any], after: dict[str, Any]) -> int:
     """Bytes of every file that appeared or changed between two
     `ProvenanceLedger.snapshot()`s - the walk the front door already
     takes, so the ledger adds none of its own."""
@@ -165,8 +176,8 @@ class OpenCapability:
     """
 
     def __init__(self, project_folder, capability_id: str, run_id: str,
-                 node: Optional[str] = None,
-                 ledger_path_override: Optional[Path] = None) -> None:
+                 node: str | None = None,
+                 ledger_path_override: Path | None = None) -> None:
         self.path = (Path(ledger_path_override) if ledger_path_override
                      else ledger_path(project_folder))
         self._saved = {k: os.environ.get(k)
@@ -183,7 +194,7 @@ class OpenCapability:
         except Exception:  # noqa: BLE001 - diagnostic metadata never blocks a run
             self._runtime_backends = {}
             os.environ[BACKENDS_ENV] = "{}"
-        self.row: Dict[str, Any] = {
+        self.row: dict[str, Any] = {
             "kind": CAPABILITY, "run_id": run_id,
             "capability": capability_id, "node": node, "status": "ok",
             "started_at": round(time.time(), 3)}
@@ -193,7 +204,7 @@ class OpenCapability:
         self._t0 = time.perf_counter()
         self._ended = False
 
-    def end(self, persist: bool = True) -> Dict[str, Any]:
+    def end(self, persist: bool = True) -> dict[str, Any]:
         if self._ended:
             return dict(self.row)
         self._ended = True
@@ -219,9 +230,9 @@ class OpenCapability:
 
 
 def begin(project_folder, capability_id: str, run_id: str,
-          node: Optional[str] = None,
-          ledger_path_override: Optional[Path] = None
-          ) -> Optional[OpenCapability]:
+          node: str | None = None,
+          ledger_path_override: Path | None = None
+          ) -> OpenCapability | None:
     """Start timing a capability; None (and nothing timed) on any error."""
     try:
         return OpenCapability(project_folder, capability_id, run_id, node,
@@ -232,7 +243,7 @@ def begin(project_folder, capability_id: str, run_id: str,
 
 @contextmanager
 def capability(project_folder, capability_id: str, run_id: str,
-               node: Optional[str] = None) -> Iterator[Dict[str, Any]]:
+               node: str | None = None) -> Iterator[dict[str, Any]]:
     """Time one capability execution and append its row.
 
     Yields the row being built. The environment carries the ledger to
@@ -251,7 +262,7 @@ def capability(project_folder, capability_id: str, run_id: str,
 
 
 def record_reused(project_folder, capability_id: str, run_id: str,
-                  node: Optional[str] = None) -> None:
+                  node: str | None = None) -> None:
     """A capability the run SKIPPED because its output was still good."""
     _append(ledger_path(project_folder),
             {"kind": CAPABILITY, "run_id": run_id, "capability": capability_id,
@@ -259,7 +270,7 @@ def record_reused(project_folder, capability_id: str, run_id: str,
              "wall_s": 0.0})
 
 
-def commit_rows(project_folder, rows: List[Dict[str, Any]]) -> None:
+def commit_rows(project_folder, rows: list[dict[str, Any]]) -> None:
     """Append worker timing rows from the run coordinator, in order."""
     path = ledger_path(project_folder)
     for row in rows:
@@ -267,7 +278,14 @@ def commit_rows(project_folder, rows: List[Dict[str, Any]]) -> None:
             _append(path, row)
 
 
-def commit(project_folder, row: Dict[str, Any]) -> None:
+def commit_to_path(path, rows: list[dict[str, Any]]) -> None:
+    """Append already measured rows to a standalone ledger file."""
+    for row in rows:
+        if row:
+            _append(path, row)
+
+
+def commit(project_folder, row: dict[str, Any]) -> None:
     """Append one completed timing row from the run coordinator."""
     commit_rows(project_folder, [row])
 
@@ -275,8 +293,36 @@ def commit(project_folder, row: Dict[str, Any]) -> None:
 _local = threading.local()
 
 
+def _env(key: str) -> str | None:
+    """Read a ledger value, preferring a thread-scoped recording context."""
+    context = getattr(_local, "context", None)
+    if context is not None and key in context:
+        return context[key]
+    return os.environ.get(key)
+
+
 @contextmanager
-def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
+def recording(path, run_id: str, capability_id: str):
+    """Attach rows on this thread without changing a shared process env.
+
+    The Resolve broker is a multithreaded service. A broker job may record
+    into a caller's ledger, but changing ``os.environ`` would misroute rows
+    from concurrent jobs. This scoped context is thread-local by design.
+    """
+    previous = getattr(_local, "context", None)
+    _local.context = {LEDGER_ENV: str(path), RUN_ENV: str(run_id),
+                      CAPABILITY_ENV: str(capability_id)}
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _local.context
+        else:
+            _local.context = previous
+
+
+@contextmanager
+def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
     """Name a layer's time inside the current capability.
 
     Yields a dict the layer fills with what it knows (`calls`,
@@ -286,14 +332,14 @@ def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
     another is subtracted from its parent, so a profile never counts one
     second twice.
     """
-    path = os.environ.get(LEDGER_ENV)
+    path = _env(LEDGER_ENV)
     if not path:
         yield dict(fields)
         return
     stack = getattr(_local, "stack", None)
     if stack is None:
         stack = _local.stack = []
-    row: Dict[str, Any] = dict(fields)
+    row: dict[str, Any] = dict(fields)
     frame = {"child_wall": 0.0, "child_cpu": 0.0, "children": []}
     stack.append(frame)
     started = time.time()
@@ -314,10 +360,14 @@ def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
             # say exactly which seconds were this layer's own.
             row["self_intervals"] = _gaps(
                 (started, started + wall), frame["children"])
+        if int(row.get("subprocesses") or 0) > 0:
+            count_call("subprocess_spawns", int(row["subprocesses"]))
+        if layer in GRAPHICS_LAYERS:
+            count_call("graphics_renders", int(row.get("calls") or 1))
         row.update({
             "kind": SPAN, "layer": layer,
-            "run_id": os.environ.get(RUN_ENV),
-            "capability": os.environ.get(CAPABILITY_ENV),
+            "run_id": _env(RUN_ENV),
+            "capability": _env(CAPABILITY_ENV),
             "started_at": round(started, 3),
             "wall_s": round(max(0.0, wall - frame["child_wall"]), 3),
             "cpu_s": round(max(0.0, cpu - frame["child_cpu"]), 3),
@@ -327,7 +377,7 @@ def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
         _append(path, row)
 
 
-def record(layer: str, wall_s: float, started_at: Optional[float] = None,
+def record(layer: str, wall_s: float, started_at: float | None = None,
            **fields: Any) -> None:
     """A span for an interval the caller already measured.
 
@@ -337,7 +387,7 @@ def record(layer: str, wall_s: float, started_at: Optional[float] = None,
     it began. A leaf: nothing nested inside it is subtracted, but it IS
     subtracted from an enclosing `span`, so its seconds are counted once.
     """
-    path = os.environ.get(LEDGER_ENV)
+    path = _env(LEDGER_ENV)
     if not path:
         return
     wall_s = max(0.0, float(wall_s))
@@ -348,10 +398,14 @@ def record(layer: str, wall_s: float, started_at: Optional[float] = None,
         stack[-1]["child_wall"] += wall_s
         stack[-1]["children"].append((started_at, started_at + wall_s))
     row = {**fields, "kind": SPAN, "layer": layer,
-           "run_id": os.environ.get(RUN_ENV),
-           "capability": os.environ.get(CAPABILITY_ENV),
+           "run_id": _env(RUN_ENV),
+           "capability": _env(CAPABILITY_ENV),
            "started_at": round(started_at, 3),
            "wall_s": round(wall_s, 3)}
+    if int(row.get("subprocesses") or 0) > 0:
+        count_call("subprocess_spawns", int(row["subprocesses"]))
+    if layer in GRAPHICS_LAYERS:
+        count_call("graphics_renders", int(row.get("calls") or 1))
     _attach_backends(row)
     _append(path, row)
 
@@ -360,34 +414,34 @@ def count_call(family: str, amount: int = 1, **fields: Any) -> None:
     """Record a measurable per-run call count without adding wall time."""
     if family not in COUNT_FAMILIES or amount < 0:
         return
-    path = os.environ.get(LEDGER_ENV)
+    path = _env(LEDGER_ENV)
     if not path:
         return
     row = {**fields, "kind": COUNT, "family": family, "count": int(amount),
-           "run_id": os.environ.get(RUN_ENV),
-           "capability": os.environ.get(CAPABILITY_ENV),
+           "run_id": _env(RUN_ENV),
+           "capability": _env(CAPABILITY_ENV),
            "started_at": round(time.time(), 3)}
     _attach_backends(row)
     _append(path, row)
 
 
-def run(layer: str, *args: Any, fields: Optional[Dict[str, Any]] = None,
+def run(layer: str, *args: Any, fields: dict[str, Any] | None = None,
         **kwargs: Any):
     """`subprocess.run`, charged to `layer` - for a tool whose whole cost
     is one child process (a Remotion or HyperFrames render, an encode)."""
     import subprocess
     check = kwargs.pop("check", False)
     with span(layer, subprocesses=1, **(fields or {})):
-        count_call("subprocess_spawns")
         return subprocess.run(*args, check=check, **kwargs)
 
 
 # ── Reading it back ────────────────────────────────────────────────
 
-def read_rows(project_folder) -> List[Dict[str, Any]]:
+def read_rows(project_folder, ledger_override=None) -> list[dict[str, Any]]:
     rows = []
     try:
-        with open(ledger_path(project_folder), encoding="utf-8") as fh:
+        path = Path(ledger_override) if ledger_override else ledger_path(project_folder)
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 try:
                     row = json.loads(line)
@@ -400,9 +454,9 @@ def read_rows(project_folder) -> List[Dict[str, Any]]:
     return rows
 
 
-def run_ids(rows: List[Dict[str, Any]]) -> List[str]:
+def run_ids(rows: list[dict[str, Any]]) -> list[str]:
     """Run ids in the order their first row was written."""
-    seen: Dict[str, None] = {}
+    seen: dict[str, None] = {}
     for row in rows:
         rid = row.get("run_id")
         if rid and rid not in seen:
@@ -410,7 +464,7 @@ def run_ids(rows: List[Dict[str, Any]]) -> List[str]:
     return list(seen)
 
 
-def _gaps(outer: tuple, inner: List[tuple]) -> List[List[float]]:
+def _gaps(outer: tuple, inner: list[tuple]) -> list[list[float]]:
     """`outer` minus every `inner` interval, as [start, end] pairs."""
     gaps, cursor = [], outer[0]
     for begin, finish in sorted(inner):
@@ -422,7 +476,7 @@ def _gaps(outer: tuple, inner: List[tuple]) -> List[List[float]]:
     return gaps
 
 
-def union_s(intervals: List[tuple]) -> float:
+def union_s(intervals: list[tuple]) -> float:
     """Seconds covered by a set of (start, end) intervals."""
     total, reach = 0.0, None
     for begin, finish in sorted(intervals):
@@ -435,7 +489,7 @@ def union_s(intervals: List[tuple]) -> float:
     return total
 
 
-def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
+def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     """Attribute one run's wall to named layers and capability remainders.
 
     The whole is the sum of the run's capability walls. A layer is
@@ -460,23 +514,23 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
                 counts[family] = (counts[family] or 0) + int(
                     r.get("count") or 0)
     total = sum(float(r.get("wall_s") or 0.0) for r in caps)
-    buckets: Dict[str, Dict[str, Any]] = {}
+    buckets: dict[str, dict[str, Any]] = {}
 
-    def bucket(name: str) -> Dict[str, Any]:
+    def bucket(name: str) -> dict[str, Any]:
         return buckets.setdefault(name, {"wall_s": 0.0, "cpu_s": 0.0,
                                          "calls": 0, "input_tokens": 0,
                                          "output_tokens": 0,
                                          "subprocesses": 0})
 
-    def intervals_of(s: Dict[str, Any]) -> List[tuple]:
+    def intervals_of(s: dict[str, Any]) -> list[tuple]:
         if s.get("self_intervals"):
             return [(float(a), float(b)) for a, b in s["self_intervals"]]
         begin = float(s.get("started_at") or 0.0)
         return [(begin, begin + float(s.get("wall_s") or 0.0))]
 
-    by_cap_layer: Dict[tuple, List[tuple]] = {}
-    by_cap: Dict[str, List[tuple]] = {}
-    by_cap_external: Dict[str, Dict[str, List[tuple]]] = {}
+    by_cap_layer: dict[tuple, list[tuple]] = {}
+    by_cap: dict[str, list[tuple]] = {}
+    by_cap_external: dict[str, dict[str, list[tuple]]] = {}
     for s in spans:
         layer, cap = str(s.get("layer")), str(s.get("capability"))
         b = bucket(layer)
@@ -497,7 +551,7 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
 
     per_capability = []
     inside = 0.0
-    external_totals: Dict[str, float] = {}
+    external_totals: dict[str, float] = {}
     own_code_s = 0.0
     cap_names = set()
     for c in caps:
@@ -554,7 +608,7 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
             "spans_without_capability_row": sorted(set(by_cap) - cap_names)}
 
 
-def quantile(values: List[float], q: float) -> Optional[float]:
+def quantile(values: list[float], q: float) -> float | None:
     """Nearest-rank quantile; None for no values (never a zero)."""
     if not values:
         return None
@@ -562,8 +616,8 @@ def quantile(values: List[float], q: float) -> Optional[float]:
     return round(ordered[max(0, math.ceil(q * len(ordered)) - 1)], 3)
 
 
-def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
-                 caps: List[Dict[str, Any]]) -> Dict[str, Any]:
+def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
+                 caps: list[dict[str, Any]]) -> dict[str, Any]:
     """What one run paid for the one Resolve.
 
     `blocked_s` is the time the run's capabilities spent waiting for a
@@ -587,13 +641,13 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
     blocked = sum(float(s.get("wall_s") or 0.0) for s in waits)
     wait_values = [float(s.get("wall_s") or 0.0) for s in waits]
     hold_values = [float(s.get("held_s") or 0.0) for s in holds]
-    in_resolve: Dict[str, List[tuple]] = {}
+    in_resolve: dict[str, list[tuple]] = {}
     for rows, length_key in ((waits, "wall_s"), (holds, "held_s")):
         for s in rows:
             begin = float(s.get("started_at") or 0.0)
             in_resolve.setdefault(str(s.get("capability")), []).append(
                 (begin, begin + float(s.get(length_key) or 0.0)))
-    free: List[tuple] = []
+    free: list[tuple] = []
     for c in caps:
         begin = float(c.get("started_at") or 0.0)
         outer = (begin, begin + float(c.get("wall_s") or 0.0))
@@ -635,16 +689,21 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
     }
 
 
-def render(report: Dict[str, Any]) -> str:
+def render(report: dict[str, Any]) -> str:
     total = report["total_wall_s"]
-    out = [f"Run {report['run_id']}: {total:.1f}s across "
-           f"{len(report['capabilities'])} capability row(s)"]
+    out = [(f"Run {report['run_id']}: {total:.1f}s across "
+            f"{len(report['capabilities'])} capability row(s)")]
     own_pct = report.get("own_code_pct")
     external_pct = report.get("external_pct")
     if own_pct is not None and external_pct is not None:
         out.append(f"Ren own code {report['own_code_s']:.1f}s ({own_pct:.1f}%), "
                    f"external engines {report['external_s']:.1f}s "
                    f"({external_pct:.1f}%)")
+        engines = report.get("external_by_engine_s") or {}
+        if engines:
+            out.append("External by engine: " + ", ".join(
+                f"{name}={seconds:.1f}s" for name, seconds in
+                sorted(engines.items())))
     out.append("Calls: " + ", ".join(
         f"{name}={count if count is not None else 'unmeasured'}"
         for name, count in report["call_counts"].items()))
@@ -667,7 +726,16 @@ def render(report: Dict[str, Any]) -> str:
                    f"{line['pct']:>6.1f} {line['cpu_s']:>8.1f} "
                    f"{line['calls'] or '':>6} {line['subprocesses'] or '':>6} "
                    f"{line['input_tokens'] or '':>8} "
-                   f"{line['output_tokens'] or '':>8}")
+               f"{line['output_tokens'] or '':>8}")
+    if report["capabilities"]:
+        out.append("")
+        out.append(f"{'capability':<36} {'wall s':>9} {'own s':>9} "
+                   f"{'external s':>11}")
+        for cap in report["capabilities"]:
+            out.append(f"{str(cap.get('capability') or '')[:36]:<36} "
+                       f"{float(cap.get('wall_s') or 0):>9.1f} "
+                       f"{float(cap.get('own_code_s') or 0):>9.1f} "
+                       f"{float(cap.get('external_s') or 0):>11.1f}")
     if report["spans_without_capability_row"]:
         out.append("")
         out.append("Spans with no capability row (the run did not finish "
@@ -702,7 +770,7 @@ def render(report: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
-def _seconds(value: Optional[float]) -> str:
+def _seconds(value: float | None) -> str:
     return "-" if value is None else f"{value:.2f}s"
 
 
@@ -722,14 +790,18 @@ def main(argv=None) -> int:
                     "of the run's wall, then what each capability spent "
                     "outside them. Reads pipeline_output/logs/"
                     f"{LEDGER_FILE}; changes nothing.")
-    parser.add_argument("project", help="a project slug or path")
+    parser.add_argument("project", nargs="?", help="a project slug or path")
     parser.add_argument("--run", help="a run id (default: the latest)")
+    parser.add_argument("--ledger", help="read a standalone perf ledger JSONL path")
     parser.add_argument("--list", action="store_true",
                         help="list the run ids the ledger holds")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    project = _resolve_project(args.project)
-    rows = read_rows(project)
+    if not args.project and not args.ledger:
+        parser.error("provide a project or --ledger")
+    project = (_resolve_project(args.project) if not args.ledger
+               else args.project or "")
+    rows = read_rows(project, args.ledger)
     ids = run_ids(rows)
     if args.list:
         print("\n".join(ids))

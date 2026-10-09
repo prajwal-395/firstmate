@@ -81,9 +81,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 
-from library.tools import edit_algebra
-from library.tools import edit_backend
-from library.tools import resolve_lock
+from library.tools import edit_algebra, edit_backend, protocol_conformance, resolve_lock
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
     FLOAT_TOLERANCE,
@@ -94,7 +92,6 @@ from library.tools.edit_algebra import (
     _matches,
     _timeline_marker,
 )
-from library.tools import protocol_conformance
 from library.tools.ren_refusal import RenRefusal
 
 #: What a patch may declare it touches. An operation's domain is fixed by
@@ -409,7 +406,10 @@ def validate(patch: EditPatch, base: dict) -> None:
             "operations": list(declared.operations),
             "conflict_domains": list(declared.conflict_domains),
         }
-        reason = rust.validate_patch(patch.to_dict(), base, semantics)
+        from library.tools.perf_ledger import count_call, span
+        count_call("edit_core_calls")
+        with span("edit_core_rust", backend="rust", calls=1):
+            reason = rust.validate_patch(patch.to_dict(), base, semantics)
         if reason is not None:
             _refuse(patch, reason,
                     "a declaration must be true (AGENTS.md 3)",
@@ -773,7 +773,9 @@ def apply_patch(patch, *, resolve, project, timeline,
                         returned = spec.apply(op, timeline, item, project)
                 elif op["op"] == "clip.smart_reframe":
                     from library.tools.transform_write_log import (
-                        validate_transform_write_context, write_scope)
+                        validate_transform_write_context,
+                        write_scope,
+                    )
 
                     context = validate_transform_write_context(
                         item_identity={"resolve_unique_id":

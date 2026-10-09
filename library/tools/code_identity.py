@@ -467,6 +467,9 @@ EXEMPT_IMPORTS = {
     # Runtime-backend attribution is run metadata only. It neither changes
     # measurements nor their cached outputs.
     "library/tools/runtime_backends.py",
+    # Performance instrumentation records execution costs but cannot change
+    # the measurement or cached value a preflight step produces.
+    "library/tools/perf_ledger.py",
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
     # Project-format migration bookkeeping and refusal rendering. The
@@ -520,10 +523,6 @@ EXEMPT_IMPORTS = {
     # pipeline_data.json and how a reader finds it.  A fix here moves no
     # measured value; a wrong one fails loud as a missing input.
     "library/tools/capability_outputs.py",
-    # Timing plumbing: a span records how long a layer took and passes
-    # its block's result through untouched, so no measured value can
-    # depend on this module's code.
-    "library/tools/perf_ledger.py",
     # Project declarations.  step_ledger's rule is that they do NOT travel
     # in a preflight cache, so their code cannot stale one either.
     "library/tools/brand_registry.py",

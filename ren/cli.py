@@ -77,6 +77,9 @@ def _exec_vep(vep, engine_root, argv: list) -> None:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if os.environ.get("REN_PERF_LEDGER"):
+        from library.tools.perf_ledger import count_call
+        count_call("cli_starts")
     # `--version` answers from the package itself: no engine needed,
     # so a machine with nothing installed still names its build.
     if argv and argv[0] in ("--version", "-V"):

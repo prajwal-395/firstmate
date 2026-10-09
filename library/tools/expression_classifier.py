@@ -2,7 +2,7 @@
 footage memory (`docs/SOURCE_MEMORY.md`).
 
 A lightweight expression classifier on M3 face crops. Reads M3 face
-bounding boxes and lip landmarks, extracts face crops from source video,
+bounding boxes and lip landmarks, crops the matching cached M2 frame,
 classifies expressions, and writes expression labels to a new slot.
 
 The classifier uses a combination of:
@@ -13,7 +13,7 @@ Expressions: neutral, happy, sad, angry, surprised, fearful, disgusted
 
 This is a per-frame measurement at the M2 cadence, so it rides the existing
 M3 sample. The classifier is lightweight (< 5ms per face crop) and uses
-only M3 data plus a face crop extracted from the source video.
+M3 landmarks and cached M2 frame images.
 
     python3 -m library.tools.expression_classifier build <project>
     python3 -m library.tools.expression_classifier status <project>
@@ -23,19 +23,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
-import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from library.tools import person_measurements, source_memory
 
 M3C_STATUS_MEASURED = "measured"
-M3C_METHOD = "expression-classifier-v1"
+M3C_METHOD = "expression-classifier-v2-m2-crops"
 
 EXPRESSIONS = ("neutral", "happy", "sad", "angry", "surprised", "fearful",
                "disgusted")
@@ -55,7 +51,7 @@ def _round(values, places: int = 4) -> list:
     return [round(float(v), places) for v in values]
 
 
-def mouth_curvature(outer_lips: List[list]) -> float:
+def mouth_curvature(outer_lips: list[list]) -> float:
     """Mouth curvature from outer lip landmarks.
 
     Positive = smile (corners up), negative = frown (corners down).
@@ -75,7 +71,7 @@ def mouth_curvature(outer_lips: List[list]) -> float:
     return (center_y - corner_y) / width
 
 
-def mouth_openness(outer_lips: List[list], inner_lips: List[list]) -> float:
+def mouth_openness(outer_lips: list[list], inner_lips: list[list]) -> float:
     """Mouth openness as height/width ratio.
 
     High values indicate an open mouth (surprise). Normalised by mouth
@@ -84,7 +80,6 @@ def mouth_openness(outer_lips: List[list], inner_lips: List[list]) -> float:
     if not outer_lips or not inner_lips:
         return 0.0
     xs = [p[0] for p in outer_lips]
-    ys = [p[1] for p in outer_lips]
     width = max(xs) - min(xs)
     if width < 1e-6:
         return 0.0
@@ -93,47 +88,8 @@ def mouth_openness(outer_lips: List[list], inner_lips: List[list]) -> float:
     return height / width
 
 
-def _crop_face(source_path: str, timestamp: float, box: List[float],
-               frame_pixels: List[int]) -> Optional[bytes]:
-    """Extract a face crop from source video at a given timestamp.
-
-    Returns PNG bytes of the crop, or None if extraction fails.
-    """
-    x1, y1, x2, y2 = box
-    fw, fh = frame_pixels
-    w = int((x2 - x1) * fw)
-    h = int((y2 - y1) * fh)
-    x = int(x1 * fw)
-    y = int(y1 * fh)
-    pad_x = int(w * CROP_PADDING)
-    pad_y = int(h * CROP_PADDING)
-    x = max(0, x - pad_x)
-    y = max(0, y - pad_y)
-    w = min(fw - x, w + 2 * pad_x)
-    h = min(fh - y, h + 2 * pad_y)
-    if w < CROP_MIN_SIZE or h < CROP_MIN_SIZE:
-        return None
-    cmd = [
-        "ffmpeg", "-ss", f"{timestamp:.3f}", "-i", source_path,
-        "-vframes", "1", "-vf", f"crop={w}:{h}:{x}:{y}",
-        "-f", "image2pipe", "-vcodec", "png", "-",
-    ]
-    try:
-        # Binary capture: ffmpeg writes PNG bytes to stdout, so no text
-        # encoding is set here. Decoding the PNG header as UTF-8 raises
-        # UnicodeDecodeError on its leading 0x89 byte and fails the
-        # whole expressions lane on any footage with a face.
-        result = subprocess.run(cmd, capture_output=True, timeout=10,
-                                check=False)
-        if result.returncode == 0 and result.stdout:
-            return bytes(result.stdout)
-    except (subprocess.TimeoutExpired, OSError):
-        pass
-    return None
-
-
-def _image_features(png_bytes: bytes) -> dict:
-    """Compute image features from a face crop PNG.
+def _image_features(crop) -> dict:
+    """Compute image features from a cached BGR crop or PNG bytes.
 
     Returns edge density in the eye and nose regions.
     """
@@ -142,8 +98,12 @@ def _image_features(png_bytes: bytes) -> dict:
         import numpy as np
     except ImportError:
         return {"eye_edge_density": 0.0, "nose_edge_density": 0.0}
-    arr = np.frombuffer(png_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+    if isinstance(crop, np.ndarray):
+        img = (cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+               if crop.ndim == 3 else crop)
+    else:
+        arr = np.frombuffer(crop, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
     if img is None:
         return {"eye_edge_density": 0.0, "nose_edge_density": 0.0}
     h, w = img.shape
@@ -158,7 +118,32 @@ def _image_features(png_bytes: bytes) -> dict:
             "nose_edge_density": round(nose_density, 4)}
 
 
-def classify_expression(features: dict) -> Tuple[str, float]:
+def _crop_face_from_frame(image, box: list[float],
+                          frame_pixels: list[int]):
+    """Crop normalized face coordinates from their cached M2 frame."""
+
+    if image is None:
+        return None
+    fw, fh = frame_pixels
+    if image.shape[1] != fw or image.shape[0] != fh:
+        return None
+    x1, y1, x2, y2 = box
+    x = int(x1 * fw)
+    y = int(y1 * fh)
+    w = int((x2 - x1) * fw)
+    h = int((y2 - y1) * fh)
+    pad_x = int(w * CROP_PADDING)
+    pad_y = int(h * CROP_PADDING)
+    x = max(0, x - pad_x)
+    y = max(0, y - pad_y)
+    right = min(fw, x + w + 2 * pad_x)
+    bottom = min(fh, y + h + 2 * pad_y)
+    if right - x < CROP_MIN_SIZE or bottom - y < CROP_MIN_SIZE:
+        return None
+    return image[y:bottom, x:right]
+
+
+def classify_expression(features: dict) -> tuple[str, float]:
     """Classify an expression from geometric and image features.
 
     Returns (expression, confidence).
@@ -189,15 +174,15 @@ def classify_expression(features: dict) -> Tuple[str, float]:
     return "neutral", 0.5
 
 
-def classify_face(outer_lips: List[list], inner_lips: List[list],
-                  png_bytes: Optional[bytes]) -> dict:
+def classify_face(outer_lips: list[list], inner_lips: list[list],
+                  crop) -> dict:
     """Classify one face from its lip landmarks and optional crop image."""
     features = {
         "mouth_curvature": round(mouth_curvature(outer_lips), 4),
         "mouth_openness": round(mouth_openness(outer_lips, inner_lips), 4),
     }
-    if png_bytes is not None:
-        features.update(_image_features(png_bytes))
+    if crop is not None:
+        features.update(_image_features(crop))
     else:
         features["eye_edge_density"] = 0.0
         features["nose_edge_density"] = 0.0
@@ -207,7 +192,7 @@ def classify_face(outer_lips: List[list], inner_lips: List[list],
 
 
 def build_source_expressions(source_file: str, content_digest: str,
-                             root: Optional[Path] = None) -> dict:
+                             root: Path | None = None) -> dict:
     """M3c for one source from its M3. Heavy: callers hold the heavy-work
     lock. Refuses (raises) without a fresh M3."""
     m3 = person_measurements.read_m3(content_digest, root)
@@ -216,6 +201,15 @@ def build_source_expressions(source_file: str, content_digest: str,
             f"{os.path.basename(source_file)} has no M3 (persons.json); "
             f"run `python3 -m library.tools.person_measurements build` first")
     frames = m3.get("frames", [])
+    m2 = source_memory.read_m2(content_digest, root)
+    if (m2 is None
+            or not source_memory.m2_frames_present(content_digest, m2, root)):
+        raise RuntimeError(
+            f"{os.path.basename(source_file)} has no M2 (frames.index.json); "
+            "run the frames lane first")
+    m2_frames = {round(frame["t"], 3): frame
+                 for frame in m2["frames"]}
+    frame_dir = source_memory.source_dir(content_digest, root)
     instrument = m3.get("instrument", {})
     frame_pixels = instrument.get("frame_pixels", [384, 216])
     started = time.perf_counter()
@@ -223,8 +217,21 @@ def build_source_expressions(source_file: str, content_digest: str,
     faces_total = 0
     faces_classified = 0
     expression_counts: dict = {}
+    image_cache = {}
     for frame in frames:
         t = frame.get("t", 0.0)
+        frame_ref = m2_frames.get(round(t, 3))
+        image = None
+        if frame_ref is not None:
+            frame_path = frame_dir / frame_ref["file"]
+            if frame_ref["file"] not in image_cache:
+                try:
+                    import cv2
+                    image_cache[frame_ref["file"]] = cv2.imread(
+                        str(frame_path), cv2.IMREAD_COLOR)
+                except ImportError:
+                    image_cache[frame_ref["file"]] = None
+            image = image_cache[frame_ref["file"]]
         out_faces = []
         for face in frame.get("faces", []):
             faces_total += 1
@@ -233,8 +240,8 @@ def build_source_expressions(source_file: str, content_digest: str,
             inner_lips = face.get("inner_lips", [])
             if len(box) != 4 or not outer_lips:
                 continue
-            png_bytes = _crop_face(source_file, t, box, frame_pixels)
-            result = classify_face(outer_lips, inner_lips, png_bytes)
+            crop = _crop_face_from_frame(image, box, frame_pixels)
+            result = classify_face(outer_lips, inner_lips, crop)
             result["box"] = _round(box)
             out_faces.append(result)
             faces_classified += 1
@@ -280,7 +287,7 @@ def build_source_expressions(source_file: str, content_digest: str,
             **{k: record["instrument"][k] for k in ("ms_per_face",)}}
 
 
-def read_m3c(content_digest: str, root: Optional[Path] = None) -> Optional[dict]:
+def read_m3c(content_digest: str, root: Path | None = None) -> dict | None:
     """A digest's M3c record, or None when never measured."""
     path = (source_memory.source_dir(content_digest, root)
             / source_memory.SLOT_EXPRESSIONS)
@@ -295,8 +302,8 @@ def read_m3c(content_digest: str, root: Optional[Path] = None) -> Optional[dict]
 
 
 def build_project_expressions(project_folder: str,
-                              clip_ids: Optional[List[str]] = None,
-                              root: Optional[Path] = None) -> dict:
+                              clip_ids: list[str] | None = None,
+                              root: Path | None = None) -> dict:
     """M3c for every catalog source that carries M3."""
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     # The digest dedup is decided serially up front, as in the person
@@ -337,7 +344,7 @@ def build_project_expressions(project_folder: str,
         clip_id, path, digest = job
         try:
             account = build_source_expressions(path, digest, root)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report this source and continue
             return ({"clip_id": clip_id, "content_digest": digest,
                      "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
         return ({"clip_id": clip_id, **account}, None)

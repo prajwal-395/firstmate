@@ -55,8 +55,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 
-from library.tools import edit_backend
-from library.tools import edit_patch
+from library.tools import edit_backend, edit_patch
 from library.tools import timeline_shadow as shadow
 
 TEMPORAL_EFFECTS = ("local", "ripple", "global")
@@ -135,13 +134,16 @@ def compose(earlier, later, base: dict) -> Composition:
     """How `later` lands once `earlier` has; both planned on `base`."""
     rust = edit_backend.rust()
     if rust is not None:
+        from library.tools.perf_ledger import count_call, span
+        count_call("edit_core_calls")
         a_sem = _semantics_dict(earlier)
         b_sem = _semantics_dict(later)
         snapshot = edit_backend.snapshot_handle(
             base, later["operations"] if isinstance(later, dict)
             else later.operations)
-        result = rust.compose(_as_dict(earlier), _as_dict(later),
-                              snapshot, a_sem, b_sem)
+        with span("edit_core_rust", backend="rust", calls=1):
+            result = rust.compose(_as_dict(earlier), _as_dict(later),
+                                  snapshot, a_sem, b_sem)
         return Composition(result["verdict"], result["reason"])
     return _compose_python(earlier, later, base)
 
@@ -232,9 +234,12 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
         ]
         semantics = _semantics_dict(patch)
         try:
-            moved_dict = rust.carry(
-                _as_dict(edit_patch.EditPatch.from_dict(patch)),
-                row_dicts, semantics)
+            from library.tools.perf_ledger import count_call, span
+            count_call("edit_core_calls")
+            with span("edit_core_rust", backend="rust", calls=1):
+                moved_dict = rust.carry(
+                    _as_dict(edit_patch.EditPatch.from_dict(patch)),
+                    row_dicts, semantics)
         except ValueError as exc:
             return None, str(exc)
         return edit_patch.EditPatch.from_dict(moved_dict), None

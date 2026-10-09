@@ -112,9 +112,12 @@ def snapshot_handle(snapshot, operations, *, include_transform=False):
     property_projection = all(
         operation["op"] == "clip.set_property" for operation in operations
     )
-    return native.snapshot_handle(
-        snapshot,
-        operations,
-        property_projection=property_projection,
-        include_transform=include_transform,
-    )
+    from library.tools.perf_ledger import count_call, span
+    count_call("edit_core_calls")
+    with span("edit_core_rust", backend="rust", calls=1):
+        return native.snapshot_handle(
+            snapshot,
+            operations,
+            property_projection=property_projection,
+            include_transform=include_transform,
+        )

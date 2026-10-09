@@ -53,9 +53,10 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Sequence
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
 
 from library.tools import source_memory
 from library.tools.project_layout import Area, ProjectLayout
@@ -155,7 +156,8 @@ LANES: tuple = (
          (SM.SLOT_IDENTITY,), (SM.SLOT_FRAMES_INDEX,), True, True,
          _build_identity),
     Lane("expressions", "M3c", "expression labels per face per frame",
-         (SM.SLOT_EXPRESSIONS,), (SM.SLOT_PERSONS,), True, True,
+         (SM.SLOT_EXPRESSIONS,), (SM.SLOT_PERSONS, SM.SLOT_FRAMES_INDEX),
+         True, True,
          _build_expressions),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
@@ -174,7 +176,7 @@ _BY_NAME = {lane.name: lane for lane in LANES}
 # ── Freshness ───────────────────────────────────────────────────────
 
 
-def _record(digest: str, slot: str, root: Optional[Path]) -> Optional[dict]:
+def _record(digest: str, slot: str, root: Path | None) -> dict | None:
     path = source_memory.source_dir(digest, root) / slot
     try:
         with open(path, encoding="utf-8") as handle:
@@ -184,7 +186,7 @@ def _record(digest: str, slot: str, root: Optional[Path]) -> Optional[dict]:
     return doc if isinstance(doc, dict) else None
 
 
-def slot_is_fresh(lane: Lane, digest: str, root: Optional[Path]) -> bool:
+def slot_is_fresh(lane: Lane, digest: str, root: Path | None) -> bool:
     """Whether every slot `lane` writes is current for `digest`.
 
     A slot is current when it exists, names this digest, and is no older
@@ -203,6 +205,10 @@ def slot_is_fresh(lane: Lane, digest: str, root: Optional[Path]) -> bool:
         doc = _record(digest, slot, root)
         if doc is None or doc.get("content_digest") != digest:
             return False
+        if lane.name == "expressions":
+            from library.tools.expression_classifier import M3C_METHOD
+            if doc.get("instrument", {}).get("method") != M3C_METHOD:
+                return False
         if (slot == source_memory.SLOT_FRAMES_INDEX
                 and not source_memory.m2_frames_present(digest, doc, root)):
             return False
@@ -219,8 +225,8 @@ def slugify(name: str) -> str:
     return slug or "footage"
 
 
-def resolve_target(ref: str, into: Optional[str] = None,
-                   slug: Optional[str] = None) -> tuple:
+def resolve_target(ref: str, into: str | None = None,
+                   slug: str | None = None) -> tuple:
     """`(project_folder, created)` for what `ren analyze` was pointed at.
 
     A project (path or slug) is analysed in place. A folder that is not
@@ -229,8 +235,7 @@ def resolve_target(ref: str, into: Optional[str] = None,
     at the same folder again finds the same collection; a collection of
     that name over a DIFFERENT folder is refused, never repointed.
     """
-    from library.tools.project_registry import (
-        get_project, resolve_project_path)
+    from library.tools.project_registry import get_project, resolve_project_path
 
     project_yaml = resolve_project_path(ref)
     if project_yaml is not None:
@@ -239,7 +244,7 @@ def resolve_target(ref: str, into: Optional[str] = None,
     if not folder.is_dir():
         try:
             config = get_project(ref)
-        except Exception:
+        except FileNotFoundError:
             config = None
         root = getattr(config, "_project_root", None) if config else None
         if root:
@@ -251,13 +256,12 @@ def resolve_target(ref: str, into: Optional[str] = None,
     return ensure_collection(str(folder.resolve()), into, slug)
 
 
-def ensure_collection(footage_dir: str, into: Optional[str] = None,
-                      slug: Optional[str] = None) -> tuple:
+def ensure_collection(footage_dir: str, into: str | None = None,
+                      slug: str | None = None) -> tuple:
     """The collection project over `footage_dir`, created when absent."""
     from library.schemas.project_config import load_project_config
     from library.tools.paths import PROJECTS_ROOT
-    from library.tools.project_registry import (
-        _write_project_yaml, create_project)
+    from library.tools.project_registry import _write_project_yaml, create_project
 
     parent = Path(into).expanduser().resolve() if into else Path(PROJECTS_ROOT)
     name = slug or slugify(Path(footage_dir).name)
@@ -299,7 +303,7 @@ def run_steps(project: str, memory_only: bool, with_: Sequence[str] = (),
 # ── The lane half ───────────────────────────────────────────────────
 
 
-def catalog_sources(project: str) -> List[dict]:
+def catalog_sources(project: str) -> list[dict]:
     """`[{clip_id, digest, path, duration_seconds}]` in catalog order."""
     recorded = source_memory.load_recorded_fingerprints(project)
     out = []
@@ -328,11 +332,11 @@ def _outcome(account: dict) -> dict:
     return {"status": BUILT}
 
 
-def run_lane(lane: Lane, project: str, sources: List[dict],
-             root: Optional[Path]) -> dict:
+def run_lane(lane: Lane, project: str, sources: list[dict],
+             root: Path | None) -> dict:
     """Run one lane over the sources that need it; per-source outcomes."""
-    per_source: Dict[str, dict] = {}
-    todo: List[str] = []
+    per_source: dict[str, dict] = {}
+    todo: list[str] = []
     for src in sources:
         if src["digest"] is None:
             per_source[src["clip_id"]] = {"status": SKIPPED,
@@ -356,7 +360,9 @@ def run_lane(lane: Lane, project: str, sources: List[dict],
         try:
             report = lane.build(project, todo if lane.per_source else None,
                                 root) or {}
-        except Exception as exc:  # one lane failing never stops the others
+        # Lanes are independent; preserve the remaining analysis and record
+        # the concrete failure against this lane.
+        except Exception as exc:  # noqa: BLE001
             error = f"{type(exc).__name__}: {exc}"
     seconds = round(time.perf_counter() - started, 1)
 
@@ -394,7 +400,7 @@ def run_lane(lane: Lane, project: str, sources: List[dict],
     }
 
 
-def clock_is_fresh(sources: List[dict], root: Optional[Path]) -> bool:
+def clock_is_fresh(sources: list[dict], root: Path | None) -> bool:
     """Whether M6 was measured after every transcript in this catalog.
 
     M6 is project-wide (a group needs its partners), so it is fresh as a
@@ -423,8 +429,8 @@ def clock_is_fresh(sources: List[dict], root: Optional[Path]) -> bool:
     return bool(clocks) and min(clocks) >= newest_transcript
 
 
-def _clock_outcomes(per_source: dict, sources: List[dict],
-                    root: Optional[Path]) -> None:
+def _clock_outcomes(per_source: dict, sources: list[dict],
+                    root: Path | None) -> None:
     """M6 writes nothing for a source in no multicam group - say so."""
     for src in sources:
         if src["digest"] is None or per_source.get(src["clip_id"], {}).get(
@@ -444,9 +450,7 @@ def _lane_summary(report) -> dict:
     for key, value in report.items():
         if key in ("clips", "project_folder", "segments"):
             continue
-        if isinstance(value, (int, float, str, bool)) or value is None:
-            keep[key] = value
-        elif (isinstance(value, (dict, list))
+        if isinstance(value, (int, float, str, bool)) or value is None or (isinstance(value, (dict, list))
               and len(json.dumps(value, default=str)) < 2000):
             keep[key] = value
     return keep
@@ -455,7 +459,7 @@ def _lane_summary(report) -> dict:
 # ── The run ─────────────────────────────────────────────────────────
 
 
-def _git_head() -> Optional[str]:
+def _git_head() -> str | None:
     try:
         out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT),
                              capture_output=True, encoding="utf-8",
@@ -470,7 +474,7 @@ def run_record_path(project: str) -> Path:
                                             RUN_RECORD_FILE)
 
 
-def read_run_record(project: str) -> Optional[dict]:
+def read_run_record(project: str) -> dict | None:
     try:
         with open(run_record_path(project), encoding="utf-8") as handle:
             doc = json.load(handle)
@@ -482,11 +486,11 @@ def read_run_record(project: str) -> Optional[dict]:
 def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
             memory_only: bool = False, steps: bool = True,
             with_: Sequence[str] = (), skip: Sequence[str] = (),
-            root: Optional[Path] = None, created: bool = False) -> dict:
+            root: Path | None = None, created: bool = False) -> dict:
     """The whole analysis-only run over one project or collection."""
     from library.tools.heavy_work_lock import heavy_work_lock
 
-    started_at = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+    started_at = _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
     t0 = time.perf_counter()
     record = {
         "version": RUN_RECORD_VERSION,
@@ -529,7 +533,7 @@ def _write_record(project: str, record: dict, t0: float,
     record["seconds"] = round(time.perf_counter() - t0, 1)
     if finished:
         record["finished_at"] = _dt.datetime.now(
-            _dt.timezone.utc).isoformat(timespec="seconds")
+            _dt.UTC).isoformat(timespec="seconds")
         record["failed"] = sorted({
             clip for lane in record["lanes"]
             for clip, outcome in lane["sources"].items()
@@ -548,7 +552,7 @@ def _write_record(project: str, record: dict, t0: float,
 # ── Status ──────────────────────────────────────────────────────────
 
 
-def status(project: str, root: Optional[Path] = None) -> dict:
+def status(project: str, root: Path | None = None) -> dict:
     """Per source, per memory lane: fresh or not, read off the memory. Light."""
     rows = []
     for src in catalog_sources(project):
@@ -578,7 +582,7 @@ def _print_run(record: dict) -> None:
             print(f"    {row['capability']:18s} {row['status']}"
                   + (f"  {row['seconds']} s" if "seconds" in row else ""))
     for lane in record["lanes"]:
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for outcome in lane["sources"].values():
             counts[outcome["status"]] = counts.get(outcome["status"], 0) + 1
         rate = lane["seconds_per_video_minute"]
@@ -654,13 +658,17 @@ def main(argv=None) -> int:
         print(f"[analyze] made collection {project} over {args.target}",
               file=sys.stderr)
     ordered = [n for n in LANE_NAMES if n in set(args.lanes)]
-    record = analyze(project, ordered, memory_only=args.memory_only,
-                     steps=not args.no_steps, with_=args.with_,
-                     skip=args.skip,
-                     root=root, created=created)
     if args.json:
+        # Keep the JSON stdout channel parseable while preserving progress.
+        with redirect_stdout(sys.stderr):
+            record = analyze(project, ordered, memory_only=args.memory_only,
+                             steps=not args.no_steps, with_=args.with_,
+                             skip=args.skip, root=root, created=created)
         print(json.dumps(record, indent=2))
     else:
+        record = analyze(project, ordered, memory_only=args.memory_only,
+                         steps=not args.no_steps, with_=args.with_,
+                         skip=args.skip, root=root, created=created)
         _print_run(record)
     return 0 if record["status"] == "complete" else 1
 

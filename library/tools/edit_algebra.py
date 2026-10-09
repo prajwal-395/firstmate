@@ -502,7 +502,7 @@ def _apply_grade_node_set(op, _timeline, item, _project=None):
     try:
         graph = item.GetNodeGraph()
         count = graph.GetNumNodes()
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"grade.node_set cannot open the node graph ({exc}) - "
             f"nothing was written.") from exc
@@ -526,7 +526,7 @@ def _apply_grade_node_set(op, _timeline, item, _project=None):
     }
     try:
         wrote = bool(item.SetCDL(payload))
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"grade.node_set SetCDL raised ({exc}) - verify by hand.") \
             from exc
@@ -536,7 +536,7 @@ def _apply_grade_node_set(op, _timeline, item, _project=None):
             f"nothing was claimed.")
     try:
         back = dict(item.GetCDL() or {})
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"grade.node_set GetCDL re-read raised ({exc}) - verify by "
             f"hand.") from exc
@@ -602,12 +602,12 @@ def _read_node_count(item, label="grade.node_add") -> int:
     try:
         graph = item.GetNodeGraph()
         count = graph.GetNumNodes()
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"{label} cannot open the node graph ({exc}) - "
             f"nothing was written.") from exc
     if isinstance(count, bool) or not isinstance(count, int):
-        raise RuntimeError(
+        raise RuntimeError(  # noqa: TRY004 - invalid API result is a refusal
             f"{label} GetNumNodes answered {count!r}, not a count - "
             f"nothing was written.")
     return count
@@ -632,7 +632,8 @@ def _apply_grade_node_add(op, timeline, item, _project=None):
     happens to be current.
     """
     from library.tools.computer_use.scripts import (
-        grade_node_add_script, run_script,
+        grade_node_add_script,
+        run_script,
     )
 
     _park_playhead_mid_clip(op, timeline, item)
@@ -675,7 +676,7 @@ def _park_playhead_mid_clip(op, timeline, item,
     try:
         start, end = int(item.GetStart()), int(item.GetEnd())
         fps = float(timeline.GetSetting("timelineFrameRate") or 24)
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"{label} cannot read clip {op.get('unique_id')!r}'s "
             f"span ({exc}) - nothing was written.") from exc
@@ -688,7 +689,7 @@ def _park_playhead_mid_clip(op, timeline, item,
                 raise RuntimeError(
                     f"playhead reads "
                     f"{timeline.GetCurrentTimecode()!r}, not {wanted!r}")
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"{label} could not park the playhead on clip "
             f"{op.get('unique_id')!r} ({exc}) - nothing was written."
@@ -709,7 +710,7 @@ def _read_cache_modes(item, count, label) -> list:
         graph = item.GetNodeGraph()
         return [graph.GetNodeCacheMode(index)
                 for index in range(1, count + 1)]
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"{label} cannot read the node cache modes ({exc}) - "
             f"nothing was written.") from exc
@@ -726,7 +727,7 @@ def _write_cache_modes(item, modes, label) -> None:
                     f"answered False")
         back = [graph.GetNodeCacheMode(position + 1)
                 for position in range(len(modes))]
-    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+    except Exception as exc:
         raise RuntimeError(
             f"{label} cannot write the node cache modes ({exc}) - "
             f"nothing was claimed.") from exc
@@ -754,8 +755,9 @@ def _apply_grade_node_remove(op, timeline, item, _project=None):
     target.
     """
     from library.tools.computer_use.scripts import (
-        _marker_add_script, _remove_marker_script, _remove_target_script,
-        run_settled_script,
+        _marker_add_script,
+        _remove_marker_script,
+        _remove_target_script,
     )
 
     label = "grade.node_remove"
@@ -933,7 +935,7 @@ def _apply_picture_keyframe(op, _timeline, item, _project=None):
 def _call(item, method, default):
     try:
         return getattr(item, method)()
-    except Exception:
+    except Exception:  # noqa: BLE001 - third-party Resolve methods vary by version
         return default
 
 
@@ -972,7 +974,7 @@ def _build_matte_comp(item, matte_name, geometry, keyframes=()):
     def pool_int(key, default):
         try:
             return int(pool_item.GetClipProperty(key)) or default
-        except Exception:
+        except Exception:  # noqa: BLE001 - third-party Resolve methods vary by version
             return default
 
     engine = CompEngine(clip_dur=pool_int("Frames", 100),
@@ -1178,14 +1180,14 @@ def _require_magic_seed(op, label):
     """
     seed = op.get("seed")
     if not isinstance(seed, dict):
-        raise RuntimeError(
+        raise RuntimeError(  # noqa: TRY004 - missing domain receipt refusal
             f"{label}: provider 'resolve_magic_mask_api' needs 'seed', "
             f"the MaskSeed receipt whose viewer point the UI phase "
             f"clicked - an unseeded call answers False")
     viewer = seed.get("viewer") or {}
     if not isinstance(viewer.get("x"), (int, float)) or not isinstance(
             viewer.get("y"), (int, float)):
-        raise RuntimeError(
+        raise RuntimeError(  # noqa: TRY004 - malformed receipt refusal
             f"{label}: the seed carries no viewer point "
             f"({seed.get('viewer')!r}) - nothing says where the click "
             f"landed")
@@ -1358,7 +1360,7 @@ def _passthrough_comp_path(item):
     def pool_int(key, default):
         try:
             return int(pool_item.GetClipProperty(key)) or default
-        except Exception:
+        except Exception:  # noqa: BLE001 - third-party Resolve methods vary by version
             return default
 
     content = CompEngine(clip_dur=pool_int("Frames", 100),
@@ -2771,7 +2773,10 @@ def span(op, base):
     """The frames an op touches over a base snapshot, on the active backend."""
     rust = edit_backend.rust()
     if rust is not None:
-        return rust.span(op, base)
+        from library.tools.perf_ledger import count_call, span
+        count_call("edit_core_calls")
+        with span("edit_core_rust", backend="rust", calls=1):
+            return rust.span(op, base)
     spec = ALGEBRA.get(op.get("op"))
     if spec is None:
         return None
@@ -2783,7 +2788,11 @@ def spans(operations, base):
     rust = edit_backend.rust()
     if rust is not None:
         base_handle = edit_backend.snapshot_handle(base, operations)
-        return rust.span_many(operations, base_handle)
+        from library.tools.perf_ledger import count_call
+        from library.tools.perf_ledger import span as ledger_span
+        count_call("edit_core_calls")
+        with ledger_span("edit_core_rust", backend="rust", calls=1):
+            return rust.span_many(operations, base_handle)
     return [span(op, base) for op in operations]
 
 
@@ -2821,7 +2830,10 @@ def verify(op, after):
         return _verify_magic_mask_provider(op, after)
     rust = edit_backend.rust()
     if rust is not None:
-        return rust.verify(op, after)
+        from library.tools.perf_ledger import count_call, span
+        count_call("edit_core_calls")
+        with span("edit_core_rust", backend="rust", calls=1):
+            return rust.verify(op, after)
     spec = ALGEBRA.get(op.get("op"))
     if spec is None:
         return None
@@ -2836,5 +2848,8 @@ def verifies(operations, after):
     if rust is not None:
         after_handle = edit_backend.snapshot_handle(
             after, operations, include_transform=True)
-        return rust.verify_many(operations, after_handle)
+        from library.tools.perf_ledger import count_call, span
+        count_call("edit_core_calls")
+        with span("edit_core_rust", backend="rust", calls=1):
+            return rust.verify_many(operations, after_handle)
     return [verify(op, after) for op in operations]

@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from library.tools import perf_ledger
 from library.tools import qualification_project as qp
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,9 +67,10 @@ def _run_analysis(copy_path: Path, run_dir: Path, run_id: str) -> dict:
                # analysis plus the independently built text index; do not
                # turn that known wiring defect into a false workflow pass.
                "--skip", "temporal.index", "--skip", "prosody.analyse"]
-    result = subprocess.run(
-        command, cwd=REPO_ROOT, capture_output=True, text=True,
-        encoding="utf-8", timeout=ANALYSIS_TIMEOUT_SECONDS, check=False)
+    with perf_ledger.span("ren_analysis_cli", subprocesses=1, calls=1):
+        result = subprocess.run(
+            command, cwd=REPO_ROOT, capture_output=True, text=True,
+            encoding="utf-8", timeout=ANALYSIS_TIMEOUT_SECONDS, check=False)
     evidence = {"command": command, "exit_code": result.returncode,
                 "stdout_tail": result.stdout[-12000:],
                 "stderr_tail": result.stderr[-12000:]}
@@ -210,9 +212,12 @@ def _broker_call(kind: str, params: dict, *, idempotency_key: str,
                  wait_seconds: int) -> dict:
     from library.tools.resolved import client
 
-    submitted = client.submit(kind, params, qualification=True,
-                              idempotency_key=idempotency_key)
-    receipt = client.result(submitted["id"], wait=wait_seconds)
+    with perf_ledger.span(
+            "qualification_broker_job", backend="ren-resolved",
+            calls=1, external_engine="resolve_qualification_job"):
+        submitted = client.submit(kind, params, qualification=True,
+                                  idempotency_key=idempotency_key)
+        receipt = client.result(submitted["id"], wait=wait_seconds)
     if receipt["state"] != "done":
         failure = {"state": receipt["state"], "error": receipt.get("error"),
                    **(receipt.get("result") or {})}
@@ -271,7 +276,13 @@ def run_broker_job(job: dict, resolve) -> dict:
     stages = []
     current = {"name": "project borrow"}
     try:
-        result = _run_broker_job(job, resolve, current, stages)
+        params = job["params"]
+        output_dir = Path(params["output_dir"]).expanduser().resolve()
+        workflow_root = output_dir.parent
+        ledger_path = workflow_root / "perf_ledger.jsonl"
+        with perf_ledger.recording(
+                ledger_path, workflow_root.name, "qualification_workflow"):
+            result = _run_broker_job(job, resolve, current, stages)
     except Exception as exc:
         raise JobRefused(
             f"{current['name']} failed: {exc}",
@@ -505,6 +516,11 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
     run_stamp = started.strftime("%Y%m%dT%H%M%S%fZ")
     root = qp.media_dir() / "workflow-runs" / run_stamp
     root.mkdir(parents=True, exist_ok=False)
+    perf = perf_ledger.begin(
+        root, "qualification_workflow", run_stamp,
+        ledger_path_override=root / "perf_ledger.jsonl")
+    if perf:
+        perf_ledger.count_call("cli_starts")
     report_path = root / "qualification-report.json"
     report = {"schema": "ren-workflow-qualification.v1",
               "started_at": started.isoformat(), "project": "Ren Qualification",
@@ -536,6 +552,22 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
             report["runs"].append(one)
             try:
                 analysis = _run_analysis(copy_path, run_dir, run_id)
+                child_rows = perf_ledger.read_rows(
+                    analysis["project_folder"])
+                child_run_ids = perf_ledger.run_ids(child_rows)
+                if child_run_ids:
+                    child_run_id = child_run_ids[-1]
+                    spans = []
+                    for child_row in child_rows:
+                        if (child_row.get("kind") == perf_ledger.SPAN
+                                and child_row.get("run_id") == child_run_id):
+                            span_row = dict(child_row)
+                            span_row["source_run_id"] = child_run_id
+                            span_row["run_id"] = run_stamp
+                            span_row["capability"] = "qualification_workflow"
+                            spans.append(span_row)
+                    perf_ledger.commit_to_path(
+                        root / "perf_ledger.jsonl", spans)
                 hit = _analyzed_hit(analysis["index_file"], query)
             except Exception as exc:
                 _stage(report, f"run {ordinal}: analysis", passed=False,
@@ -591,8 +623,8 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                        passed=stage["status"] == "passed",
                        evidence=stage.get("evidence"))
             from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
-            from library.tools.master_loudness import master_render_report
             from library.tools.execution import resolve_render
+            from library.tools.master_loudness import master_render_report
             try:
                 produced = resolve_render._files_written_since(
                     evidence["render"]["output_dir"],
@@ -664,6 +696,9 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
         report["finished_at"] = datetime.now(UTC).isoformat()
         report["report_path"] = str(report_path)
         _write_report(report_path, report)
+        if perf:
+            perf.row["status"] = "ok" if report["passed"] else "failed"
+            perf.end()
     return report
 
 
