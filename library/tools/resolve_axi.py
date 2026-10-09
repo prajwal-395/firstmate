@@ -4041,18 +4041,21 @@ def cmd_edit_place(args) -> int:
 
 def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
-                  track_index: int | None, media_type: int):
+                  track_index: int | None, media_type: int,
+                  pool_item=None):
     """Re-place one item at a new source range/position.
 
-    Returns `(new_item, error)`: `place` and `trim` share this because
-    the scripting API offers no move and no trim - only append plus
-    delete. The delete half runs only after the place half verifies.
+    Returns `(new_item, error)`: the scripting API offers no move or
+    trim, only append plus delete. A move appends before deleting; a
+    trim caches its pool item and frees the occupied range first, then
+    uses this helper to verify the narrowed replacement or restore.
     """
-    try:
-        pool_item = orig.GetMediaPoolItem()
-    except Exception as exc:
-        return None, (f"the item would not name its pool clip ({exc}) "
-                       f"- nothing was changed.")
+    if pool_item is None:
+        try:
+            pool_item = orig.GetMediaPoolItem()
+        except Exception as exc:
+            return None, (f"the item would not name its pool clip ({exc}) "
+                           f"- nothing was changed.")
     if pool_item is None:
         return None, ("the item carries no pool clip (a generator or "
                       "title?) - nothing was changed.")
@@ -4401,17 +4404,30 @@ def cmd_edit_trim(args) -> int:
                 gate_class="edit_trim") as (journal, journal_state):
             pool = project.GetMediaPool()
             media_type = 1 if track_type == "video" else 2
+            try:
+                pool_item = item.GetMediaPoolItem()
+            except Exception as exc:
+                return fail(
+                    f"the item would not name its pool clip ({exc}) "
+                    "- nothing was changed.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            if pool_item is None:
+                return fail(
+                    "the item carries no pool clip (a generator or title?) "
+                    "- nothing was changed.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
             drop_error = _drop_original(project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline "
                                    f"\"{timeline.GetName()}\"")
             new_item, error = _replace_item(
                 timeline, pool, item, new_in, new_out,
-                new_rec, track_index, media_type)
+                new_rec, track_index, media_type, pool_item=pool_item)
             if error:
                 restored, restore_error = _replace_item(
                     timeline, pool, item, orig_in, orig_out,
-                    orig_rec, track_index, media_type)
+                    orig_rec, track_index, media_type,
+                    pool_item=pool_item)
                 if restore_error:
                     return fail(
                         f"trim failed ({error}); original recovery also "

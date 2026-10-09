@@ -2882,6 +2882,32 @@ def test_edit_trim_restores_source_when_replacement_does_not_read_back(
     assert "did not verify" in capsys.readouterr().out
 
 
+def test_edit_trim_caches_pool_item_before_deleting_source(
+        edit_patched, monkeypatch, capsys):
+    """Resolve may invalidate a deleted timeline item's pool-item handle."""
+    env = edit_patched
+    original = _items(env)[0]
+    pool_item = original.GetMediaPoolItem()
+    drop = resolve_axi._drop_original
+
+    def drop_and_invalidate(project, timeline, uid):
+        error = drop(project, timeline, uid)
+        if not error:
+            original._pool = None
+        return error
+
+    monkeypatch.setattr(resolve_axi, "_drop_original", drop_and_invalidate)
+
+    result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
+
+    assert result == 0
+    assert env["project"].GetMediaPool().appended[-1]["mediaPoolItem"] is pool_item
+    assert env["project"].GetMediaPool().appended[-1]["startFrame"] == 1010
+    assert env["project"].GetMediaPool().appended[-1]["endFrame"] == 1050
+    assert any(item.GetMediaPoolItem() is pool_item for item in _items(env))
+    assert "verified: yes" in capsys.readouterr().out
+
+
 def test_edit_speed_apply_journals(edit_patched, tmp_path, capsys):
     """A speed change journals through the undo journal."""
     project_folder = tmp_path / "speed-project"
