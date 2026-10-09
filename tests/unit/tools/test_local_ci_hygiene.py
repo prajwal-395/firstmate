@@ -422,23 +422,64 @@ def test_a_hung_run_times_out_and_still_reports(monkeypatch, tmp_path):
     assert "REN-CI TIMEOUT" in (tmp_path / "run.log").read_text()
 
 
-def test_timeout_terminates_the_isolated_pytest_process_group(tmp_path):
-    child_pid = tmp_path / "child.pid"
+def test_timeout_terminates_the_isolated_pytest_process_group(
+        tmp_path, monkeypatch):
+    import select
+
     child_stopped = tmp_path / "child.stopped"
-    child_code = (
-        "import signal, sys, time; "
-        f"signal.signal(signal.SIGTERM, lambda *_: (open({str(child_stopped)!r}, 'w').close(), sys.exit(0))); "
-        "time.sleep(30)"
-    )
-    parent_code = (
-        "import subprocess, sys, time; "
-        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
-        f"open({str(child_pid)!r}, 'w').write(str(child.pid)); "
-        "time.sleep(30)"
-    )
-    result = runner._run_logged(
-        [sys.executable, "-c", parent_code], str(tmp_path),
-        str(tmp_path / "run.log"), timeout=0.5)
+    ready_read, ready_write = os.pipe()
+    child_script = tmp_path / "child.py"
+    child_script.write_text(
+        "import os, signal, sys, time\n"
+        "def stop(*_):\n"
+        f"    open({str(child_stopped)!r}, 'w').close()\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, stop)\n"
+        f"os.write({ready_write}, b'ready')\n"
+        "time.sleep(30)\n", encoding="utf-8")
+    parent_script = tmp_path / "parent.py"
+    parent_script.write_text(
+        "import subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, {str(child_script)!r}], "
+        f"pass_fds=({ready_write},))\n"
+        "time.sleep(30)\n", encoding="utf-8")
+    original_popen = runner.subprocess.Popen
+
+    class ReadyBeforeTimeout:
+        def __init__(self, command, **kwargs):
+            kwargs["pass_fds"] = (*kwargs.get("pass_fds", ()), ready_write)
+            self._process = original_popen(command, **kwargs)
+            self._first_wait = True
+            os.close(ready_write)
+
+        @property
+        def pid(self):
+            return self._process.pid
+
+        @property
+        def returncode(self):
+            return self._process.returncode
+
+        def wait(self, timeout=None):
+            if self._first_wait:
+                self._first_wait = False
+                # The production runner handles a timeout as soon as the
+                # child has installed its signal handler, independent of
+                # process startup time under load.
+                ready, _, _ = select.select([ready_read], [], [], 30)
+                if ready:
+                    os.read(ready_read, 1)
+                    raise subprocess.TimeoutExpired("pytest process group",
+                                                    timeout)
+            return self._process.wait(timeout=timeout)
+
+    monkeypatch.setattr(runner.subprocess, "Popen", ReadyBeforeTimeout)
+    try:
+        result = runner._run_logged(
+            [sys.executable, str(parent_script)], str(tmp_path),
+            str(tmp_path / "run.log"), timeout=0.5)
+    finally:
+        os.close(ready_read)
     assert result["timed_out"] is True
     assert result["group_clean"] is True
     assert child_stopped.exists()

@@ -38,9 +38,12 @@ travels with the export. Nothing here is a default standing in for a
 measurement: a lane that did not run for a source has no status, not a
 guessed one.
 
-Heavy: decode, transcription and model inference. The run takes the
-heavy-work lock itself (re-entrant, so `heavy_work_lock run -- ren analyze`
-works too). Media is read-only.
+Heavy: decode, transcription and model inference. The source-memory lanes
+take the heavy-work lock themselves. The analysis capabilities run before
+that lock so a persistent model-memory reservation can be taken before any
+ordinary resource grant. Do not wrap `ren analyze` in a machine-wide
+`heavy_work_lock run`: that grant would precede and prevent the model-memory
+reservation. Media is read-only.
 """
 
 from __future__ import annotations
@@ -360,8 +363,8 @@ def run_lane(lane: Lane, project: str, sources: list[dict],
         try:
             report = lane.build(project, todo if lane.per_source else None,
                                 root) or {}
-        # Lanes are independent; preserve the remaining analysis and record
-        # the concrete failure against this lane.
+        # Lanes are independent; preserve the rest of the analysis when one
+        # fails, while storing the concrete exception in that lane's record.
         except Exception as exc:  # noqa: BLE001
             error = f"{type(exc).__name__}: {exc}"
     seconds = round(time.perf_counter() - started, 1)
@@ -503,18 +506,24 @@ def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
         "steps": None,
         "lanes": [],
     }
-    with heavy_work_lock(LOCK_OWNER):
-        if steps:
-            record["steps"] = run_steps(project, memory_only, with_, skip)
-        sources = catalog_sources(project)
-        record["sources"] = [{k: s[k] for k in ("clip_id", "digest",
-                                                "digest_basis",
-                                                "duration_seconds")}
-                             for s in sources]
-        if not sources:
-            record["error"] = ("the catalog is empty: no footage was found, "
-                               "or the catalog step did not run")
-        else:
+    if steps:
+        # Capabilities acquire their own declared resources. In particular,
+        # semantic analysis reserves model RAM before acquiring its bounded
+        # inference grant; an enclosing machine grant would invert that
+        # order and refuse the reservation.
+        record["steps"] = run_steps(project, memory_only, with_, skip)
+    sources = catalog_sources(project)
+    record["sources"] = [{k: s[k] for k in ("clip_id", "digest",
+                                            "digest_basis",
+                                            "duration_seconds")}
+                         for s in sources]
+    if not sources:
+        record["error"] = ("the catalog is empty: no footage was found, "
+                           "or the catalog step did not run")
+    else:
+        # These lanes still share a machine-wide admission while they
+        # read/write per-source memory and may launch external engines.
+        with heavy_work_lock(LOCK_OWNER):
             for name in lanes:
                 lane = _BY_NAME[name]
                 print(f"[analyze] {lane.label} {lane.name}: {lane.summary}",

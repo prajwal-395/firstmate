@@ -1,6 +1,84 @@
 import json
 
-from library.tools import footage_analysis
+from library.tools import footage_analysis, heavy_work_lock
+from library.tools.project_layout import ProjectLayout
+from library.tools.resource_scheduler import Scheduler
+
+
+def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
+        tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    ProjectLayout(project).ensure()
+    lock_dir = tmp_path / "heavy-work.lock"
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
+    scheduler = Scheduler(lock_dir)
+
+    def run_steps(*_args):
+        with heavy_work_lock.heavy_work_reservation(
+                "semantic model", "semantics.analyse:model_memory",
+                nested_profiles=("semantics.analyse:inference",)):
+            outer_demand = scheduler.jobs()[0]["demand"]
+            assert set(outer_demand) == {"ram_gb"}
+            with heavy_work_lock.heavy_work_lock(
+                    "semantic inference", "semantics.analyse:inference"):
+                jobs = scheduler.jobs()
+                assert len(jobs) == 2
+                demands = [job["demand"] for job in jobs]
+                assert any(set(demand) == {"ram_gb"}
+                           for demand in demands)
+                assert any(set(demand) == {"cpu", "gpu"}
+                           and demand["gpu"] == 1
+                           for demand in demands)
+        return {"status": "complete"}
+
+    monkeypatch.setattr(footage_analysis, "run_steps", run_steps)
+    monkeypatch.setattr(
+        footage_analysis, "catalog_sources",
+        lambda _project: [{"clip_id": "clip_001", "digest": "abc",
+                           "digest_basis": "fixture",
+                           "duration_seconds": 1.0}])
+
+    def run_lane(_lane, _project, _sources, _root):
+        assert any(job["owner"] == footage_analysis.LOCK_OWNER
+                   for job in scheduler.jobs())
+        return {"lane": "frames", "sources": {"clip_001": {
+            "status": footage_analysis.BUILT}}}
+
+    monkeypatch.setattr(footage_analysis, "run_lane", run_lane)
+    result = footage_analysis.analyze(
+        str(project), lanes=("frames",), root=tmp_path / "memory")
+
+    assert result["steps"] == {"status": "complete"}
+    assert result["status"] == "complete"
+    assert scheduler.jobs() == []
+
+
+def test_analysis_step_failure_still_releases_scheduler_grants(
+        tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    ProjectLayout(project).ensure()
+    lock_dir = tmp_path / "heavy-work.lock"
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
+    scheduler = Scheduler(lock_dir)
+
+    def fail_steps(*_args):
+        with heavy_work_lock.heavy_work_reservation(
+                "semantic model", "semantics.analyse:model_memory",
+                nested_profiles=("semantics.analyse:inference",)):
+            raise RuntimeError("fixture failure")
+
+    monkeypatch.setattr(footage_analysis, "run_steps", fail_steps)
+
+    try:
+        footage_analysis.analyze(str(project), lanes=(), root=tmp_path)
+    except RuntimeError as exc:
+        assert str(exc) == "fixture failure"
+    else:
+        raise AssertionError("analysis step failure should propagate")
+
+    assert scheduler.jobs() == []
 
 
 def test_json_mode_sends_progress_to_stderr(tmp_path, monkeypatch, capsys):

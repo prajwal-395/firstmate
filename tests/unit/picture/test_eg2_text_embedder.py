@@ -13,6 +13,7 @@ No test reads a real project.
 import json
 import sys
 import types
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -30,15 +31,14 @@ from library.tools.analysis.footage_query import (
 )
 from library.tools.ren_refusal import RenRefusal
 
-
 # ─── A fake sentence-transformers 6.1 ───────────────────────────
 
 
 class _FakeEG2:
     """Full-width rows so truncation to 256 is observable."""
 
-    prompts = {"SearchQuery": "sq:", "Document": "doc:"}
-    instances = []
+    prompts: ClassVar[dict] = {"SearchQuery": "sq:", "Document": "doc:"}
+    instances: ClassVar[list] = []
 
     def __init__(self, model_id):
         self.model_id = model_id
@@ -76,6 +76,8 @@ def test_eg2_loader_refuses_below_st_61(monkeypatch):
 
 
 def test_eg2_loader_refuses_without_st(monkeypatch):
+    # Block import even when the optional package is installed in the test
+    # environment; this case exercises the missing-dependency refusal.
     import builtins
     original_import = builtins.__import__
 
