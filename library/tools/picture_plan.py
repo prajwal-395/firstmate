@@ -341,9 +341,25 @@ def _score_candidate(candidate: dict, block: dict, semantic: dict,
     }
 
 
+def _vouched_clip_for_block(search_hints: dict | None,
+                            block_position) -> str | None:
+    """The clip the footage index vouches for this block, if any.
+
+    Only a `filled` hint names a clip: any other status is the catalog
+    path or a refusal, and vouches for nothing.
+    """
+    if not search_hints:
+        return None
+    hint = search_hints.get(str(block_position)) or {}
+    if hint.get("status") == "filled":
+        return hint.get("clip_id")
+    return None
+
+
 def build_picture_plan(timed_spine: dict, clip_catalog: list,
                         semantic_docs: list,
-                        duplicate_groups: list | None = None) -> dict:
+                        duplicate_groups: list | None = None,
+                        search_hints: dict | None = None) -> dict:
     """Build a global picture plan for the whole edit.
 
     For each block in the spine, selects the best clip considering
@@ -353,6 +369,14 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
     A duplicate group is one take under different names: only its first
     clip is a candidate, so the plan never places two clips of one
     duplicate group as different takes.
+
+    `search_hints` is `{position: slot_search result}` from
+    `library/tools/search_in_planning.py` (the block's own intent
+    queried against the footage index). A hint that `filled` vouches
+    for its clip as a TIE-BREAK only: it never outscores gesture,
+    continuity, variety or illustration, so a run with no index plans
+    exactly what it planned before. Every block records which path it
+    took in its `search` record.
 
     Returns a dict with:
         blocks: per-block shot selections
@@ -376,6 +400,8 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
 
         block_text = _block_text(block, semantic)
         candidates = _candidate_clips(clip_catalog, block, semantic, skip)
+        vouched = _vouched_clip_for_block(
+            search_hints, block.get("position"))
 
         if not candidates:
             block_plans.append({
@@ -384,6 +410,8 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
                 "selected_clip_id": block.get("clip_id"),
                 "candidates": [],
                 "reason": "no candidates",
+                "search": _search_record(search_hints,
+                                         block.get("position"), None),
             })
             continue
 
@@ -391,7 +419,14 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
             _score_candidate(c, block, semantic, used_clips, block_text)
             for c in candidates
         ]
-        scored.sort(key=lambda s: s["scores"]["total"], reverse=True)
+        for entry in scored:
+            entry["search_vouched"] = (
+                vouched is not None and entry["clip_id"] == vouched)
+        # The vouch breaks ties toward independently-evidenced footage;
+        # it never outscores a measured point of gesture, continuity,
+        # variety or illustration.
+        scored.sort(key=lambda s: (s["scores"]["total"],
+                                   s["search_vouched"]), reverse=True)
 
         best = scored[0]
         selected_clip_id = best["clip_id"]
@@ -411,8 +446,11 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
                 f"gesture={best['scores']['gesture_coverage']}, "
                 f"continuity={best['scores']['continuity']}, "
                 f"variety={best['scores']['variety']}, "
-                f"illustration={best['scores']['illustration']}"
+                f"illustration={best['scores']['illustration']}, "
+                f"search_vouched={best['search_vouched']}"
             ),
+            "search": _search_record(search_hints, block.get("position"),
+                                     best["search_vouched"]),
         })
 
     # Summary statistics
@@ -425,6 +463,10 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
     unique_clips = len(set(
         b.get("selected_clip_id") for b in block_plans if b.get("selected_clip_id")
     ))
+    vouched_blocks = sum(
+        1 for b in block_plans
+        if (b.get("search") or {}).get("status") == "filled"
+        and b.get("search", {}).get("vouched_selected"))
 
     return {
         "blocks": block_plans,
@@ -433,8 +475,27 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
             "gesture_matched_blocks": gesture_matched,
             "spine_clip_used": spine_clip_used,
             "unique_clips_used": unique_clips,
+            "search_vouched_blocks": vouched_blocks,
         },
     }
+
+
+def _search_record(search_hints: dict | None, block_position,
+                   vouched_selected: bool | None) -> dict:
+    """Which path a block took: the search vouch or the catalog."""
+    if not search_hints:
+        return {"status": "catalog_fallback:no_hints",
+                "vouched_selected": False}
+    hint = search_hints.get(str(block_position)) or {}
+    status = hint.get("status", "catalog_fallback:no_hint_for_block")
+    record = {"status": status,
+              "vouched_selected": bool(vouched_selected)}
+    if status == "filled":
+        record["clip_id"] = hint.get("clip_id")
+        record["evidence"] = hint.get("evidence")
+    elif hint.get("reason"):
+        record["reason"] = hint.get("reason")
+    return record
 
 
 def select_shot_for_block(block: dict, clip_catalog: list,

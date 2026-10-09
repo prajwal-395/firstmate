@@ -194,6 +194,46 @@ def _place_without_overlap(start: float, end: float, occupied: list):
     return max(windows, key=lambda w: w[1] - w[0])
 
 
+def _search_provenance(clip_id: str, preferred_moment: str,
+                       rationale: str, spine_pos,
+                       clip_catalog: list,
+                       project_folder: str) -> dict:
+    """Which search result and evidence a chosen clip came from.
+
+    Queries the index with the slot's own intent (`preferred_moment`,
+    else the rationale) as a visual slot. `search_verified` only when
+    the index vouches for THIS clip with a verified span; a vouched
+    DIFFERENT clip is recorded as the alternative the model did not
+    take; anything else is the catalog path said aloud. Never raises:
+    provenance is a receipt, not a gate, and the model's choice stands
+    on every path.
+    """
+    from library.tools import search_in_planning as sip
+
+    blank = {"search_status": "catalog_fallback:no_intent",
+             "search_evidence": None}
+    intent = (preferred_moment or rationale or "").strip()
+    if not intent or not project_folder:
+        return blank
+    try:
+        result = sip.slot_search(project_folder, intent,
+                                 slot_kind="visual",
+                                 catalog=clip_catalog)
+    except Exception as exc:  # noqa: BLE001 - receipt, never gate
+        return {"search_status": f"catalog_fallback:search_error:{exc}",
+                "search_evidence": None}
+    status = result.get("status")
+    if status == "filled" and result.get("clip_id") == clip_id:
+        return {"search_status": "search_verified",
+                "search_evidence": result.get("evidence")}
+    if status == "filled":
+        return {"search_status":
+                    f"search_other:{result.get('clip_id')}",
+                "search_evidence": result.get("evidence")}
+    return {"search_status": f"catalog_fallback:{status}",
+            "search_evidence": None}
+
+
 def resolve_broll(
     broll_creative: list,
     broll_interjections: list,
@@ -203,6 +243,7 @@ def resolve_broll(
     timed_spine: dict,
     target_resolution: tuple,
     occupied: list = None,
+    project_folder: str = "",
 ) -> dict:
     """Resolve B-roll creative selections to execution data.
 
@@ -377,6 +418,10 @@ def resolve_broll(
         # Check if clip needs resolution conform
         needs_conform = check_needs_conform(clip, target_resolution[0], target_resolution[1])
 
+        search_provenance = _search_provenance(
+            clip_id, preferred_moment, rationale, spine_pos,
+            clip_catalog, project_folder)
+
         assignments.append({
             "spine_block_position": spine_pos,
             "block_type": spine_block.get("block_type", "transition_slot"),
@@ -387,6 +432,11 @@ def resolve_broll(
             "duration_seconds": round(video_out - video_in, 3),
             "timeline_start": timeline_start,
             "timeline_end": timeline_end,
+            # Which search result and evidence this clip came from, or
+            # the catalog path said aloud. Same shape as `window_basis`:
+            # a receipt beside the decision, not a second decision.
+            "search_status": search_provenance["search_status"],
+            "search_evidence": search_provenance["search_evidence"],
             # Seconds of the slot the cutaway does not cover, with the
             # A-roll picture playing underneath. 0.0 is full cover. The
             # shortening used to be announced on stderr only, which nothing
@@ -509,6 +559,10 @@ def resolve_broll(
 
         needs_conform = check_needs_conform(clip, target_resolution[0], target_resolution[1])
 
+        interjection_provenance = _search_provenance(
+            clip_id, preferred_moment, rationale or purpose, spine_pos,
+            clip_catalog, project_folder)
+
         resolved_interjections.append({
             "over_spine_block_position": spine_pos,
             "timeline_start": timeline_start,
@@ -520,6 +574,10 @@ def resolve_broll(
                 "video_in": video_in,
                 "video_out": video_out,
                 "duration_seconds": round(video_out - video_in, 3),
+                "search_status":
+                    interjection_provenance["search_status"],
+                "search_evidence":
+                    interjection_provenance["search_evidence"],
                 # Seconds of the placed window the cutaway does not cover.
                 # 0.0 is full cover. Same declaration the assignment path
                 # carries, for the same reason: a shortening nothing
@@ -579,6 +637,7 @@ def main():
         broll_creative, interjections, clip_catalog, semantic_docs,
         temporal_indices, timed_spine,
         target_resolution=(target_width, target_height),
+        project_folder=data.get("project_folder", ""),
     )
 
     # There is NO minimum B-roll count. The creative direction decides how
@@ -631,6 +690,16 @@ def main():
     for line in decided_value.summary_lines([broll_decision]):
         print(f"  {line}", file=sys.stderr)
     result["value_decisions"] = [broll_decision.as_record()]
+
+    # Say which path each cutaway took: search-verified or catalog.
+    provenances = [
+        a.get("search_status", "") for a in
+        result.get("b_roll_assignments", [])]
+    verified = sum(1 for s in provenances if s == "search_verified")
+    print(f"  Search provenance: {verified}/{len(provenances)} "
+          f"assignment(s) search-verified, "
+          f"{len(provenances) - verified} on the catalog path",
+          file=sys.stderr)
 
     json.dump(result, sys.stdout, indent=2)
 
@@ -753,7 +822,8 @@ def splice_region_broll(broll_creative: list, clip_catalog: list,
         broll_creative or [], b_roll_interjections or [], clip_catalog,
         semantic_analysis_documents, temporal, timed_spine,
         target_resolution=(width, height),
-        occupied=[(lo, hi) for lo, hi, _ in kept])
+        occupied=[(lo, hi) for lo, hi, _ in kept],
+        project_folder=project_folder)
 
     assignments = splice_entries(stored_a, fresh["b_roll_assignments"],
                                  positions, a_key, a_key)

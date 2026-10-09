@@ -25,6 +25,13 @@ that do (speech and picture blocks). You have access to:
   vision analysis measured: `framing`, `stability`, `camera_move`,
   `content_type`, `usable_range`, `subjects` and a time-bounded
   `description`. This is the primary source of WHAT is in each clip.
+- **`broll_search_hints`** — per must-cover slot, the clip the footage
+  index vouches for when one cleared its evidence floor with real
+  visual evidence, or the catalog-fallback said aloud when the index is
+  missing, degraded or has no visual coverage. A vouched clip is a
+  second opinion, not an order: still check it against the candidate
+  table (duration, usable_range) before selecting it. When the hints say
+  catalog path, select from the table alone.
 - **Semantic analysis documents** — the same analysis unsummarised:
   `scene[]` segments with start/end bounds, `camera[]` segments with
   per-range framing and stability, `objects[]` with the time ranges they

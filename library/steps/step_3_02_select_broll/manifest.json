@@ -99,6 +99,15 @@
         "name": "broll_window_frames",
         "type": "string",
         "description": "A map of the frame strips the pre-bridge drew, one per candidate cutaway window, with the directory holding them. Prompt-only: it shows the model what a window LOOKS like beside the prose that says what it does. See library/tools/window_frames.py."
+      },
+      {
+        "name": "broll_search_hints",
+        "type": "string",
+        "description": "Bridge output: per must-cover slot, the clip the footage index vouches for (queried with the slot's own visual_note through library/tools/search_in_planning.py, backend-agnostic), or the catalog-fallback/refusal said aloud when the index is missing, degraded or has no visual coverage. Prompt-only: it vouches, never ranks - the candidate table stays the selection surface. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field.",
+        "expected_schema": {
+          "broll_creative": "list",
+          "b_roll_interjections": "list"
+        }
       }
     ],
     "llm_outputs": [
@@ -150,6 +159,7 @@
     "broll_candidates_toon",
     "footage_analysis_reference",
     "broll_window_frames",
+    "broll_search_hints",
     "a_roll_assignments",
     "creative_direction",
     "timed_spine",

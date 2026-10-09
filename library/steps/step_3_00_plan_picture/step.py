@@ -43,8 +43,36 @@ def main():
     semantic_docs = data.get("semantic_analysis_documents", {})
     duplicate_groups = data.get("duplicate_groups", [])
 
+    # The footage index vouches per block, best-effort and
+    # backend-agnostic. A missing or degraded index is the catalog path,
+    # which plans exactly what it planned before; the plan says which.
+    search_hints = None
+    project_folder = data.get("project_folder") or ""
+    if project_folder:
+        try:
+            from library.tools import search_in_planning as sip
+            search_hints = sip.search_hints_for_blocks(
+                project_folder,
+                (timed_spine or {}).get("structure") or [],
+                clip_catalog)
+            filled = sum(1 for h in search_hints.values()
+                         if h.get("status") == "filled")
+            print(f"  Footage search: {filled}/{len(search_hints)} "
+                  f"block(s) vouched", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - assist, never gate
+            print(f"  Footage search hints unavailable: {exc}",
+                  file=sys.stderr)
+            search_hints = None
+
     plan = build_picture_plan(
-        timed_spine, clip_catalog, semantic_docs, duplicate_groups)
+        timed_spine, clip_catalog, semantic_docs, duplicate_groups,
+        search_hints=search_hints)
+    if search_hints is None:
+        plan["search_status"] = "catalog_fallback:hints_unavailable"
+    else:
+        plan["search_status"] = (
+            f"search:{sum(1 for h in search_hints.values() if h.get('status') == 'filled')}"
+            f"/{len(search_hints)} vouched")
 
     print(json.dumps({"picture_plan": plan}))
 

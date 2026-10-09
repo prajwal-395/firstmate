@@ -212,6 +212,36 @@ def build_window_frames(data: dict, catalog_entries: list,
     return wf.build_block(str(directory), rows, missing)
 
 
+def build_search_hints(data: dict, catalog_entries: list) -> str:
+    """Query the footage index with each must-cover slot's intent.
+
+    Best-effort and backend-agnostic (`library/tools/search_in_planning.py`):
+    when the index is missing or degraded the catalog-driven candidate
+    table above stays the path and the hints say so aloud. Never fails
+    the bridge - a search assist that could refuse the step would make
+    the catalog path depend on the index existing.
+    """
+    from library.tools import search_in_planning as sip
+
+    project_folder = data.get("project_folder") or ""
+    timed_spine = data.get("timed_spine") or {}
+    blocks = timed_spine.get("structure") or []
+    slots = [b for b in blocks
+             if isinstance(b, dict) and not block_reaches_v1(b)]
+    if not project_folder or not slots:
+        return sip.format_hints_block({})
+    try:
+        hints = sip.search_hints_for_blocks(
+            project_folder, slots, catalog_entries)
+    except Exception as exc:  # noqa: BLE001 - assist, never gate
+        print(f"  Footage search hints unavailable: {exc}", file=sys.stderr)
+        return sip.format_hints_block({})
+    filled = sum(1 for h in hints.values() if h.get("status") == "filled")
+    print(f"  Footage search hints: {filled}/{len(hints)} slot(s) vouched",
+          file=sys.stderr)
+    return sip.format_hints_block(hints)
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -360,6 +390,8 @@ def main():
     frames_block = build_window_frames(data, catalog_entries, semantic)
     if frames_block:
         out["broll_window_frames"] = frames_block
+
+    out["broll_search_hints"] = build_search_hints(data, catalog_entries)
 
     print(json.dumps(out))
 
