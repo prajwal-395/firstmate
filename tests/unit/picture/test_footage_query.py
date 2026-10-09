@@ -828,6 +828,42 @@ def test_ocr_search_finds_the_measured_text(ocr_index):
     assert hit["confidence"] == 0.91
 
 
+def test_hybrid_search_returns_precise_ocr_span_for_exact_text_query(ocr_index):
+    """An exact text query should return the measured OCR appearance,
+    even when the query does not say "on screen" or "show me".
+    """
+    baseline = ocr_index.search_report("SCUFFLEWA", mode="hybrid")
+    assert all(hit["kind"] != "ocr" for hit in baseline["results"])
+    report = ocr_index.search_report("SCUFFLEWA", mode="hybrid",
+                                    signal_merge=True)
+    assert report["results"][0]["kind"] == "ocr"
+    assert report["results"][0]["text"] == "SCUFFLEWA BREWING CO"
+    assert report["results"][0]["start"] == 2.0
+    assert report["results"][0]["end"] == 5.5
+
+
+def test_signal_merge_cli_flag_reaches_search(ocr_index, capsys):
+    result = footage_query.main([
+        "search", ocr_index.project_folder, "SCUFFLEWA", "--signal-merge",
+        "--index-dir", str(ocr_index.index_dir),
+    ])
+    assert result == 0
+    assert "SCUFFLEWA BREWING CO" in capsys.readouterr().out
+
+
+def test_shot_type_lane_matches_measured_camera_facets(tmp_path):
+    idx = FootageIndex(tmp_path)
+    idx._payload = {"segments": [{
+        "segment_id": "clip_001#camera#000", "clip_id": "clip_001",
+        "kind": "camera", "text": "medium mounted stationary stable shot",
+        "facets": {"framing": "medium", "camera_mode": "mounted",
+                   "stability": "stable", "movement": "stationary",
+                   "scene_type": "vehicle"},
+    }]}
+    assert idx._shot_type_scores("medium stationary shot inside the car")[0] > 0
+    assert idx._shot_type_scores("aerial night shot")[0] == 0
+
+
 def test_ocr_match_specificity():
     """Single shared letters are not a text match; exact words are.
 

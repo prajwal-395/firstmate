@@ -1734,6 +1734,49 @@ class FootageIndex:
 
         return self._map_lane_scores(query, entries, match)
 
+    def _shot_type_scores(self, query: str):
+        """Direct facet evidence for measured camera and shot descriptions.
+
+        MiniLM and BM25 remain useful for broad visual queries, but a
+        camera row already carries measured framing, camera mode,
+        stability, movement, scene, lighting and content facets.  Let
+        those words vote directly so a request such as "medium stationary
+        shot inside the car" can rank the matching camera row without an
+        EG2 index.
+        """
+        scores = np.zeros(len(self.segments), dtype="float32")
+        query_tokens = set(_tokenize(query))
+        if not query_tokens:
+            return scores
+
+        shot_cues = query_tokens & {
+            "wide", "medium", "close", "closeup", "handheld", "mounted",
+            "selfie", "stationary", "shaky", "stable", "tripod",
+            "panning", "pan", "tilting", "tilt", "zoom", "framing",
+        }
+        if not shot_cues:
+            return scores
+
+        facet_names = ("framing", "camera_mode", "stability", "movement",
+                       "scene_type", "lighting", "content_type")
+        for i, segment in enumerate(self.segments):
+            if segment.get("kind") != "camera":
+                continue
+            facets = segment.get("facets") or {}
+            evidence = set()
+            for name in facet_names:
+                value = facets.get(name)
+                if value:
+                    evidence.update(_tokenize(str(value)))
+            # The row text preserves the original measured wording where
+            # a normalized facet (for example walking vs stationary) is
+            # coarser than the source observation.
+            evidence.update(_tokenize(segment.get("text", "")))
+            matches = shot_cues & evidence
+            if matches:
+                scores[i] = len(matches) / len(shot_cues)
+        return scores
+
     def _object_scores(self, query: str):
         """Per-segment object-label evidence: 1 where the label matches.
 
@@ -1819,8 +1862,8 @@ class FootageIndex:
                     break
         return scores
 
-    def _raw_scores(self, query: str, mode: str):
-        """``(combined, dense, lexical, sound, ocr, object, person)`` or why not.
+    def _raw_scores(self, query: str, mode: str, signal_merge: bool = False):
+        """``(combined, dense, lexical, sound, ocr, object, person, shot)`` or why not.
 
         `dense` is None when this index carries no embeddings or the
         embedder could not be loaded, and the caller decides whether that
@@ -1848,7 +1891,7 @@ class FootageIndex:
 
         if mode == "dense":
             if dense is None:
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
             combined = dense
         elif mode == "lexical":
             combined = lexical
@@ -1860,18 +1903,20 @@ class FootageIndex:
         ocr = self._ocr_scores(query)
         obj = self._object_scores(query)
         person = self._person_scores(query)
+        shot = (self._shot_type_scores(query) if signal_merge else
+                np.zeros(len(self.segments), dtype="float32"))
         if mode == "hybrid" and dense is not None:
             # A tag lane joins only where it has anything to say: an
             # all-zero extra half would still shift every rank by its
             # deep stable-order contribution, reordering indexes that
             # never measured that lane.
             halves = [dense, lexical]
-            for lane in (sound, ocr, obj, person):
+            for lane in (sound, ocr, obj, person, shot):
                 if lane.any():
                     halves.append(lane)
             if len(halves) > 2:
                 combined = _rrf(*halves)
-        return combined, dense, lexical, sound, ocr, obj, person
+        return combined, dense, lexical, sound, ocr, obj, person, shot
 
     @staticmethod
     def _eligible(dense, lexical, sound, ocr, obj, person, floor: float):
@@ -1938,7 +1983,8 @@ class FootageIndex:
     # ── core query methods (for LLM tool use) ──
 
     def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
-               floor: float | None = None) -> list:
+               floor: float | None = None,
+               signal_merge: bool = False) -> list:
         """Find the footage segments most relevant to a natural-language query.
 
         Args:
@@ -1960,7 +2006,8 @@ class FootageIndex:
             footage cleared the floor.  Use `search_report` when you need
             to say so in as many words.
         """
-        report = self.search_report(query, top_k=top_k, mode=mode, floor=floor)
+        report = self.search_report(query, top_k=top_k, mode=mode, floor=floor,
+                                    signal_merge=signal_merge)
         if report.get("error"):
             return [{"error": report["error"]}]
         return report["results"]
@@ -1968,7 +2015,8 @@ class FootageIndex:
     def search_report(self, query: str, top_k: int = 5, mode: str = "hybrid",
                       floor: float | None = None, filters: dict | None = None,
                       weak_k: int = WEAK_BAND_LIMIT,
-                      external_hits: list | None = None) -> dict:
+                      external_hits: list | None = None,
+                      signal_merge: bool = False) -> dict:
         """`search`, plus everything needed to explain an empty answer.
 
         Returns a dict carrying the results, the WEAK band beneath the
@@ -2045,8 +2093,9 @@ class FootageIndex:
                 merge_external_evidence(report, external_hits)
             return report
 
-        combined, dense, lexical, sound, ocr, obj, person = self._raw_scores(
-            query, mode)
+        merge_signals = signal_merge and mode == "hybrid"
+        combined, dense, lexical, sound, ocr, obj, person, shot = self._raw_scores(
+            query, mode, signal_merge=merge_signals)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
             if external_hits is not None:
@@ -2084,16 +2133,18 @@ class FootageIndex:
             report["backend_answered"] = "bm25"
 
         tags = {"sound": sound, "ocr": ocr, "object": obj,
-                "person": person}
+                "person": person, "shot": shot}
         keep = mask & self._eligible(dense, lexical, sound, ocr, obj, person,
                                      mode_floor)
+        if merge_signals:
+            keep |= mask & (shot > 0)
         if visual_intent:
             keep &= np.array([s["kind"] in {"action", "scene", "camera", "object"}
                               for s in self.segments], dtype=bool)
         report["retained"] = int(keep.sum())
         report["results"] = self._rank(query, combined, dense, lexical, tags,
                                        keep, top_k)
-        if visual_intent:
+        if visual_intent or (merge_signals and ocr.any()):
             # OCR is picture evidence but has no natural row in the text
             # segment table. Preserve its measured source span directly,
             # rather than attaching OCR confidence to a transcript row.
@@ -3696,6 +3747,9 @@ def main(argv=None):
                                "(the frame index refuses those by default: it cannot "
                                "resolve them)")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
+    p_search.add_argument("--signal-merge", action="store_true",
+                          help="opt in to direct shot-facet and precise OCR-span "
+                               "signals (experimental; not the default)")
     p_search.add_argument("--floor", type=float, default=None,
                            help="minimum dense cosine to count as evidence "
                                 "(default: the built index's backend floor; "
@@ -3757,6 +3811,9 @@ def main(argv=None):
     p_hybrid.add_argument("query")
     p_hybrid.add_argument("-k", "--top-k", type=int, default=5)
     p_hybrid.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
+    p_hybrid.add_argument("--signal-merge", action="store_true",
+                          help="opt in to direct shot-facet and precise OCR-span "
+                               "signals (experimental; not the default)")
     p_hybrid.add_argument("--floor", type=float, default=None,
                            help="minimum dense cosine to count as evidence "
                                 "(default: the built index's backend floor; "
@@ -4008,6 +4065,7 @@ def main(argv=None):
         started = time.perf_counter()
         report = idx.search_report(args.query, top_k=args.top_k, mode=args.mode,
                                    floor=args.floor,
+                                   signal_merge=args.signal_merge,
                                    filters={"person": args.person},
                                    external_hits=_load_external_hits(args.external_hits)
                                    if args.external_hits else None)
@@ -4038,6 +4096,7 @@ def main(argv=None):
         started = time.perf_counter()
         report = idx.search_report(
             args.query, top_k=args.top_k, mode=args.mode, floor=args.floor,
+            signal_merge=args.signal_merge,
             filters={"kind": args.kind, "clip_id": args.clip_id,
                      "framing": args.framing,
                      "min_face_presence": args.min_face_presence,
