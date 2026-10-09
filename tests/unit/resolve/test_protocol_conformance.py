@@ -251,7 +251,8 @@ def _cargo() -> str:
 def test_the_committed_schemas_are_current():
     """A type change without its schema landing beside it is a finding."""
     result = subprocess.run(
-        [_cargo(), "run", "--bin", "emit-schemas", "--", "--check"],
+        [_cargo(), "run", "--bin", "emit-schemas", "--", "--check",
+         "--schemas-dir", str(SCHEMAS_DIR)],
         cwd=REPO_ROOT / "native", capture_output=True, encoding="utf-8",
         timeout=300, check=False)
     assert result.returncode == 0, result.stderr + result.stdout
