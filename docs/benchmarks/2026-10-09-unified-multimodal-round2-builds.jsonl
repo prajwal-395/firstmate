@@ -1,0 +1,5 @@
+{"name": "001-minilm", "wall_s": 5.2, "peak_rss_mib": 695.0, "segments": 517, "embed_dim": 384, "video_chunks": 0, "unified": null, "bytes": 1611881}
+{"name": "geo-minilm", "wall_s": 8.7, "peak_rss_mib": 852.7, "segments": 4219, "embed_dim": 384, "video_chunks": 0, "unified": null, "bytes": 10757143}
+{"name": "001-eg2text", "wall_s": 31.8, "peak_rss_mib": 1271.8, "segments": 517, "embed_dim": 256, "video_chunks": 0, "unified": null, "bytes": 1347248}
+{"name": "geo-eg2text", "wall_s": 29.0, "peak_rss_mib": 1796.4, "segments": 4219, "embed_dim": 256, "video_chunks": 0, "unified": null, "bytes": 8597086}
+{"name": "001-eg2full", "wall_s": 1565.9, "peak_rss_mib": 2695.6, "segments": 517, "embed_dim": 256, "video_chunks": 108, "unified": null, "bytes": 3315286}

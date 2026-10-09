@@ -8,18 +8,23 @@ FIVE linked anchors in the one EmbeddingGemma 2 space:
 * ``still``      - the window's middle still, EG2 image side;
 * ``audio``      - the window's mono 16 kHz audio, EG2 audio side;
 * ``description``- Ren's analysis words for the window (action / scene /
-                   object / camera rows overlapping it), EG2 text side;
+                   object / camera rows overlapping it), EG2 text side -
+                   one anchor PER ROW, not one concatenated doc, so a
+                   distinctive phrase is never diluted by its neighbours;
 * ``transcript`` - Ren's spoken words for the window (speech / chunk rows
-                   overlapping it), EG2 text side.
+                   overlapping it), EG2 text side, per row like above.
 
-A text query is encoded once on the EG2 query side and scores every
-anchor matrix; an image query is encoded on the EG2 image side and
-scores the two visual anchors.  Per-window anchor scores fuse with the
-window texts' BM25 and the OCR lane through reciprocal-rank fusion
-(no blend weight to set - AGENTS.md 10.1).  Retention is judged on the
-RAW signals, never on the fused order: the fused score ranks the
+A text query is encoded once on the EG2 query side and scores the
+routed anchors (``INTENT_ANCHORS``: visual and shot-type queries reach
+the video/still anchors, spoken phrases reach the transcript, BM25 runs
+everywhere); an image query is encoded on the EG2 image side and
+scores the two visual anchors.  Each lane is its own reciprocal-rank
+half - no blend weight to set (AGENTS.md 10.1).  Retention is judged on
+the RAW signals, never on the fused order: the fused score ranks the
 candidate set, so its top row is high even for a subject that is
-nowhere in the footage.
+nowhere in the footage.  Keyword or OCR evidence retains only with a
+routed anchor in the weak band (an exact on-screen word retains on its
+own); dense mode stands on dense evidence alone.
 
 Coverage follows the 2218 rules: a visual-intent query against an
 index with no visual evidence answers ``not_analysed``, never
@@ -54,6 +59,8 @@ from library.tools.analysis.footage_query import (
     RRF_K,
     VIDEO_EMBED_BATCH_CHUNKS,
     _has_visual_intent,
+    _tokenize as _query_tokenize,
+    _OCR_WORD,
     cut_video_windows,
     extract_chunk_frames,
     ingest_fingerprint,
@@ -62,6 +69,7 @@ from library.tools.analysis.footage_query import (
     load_eg2_image_embedder,
     load_eg2_text_embedder,
     load_eg2_video_embedder,
+    ocr_text_matches,
 )
 from library.tools.ren_refusal import RenRefusal
 
@@ -102,20 +110,17 @@ _UNIFIED_MATRIX_FILES = {
 _DESCRIPTION_KINDS = ("action", "scene", "object", "camera")
 _TRANSCRIPT_KINDS = ("speech", "chunk")
 
-_TOKEN = re.compile(r"[a-z0-9]+")
-
-
-def _tokenize(text: str) -> list:
-    return _TOKEN.findall((text or "").lower())
-
 
 def _keep_finite(vectors: np.ndarray, owners: list, anchor: str,
-                 anchor_unembedded: dict) -> tuple:
+                  anchor_unembedded: dict) -> tuple:
     """Drop non-finite encoder rows, naming each dropped window.
 
     The real video encoder emits NaN for short tail windows (measured:
     two 1.5-1.9 s tails on 001); a non-finite row is not a measurement
     and must never reach a matrix whose cosines judge retention.
+    Returns ``(kept_vectors, kept_positions)``: positions index
+    ``owners``, so a caller with several rows per window maps each kept
+    row back to its own window rather than by id membership.
     """
     vectors = np.asarray(vectors, dtype="float32")
     if vectors.shape[0] != len(owners):
@@ -130,7 +135,7 @@ def _keep_finite(vectors: np.ndarray, owners: list, anchor: str,
                 "clip_id": owner["clip_id"],
                 "reason": (f"{anchor} encoder returned a non-finite vector "
                            f"for this window")})
-    kept = [o for o, ok in zip(owners, finite) if ok]
+    kept = [i for i, ok in enumerate(finite) if ok]
     return vectors[finite], kept
 
 
@@ -153,9 +158,23 @@ def _overlaps(a_start, a_end, b_start, b_end) -> bool:
 
 
 def _window_texts(all_segments: list, clip_id: str, start: float, end: float,
-                  kinds: tuple) -> str:
+                   kinds: tuple) -> str:
     """The analysis words for one window, oldest first, de-duplicated."""
-    seen, parts = set(), []
+    return " ".join(text for _seg_id, text in
+                    _window_rows(all_segments, clip_id, start, end, kinds))
+
+
+def _window_rows(all_segments: list, clip_id: str, start: float, end: float,
+                 kinds: tuple) -> list:
+    """The ``(segment_id, text)`` analysis rows overlapping one window.
+
+    Oldest first, de-duplicated by text: the same row set
+    `_window_texts` joins, kept as rows so each can be embedded on its
+    own (per-row text anchors).  A row whose segment carries no id is
+    still embedded - its text is the evidence - and is recorded under
+    its window's id.
+    """
+    seen, rows = set(), []
     for seg in all_segments:
         if seg.get("clip_id") != clip_id or seg.get("kind") not in kinds:
             continue
@@ -164,8 +183,9 @@ def _window_texts(all_segments: list, clip_id: str, start: float, end: float,
         text = (seg.get("text") or "").strip()
         if text and text not in seen:
             seen.add(text)
-            parts.append(text)
-    return " ".join(parts)
+            rows.append((seg.get("segment_id")
+                         or f"{clip_id}#row#{len(rows):03d}", text))
+    return rows
 
 
 def extract_window_audio(source_file, start: float, end: float,
@@ -297,12 +317,23 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
     partial_paths = {a: target / (f + ".partial.npy")
                      for a, f in _UNIFIED_MATRIX_FILES.items()}
     signature = _signature(project_folder, [list(w) for w in windows])
+    # Text anchors hold one row per overlapping analysis row, so their
+    # matrices are bigger than one row per window; the media anchors
+    # stay one row per window.  Capacities are counted up front so the
+    # durable memmaps never grow mid-build.
+    anchor_capacity = {anchor: len(windows) for anchor in UNIFIED_ANCHORS}
+    for anchor, kinds in (("description", _DESCRIPTION_KINDS),
+                          ("transcript", _TRANSCRIPT_KINDS)):
+        anchor_capacity[anchor] = sum(
+            len(_window_rows(all_segments, clip_id, start, end, kinds))
+            for clip_id, _filename, _source, _n, start, end in windows)
 
     checkpoint = None
     try:
         candidate = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         if (candidate["signature"] == signature
                 and candidate["capacity"] == len(windows)
+                and candidate.get("anchor_capacity") == anchor_capacity
                 and 0 <= candidate["processed"] <= len(windows)
                 and isinstance(candidate.get("descriptors"), list)
                 and all(isinstance(candidate.get(k), list)
@@ -332,11 +363,14 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
                 continue
             if anchor in vmat:
                 continue
+            if anchor_capacity[anchor] == 0:
+                continue
             vmat[anchor] = np.lib.format.open_memmap(
                 partial_paths[anchor],
                 mode="r+" if (checkpoint is not None
                               and partial_paths[anchor].is_file()) else "w+",
-                dtype="float32", shape=(len(windows), EG2_TEXT_DIM))
+                dtype="float32",
+                shape=(anchor_capacity[anchor], EG2_TEXT_DIM))
 
     batch_size = max(1, min(VIDEO_EMBED_BATCH_CHUNKS, UNIFIED_BATCH_WINDOWS))
     failed_clips: set = set(checkpoint.get("failed_clips", []) if checkpoint else [])
@@ -352,15 +386,25 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
                                         _DESCRIPTION_KINDS)
             transcript = _window_texts(all_segments, clip_id, start, end,
                                        _TRANSCRIPT_KINDS)
+            # Per-row text anchors: the same overlapping rows, kept as
+            # rows.  The joined strings above stay for BM25 and display;
+            # the matrices below hold one embedding per ROW, each tagged
+            # with its window, and a window scores the max over its rows.
+            description_rows = _window_rows(all_segments, clip_id, start, end,
+                                            _DESCRIPTION_KINDS)
+            transcript_rows = _window_rows(all_segments, clip_id, start, end,
+                                           _TRANSCRIPT_KINDS)
             owners.append({
                 "anchor_id": f"{clip_id}#u#{n:03d}",
                 "clip_id": clip_id, "filename": filename,
                 "start": start, "end": end,
                 "description_text": description,
                 "transcript_text": transcript,
+                "description_rows": [seg_id for seg_id, _text in description_rows],
+                "transcript_rows": [seg_id for seg_id, _text in transcript_rows],
             })
-            batch_inputs["description"].append(description)
-            batch_inputs["transcript"].append(transcript)
+            batch_inputs["description"].append(description_rows)
+            batch_inputs["transcript"].append(transcript_rows)
             try:
                 frames = extract_chunk_frames(source, start, end)
             except RenRefusal as exc:
@@ -386,6 +430,7 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
         if not owners:
             checkpoint_tmp.write_text(json.dumps({
                 "signature": signature, "capacity": len(windows),
+                "anchor_capacity": anchor_capacity,
                 "processed": min(batch_start + batch_size, len(windows)),
                 "descriptors": descriptors, "unembedded": unembedded,
                 **{f"rows_{a}": anchor_rows[a] for a in UNIFIED_ANCHORS},
@@ -402,62 +447,66 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
             inputs = batch_inputs[anchor]
             if anchor in ("description", "transcript"):
                 # Text anchors embed only where there are words; a
-                # window with no words in this lane stays absent from
-                # the matrix and is named, never zero-filled.
-                present = [(i, t) for i, t in enumerate(inputs) if t.strip()]
-                if not present:
-                    for i in range(len(inputs)):
+                # window with no rows in this lane stays absent from
+                # the matrix and is named, never zero-filled.  Each
+                # overlapping ROW is embedded on its own: a window doc
+                # concatenating every row dilutes the distinctive phrase
+                # ("neutral expression" inside a 913-char doc scores
+                # below its own floor while unrelated windows clear it -
+                # round-1 finding).  The matrix holds one row per text
+                # and `anchor_rows` tags each with its window's id, so a
+                # window with several rows appears several times and
+                # scores the max over them at query time.
+                flat_texts, flat_windows, flat_clips = [], [], []
+                for i, rows in enumerate(inputs):
+                    if not rows:
                         anchor_unembedded[anchor].append({
                             "anchor_id": owners[i]["anchor_id"],
                             "clip_id": owners[i]["clip_id"],
                             "reason": f"no {anchor} text overlaps this window"})
+                    for _seg_id, text in rows:
+                        flat_texts.append(text)
+                        flat_windows.append(owners[i]["anchor_id"])
+                        flat_clips.append(owners[i]["clip_id"])
+                if not flat_texts:
                     continue
-                idx, texts = zip(*present)
-                vectors, kept_owners = _keep_finite(
-                    np.asarray(encode(list(texts)), dtype="float32"),
-                    [owners[i] for i in idx], anchor, anchor_unembedded)
-                kept_ids = {o["anchor_id"] for o in kept_owners}
-                pos = 0
-                for i in idx:
-                    owner = owners[i]
-                    if owner["anchor_id"] in kept_ids:
-                        vmat[anchor][len(anchor_rows[anchor])] = vectors[pos]
-                        anchor_rows[anchor].append(owner["anchor_id"])
-                        pos += 1
-                for i, owner in enumerate(owners):
-                    if i not in idx:
-                        anchor_unembedded[anchor].append({
-                            "anchor_id": owner["anchor_id"],
-                            "clip_id": owner["clip_id"],
-                            "reason": f"no {anchor} text overlaps this window"})
+                vectors, kept = _keep_finite(
+                    np.asarray(encode(flat_texts), dtype="float32"),
+                    [{"anchor_id": a, "clip_id": c}
+                     for a, c in zip(flat_windows, flat_clips)],
+                    anchor, anchor_unembedded)
+                # `vectors` is compact (kept rows only); `kept` indexes
+                # the originals, so each row maps back to its own
+                # window even when a window contributed several rows.
+                for new_i, pos in enumerate(kept):
+                    vmat[anchor][len(anchor_rows[anchor])] = vectors[new_i]
+                    anchor_rows[anchor].append(flat_windows[pos])
             elif anchor == "audio":
                 present = [(i, a) for i, a in enumerate(inputs) if a is not None]
                 if not present:
                     continue
                 idx, audios = zip(*present)
-                vectors, kept_owners = _keep_finite(
+                vectors, kept = _keep_finite(
                     np.asarray(encode(list(audios)), dtype="float32"),
                     [owners[i] for i in idx], anchor, anchor_unembedded)
-                kept_ids = {o["anchor_id"] for o in kept_owners}
-                pos = 0
-                for _i in idx:
-                    if owners[_i]["anchor_id"] in kept_ids:
-                        vmat[anchor][len(anchor_rows[anchor])] = vectors[pos]
-                        anchor_rows[anchor].append(owners[_i]["anchor_id"])
-                        pos += 1
+                for new_i, pos in enumerate(kept):
+                    owner = owners[idx[pos]]
+                    vmat[anchor][len(anchor_rows[anchor])] = vectors[new_i]
+                    anchor_rows[anchor].append(owner["anchor_id"])
             else:
-                vectors, kept_owners = _keep_finite(
+                vectors, kept = _keep_finite(
                     np.asarray(encode(inputs), dtype="float32"),
                     owners, anchor, anchor_unembedded)
-                for j, owner in enumerate(kept_owners):
-                    vmat[anchor][len(anchor_rows[anchor])] = vectors[j]
-                    anchor_rows[anchor].append(owner["anchor_id"])
+                for new_i, pos in enumerate(kept):
+                    vmat[anchor][len(anchor_rows[anchor])] = vectors[new_i]
+                    anchor_rows[anchor].append(owners[pos]["anchor_id"])
             vmat[anchor].flush()
             anchor_seconds[anchor] += time.perf_counter() - t0
             t0 = time.perf_counter()
         descriptors.extend(owners)
         checkpoint_tmp.write_text(json.dumps({
             "signature": signature, "capacity": len(windows),
+            "anchor_capacity": anchor_capacity,
             "processed": min(batch_start + batch_size, len(windows)),
             "descriptors": descriptors, "unembedded": unembedded,
             **{f"rows_{a}": anchor_rows[a] for a in UNIFIED_ANCHORS},
@@ -564,13 +613,81 @@ def build_unified(project_folder, index_dir=None, verbose=False) -> dict:
     return stats
 
 
+#: Query intent signals, checked in order: text, shot, spoken, then the
+#: shared visual gate, else general.  Text first because a shot query can
+#: name a sign ("show me the street sign on screen") and a text query can
+#: quote speech ("what does the on-screen text TAB say") - the more
+#: specific evidence wins the route.
+_TEXT_INTENT = re.compile(
+    r"\b(on[- ]screen|street signs?|road signs?|signs?|written|reads?|"
+    r"texts?|labels?|captions?)\b",
+    re.IGNORECASE)
+_SHOT_INTENT = re.compile(
+    r"\b(shots?|wide|close[- ]?up|medium|selfie|handheld|stead\w*|shak\w*|"
+    r"footage|interior|exterior|scenes?|daylight|sunset|camera|angles?|"
+    r"aerial|drone|tracking|static|driving|parking lot)\b",
+    re.IGNORECASE)
+_SPOKEN_INTENT = re.compile(
+    r"\b(says?|said|saying|talks?|talked|talking|tells?|telling|told|"
+    r"mentions?|asks?|asked|asking|shout out|quotes?|recites?)\b",
+    re.IGNORECASE)
+
+
+def route_query_intent(query: str) -> str:
+    """One of ``spoken``/``shot``/``text``/``visual``/``general``.
+
+    A cheap deterministic route, not a judgement: each intent names the
+    dense anchors that can answer it (``INTENT_ANCHORS``).  A query with
+    no signal is ``general`` and keeps every anchor - routing excludes
+    only lanes that cannot answer, so an unmarked query loses nothing.
+    """
+    text = query or ""
+    if _TEXT_INTENT.search(text):
+        return "text"
+    if _SHOT_INTENT.search(text):
+        return "shot"
+    if _SPOKEN_INTENT.search(text):
+        return "spoken"
+    if _has_visual_intent(text):
+        return "visual"
+    return "general"
+
+
+#: Dense anchors that can answer each intent.  Speech content lives in
+#: the transcript: the audio tower hears the same speech, but a text
+#: query against speech-audio similarity is unproven, so ``spoken``
+#: takes the transcript alone.  Pixels plus the object/camera rows
+#: answer shot and on-screen-text questions - speech cannot say what is
+#: written on screen, so ``text`` drops the transcript and audio lanes.
+#: ``visual`` and ``general`` keep every anchor, so the video and the
+#: analysis description complement each other as the captain intends.
+INTENT_ANCHORS = {
+    "spoken": ("transcript",),
+    "shot": ("video", "still", "description"),
+    "text": ("video", "still", "description"),
+    "visual": ("video", "still", "audio", "description", "transcript"),
+    "general": ("video", "still", "audio", "description", "transcript"),
+}
+
+
+def _ocr_exact(query_tokens: list, text: str) -> bool:
+    """Whether some query token exactly equals an on-screen word.
+
+    An exact word on screen ("SHOP" for "shop") is strong evidence on
+    its own: the text is really pictured, so a window carrying it
+    retains without dense corroboration.  A substring-only OCR match
+    still needs an anchor in the weak band to retain.
+    """
+    words = set(_OCR_WORD.findall((text or "").lower()))
+    return any(token in words for token in query_tokens or [])
+
+
 class UnifiedIndex:
     """Searchable unified anchors for one project's footage.
 
     Loaders are lazy: constructing this is free and a caller that only
     wants descriptors never pays for the model.
     """
-
     def __init__(self, project_folder, index_dir=None):
         self.project_folder = str(project_folder)
         base = (Path(index_dir) if index_dir else
@@ -637,16 +754,22 @@ class UnifiedIndex:
         return _BM25(texts)
 
     def _ocr_hits(self, query: str) -> list:
-        tokens = set(_tokenize(query))
+        # Stopword-filtered tokens and the shared specific rule: the old
+        # both-directions substring on raw tokens let "the" match "ITHE"
+        # and any shared letter match a 1-char string, flooding visual
+        # queries with OCR rows.  Each hit records whether some query
+        # token EXACTLY equals an on-screen word: an exact word on
+        # screen ("SHOP") is strong evidence on its own, while a
+        # substring-only match still needs dense corroboration to retain.
+        tokens = _query_tokenize(query or "")
         if not tokens:
             return []
         filenames = {d["clip_id"]: d["filename"] for d in self.descriptors}
         hits = []
         for clip_id, detections in (self.payload.get("ocr_texts") or {}).items():
             for number, detection in enumerate(detections or []):
-                words = set(_tokenize(detection.get("text", "")))
-                if not (tokens & words
-                        or any(t in w or w in t for t in tokens for w in words)):
+                text = detection.get("text", "")
+                if not ocr_text_matches(tokens, text):
                     continue
                 spans = detection.get("appearances") or [[0.0, 0.0]]
                 for start, end in spans:
@@ -663,19 +786,24 @@ class UnifiedIndex:
                         "duration": round(end_f - start_f, 3),
                         "timecode": (f"{self._timecode(start_f)}-"
                                      f"{self._timecode(end_f)}"),
-                        "text": detection.get("text", ""),
+                        "text": text,
                         "score": round(confidence, 4),
                         "ocr_score": round(confidence, 4),
+                        "ocr_exact": _ocr_exact(tokens, text),
                         "visual_evidence": True,
                     })
         return hits
 
     def search_unified(self, query: str, top_k: int = 5, mode: str = "hybrid",
                        floor: float | None = None, query_image=None) -> dict:
-        """One query against all five linked anchors, fused with keyword + OCR.
+        """One query against the routed anchors, fused with keyword + OCR.
 
         `query` is text; `query_image` (a PIL image or HWC array) scores
-        the visual anchors instead of - or beside - the text.  Returns
+        the visual anchors instead of - or beside - the text.  The text
+        is routed by intent to the anchors that can answer it
+        (``INTENT_ANCHORS``) and the lanes fuse by reciprocal-rank
+        fusion - one half per anchor, plus BM25 everywhere and OCR where
+        it matched - so no blend weight decides between lanes.  Returns
         the report dict: per-window hits with per-anchor scores, the
         weak band, what was considered and retained, and whether the
         index abstained.  An empty `results` is a real answer.
@@ -719,6 +847,8 @@ class UnifiedIndex:
             anchor_weaks = {a: weak_floor for a in UNIFIED_ANCHORS}
 
         visual_intent = _has_visual_intent(query or "")
+        intent = route_query_intent(query or "")
+        lanes = INTENT_ANCHORS[intent]
         coverage = self.payload.get("coverage", {})
         per_clip = coverage.get("per_clip", {})
         # The 2218 rule: a visual question needs PICTURE evidence.  Heard
@@ -742,7 +872,7 @@ class UnifiedIndex:
             "window_count": n,
             "results": [], "weak": [], "considered": n, "retained": 0,
             "abstained": False, "degraded": None, "error": None,
-            "query_intent": "visual" if visual_intent else "general",
+            "query_intent": intent, "intent_lanes": list(lanes),
             "answer_status": None, "coverage": coverage,
         }
         if n == 0:
@@ -761,23 +891,33 @@ class UnifiedIndex:
         text_vector, image_vector = None, None
         dense = np.zeros(n, dtype="float32")
         per_anchor = {}
-        row_index = {a: {rid: i for i, rid in
-                         enumerate((self.payload.get("anchor_rows") or {}).get(a) or [])}
-                     for a in UNIFIED_ANCHORS}
+        row_index = {}
+        for a in UNIFIED_ANCHORS:
+            by_id: dict = {}
+            for i, rid in enumerate(
+                    (self.payload.get("anchor_rows") or {}).get(a) or []):
+                by_id.setdefault(rid, []).append(i)
+            row_index[a] = by_id
 
         def _place(anchor: str, vector, key: str | None = None) -> None:
-            """Score one anchor's matrix, placing rows back on windows."""
+            """Score one anchor's matrix, placing rows back on windows.
+
+            A window with several text rows (per-row anchors) scores the
+            max over its rows: one distinctive row is evidence even when
+            its neighbours are not.
+            """
             matrix = self.matrix(anchor)
             if matrix is None or vector is None:
                 return
             scores = np.zeros(n, dtype="float32")
             by_id = row_index.get(anchor) or {}
-            if by_id and len(matrix) == len(by_id):
+            rows = (self.payload.get("anchor_rows") or {}).get(anchor) or []
+            if by_id and len(matrix) == len(rows):
                 hits = matrix @ vector
                 for pos, d in enumerate(descriptors):
-                    row = by_id.get(d["anchor_id"])
-                    if row is not None:
-                        scores[pos] = hits[row]
+                    for row in by_id.get(d["anchor_id"], ()):
+                        if hits[row] > scores[pos]:
+                            scores[pos] = hits[row]
             elif len(matrix) == n:
                 scores = (matrix @ vector).astype("float32")
             else:
@@ -790,7 +930,7 @@ class UnifiedIndex:
                 report["degraded"] = ("no EG2 text encoder - this answer is "
                                       "keyword match only")
             else:
-                for anchor in UNIFIED_ANCHORS:
+                for anchor in lanes:
                     _place(anchor, text_vector)
                 if per_anchor:
                     dense = np.max(list(per_anchor.values()), axis=0)
@@ -809,6 +949,7 @@ class UnifiedIndex:
         if (query or "").strip():
             lexical = self._window_bm25().scores(query).astype("float32")
         ocr = np.zeros(n, dtype="float32")
+        ocr_exact = np.zeros(n, dtype="float32")
         if (query or "").strip():
             ocr_hit_clips: dict = {}
             for hit in self._ocr_hits(query):
@@ -817,6 +958,8 @@ class UnifiedIndex:
                 for hit in ocr_hit_clips.get(d["clip_id"], []):
                     if hit["end"] > d["start"] and hit["start"] < d["end"]:
                         ocr[i] = max(ocr[i], 1.0)
+                        if hit.get("ocr_exact"):
+                            ocr_exact[i] = max(ocr_exact[i], 1.0)
 
         has_dense = bool(per_anchor)
         if mode == "dense" and not has_dense:
@@ -825,7 +968,10 @@ class UnifiedIndex:
         if mode == "lexical":
             combined = lexical
         elif mode == "dense":
-            combined = dense
+            # Dense ranks the routed anchors only: each routed lane is
+            # its own RRF half, so breadth across answering lanes beats
+            # one loud lane, with no keyword half to promote neighbours.
+            combined = _rrf(*per_anchor.values())
         elif not has_dense:
             combined = lexical
             if mode == "hybrid":
@@ -833,18 +979,30 @@ class UnifiedIndex:
                                       " keyword-only fallback.").strip()
                 report["backend_answered"] = "bm25"
         else:
-            halves = [dense, lexical]
+            halves = list(per_anchor.values()) + [lexical]
             if ocr.any():
                 halves.append(ocr)
             combined = _rrf(*halves)
 
         if has_dense and mode_floor > 0:
             anchor_keep = np.zeros(n, dtype=bool)
+            weak_any = np.zeros(n, dtype=bool)
             for anchor, scores in per_anchor.items():
                 base = anchor.split("@")[0]
-                gate = anchor_floors.get(base, mode_floor)
-                anchor_keep |= scores >= gate
-            keep = anchor_keep | (lexical > 0) | (ocr > 0)
+                anchor_keep |= scores >= anchor_floors.get(base, mode_floor)
+                weak_any |= scores >= anchor_weaks.get(base, weak_floor)
+            if mode == "dense":
+                # Anchors only: a dense answer stands on dense evidence.
+                keep = anchor_keep
+            else:
+                # Keyword or OCR evidence retains only with dense
+                # corroboration - a bare word overlap ("birthday" in an
+                # unrelated window) is not a finding on its own, which
+                # is what held hybrid abstention at 0.000 on 001.  An
+                # EXACT on-screen word is pictured text, so it retains
+                # on its own like a dense hit does.
+                keep = (anchor_keep | ((lexical > 0) & weak_any)
+                        | (ocr_exact > 0) | ((ocr > 0) & weak_any))
         elif has_dense:
             keep = np.ones(n, dtype=bool)
         else:

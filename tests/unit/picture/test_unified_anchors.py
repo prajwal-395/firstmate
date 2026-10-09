@@ -10,12 +10,14 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from library.tools.analysis import unified_anchors as ua
 from library.tools.analysis.unified_anchors import (
+    INTENT_ANCHORS,
     UNIFIED_ANCHORS,
     UNIFIED_AUDIO_RATE,
     UNIFIED_BATCH_WINDOWS,
@@ -24,6 +26,7 @@ from library.tools.analysis.unified_anchors import (
     UnifiedIndex,
     build_unified,
     extract_window_audio,
+    route_query_intent,
 )
 from library.tools.ren_refusal import RenRefusal
 
@@ -323,9 +326,13 @@ def test_keep_finite_names_dropped_windows():
     vectors = np.ones((3, 256), dtype="float32")
     vectors[1, 7] = np.nan
     missing: dict = {"video": []}
-    kept_vectors, kept_owners = _keep_finite(vectors, owners, "video", missing)
+    kept_vectors, kept = _keep_finite(vectors, owners, "video", missing)
     assert kept_vectors.shape == (2, 256)
-    assert [o["anchor_id"] for o in kept_owners] == ["clip_A#u#000", "clip_A#u#002"]
+    # Positions, not owners: a caller with several rows per window maps
+    # each kept row back to its own window by position.
+    assert kept == [0, 2]
+    assert [owners[i]["anchor_id"] for i in kept] == [
+        "clip_A#u#000", "clip_A#u#002"]
     assert missing["video"][0]["anchor_id"] == "clip_A#u#001"
     assert "non-finite" in missing["video"][0]["reason"]
 
@@ -373,3 +380,253 @@ def test_cli_search_unified_choice(media_project, monkeypatch):
                                index_dir, "--unified-anchors"]) == 0
     idx = UnifiedIndex(str(media_project), index_dir=index_dir)
     assert idx.summary()["backend"] == "unified-eg2"
+
+
+# ── Round 2: per-row anchors, evidence routing, corroborated retention ──
+
+
+def _keyword_encode():
+    """A 256-d text encoder that hears two distinctive words.
+
+    Index 0 fires on "zebra", index 1 on "car"; every row shares a small
+    floor so absent probes still normalize.  Query and document sides
+    are identical - the stub measures routing and retention, not prompt
+    prefixes.
+    """
+
+    def encode(texts, **kwargs):
+        rows = []
+        for text in texts:
+            lowered = (text or "").lower()
+            vector = np.full(256, 0.05, dtype="float32")
+            if "zebra" in lowered:
+                vector[0] += 1.0
+            if "car" in lowered:
+                vector[1] += 1.0
+            rows.append(vector / np.linalg.norm(vector))
+        return np.asarray(rows, dtype="float32")
+
+    return encode
+
+
+def test_description_anchor_embeds_each_row(tmp_path, monkeypatch):
+    """A window's description holds one anchor per overlapping row.
+
+    Round 1 concatenated every overlapping vision row into one window
+    doc, so a distinctive phrase ("neutral expression" in a 913-char
+    doc) drowned in its neighbours and scored below its own floor while
+    unrelated windows cleared it.  Each row is now its own anchor and
+    the window scores the max over its rows.
+    """
+    from library.tools.analysis import footage_segments as segments_mod
+
+    root = tmp_path / "rows"
+    _clip(root / "raw" / "A.mp4", 16)
+    _write(root / "pipeline_data.json", {
+        "step_outputs": {"catalog": {"clip_catalog": [
+            {"clip_id": "clip_A", "filename": "A.mp4",
+             "source_file": str(root / "raw" / "A.mp4"),
+             "path": str(root / "raw" / "A.mp4"),
+             "duration_seconds": 16.0},
+        ]}},
+    })
+    vision_rows = [
+        {"segment_id": "clip_A#action#000", "clip_id": "clip_A",
+         "kind": "action", "start": 0.0, "end": 8.0,
+         "text": "a man walks through a parking lot"},
+        {"segment_id": "clip_A#object#000", "clip_id": "clip_A",
+         "kind": "object", "start": 1.0, "end": 3.0,
+         "text": "zebra crossing sign by the road"},
+        {"segment_id": "clip_A#action#001", "clip_id": "clip_A",
+         "kind": "action", "start": 8.0, "end": 16.0,
+         "text": "a man sits inside the car"},
+    ]
+    monkeypatch.setattr(
+        segments_mod, "build_segments",
+        lambda *args, **kwargs: [
+            SimpleNamespace(to_dict=lambda r=r: r) for r in vision_rows])
+    _install_encoders(monkeypatch)
+    keyword = _keyword_encode()
+    monkeypatch.setattr(ua, "load_eg2_text_embedder",
+                        lambda: (keyword, "text-test"))
+    # Only the text lane runs here: routing and retention are measured
+    # on the description matrix without visual-stub noise.
+    monkeypatch.setattr(ua, "load_eg2_video_embedder", lambda: (None, "off"))
+    monkeypatch.setattr(ua, "load_eg2_image_embedder", lambda: (None, "off"))
+    monkeypatch.setattr(ua, "load_eg2_audio_embedder", lambda: (None, "off"))
+
+    index_dir = root / "uidx"
+    build_unified(str(root), index_dir=index_dir)
+    payload = json.loads((index_dir / UNIFIED_DESCRIPTORS_FILE).read_text(
+        encoding="utf-8"))
+    # Two rows in window 0, one in window 1 - the matrix holds rows,
+    # each tagged with its window's id.
+    assert payload["anchor_rows"]["description"] == [
+        "clip_A#u#000", "clip_A#u#000", "clip_A#u#001"]
+    assert np.load(index_dir / ua._UNIFIED_MATRIX_FILES["description"]).shape == (3, 256)
+    assert payload["descriptors"][0]["description_rows"] == [
+        "clip_A#action#000", "clip_A#object#000"]
+    # The joined doc stays for BM25 and display.
+    assert "zebra" in payload["descriptors"][0]["description_text"]
+    # No speech rows anywhere: the transcript lane stays absent and
+    # names its windows.
+    assert payload["anchor_dimensions"]["transcript"] == 0
+    assert len(payload["anchor_unembedded"]["transcript"]) == 2
+
+    idx = UnifiedIndex(str(root), index_dir=index_dir)
+    report = idx.search_unified("zebra crossing sign", floor=0.0)
+    assert report["query_intent"] == "text"
+    assert [h["anchor_id"] for h in report["results"]] == [
+        "clip_A#u#000", "clip_A#u#001"]
+    # The window scores its BEST row, not the concatenated doc: exactly
+    # the cosine of the zebra row.
+    expected = float(keyword(["zebra crossing sign"])[0]
+                     @ keyword(["zebra crossing sign by the road"])[0])
+    assert report["results"][0]["description_score"] == pytest.approx(expected)
+    assert (report["results"][0]["description_score"]
+            > report["results"][1]["description_score"])
+
+
+def test_route_query_intent_sends_each_question_to_its_evidence():
+    assert route_query_intent("show me the wide handheld walking shot") == "shot"
+    assert route_query_intent("find the shaky handheld footage") == "shot"
+    assert route_query_intent("show me the car interior") == "shot"
+    assert route_query_intent("what does the on-screen text TAB say") == "text"
+    assert route_query_intent("show me the street sign on screen") == "text"
+    assert route_query_intent("where does he talk about parking") == "spoken"
+    assert route_query_intent("he says look at me") == "spoken"
+    assert route_query_intent("shout out casey neistat") == "spoken"
+    assert route_query_intent("a birthday cake with candles") == "general"
+    assert route_query_intent("neutral expression") == "general"
+    assert INTENT_ANCHORS["spoken"] == ("transcript",)
+    assert set(INTENT_ANCHORS["shot"]) == {"video", "still", "description"}
+    assert set(INTENT_ANCHORS["general"]) == set(UNIFIED_ANCHORS)
+
+
+def _manual_unified_index(root, monkeypatch, descriptors, anchor_rows,
+                          matrices, floors, ocr_texts, query_vector):
+    """A UnifiedIndex with hand-placed matrices, no encoders, no media."""
+    from library.tools.analysis import unified_anchors as ua_mod
+
+    monkeypatch.setattr(
+        ua, "load_eg2_text_embedder",
+        lambda: (lambda texts, **k: np.tile(
+            np.asarray(query_vector, dtype="float32"),
+            (len(texts), 1)), "t"))
+    index_dir = root / "uidx"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "project_folder": str(root), "backend": "unified-eg2",
+        "embed_model": "google/embeddinggemma-2", "embed_dimension": 256,
+        "window_seconds": 8.0, "anchors": list(UNIFIED_ANCHORS),
+        "anchor_backends": {}, "anchor_dimensions":
+            {a: (256 if a in matrices else 0) for a in UNIFIED_ANCHORS},
+        "window_count": len(descriptors), "coverage": {"per_clip": {}},
+        "descriptors": descriptors, "anchor_rows": anchor_rows,
+        "unified_unembedded": [], "anchor_unembedded": {},
+        "anchor_floors": floors,
+        "ocr_texts": ocr_texts, "ocr_methods": {},
+    }
+    (index_dir / UNIFIED_DESCRIPTORS_FILE).write_text(
+        json.dumps(payload), encoding="utf-8")
+    for anchor, matrix in matrices.items():
+        np.save(index_dir / ua_mod._UNIFIED_MATRIX_FILES[anchor],
+                np.asarray(matrix, dtype="float32"))
+    return UnifiedIndex(str(root), index_dir=index_dir)
+
+
+def _one256(index, value=1.0):
+    vector = [0.0] * 256
+    vector[index] = value
+    return vector
+
+
+def test_hybrid_keep_needs_dense_corroboration(tmp_path, monkeypatch):
+    """A bare word overlap is not a finding on its own.
+
+    Round 1 retained any window with BM25 > 0, so "birthday" in an
+    unrelated transcript kept the window even though every dense lane
+    refused it - hybrid abstention 0.000 on 001.  Keyword evidence now
+    retains only with a routed anchor in the weak band.
+    """
+    descriptors = [
+        {"anchor_id": "clip_A#u#000", "clip_id": "clip_A", "filename": "A.mp4",
+         "start": 0.0, "end": 8.0, "description_text": "sunny parking lot",
+         "transcript_text": ""},
+        {"anchor_id": "clip_A#u#001", "clip_id": "clip_A", "filename": "A.mp4",
+         "start": 8.0, "end": 16.0,
+         "description_text": "birthday cake candles celebration",
+         "transcript_text": ""},
+    ]
+    idx = _manual_unified_index(
+        tmp_path / "keep", monkeypatch, descriptors,
+        {"transcript": ["clip_A#u#000", "clip_A#u#001"]},
+        {"transcript": [_one256(0), _one256(1)]},
+        {"transcript": {"confident": 0.75, "weak": 0.60,
+                        "source": "t", "probes": {}}},
+        {}, _one256(0))
+    hybrid = idx.search_unified("a birthday cake with candles")
+    assert [h["anchor_id"] for h in hybrid["results"]] == ["clip_A#u#000"]
+    dense = idx.search_unified("a birthday cake with candles", mode="dense")
+    assert [h["anchor_id"] for h in dense["results"]] == ["clip_A#u#000"]
+
+
+def test_exact_ocr_word_retains_without_dense(tmp_path, monkeypatch):
+    """Pictured text is evidence even when no anchor hears it.
+
+    "SHOP" is really on screen in the window, so the window retains
+    without dense corroboration; a substring-only match ("HOP" against
+    "SHOP" is not even a match) and a below-weak window with no exact
+    word still abstain.
+    """
+    descriptors = [
+        {"anchor_id": "clip_A#u#000", "clip_id": "clip_A", "filename": "A.mp4",
+         "start": 0.0, "end": 8.0, "description_text": "",
+         "transcript_text": ""},
+    ]
+    ocr_texts = {"clip_A": [
+        {"text": "SHOP", "confidence": 0.9, "appearances": [[4.8, 4.9]]},
+    ]}
+    idx = _manual_unified_index(
+        tmp_path / "exact", monkeypatch, descriptors,
+        {"transcript": ["clip_A#u#000"]},
+        {"transcript": [_one256(1)]},
+        {"transcript": {"confident": 0.75, "weak": 0.60,
+                        "source": "t", "probes": {}}},
+        ocr_texts, _one256(0))
+    found = idx.search_unified("SHOP")
+    assert [h["anchor_id"] for h in found["results"]] == ["clip_A#u#000"]
+    missed = idx.search_unified("HOP")
+    assert missed["results"] == []
+    assert missed["abstained"] is True
+
+
+def test_ocr_hits_ignore_single_character_strings(tmp_path, monkeypatch):
+    """The S03 flood, pinned: "find the shaky handheld footage" matched
+    OCR rows reading "a (", "N", "D" and "ITHE" through shared letters,
+    outranking the true camera window on the text and unified paths."""
+    root = tmp_path / "ocr"
+    index_dir = root / "uidx"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / UNIFIED_DESCRIPTORS_FILE).write_text(json.dumps({
+        "project_folder": str(root), "backend": "unified-eg2",
+        "embed_model": "google/embeddinggemma-2", "embed_dimension": 256,
+        "window_seconds": 8.0, "anchors": list(UNIFIED_ANCHORS),
+        "anchor_backends": {}, "anchor_dimensions": {},
+        "window_count": 1, "coverage": {"per_clip": {}},
+        "descriptors": [
+            {"anchor_id": "clip_A#u#000", "clip_id": "clip_A",
+             "filename": "A.mp4", "start": 0.0, "end": 8.0,
+             "description_text": "", "transcript_text": ""}],
+        "anchor_rows": {}, "unified_unembedded": [],
+        "anchor_unembedded": {}, "anchor_floors": {},
+        "ocr_texts": {"clip_A": [
+            {"text": text, "confidence": 0.5, "appearances": [[0.0, 1.0]]}
+            for text in ("a (", "N", "D", "ITHE", "SHOP")]},
+        "ocr_methods": {},
+    }), encoding="utf-8")
+    idx = UnifiedIndex(str(root), index_dir=index_dir)
+    assert idx._ocr_hits("find the shaky handheld footage") == []
+    shop = idx._ocr_hits("where is the SHOP entrance")
+    assert [h["text"] for h in shop] == ["SHOP"]
+    assert shop[0]["ocr_exact"] is True

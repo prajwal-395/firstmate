@@ -273,6 +273,49 @@ _STOPWORD_TEXT = (
 )
 _STOPWORDS = frozenset(_STOPWORD_TEXT.split())
 
+#: An OCR substring match counts only at this length or above.  An exact
+#: word matches at any length; only the substring half is gated (see
+#: `ocr_token_matches`).
+OCR_SUBSTRING_MIN = 4
+
+_OCR_WORD = re.compile(r"[a-z0-9]+")
+
+
+def ocr_token_matches(token: str, word: str) -> bool:
+    """Whether one query token and one on-screen word name the same text.
+
+    Exact words always match ("shop" finds "SHOP").  A substring in
+    either direction counts only when the shorter side reaches
+    ``OCR_SUBSTRING_MIN``: without the gate, single-character tracked
+    strings ("a", "N", "D") match any query sharing the letter ("d" is
+    in "handheld") and flood visual queries ahead of the true window.
+    Both inputs are expected lowercased (``_tokenize`` output and
+    ``_OCR_WORD`` words); the comparison itself is exact, never folded.
+    """
+    if not token or not word:
+        return False
+    if token == word:
+        return True
+    if min(len(token), len(word)) < OCR_SUBSTRING_MIN:
+        return False
+    return token in word or word in token
+
+
+def ocr_text_matches(query_tokens: list, text: str) -> bool:
+    """Whether any query token names any word of an on-screen string.
+
+    The word split is what keeps short tracked strings honest: "N"
+    matches no multi-letter token (no exact word, substring gated), so
+    `_text_matches` and the unified lane's `_ocr_hits` share this one
+    rule rather than each re-deciding what "matches" means.
+    """
+    words = _OCR_WORD.findall((text or "").lower())
+    if not words:
+        return False
+    return any(ocr_token_matches(token, word)
+               for token in query_tokens or ()
+               for word in words)
+
 
 def index_dir_for(project_folder) -> Path:
     """Where a project's index lives by default.
@@ -461,19 +504,31 @@ VIDEO_CHUNK_FPS = 1
 VIDEO_FRAME_WIDTH = 640
 CHUNK_EMBEDDINGS_FILE = "chunk_embeddings.npy"
 
-# Absent probes for build-time floor calibration: subjects vanishingly
-# rare in Ren footage, every one verified absent (silent at any floor)
-# on the corpora measured so far - the 14-doc text set (scout: cake
-# 0.664, motorcycle 0.696), the 6-chunk set, and the 124-chunk live
-# proof (motorcycle 0.627).  A probe that IS present in some stranger's
-# footage only raises that index's floor (the fail-closed direction),
-# and its best is recorded per probe, so the outlier is auditable.
+# Absent probes for build-time floor calibration: subjects verified absent
+# (silent at any floor) on the corpora measured so far - the 14-doc text
+# set (scout: cake 0.664, motorcycle 0.696), the 6-chunk set, the
+# 124-chunk live proof (motorcycle 0.627), and the round-2 bakeoff's
+# hand-verified absent queries over 001 and geo-podcast
+# (docs/benchmarks/2026-10-09-unified-multimodal-queries.json, X01-X12 /
+# G22-G29: the first five below plus the seven after them).  Some of the
+# seven name words that DO occur in footage ("cup", "baby") while their
+# SUBJECT is absent - exactly the present-word/absent-subject case a
+# floor must reject.  A probe that IS present in some stranger's footage
+# only raises that index's floor (the fail-closed direction), and its
+# best is recorded per probe, so the outlier is auditable.
 ABSENT_PROBES = (
     "a birthday cake with candles",
     "a motorcycle parked outdoors",
     "a helicopter hovering overhead",
     "an underwater coral reef",
     "someone playing the piano on stage",
+    "snowboarding down a mountain",
+    "a horse galloping on a beach",
+    "find the shot with the cup",
+    "a dog barking loudly",
+    "snow falling outside",
+    "an airplane taking off",
+    "a baby crying",
 )
 
 # Confident floor sits this far above the worst absent probe.  The
@@ -2465,19 +2520,17 @@ class FootageIndex:
     def _text_matches(query_tokens: list, text: str) -> bool:
         """Whether a query token and an on-screen string refer to the same text.
 
-        Both directions of substring, case-insensitive, the same rule as
-        `_sound_label_matches`: "SCUFFLEWA" matches "SCUFFLEWA BREWING
-        CO" because the label is a substring of the query token, and a
-        full sentence still works - the token "brewing" in "where does the
-        brewing sign appear" is what matches.
+        Specific, not substring-generous: an exact word matches at any
+        length ("SHOP" finds "SHOP", "TAB" finds "TAB"), while a
+        substring match counts only at ``OCR_SUBSTRING_MIN`` or above.
+        The old both-directions rule fired on any shared letter, so
+        single-character tracked strings ("a", "N", "D") flooded every
+        visual query ("d" is in "handheld") ahead of the true camera
+        window (round-2 bakeoff finding).  "SCUFFLEWA" still matches
+        "SCUFFLEWA BREWING CO" as an exact word, and "brewing" in "where
+        does the brewing sign appear" still matches the same way.
         """
-        lowered = (text or "").lower()
-        if not lowered:
-            return False
-        return any(
-            token and (token in lowered or lowered in token)
-            for token in query_tokens
-        )
+        return ocr_text_matches(query_tokens, text)
 
     def ocr_search(self, query: str, top_k: int = 5) -> dict:
         """Find the spans where an on-screen string was read off the footage.

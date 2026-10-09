@@ -828,6 +828,33 @@ def test_ocr_search_finds_the_measured_text(ocr_index):
     assert hit["confidence"] == 0.91
 
 
+def test_ocr_match_specificity():
+    """Single shared letters are not a text match; exact words are.
+
+    Round-2 bakeoff finding: the both-directions substring rule let
+    single-character tracked strings ("a", "N", "D") match any visual
+    query sharing the letter ("d" is in "handheld"), flooding "find the
+    shaky handheld footage" with OCR rows ahead of the true camera
+    window.  Exact words still match at any length; substrings count
+    only at OCR_SUBSTRING_MIN or above.
+    """
+    assert footage_query.ocr_token_matches("handheld", "d") is False
+    assert footage_query.ocr_token_matches("handheld", "n") is False
+    assert footage_query.ocr_token_matches("shop", "shop") is True
+    assert footage_query.ocr_token_matches(
+        "chattahoochee", "chattahoochee") is True
+    assert footage_query.ocr_token_matches("cup", "cups") is False
+    assert FootageIndex._text_matches(
+        ["shaky", "handheld", "footage"], "D") is False
+    assert FootageIndex._text_matches(
+        ["shaky", "handheld", "footage"], "a (") is False
+    assert FootageIndex._text_matches(
+        ["shaky", "handheld", "footage"], "ITHE") is False
+    assert FootageIndex._text_matches(["shop"], "SHOP") is True
+    assert FootageIndex._text_matches(
+        ["chattahoochee", "ave", "nw"], "Chattahoochee Ave NW") is True
+
+
 def test_ocr_search_matches_across_clips_and_says_what_is_there(ocr_index):
     """A string in more than one clip returns every span, and a string
     that is not there returns an honest empty naming the text this
