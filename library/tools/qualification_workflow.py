@@ -281,7 +281,8 @@ def run_broker_job(job: dict, resolve) -> dict:
         workflow_root = output_dir.parent
         ledger_path = workflow_root / "perf_ledger.jsonl"
         with perf_ledger.recording(
-                ledger_path, workflow_root.name, "qualification_workflow"):
+                ledger_path, workflow_root.name, "qualification_workflow",
+                required=True):
             result = _run_broker_job(job, resolve, current, stages)
     except Exception as exc:
         raise JobRefused(
@@ -518,9 +519,12 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
     root.mkdir(parents=True, exist_ok=False)
     perf = perf_ledger.begin(
         root, "qualification_workflow", run_stamp,
-        ledger_path_override=root / "perf_ledger.jsonl")
-    if perf:
+        ledger_path_override=root / "perf_ledger.jsonl", required=True)
+    try:
         perf_ledger.count_call("cli_starts")
+    except BaseException:
+        perf.end(persist=False)
+        raise
     report_path = root / "qualification-report.json"
     report = {"schema": "ren-workflow-qualification.v1",
               "started_at": started.isoformat(), "project": "Ren Qualification",
@@ -553,21 +557,23 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
             try:
                 analysis = _run_analysis(copy_path, run_dir, run_id)
                 child_rows = perf_ledger.read_rows(
-                    analysis["project_folder"])
+                    analysis["project_folder"], required=True)
                 child_run_ids = perf_ledger.run_ids(child_rows)
-                if child_run_ids:
-                    child_run_id = child_run_ids[-1]
-                    spans = []
-                    for child_row in child_rows:
-                        if (child_row.get("kind") == perf_ledger.SPAN
-                                and child_row.get("run_id") == child_run_id):
-                            span_row = dict(child_row)
-                            span_row["source_run_id"] = child_run_id
-                            span_row["run_id"] = run_stamp
-                            span_row["capability"] = "qualification_workflow"
-                            spans.append(span_row)
-                    perf_ledger.commit_to_path(
-                        root / "perf_ledger.jsonl", spans)
+                if not child_run_ids:
+                    raise WorkflowQualificationError(
+                        "analysis completed without performance ledger rows")
+                child_run_id = child_run_ids[-1]
+                spans = []
+                for child_row in child_rows:
+                    if (child_row.get("kind") == perf_ledger.SPAN
+                            and child_row.get("run_id") == child_run_id):
+                        span_row = dict(child_row)
+                        span_row["source_run_id"] = child_run_id
+                        span_row["run_id"] = run_stamp
+                        span_row["capability"] = "qualification_workflow"
+                        spans.append(span_row)
+                perf_ledger.commit_to_path(
+                    root / "perf_ledger.jsonl", spans, required=True)
                 hit = _analyzed_hit(analysis["index_file"], query)
             except Exception as exc:
                 _stage(report, f"run {ordinal}: analysis", passed=False,

@@ -340,7 +340,8 @@ def reach(module_file, entry_points: Iterable[str], repo_root=None,
 
 def method_digest(module_file, entry_points: Iterable[str],
                   repo_root=None, *, _source_cache: dict | None = None,
-                  _imports_cache: dict | None = None) -> str:
+                  _imports_cache: dict | None = None,
+                  _dump_cache: dict[int, str] | None = None) -> str:
     """The identity of the code ``entry_points`` reach (see ``reach``)."""
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
     nodes, files = reach(module_file, entry_points, root,
@@ -348,12 +349,26 @@ def method_digest(module_file, entry_points: Iterable[str],
                          _imports_cache=_imports_cache)
     digest = hashlib.sha256()
     for node in nodes:
-        digest.update(ast.dump(node).encode("utf-8"))
+        dumped = _ast_dump(node, _dump_cache)
+        digest.update(dumped.encode("utf-8"))
     for path in files:
         digest.update(str(path.relative_to(root)).encode("utf-8"))
         tree, _ = _parse_snapshot(path, _source_cache)
-        digest.update(ast.dump(tree).encode("utf-8"))
+        dumped = _ast_dump(tree, _dump_cache)
+        digest.update(dumped.encode("utf-8"))
     return digest.hexdigest()
+
+
+def _ast_dump(node: ast.AST, cache: dict[int, str] | None) -> str:
+    """Serialize one immutable AST node once within a digest batch."""
+    if cache is None:
+        return ast.dump(node)
+    key = id(node)
+    dumped = cache.get(key)
+    if dumped is None:
+        dumped = ast.dump(node)
+        cache[key] = dumped
+    return dumped
 
 
 def method_digests(module_file, layers: dict[str, Iterable[str]],
@@ -367,10 +382,12 @@ def method_digests(module_file, layers: dict[str, Iterable[str]],
     """
     source_cache: dict = {}
     imports_cache: dict = {}
+    dump_cache: dict[int, str] = {}
     return {
         layer: method_digest(
             module_file, entry_points, repo_root,
-            _source_cache=source_cache, _imports_cache=imports_cache)
+            _source_cache=source_cache, _imports_cache=imports_cache,
+            _dump_cache=dump_cache)
         for layer, entry_points in layers.items()
     }
 

@@ -1,5 +1,8 @@
 import json
 import threading
+from pathlib import Path
+
+import pytest
 
 from library.tools import perf_ledger
 
@@ -73,3 +76,42 @@ def test_profile_cli_reads_a_standalone_ledger(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "Ren own code 1.0s (100.0%)" in output
     assert "qualification_workflow" in output
+
+
+def test_required_ledger_persistence_writes_rows_and_inherits_to_children(
+        tmp_path):
+    path = tmp_path / "workflow" / "perf_ledger.jsonl"
+    parent = perf_ledger.begin(
+        tmp_path, "qualification_workflow", "workflow-run",
+        ledger_path_override=path, required=True)
+    assert path.is_file()
+
+    perf_ledger.count_call("cli_starts")
+    child = perf_ledger.begin(tmp_path, "analysis", "analysis-run",
+                              ledger_path_override=path)
+    assert child is not None and child.required
+    child.end()
+    parent.end()
+
+    rows = perf_ledger.read_rows(tmp_path, path, required=True)
+    assert {(row["kind"], row.get("run_id")) for row in rows} == {
+        (perf_ledger.COUNT, "workflow-run"),
+        (perf_ledger.CAPABILITY, "workflow-run"),
+        (perf_ledger.CAPABILITY, "analysis-run"),
+    }
+
+
+def test_required_ledger_append_surfaces_write_errors(tmp_path, monkeypatch):
+    path = tmp_path / "perf.jsonl"
+    real_open = open
+
+    def failing_open(target, *args, **kwargs):
+        if Path(target) == path:
+            raise OSError("disk full")
+        return real_open(target, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", failing_open)
+
+    perf_ledger._append(path, {"kind": perf_ledger.SPAN})
+    with pytest.raises(OSError, match="disk full"):
+        perf_ledger._append(path, {"kind": perf_ledger.SPAN}, required=True)

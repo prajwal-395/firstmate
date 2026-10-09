@@ -726,6 +726,34 @@ def test_batched_measurement_digests_match_independent_digests(tmp_path):
     assert changed["objects"] != independent["objects"]
 
 
+def test_batched_measurement_digests_dump_shared_ast_nodes_once(
+        tmp_path, monkeypatch):
+    path = tmp_path / "mod.py"
+    path.write_text(MODULE)
+    layers = {"windows": ["windows"],
+              "windows_again": ["windows"]}
+    original_dump = ml.ast.dump
+    calls = 0
+
+    def counting_dump(node, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_dump(node, *args, **kwargs)
+
+    monkeypatch.setattr(ml.ast, "dump", counting_dump)
+    independent = {
+        name: ml.method_digest(path, entry_points, tmp_path)
+        for name, entry_points in layers.items()
+    }
+    independent_calls = calls
+    calls = 0
+
+    batched = ml.method_digests(path, layers, tmp_path)
+
+    assert batched == independent
+    assert calls < independent_calls
+
+
 def test_the_store_is_source_memory(tmp_path, monkeypatch):
     for env in ({}, {"PIPELINE_VEP_HOME": str(tmp_path / "home")},
                 {"XDG_DATA_HOME": str(tmp_path / "xdg")},

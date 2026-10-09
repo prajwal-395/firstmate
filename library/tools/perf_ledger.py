@@ -70,6 +70,7 @@ LEDGER_ENV = "REN_PERF_LEDGER"
 RUN_ENV = "REN_PERF_RUN"
 CAPABILITY_ENV = "REN_PERF_CAPABILITY"
 BACKENDS_ENV = "REN_PERF_BACKENDS"
+REQUIRED_ENV = "REN_PERF_REQUIRED"
 
 CAPABILITY = "capability"
 SPAN = "span"
@@ -122,7 +123,7 @@ def ledger_path(project_folder) -> Path:
     return ProjectLayout(project_folder).read_dir(Area.LOGS) / LEDGER_FILE
 
 
-def _append(path, row: dict[str, Any]) -> None:
+def _append(path, row: dict[str, Any], *, required: bool = False) -> None:
     try:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,7 +134,8 @@ def _append(path, row: dict[str, Any]) -> None:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(line)
     except (OSError, TypeError, ValueError):
-        pass
+        if required:
+            raise
 
 
 def _attach_backends(row: dict[str, Any]) -> None:
@@ -177,15 +179,23 @@ class OpenCapability:
 
     def __init__(self, project_folder, capability_id: str, run_id: str,
                  node: str | None = None,
-                 ledger_path_override: Path | None = None) -> None:
+                 ledger_path_override: Path | None = None,
+                 required: bool = False) -> None:
         self.path = (Path(ledger_path_override) if ledger_path_override
                      else ledger_path(project_folder))
+        self.required = required
+        if required:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.path, "a", encoding="utf-8") as fh:
+                fh.flush()
+                os.fsync(fh.fileno())
         self._saved = {k: os.environ.get(k)
                        for k in (LEDGER_ENV, RUN_ENV, CAPABILITY_ENV,
-                                 BACKENDS_ENV)}
+                                 BACKENDS_ENV, REQUIRED_ENV)}
         os.environ[LEDGER_ENV] = str(self.path)
         os.environ[RUN_ENV] = str(run_id)
         os.environ[CAPABILITY_ENV] = str(capability_id)
+        os.environ[REQUIRED_ENV] = "1" if required else "0"
         try:
             from library.tools.runtime_backends import snapshot
             self._runtime_backends = snapshot(project_folder)
@@ -225,19 +235,23 @@ class OpenCapability:
         row["self_peak_rss_mb"] = _maxrss_mb(resource.RUSAGE_SELF)
         if persist:
             row["runtime_backends"] = self._runtime_backends
-            _append(self.path, row)
+            _append(self.path, row, required=self.required)
         return dict(row)
 
 
 def begin(project_folder, capability_id: str, run_id: str,
           node: str | None = None,
-          ledger_path_override: Path | None = None
+          ledger_path_override: Path | None = None, *, required: bool | None = None
           ) -> OpenCapability | None:
     """Start timing a capability; None (and nothing timed) on any error."""
+    if required is None:
+        required = _required_persistence()
     try:
         return OpenCapability(project_folder, capability_id, run_id, node,
-                              ledger_path_override)
+                              ledger_path_override, required)
     except Exception:  # noqa: BLE001 - the ledger never takes down a run
+        if required:
+            raise
         return None
 
 
@@ -267,7 +281,7 @@ def record_reused(project_folder, capability_id: str, run_id: str,
     _append(ledger_path(project_folder),
             {"kind": CAPABILITY, "run_id": run_id, "capability": capability_id,
              "node": node, "status": "reused", "started_at": round(time.time(), 3),
-             "wall_s": 0.0})
+             "wall_s": 0.0}, required=_required_persistence())
 
 
 def commit_rows(project_folder, rows: list[dict[str, Any]]) -> None:
@@ -275,14 +289,14 @@ def commit_rows(project_folder, rows: list[dict[str, Any]]) -> None:
     path = ledger_path(project_folder)
     for row in rows:
         if row:
-            _append(path, row)
+            _append(path, row, required=_required_persistence())
 
 
-def commit_to_path(path, rows: list[dict[str, Any]]) -> None:
+def commit_to_path(path, rows: list[dict[str, Any]], *, required: bool = False) -> None:
     """Append already measured rows to a standalone ledger file."""
     for row in rows:
         if row:
-            _append(path, row)
+            _append(path, row, required=required)
 
 
 def commit(project_folder, row: dict[str, Any]) -> None:
@@ -302,7 +316,7 @@ def _env(key: str) -> str | None:
 
 
 @contextmanager
-def recording(path, run_id: str, capability_id: str):
+def recording(path, run_id: str, capability_id: str, *, required: bool = False):
     """Attach rows on this thread without changing a shared process env.
 
     The Resolve broker is a multithreaded service. A broker job may record
@@ -311,7 +325,8 @@ def recording(path, run_id: str, capability_id: str):
     """
     previous = getattr(_local, "context", None)
     _local.context = {LEDGER_ENV: str(path), RUN_ENV: str(run_id),
-                      CAPABILITY_ENV: str(capability_id)}
+                      CAPABILITY_ENV: str(capability_id),
+                      REQUIRED_ENV: "1" if required else "0"}
     try:
         yield
     finally:
@@ -374,7 +389,7 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
             "self_peak_rss_mb": _maxrss_mb(resource.RUSAGE_SELF),
         })
         _attach_backends(row)
-        _append(path, row)
+        _append(path, row, required=_required_persistence())
 
 
 def record(layer: str, wall_s: float, started_at: float | None = None,
@@ -407,7 +422,7 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
     if layer in GRAPHICS_LAYERS:
         count_call("graphics_renders", int(row.get("calls") or 1))
     _attach_backends(row)
-    _append(path, row)
+    _append(path, row, required=_required_persistence())
 
 
 def count_call(family: str, amount: int = 1, **fields: Any) -> None:
@@ -422,7 +437,12 @@ def count_call(family: str, amount: int = 1, **fields: Any) -> None:
            "capability": _env(CAPABILITY_ENV),
            "started_at": round(time.time(), 3)}
     _attach_backends(row)
-    _append(path, row)
+    _append(path, row, required=_required_persistence())
+
+
+def _required_persistence() -> bool:
+    """Whether the current run requires instrumentation writes to succeed."""
+    return _env(REQUIRED_ENV) == "1"
 
 
 def run(layer: str, *args: Any, fields: dict[str, Any] | None = None,
@@ -437,20 +457,25 @@ def run(layer: str, *args: Any, fields: dict[str, Any] | None = None,
 
 # ── Reading it back ────────────────────────────────────────────────
 
-def read_rows(project_folder, ledger_override=None) -> list[dict[str, Any]]:
+def read_rows(project_folder, ledger_override=None, *, required: bool = False
+              ) -> list[dict[str, Any]]:
     rows = []
     try:
         path = Path(ledger_override) if ledger_override else ledger_path(project_folder)
         with open(path, encoding="utf-8") as fh:
-            for line in fh:
+            for line_number, line in enumerate(fh, 1):
                 try:
                     row = json.loads(line)
                 except ValueError:
+                    if required:
+                        raise ValueError(
+                            f"invalid performance ledger row at {path}:{line_number}")
                     continue
                 if isinstance(row, dict):
                     rows.append(row)
     except OSError:
-        pass
+        if required:
+            raise
     return rows
 
 

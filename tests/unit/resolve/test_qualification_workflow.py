@@ -139,6 +139,24 @@ def test_workflow_analysis_selects_only_supported_analysis_capabilities(
     assert result["evidence"]["command"][1] == "analyze"
 
 
+def test_workflow_requires_ledger_capture_before_copying_source(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(qw.qp, "media_dir", lambda: tmp_path)
+    seen = {}
+
+    def fail_ledger(*_args, **kwargs):
+        seen["required"] = kwargs.get("required")
+        raise OSError("ledger path is unavailable")
+
+    monkeypatch.setattr(qw.perf_ledger, "begin", fail_ledger)
+
+    with pytest.raises(OSError, match="ledger path is unavailable"):
+        qw.run("unused-index")
+
+    assert seen == {"required": True}
+    assert list(tmp_path.glob("workflow-runs/*/perf_ledger.jsonl")) == []
+
+
 class _ShapeProject:
     def __init__(self, settings):
         self.settings = dict(settings)
