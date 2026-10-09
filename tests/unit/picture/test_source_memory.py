@@ -315,6 +315,33 @@ def test_program_track_selection():
                                            declaration=2)
 
 
+def test_track_level_db_matches_exact_integer_mean(tmp_path):
+    """The vectorized level equals the exact-integer mean within 1e-9 dB."""
+    import math
+    import wave
+
+    samples = np.array([0, 1000, -2000, 30000, -32768, 12345] * 1000,
+                       dtype=np.int16)
+    wav_path = tmp_path / "tone.wav"
+    with wave.open(str(wav_path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(48000)
+        wav.writeframes(samples.tobytes())
+    exact = sum(int(s) * int(s) for s in samples) / len(samples)
+    expected = 10.0 * math.log10(exact / (32768.0 ** 2))
+    assert source_memory.track_level_db(str(wav_path)) == pytest.approx(
+        expected, abs=1e-9)
+
+    silent = tmp_path / "silent.wav"
+    with wave.open(str(silent), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(48000)
+        wav.writeframes(b"\x00" * 4800)
+    assert source_memory.track_level_db(str(silent)) == float("-inf")
+
+
 # ── The utterance shape ────────────────────────────────────────────
 
 

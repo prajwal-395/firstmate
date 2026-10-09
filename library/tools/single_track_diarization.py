@@ -55,7 +55,7 @@ from pathlib import Path
 
 import numpy as np
 
-from library.tools import shared_environment
+from library.tools import perf_ledger, shared_environment
 
 SAMPLE_RATE = 16000
 """What the embedder hears. The rebuilt timeline track already is this."""
@@ -397,6 +397,24 @@ def _embedder(model_dir: str | None = None, device: str = "cpu"):
     return encoder
 
 
+def _embed_windows_span(audio: np.ndarray, starts: np.ndarray,
+                        model_dir: str | None,
+                        checkpoint_path: str | None,
+                        device: str) -> np.ndarray:
+    """`embed_windows` charged to the embedding engine, not to Ren.
+
+    The ECAPA encode is model inference on torch; without this span the
+    ledger reads it as Ren own code. A run with no ledger in its
+    environment pays nothing (the span is a no-op there).
+    """
+    with perf_ledger.span("diarize_embed", backend="ecapa-torch",
+                          calls=1, external_engine="model_inference",
+                          decoded_source_s=round(
+                              float(len(starts)) * WIN_S, 3)):
+        return embed_windows(audio, SAMPLE_RATE, starts, model_dir,
+                             checkpoint_path, device)
+
+
 def embed_windows(audio: np.ndarray, rate: int, starts: np.ndarray,
                   model_dir: str | None = None,
                   checkpoint_path: str | None = None,
@@ -471,8 +489,8 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
     if keep.sum() == 0:
         raise DiarizationUnavailable(
             f"{wav_path}: the VAD gate kept no window; nothing to cluster")
-    embeddings = embed_windows(audio, SAMPLE_RATE, starts[keep],
-                               model_dir, checkpoint_path, device)
+    embeddings = _embed_windows_span(audio, starts[keep], model_dir,
+                                      checkpoint_path, device)
     if num_speakers is not None:
         # A declared count cannot ask for more clusters than windows.
         speakers = max(1, min(num_speakers, len(embeddings)))

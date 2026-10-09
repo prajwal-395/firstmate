@@ -374,13 +374,17 @@ def track_level_db(wav_path: str) -> float:
         width = wav.getsampwidth()
     if not frames or width != 2:
         return float("-inf")
-    import array
+    import numpy as np
 
-    samples = array.array("h")
-    samples.frombytes(frames)
-    if not samples:
+    # Vectorized mean-square over native 16-bit samples: the previous
+    # pure-Python generator spent ~0.9 s on a 214 s program track
+    # (13.7M samples). float64 holds each square exactly; the summed
+    # mean can differ from the exact-integer sum by ~1 ulp, far below
+    # the 0.1 dB the callers keep.
+    samples = np.frombuffer(frames, dtype=np.int16)
+    if samples.size == 0:
         return float("-inf")
-    mean_square = sum(s * s for s in samples) / len(samples)
+    mean_square = float(np.mean(samples.astype(np.float64) ** 2))
     if mean_square <= 0:
         return float("-inf")
     return 10.0 * math.log10(mean_square / (32768.0 ** 2))

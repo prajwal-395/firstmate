@@ -664,6 +664,36 @@ def test_eligible_single_path_diarizes_and_prints_voices(tmp_path,
 # ── turns: the seam a dropped window leaves ──────────────────────────
 
 @_SECTION_1_MARK
+def test_embed_windows_span_is_charged_to_model_inference(tmp_path,
+                                                          monkeypatch):
+    """The ECAPA encode is engine time, not Ren own code: the span must
+    carry the model_inference engine so the profile splits it out."""
+    import json
+
+    from library.tools import perf_ledger
+
+    seen = {}
+
+    def _stub(audio, rate, starts, model_dir=None, checkpoint_path=None,
+              device="cpu"):
+        seen["windows"] = len(starts)
+        return np.zeros((len(starts), 4))
+
+    monkeypatch.setattr(std, "embed_windows", _stub)
+    ledger = tmp_path / "perf.jsonl"
+    with perf_ledger.recording(str(ledger), "test-run", "test-cap"):
+        out = std._embed_windows_span(np.zeros(16000), np.array([0.0, 0.5]),
+                                      None, None, "cpu")
+    assert out.shape == (2, 4)
+    assert seen["windows"] == 2
+    rows = [json.loads(line) for line in ledger.read_text(
+        encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["layer"] == "diarize_embed"
+    assert rows[0]["external_engine"] == "model_inference"
+    assert rows[0]["calls"] == 1
+
+@_SECTION_1_MARK
 def test_merge_runs_never_double_claims_a_seam():
     """A VAD-dropped window splits runs but both 1.5 s windows still
     cover the seam, and a speaker change overlaps the same way: without
