@@ -4,8 +4,11 @@ import pytest
 
 from library.tools.reel_otio_placement import (
     OtioPlacementRefused,
+    prove_mismatch_route,
+    restore_project_default,
     select_placement,
     size_imported_timeline_before_current,
+    switch_project_default,
     verify_imported_resolution,
 )
 
@@ -44,16 +47,15 @@ def test_auto_selects_otio_for_a_fully_representable_plan():
 @pytest.mark.parametrize(
     ("import_resolution", "reason"),
     [
-        ((3840, 2160), "project timeline resolution is 3840x2160"),
         (None, "project timeline resolution could not be read"),
     ],
-    ids=("mismatched-resolution", "unknown-resolution"),
+    ids=("unknown-resolution",),
 )
 def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
         import_resolution, reason):
-    # Measured live 2026-10-08: the import makes the new timeline
-    # current, so a wrong-sized import could not be repaired after it
-    # lands - it must never be attempted.
+    # An unreadable project default can prove no restore, so `auto`
+    # falls back before placement. A READABLE mismatch is the mismatch
+    # route's (`prove_mismatch_route`), not a fallback.
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1}),
         target_resolution=(1080, 1920),
@@ -61,6 +63,32 @@ def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
 
     assert mode == "append"
     assert any(reason in item for item in reasons)
+
+
+def test_auto_selects_otio_on_a_readable_resolution_mismatch():
+    # The mismatch route switches the project default transiently
+    # around the import and restores it read-back, so a mismatch the
+    # build can read is placed by OTIO, not by append.
+    mode, reasons = select_placement(
+        "auto", _plan(resolved_channels={"1": 1}),
+        target_resolution=(1080, 1920),
+        import_resolution=(3840, 2160))
+
+    assert mode == "otio"
+    assert reasons == ()
+
+
+def test_explicit_otio_attempts_the_mismatch_route():
+    # Explicit `otio` on a readable mismatch carries no refusal: the
+    # route is attempted live (`prove_mismatch_route` first), and only
+    # an unprovable route refuses.
+    mode, reasons = select_placement(
+        "otio", _plan(resolved_channels={"1": 1}),
+        target_resolution=(1080, 1920),
+        import_resolution=(3840, 2160))
+
+    assert mode == "otio"
+    assert reasons == ()
 
 
 @pytest.mark.parametrize(
@@ -125,7 +153,11 @@ def test_an_explicit_otio_refusal_precedes_media_pool_access():
     ("project_size", "expected"),
     [
         ((1080, 1920), "selected otio"),
-        ((3840, 2160), "selected append before placement"),
+        # A readable mismatch selects otio free and proves the route
+        # live; this stub project cannot take the switch (no
+        # SetSetting), so the probe falls back to append before the
+        # pool is touched.
+        ((3840, 2160), "fell back to append before placement"),
     ],
     ids=("matching-resolution", "mismatched-resolution"),
 )
@@ -245,3 +277,77 @@ def test_matching_import_needs_no_write_even_when_current():
         Project(), "Reel 09", Timeline(), 1080, 1920)
     assert reads == ["timelineResolutionWidth",
                      "timelineResolutionHeight"]
+
+
+def _mismatch_project():
+    from tests.resolve_double import make_project
+    return make_project(width=3840, height=2160, frame_rate=24)
+
+
+def test_prove_mismatch_route_leaves_default_and_cursor_untouched():
+    from tests.resolve_double import FakeTimeline
+    project = _mismatch_project()
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    previous = pool.CreateEmptyTimeline("previous")
+    project.SetCurrentTimeline(previous)
+
+    prove_mismatch_route(project, "Reel 09", 1080, 1920)
+
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
+    assert project.GetCurrentTimeline() is previous
+
+
+def test_prove_mismatch_route_is_a_noop_on_a_match():
+    from tests.resolve_double import make_project
+    project = make_project(width=1080, height=1920, frame_rate=24)
+    writes = []
+    original = project.SetSetting
+    project.SetSetting = lambda key, value: (
+        writes.append((key, value)) or original(key, value))
+
+    prove_mismatch_route(project, "Reel 09", 1080, 1920)
+
+    assert writes == []
+
+
+def test_prove_mismatch_route_falls_back_without_a_park_target():
+    project = _mismatch_project()
+
+    with pytest.raises(OtioPlacementRefused, match="no timeline is current"):
+        prove_mismatch_route(project, "Reel 09", 1080, 1920)
+
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
+
+
+def test_prove_mismatch_route_falls_back_when_the_default_will_not_switch():
+    from tests.resolve_double import FakeTimeline
+    project = _mismatch_project()
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    previous = pool.CreateEmptyTimeline("previous")
+    project.SetCurrentTimeline(previous)
+    project.SetSetting = lambda _key, _value: False
+
+    with pytest.raises(OtioPlacementRefused, match="would not switch"):
+        prove_mismatch_route(project, "Reel 09", 1080, 1920)
+
+
+def test_switch_reads_back_before_trusting_the_return():
+    project = _mismatch_project()
+    project.SetSetting = lambda _key, _value: True  # lies: writes nothing
+
+    with pytest.raises(OtioPlacementRefused, match="did not read back"):
+        switch_project_default(project, 1080, 1920)
+
+
+def test_restore_names_the_values_to_fix_by_hand():
+    project = _mismatch_project()
+    project.SetSetting = lambda _key, _value: False
+
+    with pytest.raises(OtioPlacementRefused, match="restore it by hand"):
+        restore_project_default(project, "Reel 09", (3840, 2160))

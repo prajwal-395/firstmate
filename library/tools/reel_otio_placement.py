@@ -25,13 +25,19 @@ both ways matched on every item field and every still
 What the import does not carry:
 
 - the timeline's custom resolution (measured: dropped). The importer
-  inherits the project's resolution. A wrong-sized import cannot be
-  repaired: measured live 2026-10-08, the import makes the new timeline
-  current, and changing these settings on a current timeline is the
-  measured settings-sync deadlock - so `auto` falls back to append
-  unless the project default already matches the reel, and the size
-  check after import is a read-back that makes no write when it
-  already matches;
+  inherits the project's resolution. Where the project default already
+  matches the reel, the post-import check reads the size back and
+  makes no write. Where it does not, the importer takes the mismatch
+  route below instead of falling back to append: the project default
+  is switched to the reel size (read back), the import lands
+  correctly sized, the cursor parks on the previous timeline while
+  the imported (now non-current) timeline is sized to a CUSTOM
+  resolution under the existing per-call deadline, the cursor returns
+  to the imported timeline, and the project default is restored
+  (read back) - so the net mutation is none and no write ever lands
+  on a current timeline. A wrong-sized CURRENT timeline is still
+  refused, never repaired in place: that write is the measured
+  settings-sync deadlock;
 - the bin each render belongs in - the import files every new pool item
   into the CURRENT folder, so the timeline is imported with its own bin
   current and each render is then moved to `overlay_import_bin`;
@@ -115,6 +121,129 @@ def project_timeline_resolution_for_timeline(
     return (width, height) if width > 0 and height > 0 else None
 
 
+def switch_project_default(project, width: int, height: int) -> tuple[int, int]:
+    """Switch the project timeline default to the reel size, read back.
+
+    Returns the previous default so the caller can restore it. The
+    verdict is the read-back, never the return, and an unreadable or
+    unwritten default refuses: without a proven restore there is no
+    mismatch route, and the caller falls back to append before
+    anything is imported.
+    """
+    try:
+        orig = project_timeline_resolution(project)
+    except Exception as exc:  # noqa: BLE001 - unreadable default is no route
+        raise OtioPlacementRefused(
+            "the Resolve project timeline resolution could not be read "
+            "before import - refusing, so the default placement builds "
+            "this reel") from exc
+    if orig is None:
+        raise OtioPlacementRefused(
+            "the Resolve project timeline resolution could not be read "
+            "before import - refusing, so the default placement builds "
+            "this reel")
+    target = (int(width), int(height))
+    if tuple(orig) == target:
+        return orig
+    try:
+        width_ok = project.SetSetting("timelineResolutionWidth", str(target[0]))
+        height_ok = project.SetSetting("timelineResolutionHeight", str(target[1]))
+    except Exception as exc:  # noqa: BLE001 - an unproven switch is no route
+        raise OtioPlacementRefused(
+            f"Resolve would not switch the project timeline default to "
+            f"{target[0]}x{target[1]} ({exc!r}) - refusing, so the "
+            f"default placement builds this reel") from exc
+    if not width_ok or not height_ok:
+        raise OtioPlacementRefused(
+            f"Resolve would not switch the project timeline default to "
+            f"{target[0]}x{target[1]} - refusing, so the default "
+            f"placement builds this reel")
+    if project_timeline_resolution(project) != target:
+        raise OtioPlacementRefused(
+            f"the project timeline default did not read back as "
+            f"{target[0]}x{target[1]} - refusing, so the default "
+            f"placement builds this reel")
+    return orig
+
+
+def restore_project_default(project, name: str,
+                            orig: tuple[int, int]) -> None:
+    """Put the project timeline default back, read back.
+
+    A default that does not read back raises naming the values to fix
+    by hand: the build must never leave the project's settings
+    switched. Post-import this is a genuine refusal, not a fallback -
+    the imported timeline is already custom-sized and unaffected, but
+    the project is not as found.
+    """
+    expected = (int(orig[0]), int(orig[1]))
+    try:
+        width_ok = project.SetSetting("timelineResolutionWidth",
+                                      str(expected[0]))
+        height_ok = project.SetSetting("timelineResolutionHeight",
+                                       str(expected[1]))
+    except Exception as exc:  # noqa: BLE001 - a stuck default is said plainly
+        raise OtioPlacementRefused(
+            f"{name}: the project timeline default could not be restored "
+            f"to {expected[0]}x{expected[1]} ({exc!r}) - restore it by "
+            f"hand") from exc
+    if not width_ok or not height_ok:
+        raise OtioPlacementRefused(
+            f"{name}: Resolve would not restore the project timeline "
+            f"default to {expected[0]}x{expected[1]} - restore it by hand")
+    if project_timeline_resolution(project) != expected:
+        raise OtioPlacementRefused(
+            f"{name}: the project timeline default did not read back as "
+            f"{expected[0]}x{expected[1]} after the import - restore it "
+            f"by hand")
+
+
+def prove_mismatch_route(project, name: str, width: int, height: int) -> None:
+    """Prove the mismatch route before the build records anything.
+
+    Switches the project default to the reel size, reads the timeline
+    to park the cursor on, and restores the default - every write read
+    back. The real route in `import_recorded` repeats the same writes;
+    this probe only decides `auto`'s fallback before any placement is
+    recorded: a route that cannot be proven here builds with append,
+    and an explicit `otio` refuses here rather than mid-import. Leaves
+    the default as found (verified) and the cursor untouched (only
+    read); a restore that does not read back raises naming the values
+    to fix by hand.
+    """
+    target = (int(width), int(height))
+    try:
+        orig = project_timeline_resolution(project)
+    except Exception as exc:  # noqa: BLE001 - unreadable default is no route
+        raise OtioPlacementRefused(
+            f"{name}: the Resolve project timeline resolution could not "
+            f"be read before import - build this reel with the default "
+            f"placement") from exc
+    if orig is None:
+        raise OtioPlacementRefused(
+            f"{name}: the Resolve project timeline resolution could not "
+            f"be read before import - build this reel with the default "
+            f"placement")
+    if tuple(orig) == target:
+        return
+    switched = switch_project_default(project, target[0], target[1])
+    try:
+        try:
+            previous = project.GetCurrentTimeline()
+        except Exception as exc:  # noqa: BLE001 - an unreadable cursor
+            raise OtioPlacementRefused(
+                f"{name}: the current timeline could not be read before "
+                f"import - build this reel with the default "
+                f"placement") from exc
+        if previous is None:
+            raise OtioPlacementRefused(
+                f"{name}: no timeline is current to park the cursor on "
+                f"while the import is sized - build this reel with the "
+                f"default placement")
+    finally:
+        restore_project_default(project, name, switched)
+
+
 def verify_imported_resolution(name: str, timeline, width: int,
                                height: int) -> None:
     """Require the imported frame size without setting timeline values."""
@@ -173,10 +302,11 @@ def otio_incompatibilities(
     This reads the FREE placement plan plus the project's resolution
     captured before placement. Keep it beside the recorder's refusal
     seams so `auto` can choose append before the build touches its target
-    timeline. The resolution gate is load-bearing: measured live
-    2026-10-08, the import makes the new timeline current, so a
-    wrong-sized import cannot be repaired after it lands - it must never
-    be attempted.
+    timeline. A readable resolution mismatch is NOT an incompatibility:
+    the importer switches the project default transiently around the
+    import (`prove_mismatch_route`, proven before anything is recorded)
+    and the imported timeline ends custom-sized - only an unreadable
+    default, which no restore can be proven against, falls back.
     """
     reasons = []
     if overlay_placements:
@@ -217,12 +347,10 @@ def otio_incompatibilities(
             reasons.append(
                 "the Resolve project timeline resolution could not be "
                 "read before import")
-        elif tuple(import_resolution) != tuple(target_resolution):
-            reasons.append(
-                f"the Resolve project timeline resolution is "
-                f"{import_resolution[0]}x{import_resolution[1]}, but this "
-                f"reel needs {target_resolution[0]}x{target_resolution[1]}; "
-                "OTIO cannot set resolution after importing items")
+        # A readable mismatch is the mismatch route's, not a refusal:
+        # `prove_mismatch_route` proves the transient default switch
+        # before anything is recorded, and `import_recorded` restores
+        # the default read-back after the import lands custom-sized.
     return tuple(reasons)
 
 
@@ -565,6 +693,43 @@ def restore_pool_markers(timeline, recorder: PlacementRecorder,
     return restored
 
 
+def _discard_mismatch_import(pool, project, timeline, previous,
+                               orig_default, name: str) -> str:
+    """Leave no debris behind a failed mismatch import; say what happened.
+
+    Best-effort: the imported timeline is deleted, the project default
+    is restored, and the cursor is parked back where it was - each step
+    attempted even when the last failed. Returns the cleanup account
+    for the caller's refusal. Post-import a failure is a genuine
+    refusal, never a silent fallback: the route was proven before
+    recording, so failing it means Resolve itself is not answering,
+    and the default path's own sizings would wedge beside it.
+    """
+    status = []
+    try:
+        if pool.DeleteTimelines([timeline]):
+            status.append("imported timeline deleted")
+        else:
+            status.append("Resolve would not delete the imported timeline - "
+                          "delete it by hand")
+    except Exception as exc:  # noqa: BLE001 - cleanup reports, never masks
+        status.append(f"deleting the imported timeline raised {exc!r}")
+    try:
+        restore_project_default(project, name, orig_default)
+        status.append(f"project default restored to "
+                      f"{orig_default[0]}x{orig_default[1]}")
+    except OtioPlacementRefused as exc:
+        status.append(str(exc))
+    try:
+        from library.tools.resolve_lock import assert_current_timeline
+        assert_current_timeline(project, previous)
+        status.append("cursor parked back on the previous timeline")
+    except Exception as exc:  # noqa: BLE001 - same reporting rule
+        status.append(f"parking the cursor back raised {exc!r} - reopen "
+                      f"the previous timeline by hand")
+    return "; ".join(status)
+
+
 def import_recorded(project, recorder: PlacementRecorder, name: str,
                     track_plan, fps: float, width: int, height: int,
                     timeline_bin: tuple):
@@ -622,27 +787,114 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
                         raise OtioPlacementRefused(
                             f"{name}: Resolve would not import the render "
                             f"{render!r}")
-            timeline = pool.ImportTimelineFromFile(
-                path, {"timelineName": name,
-                       "importSourceClips": False})
+            timeline = None
+            # The mismatch route: the import inherits the project's
+            # resolution, so a project default that does not match the
+            # reel is switched to the reel size (read back) for exactly
+            # the import. `prove_mismatch_route` already proved this
+            # switch before anything was recorded; a switch that fails
+            # here refuses loudly rather than importing wrong-sized.
+            import_started = started
+            switch_started = time.perf_counter()
+            orig_default = switch_project_default(project, width, height)
+            mismatch = tuple(orig_default) != (int(width), int(height))
+            if mismatch:
+                record_duration(recorder.profile, "mismatch_default_switch_s",
+                                switch_started)
+                try:
+                    previous = project.GetCurrentTimeline()
+                except Exception as exc:  # noqa: BLE001 - unreadable cursor
+                    restore_project_default(project, name, orig_default)
+                    raise OtioPlacementRefused(
+                        f"{name}: the current timeline could not be read "
+                        f"before import - refusing rather than sizing a "
+                        f"timeline with nowhere to park the cursor") from exc
+                if previous is None:
+                    restore_project_default(project, name, orig_default)
+                    raise OtioPlacementRefused(
+                        f"{name}: no timeline is current to park the cursor "
+                        f"on while the import is sized - refusing rather "
+                        f"than changing resolution on a current timeline")
+            try:
+                timeline = pool.ImportTimelineFromFile(
+                    path, {"timelineName": name,
+                           "importSourceClips": False})
+            except Exception as exc:  # noqa: BLE001 - a failed import
+                if mismatch:
+                    restore_project_default(project, name, orig_default)
+                raise OtioPlacementRefused(
+                    f"{name}: ImportTimelineFromFile raised {exc!r} for "
+                    f"the compiled timeline") from exc
         finally:
             if before is not None:
                 pool.SetCurrentFolder(before)
-        record_duration(recorder.profile, "timeline_import_s", started)
+        record_duration(recorder.profile, "timeline_import_s", import_started)
     if not timeline:
+        if mismatch:
+            restore_project_default(project, name, orig_default)
         raise OtioPlacementRefused(
             f"{name}: ImportTimelineFromFile returned None for the "
             f"compiled timeline (every referenced file was on disk)")
-    # The import initially inherits the project's resolution. Size the
-    # not-yet-current timeline before taking the cursor; changing these
-    # settings after it becomes current has deadlocked Resolve.
-    started = time.perf_counter()
-    size_imported_timeline_before_current(
-        project, name, timeline, width, height)
-    record_duration(recorder.profile, "imported_resolution_verify_s", started)
-    started = time.perf_counter()
-    assert_current_timeline(project, timeline)
-    record_duration(recorder.profile, "timeline_cursor_check_s", started)
+    if mismatch:
+        # The import made the new timeline current (measured live
+        # 2026-10-08), and changing resolution on a current timeline is
+        # the measured settings-sync deadlock - so the cursor parks on
+        # the previous timeline, the imported (now non-current)
+        # timeline is sized to CUSTOM under the per-call deadline, the
+        # cursor returns to the imported timeline (the reel's timeline,
+        # where the default path leaves it too), and the project default
+        # is restored read-back. Net mutation: none.
+        recorder.profile["mismatch_route"] = True
+        try:
+            started = time.perf_counter()
+            assert_current_timeline(project, previous)
+            record_duration(recorder.profile, "mismatch_cursor_park_s",
+                            started)
+            started = time.perf_counter()
+            from library.tools.resolve_deadline import (
+                apply_timeline_resolution)
+            apply_timeline_resolution(timeline, width, height)
+            verify_imported_resolution(name, timeline, width, height)
+            record_duration(recorder.profile, "mismatch_custom_size_s",
+                            started)
+            started = time.perf_counter()
+            assert_current_timeline(project, timeline)
+            record_duration(recorder.profile, "mismatch_cursor_return_s",
+                            started)
+            started = time.perf_counter()
+            restore_project_default(project, name, orig_default)
+            record_duration(recorder.profile, "mismatch_default_restore_s",
+                            started)
+        except Exception as exc:
+            status = _discard_mismatch_import(
+                pool, project, timeline, previous, orig_default, name)
+            raise OtioPlacementRefused(
+                f"{name}: the mismatch OTIO import failed ({exc!r}) - "
+                f"{status}") from exc
+        recorder.profile["project_default_restored"] = True
+        if (project_timeline_resolution(project) != tuple(orig_default)
+                or project_timeline_resolution_for_timeline(timeline)
+                != (int(width), int(height))):
+            raise OtioPlacementRefused(
+                f"{name}: the mismatch import did not settle as found - "
+                f"the project default or the imported size does not read "
+                f"back; check both by hand")
+    else:
+        # The import inherits the project's resolution, which already
+        # matches. Size the not-yet-current timeline before taking the
+        # cursor; changing these settings after it becomes current has
+        # deadlocked Resolve. Where the import already reads back the
+        # reel size (measured live 2026-10-08: the import makes the new
+        # timeline current during the import) the check below makes no
+        # write at all.
+        started = time.perf_counter()
+        size_imported_timeline_before_current(
+            project, name, timeline, width, height)
+        record_duration(recorder.profile, "imported_resolution_verify_s",
+                        started)
+        started = time.perf_counter()
+        assert_current_timeline(project, timeline)
+        record_duration(recorder.profile, "timeline_cursor_check_s", started)
 
     started = time.perf_counter()
     marker_count = restore_pool_markers(timeline, recorder, name)

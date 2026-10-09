@@ -154,10 +154,13 @@ caption, a transition element or a program channel other than 1, so
 the shapes OTIO refuses stay unmeasured; `auto` places those with
 append. On the captain's project the project default is 3840x2160. The
 importer inherits that resolution, and measured live 2026-10-08 the
-import makes the new timeline current - so a wrong-sized import could
-not be repaired after it lands, and `auto` keeps falling back to append
-there. Where the project default already matches the reel the import
-reads back correctly sized and the post-import check makes no write.
+import makes the new timeline current - so a wrong-sized CURRENT
+timeline is never repaired after it lands. A readable mismatch takes
+the mismatch route (transient default switch, park, non-current
+custom sizing, restore - net mutation none); only an unprovable
+route keeps the append fallback. Where the project default already
+matches the reel the import reads back correctly sized and the
+post-import check makes no write.
 
 **Hold, warm (subject probes cached), Reel 09:** OTIO place hold
 14.27 s, of which pool organisation 6.83 s, unattributed 1.55 s,
@@ -219,14 +222,22 @@ The OTIO restore now applies the three timeline settings before making it
 current, through `resolve_deadline.apply_timeline_resolution`; a timeout or
 failed read-back refuses the build.
 
-**Live import behaviour, 2026-10-08.** The import makes the new timeline
-current during the import, so the noncurrent sizing above does not
-happen on a live Resolve - and a wrong-sized import must never be
-attempted, because repairing it after it lands would be exactly the
-deadlocking write. `auto` therefore falls back to append unless the
-project default already matches the reel; where it matches, the
-post-import check reads the size back and writes nothing. Full run in
-`docs/benchmarks/2026-10-08-otio-placement-live.md`.
+**Live import behaviour, 2026-10-08 (mismatch route measured
+2026-10-08).** The import makes the new timeline current during the
+import, so a wrong-sized CURRENT timeline must never be repaired
+after it lands - that write is the measured settings-sync deadlock.
+Where the project default matches, the post-import check reads the
+size back and writes nothing. Where it does not, the importer takes
+the mismatch route instead of falling back: the project default is
+switched to the reel size for exactly the import, the cursor parks on
+the previous timeline, the imported (now non-current) timeline is
+sized to CUSTOM under the per-call deadline, the cursor returns to
+the imported timeline, and the project default is restored read-back
+- net mutation none, no write ever on a current timeline. `auto`
+proves the route before anything is recorded and keeps append as the
+fallback where it cannot be proven. Tiny-plan live: append 4.28 s vs
+mismatch OTIO 1.24 s, field diff empty, default restored, no debris.
+Full run in `docs/benchmarks/2026-10-08-otio-mismatch-route-live.md`.
 
 ## The laws the compiler rests on
 

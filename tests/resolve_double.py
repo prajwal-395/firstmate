@@ -504,6 +504,12 @@ class FakeMediaPool:
         #: even after save and reload. Off by default; a test proving the
         #: build repairs the linkage turns it on.
         self.unlinked_otio_imports = False
+        #: Behaviour knob: a live `ImportTimelineFromFile` makes the new
+        #: timeline current during the import (measured live 2026-10-08).
+        #: Off by default - the historical tests predate the finding and
+        #: the live run is its coverage; a test proving the mismatch
+        #: route's park-and-size turns it on.
+        self.otio_import_lands_current = False
         self.next_timeline = None
         #: One entry per `AppendToTimeline` call: how many specs it held.
         self.append_calls: list = []
@@ -703,6 +709,10 @@ class FakeMediaPool:
                 position += duration
         self._project.adopt(rebuilt)
         self._current_folder._clips.append(rebuilt.GetMediaPoolItem())
+        if self.otio_import_lands_current:
+            # Measured live 2026-10-08: the import makes the new
+            # timeline current during the import.
+            self._project.SetCurrentTimeline(rebuilt)
         return rebuilt
 
     def _pooled(self, media):

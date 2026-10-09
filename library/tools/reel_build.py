@@ -8854,7 +8854,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     `docs/OTIO_COMPILATION_MEASURED.md`). A reel carrying something the
     import cannot carry refuses by name. "auto" makes the same decision
     from the FREE placement plan, using append for unsupported shapes
-    before this reel's placement hold starts. `placement_compatibility_checked`
+    before this reel's placement hold starts. A project default that
+    does not match the reel takes the mismatch route (transient
+    default switch, park, non-current custom sizing, restore -
+    `prove_mismatch_route` proves it before anything is recorded, and
+    `auto` falls back to append where it cannot be proven).
+    `placement_compatibility_checked`
     is set by the project builder after it resolves this choice outside
     the exclusive placement hold; direct callers leave it false and get
     the same check before the first placement call.
@@ -8867,8 +8872,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     import os
     import sys
     import time
-    build_total_started = (time.perf_counter()
-                           if placement_mode == "otio" else None)
+    # Unconditional: `auto` may resolve to `otio` below, and the profile
+    # then needs the whole build's wall time, not just the recording's.
+    build_total_started = time.perf_counter()
 
     if prepared is None:
         prepared = prepare_reel_timeline(
@@ -8912,6 +8918,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"{name}: a checked placement mode must be 'append' or "
                 f"'otio', not 'auto'")
         incompatibilities = ()
+        import_resolution = (
+            _otio.project_timeline_resolution(project)
+            if placement_mode == "otio" else None)
     else:
         import_resolution = (
             _otio.project_timeline_resolution(project)
@@ -8933,6 +8942,28 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         else:
             print(f"  {name}: --placement auto selected otio "
                   f"(free compatibility check passed)", file=sys.stderr)
+    if placement_mode == "otio" and (
+            import_resolution is None
+            or tuple(import_resolution) != (int(width), int(height))):
+        # A readable mismatch takes the mismatch route
+        # (`reel_otio_placement`: transient project-default switch,
+        # park, non-current custom sizing, restore) - but only when the
+        # route proves BEFORE anything is recorded. An unproven route
+        # falls back to append here, where the placers have not run
+        # yet; an explicit `otio` refuses here rather than mid-import.
+        # A matching default needs no proof: the post-import check
+        # makes no write.
+        try:
+            _otio.prove_mismatch_route(
+                project, name, int(width), int(height))
+        except _otio.OtioPlacementRefused as exc:
+            if requested_placement == "auto":
+                placement_mode = "append"
+                incompatibilities = (str(exc),)
+                print(f"  {name}: --placement auto fell back to append "
+                      f"before placement: {exc}", file=sys.stderr)
+            else:
+                raise
     recording = placement_mode == "otio"
     pool = project.GetMediaPool()
     if recording:
@@ -14263,29 +14294,57 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         exclusive=True)
                 except Exception:
                     pass
-                build_result = build_reel_timeline(
-                    project=project,
-                    **_reel_inputs,
-                    motion=reel_motion,
-                    # The look's CDL half, applied inside the build right
-                    # after placement - the Fusion pass below runs after
-                    # the build returns, which is the still recipe's
-                    # CDL-first order held structurally.
-                    grade_cdl=reel_grade_cdl,
-                    # The captain's pinned overlay positions ({} when they
-                    # declared none): declared wins over computed, so a
-                    # rebuild keeps their corrections.
-                    overlay_intent=overlay_intent,
-                    power_grade=reel_power_grade,
-                    single_reel_scope=(wanted is not None),
-                    prepared=prepared,
-                    defer_overlay_sweep=True,
-                    # How the timeline is placed, never what goes on it:
-                    # "otio" is one import (`reel_otio_placement`).
-                    placement_mode=reel_placement_mode,
-                    placement_compatibility_checked=True,
-                    resolve_app=resolve,
-                )
+                try:
+                    build_result = build_reel_timeline(
+                        project=project,
+                        **_reel_inputs,
+                        motion=reel_motion,
+                        # The look's CDL half, applied inside the build right
+                        # after placement - the Fusion pass below runs after
+                        # the build returns, which is the still recipe's
+                        # CDL-first order held structurally.
+                        grade_cdl=reel_grade_cdl,
+                        # The captain's pinned overlay positions ({} when they
+                        # declared none): declared wins over computed, so a
+                        # rebuild keeps their corrections.
+                        overlay_intent=overlay_intent,
+                        power_grade=reel_power_grade,
+                        single_reel_scope=(wanted is not None),
+                        prepared=prepared,
+                        defer_overlay_sweep=True,
+                        # How the timeline is placed, never what goes on it:
+                        # "otio" is one import (`reel_otio_placement`).
+                        placement_mode=reel_placement_mode,
+                        placement_compatibility_checked=True,
+                        resolve_app=resolve,
+                    )
+                except _otio.OtioPlacementRefused as exc:
+                    # The mismatch route was selected free but refused
+                    # live (an unprovable switch, a wedged sizing): with
+                    # the original request `auto`, append is the
+                    # fallback, placed here where the inputs are still in
+                    # scope. Nothing committed is reused - the refused
+                    # attempt deleted its import and restored the default
+                    # and the cursor before raising. Explicit `otio`
+                    # propagates: it asked for the refusal by name.
+                    if placement_mode != "auto":
+                        raise
+                    print(f"  {name}: OTIO placement refused live ({exc}) "
+                          f"- falling back to append", flush=True)
+                    build_result = build_reel_timeline(
+                        project=project,
+                        **_reel_inputs,
+                        motion=reel_motion,
+                        grade_cdl=reel_grade_cdl,
+                        overlay_intent=overlay_intent,
+                        power_grade=reel_power_grade,
+                        single_reel_scope=(wanted is not None),
+                        prepared=prepared,
+                        defer_overlay_sweep=True,
+                        placement_mode="append",
+                        placement_compatibility_checked=True,
+                        resolve_app=resolve,
+                    )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):
                     post_header_records.append(_header_record)

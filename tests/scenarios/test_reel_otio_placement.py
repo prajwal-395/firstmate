@@ -72,11 +72,14 @@ class _Moment:
     call_to_action = None
 
 
-def _build(media, mode, tmp_path, *, project_size=(1080, 1920)):
+def _build(media, mode, tmp_path, *, project_size=(1080, 1920),
+           with_caption=True, with_semantic=True, lands_current=False,
+           park_previous=False):
     project = make_project(width=project_size[0], height=project_size[1],
                            frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
+    pool.otio_import_lands_current = lands_current
     footage = [media["speakerone"], media["speakertwo"]]
     pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
                              for p in footage}
@@ -84,6 +87,9 @@ def _build(media, mode, tmp_path, *, project_size=(1080, 1920)):
     pooled[0].AddMarker(2400, "Blue", "review", "source note", 12,
                         '{"source":"captain"}')
     pooled[1].AddMarker(2401, "Green", "keep", "another note", 1, "")
+    if park_previous:
+        pool.next_timeline = FakeTimeline()
+        project.SetCurrentTimeline(pool.CreateEmptyTimeline("previous"))
     clips = [
         _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
         _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
@@ -98,10 +104,10 @@ def _build(media, mode, tmp_path, *, project_size=(1080, 1920)):
     semantic = {"overlay_path": media["sem"], "timeline_start": 6.0,
                 "total_frames": 48}
     record = build_reel_timeline(
-        project, _Moment(), clips, [caption], FPS, 1080, 1920,
-        str(tmp_path / "project"), {"segments": []},
-        semantic_segments=[semantic], program_channels={"1": 1, "2": 1},
-        placement_mode=mode)
+        project, _Moment(), clips, [caption] if with_caption else [], FPS,
+        1080, 1920, str(tmp_path / "project"), {"segments": []},
+        semantic_segments=[semantic] if with_semantic else [],
+        program_channels={"1": 1, "2": 1}, placement_mode=mode)
     return project, pool, record
 
 
@@ -206,12 +212,68 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
          "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
-def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
-    # Measured live 2026-10-08: the import makes the new timeline
-    # current, so a wrong-sized import could not be repaired after it
-    # lands - it must never be attempted. An explicit `otio` refuses
-    # before the pool is touched; `auto` builds the append path.
-    project = make_project(width=1920, height=1080, frame_rate=FPS)
+def test_resolution_mismatch_takes_the_mismatch_route_or_falls_back(
+        media, tmp_path):
+    # A readable mismatch is the mismatch route's, not a pre-import
+    # refusal: explicit `otio` attempts it live. This double models the
+    # live landing (`otio_import_lands_current`) with a previous
+    # timeline to park on, so the import lands custom-sized with the
+    # project default restored. With nowhere to park, `auto` falls
+    # back to the append path before anything is placed.
+    from tests.resolve_double import FakeTimeline
+    project = make_project(width=3840, height=2160, frame_rate=FPS)
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    pool.otio_import_lands_current = True
+    footage = [media["speakerone"], media["speakertwo"]]
+    pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                             for p in footage}
+    pool.ImportMedia(footage)
+    pool.next_timeline = FakeTimeline()
+    previous = pool.CreateEmptyTimeline("previous")
+    project.SetCurrentTimeline(previous)
+    clips = [
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
+    ]
+
+    record = build_reel_timeline(
+        project, _Moment(), clips, [], FPS, 1080, 1920,
+        str(tmp_path / "mismatch"), {"segments": []},
+        program_channels={"1": 1, "2": 1}, placement_mode="otio")
+
+    timeline = project.GetCurrentTimeline()
+    assert timeline.GetName() == _Moment.timeline_name
+    assert (timeline.GetSetting("timelineResolutionWidth"),
+            timeline.GetSetting("timelineResolutionHeight")) == (
+        "1080", "1920")
+    assert timeline.GetSetting("useCustomSettings") == "1"
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
+    assert record["placement_profile"].get("mismatch_route") is True
+    assert record["placement_profile"].get("project_default_restored") is True
+
+    bare = make_project(width=3840, height=2160, frame_rate=FPS)
+    bare_pool = bare.GetMediaPool()
+    bare_pool.next_timeline = FakeTimeline()
+    bare_pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                                  for p in footage}
+    bare_pool.ImportMedia(footage)
+    build_reel_timeline(
+        bare, _Moment(), clips, [], FPS, 1080, 1920,
+        str(tmp_path / "mismatch-fallback"), {"segments": []},
+        program_channels={"1": 1, "2": 1}, placement_mode="auto")
+
+    assert bare.GetTimelineCount() == 1
+    assert bare_pool.append_calls, "auto falls back to the append path"
+
+
+def test_mismatch_route_refuses_explicit_otio_with_nowhere_to_park(
+        media, tmp_path):
+    project = make_project(width=3840, height=2160, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
     footage = [media["speakerone"], media["speakertwo"]]
@@ -226,7 +288,7 @@ def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
     ]
 
     with pytest.raises(OtioPlacementRefused,
-                       match="project timeline resolution is 1920x1080"):
+                       match="no timeline is current"):
         build_reel_timeline(
             project, _Moment(), clips, [], FPS, 1080, 1920,
             str(tmp_path / "project"), {"segments": []},
@@ -235,14 +297,9 @@ def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
     assert project.GetTimelineCount() == 0
     assert project.GetCurrentTimeline() is None
     assert pool.append_calls == [], "a refused build appends nothing"
-
-    build_reel_timeline(
-        project, _Moment(), clips, [], FPS, 1080, 1920,
-        str(tmp_path / "project"), {"segments": []},
-        program_channels={"1": 1, "2": 1}, placement_mode="auto")
-
-    assert project.GetTimelineCount() == 1
-    assert pool.append_calls, "auto falls back to the append path"
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
 
 
 def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):
@@ -363,3 +420,106 @@ def test_source_clips_already_pooled_are_not_duplicated(media, tmp_path):
             f"already-pooled source clip")
         assert items[0] in source_bin.GetClipList(), (
             f"{os.path.basename(path)} is not in the 'Source footage' bin")
+
+
+@pytest.mark.parametrize(
+    ("with_caption", "with_semantic"),
+    [(True, True), (True, False), (False, True), (False, False)],
+    ids=("full", "no-semantic", "no-captions", "bare"),
+)
+def test_mismatch_route_lands_the_default_build_on_every_shape(
+        media, tmp_path, monkeypatch, with_caption, with_semantic):
+    """The mismatch route places what append places, on four reel shapes.
+
+    Each shape builds twice: append on a 3840x2160 project (the
+    captain's default - append sizes its empty timeline custom, so the
+    default never matters to it) and the mismatch OTIO route on the
+    same default with the live landing modelled (`lands_current` plus
+    a previous timeline to park on). Every row, item, transform,
+    channel and marker reads back identical, the imported timeline is
+    custom-sized, the project default is restored, and no timeline
+    setting was ever written on a current timeline.
+    """
+    keys = ("useCustomSettings", "timelineResolutionWidth",
+            "timelineResolutionHeight")
+    original_set_setting = FakeTimeline.SetSetting
+
+    def refuse_if_current(target, key, value):
+        if key in keys:
+            assert not target._is_current, (
+                f"{key} was set after {target.GetName()} became current")
+        return original_set_setting(target, key, value)
+
+    monkeypatch.setattr(FakeTimeline, "SetSetting", refuse_if_current)
+
+    default_project, default_pool, _ = _build(
+        media, "append", tmp_path / "a", project_size=(3840, 2160),
+        with_caption=with_caption, with_semantic=with_semantic)
+    # `auto`, not explicit `otio`: the free check selects the route and
+    # the probe proves it, which is the production path and the one
+    # that needs the whole-build wall timer.
+    project, pool, record = _build(
+        media, "auto", tmp_path / "b", project_size=(3840, 2160),
+        with_caption=with_caption, with_semantic=with_semantic,
+        lands_current=True, park_previous=True)
+
+    assert pool.append_calls == [], "a recorded build appends nothing"
+    assert default_pool.append_calls, "the default build appends"
+    assert _timeline_state(project) == _timeline_state(default_project)
+    timeline = project.GetCurrentTimeline()
+    assert (timeline.GetSetting("useCustomSettings"),
+            timeline.GetSetting("timelineResolutionWidth"),
+            timeline.GetSetting("timelineResolutionHeight")) == (
+        "1", "1080", "1920")
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
+    assert record["placement_profile"].get("mismatch_route") is True
+    assert record["placement_profile"].get("project_default_restored") is True
+
+
+def test_mismatch_route_discards_its_import_when_sizing_fails(
+        media, tmp_path, monkeypatch):
+    """A wedged sizing deletes the import and restores the project.
+
+    The route was proven before recording, so a failure this late
+    means Resolve itself is not answering: the imported timeline is
+    deleted, the project default is restored, the cursor is parked
+    back, and the refusal names all three - a genuine refusal, never
+    a silent fallback.
+    """
+    from library.tools import resolve_deadline
+    project = make_project(width=3840, height=2160, frame_rate=FPS)
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    pool.otio_import_lands_current = True
+    footage = [media["speakerone"], media["speakertwo"]]
+    pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                             for p in footage}
+    pool.ImportMedia(footage)
+    pool.next_timeline = FakeTimeline()
+    previous = pool.CreateEmptyTimeline("previous")
+    project.SetCurrentTimeline(previous)
+    clips = [
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
+    ]
+
+    def wedge(_timeline, _width, _height, **_kwargs):
+        raise resolve_deadline.ResolutionNotApplied("wedged")
+
+    monkeypatch.setattr(resolve_deadline, "apply_timeline_resolution", wedge)
+
+    with pytest.raises(OtioPlacementRefused, match="imported timeline deleted"):
+        build_reel_timeline(
+            project, _Moment(), clips, [], FPS, 1080, 1920,
+            str(tmp_path / "project"), {"segments": []},
+            program_channels={"1": 1, "2": 1}, placement_mode="otio")
+
+    assert _Moment.timeline_name not in project.names()
+    assert project.GetCurrentTimeline() is previous
+    assert (project.GetSetting("timelineResolutionWidth"),
+            project.GetSetting("timelineResolutionHeight")) == (
+        "3840", "2160")
