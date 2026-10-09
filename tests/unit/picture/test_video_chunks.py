@@ -7,9 +7,12 @@ test clips (real extraction path); only the encoder is stubbed. No
 test reads a real project or loads a model.
 """
 import json
+import os
 import subprocess
 import sys
+import textwrap
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,6 +23,7 @@ from library.tools.analysis.footage_query import (
     EG2_TEXT_MODEL,
     SEGMENTS_FILE,
     VIDEO_CHUNK_S,
+    VIDEO_EMBED_BATCH_CHUNKS,
     FootageIndex,
     build_index,
     cut_video_windows,
@@ -172,6 +176,105 @@ def test_build_video_chunks_names_missing_media(media_project, monkeypatch):
         "clip_gone"]
     assert [u["clip_id"] for u in stats["video_unembedded"]] == [
         "clip_gone"]
+
+
+def test_long_video_build_bounds_batches_and_peak_rss(media_project):
+    """A one-hour fixture exercises 450 windows without retaining their pixels."""
+    project_data = json.loads((media_project / "pipeline_data.json").read_text())
+    clips = project_data["step_outputs"]["catalog"]["clip_catalog"]
+    clips[:] = clips[:1]
+    clips[0]["duration_seconds"] = 3600.0
+    _write(media_project / "pipeline_data.json", project_data)
+    index_dir = media_project / "long-idx"
+    script = textwrap.dedent("""
+        import json, resource, sys
+        import numpy as np
+        from pathlib import Path
+        from library.tools.analysis import footage_query as fq
+        from library.tools.analysis.footage_query import build_index
+        repo_root = Path(sys.argv[3]).resolve()
+        assert Path(fq.__file__).resolve() == (
+            repo_root / "library/tools/analysis/footage_query.py")
+        # Deliberately simulate a bad runtime override. The writer's hard
+        # memory ceiling must still cap batches at four windows.
+        fq.VIDEO_EMBED_BATCH_CHUNKS = 450
+        batches = []
+        def extract(_source, _start, _end):
+            frame = np.zeros((360, 640, 3), dtype="uint8")
+            return [frame] * 8
+        def encode(stacks):
+            batches.append(len(stacks))
+            base = np.tile(np.arange(256, dtype="float32"), (len(stacks), 1))
+            return base / np.linalg.norm(base, axis=1, keepdims=True)
+        fq.extract_chunk_frames = extract
+        fq.load_eg2_video_embedder = lambda: (encode, "eg2-video-test")
+        fq.load_eg2_text_embedder = lambda: (None, "fixture")
+        fq.load_embedder = lambda: (None, "fixture")
+        stats = build_index(sys.argv[1], index_dir=sys.argv[2], video_chunks=True)
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mib = rss / (1024 ** 2 if sys.platform == "darwin" else 1024)
+        print(f"long video fixture: chunks={stats['video_chunk_count']}, "
+              f"peak_rss_mib={peak_mib:.1f}, batch_max={max(batches)}")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(media_project), str(index_dir),
+         str(Path(__file__).resolve().parents[3])],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(
+            [str(Path(__file__).resolve().parents[3]),
+             os.environ.get("PYTHONPATH", "")])})
+    print(result.stdout.strip())
+    line = result.stdout.strip().splitlines()[-1]
+    metrics = dict(part.split("=") for part in line.split(": ", 1)[1].split(", "))
+    peak_mib = float(metrics["peak_rss_mib"])
+    assert int(metrics["chunks"]) == 450
+    assert int(metrics["batch_max"]) <= VIDEO_EMBED_BATCH_CHUNKS
+    assert peak_mib < 512, f"one-hour video build peaked at {peak_mib:.1f} MiB"
+    assert not list(index_dir.glob("*.partial.npy"))
+    assert not list(index_dir.glob("*.checkpoint.json"))
+
+
+def test_video_build_resumes_checkpointed_batches(media_project, monkeypatch):
+    data = json.loads((media_project / "pipeline_data.json").read_text())
+    data["step_outputs"]["catalog"]["clip_catalog"][0]["duration_seconds"] = 48.0
+    _write(media_project / "pipeline_data.json", data)
+    def extract(source, *_):
+        if "GONE" in str(source):
+            raise RenRefusal("missing media", "fixture", "keep it unembedded")
+        return [np.zeros((8, 8, 3), dtype="uint8")] * 8
+
+    monkeypatch.setattr(footage_query, "extract_chunk_frames", extract)
+    monkeypatch.setattr(footage_query, "load_eg2_text_embedder",
+                        lambda: (None, "fixture"))
+    monkeypatch.setattr(footage_query, "load_embedder",
+                        lambda: (None, "fixture"))
+    calls = []
+
+    def fail_after_checkpoint(stacks):
+        calls.append(len(stacks))
+        if len(calls) == 2:
+            raise RuntimeError("simulated interruption after first checkpoint")
+        return _fake_256_video(stacks)
+
+    monkeypatch.setattr(footage_query, "load_eg2_video_embedder",
+                        lambda: (fail_after_checkpoint, "fixture"))
+    index_dir = media_project / "resume-idx"
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        build_index(str(media_project), index_dir=index_dir, video_chunks=True)
+    checkpoint_path = index_dir / (CHUNK_EMBEDDINGS_FILE + ".checkpoint.json")
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert checkpoint["completed_chunks"] == 4
+    assert checkpoint["processed_descriptors"] == 4
+
+    monkeypatch.setattr(footage_query, "load_eg2_video_embedder",
+                        lambda: (_fake_256_video, "fixture"))
+    stats = build_index(str(media_project), index_dir=index_dir, video_chunks=True)
+    assert stats["video_chunk_count"] == 6
+    assert np.load(index_dir / CHUNK_EMBEDDINGS_FILE).shape == (6, 256)
+    assert [row["clip_id"] for row in stats["video_unembedded"]] == [
+        "clip_gone"]
+    assert not checkpoint_path.exists()
 
 
 def _write_chunk_index(root, peaks, dim=256,

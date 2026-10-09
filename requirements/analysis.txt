@@ -124,3 +124,8 @@ faiss-cpu>=1.7
 mlx>=0.32.2; sys_platform == 'darwin'
 mlx-lm>=0.31.3; sys_platform == 'darwin'
 mlx_vlm>=0.7.2; sys_platform == 'darwin'
+# Footage search's optional multimodal lane.  Transformers 5.19 is the
+# first released version with EmbeddingGemma 2 support; ST 6.1 provides
+# its text/video SentenceTransformer modules.
+transformers>=5.19
+sentence-transformers>=6.1

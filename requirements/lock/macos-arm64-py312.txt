@@ -566,6 +566,7 @@ fonttools==4.64.0 \
     --hash=sha256:ff7aff4637fbf71394df139c63ccfe08a47aa4252d2f91224ddb3335c716c925
     # via
     #   -c (the measured venv)
+    #   -r requirements/graphics.txt
     #   matplotlib
 fsspec==2026.6.0 \
     --hash=sha256:02e0b71817df9b2169dc30a16832045764def1191b43dcff5bb85bdee212d2a1 \
@@ -621,6 +622,7 @@ huggingface-hub==1.33.0 \
     #   -c (the measured venv)
     #   all-in-one-infer
     #   mlx-audio
+    #   sentence-transformers
     #   speechbrain
     #   tokenizers
     #   transformers
@@ -1497,6 +1499,7 @@ numpy==2.5.3 \
     #   scikit-image
     #   scikit-learn
     #   scipy
+    #   sentence-transformers
     #   shapely
     #   soundfile
     #   soxr
@@ -2757,6 +2760,7 @@ scikit-learn==1.9.0 \
     #   -c (the measured venv)
     #   -r requirements/identity.txt
     #   librosa
+    #   sentence-transformers
 scipy==1.18.1 \
     --hash=sha256:011413b7426b75012840e35649e00fe0a2c3bae89fed433876e3a99251572efc \
     --hash=sha256:0ac49ea97594532dd44b7136094d35f5440fa06e6d9c6384a74c01764df388c5 \
@@ -2830,7 +2834,14 @@ scipy==1.18.1 \
     #   mlx-audio
     #   scikit-image
     #   scikit-learn
+    #   sentence-transformers
     #   speechbrain
+sentence-transformers==6.1.0 \
+    --hash=sha256:299025df51550dc1a38f05be27a9b0bf881c4e5e70542b3b7757d05e00aa3868 \
+    --hash=sha256:eb8122f4d180f552eda26dc3d77e84e8c11dc2b1d456a406b9f24abb70ceeadd
+    # via
+    #   -c (the measured venv)
+    #   -r requirements/analysis.txt
 sentencepiece==0.2.2 \
     --hash=sha256:046b15ea22d8042e2e173561d464ec3b64a9c2081324df70ebce7bf7ebb3e497 \
     --hash=sha256:0e2aae42960392d6dcb9a72d8e1e65a97294c965071b43c7b3429a42f350250e \
@@ -3081,6 +3092,7 @@ tokenizers==0.23.2 \
     --hash=sha256:f486f402f6f9abee5bb032553736813af0c710a86b2e0ca592634c55cea1f835
     # via
     #   -c (the measured venv)
+    #   sentence-transformers
     #   transformers
 torch==2.8.0 \
     --hash=sha256:06fcee8000e5c62a9f3e52a688b9c5abb7c6228d0e56e3452983416025c41381 \
@@ -3117,6 +3129,7 @@ torch==2.8.0 \
     #   julius
     #   rotary-embedding-torch
     #   sam2
+    #   sentence-transformers
     #   speechbrain
     #   torchaudio
     #   torchvision
@@ -3199,16 +3212,19 @@ tqdm==4.70.1 \
     #   mlx-audio
     #   mlx-vlm
     #   sam2
+    #   sentence-transformers
     #   speechbrain
     #   transformers
-transformers==5.17.0 \
-    --hash=sha256:78ec1ce21579b38dfb83950a0658cd119f87212a2fcfdff478096ce9d6c03801 \
-    --hash=sha256:a153be279169b55b92d8000bf4af294aed684503d091cca7804da2dd8a9de000
+transformers==5.19.0 \
+    --hash=sha256:87f38dd25e4521151b97e94520ac457f44a0ae8a8358a5b112daff6c64a822d6 \
+    --hash=sha256:afcd2dd5f603ed28c1e1fcb00a338ccbb4ef5f878ed289635df8b58187afb518
     # via
     #   -c (the measured venv)
+    #   -r requirements/analysis.txt
     #   mlx-audio
     #   mlx-lm
     #   mlx-vlm
+    #   sentence-transformers
 typer==0.27.2 \
     --hash=sha256:269b7eb9d3c202ca84b4bc9618cb04ebb43d3d4d1e567e4c768607232c05f945 \
     --hash=sha256:b3a5fc4342d5fc8fda8fc3010b1cf117e9249aab7fae800c2eff62fd3842d97d
@@ -3228,6 +3244,7 @@ typing-extensions==4.16.0 \
     #   pydantic
     #   pydantic-core
     #   referencing
+    #   sentence-transformers
     #   soundfile
     #   starlette
     #   torch

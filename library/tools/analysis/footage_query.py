@@ -67,6 +67,7 @@ Where this deviates from `sfx_query.py`, and why:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -354,26 +355,23 @@ def _st_version_ok(version: str) -> bool:
 
 
 def load_eg2_text_embedder():
-    """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
+    """Return a text adapter on the shared EG2 multimodal checkpoint."""
+    multimodal, reason = load_eg2_multimodal_embedder()
+    if multimodal is None:
+        return None, reason
 
-    Text through EmbeddingGemma 2: the full `google/embeddinggemma-2`
-    checkpoint served by sentence-transformers >= 6.1, truncated to
-    `EG2_TEXT_DIM` per call and L2-normalised here (normalising after
-    the truncation, per the model card).  Documents encode with the
-    checkpoint's document prompt, queries with its query prompt; the
-    chosen names travel in the backend string.
+    def encode(texts, *, is_query=False):
+        return multimodal(texts, modality="text", is_query=is_query)
 
-    `encode` takes ``is_query``: ``encode(texts)`` embeds documents
-    (index builds), ``encode(texts, is_query=True)`` embeds a query.
-    Mixing the two silently - a query prefix on a document or none on
-    a query - moves scores without moving any floor, so the flag is
-    keyword-only and defaults to documents.
+    prompts_backend = getattr(multimodal, "backend", None)
+    return encode, prompts_backend or f"{EG2_TEXT_BACKEND}+q:SearchQuery_d:Document"
 
-    Refusals, not fallbacks: below 6.1, without the checkpoint, or
-    without torchvision (which the processor import requires even for
-    text-only input), the caller gets the reason and the index builds
-    lexical-only, the same degradation as a missing MiniLM.
-    """
+
+# The checkpoint's SentenceTransformer loader exposes every EG2 modality
+# through one shared vector space. Media examples are PIL/HWC images,
+# ST audio dictionaries, and (T,H,W,C) video frame stacks.
+def load_eg2_multimodal_embedder():
+    """Return an encoder for text, image, audio and video, or a refusal reason."""
     try:
         import sentence_transformers
         from sentence_transformers import SentenceTransformer
@@ -382,38 +380,66 @@ def load_eg2_text_embedder():
                       f"unavailable ({type(exc).__name__}: {exc})")
     version = getattr(sentence_transformers, "__version__", "unknown")
     if not _st_version_ok(version):
-        return None, (f"no EmbeddingGemma embedder: sentence-transformers "
-                      f"{version} < 6.1.0, which is the first release with "
-                      f"EmbeddingGemma 2 support")
+        return None, f"no EmbeddingGemma embedder: sentence-transformers {version} < 6.1.0"
     try:
         model = SentenceTransformer(EG2_TEXT_MODEL)
-    except Exception as exc:  # noqa: BLE001 - download or load failure
+    except Exception as exc:  # noqa: BLE001 - load failure
         return None, (f"no EmbeddingGemma embedder: could not load "
                       f"{EG2_TEXT_MODEL} ({type(exc).__name__}: {exc})")
-    available = dict(getattr(model, "prompts", {}) or {})
-    query_prompt = next((p for p in EG2_TEXT_QUERY_PROMPTS if p in available), None)
-    doc_prompt = next((p for p in EG2_TEXT_DOC_PROMPTS if p in available), None)
+    supports = getattr(model, "supports", None)
+    if callable(supports):
+        missing = [name for name in ("text", "image", "audio", "video")
+                   if not supports(name)]
+        if missing:
+            return None, f"{EG2_TEXT_MODEL} lacks modalities: {', '.join(missing)}"
+    prompts = dict(getattr(model, "prompts", {}) or {})
+    query_prompt = next((p for p in EG2_TEXT_QUERY_PROMPTS if p in prompts), None)
+    document_prompt = next((p for p in EG2_TEXT_DOC_PROMPTS if p in prompts), None)
 
-    def encode(texts, *, is_query=False):
-        prompt = query_prompt if is_query else doc_prompt
-        raw = model.encode(list(texts), prompt_name=prompt,
-                           normalize_embeddings=False,
-                           truncate_dim=EG2_TEXT_DIM,
-                           show_progress_bar=False)
-        mat = np.asarray(raw, dtype="float32")
-        if mat.size == 0:
+    def encode(inputs, *, modality, is_query=False):
+        if modality not in ("text", "image", "audio", "video"):
+            raise ValueError(f"unsupported EmbeddingGemma modality: {modality}")
+        kwargs = {"normalize_embeddings": False,
+                  "truncate_dim": EG2_TEXT_DIM,
+                  "show_progress_bar": False}
+        samples = list(inputs)
+        if modality == "text":
+            kwargs["prompt_name"] = query_prompt if is_query else document_prompt
+        if modality == "video":
+            # ST 6.1's batch collation does not preserve list-shaped videos.
+            matrices = [model.encode([np.asarray(stack, dtype="uint8")], **kwargs)
+                        for stack in samples]
+            raw = np.concatenate(matrices, axis=0) if matrices else np.zeros(
+                (0, EG2_TEXT_DIM), dtype="float32")
+        else:
+            raw = model.encode(samples, **kwargs)
+        matrix = np.asarray(raw, dtype="float32")[:, :EG2_TEXT_DIM]
+        if matrix.size == 0:
             return np.zeros((0, EG2_TEXT_DIM), dtype="float32")
-        # The contract is 256-d even when a backend ignores the kwarg:
-        # Matryoshka orders information front-first, so the prefix is
-        # the truncation. Normalising stays here, after the cut.
-        mat = mat[:, :EG2_TEXT_DIM]
-        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
-        return (mat / norms).astype("float32")
+        return (matrix / norms).astype("float32")
 
     backend = (f"{EG2_TEXT_BACKEND}+q:{query_prompt or '-'}"
-               f"_d:{doc_prompt or '-'}")
+               f"_d:{document_prompt or '-'}+image+audio+video")
+    encode.backend = backend
     return encode, backend
+
+
+def load_eg2_image_embedder():
+    """Return the EG2 image adapter, accepting PIL images or HWC arrays."""
+    encode, reason = load_eg2_multimodal_embedder()
+    if encode is None:
+        return None, reason
+    return lambda images: encode(images, modality="image"), EG2_IMAGE_BACKEND
+
+
+def load_eg2_audio_embedder():
+    """Return the EG2 audio adapter, accepting ST audio dictionaries."""
+    encode, reason = load_eg2_multimodal_embedder()
+    if encode is None:
+        return None, reason
+    return lambda audio: encode(audio, modality="audio"), EG2_AUDIO_BACKEND
 
 
 # Video chunks through the same checkpoint (unified-search lane): one
@@ -425,7 +451,12 @@ def load_eg2_text_embedder():
 # pushes absent peaks above the confident floor), fp32 (bf16 vectors
 # sit at cosine 0.56 to fp32 - a different geometry, not noise).
 EG2_VIDEO_BACKEND = "embeddinggemma-2-video"
+EG2_IMAGE_BACKEND = "embeddinggemma-2-image"
+EG2_AUDIO_BACKEND = "embeddinggemma-2-audio"
 VIDEO_CHUNK_S = 8.0
+# At 1 fps and 640x360, four stacks bound decoded pixels to roughly 18 MiB
+# before encoder workspace. Keep this small: the model is the dominant RSS.
+VIDEO_EMBED_BATCH_CHUNKS = 4
 VIDEO_CHUNK_FPS = 1
 VIDEO_FRAME_WIDTH = 640
 CHUNK_EMBEDDINGS_FILE = "chunk_embeddings.npy"
@@ -548,48 +579,12 @@ def calibrate_video_floors(chunk_matrix, encode_query):
 
 
 def load_eg2_video_embedder():
-    """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
-
-    Video through the same `google/embeddinggemma-2` checkpoint the
-    text loader serves: one model, one space.  `encode` takes a list
-    of uint8 ``(T,H,W,C)`` frame stacks - one per chunk, one embed per
-    call (ST 6.1 refuses batches of multi-frame lists, and a bare
-    image list encodes as an image PAIR, not a video; both measured)
-    - and returns L2-normalised 256-d rows.  Media inputs take no
-    task prompt (model card).  Same refusal shape as the text loader.
-    """
-    try:
-        import sentence_transformers
-        from sentence_transformers import SentenceTransformer
-    except Exception as exc:  # noqa: BLE001 - absent dependency
-        return None, (f"no EmbeddingGemma video embedder: "
-                      f"sentence-transformers unavailable "
-                      f"({type(exc).__name__}: {exc})")
-    version = getattr(sentence_transformers, "__version__", "unknown")
-    if not _st_version_ok(version):
-        return None, (f"no EmbeddingGemma video embedder: "
-                      f"sentence-transformers {version} < 6.1.0")
-    try:
-        model = SentenceTransformer(EG2_TEXT_MODEL)
-    except Exception as exc:  # noqa: BLE001 - download or load failure
-        return None, (f"no EmbeddingGemma video embedder: could not load "
-                      f"{EG2_TEXT_MODEL} ({type(exc).__name__}: {exc})")
-
-    def encode(chunk_stacks):
-        vecs = []
-        for stack in chunk_stacks:
-            raw = model.encode([np.asarray(stack, dtype="uint8")],
-                               normalize_embeddings=False,
-                               truncate_dim=EG2_TEXT_DIM,
-                               show_progress_bar=False)
-            mat = np.asarray(raw, dtype="float32")[:, :EG2_TEXT_DIM]
-            norms = np.linalg.norm(mat, axis=1, keepdims=True)
-            norms[norms == 0] = 1.0
-            vecs.append((mat / norms).astype("float32")[0])
-        return np.array(vecs, dtype="float32") if vecs else np.zeros(
-            (0, EG2_TEXT_DIM), dtype="float32")
-
-    return encode, EG2_VIDEO_BACKEND
+    """Return the video adapter for 8-second (T,H,W,C) frame stacks."""
+    multimodal, reason = load_eg2_multimodal_embedder()
+    if multimodal is None:
+        return None, reason
+    return (lambda stacks: multimodal(stacks, modality="video"),
+            EG2_VIDEO_BACKEND)
 
 
 # ─── Lexical scoring ──────────────────────────────────────────────
@@ -817,7 +812,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         if vencode is not None:
             catalog = load_catalog(project_folder)
             t0 = time.perf_counter()
-            stacks, owners = [], []
+            windows_to_embed = []
             for clip in catalog:
                 clip_id = clip.get("clip_id")
                 source = clip.get("source_file") or clip.get("path")
@@ -828,26 +823,131 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
                 windows = cut_video_windows(duration) if clip_id else []
                 if not windows:
                     continue
-                try:
-                    for n, (start, end) in enumerate(windows):
-                        frames = extract_chunk_frames(source, start, end)
-                        stacks.append(np.stack(
-                            [np.asarray(f, dtype="uint8") for f in frames]))
-                        owners.append({
-                            "chunk_id": f"{clip_id}#vchunk#{n:03d}",
-                            "clip_id": clip_id,
-                            "filename": clip.get("filename", ""),
-                            "start": start, "end": end,
-                        })
-                except RenRefusal as exc:
-                    video_unembedded.append(
-                        {"clip_id": clip_id,
-                         "reason": f"{exc.what} ({exc.fix})"})
-            if stacks:
-                vmat = vencode(stacks)
-                video_dimension = int(vmat.shape[1])
-                np.save(target / CHUNK_EMBEDDINGS_FILE, vmat)
-                video_rows = owners
+                windows_to_embed.extend(
+                    (clip_id, clip.get("filename", ""), source, n, start, end)
+                    for n, (start, end) in enumerate(windows))
+            # The memmap is the durable checkpoint. It is preallocated for
+            # descriptors only; decoded pixels and encoder inputs never grow
+            # beyond VIDEO_EMBED_BATCH_CHUNKS. Checkpoint metadata is replaced
+            # atomically after every encoded batch.
+            partial_path = target / (CHUNK_EMBEDDINGS_FILE + ".partial.npy")
+            checkpoint_path = target / (CHUNK_EMBEDDINGS_FILE + ".checkpoint.json")
+            checkpoint_tmp = target / (CHUNK_EMBEDDINGS_FILE + ".checkpoint.tmp")
+            final_tmp = target / (CHUNK_EMBEDDINGS_FILE + ".final.npy")
+            signature = hashlib.sha256(json.dumps(
+                [ingest_fingerprint(project_folder), windows_to_embed],
+                separators=(",", ":")).encode("utf-8")).hexdigest()
+            checkpoint = None
+            try:
+                candidate = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                if (candidate["signature"] == signature
+                        and candidate["capacity"] == len(windows_to_embed)
+                        and 0 <= candidate["processed_descriptors"] <= len(windows_to_embed)
+                        and len(candidate["rows"]) <= candidate["capacity"]
+                        and isinstance(candidate["video_unembedded"], list)
+                        and isinstance(candidate["failed_clips"], list)
+                        and partial_path.is_file()):
+                    checkpoint = candidate
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            vmat = None
+            if checkpoint is None:
+                for stale in (partial_path, checkpoint_path, checkpoint_tmp, final_tmp):
+                    stale.unlink(missing_ok=True)
+                video_rows = []
+                start_descriptor = 0
+                if windows_to_embed:
+                    vmat = np.lib.format.open_memmap(
+                        partial_path, mode="w+", dtype="float32",
+                        shape=(len(windows_to_embed), EG2_TEXT_DIM))
+            else:
+                video_rows = checkpoint["rows"]
+                video_unembedded = checkpoint["video_unembedded"]
+                start_descriptor = checkpoint["processed_descriptors"]
+                vmat = np.lib.format.open_memmap(partial_path, mode="r+")
+                if vmat.shape != (len(windows_to_embed), EG2_TEXT_DIM):
+                    vmat = None
+                    partial_path.unlink(missing_ok=True)
+                    checkpoint_path.unlink(missing_ok=True)
+                    video_rows, start_descriptor = [], 0
+                    vmat = np.lib.format.open_memmap(
+                        partial_path, mode="w+", dtype="float32",
+                        shape=(len(windows_to_embed), EG2_TEXT_DIM))
+            if windows_to_embed:
+                if vmat is None:
+                    vmat = np.lib.format.open_memmap(partial_path, mode="r+")
+                failed_clips = set(checkpoint["failed_clips"] if checkpoint else ())
+                offset = len(video_rows)
+                # Keep the memory ceiling local to the writer. The module
+                # constant is useful to report and test, but runtime
+                # configuration or accidental mutation must not turn this
+                # streaming loop back into an all-windows allocation.
+                batch_size = 4
+                for batch_start in range(
+                        start_descriptor, len(windows_to_embed),
+                        batch_size):
+                    stacks, owners = [], []
+                    for clip_id, filename, source, n, start, end in windows_to_embed[
+                            batch_start:batch_start + batch_size]:
+                        if clip_id in failed_clips:
+                            continue
+                        try:
+                            frames = extract_chunk_frames(source, start, end)
+                            stacks.append(np.stack([
+                                np.asarray(frame, dtype="uint8") for frame in frames]))
+                            owners.append({
+                                "chunk_id": f"{clip_id}#vchunk#{n:03d}",
+                                "clip_id": clip_id, "filename": filename,
+                                "start": start, "end": end,
+                            })
+                        except RenRefusal as exc:
+                            failed_clips.add(clip_id)
+                            video_unembedded.append({
+                                "clip_id": clip_id,
+                                "reason": f"{exc.what} ({exc.fix})"})
+                    if stacks:
+                        vectors = np.asarray(vencode(stacks), dtype="float32")
+                        if vectors.shape != (len(owners), EG2_TEXT_DIM):
+                            raise ValueError(
+                                f"video encoder returned {vectors.shape}; expected "
+                                f"({len(owners)}, {EG2_TEXT_DIM})")
+                        vmat[offset:offset + len(owners)] = vectors
+                        video_rows.extend(owners)
+                        offset += len(owners)
+                        vmat.flush()
+                    checkpoint_tmp.write_text(json.dumps({
+                        "signature": signature,
+                        "completed_chunks": len(video_rows),
+                        "capacity": len(windows_to_embed),
+                        "processed_descriptors": min(
+                            batch_start + batch_size,
+                            len(windows_to_embed)),
+                        "rows": video_rows,
+                        "video_unembedded": video_unembedded,
+                        "failed_clips": sorted(failed_clips),
+                    }), encoding="utf-8")
+                    os.replace(checkpoint_tmp, checkpoint_path)
+                    del stacks
+                # Repack successful rows to an exact-size NPY without ever
+                # materializing the complete matrix in memory.
+                video_dimension = EG2_TEXT_DIM if video_rows else 0
+                if video_rows:
+                    exact = np.lib.format.open_memmap(
+                        final_tmp, mode="w+", dtype="float32",
+                        shape=(len(video_rows), EG2_TEXT_DIM))
+                    for start in range(0, len(video_rows), 256):
+                        end = min(start + 256, len(video_rows))
+                        exact[start:end] = vmat[start:end]
+                    exact.flush()
+                    del exact
+                    del vmat
+                    os.replace(final_tmp, target / CHUNK_EMBEDDINGS_FILE)
+                    vmat = np.load(target / CHUNK_EMBEDDINGS_FILE, mmap_mode="r")
+                else:
+                    del vmat
+                    (target / CHUNK_EMBEDDINGS_FILE).unlink(missing_ok=True)
+                partial_path.unlink(missing_ok=True)
+                checkpoint_path.unlink(missing_ok=True)
             video_seconds = time.perf_counter() - t0
             # Calibrate the video floors off this matrix's own absent
             # distribution (needs the text loader for the probe query

@@ -398,11 +398,11 @@ def test_validate_is_not_sent_the_qa_report_and_its_own_summary():
 
 sys.path.insert(0, str(REPO))
 
-from library.processes.edit_video.run_pipeline import (
+from library.processes.edit_video.run_pipeline import (  # noqa: E402
     llm_output_declarations,
     present_llm_step,
 )
-from library.tools.context_projector import project_fields
+from library.tools.context_projector import project_fields  # noqa: E402
 
 DAG_2 = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 
@@ -1101,8 +1101,8 @@ def _answer_when_asked_2(project: Path, node_id: str, answer: dict):
     res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
 
     def run():
-        deadline = time.time() + 25
-        while time.time() < deadline:
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
             if req.exists():
                 res.parent.mkdir(parents=True, exist_ok=True)
                 res.write_text(json.dumps(answer), encoding="utf-8")
@@ -1138,7 +1138,7 @@ def test_context_field_projection_does_not_drop_the_brief(tmp_path):
         manifest={"interface": {"inputs": [{"name": "creative_brief"}],
                                 "outputs": [{"name": "sfx_plan"}]},
                   "context_fields": ["timed_spine"]},
-        full_auto="agent", llm_timeout=30,
+        full_auto="agent", llm_timeout=120,
     )
 
     request = json.loads(

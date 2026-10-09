@@ -76,6 +76,15 @@ def test_eg2_loader_refuses_below_st_61(monkeypatch):
 
 
 def test_eg2_loader_refuses_without_st(monkeypatch):
+    import builtins
+    original_import = builtins.__import__
+
+    def without_sentence_transformers(name, *args, **kwargs):
+        if name == "sentence_transformers":
+            raise ImportError("blocked by test")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_sentence_transformers)
     monkeypatch.delitem(sys.modules, "sentence_transformers", raising=False)
     encode, reason = load_eg2_text_embedder()
     assert encode is None
