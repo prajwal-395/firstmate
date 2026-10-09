@@ -199,7 +199,9 @@ class _MediaPool:
             name = clip.GetName() if clip is not None else "placed"
             start = entry.get("recordFrame")
             src_in = entry.get("startFrame", 0)
-            src_out = entry.get("endFrame", src_in + 49)
+            api_end = entry.get("endFrame")
+            src_out = (api_end - 1 if api_end is not None
+                       else src_in + 49)
             if start is None:
                 items = self._current._tracks.get(("video", 1),
                                                   {}).get("items", [])
@@ -2848,25 +2850,35 @@ def test_edit_trim_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["final"] == "Reel 29 - salvage"
 
 
-def test_edit_trim_preserves_source_when_replacement_does_not_read_back(
+def test_edit_trim_restores_source_when_replacement_does_not_read_back(
         edit_patched, monkeypatch, capsys):
-    """A returned AppendToTimeline handle is not proof the replacement
-    landed on the target timeline. Keep the source until the new item and
-    its requested spans read back from that timeline."""
+    """A failed narrowed replacement restores the original source span."""
     env = edit_patched
     original, neighbor = _items(env)
+    original_span = _item_span(original)
     returned_but_unplaced = _Item(
         "LC0001.MXF", 10, 50, pool=original.GetMediaPoolItem(),
         track_type="video", track_index=1, uid="uid-unplaced")
-    monkeypatch.setattr(
-        env["project"].GetMediaPool(), "AppendToTimeline",
-        lambda _payload: [returned_but_unplaced])
+    append = env["project"].GetMediaPool().AppendToTimeline
+    calls = 0
+
+    def fail_once(payload):
+        nonlocal calls
+        calls += 1
+        return [returned_but_unplaced] if calls == 1 else append(payload)
+
+    monkeypatch.setattr(env["project"].GetMediaPool(), "AppendToTimeline",
+                        fail_once)
 
     result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
 
     assert result == 1
-    assert _items(env) == [original, neighbor]
-    assert env["timeline"].deleted == []
+    assert len(_items(env)) == 2
+    assert _items(env)[0] is not original
+    assert (_item_span(_items(env)[0])["source_in"]
+            == original_span["source_in"])
+    assert (_item_span(_items(env)[0])["source_out"]
+            == original_span["source_out"])
     assert "did not verify" in capsys.readouterr().out
 
 

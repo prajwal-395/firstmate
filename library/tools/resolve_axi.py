@@ -4041,7 +4041,7 @@ def cmd_edit_place(args) -> int:
 
 def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
-                  track_index: int | None):
+                  track_index: int | None, media_type: int):
     """Re-place one item at a new source range/position.
 
     Returns `(new_item, error)`: `place` and `trim` share this because
@@ -4057,7 +4057,8 @@ def _replace_item(timeline, pool, orig, source_in: int,
         return None, ("the item carries no pool clip (a generator or "
                       "title?) - nothing was changed.")
     payload = {"mediaPoolItem": pool_item,
-               "startFrame": source_in, "endFrame": source_out,
+               "startFrame": source_in, "endFrame": source_out + 1,
+               "mediaType": media_type,
                "recordFrame": record_frame}
     if track_index is not None:
         payload["trackIndex"] = track_index
@@ -4077,7 +4078,8 @@ def _replace_item(timeline, pool, orig, source_in: int,
         verified = (
             bool(readback["uid"])
             and int(readback["record_in"]) == int(record_frame)
-            and int(readback["record_out"]) > int(readback["record_in"])
+            and int(readback["record_out"]) - int(readback["record_in"])
+            == int(source_out) - int(source_in) + 1
             and int(readback["source_in"]) == int(source_in)
             and int(readback["source_out"]) == int(source_out)
             and _presence(timeline, readback["uid"]))
@@ -4298,7 +4300,8 @@ def cmd_edit_move(args) -> int:
                 gate_class="edit_move") as (journal, journal_state):
             new_item, error = _replace_item(
                 timeline, project.GetMediaPool(), item, src_in, src_out,
-                args.to, dest_index)
+                args.to, dest_index,
+                media_type=1 if track_type == "video" else 2)
             if error:
                 return fail(error, f"{TOOL} items --timeline "
                                    f"\"{timeline.GetName()}\"")
@@ -4396,16 +4399,28 @@ def cmd_edit_trim(args) -> int:
                       "name": span["name"], "source_in": new_in,
                       "source_out": new_out, "record_in": new_rec},
                 gate_class="edit_trim") as (journal, journal_state):
-            new_item, error = _replace_item(
-                timeline, project.GetMediaPool(), item, new_in, new_out,
-                new_rec, track_index)
-            if error:
-                return fail(error, f"{TOOL} items --timeline "
-                                   f"\"{timeline.GetName()}\"")
+            pool = project.GetMediaPool()
+            media_type = 1 if track_type == "video" else 2
             drop_error = _drop_original(project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline "
-                                         f"\"{timeline.GetName()}\"")
+                                   f"\"{timeline.GetName()}\"")
+            new_item, error = _replace_item(
+                timeline, pool, item, new_in, new_out,
+                new_rec, track_index, media_type)
+            if error:
+                restored, restore_error = _replace_item(
+                    timeline, pool, item, orig_in, orig_out,
+                    orig_rec, track_index, media_type)
+                if restore_error:
+                    return fail(
+                        f"trim failed ({error}); original recovery also "
+                        f"needs attention ({restore_error})",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+                return fail(f"trim failed ({error}); the original was "
+                            f"restored and verified",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
             journal_state["success"] = True
         new_span = _item_span(new_item)
         emit([kv_block("trimmed", {
