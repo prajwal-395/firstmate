@@ -40,12 +40,17 @@ one `BEGIN IMMEDIATE` transaction, so admission is atomic across
 processes. A job is a row: `waiting` until admitted, then `running`.
 Admission is FIFO with backfill: a job runs when it fits beside every
 running job AND every job that queued before it, so a stream of small
-jobs cannot starve a large one. A row whose local process is gone is
-reaped by the next transaction. New rows carry a stable machine
-identity, so a network hostname change cannot strand a dead grant;
-legacy rows with an old hostname are also reaped when their pid is gone.
-A reused pid only keeps a row alive longer, which errs toward exclusion,
-never toward double admission.
+jobs cannot starve a large one. A dead holder is reaped by the next
+transaction, on every acquire and on every jobs listing: pid liveness
+(zombies read as dead) plus the pid's wall-clock start, so a recycled
+number never keeps a dead grant alive; and a heartbeat lease
+(`LEASE_SECONDS`, refreshed every `HEARTBEAT_SECONDS` and on every
+wait poll), so a holder whose process is gone frees its grant even when
+its number was recycled. An abnormal exit releases its grants on a
+clean interpreter exit and lets the lease expire past `kill -9`. New
+rows carry a stable machine identity, so a network hostname change
+cannot strand a dead grant; legacy rows with an old hostname are also
+reaped when their pid is gone.
 
 What a grant really used
 ------------------------
@@ -98,6 +103,8 @@ OWNER_FILE = "owner"
 POLL_SECONDS = 0.5
 BUSY_TIMEOUT_MS = 30_000
 STALL_SECONDS = 600
+LEASE_SECONDS = 60.0
+HEARTBEAT_SECONDS = 15.0
 
 
 class Cancelled(Exception):
@@ -185,19 +192,228 @@ def _fits(demands, cap: Dict[str, int]) -> bool:
     return all(total[k] <= cap.get(k, 0) for k in total)
 
 
+def _pid_stat(pid: int) -> str:
+    """One `ps` STAT for `pid`, empty when the pid is gone."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8", timeout=3,
+            check=False).stdout.strip()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+    return out
+
+
+def _is_zombie(pid: int) -> bool:
+    """Whether `pid` is a zombie awaiting its parent's waitpid.
+
+    A zombie still answers `kill(pid, 0)` but holds nothing: the process
+    has exited and only its table slot remains. It reads as dead, the
+    way `tests/conftest.py` already treats broker pids.
+    """
+    return _pid_stat(pid).startswith("Z")
+
+
 def _alive(pid: int) -> bool:
+    if _is_zombie(pid):
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    except (OSError, ValueError, OverflowError):
+        return False
     return True
 
 
+def _pid_start(pid: int) -> str:
+    """The wall-clock start of `pid`, empty when the pid is gone.
+
+    `ps -o lstart=` is stable across a boot and distinct across pid
+    reuse: a row whose recorded start differs from the live pid's start
+    is a different process wearing a recycled number. Compared stripped,
+    because `ps` pads the field. Empty on any failure, so a missing
+    reading never blocks reaping by liveness or lease.
+    """
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "lstart="],
+            capture_output=True, encoding="utf-8", timeout=3,
+            check=False).stdout.strip()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+    return " ".join(out.split())
+
+
+def _holder_dead(pid: int, recorded_start: str | None) -> bool:
+    """Whether the holder recorded as `pid`/`recorded_start` is gone.
+
+    Dead when the pid is gone (including zombies), or when the live
+    pid's start differs from the recorded one (the number was recycled
+    for a new process). A row with no recorded start predates the
+    identity column and falls back to liveness alone.
+    """
+    if not _alive(pid):
+        return True
+    if recorded_start:
+        live_start = _pid_start(pid)
+        if live_start and live_start != recorded_start:
+            return True
+    return False
+
+
+_MACHINE_ID_CACHE: str | None = None
+
+
 def _machine_id() -> str:
-    """A stable local identity that does not change with network naming."""
-    return f"mac-{uuid.getnode():012x}"
+    """A stable local identity that does not change with network naming.
+
+    `uuid.getnode()` is NOT stable here: measured 2026-10-08 returning a
+    different random value per process (no usable MAC), so two processes
+    disagreed about who owned a row and a dead grant survived every reap
+    (job 1845). This prefers the stable hardware UUID (`IOPlatformUUID`
+    on macOS, `/etc/machine-id` on Linux) and falls back to a persisted
+    file, so every process on the machine agrees. Rows written by the old
+    `mac-<getnode>` scheme read as legacy and are reaped by pid death
+    alone.
+    """
+    global _MACHINE_ID_CACHE
+    if _MACHINE_ID_CACHE:
+        return _MACHINE_ID_CACHE
+    try:
+        out = subprocess.run(
+            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+            capture_output=True, encoding="utf-8", timeout=5,
+            check=False).stdout
+        import re
+
+        match = re.search(
+            r'"IOPlatformUUID"\s*=\s*"([^"]+)"', out or "")
+        if match:
+            _MACHINE_ID_CACHE = f"hw-{match.group(1)}"
+            return _MACHINE_ID_CACHE
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            text = Path(candidate).read_text(encoding="utf-8").strip()
+            if text:
+                _MACHINE_ID_CACHE = f"machine-{text.split()[0]}"
+                return _MACHINE_ID_CACHE
+        except OSError:
+            continue
+    try:
+        store = (Path(os.environ.get("VEP_MACHINE_ID_FILE", ""))
+                 if os.environ.get("VEP_MACHINE_ID_FILE") else
+                 Path.home() / ".local" / "share" / "vep" / "machine-id")
+        try:
+            text = store.read_text(encoding="utf-8").strip()
+            if text:
+                _MACHINE_ID_CACHE = text.split()[0]
+                return _MACHINE_ID_CACHE
+        except OSError:
+            pass
+        fresh = f"local-{uuid.uuid4().hex}"
+        try:
+            store.parent.mkdir(parents=True, exist_ok=True)
+            store.write_text(fresh + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        _MACHINE_ID_CACHE = fresh
+        return fresh
+    except (OSError, ValueError):
+        _MACHINE_ID_CACHE = "local"
+        return "local"
+
+
+_heartbeats_lock = threading.Lock()
+_heartbeats: dict[str, tuple[str, threading.Event, threading.Thread]] = {}
+_exit_hook_installed = False
+
+
+def _heartbeat_loop(db_path: str, token: str, stop: threading.Event) -> None:
+    """Refresh one running job's lease until it is released.
+
+    Daemon thread, so a `kill -9` ends the heartbeat with the process
+    and the lease expires: the reaper then frees the grant without ever
+    needing the dead holder's cooperation. Interval reads the module
+    constants at each loop so tests can shorten the lease.
+    """
+    while not stop.wait(HEARTBEAT_SECONDS):
+        try:
+            with closing(sqlite3.connect(
+                    db_path, timeout=BUSY_TIMEOUT_MS / 1000)) as conn:
+                conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+                with conn:
+                    conn.execute(
+                        "UPDATE jobs SET heartbeat_at = ? WHERE token = ?",
+                        (time.time(), token))
+        except sqlite3.Error:
+            continue
+        except OSError:
+            return
+
+
+def _start_heartbeat(db_path: Path, token: str) -> None:
+    """Begin leasing `token`; the reaper owns it past this process."""
+    global _exit_hook_installed
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=_heartbeat_loop, args=(str(db_path), token, stop),
+        daemon=True, name=f"heavy-work-heartbeat-{token[:8]}")
+    with _heartbeats_lock:
+        _heartbeats[token] = (str(db_path), stop, thread)
+        if not _exit_hook_installed:
+            import atexit
+
+            atexit.register(_release_at_exit)
+            _exit_hook_installed = True
+    thread.start()
+
+
+def _stop_heartbeat(token: str) -> None:
+    """End the lease thread for `token`; the row's own release follows."""
+    with _heartbeats_lock:
+        entry = _heartbeats.pop(token, None)
+    if entry is not None:
+        _, stop, _ = entry
+        stop.set()
+
+
+def _release_at_exit() -> None:
+    """Best-effort release of grants this process still holds at exit.
+
+    An exception path that forgets `release()` still frees the machine
+    on a clean interpreter exit (raising inside the grant, `sys.exit`
+    under it). A `kill -9` never reaches here: the heartbeat stops with
+    the process and the lease expires instead. Never raises.
+    """
+    with _heartbeats_lock:
+        pending = list(_heartbeats.items())
+    for token, (db_path, stop, _) in pending:
+        stop.set()
+        try:
+            with closing(sqlite3.connect(
+                    db_path, timeout=2)) as conn:
+                with conn:
+                    row = conn.execute(
+                        "SELECT owner, demand, enqueued_at, started_at FROM"
+                        " jobs WHERE token = ? AND state = 'running'",
+                        (token,)).fetchone()
+                    if row is None:
+                        continue
+                    conn.execute("DELETE FROM jobs WHERE token = ?",
+                                 (token,))
+                    try:
+                        _record_grant(conn, row, "", {})
+                    except sqlite3.Error:
+                        pass
+        except (sqlite3.Error, OSError):
+            continue
+    with _heartbeats_lock:
+        _heartbeats.clear()
 
 
 class Scheduler:
@@ -232,7 +448,9 @@ class Scheduler:
             conn.execute("ALTER TABLE jobs ADD COLUMN machine_id TEXT NOT NULL"
                          " DEFAULT ''")
         for column, kind in (("last_cpu", "REAL"), ("last_cpu_at", "REAL"),
-                             ("stalled", "INTEGER NOT NULL DEFAULT 0")):
+                             ("stalled", "INTEGER NOT NULL DEFAULT 0"),
+                             ("pid_start", "TEXT NOT NULL DEFAULT ''"),
+                             ("heartbeat_at", "REAL")):
             if column not in have_jobs:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {kind}")
         # What each finished grant really used, for checking `profiles()`.
@@ -271,16 +489,32 @@ class Scheduler:
     def _reap(conn: sqlite3.Connection) -> None:
         host = socket.gethostname()
         machine_id = _machine_id()
-        for row_id, pid, row_host, row_machine in conn.execute(
-                "SELECT id, pid, host, machine_id FROM jobs").fetchall():
-            same_machine = row_machine == machine_id or (
-                not row_machine and row_host == host)
-            # Rows predating machine_id may have this machine's former
-            # network hostname. The scheduler database is machine-local;
-            # a dead pid is safe to reclaim even when that legacy label
-            # no longer matches.
-            legacy_dead = not row_machine and not _alive(pid)
-            if (same_machine or legacy_dead) and not _alive(pid):
+        now = time.time()
+        for row_id, pid, row_host, row_machine, row_start, row_beat, \
+                row_started, row_enqueued in conn.execute(
+                "SELECT id, pid, host, machine_id, pid_start, heartbeat_at,"
+                " started_at, enqueued_at FROM jobs").fetchall():
+            # The store is machine-local, so a dead holder is always ours
+            # to reclaim: by stable identity, by hostname when the identity
+            # predates this scheme (`mac-<getnode>`, which was random per
+            # process, measured 2026-10-08), or for rows predating any
+            # identity when their pid is gone.
+            same_machine = row_machine == machine_id
+            same_host = row_host == host
+            legacy_style = not row_machine or row_machine.startswith("mac-")
+            if not (same_machine or same_host or legacy_style):
+                continue
+            if _holder_dead(pid, row_start):
+                conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
+                continue
+            # The lease is the fallback past pid identity: a holder whose
+            # heartbeat stopped (kill -9 ends the thread with the process)
+            # frees the grant even when its number was recycled for a new
+            # process. Live holders heartbeat, so a stale lease means the
+            # holder is gone. Rows predating the heartbeat column fall back
+            # to their start times rather than reading as forever fresh.
+            last_beat = row_beat if row_beat else (row_started or row_enqueued or 0)
+            if last_beat and now - last_beat > LEASE_SECONDS:
                 conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
 
     # ── the old lock directory ──
@@ -294,9 +528,13 @@ class Scheduler:
         except (OSError, ValueError):
             # Ownerless or unreadable: an old-code owner mid-publish.
             return {"owner": "unknown owner (owner file missing)"}
+        record_machine = record.get("machine_id") if isinstance(
+            record, dict) else None
         if (isinstance(record, dict)
-                and (record.get("machine_id") == _machine_id()
-                     or not record.get("machine_id"))
+                and (record_machine == _machine_id()
+                     or not record_machine
+                     or (isinstance(record_machine, str)
+                         and record_machine.startswith("mac-")))
                 and isinstance(record.get("pid"), int)
                 and not _alive(record["pid"])):
             # The pre-scheduler mkdir lock has no lease to expire. Reclaim
@@ -365,19 +603,36 @@ class Scheduler:
             raise ValueError(f"resource scheduler: {owner!r} demands "
                              f"{demand}, beyond this machine's {cap}")
         token = uuid.uuid4().hex
-        self._transaction(lambda conn: conn.execute(
-            "INSERT INTO jobs (token, owner, pid, host, machine_id, state, demand,"
-            " enqueued_at) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)",
-            (token, owner, os.getpid(), socket.gethostname(), _machine_id(),
-             json.dumps(demand, sort_keys=True), time.time())))
+        me_start = _pid_start(os.getpid())
+        now = time.time()
+
+        def insert(conn):
+            self._reap(conn)
+            conn.execute(
+                "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+                " demand, enqueued_at, pid_start, heartbeat_at)"
+                " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?)",
+                (token, owner, os.getpid(), socket.gethostname(),
+                 _machine_id(), json.dumps(demand, sort_keys=True), now,
+                 me_start, now))
+        self._transaction(insert)
         announced = False
         deadline = None if timeout is None else time.monotonic() + max(0, timeout)
+        admitted = False
         try:
             while True:
                 blockers = self._transaction(
                     lambda conn: self._try_admit(conn, token, demand, cap))
                 if not blockers:
+                    admitted = True
+                    _start_heartbeat(self.db_path, token)
                     return token
+                # A waiter refreshes its own lease while it queues, so a
+                # live waiter never reads as stale and a dead waiter's row
+                # expires promptly past its last beat.
+                self._transaction(lambda conn: conn.execute(
+                    "UPDATE jobs SET heartbeat_at = ? WHERE token = ?",
+                    (time.time(), token)))
                 if cancelled is not None and cancelled():
                     raise Cancelled(f"resource scheduler: {owner!r} stopped "
                                     "waiting")
@@ -388,6 +643,8 @@ class Scheduler:
                     announced = True
                 time.sleep(POLL_SECONDS)
         except BaseException:
+            if admitted:
+                _stop_heartbeat(token)
             self._transaction(lambda conn: (
                 conn.execute("DELETE FROM jobs WHERE token = ?", (token,)),
                 self._drop_legacy_dir_if_idle(conn)))
@@ -400,9 +657,16 @@ class Scheduler:
                             (token,)).fetchone()
         if mine is None:
             raise RuntimeError("resource scheduler: queued job row vanished")
-        nested_holder = conn.execute(
-            "SELECT 1 FROM jobs WHERE state = 'running' AND pid = ? LIMIT 1",
-            (mine[1],)).fetchone() is not None
+        me_start = _pid_start(mine[1])
+        nested_holder = False
+        for (holder_start,) in conn.execute(
+                "SELECT pid_start FROM jobs WHERE state = 'running'"
+                " AND pid = ?", (mine[1],)).fetchall():
+            # A recycled pid wearing an old row's number is not us: the
+            # reaper removes it, and it never grants a nested backfill.
+            if not holder_start or not me_start or holder_start == me_start:
+                nested_holder = True
+                break
         ahead = conn.execute(
             "SELECT owner, pid, state, demand FROM jobs WHERE id != ? AND"
             " (state = 'running' OR id < ?) ORDER BY id",
@@ -422,13 +686,16 @@ class Scheduler:
                     for owner, pid, state, _ in ahead]
         if not self._hold_legacy_dir():
             return ["lock directory claimed by an old-code lane"]
-        conn.execute("UPDATE jobs SET state = 'running', started_at = ?"
-                     " WHERE token = ?", (time.time(), token))
+        now = time.time()
+        conn.execute("UPDATE jobs SET state = 'running', started_at = ?,"
+                     " heartbeat_at = ? WHERE token = ?", (now, now, token))
         return []
 
     def release(self, token: str, profile: str = "",
                 measured: Optional[Dict[str, float]] = None) -> None:
         """End a running job; keep what it used in `grants`."""
+        _stop_heartbeat(token)
+
         def body(conn):
             row = conn.execute(
                 "SELECT owner, demand, enqueued_at, started_at FROM jobs"
@@ -487,10 +754,13 @@ class Scheduler:
         kills or signals them.
         """
         now = time.time()
-        for row_id, pid, row_host, previous, checked in conn.execute(
-                "SELECT id, pid, host, last_cpu, last_cpu_at FROM jobs"
-                " WHERE state = 'running'").fetchall():
-            if row_host != socket.gethostname():
+        me = _machine_id()
+        host = socket.gethostname()
+        for row_id, pid, row_host, row_machine, previous, checked in conn.execute(
+                "SELECT id, pid, host, machine_id, last_cpu, last_cpu_at"
+                " FROM jobs WHERE state = 'running'").fetchall():
+            same = row_machine == me or (not row_machine and row_host == host)
+            if not same:
                 continue
             try:
                 raw = subprocess.run(

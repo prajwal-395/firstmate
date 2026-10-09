@@ -456,8 +456,19 @@ def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
     with sqlite3.connect(scheduler.db_path) as conn:
         conn.execute("UPDATE jobs SET last_cpu=1, last_cpu_at=?, stalled=0",
                      (time.time() - resource_scheduler.STALL_SECONDS - 1,))
-    monkeypatch.setattr(resource_scheduler.subprocess, "run", lambda *a, **k:
-                        subprocess.CompletedProcess(a[0], 0, "00:00:01"))
+    real_run = resource_scheduler.subprocess.run
+
+    def _frozen_cpu(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args", [])
+        parts = [str(a) for a in (argv or [])]
+        # Only the stall probe's CPU-time read is frozen; pid identity
+        # (`lstart`/`stat`) and the machine identity pass through, or the
+        # reaper would read the frozen clock as a recycled pid.
+        if "time=" in " ".join(parts):
+            return subprocess.CompletedProcess(argv, 0, "00:00:01")
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(resource_scheduler.subprocess, "run", _frozen_cpu)
     rows = scheduler.jobs()
     assert rows[0]["stalled"] is True
     assert resource_scheduler._alive(os.getpid())
@@ -534,8 +545,11 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
     other_process = subprocess.Popen([
         sys.executable, "-c", "import time; time.sleep(30)"])
     with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
-        conn.execute("UPDATE jobs SET pid = ? WHERE token = ?",
-                     (other_process.pid, vlm))
+        conn.execute("UPDATE jobs SET pid = ?, pid_start = ?,"
+                     " heartbeat_at = ? WHERE token = ?",
+                     (other_process.pid,
+                      resource_scheduler._pid_start(other_process.pid),
+                      time.time(), vlm))
     second, _ = _acquire_in_thread(
         scheduler, "gemma 2", "semantics.analyse:inference")
     time.sleep(0.1)  # the second model run queues first, on the gpu
@@ -588,6 +602,113 @@ def test_a_dead_holder_is_reaped(scheduler):
 
     scheduler.release(scheduler.acquire(
         "next", resource_scheduler.demand_for("machine")))
+    assert scheduler.jobs() == []
+
+
+def test_killed_holder_frees_machine_within_lease(scheduler):
+    """Catches 2026-10-08 job 1845: a footage-analysis grant held 6+ min
+    past its pid's exit, refusing all other heavy work until deleted by
+    hand. A `kill -9` during the grant must free the next acquire within
+    the lease bound, on every acquire and on jobs listing."""
+    holder_code = (
+        "import sys; sys.path.insert(0, %r);"
+        " from library.tools import resource_scheduler as rs;"
+        " s=rs.Scheduler(__import__('pathlib').Path(%r));"
+        " s.acquire('killed-holder', {'gpu': 1}, announce=lambda l: None);"
+        " import time; time.sleep(30)" % (str(REPO_ROOT_2),
+                                          str(scheduler.legacy_dir)))
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_code],
+        cwd=REPO_ROOT_2, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if any(job["owner"] == "killed-holder" and job["state"] == "running"
+               for job in scheduler.jobs()):
+            break
+        time.sleep(0.02)
+    else:
+        holder.kill()
+        holder.wait(timeout=5)
+        pytest.fail("holder never reached running")
+    holder_pid = holder.pid
+    holder.kill()
+    holder.wait(timeout=5)
+    assert not resource_scheduler._alive(holder_pid)
+
+    started = time.monotonic()
+    token = scheduler.acquire("next", {"gpu": 1},
+                              announce=lambda line: None, timeout=10)
+    elapsed = time.monotonic() - started
+    assert elapsed < resource_scheduler.LEASE_SECONDS + 10
+    scheduler.release(token)
+    assert scheduler.jobs() == []
+
+
+def test_recycled_pid_does_not_keep_dead_grant(scheduler):
+    """A number recycled for a new process never keeps the dead grant.
+
+    Pid liveness alone (`kill(pid, 0)`) answers True for the recycled
+    number; the recorded wall-clock start distinguishes the new process
+    from the dead holder, so the next acquire still succeeds."""
+    token = scheduler.acquire("holder", resource_scheduler.demand_for(
+        "machine"))
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute("UPDATE jobs SET pid = ? WHERE token = ?",
+                     (1, token))
+    assert scheduler.jobs() == []
+    scheduler.release(scheduler.acquire(
+        "next", resource_scheduler.demand_for("machine")))
+
+
+def test_stale_heartbeat_lease_frees_grant(scheduler, monkeypatch):
+    """The lease is the fallback past pid identity: a holder whose
+    heartbeat stopped frees its grant even when its pid still answers."""
+    monkeypatch.setattr(resource_scheduler, "LEASE_SECONDS", 0.3)
+    monkeypatch.setattr(resource_scheduler, "HEARTBEAT_SECONDS", 0.05)
+    token = scheduler.acquire("holder", {"gpu": 1},
+                              announce=lambda line: None)
+    resource_scheduler._stop_heartbeat(token)
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute("UPDATE jobs SET heartbeat_at = ? WHERE token = ?",
+                     (time.time() - 5, token))
+    assert scheduler.jobs() == []
+    scheduler.release(scheduler.acquire(
+        "next", {"gpu": 1}, announce=lambda line: None))
+
+
+def test_zombie_holder_reads_as_dead():
+    """A zombie still answers `kill(pid, 0)` but holds nothing."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    while proc.poll() is None:
+        time.sleep(0.01)
+    try:
+        assert not resource_scheduler._alive(proc.pid)
+    finally:
+        proc.wait(timeout=5)
+
+
+def test_abnormal_exit_without_release_frees_grant(scheduler, monkeypatch):
+    """An `os._exit` under the grant (no release, no atexit) still frees
+    the next acquire within the lease bound."""
+    monkeypatch.setattr(resource_scheduler, "LEASE_SECONDS", 0.5)
+    monkeypatch.setattr(resource_scheduler, "HEARTBEAT_SECONDS", 0.1)
+    exiter_code = (
+        "import sys, os; sys.path.insert(0, %r);"
+        " from library.tools import resource_scheduler as rs;"
+        " s=rs.Scheduler(__import__('pathlib').Path(%r));"
+        " s.acquire('abnormal-holder', {'gpu': 1},"
+        " announce=lambda l: None);"
+        " os._exit(3)" % (str(REPO_ROOT_2), str(scheduler.legacy_dir)))
+    exiter = subprocess.Popen(
+        [sys.executable, "-c", exiter_code], cwd=REPO_ROOT_2,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert exiter.wait(timeout=5) == 3
+    started = time.monotonic()
+    token = scheduler.acquire("next", {"gpu": 1},
+                              announce=lambda line: None, timeout=10)
+    assert time.monotonic() - started < 10
+    scheduler.release(token)
     assert scheduler.jobs() == []
 
 

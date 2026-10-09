@@ -48,7 +48,41 @@ MACHINE = "machine"
 _state_guard = threading.Lock()
 _held_state: dict | None = None
 _memory_reservation: dict | None = None
+_exit_hook_installed = False
 _F = TypeVar("_F", bound=Callable)
+
+
+def _ensure_exit_hook() -> None:
+    """Release owned grants on a clean interpreter exit.
+
+    The `with` blocks already release on every exception unwind; this
+    covers the abnormal path that never unwinds them (a `take_` without
+    its `release_`, `os._exit` aside): the scheduler's heartbeat lease
+    is the `kill -9` fallback past this hook.
+    """
+    global _exit_hook_installed
+    if _exit_hook_installed:
+        return
+    import atexit
+
+    def _release_at_exit() -> None:
+        global _held_state, _memory_reservation
+        with _state_guard:
+            held, _held_state = _held_state, None
+            reserved, _memory_reservation = _memory_reservation, None
+        for state, is_memory in ((held, False), (reserved, True)):
+            if state is None or not state.get("owned", True):
+                continue
+            try:
+                sampler = state.get("sampler")
+                measured = sampler.stop() if sampler is not None else None
+                _scheduler().release(state["token"],
+                                     state.get("profile", ""), measured)
+            except BaseException:
+                pass
+
+    atexit.register(_release_at_exit)
+    _exit_hook_installed = True
 
 
 def _announce(line: str) -> None:
@@ -132,6 +166,7 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
                        "demand": demand, "previous_env": inherited,
                        "profile": profile, "sampler": sampler}
         os.environ[OWNER_ENV] = token
+        _ensure_exit_hook()
 
 
 def take_heavy_memory_reservation(
@@ -191,6 +226,7 @@ def take_heavy_memory_reservation(
             "token": token, "profile": profile, "demand": demand,
             "sampler": sampler, "nested_profiles": frozenset(admissions),
         }
+        _ensure_exit_hook()
 
 
 def release_heavy_memory_reservation() -> None:
