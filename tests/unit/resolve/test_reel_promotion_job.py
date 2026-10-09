@@ -516,7 +516,7 @@ def test_broker_worker_borrows_for_fixture_setup_and_restores_captain(
     assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
 
 
-def test_other_qualification_jobs_still_require_qualification_open(
+def test_non_borrowing_qualification_jobs_still_require_qualification_open(
         monkeypatch):
     from contextlib import nullcontext
 
@@ -529,8 +529,8 @@ def test_other_qualification_jobs_still_require_qualification_open(
     monkeypatch.setattr(resolve_lock, "resolve_lease",
                         lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(jobs, "run", lambda *_args: pytest.fail(
-        "the non-promotion qualification job must be refused first"))
-    job = {"id": "qualification-session", "kind": "resolve.qualification_session",
+        "the non-borrowing qualification job must be refused first"))
+    job = {"id": "qualification-session", "kind": "timeline.observe_current",
            "mode": "exclusive", "qualification": True,
            "executed": True, "project": QUALIFICATION_PROJECT,
            "timeline": "", "params": {}}

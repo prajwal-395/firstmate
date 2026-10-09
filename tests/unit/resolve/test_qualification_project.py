@@ -343,6 +343,24 @@ def test_rust_worker_runs_borrowing_jobs_from_the_captains_project(monkeypatch):
     assert [job["kind"] for job in calls] == ["qualification.workflow"]
 
 
+def test_rust_worker_runs_qualification_sessions_from_the_captains_project(
+        monkeypatch):
+    """A qualification session borrows and restores the captain context,
+    so the Rust worker must allow it through the same open-project gate as
+    the other borrowing qualification jobs.
+    """
+    resolve, podcast = _captain()
+    assert resolve.GetCurrentProject() is podcast
+
+    reply, calls = _borrowing_job(
+        monkeypatch, resolve, kind="resolve.qualification_session")
+
+    assert reply["ok"] is True, reply
+    assert reply["result"] == {"ran": "resolve.qualification_session"}
+    assert [job["kind"] for job in calls] == [
+        "resolve.qualification_session"]
+
+
 def test_rust_worker_still_refuses_a_wrong_target_for_borrowing_jobs(monkeypatch):
     """Defect: exempting borrowing jobs must not open any project - a
     borrowing job naming a user project is refused before the borrow."""

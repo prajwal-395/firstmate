@@ -100,6 +100,7 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
 # operation. The server still validates their project field before borrow.
 BORROWING_QUALIFICATION_KINDS = frozenset({
     "resolve.activity_probe",
+    "resolve.qualification_session",
     "reel.promote_staged",
     "reel.prepare_qualification_fixture",
     "reel.probe_qualification_marker_loss",
