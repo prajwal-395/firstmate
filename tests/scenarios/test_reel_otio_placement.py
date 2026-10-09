@@ -218,8 +218,8 @@ def test_resolution_mismatch_takes_the_mismatch_route_or_falls_back(
     # refusal: explicit `otio` attempts it live. This double models the
     # live landing (`otio_import_lands_current`) with a previous
     # timeline to park on, so the import lands custom-sized with the
-    # project default restored. With nowhere to park, `auto` falls
-    # back to the append path before anything is placed.
+    # project default restored. With nowhere to park, explicit `otio`
+    # refuses; automatic placement appends without trying this route.
     from tests.resolve_double import FakeTimeline
     project = make_project(width=3840, height=2160, frame_rate=FPS)
     pool = project.GetMediaPool()
@@ -429,7 +429,7 @@ def test_source_clips_already_pooled_are_not_duplicated(media, tmp_path):
 )
 def test_mismatch_route_lands_the_default_build_on_every_shape(
         media, tmp_path, monkeypatch, with_caption, with_semantic):
-    """The mismatch route places what append places, on four reel shapes.
+    """Explicit OTIO's mismatch route matches append on four reel shapes.
 
     Each shape builds twice: append on a 3840x2160 project (the
     captain's default - append sizes its empty timeline custom, so the
@@ -455,11 +455,9 @@ def test_mismatch_route_lands_the_default_build_on_every_shape(
     default_project, default_pool, _ = _build(
         media, "append", tmp_path / "a", project_size=(3840, 2160),
         with_caption=with_caption, with_semantic=with_semantic)
-    # `auto`, not explicit `otio`: the free check selects the route and
-    # the probe proves it, which is the production path and the one
-    # that needs the whole-build wall timer.
+    # Explicit `otio` keeps the mismatch route available by request.
     project, pool, record = _build(
-        media, "auto", tmp_path / "b", project_size=(3840, 2160),
+        media, "otio", tmp_path / "b", project_size=(3840, 2160),
         with_caption=with_caption, with_semantic=with_semantic,
         lands_current=True, park_previous=True)
 

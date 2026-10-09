@@ -54,8 +54,8 @@ def test_auto_selects_otio_for_a_fully_representable_plan():
 def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
         import_resolution, reason):
     # An unreadable project default can prove no restore, so `auto`
-    # falls back before placement. A READABLE mismatch is the mismatch
-    # route's (`prove_mismatch_route`), not a fallback.
+    # falls back before placement. The readable mismatch also selects
+    # append in auto, without invoking the opt-in mismatch route.
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1}),
         target_resolution=(1080, 1920),
@@ -65,17 +65,14 @@ def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
     assert any(reason in item for item in reasons)
 
 
-def test_auto_selects_otio_on_a_readable_resolution_mismatch():
-    # The mismatch route switches the project default transiently
-    # around the import and restores it read-back, so a mismatch the
-    # build can read is placed by OTIO, not by append.
+def test_auto_selects_append_on_a_readable_resolution_mismatch():
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1}),
         target_resolution=(1080, 1920),
         import_resolution=(3840, 2160))
 
-    assert mode == "otio"
-    assert reasons == ()
+    assert mode == "append"
+    assert any("differs from the reel" in reason for reason in reasons)
 
 
 def test_explicit_otio_attempts_the_mismatch_route():
@@ -153,11 +150,9 @@ def test_an_explicit_otio_refusal_precedes_media_pool_access():
     ("project_size", "expected"),
     [
         ((1080, 1920), "selected otio"),
-        # A readable mismatch selects otio free and proves the route
-        # live; this stub project cannot take the switch (no
-        # SetSetting), so the probe falls back to append before the
-        # pool is touched.
-        ((3840, 2160), "fell back to append before placement"),
+        # The mismatch itself selects append before the pool is touched,
+        # without probing or writing the project default.
+        ((3840, 2160), "selected append before placement"),
     ],
     ids=("matching-resolution", "mismatched-resolution"),
 )
@@ -169,21 +164,30 @@ def test_build_auto_selects_before_media_pool_access(
         pass
 
     class Project:
+        def __init__(self):
+            self.writes = []
+
         def GetSetting(self, key):
             return {
                 "timelineResolutionWidth": str(project_size[0]),
                 "timelineResolutionHeight": str(project_size[1]),
             }[key]
 
+        def SetSetting(self, key, value):
+            self.writes.append((key, value))
+            return True
+
         def GetMediaPool(self):
             raise PoolReached
 
+    project = Project()
     with pytest.raises(PoolReached):
         build_reel_timeline(
-            Project(), None, [], [], 24, 1080, 1920, "/project", {},
+            project, None, [], [], 24, 1080, 1920, "/project", {},
             prepared=_plan(), placement_mode="auto")
 
     assert expected in capsys.readouterr().err
+    assert project.writes == []
 
 
 def test_imported_resolution_is_verified_without_setting_timeline_values():

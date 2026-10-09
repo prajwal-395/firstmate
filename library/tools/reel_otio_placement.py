@@ -302,11 +302,11 @@ def otio_incompatibilities(
     This reads the FREE placement plan plus the project's resolution
     captured before placement. Keep it beside the recorder's refusal
     seams so `auto` can choose append before the build touches its target
-    timeline. A readable resolution mismatch is NOT an incompatibility:
-    the importer switches the project default transiently around the
-    import (`prove_mismatch_route`, proven before anything is recorded)
-    and the imported timeline ends custom-sized - only an unreadable
-    default, which no restore can be proven against, falls back.
+    timeline. Unsupported shapes and an unreadable default are reasons
+    to append. A readable mismatch is handled by `select_placement` for
+    `auto`; only explicit `otio` uses the mismatch route, which switches
+    the project default transiently around the import
+    (`prove_mismatch_route`, proven before anything is recorded).
     """
     reasons = []
     if overlay_placements:
@@ -347,10 +347,6 @@ def otio_incompatibilities(
             reasons.append(
                 "the Resolve project timeline resolution could not be "
                 "read before import")
-        # A readable mismatch is the mismatch route's, not a refusal:
-        # `prove_mismatch_route` proves the transient default switch
-        # before anything is recorded, and `import_recorded` restores
-        # the default read-back after the import lands custom-sized.
     return tuple(reasons)
 
 
@@ -358,7 +354,11 @@ def select_placement(requested: str, prepared,
                      overlay_placements=None, *, target_resolution=None,
                      import_resolution=None
                      ) -> tuple[str, tuple[str, ...]]:
-    """Resolve `auto` from the free plan and captured project settings."""
+    """Resolve `auto` from the free plan and captured project settings.
+
+    A resolution mismatch selects append; the project-default switch is
+    reserved for an explicit `otio` request.
+    """
     if requested not in ("append", "otio", "auto"):
         raise ValueError(f"unknown reel placement mode {requested!r}")
     if requested == "append":
@@ -369,6 +369,15 @@ def select_placement(requested: str, prepared,
         import_resolution=import_resolution)
     if requested == "otio":
         return requested, reasons
+    if (target_resolution is not None
+            and import_resolution is not None
+            and tuple(map(int, target_resolution))
+            != tuple(map(int, import_resolution))):
+        reasons += (
+            "the Resolve project timeline resolution differs from the "
+            "reel; use --placement otio to opt in to the "
+            "project-default switch",
+        )
     return ("append" if reasons else "otio"), reasons
 
 

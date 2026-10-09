@@ -114,8 +114,9 @@ def add_arguments(parser) -> None:
              "image-sequence caption, a transition element or a program "
              "channel other than 1 refuses by name. `auto` (the default) runs a FREE "
              "compatibility check and uses append for those shapes, or "
-             "when the project resolution differs from the reel, before "
-             "touching the reel timeline.")
+             "when the project resolution differs from the reel. Only "
+             "explicit `otio` opts into the project-default resolution "
+             "switch for a mismatch.")
 
 
 def run(project_folder: str, args) -> int:
