@@ -1583,6 +1583,13 @@ _REGISTRY: tuple[Operation, ...] = (
                             "clip_marker.delete", "clip.set_enabled",
                             "clip.set_property", "clip.smart_reframe",
                             "clip.delete",
+                            # A render swap-back re-points one clip at a
+                            # new file through `clip.replace`, carrying
+                            # the remapped Fusion keys and the grade
+                            # assertion with the binding (Unit 5): one
+                            # atomic op, so new media can never land
+                            # under stale keys.
+                            "clip.replace",
                             # The edit algebra's patch-executor ops: link
                             # and unlink move linked items together, and the
                             # track rows are added, deleted, renamed and

@@ -226,7 +226,7 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         id: "clip.replace", domain: "timeline_structure",
         required: &["unique_id", "source_file"],
         merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
-        item: true, has_apply: false,
+        item: true, has_apply: true,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous source") },
     },
     OpDeclaration {

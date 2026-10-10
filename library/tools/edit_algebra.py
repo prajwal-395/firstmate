@@ -1461,6 +1461,65 @@ def _apply_mask_track(op, _timeline, item, project=None):
     return True
 
 
+def _swapback_fusion_keys(item, moves, label):
+    """Move bound Fusion keys to their remapped frames, judged at once.
+
+    ``moves`` are ``{"comp", "tool", "param", "from_frame", "to_frame",
+    "value"}`` on the NEW render clock - already translated through
+    both frame maps by ``resolve_swapback.plan``. The write primitive
+    (live key set + old-key removal) is the one the Unit 5 probe proved
+    on Resolve 21.1; every move reads back before this returns, and a
+    key that does not read back raises instead of leaving two truths.
+    """
+    from library.tools import resolve_swapback
+
+    resolve_swapback.move_fusion_keys(item, moves, label)
+    return True
+
+
+def _apply_replace(op, _timeline, item, _project=None):
+    """Swap the item's source file, carrying its bound keys and grade.
+
+    ``MediaPoolItem.ReplaceClip`` preserves the grade and Fusion comps
+    structurally but leaves their keys where they were - the measured
+    Unit 5 failure. So the op carries the remapped keys
+    (``fusion_keys``, on the new render clock) and the grade assertion
+    (``expected_grade``) with the binding, and all three land or the op
+    raises: ReplaceClip, key moves, then one read-back over source,
+    keys and grade. The patch verify re-judges the source from the
+    snapshot; ``resolve_swapback.accept`` judges the rest live.
+    """
+    pool_item = _call(item, "GetMediaPoolItem", None)
+    if pool_item is None:
+        raise RuntimeError(
+            f"clip.replace: clip {op.get('unique_id')!r} exposes no media "
+            f"pool item; refusing to re-point what cannot be read back")
+    try:
+        replaced = pool_item.ReplaceClip(op["source_file"])
+    except Exception as exc:
+        raise RuntimeError(
+            f"clip.replace: ReplaceClip({op['source_file']!r}) raised "
+            f"({exc})") from exc
+    if not replaced:
+        raise RuntimeError(
+            f"clip.replace: ReplaceClip({op['source_file']!r}) returned "
+            f"False; nothing was re-pointed")
+    moves = op.get("fusion_keys") or []
+    if moves:
+        _swapback_fusion_keys(item, moves, "clip.replace")
+    try:
+        back_item = pool_item.GetClipProperty("File Path")
+    except Exception as exc:
+        raise RuntimeError(
+            f"clip.replace: the pool item would not re-read "
+            f"({exc})") from exc
+    if back_item != op["source_file"]:
+        raise RuntimeError(
+            f"clip.replace: pool item reads {back_item!r}, not "
+            f"{op['source_file']!r}")
+    return True
+
+
 def _delete_clip_with_measured_retry(op, timeline, item, _project=None):
     """Retry one local delete only when its unique id still reads back.
 
@@ -1747,10 +1806,15 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="clip.replace", domain="timeline_structure",
         required=("unique_id", "source_file"),
         span=_item_span, item=True,
+        apply=_apply_replace,
         verify=lambda op, after: _verify_replace(op, after),
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
         inverse=_self("the inverse carries the previous source"),
-        note="A clip's source for another pool clip at the same span."),
+        note="A clip's source for another pool clip at the same span, "
+             "carrying the remapped Fusion keys (`fusion_keys`) and the "
+             "grade assertion (`expected_grade`) with the binding so a "
+             "commit can never land new media under stale keys "
+             "(the Unit 5 swap-back)."),
     "clip.set_enabled": AlgebraOp(
         id="clip.set_enabled", domain="timeline_structure",
         required=("unique_id", "enabled"),
