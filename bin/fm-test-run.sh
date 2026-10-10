@@ -480,6 +480,7 @@ fm-spawn-dispatch-profile.test.sh backend-dispatch
 fm-spawn-pool-base-freshen.test.sh standalone
 fm-spawn-positional-args.test.sh backend-dispatch
 fm-spawn-relaunch-worktree-e2e.test.sh real-herdr-gated
+fm-spawn-stale-task-artifacts.test.sh standalone
 fm-spawn-worktree-settle.test.sh backend-dispatch
 fm-startup-memory-budget.test.sh secondmate
 fm-startup-network.test.sh session-bootstrap
@@ -949,6 +950,7 @@ tests/fm-shared-captain-inheritance.test.sh 5999
 tests/fm-spawn-dispatch-profile.test.sh 133940
 tests/fm-spawn-pool-base-freshen.test.sh 80960
 tests/fm-spawn-positional-args.test.sh 1391
+tests/fm-spawn-stale-task-artifacts.test.sh 40000
 tests/fm-spawn-worktree-settle.test.sh 9076
 tests/fm-startup-memory-budget.test.sh 7043
 tests/fm-startup-network.test.sh 66791
