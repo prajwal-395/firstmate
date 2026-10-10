@@ -139,7 +139,8 @@ record_cap() {  # <state-dir> <id> <offset-secs> [model]
 # that binary so no real agent is ever stopped: the stub records its argv,
 # fails on demand, and publishes the Go record the way a real relaunch would.
 # A --opencode-workspace secondary move additionally writes the workspace
-# marker the way bin/fm-spawn.sh --relaunch records it.
+# marker the way bin/fm-spawn.sh --relaunch records it, while an explicit
+# --opencode-workspace main move clears a stale marker the same way.
 STUB="$TMP_ROOT/control-stub.sh"
 STUB_LOG="$TMP_ROOT/control-argv.log"
 cat > "$STUB" <<'SH'
@@ -162,6 +163,9 @@ if [ "${FM_STUB_PUBLISH_GO:-0}" = 1 ]; then
   if [ "$workspace" = secondary ]; then
     grep -v '^opencode_workspace=' "$meta" > "$meta.new" \
       && printf 'opencode_workspace=secondary\n' >> "$meta.new" \
+      && mv "$meta.new" "$meta"
+  elif [ "$workspace" = main ]; then
+    grep -v '^opencode_workspace=' "$meta" > "$meta.new" \
       && mv "$meta.new" "$meta"
   fi
 fi
@@ -750,10 +754,11 @@ test_descended_cap_survives_task_cleanup() {
   pass "a descended cap stays readable after that task's cleanup"
 }
 
-# --- second Go workspace (fourth rung) ---------------------------------------
+# --- second Go workspace (tier member) ---------------------------------------
 # A capped main-workspace Go lane descends within the Go tier: same model id,
 # workspace marker moved, per-workspace cap records. A capped
-# second-workspace lane has no later rung.
+# second-workspace lane returns to main while main is uncapped, the mirror
+# move; it surfaces only when both plans are capped.
 
 second_config() {  # <name> -> config dir with a second workspace
   local dir="$TMP_ROOT/cfg-$1"
@@ -809,7 +814,7 @@ test_go_lane_refused_when_second_capped() {
   pass "a capped Go lane surfaces when the second workspace is capped too"
 }
 
-test_secondary_go_lane_has_no_later_rung() {
+test_secondary_go_lane_returns_to_main() {
   local state out cfg
   state=$(fresh_state secondgo)
   cfg=$(second_config secondgo)
@@ -820,15 +825,41 @@ test_secondary_go_lane_has_no_later_rung() {
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
-    refused' '*'later rung'*) : ;;
-    *) fail "a capped second-workspace Go lane must surface, said: ${out:-<silent>}" ;;
+    relaunched' '*) : ;;
+    *) fail "a capped second-workspace Go lane must return to main while main is uncapped, said: ${out:-<silent>}" ;;
   esac
-  stub_called && fail "a fourth-rung lane has nowhere to move to"
+  case "$(stub_calls)" in
+    *'--opencode-workspace main'*) : ;;
+    *) fail "the return must carry the workspace through the control plane, called: $(stub_calls)" ;;
+  esac
+  [ "$(fm_meta_get "$state/lane1.meta" opencode_workspace 2>/dev/null)" != secondary ] \
+    || fail "the return must clear the stale secondary marker from the durable record"
+  [ ! -e "$state/lane1.opencode-retry" ] \
+    || fail "the dead session's sidecar must be cleared after the move"
   [ -f "$state/.opencode-cap-go-second" ] \
     || fail "a secondary cap must preserve to the fourth rung record"
   [ ! -f "$state/.opencode-cap-go" ] \
     || fail "a secondary cap must not mark the main Go rung capped"
-  pass "a capped second-workspace Go lane surfaces instead of moving"
+  pass "a capped second-workspace Go lane returns to main while main is uncapped"
+}
+
+test_secondary_go_lane_refused_when_main_capped() {
+  local state out cfg
+  state=$(fresh_state secondgoboth)
+  cfg=$(second_config secondgoboth)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$GO" scout
+  mark_secondary "$state" lane1
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused main-Go fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    refused' '*) : ;;
+    *) fail "a capped second-workspace Go lane must surface when main is capped too, said: ${out:-<silent>}" ;;
+  esac
+  stub_called && fail "no move may reach the control plane past two capped Go plans"
+  pass "a capped second-workspace Go lane surfaces when main is capped too"
 }
 
 test_free_lane_overflows_to_second_workspace() {
@@ -858,5 +889,6 @@ test_free_lane_overflows_to_second_workspace() {
 test_descended_cap_survives_task_cleanup
 test_go_lane_descends_to_second_workspace
 test_go_lane_refused_when_second_capped
-test_secondary_go_lane_has_no_later_rung
+test_secondary_go_lane_returns_to_main
+test_secondary_go_lane_refused_when_main_capped
 test_free_lane_overflows_to_second_workspace

@@ -3,7 +3,8 @@
 #
 # The workspace id in config/opencode-second-org propagates from the primary
 # home into each secondmate home through the declared inherited-material
-# contract, so secondmate homes run the fourth ladder rung too. The pinned
+# contract, so secondmate homes serve the Go tier too, with the billing
+# resets in config/opencode-go-resets riding along. The pinned
 # database in config/opencode-second.db never propagates: each home builds
 # its own from its own machine's live console login, so a stale or foreign
 # token can never ride along.
@@ -33,6 +34,8 @@ test_org_id_is_declared_inherited_material() {
   items=$(fm_config_inherit_items) || fail "could not list declared inherited material"
   printf '%s\n' "$items" | grep -qx 'config/opencode-second-org' \
     || fail "config/opencode-second-org is not declared inherited material"
+  printf '%s\n' "$items" | grep -qx 'config/opencode-go-resets' \
+    || fail "config/opencode-go-resets is not declared inherited material"
   printf '%s\n' "$items" | grep -qx 'config/opencode-second.db' \
     && fail "config/opencode-second.db must never be declared inherited material"
   pass "the org id is inherited material while the pinned database is not"

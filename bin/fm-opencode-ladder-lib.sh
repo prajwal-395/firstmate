@@ -4,25 +4,44 @@
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
-# THE POLICY. The standing rule for opencode dispatch is a fixed ladder:
-# free, Codex Plus (gpt-6-luna at the configured Codex profile effort,
-# falling back to xhigh), then paid Go, then paid Go on the second workspace.
-# Work runs on free first; new spawns fall through only when the preceding
-# rung is exhausted. Order is exhaustion, not load balancing: a spawn reaches
-# the fourth rung only when the first Go rung has a proven, unexpired cap.
-# The fourth rung exists only when a second workspace is configured
-# (bin/fm-opencode-second-lib.sh); without one the ladder is three rungs,
-# byte-for-byte what it was. The rungs are stated once, here, as constants -
-# there is no config order to derive, because the order is fixed by economics
-# rather than ranked by the captain.
+# THE POLICY. The standing rule for opencode dispatch is free, Codex Plus
+# (gpt-6-luna at the configured Codex profile effort, falling back to
+# xhigh), then the paid Go tier. Work runs on free first; new spawns fall
+# through only when the preceding rung is exhausted. Order is exhaustion,
+# not load balancing. The Go tier has one member per configured workspace:
+# the main workspace always, plus the second workspace named in
+# config/opencode-second-org when one is configured
+# (bin/fm-opencode-second-lib.sh); without one the tier is main alone. The
+# tier drains the plan whose OVERALL (monthly) quota resets soonest first,
+# and only when that priority plan hits a shorter limit (the 5-hour window,
+# then the weekly window) does traffic switch to the other plan until that
+# limit resets, then switch back - so the least quota is lost unused at each
+# full reset. The choice among uncapped members is owned in full by
+# fm_opencode_ladder_pick_go_workspace below. A proven cap excludes first;
+# window timing only chooses among workspaces that can still serve, and an
+# unstarted 5-hour window on an idle plan never counts as resetting soonest
+# because idle windows exclude nothing. The rungs are stated once, here, as
+# constants - there is no config order to derive, because the tier order is
+# fixed by economics rather than ranked by the captain, while the workspace
+# inside the Go tier is ranked by billing timing, never by fixed order.
 #
 # QUOTA SOURCES. OpenCode free is reactive because quota-axi has no free row:
 # bin/fm-opencode-retry.sh records the vendor retry horizon and the pane-text
 # detector covers an idle refusal. Codex and OpenCode Go use fresh known zero
-# quota rows only when quota-axi supplies a valid reset timestamp; the first
-# Go rung also accepts reactive vendor evidence, while the second Go rung is
-# reactive-only because quota-axi's single opencode-go row has no workspace
-# dimension (bin/fm-opencode-second-lib.sh). All durable reset records use
+# quota rows only when quota-axi supplies a valid reset timestamp; the main
+# Go workspace also accepts reactive vendor evidence. quota-axi exposes a
+# single opencode-go row with no workspace dimension (verified 2026-10-10:
+# the /zen/go/v1/usage endpoint returns one rolling/weekly/monthly set with
+# no workspace key and ignores workspace scoping), so by the long-standing
+# convention it reads as the main workspace, while the second workspace is
+# reactive-only (bin/fm-opencode-second-lib.sh). Reactive evidence carries a
+# horizon but never the window that caused it, so a second-workspace cap is
+# undifferentiated: the switch-back horizon IS that limit's reset whatever
+# window it was. Each plan's monthly reset comes from the gitignored
+# config/opencode-go-resets (one `<main|secondary> <ISO-8601>` line per plan,
+# projected forward by calendar month) with the live quota-axi monthly window
+# filling the main plan's gap when that file is silent; a plan with neither
+# reads as unknown. All durable reset records use
 # the same state/.opencode-cap-<rung> store and become eligible exactly at
 # reset. Each Go workspace keeps its own cap record and reset time, so
 # capping one never marks the other capped.
@@ -48,9 +67,12 @@
 # FAILURE DIRECTION. Unknown or stale quota data never counts as exhaustion.
 # A free cap may fall through despite an absent model binding; a destination
 # rung with its own unexpired cap is skipped. If every rung is capped -
-# three without a second workspace, four with one - return 3 marks proven
+# free, Codex Plus, and the whole Go tier (main capped plus second capped,
+# or main capped with no second workspace) - return 3 marks proven
 # exhaustion so fm-spawn can try a declared default fallback; when
 # none exists, dispatch is refused with every rung and reset time named.
+# The free-model fallback (notably longcat) is reachable only there, never
+# while either Go workspace can still serve.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
 # a free request on free past a proven cap and prints that it did. It is an
@@ -219,17 +241,165 @@ fm_opencode_ladder_go_main_capped() {  # <state-dir>
   [ "$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/^status=//p')" = blocked ]
 }
 
-# fm_opencode_ladder_go_second_ready: is the fourth rung the live one for a
-# new spawn? All three require: a second workspace is configured, the first
-# Go rung has a proven unexpired cap, and the fourth rung is itself uncapped.
-# Absence of a configured second workspace reads as not-ready, which keeps
-# the ladder at three rungs.
-fm_opencode_ladder_go_second_ready() {  # <state-dir> [config-dir]
-  local state_dir=$1
-  fm_opencode_second_configured "${2:-}" || return 1
-  fm_opencode_ladder_go_main_capped "$state_dir" || return 1
-  fm_opencode_ladder_go_second_reactive_capped "$state_dir" && return 1
-  return 0
+# fm_opencode_go_resets_file [config-dir]: path of the billing-reset file.
+fm_opencode_go_resets_file() {  # [config-dir]
+  local config_dir
+  config_dir=$(fm_opencode_second_config_dir "${1:-}") || return 1
+  printf '%s/opencode-go-resets\n' "$config_dir"
+}
+
+# fm_opencode_go_monthly_anchor [config-dir] <workspace>: the configured
+# monthly-reset anchor instant for <workspace>, or nothing. The file holds
+# one `<main|secondary> <ISO-8601>` line per plan; blanks, `#` comments,
+# unknown names, and unparsable dates are ignored, never fatal: a plan with
+# no usable line reads as unknown and the tier choice degrades rather than
+# refusing the launch.
+fm_opencode_go_monthly_anchor() {  # [config-dir] <workspace>
+  local config_arg=${1:-} workspace=${2:-} file line name stamp rest
+  [ "$workspace" = "$FM_OPENCODE_WORKSPACE_MAIN" ] \
+    || [ "$workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ] || return 1
+  file=$(fm_opencode_go_resets_file "$config_arg") || return 1
+  [ -f "$file" ] && [ -r "$file" ] || return 1
+  stamp=
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    name=${line%% *}; rest=${line#* }
+    [ "$name" = "$line" ] && continue
+    [ "$name" = "$workspace" ] || continue
+    stamp=${rest%% *}
+  done < "$file" 2>/dev/null || true
+  [ -n "$stamp" ] || return 1
+  printf '%s\n' "$stamp"
+}
+
+# fm_opencode_go_next_monthly <anchor-iso> [<now-epoch>]: the next monthly
+# reset at or after <now> for a plan whose billing month rolls on the
+# anchor's calendar day and time. Prints epoch seconds, nothing when the
+# anchor is unparsable. Month ends clamp (a 31st anchor resets on Feb 28 in
+# a common year); callers must not assume the anchor itself is future.
+# Calendar math runs in jq over UTC epochs, so neither GNU nor BSD date(1)
+# is needed and the answer is identical on both.
+fm_opencode_go_next_monthly() {  # <anchor-iso> [<now-epoch>]
+  local anchor=${1:-} now=${2:-} epoch
+  [ -n "$anchor" ] || return 1
+  [ -n "$now" ] || now=$(date +%s)
+  case "$now" in ''|*[!0-9]*) return 1 ;; esac
+  epoch=$(TZ=UTC0 jq -nr --arg anchor "$anchor" --argjson now "$now" '
+    def days_in_month($y; $m):
+      [31, (if (($y % 4 == 0 and $y % 100 != 0) or $y % 400 == 0) then 29 else 28 end),
+       31, 30, 31, 30, 31, 31, 30, 31, 30, 31][$m - 1];
+    def days_from_civil($y; $m; $d):
+      (($y - (if $m <= 2 then 1 else 0 end))) as $y2
+      | (((if $y2 >= 0 then $y2 else $y2 - 399 end) / 400 | floor)) as $era
+      | ($y2 - $era * 400) as $yoe
+      | ((153 * ($m + (if $m > 2 then -3 else 9 end)) + 2) / 5 | floor) as $doy_base
+      | ($doy_base + $d - 1) as $doy
+      | ($yoe * 365 + ($yoe / 4 | floor) - ($yoe / 100 | floor) + $doy) as $doe
+      | ($era * 146097 + $doe - 719468);
+    (try ($anchor | fromdateiso8601) catch empty) as $t
+    | select($t != null)
+    | ($t | gmtime) as $g
+    | (if $now <= $t then $t else
+         (first(range(1; 49) as $k
+           | ((($g[0] * 12 + $g[1]) + $k)) as $tm
+           | (($tm / 12 | floor)) as $y | (($tm % 12) + 1) as $m
+           | ([ $g[2], days_in_month($y; $m) ] | min) as $d
+           | ((days_from_civil($y; $m; $d) * 86400) + $g[3] * 3600 + $g[4] * 60 + ($g[5] | floor))
+           | select(. >= $now))) // empty
+       end)' 2>/dev/null) || return 1
+  case "$epoch" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$epoch"
+}
+
+# fm_opencode_ladder_go_monthly <workspace> [config-dir]: the plan's next
+# overall (monthly) reset epoch, or nothing when unknown. The configured
+# anchor wins for the second workspace always; for the main workspace the
+# live quota-axi monthly window wins when fresh and the configured anchor
+# fills the gap, because the server's own next reset is authoritative while
+# the single row cannot speak for the other plan.
+fm_opencode_ladder_go_monthly() {  # <workspace> [config-dir]
+  local workspace=${1:-} config_arg=${2:-} anchor report monthly now
+  [ -n "$workspace" ] || return 1
+  now=$(date +%s)
+  if [ "$workspace" = "$FM_OPENCODE_WORKSPACE_MAIN" ] \
+    && command -v quota-axi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    report=$(quota-axi --json 2>/dev/null) || report=
+    if [ -n "$report" ]; then
+      monthly=$(printf '%s' "$report" | jq -r '
+        .providers[]?
+        | select(.provider == "opencode-go" and (.state.stale == false or .state.status == "fresh"))
+        | .windows[]?
+        | select(.id == "monthly")
+        | .resetsAt? // empty
+        | try fromdateiso8601 catch empty' 2>/dev/null | head -n 1) || monthly=
+      case "$monthly" in ''|*[!0-9]*) : ;; *)
+        [ "$monthly" -gt "$now" ] && { printf '%s\n' "$monthly"; return 0; } ;;
+      esac
+    fi
+  fi
+  anchor=$(fm_opencode_go_monthly_anchor "$config_arg" "$workspace" 2>/dev/null) || return 1
+  fm_opencode_go_next_monthly "$anchor" "$now"
+}
+
+# fm_opencode_ladder_go_priority <state-dir> [config-dir]: the plan to drain
+# first - the one whose overall (monthly) quota resets soonest, so the least
+# quota is lost unused at each full reset. Prints main|secondary. A known
+# reset beats an unknown one; an exact tie, or no timing on either side,
+# stays on main: it is the long-standing default lane, and every lane
+# recorded before workspace markers existed reads as main. Absence of a
+# configured second workspace is main without consulting timing.
+fm_opencode_ladder_go_priority() {  # <state-dir> [config-dir]
+  local state_dir=$1 config_arg=${2:-} main_reset='' second_reset=''
+  fm_opencode_second_configured "$config_arg" \
+    || { printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"; return 0; }
+  main_reset=$(fm_opencode_ladder_go_monthly "$FM_OPENCODE_WORKSPACE_MAIN" "$config_arg" 2>/dev/null) || main_reset=
+  second_reset=$(fm_opencode_ladder_go_monthly "$FM_OPENCODE_WORKSPACE_SECOND" "$config_arg" 2>/dev/null) || second_reset=
+  case "$main_reset" in ''|*[!0-9]*) main_reset= ;; esac
+  case "$second_reset" in ''|*[!0-9]*) second_reset= ;; esac
+  if [ -n "$second_reset" ] && { [ -z "$main_reset" ] || [ "$second_reset" -lt "$main_reset" ]; }; then
+    printf '%s\n' "$FM_OPENCODE_WORKSPACE_SECOND"
+  else
+    printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"
+  fi
+}
+
+# fm_opencode_ladder_pick_go_workspace <state-dir> [config-dir]: the Go
+# workspace the next spawn or descending relaunch serves. Prints
+# main|secondary. This is the SINGLE owner of the tier choice: a proven cap
+# excludes first, the priority plan serves while uncapped, and a priority
+# plan under a shorter cap (5-hour, then weekly) yields to the other plan
+# until that limit resets - at which point the next evaluation returns on
+# its own, because the expired record excludes nothing. Both capped prints
+# main; callers detect tier exhaustion through their own cap checks rather
+# than through this choice, and the free-model fallback stays reachable only
+# there.
+fm_opencode_ladder_pick_go_workspace() {  # <state-dir> [config-dir]
+  local state_dir=$1 config_arg=${2:-} priority other
+  local priority_capped=0 other_capped=0
+  fm_opencode_second_configured "$config_arg" \
+    || { printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"; return 0; }
+  priority=$(fm_opencode_ladder_go_priority "$state_dir" "$config_arg" 2>/dev/null) \
+    || priority=$FM_OPENCODE_WORKSPACE_MAIN
+  if [ "$priority" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+    other=$FM_OPENCODE_WORKSPACE_MAIN
+  else
+    priority=$FM_OPENCODE_WORKSPACE_MAIN
+    other=$FM_OPENCODE_WORKSPACE_SECOND
+  fi
+  if [ "$priority" = "$FM_OPENCODE_WORKSPACE_MAIN" ]; then
+    fm_opencode_ladder_go_main_capped "$state_dir" && priority_capped=1
+    fm_opencode_ladder_go_second_reactive_capped "$state_dir" && other_capped=1
+  else
+    fm_opencode_ladder_go_second_reactive_capped "$state_dir" && priority_capped=1
+    fm_opencode_ladder_go_main_capped "$state_dir" && other_capped=1
+  fi
+  if [ "$priority_capped" -eq 0 ]; then
+    printf '%s\n' "$priority"; return 0
+  fi
+  if [ "$other_capped" -eq 0 ]; then
+    printf '%s\n' "$other"; return 0
+  fi
+  printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"
 }
 
 fm_opencode_ladder_plus_capped() {  # <state-dir>
@@ -492,7 +662,7 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     case "$explicit_plus_cap" in *'status=blocked'*)
       explicit_go_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null) || explicit_go_cap=
       case "$explicit_go_cap" in *'status=blocked'*)
-        if fm_opencode_ladder_go_second_ready "$state_dir"; then
+        if [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
           printf '%s\n' "$FM_OPENCODE_LADDER_GO"
           printf 'notice: opencode ladder: Codex Plus and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
           return 0
@@ -515,14 +685,18 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   fi
   fm_opencode_ladder_plus_capped "$state_dir" && plus_capped=1
   fm_opencode_ladder_go_main_capped "$state_dir" && go_capped=1
-  # The fourth rung's reactive scan runs for its preservation side effect
-  # whenever a second workspace is configured - even while the main Go rung
-  # is uncapped and routing stays there - so a proven secondary cap is
-  # recorded when observed, not only once the main rung caps. Without a
-  # configured second workspace nothing here runs at all.
+  # The Go tier's workspace is one decision owned by
+  # fm_opencode_ladder_pick_go_workspace: the monthly-soonest plan serves
+  # while uncapped, and a plan under a shorter cap yields to the other until
+  # that limit resets. The reactive scan below runs for its preservation
+  # side effect whenever a second workspace is configured - even while the
+  # pick stays on main - so a proven secondary cap is recorded when
+  # observed, not only once the priority plan caps. Without a configured
+  # second workspace nothing here runs at all.
   if fm_opencode_second_configured; then
     fm_opencode_ladder_go_second_reactive_capped "$state_dir" && second_capped=1
-    [ "$go_capped" -eq 1 ] && [ "$second_capped" -eq 0 ] && second_ready=1
+    [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ] \
+      && second_ready=1
   fi
   [ "$free_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_FREE"; return 0; }
   if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
@@ -558,14 +732,18 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     fi
     return 0
   fi
+  if [ "$second_ready" -eq 1 ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+    if [ "$go_capped" -eq 1 ]; then
+      printf 'notice: opencode ladder: free, Codex Plus, and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
+    else
+      printf 'notice: opencode ladder: free and Codex Plus are capped; the priority Go plan resets soonest on the second workspace; dispatching on Go %s there\n' "$FM_OPENCODE_LADDER_GO" >&2
+    fi
+    return 0
+  fi
   if [ "$go_capped" -eq 0 ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_GO"
     printf 'notice: opencode ladder: free and Codex Plus are capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
-    return 0
-  fi
-  if [ "$second_ready" -eq 1 ]; then
-    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
-    printf 'notice: opencode ladder: free, Codex Plus, and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
     return 0
   fi
 }

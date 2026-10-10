@@ -55,9 +55,11 @@
 # ladder keeps its three rungs byte-for-byte.
 #
 # QUOTA. quota-axi exposes one `opencode-go` row with no workspace dimension,
-# so it cannot see the second workspace separately. The fourth rung therefore
-# uses reactive vendor evidence only; predictive zero-availability rows keep
-# feeding the main Go rung exactly as today.
+# so it cannot see the second workspace separately. The second workspace
+# therefore uses reactive vendor evidence only, contributes no window timing
+# to the tier pick, and reads as unknown while uncapped; predictive
+# zero-availability rows keep feeding the main Go rung exactly as today.
+# bin/fm-opencode-ladder-lib.sh owns the tier comparison.
 
 _FM_OPENCODE_SECOND_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_OPENCODE_SECOND_LIB_DIR="."
 # fm_meta_get lives in the backend library; dispatch-path callers load it
