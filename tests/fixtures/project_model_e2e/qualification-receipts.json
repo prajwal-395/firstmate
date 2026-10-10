@@ -1,0 +1,278 @@
+{
+  "schema": "ren-pm9-qualification-receipts.v1",
+  "run_stamp": "20261010T094134133517Z",
+  "fixture": "tests/fixtures/project_model_e2e",
+  "filmcraft_pin": "7bd76212629a067a9d1c5426d751de9faf4664b7",
+  "effectcraft_pin": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
+  "passed": true,
+  "ingest": {
+    "model_id": "pm-e2e-fixture",
+    "schema_version": 1,
+    "assets": [
+      {
+        "id": "asset-ada",
+        "file": "person-ada-aroll.mp4",
+        "bytes": 26459,
+        "digest": "sha256:04c39232dfa81f2c39c25ce74506d2bf46b90f3379aa277959c2506acc90e78c"
+      },
+      {
+        "id": "asset-ben",
+        "file": "person-ben-aroll.mp4",
+        "bytes": 23379,
+        "digest": "sha256:cdb7c96f2012ff8b0f1e80bf531cff1b5965af7849e1f6341866e903baaf3a49"
+      },
+      {
+        "id": "asset-broll",
+        "file": "coast-broll.mp4",
+        "bytes": 30981,
+        "digest": "sha256:351a76f2ed82433a745443b505049b501be26fb80d478bb4f21794ffeb8deae2"
+      }
+    ]
+  },
+  "identity": {
+    "person-ada": {
+      "entity_id": "person-ada",
+      "observations": [
+        "obs-ada-face",
+        "obs-ada-speech"
+      ],
+      "modalities": [
+        "face",
+        "speech"
+      ],
+      "masks": [
+        "mask-ada"
+      ],
+      "a_roll": [
+        "use-ada"
+      ],
+      "identity_links": 2,
+      "rendered_ranges": [
+        {
+          "clip_use_id": "use-ada",
+          "render_id": "render-e2e",
+          "output_asset_id": "asset-render",
+          "input_revision": "rev-1",
+          "timeline_interval": {
+            "clock_id": "clock-project",
+            "start": 0,
+            "end": 36
+          },
+          "render_interval": {
+            "clock_id": "clock-render",
+            "start": 0,
+            "end": 36
+          },
+          "mapping_kind": "one_to_one"
+        }
+      ]
+    },
+    "person-ben": {
+      "entity_id": "person-ben",
+      "observations": [
+        "obs-ben-face",
+        "obs-ben-speech"
+      ],
+      "modalities": [
+        "face",
+        "speech"
+      ],
+      "masks": [
+        "mask-ben"
+      ],
+      "a_roll": [
+        "use-ben"
+      ],
+      "identity_links": 2,
+      "rendered_ranges": [
+        {
+          "clip_use_id": "use-ben",
+          "render_id": "render-e2e",
+          "output_asset_id": "asset-render",
+          "input_revision": "rev-1",
+          "timeline_interval": {
+            "clock_id": "clock-project",
+            "start": 36,
+            "end": 84
+          },
+          "render_interval": {
+            "clock_id": "clock-render",
+            "start": 36,
+            "end": 84
+          },
+          "mapping_kind": "one_to_one"
+        }
+      ]
+    }
+  },
+  "filmcraft": {
+    "cli_version": "0.5.0",
+    "upstream_revision": "7bd76212629a067a9d1c5426d751de9faf4664b7",
+    "item_id": 8,
+    "clip_ids": [
+      10,
+      11
+    ],
+    "import_errors": [],
+    "planned_trim": {
+      "head_cut_frames": 12,
+      "kept_anchor": [
+        12,
+        48
+      ]
+    },
+    "measured_start_frame": 12,
+    "measured_timeline_frames": 36,
+    "full_render": {
+      "bytes": 90616,
+      "frames": 48,
+      "file": "pm9-ada-full.mp4"
+    },
+    "render": {
+      "bytes": 70115,
+      "frames": 36,
+      "file": "pm9-ada-trimmed.mp4"
+    },
+    "frame_map": {
+      "id": "map-pm9-filmcraft",
+      "from_clock": "clock-project",
+      "to_clock": "clock-pm9-render",
+      "segments": [
+        {
+          "from": {
+            "clock_id": "clock-project",
+            "start": 12,
+            "end": 48
+          },
+          "to": {
+            "clock_id": "clock-pm9-render",
+            "start": 0,
+            "end": 36
+          },
+          "mapping_kind": "one_to_one",
+          "rate": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "source_clip_use": "use-ada"
+        }
+      ]
+    },
+    "losses": []
+  },
+  "effectcraft": {
+    "cli_version": "0.7.0",
+    "upstream_revision": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
+    "adapter_version": 1,
+    "operations": 12,
+    "losses": [],
+    "frames": 54,
+    "pix_fmt": "rgba",
+    "render_id": "render-pm9-ec",
+    "frame_map_id": "map-ec-pm9",
+    "animated_mask": {
+      "mask": "mask-ada-anim",
+      "matte_files": 24,
+      "frames": 24,
+      "worst_alpha_diff": 0.0,
+      "weakest_center_alpha": 255,
+      "frame_map_id": "map-ec-pm9anim"
+    }
+  },
+  "swapback_plan": {
+    "key_moves": [
+      {
+        "comp": "PM9Comp",
+        "tool": "Transform1",
+        "param": "Size",
+        "from_frame": 12,
+        "to_frame": 0,
+        "value": 1.012
+      },
+      {
+        "comp": "PM9Comp",
+        "tool": "Transform1",
+        "param": "Size",
+        "from_frame": 30,
+        "to_frame": 18,
+        "value": 1.03
+      },
+      {
+        "comp": "PM9Comp",
+        "tool": "Transform1",
+        "param": "Size",
+        "from_frame": 47,
+        "to_frame": 35,
+        "value": 1.047
+      }
+    ],
+    "grade_ranges": [
+      {
+        "clock_id": "clock-pm9-trimmed",
+        "start": 0,
+        "end": 36
+      }
+    ],
+    "patch_operations": [
+      "clip.replace"
+    ]
+  },
+  "resolve_live": {
+    "scratch": "PM9 Scratch <stamp>",
+    "prior_clip": "pm9-ada-full.mp4",
+    "swap_target_clip": "pm9-ada-trimmed.mp4",
+    "prior_span_frames": 48,
+    "v1_uid_hint": true,
+    "session_steps": 13,
+    "grade": {
+      "lut": "Film Looks/Rec709 Kodak 2383 D65.cube",
+      "track": "video1",
+      "index": 3
+    },
+    "fusion_setup": {
+      "comp": "PM9Comp",
+      "keys": [
+        12,
+        30,
+        47
+      ],
+      "values": {
+        "12": 1.012,
+        "30": 1.03,
+        "47": 1.047
+      }
+    },
+    "swap_accepted": true,
+    "final_keys": {
+      "0": 1.012,
+      "18": 1.03,
+      "35": 1.047
+    },
+    "commit_status": "committed",
+    "cleanup": {
+      "method": "qualification-reset",
+      "state": "clean",
+      "reset_timelines": [
+        "Q Spine",
+        "Q Markers"
+      ]
+    }
+  },
+  "failure_injection": {
+    "stale_revision": {
+      "refused_as": "REN_PM9_STALE_REVISION"
+    },
+    "unknown_schema": {
+      "refused_as": "REN_PM9_UNKNOWN_SCHEMA"
+    },
+    "ambiguous_map": {
+      "refused_as": "REN_PM9_AMBIGUOUS_MAP"
+    },
+    "missing_identity": {
+      "refused_as": "REN_PM9_MISSING_IDENTITY"
+    },
+    "unsupported_effect": {
+      "refused_as": "REN_PM9_UNSUPPORTED_EFFECT"
+    }
+  }
+}

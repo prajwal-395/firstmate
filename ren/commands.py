@@ -198,7 +198,7 @@ VERBS = (
     Verb("shadow-watch", "Resolve", "Watch the current timeline for hand edits on a schedule (standalone; the broker hosts it)",
           module_argv=("library.tools.shadow_watcher",),
           detail="Observe Resolve's current timeline at a slow cadence, recording observed generations and setting a soft captain-may-be-editing flag. Uses the broker's lowest priority. Hosted by the broker: starts and stops with it, follows the open project."),
-    Verb("qualification", "Resolve", "Build, qualify or run the full real-footage workflow in Ren Qualification (media|reset|qualify|workflow)",
+    Verb("qualification", "Resolve", "Build, qualify or run the full real-footage workflow in Ren Qualification (media|reset|qualify|workflow|pm-e2e)",
          module_argv=("library.tools.qualification_project",)),
     Verb("computer-use", "Resolve", "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)",
          module_argv=("library.tools.computer_use",)),

@@ -826,10 +826,14 @@ def main(argv=None) -> int:
     if argv and argv[0] == "workflow":
         from library.tools.qualification_workflow import main as workflow_main
         return workflow_main(argv[1:])
+    if argv and argv[0] == "pm-e2e":
+        from library.tools.project_model_qualification import main as pm9_main
+        return pm9_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="ren qualification",
         description=f"The {QUALIFICATION_PROJECT!r} project live tests use.")
-    parser.add_argument("verb", choices=("media", "reset", "qualify", "workflow"))
+    parser.add_argument("verb", choices=("media", "reset", "qualify", "workflow",
+                                         "pm-e2e"))
     args = parser.parse_args(argv)
     if args.verb == "media":
         report = {name: str(path) for name, path in ensure_media().items()}
