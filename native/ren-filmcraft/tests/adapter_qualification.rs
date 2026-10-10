@@ -1,8 +1,12 @@
 //! Unit 6 qualification: the Project Model -> FilmCraft projection drives the
 //! pinned headless CLI end to end. Placement, trim, split, delete, ripple
 //! delete, ripple, retime, transition, audio,
-//! render-asset validation, frame-map exactness, ID reconciliation, and
-//! unsupported-operation refusals are all exercised through the adapter.
+//! render-asset validation, frame-map exactness, ID reconciliation,
+//! unsupported-operation refusals, CLI-level loss proofs (a
+//! mask/effect/track-carrying model executed end to end reports
+//! byte-identical losses to the plan), and a concurrent-render probe
+//! (N=1 vs N=2 vs N=4 wall/RSS, reported never gated) are all exercised
+//! through the adapter.
 //!
 //! Heavy: needs the pinned FilmCraft CLI plus ffmpeg/ffprobe. Run through
 //! `vep-verify-run.sh`, never bare alongside other heavy lanes.
@@ -1074,6 +1078,179 @@ fn ren_refusals_carry_named_codes_through_the_cli_path() {
         assert!(
             format!("{model_err}").contains(code),
             "model mutation must refuse {operation} with the same code, got {model_err}"
+        );
+    }
+}
+
+/// G9 loss proof: a mask/effect/track-carrying model is executed through
+/// the pinned CLI, and the executed receipt losses must equal the
+/// plan-level losses byte-identical. Plan-level-only assertions (see the
+/// `effect_not_projected` check in
+/// `adapter_drives_transition_audio_move_and_refuses_unsupported`) cannot
+/// catch a driver that drops or invents a loss at execution time.
+#[test]
+fn mask_effect_track_losses_proven_byte_identical_through_the_pinned_cli() {
+    let adapter = FilmCraft::new().unwrap();
+    let mut model = test_model(&linked_av_fixture(), true, false);
+    model.masks.push(
+        serde_json::from_value(serde_json::json!(
+            {"id": "mask-qual", "entity_id": "person-qual",
+             "interval": {"clock_id": "clock-timeline", "start": 0, "end": 72},
+             "representation": {"kind": "ellipse",
+                                "normalized_bbox": [0.35, 0.1, 0.3, 0.65]},
+             "source_model": "adapter-qualification", "provenance_id": "prov-qual"}
+        ))
+        .unwrap(),
+    );
+    model.tracks.push(
+        serde_json::from_value(serde_json::json!(
+            {"id": "track-qual", "entity_id": "person-qual",
+             "clock_id": "clock-timeline",
+             "samples": [
+                 {"tick": 0, "geometry": {"x": 0.5, "y": 0.4},
+                  "confidence": 0.9, "coordinate_space": "normalized"},
+                 {"tick": 71, "geometry": {"x": 0.52, "y": 0.41},
+                  "confidence": 0.9, "coordinate_space": "normalized"}
+             ],
+             "provenance_id": "prov-qual"}
+        ))
+        .unwrap(),
+    );
+    model.effects.push(
+        serde_json::from_value(serde_json::json!(
+            {"id": "effect-qual", "class_id": "color.saturation", "target_id": "use-first",
+             "interval": {"clock_id": "clock-timeline", "start": 0, "end": 72},
+             "parameters": {"saturation": 0.8}, "keyframes": []}
+        ))
+        .unwrap(),
+    );
+
+    // Plan level: all three loss codes must be present before any execution.
+    let projection = plan_proj(&model).unwrap();
+    let mut plan_codes: Vec<&str> = projection
+        .losses
+        .iter()
+        .map(|loss| loss.code.as_str())
+        .collect();
+    plan_codes.sort();
+    assert_eq!(
+        plan_codes,
+        vec![
+            "effect_not_projected",
+            "mask_not_projected",
+            "object_track_not_projected"
+        ],
+        "a mask/effect/track-carrying model must plan all three losses"
+    );
+    let plan_json = serde_json::to_string(&projection.losses).unwrap();
+
+    // Execution level: place the same model through the pinned CLI.
+    let placed = place_through_adapter(&adapter, "adapter-loss-proof", &model);
+    for (index, receipt_losses) in placed.placement_losses.iter().enumerate() {
+        assert!(
+            receipt_losses.is_empty(),
+            "placement receipt {index} must add no driver loss, got {receipt_losses:#?}"
+        );
+    }
+
+    // The proof: executed receipts equal the plan-level losses byte-identical,
+    // so the engine run neither dropped nor invented a loss.
+    let summary = summarize_losses(&projection, &placed.placement_losses);
+    let summary_json = serde_json::to_string(&summary).unwrap();
+    assert_eq!(
+        summary_json, plan_json,
+        "executed receipt losses must equal the plan-level losses byte-identical"
+    );
+}
+
+/// Peak reaped-child RSS in MB. macOS reports `ru_maxrss` in bytes, Linux
+/// in kilobytes. RUSAGE_CHILDREN accumulates over the whole test process,
+/// so batches report the cumulative peak: honest for a report, unusable
+/// as a gate, which is exactly the probe's contract.
+fn peak_child_rss_mb() -> f64 {
+    // SAFETY: getrusage with RUSAGE_CHILDREN only reads kernel counters
+    // into the caller-provided struct.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, &mut usage) };
+    assert_eq!(rc, 0, "getrusage(RUSAGE_CHILDREN) must succeed");
+    let maxrss = usage.ru_maxrss as f64;
+    if cfg!(target_os = "macos") {
+        maxrss / (1024.0 * 1024.0)
+    } else {
+        maxrss / 1024.0
+    }
+}
+
+/// Export one placed timeline on `slots` parallel workers, each on its own
+/// project-file copy (exports do not save, but parallel workers must never
+/// share a project file). Returns batch wall seconds and per-slot bytes.
+fn export_batch(adapter: &FilmCraft, project: &Path, dir: &Path, slots: usize) -> (f64, Vec<u64>) {
+    let started = std::time::Instant::now();
+    let results: Vec<(usize, u64)> = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for slot in 0..slots {
+            let slot_project = dir.join(format!("concurrency-{slot}.fcproj"));
+            std::fs::copy(project, &slot_project).unwrap();
+            let out = dir.join(format!("concurrency-{slot}.mp4"));
+            handles.push(scope.spawn(move || {
+                let receipt = adapter
+                    .execute(request(Operation::Export {
+                        project: slot_project,
+                        path: out.clone(),
+                        format: ExportFormat::H264,
+                        hardware_encoder: HardwareEncoding::Auto,
+                    }))
+                    .unwrap();
+                assert!(receipt.engine_response["job"].is_u64());
+                let bytes = validate_render_asset(&out).unwrap();
+                (slot, bytes)
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    let mut sizes: Vec<u64> = vec![0; slots];
+    for (slot, bytes) in results {
+        sizes[slot] = bytes;
+    }
+    (started.elapsed().as_secs_f64(), sizes)
+}
+
+/// G9 concurrency probe: N=1 vs N=2 vs N=4 parallel exports of one placed
+/// timeline, reporting wall time and peak child RSS. This REPORTS and never
+/// gates: no assertion touches the scaling ratios, so a poorly scaling
+/// engine turns the numbers, not a red test, into the record.
+#[test]
+fn concurrent_render_probe_reports_wall_and_rss_without_gating() {
+    let adapter = FilmCraft::new().unwrap();
+    let model = test_model(&linked_av_fixture(), true, false);
+    let placed = place_through_adapter(&adapter, "adapter-concurrency", &model);
+
+    let mut serial_wall = 0.0f64;
+    let mut rows: Vec<(usize, f64, f64, Vec<u64>)> = Vec::new();
+    for slots in [1usize, 2, 4] {
+        let batch_dir = placed._temp.path().join(format!("batch-{slots}"));
+        std::fs::create_dir_all(&batch_dir).unwrap();
+        let (wall, sizes) = export_batch(&adapter, &placed.project, &batch_dir, slots);
+        assert!(
+            sizes.iter().all(|bytes| *bytes > 0),
+            "every parallel export must land a non-empty render, got {sizes:?}"
+        );
+        let rss_mb = peak_child_rss_mb();
+        if slots == 1 {
+            serial_wall = wall;
+        }
+        rows.push((slots, wall, rss_mb, sizes));
+    }
+    for (slots, wall, rss_mb, sizes) in &rows {
+        eprintln!(
+            "[concurrency-probe] slots={slots} wall={wall:.2}s \
+             per_render={:.2}s throughput_vs_serial={:.2}x \
+             peak_child_rss={rss_mb:.1}MB bytes={sizes:?}",
+            wall / *slots as f64,
+            serial_wall * *slots as f64 / wall,
         );
     }
 }
