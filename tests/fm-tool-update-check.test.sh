@@ -618,11 +618,12 @@ SH
 test_git_network_probes_outlast_a_short_local_probe_bound() {
   local home work dir out report
   # Ordinary remote latency straddles the local probe bound: a fork whose
-  # ls-remote answers in 5 seconds is healthy, but a 2-second local bound would
-  # report it as a check failure twice a day. The network probes carry their own
-  # longer bound, so this clone reports its 2 commits behind instead.
-  # (The local bound stays at 2 rather than 1 because the fixture's own git
-  # wrapper answers local probes in a large fraction of a second.)
+  # ls-remote answers in 8 seconds is healthy, but the 5-second local bound
+  # would report it as a check failure twice a day. The network probes carry
+  # their own longer bound, so this clone reports its 2 commits behind instead.
+  # The local bound stays at its default throughout: no local probe runs near
+  # its bound, so this case cannot fail from machine load the way a tightened
+  # local bound would.
   home=$(make_home git-network-bound)
   work=$(git_fixture git-network-bound-repo)
   git -C "$work" reset -q --hard HEAD~2
@@ -633,7 +634,7 @@ test_git_network_probes_outlast_a_short_local_probe_bound() {
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = ls-remote ]; then
-    sleep 5
+    sleep 8
     break
   fi
 done
@@ -643,7 +644,7 @@ SH
 
   write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=2
+  run_check "$home" "$(fixture_path "$dir")" "$out"
   report=$(cat "$out")
   assert_contains "$report" "firstmate update available: local main is 2 commits behind origin/main" "a network probe that answered past the local bound was not reported as an update"
   assert_not_contains "$report" "did not answer" "a network probe that answered inside its own bound was reported as unanswered"
