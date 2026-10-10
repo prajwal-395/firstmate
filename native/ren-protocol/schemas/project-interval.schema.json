@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Interval",
+  "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+  "type": "object",
+  "properties": {
+    "clock_id": {
+      "type": "string"
+    },
+    "end": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "start": {
+      "type": "integer",
+      "format": "int64"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "clock_id",
+    "start",
+    "end"
+  ]
+}

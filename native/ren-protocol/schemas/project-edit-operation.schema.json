@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EditOperation",
+  "type": "object",
+  "properties": {
+    "after": true,
+    "author": {
+      "type": "string"
+    },
+    "before": true,
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "intent_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operation": {
+      "type": "string"
+    },
+    "parent_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "operation",
+    "target_ids",
+    "evidence_ids",
+    "author"
+  ]
+}

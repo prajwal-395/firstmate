@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClipUse",
+  "type": "object",
+  "properties": {
+    "asset_id": {
+      "type": "string"
+    },
+    "entity_links": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "intent_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "role": {
+      "type": "string"
+    },
+    "source_interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "timeline_interval": {
+      "$ref": "#/$defs/Interval"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "asset_id",
+    "source_interval",
+    "timeline_interval",
+    "entity_links",
+    "role"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    }
+  }
+}

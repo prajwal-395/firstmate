@@ -1,0 +1,28 @@
+{
+  "id": "project-demo",
+  "schema_version": 1,
+  "timebase_policy": "rational_frames",
+  "clocks": [
+    {"id":"clock-source","domain":{"kind":"source","asset_id":"asset-source","stream_id":"stream-video"},"ticks_per_second":24,"frame_rate":{"numerator":24,"denominator":1}},
+    {"id":"clock-timeline","domain":{"kind":"project"},"ticks_per_second":24,"frame_rate":{"numerator":24,"denominator":1}},
+    {"id":"clock-render","domain":{"kind":"render","render_id":"render-1"},"ticks_per_second":24,"frame_rate":{"numerator":24,"denominator":1}}
+  ],
+  "assets":[{"id":"asset-source","kind":"video","uri":"media/source.mov","content_digest":"sha256:abc","metadata":{},"provenance":["prov-1"]},{"id":"asset-render","kind":"render","uri":"renders/output.mov","content_digest":null,"metadata":{},"provenance":["prov-1"]}],
+  "streams":[{"id":"stream-video","asset_id":"asset-source","stream_index":0,"clock_id":"clock-source","metadata":{}}],
+  "entities":[{"id":"person-1","kind":"person","label":"Speaker A","object_class_id":null},{"id":"object-1","kind":"object","label":null,"object_class_id":"class-cup"}],
+  "observations":[{"id":"obs-1","asset_id":"asset-source","interval":{"clock_id":"clock-source","start":0,"end":24},"modality":"speech","payload":{"text":"hello"},"confidence":0.99,"provenance_id":"prov-1"}],
+  "identity_links":[{"id":"identity-1","entity_id":"person-1","observation_id":"obs-1","confidence":0.97,"method":"face_voice_cooccurrence","status":"verified","provenance_id":"prov-1"}],
+  "masks":[{"id":"mask-1","entity_id":"person-1","interval":{"clock_id":"clock-source","start":0,"end":24},"representation":{"uri":"masks/person-1.rle"},"source_model":"sam2","provenance_id":"prov-1"}],
+  "object_classes":[{"id":"class-cup","name":"cup","taxonomy":"open-vocabulary"}],
+  "tracks":[{"id":"track-1","entity_id":"object-1","clock_id":"clock-source","samples":[{"tick":0,"geometry":{"x":0.1,"y":0.2,"w":0.3,"h":0.4},"confidence":0.9,"coordinate_space":"normalized_frame"}],"provenance_id":"prov-1"}],
+  "relations":[{"id":"relation-1","subject_id":"person-1","predicate":"holds","object_id":"object-1","interval":{"clock_id":"clock-source","start":0,"end":24},"confidence":0.8,"provenance_id":"prov-1"}],
+  "intents":[{"id":"intent-1","brief_ref":"brief.md","constraints":[],"evidence_links":["obs-1"]}],
+  "clip_uses":[{"id":"use-1","asset_id":"asset-source","source_interval":{"clock_id":"clock-source","start":0,"end":24},"timeline_interval":{"clock_id":"clock-timeline","start":48,"end":72},"entity_links":["person-1"],"role":"a_roll","intent_id":"intent-1"}],
+  "edits":[{"id":"edit-1","operation":"clip.trim","target_ids":["use-1"],"before":null,"after":{"end":72},"intent_id":"intent-1","evidence_ids":["obs-1"],"author":"ren","parent_revision":"rev-0"}],
+  "effects":[{"id":"effect-1","class_id":"color.exposure","target_id":"use-1","interval":{"clock_id":"clock-timeline","start":48,"end":72},"parameters":{"stops":0.5},"keyframes":[{"tick":48,"value":0.0},{"tick":72,"value":0.5}]}],
+  "renders":[{"id":"render-1","input_revision":"rev-1","output_asset_id":"asset-render","settings":{},"receipt_id":"receipt-1","frame_map_id":"map-1"}],
+  "frame_maps":[{"id":"map-1","from_clock":"clock-timeline","to_clock":"clock-render","segments":[{"from":{"clock_id":"clock-timeline","start":48,"end":72},"to":{"clock_id":"clock-render","start":0,"end":24},"mapping_kind":"one_to_one","rate":{"numerator":1,"denominator":1},"source_clip_use":"use-1"}]}],
+  "nle_bindings":[{"id":"binding-1","timeline_id":"timeline-1","system":"external_nle","project_identity":"project-ref","timeline_identity":"timeline-ref","generation":1,"clip_bindings":{"use-1":"nle-clip-1"},"external_bindings":{}}],
+  "receipts":[{"id":"receipt-1","status":"success","renderer":"fixture-renderer","input_revision":"rev-1","output_asset_id":"asset-render","details":{}}],
+  "provenance":[{"id":"prov-1","producer":"fixture","producer_version":"1","source_digest":"sha256:abc","recorded_at":"2026-10-10T00:00:00Z"}]
+}

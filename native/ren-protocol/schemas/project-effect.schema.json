@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Effect",
+  "type": "object",
+  "properties": {
+    "class_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "keyframes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Keyframe"
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "target_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "class_id",
+    "target_id",
+    "interval",
+    "parameters",
+    "keyframes"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "Keyframe": {
+      "type": "object",
+      "properties": {
+        "tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "value": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "value"
+      ]
+    }
+  }
+}

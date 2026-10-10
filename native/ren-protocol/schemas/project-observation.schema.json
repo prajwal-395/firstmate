@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observation",
+  "type": "object",
+  "properties": {
+    "asset_id": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "modality": {
+      "type": "string"
+    },
+    "payload": true,
+    "provenance_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "asset_id",
+    "interval",
+    "modality",
+    "payload",
+    "provenance_id"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    }
+  }
+}

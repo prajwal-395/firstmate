@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RenderReceipt",
+  "type": "object",
+  "properties": {
+    "details": true,
+    "id": {
+      "type": "string"
+    },
+    "input_revision": {
+      "type": "string"
+    },
+    "output_asset_id": {
+      "type": "string"
+    },
+    "renderer": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "status",
+    "renderer",
+    "input_revision",
+    "output_asset_id",
+    "details"
+  ]
+}

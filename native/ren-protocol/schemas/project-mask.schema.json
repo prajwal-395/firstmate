@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mask",
+  "type": "object",
+  "properties": {
+    "entity_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "representation": true,
+    "source_model": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "entity_id",
+    "interval",
+    "representation",
+    "source_model",
+    "provenance_id"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Asset",
+  "type": "object",
+  "properties": {
+    "content_digest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/AssetKind"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uri": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "uri",
+    "metadata",
+    "provenance"
+  ],
+  "$defs": {
+    "AssetKind": {
+      "type": "string",
+      "enum": [
+        "video",
+        "audio",
+        "image",
+        "mask",
+        "proxy",
+        "render",
+        "other"
+      ]
+    }
+  }
+}

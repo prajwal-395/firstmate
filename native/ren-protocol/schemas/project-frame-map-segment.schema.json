@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FrameMapSegment",
+  "type": "object",
+  "properties": {
+    "from": {
+      "$ref": "#/$defs/Interval"
+    },
+    "mapping_kind": {
+      "$ref": "#/$defs/MappingKind"
+    },
+    "rate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rational"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_clip_use": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to": {
+      "$ref": "#/$defs/Interval"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "from",
+    "to",
+    "mapping_kind"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "MappingKind": {
+      "type": "string",
+      "enum": [
+        "one_to_one",
+        "retimed",
+        "freeze",
+        "repeat",
+        "generated",
+        "gap",
+        "transition_blend"
+      ]
+    },
+    "Rational": {
+      "type": "object",
+      "properties": {
+        "denominator": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "numerator": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ]
+    }
+  }
+}

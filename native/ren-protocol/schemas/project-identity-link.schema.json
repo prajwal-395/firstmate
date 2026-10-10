@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdentityLink",
+  "type": "object",
+  "properties": {
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string"
+    },
+    "observation_id": {
+      "type": "string"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/IdentityStatus"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "entity_id",
+    "observation_id",
+    "method",
+    "status",
+    "provenance_id"
+  ],
+  "$defs": {
+    "IdentityStatus": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "verified"
+      ]
+    }
+  }
+}

@@ -15,6 +15,7 @@ pub mod edit;
 pub mod ids;
 pub mod job;
 pub mod ml_worker;
+pub mod project_model;
 pub mod receipt;
 pub mod resource;
 pub mod scope;
@@ -32,6 +33,10 @@ pub use job::{JobKind, JobMode, JobPriority, JobShape, JobSubmission};
 pub use ml_worker::{
     MlWorkerCancel, MlWorkerError, MlWorkerHealth, MlWorkerHealthReport, MlWorkerMessage,
     MlWorkerProgress, MlWorkerRefusal, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
+};
+pub use project_model::{
+    decode_project_model, validate_project_model, ProjectModel, ProjectModelDecodeError,
+    PROJECT_MODEL_SCHEMA_VERSION,
 };
 pub use receipt::{
     GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,

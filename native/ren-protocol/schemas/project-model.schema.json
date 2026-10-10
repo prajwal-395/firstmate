@@ -1,0 +1,1054 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjectModel",
+  "type": "object",
+  "properties": {
+    "assets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Asset"
+      }
+    },
+    "clip_uses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ClipUse"
+      }
+    },
+    "clocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Clock"
+      }
+    },
+    "edits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EditOperation"
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Effect"
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Entity"
+      }
+    },
+    "frame_maps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FrameMap"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "identity_links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IdentityLink"
+      }
+    },
+    "intents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EditorialIntent"
+      }
+    },
+    "masks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Mask"
+      }
+    },
+    "nle_bindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NleBinding"
+      }
+    },
+    "object_classes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ObjectClass"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Observation"
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RenderReceipt"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Relation"
+      }
+    },
+    "renders": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Render"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "streams": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourceStream"
+      }
+    },
+    "timebase_policy": {
+      "$ref": "#/$defs/TimebasePolicy"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ObjectTrack"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "timebase_policy",
+    "clocks",
+    "assets",
+    "streams",
+    "entities",
+    "observations",
+    "identity_links",
+    "masks",
+    "object_classes",
+    "tracks",
+    "relations",
+    "intents",
+    "clip_uses",
+    "edits",
+    "effects",
+    "renders",
+    "frame_maps",
+    "nle_bindings",
+    "receipts",
+    "provenance"
+  ],
+  "$defs": {
+    "Asset": {
+      "type": "object",
+      "properties": {
+        "content_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AssetKind"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "uri",
+        "metadata",
+        "provenance"
+      ]
+    },
+    "AssetKind": {
+      "type": "string",
+      "enum": [
+        "video",
+        "audio",
+        "image",
+        "mask",
+        "proxy",
+        "render",
+        "other"
+      ]
+    },
+    "ClipUse": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "entity_links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "intent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "source_interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "timeline_interval": {
+          "$ref": "#/$defs/Interval"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset_id",
+        "source_interval",
+        "timeline_interval",
+        "entity_links",
+        "role"
+      ]
+    },
+    "Clock": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/TimeDomain"
+        },
+        "frame_rate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rational"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ticks_per_second": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "domain",
+        "ticks_per_second"
+      ]
+    },
+    "EditOperation": {
+      "type": "object",
+      "properties": {
+        "after": true,
+        "author": {
+          "type": "string"
+        },
+        "before": true,
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "intent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "type": "string"
+        },
+        "parent_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "operation",
+        "target_ids",
+        "evidence_ids",
+        "author"
+      ]
+    },
+    "EditorialIntent": {
+      "type": "object",
+      "properties": {
+        "brief_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": true
+        },
+        "evidence_links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "constraints",
+        "evidence_links"
+      ]
+    },
+    "Effect": {
+      "type": "object",
+      "properties": {
+        "class_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Keyframe"
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "target_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "class_id",
+        "target_id",
+        "interval",
+        "parameters",
+        "keyframes"
+      ]
+    },
+    "Entity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/EntityKind"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "object_class_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ]
+    },
+    "EntityKind": {
+      "type": "string",
+      "enum": [
+        "person",
+        "object",
+        "scene",
+        "speaker",
+        "camera",
+        "other"
+      ]
+    },
+    "FrameMap": {
+      "type": "object",
+      "properties": {
+        "from_clock": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FrameMapSegment"
+          }
+        },
+        "to_clock": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "from_clock",
+        "to_clock",
+        "segments"
+      ]
+    },
+    "FrameMapSegment": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/Interval"
+        },
+        "mapping_kind": {
+          "$ref": "#/$defs/MappingKind"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rational"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_clip_use": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "$ref": "#/$defs/Interval"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "mapping_kind"
+      ]
+    },
+    "IdentityLink": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "observation_id": {
+          "type": "string"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IdentityStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entity_id",
+        "observation_id",
+        "method",
+        "status",
+        "provenance_id"
+      ]
+    },
+    "IdentityStatus": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "verified"
+      ]
+    },
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "Keyframe": {
+      "type": "object",
+      "properties": {
+        "tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "value": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "value"
+      ]
+    },
+    "MappingKind": {
+      "type": "string",
+      "enum": [
+        "one_to_one",
+        "retimed",
+        "freeze",
+        "repeat",
+        "generated",
+        "gap",
+        "transition_blend"
+      ]
+    },
+    "Mask": {
+      "type": "object",
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "representation": true,
+        "source_model": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entity_id",
+        "interval",
+        "representation",
+        "source_model",
+        "provenance_id"
+      ]
+    },
+    "NleBinding": {
+      "type": "object",
+      "properties": {
+        "clip_bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "external_bindings": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "project_identity": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "timeline_id": {
+          "type": "string"
+        },
+        "timeline_identity": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "timeline_id",
+        "system",
+        "project_identity",
+        "timeline_identity",
+        "generation",
+        "clip_bindings",
+        "external_bindings"
+      ]
+    },
+    "ObjectClass": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "taxonomy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "ObjectTrack": {
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackSample"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entity_id",
+        "clock_id",
+        "samples",
+        "provenance_id"
+      ]
+    },
+    "Observation": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "modality": {
+          "type": "string"
+        },
+        "payload": true,
+        "provenance_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset_id",
+        "interval",
+        "modality",
+        "payload",
+        "provenance_id"
+      ]
+    },
+    "Provenance": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "producer_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recorded_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "producer"
+      ]
+    },
+    "Rational": {
+      "type": "object",
+      "properties": {
+        "denominator": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "numerator": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ]
+    },
+    "Relation": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "object_id": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "subject_id",
+        "predicate",
+        "object_id",
+        "interval",
+        "provenance_id"
+      ]
+    },
+    "Render": {
+      "type": "object",
+      "properties": {
+        "frame_map_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "input_revision": {
+          "type": "string"
+        },
+        "output_asset_id": {
+          "type": "string"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "input_revision",
+        "output_asset_id",
+        "settings",
+        "receipt_id",
+        "frame_map_id"
+      ]
+    },
+    "RenderReceipt": {
+      "type": "object",
+      "properties": {
+        "details": true,
+        "id": {
+          "type": "string"
+        },
+        "input_revision": {
+          "type": "string"
+        },
+        "output_asset_id": {
+          "type": "string"
+        },
+        "renderer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "renderer",
+        "input_revision",
+        "output_asset_id",
+        "details"
+      ]
+    },
+    "SourceStream": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "clock_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "stream_index": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset_id",
+        "stream_index",
+        "clock_id",
+        "metadata"
+      ]
+    },
+    "TimeDomain": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "asset_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "source"
+            },
+            "stream_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "asset_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "project"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "timeline"
+            },
+            "timeline_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "timeline_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "render"
+            },
+            "render_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "render_id"
+          ]
+        }
+      ]
+    },
+    "TimebasePolicy": {
+      "type": "string",
+      "enum": [
+        "integer_ticks",
+        "integer_frames",
+        "rational_frames"
+      ]
+    },
+    "TrackSample": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "coordinate_space": {
+          "type": "string"
+        },
+        "geometry": true,
+        "tick": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "geometry",
+        "coordinate_space"
+      ]
+    }
+  }
+}

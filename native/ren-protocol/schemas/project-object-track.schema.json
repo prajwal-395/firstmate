@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ObjectTrack",
+  "type": "object",
+  "properties": {
+    "clock_id": {
+      "type": "string"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TrackSample"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "entity_id",
+    "clock_id",
+    "samples",
+    "provenance_id"
+  ],
+  "$defs": {
+    "TrackSample": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "coordinate_space": {
+          "type": "string"
+        },
+        "geometry": true,
+        "tick": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "geometry",
+        "coordinate_space"
+      ]
+    }
+  }
+}

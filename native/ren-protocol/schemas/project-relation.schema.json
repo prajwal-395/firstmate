@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Relation",
+  "type": "object",
+  "properties": {
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "object_id": {
+      "type": "string"
+    },
+    "predicate": {
+      "type": "string"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "subject_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "subject_id",
+    "predicate",
+    "object_id",
+    "interval",
+    "provenance_id"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    }
+  }
+}

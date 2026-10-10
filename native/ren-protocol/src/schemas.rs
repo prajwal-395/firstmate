@@ -22,6 +22,7 @@ use crate::ml_worker::{
     MlWorkerCancel, MlWorkerError, MlWorkerHealth, MlWorkerHealthReport, MlWorkerMessage,
     MlWorkerProgress, MlWorkerRefusal, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
 };
+use crate::project_model::*;
 use crate::receipt::{
     GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,
 };
@@ -109,6 +110,33 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             "MlWorkerHealthReport",
             schema_for!(MlWorkerHealthReport),
         ),
+        named("project-model", "ProjectModel", schema_for!(ProjectModel)),
+        named("project-id", "ProjectId", schema_for!(ProjectId)),
+        named("project-clock-id", "ClockId", schema_for!(ClockId)),
+        named("project-time-domain", "TimeDomain", schema_for!(TimeDomain)),
+        named("project-source-stream", "SourceStream", schema_for!(SourceStream)),
+        named("project-asset", "Asset", schema_for!(Asset)),
+        named("project-clock", "Clock", schema_for!(Clock)),
+        named("project-interval", "Interval", schema_for!(Interval)),
+        named("project-observation", "Observation", schema_for!(Observation)),
+        named("project-entity", "Entity", schema_for!(Entity)),
+        named("project-identity-link", "IdentityLink", schema_for!(IdentityLink)),
+        named("project-mask", "Mask", schema_for!(Mask)),
+        named("project-object-class", "ObjectClass", schema_for!(ObjectClass)),
+        named("project-track-sample", "TrackSample", schema_for!(TrackSample)),
+        named("project-object-track", "ObjectTrack", schema_for!(ObjectTrack)),
+        named("project-relation", "Relation", schema_for!(Relation)),
+        named("project-clip-use", "ClipUse", schema_for!(ClipUse)),
+        named("project-editorial-intent", "EditorialIntent", schema_for!(EditorialIntent)),
+        named("project-edit-operation", "EditOperation", schema_for!(EditOperation)),
+        named("project-effect", "Effect", schema_for!(Effect)),
+        named("project-keyframe", "Keyframe", schema_for!(Keyframe)),
+        named("project-render", "Render", schema_for!(Render)),
+        named("project-frame-map", "FrameMap", schema_for!(FrameMap)),
+        named("project-frame-map-segment", "FrameMapSegment", schema_for!(FrameMapSegment)),
+        named("project-nle-binding", "NleBinding", schema_for!(NleBinding)),
+        named("project-render-receipt", "RenderReceipt", schema_for!(RenderReceipt)),
+        named("project-provenance", "Provenance", schema_for!(Provenance)),
     ]
 }
 

@@ -224,6 +224,10 @@ def test_every_fixture_validates_against_the_generated_schemas():
 
     for path in sorted(FIXTURES.glob("*.json")):
         rows = json.loads(path.read_text(encoding="utf-8"))
+        # The canonical project model is a document fixture, while the
+        # existing protocol captures are arrays of individual messages.
+        if path.name == "project-model.json":
+            rows = [rows]
         for index, row in enumerate(rows):
             if path.name == "job-submission.json":
                 schema_name, target = "job-shape", row["shape"]

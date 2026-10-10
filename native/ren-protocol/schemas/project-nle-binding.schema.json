@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NleBinding",
+  "type": "object",
+  "properties": {
+    "clip_bindings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "external_bindings": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "generation": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "id": {
+      "type": "string"
+    },
+    "project_identity": {
+      "type": "string"
+    },
+    "system": {
+      "type": "string"
+    },
+    "timeline_id": {
+      "type": "string"
+    },
+    "timeline_identity": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "timeline_id",
+    "system",
+    "project_identity",
+    "timeline_identity",
+    "generation",
+    "clip_bindings",
+    "external_bindings"
+  ]
+}

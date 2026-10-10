@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Keyframe",
+  "type": "object",
+  "properties": {
+    "tick": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "value": true
+  },
+  "additionalProperties": false,
+  "required": [
+    "tick",
+    "value"
+  ]
+}

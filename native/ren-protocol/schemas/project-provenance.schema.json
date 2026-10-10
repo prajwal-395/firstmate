@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Provenance",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "producer_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recorded_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_digest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "producer"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Entity",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/EntityKind"
+    },
+    "label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "object_class_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind"
+  ],
+  "$defs": {
+    "EntityKind": {
+      "type": "string",
+      "enum": [
+        "person",
+        "object",
+        "scene",
+        "speaker",
+        "camera",
+        "other"
+      ]
+    }
+  }
+}

@@ -21,6 +21,18 @@ does today - each module names its source.
 - `tests/roundtrip.rs` - the round-trip over the captured fixtures.
 - `src/bin/emit-schemas.rs` - writes `schemas/`, `--check` fails when stale.
 
+## Canonical project model
+
+`src/project_model.rs` is the version 1, renderer and NLE independent
+project data contract. It uses stable IDs, explicit clocks and integer
+half-open intervals. `decode_project_model` rejects a missing or unknown
+schema version and invalid intervals; no implicit migration is performed.
+When storage and migrations are introduced, they must register an explicit
+version conversion before accepting older documents. The shared fixture at
+`fixtures/project-model.json` is decoded and round-tripped in Rust and read
+and written by `library.tools.project_model` in Python. Its JSON Schema is
+generated with the existing `emit-schemas` command.
+
 ## The workflow
 
 ```sh

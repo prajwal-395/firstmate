@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrackSample",
+  "type": "object",
+  "properties": {
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "coordinate_space": {
+      "type": "string"
+    },
+    "geometry": true,
+    "tick": {
+      "type": "integer",
+      "format": "int64"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "tick",
+    "geometry",
+    "coordinate_space"
+  ]
+}
