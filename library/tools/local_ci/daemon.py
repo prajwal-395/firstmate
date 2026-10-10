@@ -83,14 +83,21 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
             raise hygiene.HygieneRefused(
                 f"PR #{number} diff unreadable ({exc}): next pass retries "
                 "on a fresh fetch") from exc
-        paths = selection.selection_for(files, checkout)
+        capped = selection.capped_selection_for(files, checkout)
+        paths = capped["paths"]
         command = (selection.selection_command(files) + " + always-run(" +
                    ", ".join(config.ALWAYS_RUN) + ")")
+        if capped["capped"]:
+            command += (f" [capped: {capped['dependent_kept']} direct of "
+                        f"{capped['dependent_total']} dependent, "
+                        f"budget {capped['budget']}; breadth to Tier-2]")
         static = runner.run_static(checkout, files)
         if not static["ok"]:
             return {"pr": number, "head": head, "url": url, "ok": False,
                     "passed": 0, "failed": 1, "elapsed": 0.0,
                     "selection": paths, "command": command,
+                    "selection_capped": capped["capped"],
+                    "selection_detail": capped,
                     "static_failed": static["reason"]}
         log = os.path.join(world.state_dir, "logs",
                            f"pr-{number}-{head[:12]}.log")
@@ -102,6 +109,8 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "failed": result["failed"], "elapsed": result["elapsed"],
                 "log": result["log"], "selection": paths,
                 "command": command,
+                "selection_capped": capped["capped"],
+                "selection_detail": capped,
                 "broker_leaked": result.get("broker_leaked", False),
                 "timed_out": result.get("timed_out", False),
                 "reason": result.get("reason", ""),
@@ -117,13 +126,45 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
     Returns the check record, carrying the latency the captain tunes
     against: seen (first observed) -> done. A red Tier-1 with the ready
     label loses the label: it cannot queue until it is green again.
+    A TIMED-OUT Tier-1 judged nothing: it posts pending with the reason
+    and re-queues the head automatically (up to
+    config.TIER1_TIMEOUT_MAX_RETRIES retries with backoff), keeping the
+    ready label and queue membership so the retry can still gate.
     """
     from library.tools.local_ci import github
     done_at = time.time()
+    if outcome.get("timed_out"):
+        prior = state.read_checks(world.state_dir).get(outcome["head"], {})
+        retries = int(prior.get("timeout_retries", 0) or 0) + 1
+        if retries <= config.TIER1_TIMEOUT_MAX_RETRIES:
+            backoff = (config.TIER1_TIMEOUT_RETRY_BASE_SECONDS
+                       * (2 ** (retries - 1)))
+            record = state.record_check(
+                {**outcome, "seen_at": seen_at, "done_at": done_at,
+                 "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
+                 "timeout_retries": retries,
+                 "timeout_retry_at": done_at + backoff,
+                 "status_posted": False, "status_error": ""},
+                world.state_dir)
+            line = runner.format_report(
+                outcome["url"], outcome["head"], outcome["passed"],
+                outcome["failed"], outcome["command"])
+            record["report"] = line
+            print(f"{line} [timeout retry {retries}/"
+                  f"{config.TIER1_TIMEOUT_MAX_RETRIES} in {backoff:.0f}s]",
+                  flush=True)
+            _publish_check_status(record, world.state_dir)
+            return state.read_checks(world.state_dir).get(
+                outcome["head"], record)
+    extra: dict = {}
+    if outcome.get("timed_out"):
+        prior = state.read_checks(world.state_dir).get(outcome["head"], {})
+        extra["timeout_retries"] = int(
+            prior.get("timeout_retries", 0) or 0) + 1
     record = state.record_check(
         {**outcome, "seen_at": seen_at, "done_at": done_at,
          "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
-         "status_posted": False, "status_error": ""},
+         **extra, "status_posted": False, "status_error": ""},
         world.state_dir)
     line = runner.format_report(
         outcome["url"], outcome["head"], outcome["passed"],
@@ -148,12 +189,27 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
     """
     from library.tools.local_ci import github
     head = record["head"]
+    capped_suffix = " [capped, breadth to Tier-2]" if record.get(
+        "selection_capped") else ""
     if record.get("static_failed"):
         first = record["static_failed"].splitlines()[0] or "failed"
         status, description = "failure", f"ren-ci static gate: {first}"
     elif record.get("ok"):
         status = "success"
         description = f"ren-ci: {record.get('passed', 0)} passed"
+        description += capped_suffix
+    elif record.get("timed_out") and int(
+            record.get("timeout_retries", 0) or 0) <= (
+                config.TIER1_TIMEOUT_MAX_RETRIES):
+        reason = "timed out"
+        diagnostic = record.get("timeout_diagnostic", "")
+        if diagnostic:
+            reason += f": {diagnostic}"
+        retries = int(record.get("timeout_retries", 0) or 0)
+        status, description = (
+            "pending",
+            f"ren-ci: {reason} - retrying "
+            f"({retries}/{config.TIER1_TIMEOUT_MAX_RETRIES})")
     else:
         if record.get("process_group_leaked"):
             reason = "pytest process group did not exit"
@@ -200,8 +256,15 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
     from library.tools.local_ci import github
     plan = plan or load.targets(load.measure())
     done: dict = {"plan": load.describe(plan), "checked": [],
-                  "queued": [], "refused": [], "queue": {}}
+                  "queued": [], "refused": [], "queue": {},
+                  "tier2_priority": False}
     due, checks = _discover_due(world, done)
+    if due and _tier2_ripe(world.state_dir, plan["window"], due):
+        done["tier2_priority"] = True
+        for pr, _seen_at in due:
+            done["refused"].append(
+                f"PR #{pr['number']}: deferred for ripe Tier-2 batch")
+        due = []
     if due:
         slots = hygiene.Slots(world.state_dir, jobs=plan["tier1_jobs"])
 
@@ -262,6 +325,31 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
     return done
 
 
+def _tier2_ripe(state_dir: str, window: int, due: list | None = None) -> bool:
+    """Whether a ready cluster is due: Tier-1 must yield, not starve it.
+
+    Ripe means plan_cluster would run a cluster now (window elapsed or
+    BATCH_MAX reached) with no member currently testing. Callers check
+    this BEFORE starting new Tier-1 jobs: when ripe, no new Tier-1
+    starts until the batch has started, and Tier-2 fires as soon as
+    running Tier-1 jobs drain (the existing idle gate below). Queue
+    entries whose PR has a NEW head in `due` are stale (the batch
+    would only refresh them, not test them), so they do not hold
+    Tier-1 off while the fresh head still needs its check.
+    """
+    entries = state.read_queue(state_dir)
+    if any(e.get("status") == state.ENTRY_TESTING for e in entries):
+        return False
+    due_heads = {pr["number"]: pr["head"] for pr, _seen in (due or [])}
+    fresh = [e for e in entries
+             if e.get("status") in (state.ENTRY_QUEUED, state.ENTRY_GREEN)
+             and due_heads.get(e.get("pr"), e.get("head")) == e.get("head")]
+    if not fresh:
+        return False
+    cluster, _waiting = queue.plan_cluster(fresh, time.time(), window)
+    return bool(cluster)
+
+
 def _maybe_enqueue(world: queue.World, pr: dict, record: dict, done: dict) -> None:
     if not record.get("ok") or not record.get("status_posted"):
         return
@@ -289,6 +377,28 @@ def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
         seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
         known = checks.get(pr["head"])
         if known and known.get("pr") == pr["number"]:
+            # A timed-out Tier-1 judged nothing: re-queue the head while
+            # retries remain and the backoff has elapsed. Past the retry
+            # budget (or while backing off) it stays a known head, never
+            # a silent re-run: backing off waits, exhausted stays red.
+            if known.get("timed_out") and int(
+                    known.get("timeout_retries", 0) or 0) <= (
+                        config.TIER1_TIMEOUT_MAX_RETRIES):
+                retry_at = float(known.get("timeout_retry_at", 0) or 0)
+                if time.time() >= retry_at:
+                    due.append((pr, seen_at))
+                    continue
+                if not known.get("status_posted", False):
+                    if not _publish_check_status(known, world.state_dir):
+                        done["refused"].append(
+                            f"PR #{pr['number']}: timeout retry pending; "
+                            "status delivery will retry next pass")
+                        continue
+                else:
+                    done["refused"].append(
+                        f"PR #{pr['number']}: timed out - "
+                        "retrying after backoff")
+                continue
             # Older daemon versions could mark an unparsed or empty
             # pytest summary green. Tier-1 always selects cross-cutting
             # tests, so a zero/zero success is not reusable evidence.
@@ -399,7 +509,8 @@ class Tier1Scheduler:
         """Collect completed work, detect heads, and fill free slots."""
         plan = plan or load.targets(load.measure())
         done = {"plan": load.describe(plan), "checked": [], "started": [],
-                "queued": [], "refused": [], "queue": {}}
+                "queued": [], "refused": [], "queue": {},
+                "tier2_priority": False}
         self.collect(done)
         due, _ = _discover_due(self.world, done)
 
@@ -412,6 +523,15 @@ class Tier1Scheduler:
         active_count = len(active_slots) + active_reserved
         target = min(max(1, int(plan["tier1_jobs"])), load.TIER1_MAX)
         capacity = max(0, target - active_count)
+        if due and _tier2_ripe(self.world.state_dir, plan["window"], due):
+            # A ripe ready cluster has priority: start no new Tier-1
+            # jobs until the batch has started. Running Tier-1 jobs
+            # drain, then the idle gate below fires Tier-2 at once.
+            capacity = 0
+            done["tier2_priority"] = True
+            for pr, _seen_at in sorted(due, key=lambda item: item[1]):
+                done["refused"].append(
+                    f"PR #{pr['number']}: deferred for ripe Tier-2 batch")
         from library.tools.local_ci import upstream
         queued = state.read_queue(self.world.state_dir)
         intake_idle = (not due and active_count == 0

@@ -131,3 +131,32 @@ def test_pytest_runs_only_paths_the_checkout_has(monkeypatch, tmp_path):
     assert result["ok"] is True
     assert "tests/gone.py" not in seen
     assert "tests/contracts" in seen
+
+
+def test_a_hub_module_stays_within_budget(monkeypatch, tmp_path):
+    # PRs 2271/2273 ran 3,500-4,977 tests in Tier-1 because the
+    # dependent selection widens for widely imported modules. Above the
+    # declared budget Tier-1 keeps only the direct tests and leaves
+    # breadth to the Tier-2 batched full suite.
+    wide = [f"tests/unit/x/test_{n}.py" for n in range(100)]
+    monkeypatch.setattr(selection, "dependent", lambda paths, repo: wide)
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: ["tests/unit/x/test_hub.py"])
+    result = selection.capped_selection_for(["library/hub.py"],
+                                            str(tmp_path))
+    assert result["capped"] is True
+    assert result["dependent_total"] == 100
+    assert result["dependent_kept"] == 1
+    assert "tests/unit/x/test_hub.py" in result["paths"]
+    for entry in config.ALWAYS_RUN:
+        assert entry in result["paths"]
+    assert len(result["paths"]) <= 1 + len(config.ALWAYS_RUN)
+
+
+def test_an_ordinary_selection_is_not_capped(monkeypatch, tmp_path):
+    narrow = ["tests/unit/x/test_a.py", "tests/unit/y/test_b.py"]
+    monkeypatch.setattr(selection, "dependent", lambda paths, repo: narrow)
+    result = selection.capped_selection_for(["library/a.py"], str(tmp_path))
+    assert result["capped"] is False
+    for path in narrow:
+        assert path in result["paths"]

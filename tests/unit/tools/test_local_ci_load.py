@@ -10,10 +10,14 @@ conservative.
 from library.tools.local_ci import load
 
 
-def _snap(load1=0.0, cpus=10, mem=16.0, heavy=(), blind=False):
-    return {"load1": load1, "cpus": cpus, "mem_free_gb": mem,
+def _snap(load1=0.0, cpus=10, mem=16.0, heavy=(), blind=False,
+          swap=0.0, cpu_busy=None):
+    snap = {"load1": load1, "cpus": cpus, "mem_free_gb": mem,
             "heavy": list(heavy), "blind": blind,
-            "disk_free_gb": 100.0}
+            "disk_free_gb": 100.0, "swap_used_gb": swap}
+    if cpu_busy is not None:
+        snap["cpu_busy"] = cpu_busy
+    return snap
 
 
 def test_a_quiet_machine_runs_more_with_a_short_window():
@@ -67,3 +71,31 @@ def test_measure_returns_a_sane_snapshot():
     assert isinstance(snap["heavy"], list)
     plan = load.targets(snap)  # the live machine always yields a plan
     assert 1 <= plan["tier1_jobs"] <= load.TIER1_MAX
+
+
+def test_idle_agent_lanes_do_not_serialise_the_machine():
+    # ~15 agent lanes pin the 1-minute load at 20-25 on 10 cores while
+    # the CPUs are mostly idle. Busy cores govern: 2 busy cores of 10
+    # still fans out, even with an inflated load average.
+    plan = load.targets(_snap(load1=22.0, cpu_busy=2.0))
+    assert plan["tier1_jobs"] > 1
+    assert plan["headroom_source"] == "cpu"
+
+
+def test_a_busy_cpu_still_serialises():
+    plan = load.targets(_snap(load1=1.0, cpu_busy=9.5))
+    assert plan["tier1_jobs"] == 1
+    assert plan["window"] == load.WINDOW_MAX
+
+
+def test_swap_pressure_caps_then_floors():
+    assert load.targets(_snap(cpu_busy=1.0, swap=1.5))["tier1_jobs"] <= 2
+    capped = load.targets(_snap(cpu_busy=1.0, swap=3.0))
+    assert capped["tier1_jobs"] == 1
+    assert capped["window"] == load.WINDOW_MAX
+
+
+def test_load_average_survives_as_a_fallback():
+    # Old snapshots without a CPU sample still yield the old matrix.
+    assert load.targets(_snap(load1=1.0))["tier1_jobs"] == load.TIER1_MAX
+    assert load.targets(_snap(load1=19.0))["tier1_jobs"] == 1

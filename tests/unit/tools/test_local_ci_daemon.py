@@ -2,7 +2,9 @@
 
 Defects caught: two new heads where only one gets checked (serial
 leftover), a ledger write lost to a thread race, a red ready-PR that
-keeps its queue label, and latency nobody recorded (untunable).
+keeps its queue label, latency nobody recorded (untunable), a ripe
+Tier-2 cluster starved by steady Tier-1 arrivals, and timed-out Tier-1
+runs posted as failures with no retry.
 GitHub is faked; the ledger is real (tmp state dir).
 """
 
@@ -337,3 +339,167 @@ def test_a_crash_posts_pending_never_error(monkeypatch, tmp_path,
     assert pending, faked_github.posts
     assert not any(len(call) >= 2 and call[1] == "error"
                    for call in faked_github.posts)
+
+
+def _timeout_outcome(pr):
+    outcome = _outcome(pr, ok=False)
+    outcome.update({"timed_out": True, "timeout_diagnostic": "tests/x.py::t",
+                    "reason": ""})
+    return outcome
+
+
+def test_timeout_posts_pending_and_retries_after_backoff(
+        monkeypatch, tmp_path, faked_github):
+    # PRs 2264/2271/2272: a 30-minute timeout under load posted failure
+    # and the head was marked seen, so the PR stayed red with no verdict
+    # about its code. A timeout judges nothing: pending, re-queue once
+    # the backoff elapses, keep the ready label and queue membership.
+    pr = _pr(21, labels=[config.READY_LABEL])
+    faked_github.prs = [pr]
+    world = queue.World(state_dir=str(tmp_path))
+    record = daemon.finish_tier1(world, pr, _timeout_outcome(pr),
+                                 seen_at=time.time(), slot=0)
+    assert record["timeout_retries"] == 1
+    assert record["ok"] is False
+    pending = [call for call in faked_github.posts
+               if len(call) >= 2 and call[1] == "pending"]
+    assert pending and "timed out" in pending[-1][2]
+    assert ("unlabel", 21, config.READY_LABEL) not in faked_github.posts
+
+    done = {"refused": []}
+    due, _ = daemon._discover_due(world, done)
+    assert due == []  # backing off: not due yet
+    assert any("backoff" in line for line in done["refused"])
+
+    future = {"timeout_retry_at": time.time() - 1}
+    state.update_check(pr["head"], future, str(tmp_path))
+    done = {"refused": []}
+    due, _ = daemon._discover_due(world, done)
+    assert [item[0]["number"] for item in due] == [21]
+
+
+def test_timeout_exhaustion_posts_failure_and_drops_the_label(
+        monkeypatch, tmp_path, faked_github):
+    # At most two retries: the third timeout is a final failure, and
+    # only then does the PR lose its ready label and queue membership.
+    pr = _pr(22, labels=[config.READY_LABEL])
+    faked_github.prs = [pr]
+    world = queue.World(state_dir=str(tmp_path))
+    state.enqueue(pr["number"], pr["head"], str(tmp_path))
+    state.record_check({**_timeout_outcome(pr), "seen_at": 1.0,
+                        "done_at": 2.0, "slot": 0, "timeout_retries": 2,
+                        "timeout_retry_at": 0.0, "status_posted": True},
+                       str(tmp_path))
+    record = daemon.finish_tier1(world, pr, _timeout_outcome(pr),
+                                 seen_at=time.time(), slot=0)
+    assert int(record.get("timeout_retries", 0)) == 3
+    failures = [call for call in faked_github.posts
+                if len(call) >= 2 and call[1] == "failure"]
+    assert failures and "timed out" in failures[-1][2]
+    assert ("unlabel", 22, config.READY_LABEL) in faked_github.posts
+    assert state.read_queue(str(tmp_path)) == []
+
+
+def test_ripe_tier2_defers_new_tier1_until_the_batch_starts(
+        monkeypatch, tmp_path, faked_github):
+    # PRs 2265/2273 sat queued with Tier-1 green while 2274's Tier-1
+    # ran: the event loop started Tier-1 whenever a slot freed, so a
+    # steady stream of heads starved Tier-2. When Tier-2 is due, no new
+    # Tier-1 starts until the batch has started.
+    old = time.time() - 1000
+    state.write_queue(
+        [{"pr": 31, "head": "head-31", "status": state.ENTRY_QUEUED,
+          "reason": "", "enqueued_at": old}], str(tmp_path))
+    faked_github.prs = [_pr(32)]
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
+    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    world = queue.World(state_dir=str(tmp_path))
+    done = daemon.pass_once(world, plan={"tier1_jobs": 2, "pytest_n": 1,
+                                         "window": 90, "headroom": 9.0,
+                                         "heavy": []})
+    assert done["checked"] == []
+    assert done["tier2_priority"] is True
+    assert any("Tier-2 batch" in line for line in done["refused"])
+
+
+def test_tier2_fires_as_soon_as_running_tier1_drains(
+        monkeypatch, tmp_path):
+    # Priority without drain would wedge Tier-1 forever: with a ripe
+    # cluster and no Tier-1 in flight, the same pass that defers Tier-1
+    # must still run the Tier-2 batch. (No faked_github fixture here:
+    # it stubs queue.process_once, which is exactly what this test
+    # needs real.)
+    from library.tools.local_ci import github
+    old = time.time() - 1000
+    state.write_queue(
+        [{"pr": 33, "head": "head-33", "status": state.ENTRY_QUEUED,
+          "reason": "", "enqueued_at": old}], str(tmp_path))
+    monkeypatch.setattr(github, "list_open_prs", lambda: [_pr(34)])
+    monkeypatch.setattr(github, "post_status", lambda *a, **k: None)
+    monkeypatch.setattr(github, "remove_label", lambda *a, **k: None)
+
+    class BatchWorld(queue.World):
+        def main_sha(self):
+            return "base"
+
+        def pr_head(self, pr):
+            return f"head-{pr}"
+
+        def test_stack(self, base, members):
+            return queue.TestResult(True, 3, 0)
+
+        def merge_pr(self, pr, head):
+            return f"merge-{pr}"
+
+        def report(self, pr, head, url, ok, reason):
+            pass
+
+    world = BatchWorld(state_dir=str(tmp_path))
+    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    done = daemon.pass_once(world, plan={"tier1_jobs": 2, "pytest_n": 1,
+                                         "window": 90, "headroom": 9.0,
+                                         "heavy": []})
+    assert done["started"] if "started" in done else True
+    assert done["checked"] == []
+    assert done["queue"]["ripe"] is True
+    assert done["queue"]["merged"] == [33]
+
+
+def test_scheduler_defers_new_tier1_while_tier2_is_ripe(
+        monkeypatch, tmp_path, faked_github):
+    # Async path: poll_once must also yield to a ripe cluster instead
+    # of filling every free slot with new heads.
+    old = time.time() - 1000
+    state.write_queue(
+        [{"pr": 35, "head": "head-35", "status": state.ENTRY_QUEUED,
+          "reason": "", "enqueued_at": old}], str(tmp_path))
+    faked_github.prs = [_pr(36)]
+    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    scheduler = daemon.Tier1Scheduler(queue.World(state_dir=str(tmp_path)))
+    try:
+        done = scheduler.poll_once({"tier1_jobs": 2, "pytest_n": 1,
+                                    "window": 90, "headroom": 9.0,
+                                    "heavy": []})
+    finally:
+        scheduler.shutdown(wait=True)
+    assert done["started"] == []
+    assert done["tier2_priority"] is True
+
+
+def test_capped_selection_is_recorded_on_the_status(
+        tmp_path, faked_github):
+    # A capped Tier-1 run must read as capped, never as full coverage:
+    # the success status carries the cap marker.
+    pr = _pr(37)
+    outcome = {**_outcome(pr), "selection_capped": True,
+               "selection_detail": {"capped": True, "dependent_total": 83,
+                                    "dependent_kept": 1, "budget": 40}}
+    record = daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr,
+                                 outcome, seen_at=1.0, slot=0)
+    assert record["selection_capped"] is True
+    assert faked_github.posts[-1][1] == "success"
+    assert "capped" in faked_github.posts[-1][2]

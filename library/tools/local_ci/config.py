@@ -64,6 +64,13 @@ ALWAYS_RUN = (
 # (they filled the disk to 100% with never-cleaned checkouts).
 DISK_FLOOR_BYTES = 10 * 1024 * 1024 * 1024
 
+# A timed-out Tier-1 run judged nothing: the head re-queues automatically
+# instead of staying red on a verdict about the machine, not the code.
+# At most this many timeout retries per head, with exponential backoff
+# (60s, then 120s): a hung machine gets two more chances, not forever.
+TIER1_TIMEOUT_MAX_RETRIES = 2
+TIER1_TIMEOUT_RETRY_BASE_SECONDS = 60
+
 # How long one Tier-1 pytest run may take before the slot is reclaimed.
 # A dependent selection is small; 30 minutes is a hung run, not a slow
 # one.

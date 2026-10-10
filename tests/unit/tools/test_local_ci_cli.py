@@ -91,3 +91,36 @@ def test_status_lists_the_testing_tier2_stack(monkeypatch, tmp_path, capsys):
     output = capsys.readouterr().out
     assert "Tier-2 full-suite gate for PRs #2083, #2084 91s pid 12345" in output
     assert "agent: installed, loaded" in output
+
+
+def test_status_reports_seen_tier1_and_ready_merged_latency(
+        monkeypatch, tmp_path, capsys):
+    from library.tools.local_ci import load, service
+
+    state_dir = str(tmp_path / "state")
+    now = time.time()
+    state.record_check({"pr": 77, "head": "c" * 40, "url": "https://x/77",
+                        "ok": True, "passed": 12, "failed": 0,
+                        "seen_at": now - 200, "done_at": now - 20,
+                        "tier1_latency": 180.0, "slot": 0,
+                        "status_posted": True, "status_error": ""},
+                       state_dir)
+    state.write_queue([{"pr": 78, "head": "d" * 40,
+                        "status": state.ENTRY_MERGED, "reason": "",
+                        "enqueued_at": now - 600, "merged_at": now}],
+                      state_dir)
+    plan = {"tier1_jobs": 1, "pytest_n": 2, "window": 600,
+            "headroom": 0.0, "heavy": []}
+    monkeypatch.setattr(load, "measure", dict)
+    monkeypatch.setattr(load, "targets", lambda _m: plan)
+    monkeypatch.setattr(load, "describe", lambda _p: "jobs=1")
+    monkeypatch.setattr(service, "installed", lambda: False)
+    monkeypatch.setattr(service, "plist_path",
+                        lambda: "/tmp/com.ren.ci.plist")
+
+    assert local_ci_cli.cmd_status(Namespace(state=state_dir)) == 0
+
+    output = capsys.readouterr().out
+    assert "seen->tier1" in output
+    assert "180s" in output
+    assert "ready->merged 600s" in output

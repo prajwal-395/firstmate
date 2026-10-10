@@ -49,7 +49,7 @@ measured without retaining checkout artifacts between runs.
    ready again.
 
 `ren ci status` shows the queue, active Tier-1 jobs with their slot and
-elapsed time, the last Tier-1 results with seen->result latency,
+elapsed time, the last Tier-1 results with seen->tier1 latency,
 ready->merged latency for landed PRs, and what the machine would
 dispatch right now.
 
@@ -79,15 +79,30 @@ revision in place. Only engines with pending candidates are built.
 
 ## Load policy (why it speeds up and slows down)
 
-Before each dispatch the daemon measures 1-minute load vs cores, free
-memory, free disk, and heavy foreground processes (Resolve, renders, a
-batch gate). Quiet: up to 3 Tier-1 jobs at pytest `-n 1` with a 90s
-window (small clusters, low latency). Loaded: 1 job at `-n 2` with a
-600s window (bigger clusters, fewer full-gate runs). A batch
+Before each dispatch the daemon measures busy CPU cores (summed %CPU -
+idle agent lanes cost nothing), free memory, swap used, free disk, and
+heavy foreground processes (Resolve, renders, a batch gate). Quiet: up
+to 3 Tier-1 jobs at pytest `-n 1` with a 90s window (small clusters,
+low latency). Loaded: 1 job at `-n 2` with a 600s window (bigger
+clusters, fewer full-gate runs). Swap pressure caps fan-out (1GB) then
+serialises (2GB); the 1-minute load average survives only as a fallback
+when the CPU sample is unavailable. A ripe ready cluster has priority:
+no new Tier-1 starts until the batch has started, and Tier-2 fires as
+soon as running Tier-1 jobs drain. A batch
 full-suite gate in flight defers everything; a run that would breach
 the 10GB disk floor refuses and says so. The policy is pure and pinned
 by `tests/unit/tools/test_local_ci_load.py` - tune the matrix, not the
 daemon.
+
+## Tier-1 selection budget (why hub PRs stay quick)
+
+Tier-1 runs the static gate plus the tests that directly exercise the
+changed files, bounded at 40 dependent files: above the budget the run
+keeps only the direct tests (same-stem test files plus changed test
+files) and leaves breadth to the Tier-2 batched full suite, which
+already runs everything on the exact stacked tree before any merge. A
+capped run records the cap on its Tier-1 status
+(`[capped, breadth to Tier-2]`), so it never reads as full coverage.
 
 ## Hygiene (the four scratch-script failures, retired)
 
@@ -101,8 +116,10 @@ in `~/.ren-ci` (machine, never a repo); logs in
 
 Tier-1 pytest has a 30-minute hard timeout and runs in its own process
 group so the timeout also stops xdist workers. A stuck test gets
-faulthandler traces in the log every five minutes; timeout is a failed
-verdict. GitHub status delivery failures keep the cached result and
+faulthandler traces in the log every five minutes; a timeout is no
+verdict, not a failure - the head posts pending with the reason and
+re-queues automatically (at most twice, with 60s/120s backoff) before
+it can stay red. GitHub status delivery failures keep the cached result and
 retry on the next pass without running the tests again.
 
 Two races are designed out, not retried blindly: the base is fetched

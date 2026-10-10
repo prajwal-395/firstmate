@@ -63,7 +63,7 @@ def cmd_status(args) -> int:
         print("running jobs: none")
     checks = state.read_checks(args.state)
     if checks:
-        print("last checks (seen->result latency):")
+        print("last checks (seen->tier1 latency):")
         for head, record in sorted(checks.items(),
                                    key=lambda kv: kv[1].get("recorded_at", 0),
                                    reverse=True)[:10]:
