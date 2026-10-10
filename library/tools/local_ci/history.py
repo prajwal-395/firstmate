@@ -65,6 +65,55 @@ def test_durations() -> dict:
     return dict(durations) if isinstance(durations, dict) else {}
 
 
+def _median(values: list) -> float | None:
+    """The median, or None when there is nothing to mediate."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[middle])
+    return (float(ordered[middle - 1]) + float(ordered[middle])) / 2.0
+
+
+def estimate_duration(path: str, durations: dict) -> float:
+    """What one test file costs the Tier-1 time budget, in seconds.
+
+    Measured when telemetry has it; otherwise the median of its own
+    directory's measured files (a new test costs what its subsystem's
+    tests cost - a new resolve test is not free, and is not priced
+    like a scenario); otherwise the suite-wide median; otherwise the
+    configured flat estimate. Never zero or negative: a zero-cost
+    file would bypass the budget entirely.
+    """
+    try:
+        measured = float((durations or {}).get(path, float("nan")))
+    except (TypeError, ValueError):
+        measured = float("nan")
+    if measured == measured and measured > 0:
+        return measured
+    group = path.rsplit("/", 1)[0] if "/" in path else ""
+    group_costs = []
+    all_costs = []
+    for name, value in (durations or {}).items():
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not seconds > 0:
+            continue
+        all_costs.append(seconds)
+        if (isinstance(name, str)
+                and (name.rsplit("/", 1)[0] if "/" in name else "")
+                == group):
+            group_costs.append(seconds)
+    for pool in (group_costs, all_costs):
+        middle = _median(pool)
+        if middle is not None and middle > 0:
+            return middle
+    return float(config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+
+
 def tier2_wall_seconds(state_dir: str = "") -> float | None:
     """The longest measured Tier-2 full-suite wall time, or None.
 

@@ -503,3 +503,23 @@ def test_capped_selection_is_recorded_on_the_status(
     assert record["selection_capped"] is True
     assert faked_github.posts[-1][1] == "success"
     assert "capped" in faked_github.posts[-1][2]
+
+
+def test_success_status_names_the_tier2_only_files(tmp_path, faked_github):
+    # The five slow files Tier-1 skips on purpose are named on the
+    # status line, by slug (full paths cannot fit the 140-char
+    # description); the report line's marker carries the full paths.
+    assert daemon.tier2_only_slugs() == [
+        "contract-audit", "gate-smoke", "resolve-watchdog",
+        "golden-monologue", "golden-conversation"]
+    marker = daemon.tier2_only_marker()
+    for path in config.TIER1_TIER2_ONLY:
+        assert path in marker
+    pr = _pr(38)
+    record = daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr,
+                                 _outcome(pr), seen_at=1.0, slot=0)
+    assert record["ok"] is True
+    description = faked_github.posts[-1][2]
+    assert "contract-audit" in description
+    assert "gate-smoke" in description
+    assert len(description) <= 140

@@ -40,18 +40,28 @@ def format_report(url: str, head: str, passed: int, failed: int,
             f"selection {command}")
 
 
-def pytest_argv(paths: list, workers: int = 2) -> list:
+def pytest_argv(paths: list, workers: int = 2, checkout: str = "") -> list:
     """The pytest invocation for a selection, markers and ignores fixed.
 
     workers follows the machine (load.targets): one job may fan out to
     -n 2, three jobs run -n 1 each. Never above 2 (spec 3's per-run
     bound stands - the parallelism the refinement adds is ACROSS PRs).
+    The Tier-2-only files ride as `--ignore` so the always-run
+    `tests/contracts` directory cannot re-admit the audit through
+    directory expansion; `checkout` (the tree under test) filters the
+    ignores to files it has, because `--ignore` on a path a PR deleted
+    fails the run for somebody else's deletion. Without a checkout
+    every ignore is passed, as before.
     """
     argv = ["-m", "pytest", *paths, "-m", config.PYTEST_MARKERS,
             "-v", "--tb=short", "-o", "faulthandler_timeout=300",
             "-n", str(max(1, min(2, workers)))]
     for driven in config.RESOLVE_DRIVING:
         argv.extend(["--ignore", driven])
+    for owned in config.TIER1_TIER2_ONLY:
+        if checkout and not os.path.exists(os.path.join(checkout, owned)):
+            continue
+        argv.extend(["--ignore", owned])
     return argv
 
 
@@ -208,7 +218,7 @@ def run(paths: list, checkout: str, log_path: str,
     hygiene.bind_renderer_dependencies(checkout)
     broker_before = hygiene.broker_serving()
     result = _run_logged(
-        [_pytest_python(), *pytest_argv(paths, workers)],
+        [_pytest_python(), *pytest_argv(paths, workers, checkout)],
         checkout, log_path, timeout)
     timed_out = result["timed_out"]
     passed, failed, executed = _read_summary(log_path)

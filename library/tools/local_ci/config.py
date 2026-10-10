@@ -29,17 +29,30 @@ READY_LABEL = "ren-ci-ready"
 # run keeps the highest-priority tests (direct first, then by import
 # distance) and leaves breadth to the Tier-2 batched full suite, which
 # already runs everything on the exact stacked tree before any merge.
-# 30 seconds of dependent test time keeps the signal fast under agent
-# load; ordinary PRs (a handful of files, a few seconds) never notice
-# it, while the October hub selections (3,500-5,000 tests) defer their
-# breadth instead of billing it per push.
-TIER1_TIME_BUDGET_SECONDS = 30
+#
+# Chosen value, from the measured Tier-1 latency distribution
+# (2026-10-10, 231 checks in `~/.ren-ci/checks.json`): elapsed median
+# 364s, mean 541s, passing median 249s. The old 30s budget could not
+# hold: the mandatory set alone cost 360s serial (contract_audit
+# 301s), so every run was "over budget" before selecting anything.
+# With the audit and the other slow files moved to Tier-2-only below,
+# the mandatory core costs ~59s serial (~30s wall at -n 2), and the
+# corpus median selection (48 files, mostly sub-second) costs
+# seconds. 300s of serial dependent test time (~2-3 min wall at -n 2)
+# keeps ordinary PRs fully covered - the budget binds only hub-PR
+# breadth, which Tier-2 already judges before any merge. Cheapest-
+# first fill at 300s keeps 398 of 469 measured files reachable, so
+# the exclusion list below stays at the five files that dominate it.
+TIER1_TIME_BUDGET_SECONDS = 300
 
 # A dependent file with no measured duration still costs the budget
-# something: unknown is estimated here, never zero (zero would let
-# unmeasured files bypass the budget entirely) and never infinite
-# (which would starve new tests of a run). Roughly the suite's median
-# per-file cost.
+# something, estimated in this order: the median of its own
+# directory's measured files (a new resolve test costs what resolve
+# tests cost, `history.estimate_duration`), then the suite-wide
+# median, then this constant. Never zero (zero would let unmeasured
+# files bypass the budget entirely) and never infinite (which would
+# starve new tests of a run). Roughly the suite's median per-file
+# cost, kept as the last resort when no telemetry exists at all.
 TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS = 2.0
 
 
@@ -103,6 +116,25 @@ ALWAYS_RUN = (
     "tests/unit/resolve/test_composer.py",
     "tests/unit/resolve/test_ren_core_parity.py",
     "tests/contracts/test_resolve_guard_wiring.py",
+)
+
+# Tier-1 never runs these files; the Tier-2 batched full suite always
+# does. Each dominates the time budget alone (measured serial seconds
+# in `~/.cache/ren/pytest-file-durations.json`, 2026-10-10: audit
+# 301s, gate_smoke 232s, watchdog 127s, monologue 87s, conversation
+# 75s - 822s together, 39% of the whole suite), so keeping any of
+# them mandatory vetoes every budget under ~5 min, and keeping them
+# selectable lets one hub-PR fan-out bill them per push. Tier-1 names
+# them on its status line (`daemon.run_tier1`'s tier2-only marker) so
+# a partial run never reads as full coverage, and the runner passes
+# them as `--ignore` so the `tests/contracts` directory entry above
+# does not re-admit the audit through directory expansion.
+TIER1_TIER2_ONLY = (
+    "tests/contracts/test_contract_audit.py",
+    "tests/tooling/test_gate_smoke.py",
+    "tests/unit/resolve/test_resolve_watchdog.py",
+    "tests/scenarios/test_golden_monologue.py",
+    "tests/scenarios/test_golden_conversation.py",
 )
 
 # Refuse a run when the checkout volume holds less than this: a full

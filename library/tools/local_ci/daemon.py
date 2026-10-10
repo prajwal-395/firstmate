@@ -55,6 +55,30 @@ from library.tools.local_ci import (
 )
 
 
+def tier2_only_slugs() -> list:
+    """Short names for the Tier-2-only files, for the status line.
+
+    The posted description is truncated at 140 characters, so full
+    repo-relative paths cannot fit there; the report line carries the
+    full paths, the description carries these slugs.
+    """
+    slugs = []
+    for entry in config.TIER1_TIER2_ONLY:
+        base = os.path.basename(entry)
+        if base.startswith("test_"):
+            base = base[len("test_"):]
+        if base.endswith(".py"):
+            base = base[:-len(".py")]
+        slugs.append(base.replace("_", "-"))
+    return slugs
+
+
+def tier2_only_marker() -> str:
+    """The Tier-1 status line's account of what it skipped on purpose."""
+    return ("[tier2-only to Tier-2: "
+            + ", ".join(config.TIER1_TIER2_ONLY) + "]")
+
+
 def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
     """Execute one PR's Tier-1 check: static gate, then its selection.
 
@@ -86,7 +110,8 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
         capped = selection.capped_selection_for(files, checkout)
         paths = capped["paths"]
         command = (selection.selection_command(files) + " + always-run(" +
-                   ", ".join(config.ALWAYS_RUN) + ")")
+                   ", ".join(config.ALWAYS_RUN) + ") "
+                   + tier2_only_marker())
         if capped["capped"]:
             command += (f" [time-budget: {capped['dependent_kept']} of "
                         f"{capped['dependent_total']} dependent "
@@ -194,13 +219,18 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
     head = record["head"]
     capped_suffix = " [capped, breadth to Tier-2]" if record.get(
         "selection_capped") else ""
+    # The five slow files Tier-1 skips on purpose, by short name: the
+    # description truncates at 140 characters, so full paths live on
+    # the report line and the slugs live here.
+    tier2_suffix = (" [tier2-only to Tier-2: "
+                    + ", ".join(tier2_only_slugs()) + "]")
     if record.get("static_failed"):
         first = record["static_failed"].splitlines()[0] or "failed"
         status, description = "failure", f"ren-ci static gate: {first}"
     elif record.get("ok"):
         status = "success"
         description = f"ren-ci: {record.get('passed', 0)} passed"
-        description += capped_suffix
+        description += capped_suffix + tier2_suffix
     elif record.get("timed_out") and int(
             record.get("timeout_retries", 0) or 0) <= (
                 config.TIER1_TIMEOUT_MAX_RETRIES):

@@ -263,3 +263,113 @@ def test_always_run_stays_mandatory_outside_the_budget(
     assert result["estimated_seconds"] == 1.0
     for entry in config.ALWAYS_RUN:
         assert entry in result["paths"]
+
+
+def test_tier2_only_files_never_run_in_tier1(monkeypatch, tmp_path):
+    # The 301s contract audit alone vetoes any small budget, so it and
+    # the other slow files are Tier-2-only: excluded even when the
+    # import graph selects them, and their cost never spends the
+    # budget. Tier-2 runs them on the exact stacked tree.
+    slow = list(config.TIER1_TIER2_ONLY)
+    assert len(slow) >= 5
+    distances = {path: 1 for path in slow}
+    distances["tests/unit/x/test_fast.py"] = 1
+    durations = {path: 200.0 for path in slow}
+    durations["tests/unit/x/test_fast.py"] = 1.0
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/hub.py"], str(tmp_path), budget_seconds=300.0,
+        durations=durations, failure_rates={})
+    for path in slow:
+        assert path not in result["paths"], path
+    assert sorted(result["tier2_only_deferred"]) == sorted(slow)
+    assert result["tier2_only"] == sorted(slow)
+    assert "tests/unit/x/test_fast.py" in result["paths"]
+    assert result["capped"] is False
+    assert result["estimated_seconds"] == 1.0
+
+
+def test_tier2_only_beats_the_direct_floor(monkeypatch, tmp_path):
+    # Even a change to the audit file itself does not run it in
+    # Tier-1: the direct floor stops at the Tier-2 boundary.
+    audit = "tests/contracts/test_contract_audit.py"
+    assert audit in config.TIER1_TIER2_ONLY
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: {audit: 0})
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [audit])
+    result = selection.capped_selection_for(
+        [audit], str(tmp_path), budget_seconds=300.0,
+        durations={audit: 301.0}, failure_rates={})
+    assert audit not in result["paths"]
+    assert result["tier2_only_deferred"] == [audit]
+    assert result["dependent_kept"] == 0
+
+
+def test_unknown_files_cost_their_subsystem_median(monkeypatch, tmp_path):
+    # A new resolve test costs what resolve tests cost - not zero
+    # (which would bypass the budget) and not a flat guess when its
+    # subsystem is measured.
+    distances = {"tests/unit/resolve/test_new.py": 1,
+                 "tests/unit/resolve/test_old.py": 1}
+    durations = {"tests/unit/resolve/test_old.py": 10.0,
+                 "tests/unit/resolve/test_older.py": 20.0,
+                 "tests/scenarios/test_slow.py": 500.0}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=100.0,
+        durations=durations, failure_rates={})
+    # Subsystem median (10, 20) is 15, not the suite-wide median and
+    # not the flat default: 15 + 10 spent, nothing deferred.
+    assert result["capped"] is False
+    assert result["estimated_seconds"] == 25.0
+
+
+def test_unknown_files_fall_back_to_the_flat_estimate(
+        monkeypatch, tmp_path):
+    # Cold telemetry (nothing measured anywhere) still prices unknown
+    # files at the configured default, never zero.
+    distances = {"tests/unit/x/test_new.py": 1}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=100.0,
+        durations={}, failure_rates={})
+    assert result["estimated_seconds"] == (
+        config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+
+
+def test_pytest_argv_ignores_the_tier2_only_files(tmp_path):
+    # The always-run `tests/contracts` directory would re-admit the
+    # audit through directory expansion without the ignore.
+    argv = runner.pytest_argv(["tests/contracts"])
+    for owned in config.TIER1_TIER2_ONLY:
+        assert owned in argv
+        assert argv[argv.index(owned) - 1] == "--ignore"
+
+
+def test_pytest_argv_skips_ignores_a_checkout_deleted(
+        tmp_path):
+    # `--ignore` on a path the PR deleted fails the run for somebody
+    # else's deletion, so checkout-aware ignores skip missing files.
+    gone = config.TIER1_TIER2_ONLY[0]
+    assert not (tmp_path / gone).exists()
+    argv = runner.pytest_argv(["tests/contracts"], checkout=str(tmp_path))
+    assert gone not in argv
+    for driven in config.RESOLVE_DRIVING:
+        assert driven in argv
+
+
+def test_default_budget_holds_the_curated_mandatory_set():
+    # The retune (300s, see config's why): the curated mandatory core
+    # (~59s serial) fits comfortably inside the default budget, where
+    # the old 360s set could never fit any small budget.
+    assert config.tier1_time_budget_seconds() == 300

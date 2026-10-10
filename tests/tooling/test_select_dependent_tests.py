@@ -125,3 +125,69 @@ def test_selection_roots_at_ren_select_root(monkeypatch, tmp_path):
     assert module.select(["library/only_here.py"]) == [
         "tests/test_only_here.py"]
     assert os.environ.get("REN_SELECT_ROOT") == str(root)
+
+
+def _cache_tree(root):
+    (root / "library").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "library" / "mod_y.py").write_text(
+        "VALUE = 1\n", encoding="utf-8")
+    (root / "library" / "mod_x.py").write_text(
+        "VALUE = 1\n", encoding="utf-8")
+    (root / "tests" / "test_mod_x.py").write_text(
+        "import mod_x\n\n\ndef test_it():\n    assert mod_x.VALUE\n",
+        encoding="utf-8")
+
+
+def _cache_module(monkeypatch, tmp_path, name):
+    monkeypatch.setenv("REN_SELECT_ROOT", str(tmp_path / name))
+    monkeypatch.setenv("REN_SELECTOR_CACHE_DIR",
+                       str(tmp_path / "cache"))
+    return _load_selector()
+
+
+def test_cached_selection_matches_a_fresh_parse(monkeypatch, tmp_path):
+    """The index cache is a speedup, not a second selector: a warm
+    cache selects exactly what a full re-parse selects."""
+    _cache_tree(tmp_path / "tree")
+    module = _cache_module(monkeypatch, tmp_path, "tree")
+    first = module.select(["library/mod_x.py"])
+    assert first == ["tests/test_mod_x.py"]
+    import os
+    assert os.path.isfile(module._selector_cache_path())
+    second = module.select(["library/mod_x.py"])
+    assert second == first
+    monkeypatch.setenv("REN_SELECTOR_NO_CACHE", "1")
+    uncached = _load_selector().select(["library/mod_x.py"])
+    assert uncached == first
+
+
+def test_changed_content_invalidates_that_file(monkeypatch, tmp_path):
+    """A rewritten file re-parses on the next selection: the cache is
+    keyed by content fingerprint, so a new import takes effect
+    without clearing anything by hand."""
+    _cache_tree(tmp_path / "tree")
+    module = _cache_module(monkeypatch, tmp_path, "tree")
+    assert module.select(["library/mod_x.py"]) == ["tests/test_mod_x.py"]
+    (tmp_path / "tree" / "library" / "mod_x.py").write_text(
+        "import mod_y\n\nVALUE = mod_y.VALUE\n", encoding="utf-8")
+    (tmp_path / "tree" / "tests" / "test_mod_y.py").write_text(
+        "import mod_y\n\n\ndef test_it():\n    assert mod_y.VALUE\n",
+        encoding="utf-8")
+    assert module.select(["library/mod_x.py"]) == [
+        "tests/test_mod_x.py", "tests/test_mod_y.py"]
+    monkeypatch.setenv("REN_SELECTOR_NO_CACHE", "1")
+    assert _load_selector().select(["library/mod_x.py"]) == [
+        "tests/test_mod_x.py", "tests/test_mod_y.py"]
+
+
+def test_corrupt_cache_is_a_cold_start(monkeypatch, tmp_path):
+    """An unreadable cache never fails a selection: it parses
+    everything, exactly as before the cache existed."""
+    _cache_tree(tmp_path / "tree")
+    module = _cache_module(monkeypatch, tmp_path, "tree")
+    assert module.select(["library/mod_x.py"]) == ["tests/test_mod_x.py"]
+    with open(module._selector_cache_path(), "w", encoding="utf-8") as handle:
+        handle.write("not json {{{")
+    module._MEMO.clear()
+    assert module.select(["library/mod_x.py"]) == ["tests/test_mod_x.py"]

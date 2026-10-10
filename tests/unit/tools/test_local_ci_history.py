@@ -95,3 +95,45 @@ def test_failure_rates_keep_only_unit_rates(tmp_path):
 def test_durations_cold_start_is_empty_not_an_error(monkeypatch):
     monkeypatch.setattr(history, "_timing_reader", lambda: None)
     assert history.test_durations() == {}
+
+
+def test_estimate_keeps_the_measurement():
+    assert history.estimate_duration(
+        "tests/unit/x/test_a.py", {"tests/unit/x/test_a.py": 7.5}) == 7.5
+
+
+def test_estimate_prices_unknown_at_the_subsystem_median():
+    durations = {"tests/unit/resolve/test_old.py": 10.0,
+                 "tests/unit/resolve/test_older.py": 20.0,
+                 "tests/scenarios/test_slow.py": 500.0}
+    # Subsystem median (10, 20) -> 15, not the 20.0 suite median and
+    # not the flat default.
+    assert history.estimate_duration(
+        "tests/unit/resolve/test_new.py", durations) == 15.0
+
+
+def test_estimate_falls_back_to_the_suite_median():
+    durations = {"tests/unit/a/test_a.py": 4.0,
+                 "tests/unit/b/test_b.py": 8.0}
+    assert history.estimate_duration(
+        "tests/unit/empty/test_new.py", durations) == 6.0
+
+
+def test_estimate_falls_back_to_the_flat_default_without_telemetry():
+    assert history.estimate_duration(
+        "tests/unit/x/test_new.py", {}) == (
+            config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+
+
+def test_estimate_ignores_unusable_measurements():
+    # Zero, negative and non-numeric entries are not measurements: a
+    # zero-cost file would bypass the budget entirely.
+    durations = {"tests/unit/x/test_zero.py": 0.0,
+                 "tests/unit/x/test_neg.py": -3.0,
+                 "tests/unit/x/test_nan.py": "soon"}
+    assert history.estimate_duration(
+        "tests/unit/x/test_new.py", durations) == (
+            config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+    assert history.estimate_duration(
+        "tests/unit/x/test_zero.py", durations) == (
+            config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)

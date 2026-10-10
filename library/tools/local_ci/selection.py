@@ -146,11 +146,18 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
     them.
 
     Returns {paths, capped, dependent_total, dependent_kept, budget,
-    budget_seconds, estimated_seconds, deferred, deferred_paths}:
-    capped is True exactly when the dependent half was cut; the
-    daemon records it on the Tier-1 status so a budgeted run reads
-    as partial, never as full coverage. `budget` carries the seconds
-    for readers of the older file-count shape.
+    budget_seconds, estimated_seconds, deferred, deferred_paths,
+    tier2_only, tier2_only_deferred}: capped is True exactly when the
+    dependent half was cut; the daemon records it on the Tier-1 status
+    so a budgeted run reads as partial, never as full coverage.
+    `budget` carries the seconds for readers of the older file-count
+    shape. `tier2_only` names the configured Tier-2-only files and
+    `tier2_only_deferred` the dependent ones cut for that reason (not
+    for budget), so the status line can name what Tier-1 skipped.
+    Files in `config.TIER1_TIER2_ONLY` never run in Tier-1 - not even
+    as a direct test of their own change, and not via the always-run
+    directory expansion (the runner also ignores them): the Tier-2
+    batched full suite judges them on the exact stacked tree.
     """
     budget = (float(budget_seconds) if budget_seconds is not None
               else config.tier1_time_budget_seconds())
@@ -160,14 +167,10 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
         durations = history.test_durations()
     if failure_rates is None:
         failure_rates = history.failure_rates()
-    unknown = float(config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+    tier2_only = set(config.TIER1_TIER2_ONLY)
 
     def cost(path: str) -> float:
-        try:
-            estimate = float(durations.get(path, unknown))
-        except (TypeError, ValueError):
-            estimate = unknown
-        return estimate if estimate >= 0 else unknown
+        return history.estimate_duration(path, durations)
 
     direct = set(direct_tests_for(paths, repo))
 
@@ -186,8 +189,14 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
 
     kept: list = []
     deferred: list = []
+    tier2_only_deferred: list = []
     spent = 0.0
     for path in sorted(full_dependent, key=priority):
+        if path in tier2_only:
+            # Tier-2-only, not budgeted: it never runs in Tier-1, so
+            # it is not "kept", and its cost never spends the budget.
+            tier2_only_deferred.append(path)
+            continue
         estimate = cost(path)
         if path in direct:
             # The floor: a change always answers for its own tests,
@@ -200,23 +209,31 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
         else:
             deferred.append(path)
     # Direct tests the graph did not select are still the floor (a
-    # changed test with no importers selects nothing, but must run).
+    # changed test with no importers selects nothing, but must run) -
+    # unless Tier-2 owns the file.
     for path in sorted(direct):
+        if path in tier2_only:
+            if path not in tier2_only_deferred:
+                tier2_only_deferred.append(path)
+            continue
         if path not in kept and path not in deferred:
             kept.append(path)
             spent += cost(path)
     capped = bool(deferred)
     selected = list(kept)
     for entry in config.ALWAYS_RUN:
-        if entry not in selected:
-            selected.append(entry)
+        if entry in tier2_only or entry in selected:
+            continue
+        selected.append(entry)
     return {"paths": selected, "capped": capped,
             "dependent_total": len(full_dependent),
             "dependent_kept": len(kept), "budget": budget,
             "budget_seconds": budget,
             "estimated_seconds": round(spent, 3),
             "deferred": len(deferred),
-            "deferred_paths": deferred}
+            "deferred_paths": deferred,
+            "tier2_only": sorted(tier2_only),
+            "tier2_only_deferred": sorted(tier2_only_deferred)}
 
 
 def selection_for(paths: list, repo: str = REPO_ROOT) -> list:

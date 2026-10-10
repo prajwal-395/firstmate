@@ -28,8 +28,11 @@ seconds; a narrower one costs a red main.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import os
 import sys
+import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ren-ci selects against the PR CHECKOUT, not the tree this script file
@@ -130,6 +133,158 @@ def _read(path):
         return handle.read()
 
 
+# The import index survives across invocations: every Tier-1 pays one
+# selection before pytest starts (17-26s wall, ~4.5s CPU, IO-bound AST
+# walk over ~1000 files), and re-parsing the whole tree per run is
+# what costs it. The cache stores each file's imported stems keyed by
+# its content fingerprint (size + mtime); a repeat selection re-stats
+# the tree and re-parses only what moved, so it costs about its CPU
+# time (~5s). One cache file per checkout (the filename hashes
+# REPO_ROOT), overridable via REN_SELECTOR_CACHE_DIR, off via
+# REN_SELECTOR_NO_CACHE=1. An unreadable or version-mismatched cache
+# is a cold start, never an error: the selection parses everything,
+# exactly as before.
+SELECTOR_CACHE_VERSION = 1
+_MEMO: dict = {}
+
+
+def _selector_cache_path() -> str:
+    directory = os.environ.get("REN_SELECTOR_CACHE_DIR", "").strip()
+    if not directory:
+        cache_root = os.environ.get(
+            "XDG_CACHE_HOME", os.path.join(os.path.expanduser("~"), ".cache"))
+        directory = os.path.join(cache_root, "ren")
+    digest = hashlib.sha256(
+        os.path.abspath(REPO_ROOT).encode("utf-8")).hexdigest()[:16]
+    return os.path.join(directory, f"selector-index-{digest}.json")
+
+
+def _cache_enabled() -> bool:
+    return os.environ.get(
+        "REN_SELECTOR_NO_CACHE", "").strip().lower() not in (
+            "1", "true", "yes")
+
+
+def _read_cache(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    if (not isinstance(data, dict)
+            or data.get("version") != SELECTOR_CACHE_VERSION
+            or not isinstance(data.get("files"), dict)):
+        return {}
+    return data["files"]
+
+
+def _write_cache(path: str, records: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".selector-index.",
+                                    dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump({"version": SELECTOR_CACHE_VERSION,
+                           "files": records}, handle, sort_keys=True)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        os.replace(tmp, path)
+    except OSError:
+        # A cache that cannot be written is a slower next run, not a
+        # failed selection.
+        pass
+
+
+def _parse_file(abs_path: str) -> tuple:
+    """One file's (imported stems, presents-as-re-exporter)."""
+    tree = _parse(abs_path)
+    stems = _imported_stems(tree) if tree is not None else set()
+    reexport = False
+    if abs_path.startswith(LIBRARY + os.sep):
+        try:
+            reexport = _reexports(_read(abs_path))
+        except OSError:
+            reexport = False
+    return stems, reexport
+
+
+def _load_records() -> dict:
+    """Every `*.py` under library/ and tests/ as cached parse records.
+
+    A record is valid while its size and mtime match the cache entry;
+    anything else (new, moved, rewritten, unreadable cache) re-parses
+    that file alone. Added and removed files fall out of the walk.
+    """
+    rels = []
+    for root in (LIBRARY, TESTS):
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in filenames:
+                if name.endswith(".py"):
+                    rels.append(os.path.relpath(
+                        os.path.join(dirpath, name), REPO_ROOT))
+    cached = _MEMO.get(REPO_ROOT)
+    if cached is None:
+        cached = _read_cache(_selector_cache_path()) if _cache_enabled() else {}
+        _MEMO[REPO_ROOT] = cached
+    records = {}
+    dirty = False
+    for rel in rels:
+        abs_path = os.path.join(REPO_ROOT, rel)
+        try:
+            stat = os.stat(abs_path)
+        except OSError:
+            dirty = True
+            continue
+        old = cached.get(rel)
+        if (isinstance(old, dict)
+                and old.get("size") == stat.st_size
+                and old.get("mtime") == stat.st_mtime_ns
+                and isinstance(old.get("stems"), list)):
+            records[rel] = old
+            continue
+        stems, reexport = _parse_file(abs_path)
+        record: dict = {"size": stat.st_size, "mtime": stat.st_mtime_ns,
+                        "stems": sorted(stems)}
+        if abs_path.startswith(LIBRARY + os.sep):
+            record["reexport"] = bool(reexport)
+        records[rel] = record
+        dirty = True
+    if dirty:
+        _MEMO[REPO_ROOT] = records
+        if _cache_enabled():
+            _write_cache(_selector_cache_path(), records)
+    return records
+
+
+def _load_index() -> tuple:
+    """The selection's whole index: library imports, re-export flags,
+    test imports, test files by basename. Identical content to the
+    per-invocation walk it replaces; the walk now happens only for
+    files the cache has not seen."""
+    records = _load_records()
+    lib_imports: dict = {}
+    lib_reexport: dict = {}
+    test_imports: dict = {}
+    test_files: dict = {}
+    for rel, record in records.items():
+        abs_path = os.path.join(REPO_ROOT, rel)
+        stems = set(record.get("stems", []))
+        if abs_path.startswith(LIBRARY + os.sep):
+            dotted = rel[:-len(".py")].replace(os.sep, ".")
+            lib_imports[dotted] = stems
+            lib_reexport[dotted] = bool(record.get("reexport", False))
+        elif abs_path.startswith(TESTS + os.sep):
+            test_imports[abs_path] = stems
+            if os.path.basename(abs_path).startswith("test_"):
+                test_files[os.path.basename(abs_path)] = abs_path
+    return lib_imports, lib_reexport, test_imports, test_files
+
+
 def select(changed):
     """Test paths (repo-relative) covering the changed files."""
     return sorted(_select_with_distances(changed))
@@ -146,33 +301,15 @@ def select_with_distances(changed):
 
 
 def _select_with_distances(changed):
-    library_modules = _modules_under(LIBRARY)
-    test_modules = _modules_under(TESTS)
     # One index per invocation: every module's imported stems, parsed
     # once. A per-changed-file rescan would reparse the whole tree
-    # once per file.
-    lib_imports = {}
-    lib_text = {}
-    for dotted, abs_path in library_modules:
-        tree = _parse(abs_path)
-        lib_imports[dotted] = _imported_stems(tree) if tree is not None else set()
-        if tree is None:
-            try:
-                lib_text[dotted] = _read(abs_path)
-            except OSError:
-                lib_text[dotted] = ""
-        else:
-            try:
-                lib_text[dotted] = _read(abs_path)
-            except OSError:
-                lib_text[dotted] = ""
-    test_imports = {}
-    for dotted, abs_path in test_modules:
-        tree = _parse(abs_path)
-        test_imports[abs_path] = _imported_stems(tree) if tree is not None else set()
-    test_files = {os.path.basename(abs_path): abs_path
-                  for _dotted, abs_path in test_modules
-                  if os.path.basename(abs_path).startswith("test_")}
+    # once per file. The index is cached across invocations
+    # (`_load_index`); only files the cache has not seen are parsed.
+    lib_imports, lib_reexport, test_imports, test_files = _load_index()
+    test_modules = sorted(
+        (rel, abs_path) for rel, abs_path in
+        ((os.path.relpath(path, REPO_ROOT), path)
+         for path in test_imports))
     selected: dict = {}
     def add(path, distance):
         if path in selected:
@@ -219,7 +356,7 @@ def _select_with_distances(changed):
                   and not (dotted.endswith("." + stem) or dotted == stem)}
         carriers = {stem}
         for importer in direct:
-            if _reexports(lib_text.get(importer, "")):
+            if lib_reexport.get(importer, False):
                 carriers.add(importer.split(".")[-1])
         for carrier in carriers:
             hop = 1 if carrier == stem else 2
