@@ -120,7 +120,7 @@ The provenance record for the non-default host, showing the bumped version tag:
 
 ```
 $ cat state/e3.pr-poll-registration
-fm-pr-poll-registration-v2
+fm-pr-poll-registration-v3
 e3
 gitlab
 https://gitlab.example/group/subgroup/project/-/merge_requests/7
@@ -129,8 +129,8 @@ group/subgroup/project
 7
 514b7e04f0cca3e2c913c9fd504c54dfe54c8a51a7f5ebc57279bbd4db5d4a60
 1817b0f95db7148246434a4afa0b2c8e7b81fd8f74ef7d473bbd62023e47c439
-70:957243
-70:957244
+957243
+957244
 ```
 
 Running each published poll the way the watcher does, where an empty result means the poll stayed silent and produced no wake:
@@ -180,7 +180,8 @@ armed: state/e6.check.sh
 
 ## Registration version
 
-The live registration tag is `fm-pr-poll-registration-v2`, which includes the provider tag.
+The live registration tag is `fm-pr-poll-registration-v3`, which stores stable inode-only file identities.
+A `fm-pr-poll-registration-v2` record still parses and matches by inode, so watches armed before the reboot fix survive the upgrade.
 A `fm-pr-poll-registration-v1` record no longer parses.
 Arm a current watch with `bin/fm-pr-check.sh`.
 
