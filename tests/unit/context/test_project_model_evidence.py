@@ -1,0 +1,414 @@
+"""Unit 3: evidence/identity migration proven on fixtures, never live data.
+
+Every project here is built under ``tmp_path``: hand-written M0-M10 lane
+documents plus 1.06 segmentation files in the real layout. Nothing reads
+a real project, a real memory root, or a model.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from library.tools import project_model_evidence as evidence
+from library.tools.project_layout import ProjectLayout
+from library.tools.project_model import validate_project_model
+from library.tools.project_model_store import (
+    commit_project_model,
+    load_project_model,
+    write_parity_report,
+)
+
+D1 = "digest-aaa-001"
+D2 = "digest-bbb-002"
+
+EMB_A = [1.0, 0.0, 0.0, 0.0]
+EMB_B = [0.0, 1.0, 0.0, 0.0]
+EMB_C = [0.0, 0.0, 1.0, 0.0]
+# The same voice on both sources: cross-source voice identity must still
+# stay absent while VOICE_MATCH_THRESHOLD is unmeasured.
+EMB_VOICE = [0.5, 0.5, 0.5, 0.5]
+
+
+def _write(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _lane_docs(digest: str, faces: list[dict], voices: list[dict],
+               links: list[dict]) -> dict[str, dict]:
+    return {
+        "source.json": {
+            "content_digest": digest, "size_bytes": 100,
+            "duration_seconds": 10.0, "video_streams": [{"index": 0}],
+        },
+        "transcript.words.json": {
+            "content_digest": digest, "status": "transcribed",
+            "utterances": [{"words": [
+                {"start": 1.0, "end": 1.5, "text": "hello",
+                 "confidence": 0.9}]}]},
+        "speakers.json": {
+            "content_digest": digest, "status": "measured",
+            "speakers": voices, "instrument": {},
+        },
+        "persons.json": {
+            "content_digest": digest,
+            "frames": [{"t": 1.0,
+                        "faces": [{"box": [0, 0, 10, 10]}],
+                        "hands": []}],
+        },
+        "identity.json": {
+            "content_digest": digest, "status": "measured",
+            "face_match_threshold": 0.25,
+            "faces": faces, "voices": voices,
+            "speech_face_links": links, "instrument": {},
+        },
+        "scenes.json": {
+            "content_digest": digest, "status": "measured",
+            "scenes": [{"start": 0.0, "end": 5.0, "location": "studio",
+                        "type": "interview", "lighting": "soft",
+                        "notable_features": []}],
+            "scene_boundaries": [], "scene_coverage": None, "instrument": {},
+        },
+        "sound.json": {
+            "content_digest": digest, "status": "measured",
+            "sound_events": [{"label": "speech", "start": 1.0, "end": 2.0,
+                              "confidence": 0.8}],
+            "method": "panns",
+        },
+        "clock.json": {
+            "content_digest": digest, "group_id": None,
+            "reference_digest": None, "offset_to_reference_seconds": 0.0,
+        },
+        "events.json": {
+            "content_digest": digest,
+            "predicates": {
+                "speaking": {"spans": [{"start": 1.0, "end": 2.0,
+                                        "voice_track": "voice_001",
+                                        "face_track": "face_001"}]},
+                "on_screen": {"spans": [{"start": 0.0, "end": 5.0,
+                                         "face_track": "face_001"}]}},
+            "candidates": {
+                "hand_near_mouth": {"spans": [
+                    {"start": 1.0, "end": 2.0, "face_track": "face_001",
+                     "frames": [{"t": 1.0}, {"t": 1.5}]}]}},
+        },
+        "verdicts.json": {
+            "content_digest": digest,
+            "verdicts": {"k1": {"statement": "hand near mouth",
+                                "answer": True, "reason": "seen",
+                                "model": "fixture",
+                                "frames": [1.0, 1.5]}},
+        },
+        "world_model.json": {
+            "content_digest": digest, "status": "built",
+            "duration_seconds": 10.0, "lanes": ["m0", "m1"],
+            "timeline": [],
+        },
+        "relationships.json": {
+            "content_digest": digest,
+            "relationships": {
+                "holding": {"spans": [{"owners": ["face_001"],
+                                       "start": 2.0, "end": 3.0}]},
+                "pointing": {"spans": []}},
+        },
+    }
+
+
+def _seg_doc(objects: list[dict]) -> dict:
+    return {"video_path": "/nonexistent/clip.mov", "frame_count": 4,
+            "resolution": [1080, 1920], "sample_fps": 2.0,
+            "seed_note": "face_seeded", "objects": objects}
+
+
+def _seg_subject(object_id: str = "obj_1") -> dict:
+    return {"object_id": object_id, "label": "face_seeded_subject",
+            "category": "person", "frames": [0, 1, 2, 3],
+            "masks_rle": {},
+            "bboxes": {str(i): [10, 10, 100, 100] for i in range(4)},
+            "avg_area_ratio": 0.1}
+
+
+def _seg_blob(object_id: str = "obj_9") -> dict:
+    doc = _seg_subject(object_id)
+    doc["label"] = "auto_object_1"
+    doc["category"] = "unknown"
+    return doc
+
+
+@pytest.fixture()
+def fixture_project(tmp_path):
+    project = tmp_path / "proj"
+    memory = tmp_path / "memory"
+    faces_d1 = [{"track_id": "face_001", "embedding": EMB_A,
+                 "spans": [{"start": 0.0, "end": 5.0,
+                            "box": [0, 0, 10, 10], "det_score": 0.9}]}]
+    voices_d1 = [{"track_id": "voice_001", "embedding": EMB_VOICE,
+                  "spans": [[1.0, 2.0]]}]
+    faces_d2 = [
+        {"track_id": "face_001", "embedding": EMB_B,
+         "spans": [{"start": 0.0, "end": 5.0,
+                    "box": [1, 1, 11, 11], "det_score": 0.8}]},
+        {"track_id": "face_002", "embedding": EMB_C,
+         "spans": [{"start": 0.0, "end": 5.0,
+                    "box": [2, 2, 12, 12], "det_score": 0.7}]},
+    ]
+    voices_d2 = [{"track_id": "voice_001", "embedding": EMB_VOICE,
+                  "spans": [[3.0, 4.0]]}]
+    for digest, faces, voices in ((D1, faces_d1, voices_d1),
+                                  (D2, faces_d2, voices_d2)):
+        docs = _lane_docs(
+            digest, faces, voices,
+            [{"face_track": "face_001", "voice_track": "voice_001"}])
+        for name, doc in docs.items():
+            _write(memory / digest / name, doc)
+    catalog = [
+        {"clip_id": "clip_001", "source_file": "/nonexistent/a.mov",
+         "path": "/nonexistent/a.mov"},
+        {"clip_id": "clip_002", "source_file": "/nonexistent/b.mov",
+         "path": "/nonexistent/b.mov"},
+    ]
+    _write(project / "pipeline_data.json", {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": catalog}},
+        "source_fingerprints": {
+            "clip_001": {"path": "/nonexistent/a.mov",
+                         "content_digest": D1},
+            "clip_002": {"path": "/nonexistent/b.mov",
+                         "content_digest": D2}},
+    })
+    seg_dir = ProjectLayout(str(project)).step_dir(
+        "object_segmentation", create=True)
+    _write(seg_dir / "clip_001_segmentation.json",
+           _seg_doc([_seg_subject(), _seg_blob()]))
+    # clip_002's subject is ambiguous on purpose: two roster persons hold
+    # D2 face spans covering t=0, so its subject mask must stay on the
+    # object instance rather than guess a person.
+    _write(seg_dir / "clip_002_segmentation.json",
+           _seg_doc([_seg_subject()]))
+    return {"project": project, "memory": memory}
+
+
+def _migrate(fixture_project):
+    return evidence.migrate_project_evidence(
+        str(fixture_project["project"]),
+        memory_root=str(fixture_project["memory"]))
+
+
+def test_migration_validates_and_covers_the_catalog(fixture_project):
+    before = {path: path.read_bytes()
+              for path in fixture_project["memory"].rglob("*") if path.is_file()}
+    model, report = _migrate(fixture_project)
+
+    validate_project_model(model)
+    uris = {asset["uri"] for asset in model["assets"]}
+    assert uris == {"/nonexistent/a.mov", "/nonexistent/b.mov"}
+    assert {clock["id"] for clock in model["clocks"]} == {
+        f"clock-{D1}", f"clock-{D2}"}
+    persons = [e for e in model["entities"] if e["kind"] == "person"]
+    assert len(persons) == 3
+    assert report["counts"]["observations"] > 0
+    assert report["counts"]["identity_links"] > 0
+    assert report["counts"]["masks"] >= 3
+    assert report["counts"]["tracks"] == 3
+    assert report["counts"]["relations"] == 0
+    # Read-only proof: not one lane byte changed.
+    after = {path: path.read_bytes()
+             for path in fixture_project["memory"].rglob("*") if path.is_file()}
+    assert before == after
+
+
+def test_unmeasured_identity_stays_absent(fixture_project):
+    model, _report = _migrate(fixture_project)
+
+    persons = {e["id"] for e in model["entities"] if e["kind"] == "person"}
+    voice_obs_links = [
+        link for link in model["identity_links"]
+        if link["method"] == "speech_face_cooccurrence"]
+    assert voice_obs_links, "within-source voice links must migrate"
+    for link in voice_obs_links:
+        assert link["entity_id"] in persons
+    # The same voice embedding on both sources still mints no
+    # cross-digest voice-to-person link: every cooccurrence link stays
+    # inside its own digest's provenance.
+    for link in voice_obs_links:
+        prov = next(o for o in model["observations"]
+                    if o["id"] == link["observation_id"])["provenance_id"]
+        assert prov in (f"prov-{D1}-m3b", f"prov-{D2}-m3b")
+    # Blob-seeded objects carry no semantic class.
+    blob_entities = [e for e in model["entities"]
+                     if e["label"] == "auto_object_1"]
+    assert len(blob_entities) == 1
+    assert blob_entities[0]["object_class_id"] is None
+    # clip_002's face-seeded subject stays on its object instance.
+    subject_masks = [m for m in model["masks"]
+                     if m["id"] == "mask-clip_002-obj_1"]
+    assert len(subject_masks) == 1
+    assert subject_masks[0]["entity_id"] == "object-clip_002-obj_1"
+    # clip_001's subject resolves to the single D1 person.
+    mask = next(m for m in model["masks"]
+                if m["id"] == "mask-clip_001-obj_1")
+    owner = next(e for e in model["entities"] if e["id"] == mask["entity_id"])
+    assert owner["kind"] == "person"
+
+
+def test_verified_spans_carry_their_verdicts(fixture_project):
+    model, _report = _migrate(fixture_project)
+    candidates = [o for o in model["observations"]
+                  if o["modality"] == "event_candidate"]
+    assert candidates, "M7 hand_near_mouth candidates must migrate"
+    assert any(o["payload"].get("verified") is True for o in candidates)
+    assert any((o["payload"].get("verdicts") or [])
+               for o in candidates)
+
+
+def test_sec_to_ticks_refuses_empty_intervals():
+    assert evidence.sec_to_ticks(1.0, 2.0) == (1000, 2000)
+    assert evidence.sec_to_ticks(2.0, 1.0) is None
+    assert evidence.sec_to_ticks(1.0, 1.0) is None
+    assert evidence.sec_to_ticks(float("nan"), 2.0) is None
+
+
+def _model_with_editorial(model: dict, person_id: str) -> dict:
+    model = json.loads(json.dumps(model))
+    model["clocks"].extend([
+        {"id": "clock-timeline",
+         "domain": {"kind": "timeline", "timeline_id": "timeline-1"},
+         "ticks_per_second": 1000, "frame_rate": None},
+        {"id": "clock-render",
+         "domain": {"kind": "render", "render_id": "render-1"},
+         "ticks_per_second": 1000, "frame_rate": None},
+    ])
+    model["assets"].append({"id": "asset-render", "kind": "render",
+                            "uri": "renders/out.mov", "content_digest": None,
+                            "metadata": {}, "provenance": []})
+    model["clip_uses"].append({
+        "id": "use-1", "asset_id": f"asset-{D1}",
+        "source_interval": {"clock_id": f"clock-{D1}",
+                            "start": 1000, "end": 2000},
+        "timeline_interval": {"clock_id": "clock-timeline",
+                              "start": 0, "end": 1000},
+        "entity_links": [person_id], "role": "a_roll",
+        "intent_id": None})
+    model["frame_maps"].append({
+        "id": "map-1", "from_clock": "clock-timeline",
+        "to_clock": "clock-render",
+        "segments": [{"from": {"clock_id": "clock-timeline",
+                               "start": 0, "end": 1000},
+                      "to": {"clock_id": "clock-render",
+                             "start": 0, "end": 1000},
+                      "mapping_kind": "one_to_one",
+                      "rate": {"numerator": 1, "denominator": 1},
+                      "source_clip_use": "use-1"}]})
+    model["receipts"].append({"id": "receipt-1", "status": "success",
+                              "renderer": "fixture", "input_revision": "rev-1",
+                              "output_asset_id": "asset-render",
+                              "details": {}})
+    model["renders"].append({"id": "render-1", "input_revision": "rev-1",
+                             "output_asset_id": "asset-render",
+                             "settings": {}, "receipt_id": "receipt-1",
+                             "frame_map_id": "map-1"})
+    validate_project_model(model)
+    return model
+
+
+def test_resolve_person_traverses_masks_aroll_and_render(fixture_project):
+    model, _report = _migrate(fixture_project)
+    d1_person = next(
+        e["id"] for e in model["entities"]
+        if e["kind"] == "person" and any(
+            m["entity_id"] == e["id"] and m["id"] == "mask-clip_001-obj_1"
+            for m in model["masks"]))
+    full = _model_with_editorial(model, d1_person)
+
+    resolved = evidence.resolve_person(full, d1_person)
+
+    assert resolved is not None
+    assert resolved["entity"]["id"] == d1_person
+    assert resolved["observations"], "person must own observations"
+    assert any(m["id"] == "mask-clip_001-obj_1"
+               for m in resolved["masks"])
+    assert [u["id"] for u in resolved["clip_uses"]] == ["use-1"]
+    assert len(resolved["rendered_ranges"]) == 1
+    rendered = resolved["rendered_ranges"][0]
+    assert rendered["render_id"] == "render-1"
+    assert rendered["render_interval"] == {"clock_id": "clock-render",
+                                           "start": 0, "end": 1000}
+    assert resolved["provenance"], "every hop must carry provenance"
+
+
+def test_resolve_person_refuses_the_unmeasured(fixture_project):
+    model, _report = _migrate(fixture_project)
+    assert evidence.resolve_person(model, "person_999") is None
+    assert evidence.resolve_person(model, "") is None
+
+
+def test_coverage_and_bridge_parity_dual_read(fixture_project):
+    project = fixture_project["project"]
+    model, report = _migrate(fixture_project)
+    commit_project_model(project, model, expected_revision=0,
+                         reason="unit 3 fixture")
+
+    parity = write_parity_report(project)
+    kinds = [m["kind"] for m in parity["mismatches"]]
+    assert "catalog_assets_missing_from_model" not in kinds
+
+    _revision, stored = load_project_model(project)
+    coverage = evidence.evidence_coverage(str(project), stored, report,
+                                          memory_root=str(
+                                              fixture_project["memory"]))
+    assert coverage["lanes"][D1]["present"]["m9"] is True
+    assert coverage["lanes"][D1]["migrated_observations"]["m1"] == 1
+    assert coverage["counts"]["observations"] == len(
+        stored["observations"])
+    assert coverage["absent_identity"], "withheld links must be named"
+    assert coverage["dropped"] == report["dropped"]
+
+
+def test_resolve_person_cli_reads_a_model_file(fixture_project, capsys):
+    model, _report = _migrate(fixture_project)
+    d1_person = next(
+        e["id"] for e in model["entities"]
+        if e["kind"] == "person" and any(
+            m["entity_id"] == e["id"] and m["id"] == "mask-clip_001-obj_1"
+            for m in model["masks"]))
+    full = _model_with_editorial(model, d1_person)
+    model_file = fixture_project["project"] / "model.json"
+    model_file.write_text(json.dumps(full), encoding="utf-8")
+
+    assert evidence.main(["resolve-person", str(model_file),
+                          "--ref", d1_person]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["entity"]["id"] == d1_person
+    assert evidence.main(["resolve-person", str(model_file),
+                          "--ref", "nobody-here"]) == 1
+
+
+def test_resolve_person_traverses_the_e2e_qualification_fixture():
+    """The Unit 3 query resolves the shared E2E contract fixture: a
+    measured person from source observations through masks and A-roll
+    to a rendered range, with provenance. Read-only on the fixture."""
+    from library.tools.project_model import FIXTURE_ROOT, read_project_model
+
+    model = read_project_model(FIXTURE_ROOT / "expected-project-model.json")
+    resolved = evidence.resolve_person(model, "person-ben")
+
+    assert resolved is not None
+    assert resolved["entity"]["label"] == "Ben (fictional)"
+    assert {o["modality"] for o in resolved["observations"]} == {
+        "face", "speech"}
+    assert [m["id"] for m in resolved["masks"]] == ["mask-ben"]
+    assert [u["id"] for u in resolved["clip_uses"]] == ["use-ben"]
+    assert len(resolved["rendered_ranges"]) == 1
+    assert resolved["rendered_ranges"][0]["render_id"] == "render-e2e"
+    assert resolved["provenance"], "every hop must carry provenance"
+
+
+def test_migrate_cli_writes_and_commits(fixture_project, capsys):
+    project = fixture_project["project"]
+    out = project / "model.json"
+    assert evidence.main(["migrate", str(project), "--memory-root",
+                          str(fixture_project["memory"]),
+                          "--out", str(out), "--commit"]) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
+    revision, _stored = load_project_model(project)
+    assert revision == 1
