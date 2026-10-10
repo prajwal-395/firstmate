@@ -314,6 +314,20 @@ test_version_check_refuses_missing_herdr() {
   pass "fm_backend_herdr_version_check: refuses loudly when herdr is not installed"
 }
 
+test_version_check_scopes_to_lab_session() {
+  local dir log resp fb status
+  dir="$TMP_ROOT/version-lab"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"client":{"version":"0.9.1","channel":"stable","protocol":22}}\n' > "$resp/1.out"
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_SCRIPT_STATUS=1 HERDR_SESSION="fm-lab-scope-probe" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_version_check' "$ROOT"
+  status=$?
+  expect_code 0 "$status" "version_check should accept protocol 22 in a named lab session"
+  assert_contains "$(cat "$log")" "HERDR_SESSION=fm-lab-scope-probe" "version_check did not carry the lab session in its environment"
+  assert_contains "$(cat "$log")" $'\x1f''--session'$'\x1f''fm-lab-scope-probe' "version_check did not route its status read with a trailing --session flag"
+  pass "fm_backend_herdr_version_check: scopes its status read to the spawn target session"
+}
+
 # --- workspace_label: per-firstmate-HOME resolution (P3, herdr-sm-spaces-k4) -
 
 test_workspace_label_primary_home_no_marker() {
@@ -5277,6 +5291,7 @@ test_wait_transition_clean_timeout_returns_1() {
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr
+test_version_check_scopes_to_lab_session
 test_workspace_label_primary_home_no_marker
 test_workspace_label_secondmate_home_uses_marker_id
 test_workspace_label_secondmate_marker_trims_whitespace
