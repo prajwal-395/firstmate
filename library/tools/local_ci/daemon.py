@@ -50,6 +50,7 @@ from library.tools.local_ci import (
     queue,
     runner,
     selection,
+    self_update,
     state,
 )
 
@@ -328,6 +329,11 @@ class Tier1Scheduler:
         with self._lock:
             return any(future.done() for future in self._futures)
 
+    def idle(self) -> bool:
+        """Whether no Tier-1 worker is in flight (a reload may happen)."""
+        with self._lock:
+            return not self._futures and not self._inflight
+
     def _run(self, pr: dict, seen_at: float, workers: int,
              slots_limit: int) -> dict:
         slots = hygiene.Slots(self.world.state_dir, jobs=slots_limit)
@@ -470,19 +476,35 @@ def check_pr(world: queue.World, pr: dict, slot: int,
     return finish_tier1(world, pr, outcome, seen_at, slot)
 
 
-def serve(state_dir: str = "", poll: int = config.POLL_SECONDS) -> int:
-    """Keep polling while Tier-1 checks run; return 0 only on clean exit."""
+def serve(state_dir: str = "", poll: int = config.POLL_SECONDS,
+          repo: str = "") -> int:
+    """Keep polling while Tier-1 checks run; return 0 only on clean exit.
+
+    The daemon serves the given repo checkout: when that checkout moves
+    to a commit that changes the daemon's own code, the loop re-execs
+    onto the new tree while idle (self_update), so periodic upstream
+    polling and intake never strand on stale code.
+    """
+    from pathlib import Path
+
     from library.tools.local_ci import upstream
+    repo = repo or str(Path(__file__).resolve().parents[3])
     upstream.recover_weekly(state_dir or config.state_dir())
     world = queue.World(state_dir=state_dir or config.state_dir())
     os.makedirs(os.path.join(world.state_dir, "logs"), exist_ok=True)
+    running_sha = self_update.served_commit(repo)
     print(f"ren-ci serving {config.OWNER}/{config.REPO} "
-          f"from {world.state_dir}", flush=True)
+          f"from {world.state_dir} "
+          f"(checkout {repo} at "
+          f"{running_sha[:12] if running_sha else 'unknown'})",
+          flush=True)
     scheduler = Tier1Scheduler(world)
     next_poll = 0.0
     while True:
         now = time.monotonic()
         if now >= next_poll or scheduler.has_completed():
+            running_sha = self_update.check_and_reload(
+                scheduler, repo, running_sha, world.state_dir, poll)
             try:
                 result = scheduler.poll_once(load.targets(load.measure()))
                 print(f"ren-ci pass [{result['plan']}]: "

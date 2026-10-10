@@ -129,6 +129,21 @@ finds only macOS's 3.9, which cannot parse the engine. Discovered on
 the first install; pinned by
 `tests/unit/tools/test_local_ci_service.py`.
 
+## Self-update (the daemon reloads its own code)
+
+The plist points at a checkout that moves under the daemon: before
+every dispatch the daemon compares the commit it started on with the
+served checkout's HEAD, and when the range touches its own code
+(`library/tools/local_ci/`, `bin/vep`, the heavy-work lock, the
+resource scheduler, the Resolve client, `ren/engine_root.py`) it
+re-execs onto the new tree - but only while idle (no Tier-1 worker in
+flight, no slot owner, no full-suite gate, no Tier-2 member under
+test). A busy daemon defers to the next pass. Poll and intake windows
+live in `~/.ren-ci` (never the repo), so no window is skipped or
+doubled across the reload; an interrupted weekly run retries at
+startup. Pinned by
+`tests/unit/tools/test_local_ci_self_update.py`.
+
 ## End-to-end proof (post-merge, on throwaway PRs)
 
 1. Open a trivial PR, watch Tier-1 post pending->success, `ren ci

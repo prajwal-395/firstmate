@@ -141,7 +141,7 @@ def cmd_process_once(args) -> int:
 
 def cmd_daemon(args) -> int:
     from library.tools.local_ci import daemon
-    daemon.serve(args.state or "", poll=args.poll)
+    daemon.serve(args.state or "", poll=args.poll, repo=args.repo or "")
     return 0
 
 
