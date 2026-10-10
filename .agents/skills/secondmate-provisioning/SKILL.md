@@ -94,7 +94,8 @@ For a `--secondmate` spawn, `bin/fm-spawn.sh` populates `MODEL`/`EFFORT` from th
 For a local route, an explicit per-spawn `--harness` flag, positional harness arg, or raw launch command starts clean on model and effort too, unless the caller also passes explicit `--model` or `--effort`.
 A remote route accepts only a verified harness adapter and refuses a raw launch command at the host boundary.
 When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` flag always wins over the file's token for that axis.
-Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatefirstmate`, restart) exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
+Because this resolves from the file on every spawn, the pin governs fresh spawns, recovery respawns, and explicit control-plane relaunches exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
+The `/updatefirstmate` restart pass instead relaunches each mate onto its own recorded profile, with this file only filling an axis the record leaves empty, so a mate that must run on a different runtime than the fleet default survives the restart; [`bin/fm-secondmate-restart.sh`](../../../bin/fm-secondmate-restart.sh) owns that resolution and only reports `restarted:` when the relaunch confirms a running agent.
 This is secondmate-only: crewmate/scout model resolution is untouched by this file.
 
 This section is the single owner of the secondmate sync and inherited-local-material propagation contract; `AGENTS.md` sections 3 and 4 point here.
