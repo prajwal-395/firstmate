@@ -1262,6 +1262,168 @@ test_missing_meta_refuses_before_merge() {
   pass "fm-pr-merge refuses before merging when task meta is missing"
 }
 
+# A task torn down while its PR is still open leaves a green PR with no
+# record. The recovery flag merges it through the same live green check and
+# verified outcome, recording the absent-task case explicitly instead of
+# fabricating metadata or bypassing the guard.
+test_absent_task_recovery_merges_green_pr() {
+  local case_dir rc
+  case_dir=$(make_case absent-task-recovery-merges)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+  rm -f "$case_dir/state/task-x1.meta"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "absent-task-recovery: fm-pr-merge should merge a green PR with no task record"
+  assert_grep 'absent-task recovery' "$case_dir/stderr" \
+    "absent-task-recovery: the recovery mode was not named"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  assert_grep 'verified: https://github.com/example/repo/pull/9 is merged' \
+    "$case_dir/stdout" "absent-task-recovery: success was not reported as verified"
+  assert_present "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery: the absent-task case was not recorded explicitly"
+  assert_grep 'fm-merge-recovery-v1' "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery: the recovery record carries no version tag"
+  assert_grep 'deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery: the recovery record names no verified head"
+  assert_present "$case_dir/state/task-x1.merge-authority" \
+    "absent-task-recovery: the merge authority was not persisted"
+  assert_present "$case_dir/state/task-x1.pr-poll-merge-notified" \
+    "absent-task-recovery: the merge outcome was not reported for supervision"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "absent-task-recovery: a merge poll was armed without task metadata"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "absent-task-recovery: the recovery fabricated task metadata"
+  pass "fm-pr-merge merges a green PR with no task record under --recover-absent-task"
+}
+
+test_absent_task_recovery_refuses_red_checks() {
+  local case_dir rc head=5151515151515151515151515151515151515151
+  case_dir=$(make_case absent-task-recovery-red)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_red_json "$case_dir" "$head" ci
+  : > "$case_dir/gh-axi.log"
+  rm -f "$case_dir/state/task-x1.meta"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "absent-task-recovery-red: a red PR must still refuse in recovery"
+  assert_grep 'refusing to merge' "$case_dir/stderr" \
+    "absent-task-recovery-red: the refusal did not say it refused to merge"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "absent-task-recovery-red: the forge merge ran for a red PR"
+  assert_absent "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery-red: an unverified head was recorded as a recovery"
+  assert_absent "$case_dir/state/task-x1.merge-authority" \
+    "absent-task-recovery-red: merge authority was persisted for a refused merge"
+  pass "fm-pr-merge still refuses a red PR under --recover-absent-task"
+}
+
+test_absent_task_recovery_flag_with_record_refuses() {
+  local case_dir rc
+  case_dir=$(make_case absent-task-recovery-with-record)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 9999999999999999999999999999999999999999
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 2 "$rc" "absent-task-recovery-with-record: the flag with a live record must be a caller error"
+  assert_grep 'applies only when the task record is absent' "$case_dir/stderr" \
+    "absent-task-recovery-with-record: the refusal did not name the misuse"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "absent-task-recovery-with-record: the forge merge ran despite the caller error"
+  pass "fm-pr-merge refuses --recover-absent-task while the task record still exists"
+}
+
+test_absent_task_recovery_symlink_meta_refuses() {
+  local case_dir rc
+  case_dir=$(make_case absent-task-recovery-symlink)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 8888888888888888888888888888888888888888
+  : > "$case_dir/gh-axi.log"
+  rm -f "$case_dir/state/task-x1.meta"
+  ln -s /dev/null "$case_dir/state/task-x1.meta"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "absent-task-recovery-symlink: a linked record must refuse even in recovery"
+  assert_grep 'task metadata is unsafe' "$case_dir/stderr" \
+    "absent-task-recovery-symlink: the refusal did not name the unsafe record"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "absent-task-recovery-symlink: the forge merge ran for an unsafe record"
+  pass "fm-pr-merge refuses a linked task record even under --recover-absent-task"
+}
+
+test_absent_task_recovery_unreadable_backlog_refuses() {
+  local case_dir rc
+  case_dir=$(make_case absent-task-recovery-unreadable-backlog)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 6262626262626262626262626262626262626262
+  : > "$case_dir/gh-axi.log"
+  rm -f "$case_dir/state/task-x1.meta"
+  chmod 000 "$case_dir/home/data/backlog.md"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  chmod 644 "$case_dir/home/data/backlog.md"
+
+  expect_code 1 "$rc" "absent-task-recovery-unreadable-backlog: an unreadable hold record must refuse"
+  assert_grep 'refusing to merge' "$case_dir/stderr" \
+    "absent-task-recovery-unreadable-backlog: the refusal did not say it refused to merge"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "absent-task-recovery-unreadable-backlog: the forge merge ran despite an unreadable hold record"
+  pass "fm-pr-merge still consults the captain-hold gate under --recover-absent-task"
+}
+
+test_absent_task_recovery_merges_green_mr() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case absent-task-recovery-gitlab)
+  rm -f "$case_dir/state/task-x1.meta"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --recover-absent-task \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "absent-task-recovery-gitlab: fm-pr-merge should merge a green MR with no task record"
+  assert_grep 'absent-task recovery' "$case_dir/stderr" \
+    "absent-task-recovery-gitlab: the recovery mode was not named"
+  [ "$(glab_merge_line "$case_dir/glab.log")" = "GITLAB_HOST=$MR_HOST mr merge 7 -R $MR_PROJECT_URL --sha $MR_HEAD --yes" ] \
+    || fail "absent-task-recovery-gitlab: glab merge was not bound to the verified head: $(glab_merge_line "$case_dir/glab.log")"
+  assert_present "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery-gitlab: the absent-task case was not recorded explicitly"
+  assert_grep "$MR_HEAD" "$case_dir/state/task-x1.merge-recovery" \
+    "absent-task-recovery-gitlab: the recovery record names no verified head"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "absent-task-recovery-gitlab: the recovery fabricated task metadata"
+  pass "fm-pr-merge merges a green GitLab MR with no task record under --recover-absent-task"
+}
+
 test_malformed_url_refuses_before_merge() {
   local case_dir rc
   case_dir=$(make_case malformed-url)
@@ -2123,6 +2285,12 @@ test_github_queued_outcome_is_verified
 test_github_queue_required_refusal_names_retry_flags
 test_extra_merge_args_forwarded
 test_missing_meta_refuses_before_merge
+test_absent_task_recovery_merges_green_pr
+test_absent_task_recovery_refuses_red_checks
+test_absent_task_recovery_flag_with_record_refuses
+test_absent_task_recovery_symlink_meta_refuses
+test_absent_task_recovery_unreadable_backlog_refuses
+test_absent_task_recovery_merges_green_mr
 test_malformed_url_refuses_before_merge
 test_rejects_unsafe_url_segments_before_recording
 test_repo_override_args_refuse_before_recording
