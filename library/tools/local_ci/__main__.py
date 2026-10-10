@@ -91,6 +91,13 @@ def cmd_status(args) -> int:
     else:
         agent_state = "not installed"
     print(f"agent: {agent_state} ({service.plist_path()})")
+    from library.tools.local_ci import upstream
+    print("upstream intake pins:")
+    for name, pin in upstream.pin_status(args.state).items():
+        state_label = (f"stale candidate {pin['candidate_sha'][:12]}"
+                       if pin.get("candidate_sha") else "current")
+        print(f"  {name}: qualified={pin['qualified_sha'][:12]} "
+              f"last-seen={pin['last_seen_upstream_sha'][:12]} {state_label}")
     return 0
 
 
@@ -152,6 +159,17 @@ def cmd_uninstall(_args) -> int:
     return 0
 
 
+def cmd_upstream(args) -> int:
+    from library.tools.local_ci import upstream
+    if args.action == "status":
+        for name, pin in upstream.pin_status(args.state).items():
+            print(f"{name}: {pin}")
+        return 0
+    request = upstream.request_expedited(args.engine, args.reason, args.state)
+    print(f"ren-ci expedited upstream intake queued: {request}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="ren ci")
     parser.add_argument("--state", default="",
@@ -169,11 +187,17 @@ def main(argv=None) -> int:
     install = sub.add_parser("install", help="install the launchd agent")
     install.add_argument("--repo", default="")
     sub.add_parser("uninstall", help="remove the launchd agent")
+    upstream_p = sub.add_parser("upstream", help="upstream engine intake")
+    upstream_sub = upstream_p.add_subparsers(dest="action", required=True)
+    upstream_sub.add_parser("status")
+    expedite = upstream_sub.add_parser("expedite")
+    expedite.add_argument("engine", choices=("filmcraft", "effectcraft"))
+    expedite.add_argument("--reason", required=True)
     args = parser.parse_args(argv)
     commands = {"status": cmd_status, "check": cmd_check,
                 "ready": cmd_ready, "process-once": cmd_process_once,
                 "daemon": cmd_daemon, "install": cmd_install,
-                "uninstall": cmd_uninstall}
+                "uninstall": cmd_uninstall, "upstream": cmd_upstream}
     return commands[args.verb](args)
 
 

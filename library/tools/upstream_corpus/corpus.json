@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "corpus_version": "2026-10-10.1",
+  "notes": "Fixed headless render corpus for weekly upstream intake. Cases reuse only CLI surfaces proven by the Ren driver crates (native/ren-filmcraft, native/ren-effectcraft). Pixel checks compare against the committed fixtures below; a fixture whose bytes differ from its recorded sha256 refuses the run. Timing and peak-memory numbers are recorded on every run; absolute budgets gate, while ratios against the prior passed pin are review findings.",
+  "fixtures": {
+    "still-red.png": {
+      "sha256": "5ad4152cff1402a3445fd7ea51f7b1b780f5a448fd6e1c45c34c055666824b56",
+      "kind": "png", "width": 64, "height": 36
+    },
+    "still-green.png": {
+      "sha256": "0dff61c065ce9c93fcd8b65dd8fd35008bd173621625442081c138edc11440dc",
+      "kind": "png", "width": 64, "height": 36
+    },
+    "still-blue.png": {
+      "sha256": "cac1f405f463b3ee90cd7120cf97636bebd7a0c689647904ff4374ee354d0614",
+      "kind": "png", "width": 64, "height": 36
+    },
+    "still-white.png": {
+      "sha256": "745ee3648caaa26c9b5e9122d79e04c4cc560d620cb17067af61aaacd7582132",
+      "kind": "png", "width": 64, "height": 36
+    },
+    "still-gray.png": {
+      "sha256": "723f79b681cdea517eac8cbbb3c186ae7f0750e6109335ba2f69b488316d005d",
+      "kind": "png", "width": 64, "height": 36
+    },
+    "stereo-1s.wav": {
+      "sha256": "654541777256de9ad4955dffb15aaff11655955b4f20e888444a127f58d1fc68",
+      "kind": "wav", "sample_rate": 44100, "channels": 2, "duration_seconds": 1.0
+    }
+  },
+  "cases": [
+    {
+      "id": "filmcraft-solids-roundtrip",
+      "engine": "filmcraft",
+      "kind": "stills_roundtrip",
+      "inputs": ["still-red.png", "still-green.png", "still-blue.png", "still-white.png", "still-gray.png"],
+      "ticks_per_second": 254016000000,
+      "expect": {
+        "placed_clips": 5,
+        "center_crop_px": 16,
+        "center_max_abs_diff": 1,
+        "center_min_psnr_db": 40.0,
+        "palette_tolerance": 3
+      }
+    },
+    {
+      "id": "filmcraft-stereo-unity",
+      "engine": "filmcraft",
+      "kind": "audio_unity",
+      "input": "stereo-1s.wav",
+      "expect": {
+        "channels": 2,
+        "duration_tolerance_seconds": 0.05,
+        "peak_tolerance_db": 0.5
+      }
+    },
+    {
+      "id": "effectcraft-alpha-title",
+      "engine": "effectcraft",
+      "kind": "alpha_title",
+      "comp": {"name": "Main", "width": 96, "height": 64, "frame_rate": 10.0, "duration": 0.5},
+      "text": {"name": "Title", "text": "REN", "size": 28.0, "fill": "#ffffff", "position": [48.0, 32.0], "font": "Inter"},
+      "fade": {"path": "transform/opacity", "from_time": 0.0, "from_value": 0.0, "to_time": 0.2, "to_value": 100.0},
+      "renders": [
+        {"format": "png", "channels": "rgba", "start": 0.0, "end": 0.5, "pattern": "title_#####.png"},
+        {"format": "prores", "channels": "rgba", "prores": "4444", "start": 0.0, "end": 0.5, "file": "title.mov"}
+      ],
+      "expect": {
+        "frames": 5,
+        "width": 96,
+        "height": 64,
+        "first_frame_alpha_sum": 0,
+        "last_frame_visible": true,
+        "mov_has_transparent_and_visible": true
+      }
+    }
+  ],
+  "perf": {
+    "workloads": [
+      {"id": "filmcraft-edit-50", "engine": "filmcraft", "kind": "edit_ops", "ops": 50}
+    ],
+    "budgets": {
+      "max_wall_seconds_per_case": 600.0,
+      "max_peak_rss_mb": 8192.0,
+      "prior_wall_ratio_finding": 4.0,
+      "prior_rss_ratio_finding": 3.0
+    }
+  }
+}

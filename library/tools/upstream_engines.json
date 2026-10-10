@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "engines": {
+    "filmcraft": {
+      "upstream_url": "https://github.com/storytold/filmcraft.git",
+      "qualified_sha": "7bd76212629a067a9d1c5426d751de9faf4664b7",
+      "last_seen_upstream_sha": "7bd76212629a067a9d1c5426d751de9faf4664b7",
+      "last_qualification_record": "docs/UPSTREAM_ENGINE_INTAKE.md"
+    },
+    "effectcraft": {
+      "upstream_url": "https://github.com/storytold/effectcraft.git",
+      "qualified_sha": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
+      "last_seen_upstream_sha": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
+      "last_qualification_record": "docs/UPSTREAM_ENGINE_INTAKE.md"
+    }
+  }
+}

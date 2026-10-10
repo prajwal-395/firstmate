@@ -406,6 +406,19 @@ class Tier1Scheduler:
         active_count = len(active_slots) + active_reserved
         target = min(max(1, int(plan["tier1_jobs"])), load.TIER1_MAX)
         capacity = max(0, target - active_count)
+        from library.tools.local_ci import upstream
+        queued = state.read_queue(self.world.state_dir)
+        intake_idle = (not due and active_count == 0
+                       and not hygiene.running_gate_jobs()
+                       and not any(entry.get("status") == state.ENTRY_TESTING
+                                   for entry in queued))
+        periodic = upstream.run_due(self.world.state_dir, idle=intake_idle)
+        if periodic.get("poll"):
+            print("ren-ci upstream daily poll recorded", flush=True)
+        if periodic.get("intake"):
+            result = periodic["intake"]
+            print(f"ren-ci upstream weekly intake: {result.get('status', 'failed')} "
+                  f"record={result.get('record', '')}", flush=True)
         for pr, seen_at in sorted(due, key=lambda item: item[1]):
             head = pr["head"]
             if capacity <= 0:
@@ -459,6 +472,8 @@ def check_pr(world: queue.World, pr: dict, slot: int,
 
 def serve(state_dir: str = "", poll: int = config.POLL_SECONDS) -> int:
     """Keep polling while Tier-1 checks run; return 0 only on clean exit."""
+    from library.tools.local_ci import upstream
+    upstream.recover_weekly(state_dir or config.state_dir())
     world = queue.World(state_dir=state_dir or config.state_dir())
     os.makedirs(os.path.join(world.state_dir, "logs"), exist_ok=True)
     print(f"ren-ci serving {config.OWNER}/{config.REPO} "

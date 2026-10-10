@@ -53,6 +53,30 @@ elapsed time, the last Tier-1 results with seen->result latency,
 ready->merged latency for landed PRs, and what the machine would
 dispatch right now.
 
+## Native engine upstream intake
+
+The same daemon polls the FilmCraft and EffectCraft upstream URLs once per
+UTC day and records changed heads and release tags in
+`~/.ren-ci/upstream-intake.json`. Weekly qualification runs only after
+Tier-1, Tier-2, and manual PR verification work is idle. It takes the
+machine-wide heavy-work admission and all Tier-1 slots before building, so
+engine builds and tests cannot overlap CI verification or another heavy
+operation. Qualification records and logs stay under `~/.ren-ci/`; a daemon
+restart retries an interrupted weekly window. Failed gates remain visible and
+retry after six hours.
+
+Immutable starting revisions and upstream URLs are declared in
+`library/tools/upstream_engines.json`, mirroring the pin constants in the
+Ren driver crates (`native/ren-filmcraft`, `native/ren-effectcraft`);
+qualification refuses when the manifest drifts from those crates. Ren-only
+patches, if ever needed, live as ordered `.patch` files under
+`library/tools/upstream_patches/<engine>/`; each is checked and replayed
+before the engine build. Candidate pins are not promoted unless the engine
+build, the upstream crate tests, and every case of the committed headless
+render corpus (`library/tools/upstream_corpus/`, SOP:
+`docs/UPSTREAM_ENGINE_INTAKE.md`) pass; a failure leaves the prior qualified
+revision in place. Only engines with pending candidates are built.
+
 ## Load policy (why it speeds up and slows down)
 
 Before each dispatch the daemon measures 1-minute load vs cores, free

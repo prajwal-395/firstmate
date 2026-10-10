@@ -12,7 +12,8 @@ use std::{
 use thiserror::Error;
 
 pub const FILMCRAFT_REPOSITORY: &str = "https://github.com/storytold/filmcraft.git";
-/// Replaced by the intake manifest when that lane lands. Keep this as the sole pin source.
+/// Mirrored by library/tools/upstream_engines.json; the upstream intake refuses
+/// promotion when the manifest drifts from this constant. Keep this as the sole pin source.
 pub const FILMCRAFT_REVISION: &str = "7bd76212629a067a9d1c5426d751de9faf4664b7";
 pub const FILMCRAFT_CLI_VERSION: &str = "0.5.0";
 pub const FILMCRAFT_PROJECT_FORMAT: &str = "filmcraft.project";
