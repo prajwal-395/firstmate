@@ -632,6 +632,13 @@ def serve(state_dir: str = "", poll: int = config.POLL_SECONDS,
                       f"checked={result['checked']} queued={result['queued']} "
                       f"refused={result['refused']} queue={result['queue']}",
                       flush=True)
+                if result.get("queue", {}).get("merged"):
+                    # Tier-2 just landed: the running image may be stale
+                    # behind the new main, so offer the reload now while
+                    # idle rather than waiting for the next poll window.
+                    running_sha = self_update.check_and_reload(
+                        scheduler, repo, running_sha, world.state_dir,
+                        poll)
             except Exception as exc:  # noqa: BLE001 - polling must continue
                 print(f"ren-ci pass failed: {exc}", flush=True)
             next_poll = time.monotonic() + poll

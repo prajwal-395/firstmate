@@ -24,6 +24,12 @@ from library.tools.local_ci import config
 CHECKS_FILENAME = "checks.json"
 QUEUE_FILENAME = "queue.json"
 SEEN_FILENAME = "seen.json"
+MAIN_BASELINE_FILENAME = "main_baseline.json"
+
+# How many main SHAs keep a cached baseline verdict: the daemon judges
+# one SHA at a time, so this is headroom, not a working set. Bounded so
+# the ledger cannot grow with every main advance.
+MAIN_BASELINE_KEEP = 20
 
 # Queue entry statuses. queued -> testing -> green -> merged is the
 # happy path; testing can also return to queued when a runner is
@@ -170,3 +176,44 @@ def read_seen(state: str = "") -> dict:
     """Every first-seen key -> timestamp."""
     data = _read(SEEN_FILENAME, state)
     return data if isinstance(data, dict) else {}
+
+
+def read_main_baseline(state: str = "") -> dict:
+    """Main SHA -> baseline record ({ok, reason, log, recorded_at}).
+
+    The Tier-2 main gate caches its verdict per main SHA so a red
+    batch re-tests the same main without re-running the full gate.
+    """
+    data = _read(MAIN_BASELINE_FILENAME, state)
+    return data if isinstance(data, dict) else {}
+
+
+def main_baseline_green(sha: str, state: str = "") -> dict | None:
+    """The cached GREEN baseline for this main SHA, if one exists.
+
+    Only green verdicts are reusable evidence: a red main is re-judged
+    every batch (the same SHA re-run is cheap next to a wrong kick),
+    and an unjudgeable main (narrowed) never caches at all.
+    """
+    if not sha:
+        return None
+    record = read_main_baseline(state).get(sha)
+    if isinstance(record, dict) and record.get("ok") is True:
+        return dict(record)
+    return None
+
+
+def record_main_baseline(sha: str, ok: bool, reason: str = "",
+                         state: str = "", log: str = "") -> dict:
+    """Store one main-baseline verdict, keyed by main SHA."""
+    data = read_main_baseline(state)
+    record = {"ok": bool(ok), "reason": reason or "", "log": log or "",
+              "recorded_at": time.time()}
+    data[sha] = record
+    while len(data) > MAIN_BASELINE_KEEP:
+        oldest = min(data, key=lambda key: float(
+            data[key].get("recorded_at", 0)
+            if isinstance(data[key], dict) else 0))
+        del data[oldest]
+    _write(MAIN_BASELINE_FILENAME, data, state)
+    return dict(record)

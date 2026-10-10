@@ -30,13 +30,22 @@ def _member(pr, head=None):
 class FakeWorld(queue.World):
     """Scripted verdicts keyed by member set; scripted main and merges."""
 
-    def __init__(self, fail_when=None, main="base"):
-        super().__init__(state_dir="")
+    def __init__(self, fail_when=None, main="base", state_dir=""):
+        super().__init__(state_dir=state_dir)
         self.fail_when = fail_when or (lambda members: False)
         self._main = main
         self.merges = []
         self.reports = []
         self.tests = 0
+        self.main_tests = 0
+
+    def test_main(self, base):
+        """Main alone fails exactly when the script says the empty
+        stack fails, so old member-only scripts judge main green."""
+        self.main_tests += 1
+        if self.fail_when([]):
+            return queue.TestResult(False, 0, 1, reason="stack red")
+        return queue.TestResult(True, 3, 0)
 
     def main_sha(self):
         return self._main
@@ -270,8 +279,8 @@ def test_an_unjudgeable_cluster_requeues_instead_of_kicking():
 
 
 def test_process_once_merges_green_in_order_and_kicks_the_culprit(tmp_path):
-    world = FakeWorld(fail_when=lambda prs: 12 in prs)
-    world.state_dir = str(tmp_path)
+    world = FakeWorld(fail_when=lambda prs: 12 in prs,
+                      state_dir=str(tmp_path))
     state.write_queue([_member(11), _member(12)], str(tmp_path))
     summary = queue.process_once(world, window=0)  # ripe immediately
     assert summary["ripe"] is True
@@ -285,8 +294,7 @@ def test_process_once_merges_green_in_order_and_kicks_the_culprit(tmp_path):
 
 def test_process_once_waits_out_an_unripe_window(tmp_path):
     import time
-    world = FakeWorld()
-    world.state_dir = str(tmp_path)
+    world = FakeWorld(state_dir=str(tmp_path))
     now = time.time()
     state.write_queue([dict(_member(11), enqueued_at=now)], str(tmp_path))
     summary = queue.process_once(world, window=600)
@@ -300,8 +308,8 @@ def test_process_once_persists_verdicts_when_reporting_fails(tmp_path):
         def report(self, pr, head, url, ok, reason):
             raise RuntimeError("gh-axi has no repository context")
 
-    world = BrokenReporter(fail_when=lambda prs: 12 in prs)
-    world.state_dir = str(tmp_path)
+    world = BrokenReporter(fail_when=lambda prs: 12 in prs,
+                           state_dir=str(tmp_path))
     state.write_queue([_member(11), _member(12)], str(tmp_path))
 
     summary = queue.process_once(world, window=0)
@@ -319,8 +327,7 @@ def test_process_once_requeues_if_the_tier2_runner_raises(tmp_path):
         def test_stack(self, base, members):
             raise RuntimeError("worktree gate could not start")
 
-    world = BrokenRunner()
-    world.state_dir = str(tmp_path)
+    world = BrokenRunner(state_dir=str(tmp_path))
     state.write_queue([_member(11), _member(12)], str(tmp_path))
 
     summary = queue.process_once(world, window=0)
@@ -340,3 +347,125 @@ def test_enqueue_supersedes_a_moved_head_but_not_a_rerun(tmp_path):
     state.enqueue(7, "head-b", str(tmp_path))
     entries = state.read_queue(str(tmp_path))
     assert [e["head"] for e in entries] == ["head-b"]
+
+
+class BaselineWorld(FakeWorld):
+    """A FakeWorld with main judged apart from members: the red-main
+    defect case scripts main red while members would pass together."""
+
+    def __init__(self, main_ok=True, main_reason="main gate FAIL",
+                 main_requeue=False, **kwargs):
+        super().__init__(**kwargs)
+        self._main_ok = main_ok
+        self._main_reason = main_reason
+        self._main_requeue = main_requeue
+        self.main_tests = 0
+
+    def test_main(self, base):
+        self.main_tests += 1
+        if self._main_requeue:
+            return queue.TestResult(False, reason=self._main_reason,
+                                    requeue=True)
+        if self._main_ok:
+            return queue.TestResult(True, 3, 0)
+        return queue.TestResult(False, 0, 1, reason=self._main_reason)
+
+
+def test_a_red_main_kicks_nobody_and_keeps_members_queued():
+    # PRs 2265/2273: main itself was red, so every half (main plus
+    # members) stayed red down to singles and each innocent member was
+    # kicked with main's failure reason. A red main kicks nobody.
+    world = BaselineWorld(main_ok=False, main_reason="main gate FAIL",
+                          fail_when=lambda prs: True)
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2)])
+    assert green == [] and kicked == []
+    assert sorted(m["pr"] for m in requeued) == [1, 2]
+    assert all(m["status"] == state.ENTRY_QUEUED for m in requeued)
+    assert all(queue.is_main_red_reason(m["reason"]) for m in requeued)
+    assert "main gate FAIL" in requeued[0]["reason"]
+    assert world.main_tests == 1
+    assert world.tests == 1  # the whole stack only: no bisect on red main
+
+
+def test_a_red_main_kicks_no_single_member_either():
+    world = BaselineWorld(main_ok=False, main_reason="main gate FAIL",
+                          fail_when=lambda prs: True)
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1)])
+    assert green == [] and kicked == []
+    assert [m["pr"] for m in requeued] == [1]
+    assert requeued[0]["status"] == state.ENTRY_QUEUED
+    assert queue.is_main_red_reason(requeued[0]["reason"])
+
+
+def test_a_green_main_bisects_to_the_culprit_only():
+    world = BaselineWorld(main_ok=True,
+                          fail_when=lambda prs: 2 in prs)
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2)])
+    assert [m["pr"] for m in green] == [1]
+    assert [m["pr"] for m in kicked] == [2]
+    assert requeued == []
+    assert world.main_tests == 1
+
+
+def test_an_unjudgeable_main_requeues_instead_of_kicking():
+    world = BaselineWorld(main_requeue=True,
+                          main_reason="full gate narrowed pass",
+                          fail_when=lambda prs: True)
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2)])
+    assert green == [] and kicked == []
+    assert sorted(m["pr"] for m in requeued) == [1, 2]
+    assert all(m["status"] == state.ENTRY_QUEUED for m in requeued)
+
+
+def test_the_main_verdict_is_cached_per_sha():
+    world = BaselineWorld(main_ok=True,
+                          fail_when=lambda prs: 2 in prs)
+    queue.resolve_batch(world, "base", [_member(1), _member(2)])
+    assert world.main_tests == 1
+    queue.resolve_batch(world, "base", [_member(1), _member(2)])
+    assert world.main_tests == 1  # same SHA: no second main gate run
+    queue.resolve_batch(world, "base2", [_member(1), _member(2)])
+    assert world.main_tests == 2  # new SHA: judged again
+
+
+def test_the_green_main_verdict_is_shared_through_the_ledger(tmp_path):
+    first = BaselineWorld(main_ok=True,
+                          fail_when=lambda prs: 2 in prs,
+                          state_dir=str(tmp_path))
+    _, kicked, _ = queue.resolve_batch(first, "base",
+                                      [_member(1), _member(2)])
+    assert [m["pr"] for m in kicked] == [2]
+    assert first.main_tests == 1
+    cached = state.main_baseline_green("base", str(tmp_path))
+    assert cached is not None and cached["ok"] is True
+    # A new world on the same state dir reuses the filed green verdict
+    # without running the main gate again - even though its scripted
+    # main would now fail, the SHA is judged already.
+    second = BaselineWorld(main_ok=False, main_reason="main gate FAIL",
+                           fail_when=lambda prs: 2 in prs,
+                           state_dir=str(tmp_path))
+    _, kicked, _ = queue.resolve_batch(second, "base",
+                                      [_member(1), _member(2)])
+    assert second.main_tests == 0
+    assert [m["pr"] for m in kicked] == [2]
+
+
+def test_process_once_reports_a_red_main_and_merges_nothing(tmp_path):
+    world = BaselineWorld(main_ok=False, main_reason="main gate FAIL",
+                          fail_when=lambda prs: True,
+                          state_dir=str(tmp_path))
+    state.write_queue([_member(11), _member(12)], str(tmp_path))
+    summary = queue.process_once(world, window=0)
+    assert summary["ripe"] is True
+    assert summary["kicked"] == [] and summary["merged"] == []
+    assert sorted(summary["requeued"]) == [11, 12]
+    assert summary["main_red"] is True
+    assert "main " in summary["main_reason"]
+    entries = {e["pr"]: e for e in state.read_queue(str(tmp_path))}
+    assert entries[11]["status"] == state.ENTRY_QUEUED
+    assert entries[12]["status"] == state.ENTRY_QUEUED
+    assert world.reports == []  # no kick posted for any member

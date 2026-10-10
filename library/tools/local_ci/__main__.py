@@ -39,6 +39,17 @@ def cmd_status(args) -> int:
                   f"{entry['status']}{latency}{reason}")
     else:
         print("queue: empty")
+    baseline = state.read_main_baseline(args.state)
+    if baseline:
+        print("main baseline (per-SHA full-gate verdict):")
+        for sha, record in sorted(
+                baseline.items(),
+                key=lambda kv: kv[1].get("recorded_at", 0)
+                if isinstance(kv[1], dict) else 0,
+                reverse=True)[:5]:
+            verdict = "PASS" if record.get("ok") else "FAIL"
+            reason = f" - {record['reason']}" if record.get("reason") else ""
+            print(f"  {sha[:12]} {verdict}{reason}")
     running = hygiene.running_jobs(args.state)
     gates = hygiene.running_gate_jobs()
     if running or gates:

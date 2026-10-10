@@ -11,11 +11,15 @@ given up for speed:
 - TEST: the cluster stacks onto current main (main + members in queue
   order) in a disposable checkout and runs the FULL suite once on that
   stacked tree - the exact tree the ordered merges will produce.
-- BISECT ON RED: a red stack splits in halves until the culprit is
-  named and kicked with the reason; the rest merge. Halves that pass
-  ALONE while the whole fails are an INTERACTION (the "green alone, red
-  together" main-breaker): the first half merges in order and the
-  second re-tests on the new main.
+- BISECT ON RED: a red stack first judges MAIN ALONE (reusing a
+  cached green baseline for the current main SHA, else the same full
+  gate on main). A red main kicks NOBODY - members stay queued with
+  the reason while the operator is woken through the daemon log and
+  status. Only a green main bisects: halves split until the culprit
+  is named and kicked with the reason; the rest merge. Halves that
+  pass ALONE while the whole fails are an INTERACTION (the "green
+  alone, red together" main-breaker): the first half merges in order
+  and the second re-tests on the new main.
 - NARROWED / DID NOT RUN is not red: the machine was incomplete, not
   the PR. The cluster requeues with the reason - re-test, never kick,
   never merge.
@@ -72,7 +76,16 @@ class World:
 
     def __init__(self, mirror: str = "", state_dir: str = "") -> None:
         self.mirror = mirror
+        # Whether the caller named a state dir: the main-baseline FILE
+        # cache only runs with an explicit dir, so scripted unit worlds
+        # (state_dir="") stay hermetic on the in-memory cache instead of
+        # reaching the machine's real ~/.ren-ci ledger.
+        self._state_explicit = bool(state_dir)
         self.state_dir = state_dir or config.state_dir()
+        # In-memory green main-baseline verdicts, keyed by main SHA.
+        # The file ledger (state.main_baseline_*) is the durable layer;
+        # this skips repeat judgments within one process without disk.
+        self._main_baseline: dict = {}
 
     # -- reads --
     def main_sha(self) -> str:
@@ -107,6 +120,22 @@ class World:
                 return TestResult(False, reason=stack["reason"])
             log = os.path.join(self.state_dir, "logs",
                                f"tier2-{int(time.time())}.log")
+            gate = runner.run_gate(checkout, log)
+            return TestResult(gate["ok"], reason=gate["reason"], log=log,
+                              requeue=gate["requeue"])
+
+    def test_main(self, base: str) -> TestResult:
+        """Evaluate main ALONE: the same full gate, no member stacked.
+
+        The red-batch baseline (a red main must kick nobody): when a
+        stacked cluster fails, resolve_batch judges this before
+        bisecting. Failures here belong to main, never to a member.
+        """
+        from library.tools.local_ci import hygiene
+        hygiene.fetch_base(self.mirror, base)
+        with hygiene.disposable_checkout(self.mirror, base, self.state_dir) as checkout:
+            log = os.path.join(self.state_dir, "logs",
+                               f"tier2-main-{int(time.time())}.log")
             gate = runner.run_gate(checkout, log)
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"])
@@ -175,6 +204,54 @@ def plan_cluster(entries: list, now: float, window: int) -> tuple:
     return [], queued
 
 
+def judge_main(world: World, base: str) -> TestResult:
+    """Judge main ALONE at this SHA: the red-batch baseline.
+
+    Reuses a cached GREEN verdict for the current main SHA (in-memory
+    first, then the file ledger) and otherwise runs the same full gate
+    on main via world.test_main. A green verdict is cached per SHA on
+    both layers; red and unjudgeable verdicts are never cached, so the
+    next batch re-judges a main that may since have been fixed.
+    """
+    cache = getattr(world, "_main_baseline", None)
+    if cache is None:
+        cache = world._main_baseline = {}
+    hit = cache.get(base)
+    if hit is not None and hit.ok and not hit.requeue:
+        return hit
+    if getattr(world, "_state_explicit", False):
+        record = state.main_baseline_green(base, world.state_dir)
+        if record is not None:
+            verdict = TestResult(True, reason=record.get("reason", ""),
+                                 log=record.get("log", ""))
+            cache[base] = verdict
+            return verdict
+    verdict = world.test_main(base)
+    if verdict.ok and not verdict.requeue:
+        cache[base] = verdict
+        if getattr(world, "_state_explicit", False):
+            try:
+                state.record_main_baseline(base, True, verdict.reason,
+                                           world.state_dir, log=verdict.log)
+            except OSError:
+                pass
+    return verdict
+
+
+def main_red_reason(base: str, verdict: TestResult) -> str:
+    """The queue-entry reason when main itself is red: process_once
+    detects this prefix to wake the operator (daemon log + status)."""
+    detail = verdict.reason or "full gate FAIL"
+    return (f"main {base[:12]} red: {detail} - members kept queued, "
+            "re-testing after main is fixed")
+
+
+def is_main_red_reason(reason: str) -> bool:
+    """Whether a queue-entry reason names a red main baseline."""
+    return isinstance(reason, str) and reason.startswith("main ") \
+        and " red: " in reason
+
+
 def resolve_batch(world: World, base: str, members: list) -> tuple:
     """Test one cluster and split the verdict: (green, kicked, requeued).
 
@@ -185,6 +262,12 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
     interaction (halves pass, whole fails) returns the FIRST half as
     green and re-queues the second with the reason - the ordered merge
     below lands the first half, and the second re-tests on the new main.
+
+    A red stack is judged against main ALONE before any bisect: when
+    main itself is red every half stays red down to single PRs, so
+    bisecting would kick each innocent member with main's failure
+    reason. A red main kicks nobody - the whole cluster waits queued.
+    Only a green main bisects.
     """
     if not members:
         return [], [], []
@@ -196,6 +279,19 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
         return [], [], list(members)
     if verdict.ok:
         return [_tested(m, base) for m in members], [], []
+    baseline = judge_main(world, base)
+    if baseline.requeue:
+        for member in members:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = (baseline.reason
+                                or "main baseline could not be judged")
+        return [], [], list(members)
+    if not baseline.ok:
+        reason = main_red_reason(base, baseline)
+        for member in members:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = reason
+        return [], [], list(members)
     if len(members) == 1:
         member = dict(members[0])
         member["status"] = state.ENTRY_KICKED
@@ -309,7 +405,8 @@ def process_once(world: World, window: int = 90) -> dict:
     """
     entries = state.read_queue(world.state_dir)
     summary: dict = {"ripe": False, "waiting": 0, "merged": [],
-                     "kicked": [], "requeued": [], "green": []}
+                     "kicked": [], "requeued": [], "green": [],
+                     "main_red": False, "main_reason": ""}
     cluster, waiting = plan_cluster(entries, time.time(), window)
     summary["waiting"] = len(waiting)
     if not cluster:
@@ -352,6 +449,18 @@ def process_once(world: World, window: int = 90) -> dict:
         summary["kicked"].append(member["pr"])
     for member in requeued_tier2:
         summary["requeued"].append(member["pr"])
+    if (not green and not kicked and requeued_tier2
+            and all(is_main_red_reason(m.get("reason", ""))
+                    for m in requeued_tier2)):
+        # Main itself is red: kicked nobody, members stay queued. Wake
+        # the operator through the daemon log (this line) and the
+        # status (queue reasons + this summary) - the batch re-tests
+        # after main is fixed, it never bisects a broken baseline.
+        summary["main_red"] = True
+        summary["main_reason"] = requeued_tier2[0].get("reason", "")
+        print(f"ren-ci Tier-2: {summary['main_reason']} "
+              f"(members {[m['pr'] for m in requeued_tier2]} kept queued)",
+              flush=True)
     merged, requeued = merge_in_order(world, base, green)
     now = time.time()
     for member in merged:
