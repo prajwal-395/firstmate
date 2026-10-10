@@ -92,6 +92,27 @@ pub enum Operation {
         track: String,
         frame: i64,
     },
+    /// Lift: remove clips, leaving a gap. The engine follows linked audio,
+    /// so one id per clip use suffices. Answers `null`.
+    Delete {
+        project: PathBuf,
+        clips: Vec<u64>,
+    },
+    /// Extract: remove clips and close the gap by shifting followers.
+    /// Answers `null`.
+    RippleDelete {
+        project: PathBuf,
+        clips: Vec<u64>,
+    },
+    /// Constant-speed retime. `speed_percent` is Ren percent (200 = double
+    /// speed); `ripple` shifts followers exactly as ren-core's ripple does.
+    /// Answers `null`. Reverse is never sent: it refuses at planning time.
+    Retime {
+        project: PathBuf,
+        clips: Vec<u64>,
+        speed_percent: f64,
+        ripple: bool,
+    },
     Trim {
         project: PathBuf,
         clip: u64,
@@ -319,6 +340,7 @@ impl FilmCraft {
         let losses = match command {
             "timeline.razor" => detect_razor_loss(before.as_ref(), after.as_ref())?,
             "timeline.trim" => detect_trim_loss(before.as_ref(), after.as_ref(), &params)?,
+            "timeline.move" => detect_move_loss(&response)?,
             _ => vec![],
         };
         Ok(Receipt {
@@ -396,6 +418,52 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
             json!({"track":track,"frame":frame}),
             true,
         ),
+        Operation::Delete { project, clips } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("delete request names no clips".into()));
+            }
+            (
+                Some(project),
+                "delete",
+                "edit.clear",
+                json!({"clips":clips}),
+                true,
+            )
+        }
+        Operation::RippleDelete { project, clips } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("ripple delete request names no clips".into()));
+            }
+            (
+                Some(project),
+                "ripple_delete",
+                "edit.rippleDelete",
+                json!({"clips":clips}),
+                true,
+            )
+        }
+        Operation::Retime {
+            project,
+            clips,
+            speed_percent,
+            ripple,
+        } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("retime request names no clips".into()));
+            }
+            if !speed_percent.is_finite() || speed_percent <= 0.0 {
+                return Err(Error::Schema(
+                    "retime speed must be a finite positive percent".into(),
+                ));
+            }
+            (
+                Some(project),
+                "retime",
+                "clip.speedDuration",
+                json!({"clips":clips,"speed":speed_percent,"ripple":ripple}),
+                true,
+            )
+        }
         Operation::Trim {
             project,
             clip,
@@ -580,6 +648,21 @@ fn parse_cli_output(id: &str, output: std::process::Output) -> Result<Value> {
 }
 
 pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
+    // Delete, ripple delete and retime answer `null`: the receipt carries
+    // no ids, and the equivalence proof reads the timeline back instead.
+    if matches!(
+        command,
+        "edit.clear" | "edit.rippleDelete" | "clip.speedDuration"
+    ) {
+        return if value.is_null() {
+            Ok(())
+        } else {
+            Err(Error::UnknownResponse {
+                command: command.into(),
+                detail: "expected JSON null".into(),
+            })
+        };
+    }
     let allowed: &[&str] = match command {
         "file.newSequence" => &["sequence"],
         "file.import" => &[
@@ -802,6 +885,53 @@ fn detect_trim_loss(
     }
 }
 
+/// A move that trims an occupant reports it in `overwritten`: surface that
+/// as an explicit loss rather than a silent trim. Only clips OUTSIDE the
+/// moved set count: the engine also reports sub-frame tick normalization
+/// of the moved clips themselves there (measured: a placed 72-frame span
+/// reads back 762810048000 ticks and a later move reports trimming it to
+/// the exact 762048000000, with frame readback unchanged at 72), and that
+/// normalization is not data loss. Ripple translations pre-check
+/// destinations and refuse before reaching the engine, so a clean ripple
+/// flow reports no loss here; the frame-exact inspect comparison behind
+/// every equivalence proof remains the backstop for moved-clip damage.
+fn detect_move_loss(response: &Value) -> Result<Vec<LossReport>> {
+    let moved: std::collections::BTreeSet<u64> = response["moved"]
+        .as_array()
+        .ok_or_else(|| Error::UnknownResponse {
+            command: "timeline.move".into(),
+            detail: "missing `moved` array".into(),
+        })?
+        .iter()
+        .filter_map(|v| v.as_u64())
+        .collect();
+    let overwritten = response["overwritten"].as_array().ok_or_else(|| {
+        Error::UnknownResponse {
+            command: "timeline.move".into(),
+            detail: "missing `overwritten` array".into(),
+        }
+    })?;
+    let foreign: Vec<_> = overwritten
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("clip")
+                .and_then(|v| v.as_u64())
+                .is_none_or(|clip| !moved.contains(&clip))
+        })
+        .collect();
+    if foreign.is_empty() {
+        return Ok(vec![]);
+    }
+    Ok(vec![LossReport {
+        code: "move_overwrote".into(),
+        detail: format!(
+            "FilmCraft trimmed {} occupant(s) the move landed on outside the moved set: {foreign:?}; plan moves onto free spans instead",
+            foreign.len()
+        ),
+    }])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,6 +978,58 @@ mod tests {
             r#"{"adapter_schema":1,"engine_revision":"x","project_schema":13,"operation":"inspect","engine_response":{},"losses":[],"extra":true}"#,
         );
         assert!(unknown.is_err());
+    }
+
+    #[test]
+    fn delete_ripple_delete_and_retime_validate_before_the_engine() {
+        // Empty clip lists refuse without a CLI call.
+        for operation in [
+            Operation::Delete {
+                project: "x.fcproj".into(),
+                clips: vec![],
+            },
+            Operation::RippleDelete {
+                project: "x.fcproj".into(),
+                clips: vec![],
+            },
+            Operation::Retime {
+                project: "x.fcproj".into(),
+                clips: vec![],
+                speed_percent: 200.0,
+                ripple: true,
+            },
+        ] {
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
+        // Non-positive and non-finite speeds refuse.
+        for speed in [0.0, -50.0, f64::NAN, f64::INFINITY] {
+            let operation = Operation::Retime {
+                project: "x.fcproj".into(),
+                clips: vec![7],
+                speed_percent: speed,
+                ripple: true,
+            };
+            assert!(
+                matches!(plan(operation), Err(Error::Schema(_))),
+                "speed {speed} must refuse"
+            );
+        }
+        // The three null-answering commands accept exactly null.
+        for command in ["edit.clear", "edit.rippleDelete", "clip.speedDuration"] {
+            assert!(validate_response_contract(command, &Value::Null).is_ok());
+            assert!(validate_response_contract(command, &json!({})).is_err());
+        }
+        // A move that trims only moved clips (sub-frame normalization)
+        // is clean; trimming an occupant outside the moved set is a loss.
+        let clean = json!({"moved": [7], "overwritten": []});
+        assert!(detect_move_loss(&clean).unwrap().is_empty());
+        let normalized =
+            json!({"moved": [10, 11], "overwritten": [{"clip": 10, "was": 762810048000u64, "now": 762048000000u64}]});
+        assert!(detect_move_loss(&normalized).unwrap().is_empty());
+        let dirty = json!({"moved": [13, 14], "overwritten": [{"clip": 10}]});
+        let losses = detect_move_loss(&dirty).unwrap();
+        assert_eq!(losses.len(), 1);
+        assert_eq!(losses[0].code, "move_overwrote");
     }
 }
 

@@ -1,5 +1,6 @@
 //! Unit 6 qualification: the Project Model -> FilmCraft projection drives the
-//! pinned headless CLI end to end. Placement, trim, split, transition, audio,
+//! pinned headless CLI end to end. Placement, trim, split, delete, ripple
+//! delete, ripple, retime, transition, audio,
 //! render-asset validation, frame-map exactness, ID reconciliation, and
 //! unsupported-operation refusals are all exercised through the adapter.
 //!
@@ -702,6 +703,331 @@ fn ren_trim_move_transition_gain_match_model_frame_exact() {
     }
 }
 
+/// Three back-to-back V1 clips over the A/V fixture (72 frames each).
+fn three_clip_model(media: &Path) -> ProjectModel {
+    let document = serde_json::json!({
+        "id": "adapter-qualification-three",
+        "schema_version": 1,
+        "timebase_policy": "rational_frames",
+        "clocks": [
+            {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-av", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+        ],
+        "assets": [
+            {"id": "asset-av", "kind": "video", "uri": media.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]}
+        ],
+        "streams": [
+            {"id": "stream-video", "asset_id": "asset-av", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+            {"id": "stream-audio", "asset_id": "asset-av", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+        ],
+        "entities": [], "observations": [], "identity_links": [], "masks": [],
+        "object_classes": [], "tracks": [], "relations": [], "intents": [],
+        "clip_uses": [
+            {"id": "use-first", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 72},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 72},
+             "entity_links": [], "role": "a_roll", "intent_id": null},
+            {"id": "use-second", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 72},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 72, "end": 144},
+             "entity_links": [], "role": "a_roll", "intent_id": null},
+            {"id": "use-third", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 72},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 144, "end": 216},
+             "entity_links": [], "role": "a_roll", "intent_id": null}
+        ],
+        "edits": [], "effects": [], "renders": [], "frame_maps": [],
+        "nle_bindings": [], "receipts": [],
+        "provenance": [{"id": "prov-qual", "producer": "adapter-qualification", "producer_version": null, "source_digest": null, "recorded_at": null}]
+    });
+    decode_project_model(&document.to_string()).expect("three-clip model decodes")
+}
+
+/// Engine speed field per video span, frame-exact: (start, duration, speed).
+fn inspect_speeds(inspection: &serde_json::Value) -> Vec<(i64, i64, f64)> {
+    let mut spans = Vec::new();
+    for track in inspection["video"].as_array().unwrap() {
+        for item in track["items"].as_array().unwrap() {
+            spans.push((
+                item["startFrame"].as_i64().unwrap(),
+                item["durationFrames"].as_i64().unwrap(),
+                item["speed"].as_f64().unwrap(),
+            ));
+        }
+    }
+    spans.sort_by(|a, b| a.0.cmp(&b.0));
+    spans
+}
+
+#[test]
+fn ren_delete_lift_leaves_gap_with_linked_audio() {
+    let adapter = FilmCraft::new().unwrap();
+    let model = three_clip_model(&linked_av_fixture());
+    let placed = place_through_adapter(&adapter, "ren-delete-lift", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-delete",
+        "clip.delete",
+        "use-second",
+        serde_json::json!({}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean lift reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    // Equivalence: the engine timeline matches the ren-core-mutated model
+    // frame-exact - the middle clip and its audio are gone, the gap stays.
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    assert_eq!(mutated.clip_uses.len(), 2);
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    // The frame map keeps the gap explicit and the render span unchanged.
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-lift").unwrap();
+    assert_eq!(after_map.segments.len(), 3);
+    assert_eq!(
+        after_map.segments[1].mapping_kind,
+        ren_protocol::project_model::MappingKind::Gap
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 216);
+}
+
+#[test]
+fn ren_ripple_delete_shifts_followers_on_every_track() {
+    let adapter = FilmCraft::new().unwrap();
+    let model = three_clip_model(&linked_av_fixture());
+    let placed = place_through_adapter(&adapter, "ren-ripple-delete", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-ripple-delete",
+        "clip.delete",
+        "use-first",
+        serde_json::json!({"ripple": true}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean ripple delete reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-extract").unwrap();
+    assert_eq!(after_map.segments.len(), 2);
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 144);
+}
+
+#[test]
+fn ren_ripple_shifts_target_and_followers_frame_exact() {
+    let adapter = FilmCraft::new().unwrap();
+    // A gapped timeline (gap 72-96): ripple destinations never touch a
+    // neighbour, so the engine lands fully clean. (Measured engine quirk:
+    // non-zero-frame placements store ~0.07 frames long, so a ripple that
+    // lands abutting a neighbour contact-trims it - reported as
+    // `move_overwrote` - while gapped destinations stay exact.)
+    let mut model = test_model(&linked_av_fixture(), true, true);
+    model.clip_uses[1].timeline_interval.start = 96;
+    model.clip_uses[1].timeline_interval.end = 168;
+    let placed = place_through_adapter(&adapter, "ren-ripple", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-ripple",
+        "clip.ripple",
+        "use-first",
+        serde_json::json!({"delta_frames": 12}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 2, "target plus one follower");
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "gapped ripple destinations stay free: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    // A pure shift keeps the render span.
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-ripple").unwrap();
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 168);
+}
+
+#[test]
+fn ren_retime_up_and_down_match_model_with_exact_rate() {
+    let adapter = FilmCraft::new().unwrap();
+    // Speed-up: 72 + 72 becomes 36 + 72, rate 2/1.
+    let model = test_model(&linked_av_fixture(), true, true);
+    let placed = place_through_adapter(&adapter, "ren-retime-up", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-retime-up",
+        "retime",
+        "use-first",
+        serde_json::json!({"percent": 200.0}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean retime reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 36, 2.0), (36, 72, 1.0)],
+    );
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-fast").unwrap();
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: 2,
+            denominator: 1
+        })
+    );
+    assert_eq!(
+        after_map.segments[0].mapping_kind,
+        ren_protocol::project_model::MappingKind::Retimed
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 108);
+
+    // Slow-down: 72 + 72 becomes 144 + 72, rate 1/2. The mutated model
+    // re-projects because the logged retime explains the longer span.
+    let model = test_model(&linked_av_fixture(), true, true);
+    let placed = place_through_adapter(&adapter, "ren-retime-down", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-retime-down",
+        "span_retime",
+        "use-first",
+        serde_json::json!({"percent": 50.0}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean slow-down reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 144, 0.5), (144, 72, 1.0)],
+    );
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-slow").unwrap();
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: 1,
+            denominator: 2
+        })
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 216);
+}
+
 #[test]
 fn ren_refusals_carry_named_codes_through_the_cli_path() {
     let model = test_model(&linked_av_fixture(), true, false);
@@ -713,19 +1039,29 @@ fn ren_refusals_carry_named_codes_through_the_cli_path() {
     };
     for (operation, after, code) in [
         (
-            "clip.delete",
-            serde_json::json!({}),
-            "delete_not_representable",
-        ),
-        (
-            "clip.ripple",
-            serde_json::json!({"delta_frames": 4}),
-            "ripple_not_representable",
+            "retime.segments",
+            serde_json::json!({"segments": [{"record_frame": 36, "percent": 200.0}]}),
+            "retime_segments_not_supported",
         ),
         (
             "retime",
-            serde_json::json!({"percent": 200.0}),
-            "retime_not_representable",
+            serde_json::json!({"percent": 200.0, "reverse": true}),
+            "reverse_not_supported",
+        ),
+        (
+            "retime",
+            serde_json::json!({"percent": 33.333333333333336}),
+            "retime_rate_inexact",
+        ),
+        (
+            "retime",
+            serde_json::json!({"percent": 123.456}),
+            "retime_inexact_duration",
+        ),
+        (
+            "clip.ripple",
+            serde_json::json!({"delta_frames": 0}),
+            "empty_ripple",
         ),
     ] {
         let edit = ren_edit_for("edit-refuse", operation, "use-first", after);

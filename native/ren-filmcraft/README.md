@@ -10,7 +10,8 @@ The public API is a versioned typed request and receipt. `.fcproj` remains an en
 and the adapter checks its explicit format identifier and schema version before accepting it.
 Unknown adapter versions, project schemas, malformed command output and unrecognized command
 response shapes are errors. The request vocabulary stays bounded to project create / import,
-placement, razor, trim, move / insert, transition, audio gain, H.264 / ProRes / WAV export, still
+placement, razor, trim, move / insert, delete / ripple delete, retime,
+transition, audio gain, H.264 / ProRes / WAV export, still
 render and inspection.
 
 Run crate checks from the `native/` workspace. The fixture integration test uses the committed
@@ -26,18 +27,32 @@ B-roll on V2) with no I/O, so the same model always plans identical bytes.
 `plan_edit` translates only explicit `filmcraft.*` model edits into driver
 operations. `plan_ren_edit` translates Ren's own editorial vocabulary -
 split, trim (both edges, including the E2E fixture's `timeline_end` /
-`duration` shape), move/slide, transition and audio gain - resolved against
+`duration` shape), move/slide, delete (lift, or ripple delete with
+`after.ripple`), standalone ripple (one compensated move per affected
+placement, ordered so destinations stay free), constant retime
+(`retime` / `span_retime` via `clip.speedDuration` with ripple),
+transition and audio gain - resolved against
 the model and projection, with `timeline.patch` expanding into its inner
-algebra operations. Delete, ripple, retime and plan-level records refuse
-with named codes (`delete_not_representable`, `ripple_not_representable`,
-`retime_not_representable`, `plan_level_not_executable`); gain without an
+algebra operations. Stepped `retime.segments`, reverse, inexact rates,
+fractional-frame retime spans, overlapping ripple destinations and
+plan-level records refuse
+with named codes (`retime_segments_not_supported`,
+`reverse_not_supported`, `retime_rate_inexact`,
+`retime_inexact_duration`, `ripple_would_overwrite`,
+`plan_level_not_executable`); gain without an
 audio stream refuses as `no_audio_for_gain`. A split over linked audio
 plans two razors (video plus audio) so the measured V1-only razor defect
-does not recur; a Ren move compensates the measured one-frame-early
-`timeline.move` defect to land frame-exact. `apply_ren_edit_to_model`
+does not recur; delete, ripple delete and retime rely on the engine
+following linked audio itself (measured); a Ren move compensates the measured one-frame-early
+`timeline.move` defect to land frame-exact. A move that trims an occupant
+reports `move_overwrote` instead of trimming silently. `apply_ren_edit_to_model`
 mutates clip uses for the equivalence proof, so qualification compares the
 engine's inspected timeline against Ren's expected clip uses frame-exact
-and the render's frame map against the mutated model's map. Model effects,
+and the render's frame map against the mutated model's map. Constant
+retimes log into `model.edits` so the map carries their exact rational
+rate as `Retimed` segments; a slow-motion span longer than its source
+re-projects exactly when its logged retime explains the ratio, and still
+refuses as `source_too_short` otherwise. Model effects,
 masks, and object tracks become explicit loss entries, never silent drops.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
@@ -46,5 +61,5 @@ timeline gaps as explicit `Gap` segments. `validate_render_asset` checks the
 export exists, is non-empty, and decodes to at least one stream when ffprobe
 is available. Driver losses (including both measured defects) pass through
 `summarize_losses` verbatim. `tests/adapter_qualification.rs` drives
-placement, trim, split, transition, audio, render, and unsupported-op
+placement, trim, split, delete, ripple delete, ripple, retime, transition, audio, render, and unsupported-op
 behavior through the pinned CLI.

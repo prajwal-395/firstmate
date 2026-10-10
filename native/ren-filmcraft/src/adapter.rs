@@ -21,19 +21,35 @@
 //!   resolves the target against the model and projection: split drives the
 //!   video track plus linked audio explicitly, trim resolves both edges to
 //!   regular-mode deltas, move converts timeline frames to engine ticks,
-//!   transition and audio gain map onto their driver commands. Anything
-//!   FilmCraft cannot represent exactly (delete, ripple, retime, plan-level
-//!   ops, unknown roles/tracks) refuses with a NAMED loss code rather than
+//!   delete drives `edit.clear` (or `edit.rippleDelete` with
+//!   `after.ripple`), ripple plans one compensated `timeline.move` per
+//!   affected placement in an order whose destinations are always free,
+//!   constant retime (`retime`, `span_retime`) drives `clip.speedDuration`
+//!   with ripple so followers shift, and transition and audio gain map onto
+//!   their driver commands. Anything FilmCraft cannot represent exactly
+//!   (stepped `retime.segments`, reverse, inexact rates or fractional-frame
+//!   retime spans, overlapping ripple destinations, plan-level ops,
+//!   unknown roles/tracks) refuses with a NAMED loss code rather than
 //!   a guess.
-//! - The three measured FilmCraft defects (V1-only razor leaving linked audio,
-//!   wrong trim delta, move landing one frame early) are handled explicitly:
+//! - The four measured FilmCraft defects (V1-only razor leaving linked audio,
+//!   wrong trim delta, move landing one frame early, sub-frame-long
+//!   non-zero-frame placements that contact-trim an abutting move) are
+//!   handled explicitly:
 //!   razor/trim defects propagate verbatim through [`summarize_losses`],
 //!   while the Ren move translation compensates the off-by-one so the clip
-//!   lands frame-exact; this adapter never swallows a driver loss.
+//!   lands frame-exact; move contact-trims report `move_overwrote` when the
+//!   trimmed clip sits outside the moved set, while sub-frame
+//!   normalization of the moved clips themselves is not loss; this adapter
+//!   never swallows a driver loss.
 //! - Retimed playback has no representation in `timeline.place`: a clip use
 //!   whose source holds fewer frames than its timeline range refuses with
-//!   `source_too_short`. A longer source is a trim and plays its leading
-//!   timeline-length portion.
+//!   `source_too_short` UNLESS a logged `retime`/`span_retime` edit explains
+//!   the exact ratio (slow motion keeps the whole source window and plays
+//!   it slower). A longer source is a trim and plays its leading
+//!   timeline-length portion. The timeline-to-render frame map marks
+//!   retimed placements [`MappingKind::Retimed`] with the exact playback
+//!   speed as the rational rate (2/1 at 200%); spans stay timeline-to-render
+//!   packing, so the rate documents playback rather than the span affine.
 //! - Resolve remains the finishing destination: `.fcproj` files are disposable
 //!   engine working artifacts, never Ren's database.
 
@@ -52,7 +68,7 @@ use super::{
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
 pub const ENGINE_TICKS_PER_SECOND: i64 = 254_016_000_000;
 /// Version of this projection contract. Bump on any planning-rule change.
-pub const ADAPTER_VERSION: u32 = 2;
+pub const ADAPTER_VERSION: u32 = 3;
 
 #[derive(Debug)]
 pub enum AdapterError {
@@ -277,7 +293,7 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
             timeline,
             &format!("clip use `{}` timeline length", clip_use.id.0),
         )?;
-        if source_frames < timeline_frames {
+        if source_frames < timeline_frames && !retime_explains(model, &clip_use.id.0, source_frames, timeline_frames) {
             return Err(unsupported(
                 "source_too_short",
                 format!(
@@ -869,14 +885,11 @@ pub fn plan_ren_edit(
                     ))
                 })?;
             // Measured engine defect (qualification `probe_move_offsets`):
-            // `timeline.move` lands one frame early - requesting the engine
-            // ticks for frame F starts the clip at frame F-1 for every F > 0
-            // (frame 0 is exact). Ren speaks frames, so the translation
-            // requests F+1 to land frame-exact; explicit `timeline_ticks`
-            // (the `filmcraft.move` shape above) passes through untouched.
-            let compensated = if to_frame > 0 { to_frame + 1 } else { 0 };
-            let timeline_ticks = frames_to_engine_ticks(
-                compensated,
+            // `move_ticks_for_frame` compensates the one-frame-early
+            // landing; explicit `timeline_ticks` (the `filmcraft.move`
+            // shape above) passes through untouched.
+            let timeline_ticks = move_ticks_for_frame(
+                to_frame,
                 timeline,
                 &format!("edit `{}` move target", edit.id.0),
             )?;
@@ -900,59 +913,81 @@ pub fn plan_ren_edit(
             }])
         }
         "clip.delete" => {
-            let [target] = edit.target_ids.as_slice() else {
-                return Err(invalid(format!(
-                    "edit `{}` must target exactly one clip use; it targets {}",
-                    edit.id.0,
-                    edit.target_ids.len()
-                )));
-            };
-            Err(unsupported(
-                "delete_not_representable",
-                format!(
-                    "edit `{}` deletes `{target}`; the FilmCraft driver has no delete command - re-project without the clip use instead of deleting in place",
-                    edit.id.0
-                ),
-            ))
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            // Existence against the model keeps the error anchored; the
+            // engine follows linked audio itself (measured: `edit.clear`
+            // removes the linked audio item and `edit.rippleDelete` shifts
+            // every downstream track), so one id per clip use suffices.
+            let _ = clip_use_by_id(model, target_id, edit)?;
+            let ripple = delete_is_ripple(edit)?;
+            if ripple {
+                Ok(vec![Operation::RippleDelete {
+                    project,
+                    clips: vec![clip],
+                }])
+            } else {
+                Ok(vec![Operation::Delete {
+                    project,
+                    clips: vec![clip],
+                }])
+            }
         }
         "clip.ripple" => {
-            let delta = edit
-                .after
-                .as_ref()
-                .and_then(|v| v.get("delta_frames"))
-                .and_then(|v| v.as_i64())
-                .map(|d| d.to_string())
-                .unwrap_or_else(|| "unknown".into());
-            Err(unsupported(
-                "ripple_not_representable",
-                format!(
-                    "edit `{}` ripples by {delta} frames; FilmCraft shifts followers only inside a ripple trim, never as a standalone shift - plan one `timeline.move` per following placement instead",
-                    edit.id.0
-                ),
-            ))
+            let (target_id, _) = ren_edit_target(edit, context)?;
+            let clip_use = clip_use_by_id(model, target_id, edit)?.clone();
+            let timeline = clock_by_id(model, &projection.timeline_clock)?;
+            let delta = ripple_delta(edit)?;
+            plan_ripple_moves(model, projection, context, edit, target_id, &clip_use, timeline, delta)
         }
-        "retime" | "span_retime" | "retime.segments" => {
-            let rate = edit
-                .after
-                .as_ref()
-                .and_then(|v| {
-                    v.get("percent")
-                        .and_then(|p| p.as_f64())
-                        .map(|p| format!("{p}%"))
-                        .or_else(|| {
-                            v.get("segments")
-                                .map(|_| "stepped segments".to_owned())
-                        })
-                })
-                .unwrap_or_else(|| "unknown rate".into());
-            Err(unsupported(
-                "retime_not_representable",
-                format!(
-                    "edit `{}` retimes at {rate}; `timeline.place` plays 1:1 only - a shorter timeline span is a trim, a longer one refuses as `source_too_short`",
-                    edit.id.0
-                ),
-            ))
+        "retime" | "span_retime" => {
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let clip_use = clip_use_by_id(model, target_id, edit)?.clone();
+            let timeline = clock_by_id(model, &projection.timeline_clock)?;
+            let after = after_object(edit)?;
+            let percent = after
+                .get("percent")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.percent` as a number",
+                        edit.id.0
+                    ))
+                })?;
+            if after
+                .get("reverse")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                return Err(unsupported(
+                    "reverse_not_supported",
+                    format!(
+                        "edit `{}` plays `{target_id}` in reverse; the FilmCraft projection plans forward speeds only",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let (old_start_frame, old_end_frame) =
+                timeline_frames_of(model, timeline, &clip_use, edit)?;
+            // Validate exactness up front: fractional retime spans refuse
+            // here with a named code rather than rounding in the engine.
+            retimed_length(edit, percent, old_end_frame - old_start_frame)?;
+            // Ripple so followers shift exactly as ren-core's ripple
+            // temporal effect does; the engine shifts every downstream
+            // track (measured), and linked audio follows the speed.
+            Ok(vec![Operation::Retime {
+                project,
+                clips: vec![clip],
+                speed_percent: percent,
+                ripple: true,
+            }])
         }
+        "retime.segments" => Err(unsupported(
+            "retime_segments_not_supported",
+            format!(
+                "edit `{}` names a stepped speed ramp; the pure planner cannot address the post-razor piece ids a ramp needs - plan one constant `retime` per piece instead",
+                edit.id.0
+            ),
+        )),
         "transition" => {
             let (target_id, clip) = ren_edit_target(edit, context)?;
             let after = after_object(edit)?;
@@ -1100,7 +1135,7 @@ pub fn plan_ren_edit(
         other => Err(unsupported(
             "unsupported_edit_operation",
             format!(
-                "edit `{}` names operation `{other}`; the FilmCraft projection maps Ren's split, trim, move, transition and audio gain - everything else refuses by name",
+                "edit `{}` names operation `{other}`; the FilmCraft projection maps Ren's split, trim, move, delete, ripple, retime, transition and audio gain - everything else refuses by name",
                 edit.id.0
             ),
         )),
@@ -1114,8 +1149,9 @@ pub fn plan_ren_edit(
 /// here, so qualification can compare the engine's inspected timeline
 /// against these expected clip uses frame-exact, and the render's frame
 /// map (via [`build_frame_map`]) against the mutated model's map.
-/// Refused operations (delete, ripple, retime, plan-level records) refuse
-/// here with the same named code they refuse planning with.
+/// Stepped `retime.segments`, reverse and plan-level records refuse here
+/// with the same named code they refuse planning with. Constant retimes
+/// log into `model.edits` so the frame map carries their exact rate.
 pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Result<ProjectModel> {
     match edit.operation.as_str() {
         "clip.split" => {
@@ -1326,31 +1362,183 @@ pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Re
                 .map_err(|detail| invalid(format!("move model rejected: {detail}")))?;
             Ok(updated)
         }
-        "clip.delete" => Err(unsupported(
-            "delete_not_representable",
+        "clip.delete" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let ripple = delete_is_ripple(edit)?;
+            let deleted_end = clip_use.timeline_interval.end;
+            let mut updated = model.clone();
+            updated.clip_uses.retain(|u| u.id.0 != *target);
+            if ripple {
+                // Followers close the gap exactly as ren-core's ripple does:
+                // every clip use at or after the deleted end shifts left by
+                // the deleted length, on every track.
+                let length = deleted_end - clip_use.timeline_interval.start;
+                for use_ in &mut updated.clip_uses {
+                    if use_.timeline_interval.start >= deleted_end {
+                        use_.timeline_interval.start -= length;
+                        use_.timeline_interval.end -= length;
+                    }
+                }
+            }
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("delete model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "clip.ripple" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let delta = ripple_delta(edit)?;
+            let timeline = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported(
+                        "unknown_clock",
+                        format!(
+                            "edit `{}` targets `{target}` on an unknown timeline clock",
+                            edit.id.0
+                        ),
+                    )
+                })?;
+            // Relative frame delta to ticks: ticks_per_second * den / num.
+            let (num, den) = clock_frame_rate(timeline)?;
+            let delta_ticks = scale_exact(
+                delta,
+                i128::from(timeline.ticks_per_second) * i128::from(den),
+                i128::from(num),
+                &format!("edit `{}` ripple delta", edit.id.0),
+            )?;
+            let target_start = clip_use.timeline_interval.start;
+            let mut updated = model.clone();
+            for use_ in &mut updated.clip_uses {
+                if use_.timeline_interval.start >= target_start {
+                    use_.timeline_interval.start += delta_ticks;
+                    use_.timeline_interval.end += delta_ticks;
+                }
+            }
+            // The mutation refuses the same overlap the planning
+            // pre-check refuses: the shifted model must stay projectable
+            // (the projection refuses any overlapping timeline ranges).
+            let mut spans: Vec<(i64, i64)> = updated
+                .clip_uses
+                .iter()
+                .map(|u| (u.timeline_interval.start, u.timeline_interval.end))
+                .collect();
+            spans.sort();
+            if spans.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+                return Err(unsupported(
+                    "ripple_would_overwrite",
+                    format!(
+                        "edit `{}` ripples `{target}` by {delta} frames; the shifted run overlaps - refusing rather than trimming",
+                        edit.id.0
+                    ),
+                ));
+            }
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("ripple model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "retime" | "span_retime" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let timeline = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported(
+                        "unknown_clock",
+                        format!(
+                            "edit `{}` targets `{target}` on an unknown timeline clock",
+                            edit.id.0
+                        ),
+                    )
+                })?;
+            let after = after_object(edit)?;
+            let percent = after
+                .get("percent")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.percent` as a number",
+                        edit.id.0
+                    ))
+                })?;
+            if after
+                .get("reverse")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                return Err(unsupported(
+                    "reverse_not_supported",
+                    format!(
+                        "edit `{}` plays `{target}` in reverse; the model mutation plans forward speeds only",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let (old_start_frame, old_end_frame) =
+                timeline_frames_of(model, timeline, &clip_use, edit)?;
+            let new_len_frames =
+                retimed_length(edit, percent, old_end_frame - old_start_frame)?;
+            let old_end = clip_use.timeline_interval.end;
+            let new_end = clip_use.timeline_interval.start
+                + frames_to_timeline_ticks(
+                    new_len_frames,
+                    timeline,
+                    &format!("edit `{}` retimed end", edit.id.0),
+                )?;
+            // The start is anchored; followers shift by the length delta
+            // exactly as ren-core's ripple temporal effect does. A retime
+            // preserves relative order by construction, so no overlap
+            // check is needed.
+            let delta = new_end - old_end;
+            let mut updated = model.clone();
+            for use_ in &mut updated.clip_uses {
+                if use_.id.0 == *target {
+                    use_.timeline_interval.end = new_end;
+                } else if use_.timeline_interval.start >= old_end {
+                    use_.timeline_interval.start += delta;
+                    use_.timeline_interval.end += delta;
+                }
+            }
+            // Log the retime so the frame map carries its exact rate.
+            updated.edits.push(edit.clone());
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("retime model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "retime.segments" => Err(unsupported(
+            "retime_segments_not_supported",
             format!(
-                "edit `{}` deletes; the model mutation refuses with the same code as planning - re-project without the clip use",
-                edit.id.0
-            ),
-        )),
-        "clip.ripple" => Err(unsupported(
-            "ripple_not_representable",
-            format!(
-                "edit `{}` ripples; the model mutation refuses with the same code as planning",
-                edit.id.0
-            ),
-        )),
-        "retime" | "span_retime" | "retime.segments" => Err(unsupported(
-            "retime_not_representable",
-            format!(
-                "edit `{}` retimes; the model mutation refuses with the same code as planning",
+                "edit `{}` names a stepped speed ramp; the model mutation plans constant retimes only",
                 edit.id.0
             ),
         )),
         other => Err(unsupported(
             "unsupported_edit_operation",
             format!(
-                "edit `{}` names operation `{other}`; the model mutation maps only split, trim and move",
+                "edit `{}` names operation `{other}`; the model mutation maps split, trim, move, delete, ripple and constant retime",
                 edit.id.0
             ),
         )),
@@ -1435,6 +1623,310 @@ fn frames_to_engine_ticks(frame: i64, clock: &Clock, what: &str) -> Result<i64> 
         i128::from(num),
         what,
     )
+}
+
+fn gcd128(mut a: i128, mut b: i128) -> i128 {
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a.max(1)
+}
+
+/// Exact rational playback speed from a Ren percent (200.0 -> 2/1).
+///
+/// Parses the shortest round-trip decimal, never the binary float, so clean
+/// speeds stay exact. Refuses with `retime_rate_inexact` when the reduced
+/// denominator cannot fit the frame-map Rational rather than rounding:
+/// FilmCraft stores speed as a float, and the frame map must carry the
+/// rational rate exactly.
+fn percent_to_rate(percent: f64, edit_id: &str) -> Result<Rational> {
+    if !percent.is_finite() || percent <= 0.0 {
+        return Err(invalid(format!(
+            "edit `{edit_id}` names a non-positive or non-finite speed of {percent}%"
+        )));
+    }
+    let text = format!("{percent}");
+    if text.contains(['e', 'E']) {
+        return Err(unsupported(
+            "retime_rate_inexact",
+            format!(
+                "edit `{edit_id}` retimes at {percent}%, whose decimal form is not an exact short fraction; refusing rather than rounding"
+            ),
+        ));
+    }
+    let (int_part, frac_part) = match text.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (text.as_str(), ""),
+    };
+    let mantissa: i128 = format!("{int_part}{frac_part}").parse().map_err(|_| {
+        unsupported(
+            "retime_rate_inexact",
+            format!(
+                "edit `{edit_id}` retimes at {percent}%, whose exact form overflows; refusing rather than rounding"
+            ),
+        )
+    })?;
+    let scale = 10i128
+        .checked_pow(frac_part.len() as u32)
+        .and_then(|s| s.checked_mul(100))
+        .ok_or_else(|| {
+            unsupported(
+                "retime_rate_inexact",
+                format!(
+                    "edit `{edit_id}` retimes at {percent}%, whose exact denominator overflows; refusing rather than rounding"
+                ),
+            )
+        })?;
+    let divisor = gcd128(mantissa, scale);
+    let num = mantissa / divisor;
+    let den = scale / divisor;
+    let numerator = i64::try_from(num).map_err(|_| {
+        unsupported(
+            "retime_rate_inexact",
+            format!("edit `{edit_id}` retimes at {percent}%, whose exact numerator overflows i64"),
+        )
+    })?;
+    let denominator = u32::try_from(den).map_err(|_| {
+        unsupported(
+            "retime_rate_inexact",
+            format!("edit `{edit_id}` retimes at {percent}%, whose exact denominator overflows u32; refusing rather than rounding"),
+        )
+    })?;
+    Ok(Rational {
+        numerator,
+        denominator,
+    })
+}
+
+/// The logged retime speed for a clip use, if a `retime`/`span_retime` edit
+/// in the model targets it with a parseable percent.
+fn retime_rate_for(model: &ProjectModel, clip_use_id: &str) -> Option<Rational> {
+    model.edits.iter().find_map(|edit| {
+        if !matches!(edit.operation.as_str(), "retime" | "span_retime") {
+            return None;
+        }
+        if !edit.target_ids.iter().any(|t| t == clip_use_id) {
+            return None;
+        }
+        let percent = edit.after.as_ref()?.get("percent")?.as_f64()?;
+        percent_to_rate(percent, &edit.id.0).ok()
+    })
+}
+
+/// Slow motion keeps the whole source window and plays it slower, so a
+/// timeline span longer than its source is projectable exactly when a
+/// logged retime edit explains the ratio: `timeline * num == source * den`
+/// in integer arithmetic, no rounding on either side.
+fn retime_explains(
+    model: &ProjectModel,
+    clip_use_id: &str,
+    source_frames: i64,
+    timeline_frames: i64,
+) -> bool {
+    retime_rate_for(model, clip_use_id).is_some_and(|rate| {
+        i128::from(timeline_frames) * i128::from(rate.numerator)
+            == i128::from(source_frames) * i128::from(rate.denominator)
+    })
+}
+
+/// Exact retimed timeline length in frames: `old_len * 100 / percent`.
+/// Refuses fractional results with `retime_inexact_duration` rather than
+/// rounding: the engine rounds fractional retime spans to whole frames.
+fn retimed_length(edit: &EditOperation, percent: f64, old_len_frames: i64) -> Result<i64> {
+    let rate = percent_to_rate(percent, &edit.id.0)?;
+    let product = i128::from(old_len_frames)
+        .checked_mul(i128::from(rate.denominator))
+        .ok_or_else(|| invalid(format!("edit `{}` retime scaling overflow", edit.id.0)))?;
+    let num = i128::from(rate.numerator);
+    if product % num != 0 {
+        return Err(unsupported(
+            "retime_inexact_duration",
+            format!(
+                "edit `{}` retimes {old_len_frames} frames at {percent}% ({} frames); refusing rather than rounding to whole frames",
+                edit.id.0,
+                product as f64 / num as f64,
+            ),
+        ));
+    }
+    i64::try_from(product / num)
+        .map_err(|_| invalid(format!("edit `{}` retimed length overflows i64", edit.id.0)))
+}
+
+/// Engine ticks for a Ren move destination frame, compensating the measured
+/// defect: `timeline.move` lands one frame early for every F > 0 (frame 0
+/// is exact). Explicit `timeline_ticks` shapes pass through untouched.
+fn move_ticks_for_frame(to_frame: i64, timeline: &Clock, what: &str) -> Result<i64> {
+    let compensated = if to_frame > 0 { to_frame + 1 } else { 0 };
+    frames_to_engine_ticks(compensated, timeline, what)
+}
+
+/// One compensated `timeline.move` per affected placement for `clip.ripple`.
+///
+/// ren-core's ripple shifts the target and every clip at or after its
+/// timeline start, on every track; the engine's own ripple paths
+/// (`clip.speedDuration` ripple, `edit.rippleDelete`) shift the same set
+/// (measured). Order keeps every destination free in transit: right shifts
+/// run last-first (each dest was vacated by its successor), left shifts run
+/// first-last. A destination overlapping a same-track clip refuses with
+/// `ripple_would_overwrite` instead of letting the engine trim it (the
+/// move receipt reports such trims in `overwritten`, and a clean ripple
+/// carries none). Cross-track overlap is fine and never refuses: the
+/// engine stacks tracks.
+///
+/// Measured engine quirk (fourth defect): non-zero-frame placements store
+/// a sub-frame-longer duration (~0.07 frames), so a ripple that lands
+/// ABUTTING a neighbour contact-trims it - new engine ids, frame readback
+/// fuzzed by one, reported as `move_overwrote` when the trimmed clip is
+/// outside the moved set. Gapped destinations land fully clean; packed
+/// timelines execute correctly at tick level with a visible loss.
+#[allow(clippy::too_many_arguments)]
+fn plan_ripple_moves(
+    model: &ProjectModel,
+    projection: &Projection,
+    context: &EditContext<'_>,
+    edit: &EditOperation,
+    target_id: &str,
+    clip_use: &ren_protocol::project_model::ClipUse,
+    timeline: &Clock,
+    delta: i64,
+) -> Result<Vec<Operation>> {
+    let project: PathBuf = context.project.into();
+    let (target_start, _) = timeline_frames_of(model, timeline, clip_use, edit)?;
+    struct RippleMove {
+        clip_use_id: String,
+        clip: u64,
+        track: String,
+        old_start: i64,
+        old_end: i64,
+    }
+    let mut affected = Vec::new();
+    for placement in &projection.placements {
+        let len = ticks_to_frames(
+            placement.timeline_end - placement.timeline_start,
+            timeline,
+            &format!("edit `{}` ripple length", edit.id.0),
+        )?;
+        let (start, end) = (placement.frame, placement.frame + len);
+        if start < target_start {
+            continue;
+        }
+        let ids = context.clip_ids.get(&placement.clip_use_id).ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` ripples `{}` which has no reconciled engine clip id",
+                edit.id.0, placement.clip_use_id
+            ))
+        })?;
+        affected.push(RippleMove {
+            clip_use_id: placement.clip_use_id.clone(),
+            clip: primary_clip_id(ids, &placement.clip_use_id)?,
+            track: placement.track.clone(),
+            old_start: start,
+            old_end: end,
+        });
+    }
+    if delta > 0 {
+        affected.sort_by(|a, b| (b.old_start, &b.clip_use_id).cmp(&(a.old_start, &a.clip_use_id)));
+    } else {
+        affected.sort_by(|a, b| (a.old_start, &a.clip_use_id).cmp(&(b.old_start, &b.clip_use_id)));
+    }
+    // Simulate occupancy in execution order: every span at its current
+    // position (old for not-yet-moved, new for moved, fixed for the rest).
+    let mut spans: Vec<(String, i64, i64, String)> = Vec::new();
+    for placement in &projection.placements {
+        let len = ticks_to_frames(
+            placement.timeline_end - placement.timeline_start,
+            timeline,
+            &format!("edit `{}` ripple span", edit.id.0),
+        )?;
+        spans.push((
+            placement.track.clone(),
+            placement.frame,
+            placement.frame + len,
+            placement.clip_use_id.clone(),
+        ));
+    }
+    for ripple in &affected {
+        let (new_start, new_end) = (ripple.old_start + delta, ripple.old_end + delta);
+        for (track, start, end, id) in &spans {
+            if *track != ripple.track || *id == ripple.clip_use_id {
+                continue;
+            }
+            if new_start < *end && *start < new_end {
+                return Err(unsupported(
+                    "ripple_would_overwrite",
+                    format!(
+                        "edit `{}` ripples `{target_id}` by {delta} frames; `{}` would land on same-track `{id}` [{start}, {end}); refusing rather than trimming it",
+                        edit.id.0, ripple.clip_use_id
+                    ),
+                ));
+            }
+        }
+        if let Some(span) = spans.iter_mut().find(|s| s.3 == ripple.clip_use_id) {
+            span.1 = new_start;
+            span.2 = new_end;
+        }
+    }
+    let mut operations = Vec::new();
+    for ripple in &affected {
+        let to_frame = ripple.old_start + delta;
+        operations.push(Operation::Move {
+            project: project.clone(),
+            clip: ripple.clip,
+            track: ripple.track.clone(),
+            timeline_ticks: move_ticks_for_frame(
+                to_frame,
+                timeline,
+                &format!("edit `{}` ripple target", edit.id.0),
+            )?,
+            insert: false,
+        });
+    }
+    Ok(operations)
+}
+/// `after.ripple` for `clip.delete`: lift (false, the default, leaves a
+/// gap) or ripple delete (true, followers close the gap).
+fn delete_is_ripple(edit: &EditOperation) -> Result<bool> {
+    if let Some(flag) = edit.after.as_ref().and_then(|v| v.get("ripple")) {
+        if !flag.is_boolean() {
+            return Err(invalid(format!(
+                "edit `{}` needs `after.ripple` as a boolean",
+                edit.id.0
+            )));
+        }
+    }
+    Ok(edit
+        .after
+        .as_ref()
+        .and_then(|v| v.get("ripple"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false))
+}
+
+/// Integer `after.delta_frames` for `clip.ripple`.
+fn ripple_delta(edit: &EditOperation) -> Result<i64> {
+    let delta = edit
+        .after
+        .as_ref()
+        .and_then(|v| v.get("delta_frames"))
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` needs `after.delta_frames` as an integer",
+                edit.id.0
+            ))
+        })?;
+    if delta == 0 {
+        return Err(unsupported(
+            "empty_ripple",
+            format!(
+                "edit `{}` ripples by 0 frames; nothing moves",
+                edit.id.0
+            ),
+        ));
+    }
+    Ok(delta)
 }
 
 /// Resolve a trim's new timeline frames from every `after` shape Ren emits.
@@ -1546,7 +2038,9 @@ fn patch_inner_to_edit(
 
 /// Exact timeline-to-render frame map for a projection. Render output packs
 /// placements in timeline order from render tick zero; each placement maps
-/// one-to-one onto its render span and names its source clip use.
+/// onto its render span and names its source clip use. Placements with a
+/// logged constant retime map [`MappingKind::Retimed`] with the exact
+/// playback speed; everything else maps one-to-one.
 /// Timeline gaps between placements become explicit `Gap` segments so a
 /// later swap-back refuses to move keyframes across unrendered picture.
 /// Overlapping placements are refused by [`plan_projection`] before this runs.
@@ -1594,6 +2088,20 @@ pub fn build_frame_map(
         let render_end = cursor
             .checked_add(render_len)
             .ok_or_else(|| invalid("render cursor overflow over placements".into()))?;
+        // A logged constant retime marks its placement Retimed with the
+        // exact playback speed (2/1 at 200%): the engine's `speed` field as
+        // a rational. Spans stay timeline-to-render packing - the rate
+        // documents playback rather than the span affine.
+        let (mapping_kind, rate) = match retime_rate_for(model, &placement.clip_use_id) {
+            Some(speed) => (MappingKind::Retimed, speed),
+            None => (
+                MappingKind::OneToOne,
+                Rational {
+                    numerator: 1,
+                    denominator: 1,
+                },
+            ),
+        };
         segments.push(FrameMapSegment {
             from: Interval {
                 clock_id: timeline.id.clone(),
@@ -1605,11 +2113,8 @@ pub fn build_frame_map(
                 start: cursor,
                 end: render_end,
             },
-            mapping_kind: MappingKind::OneToOne,
-            rate: Some(Rational {
-                numerator: 1,
-                denominator: 1,
-            }),
+            mapping_kind,
+            rate: Some(rate),
             source_clip_use: Some(ren_protocol::project_model::ClipUseId(
                 placement.clip_use_id.clone(),
             )),
@@ -2232,24 +2737,29 @@ mod tests {
         let context = ren_edit_context(&clip_ids);
         for (operation, after, code) in [
             (
-                "clip.delete",
-                serde_json::json!({}),
-                "delete_not_representable",
-            ),
-            (
-                "clip.ripple",
-                serde_json::json!({"delta_frames": -4}),
-                "ripple_not_representable",
+                "retime.segments",
+                serde_json::json!({"segments": [{"record_frame": 12, "percent": 200.0}]}),
+                "retime_segments_not_supported",
             ),
             (
                 "retime",
-                serde_json::json!({"percent": 200.0}),
-                "retime_not_representable",
+                serde_json::json!({"percent": 200.0, "reverse": true}),
+                "reverse_not_supported",
             ),
             (
-                "span_retime",
-                serde_json::json!({"percent": 50.0}),
-                "retime_not_representable",
+                "retime",
+                serde_json::json!({"percent": 33.333333333333336}),
+                "retime_rate_inexact",
+            ),
+            (
+                "retime",
+                serde_json::json!({"percent": 123.456}),
+                "retime_inexact_duration",
+            ),
+            (
+                "clip.ripple",
+                serde_json::json!({"delta_frames": 0}),
+                "empty_ripple",
             ),
             (
                 "edit_graph.aroll",
@@ -2269,6 +2779,34 @@ mod tests {
                 "{operation} must refuse as {code}, got {err:?}"
             );
         }
+        // A ripple landing on a same-track predecessor refuses instead of
+        // trimming it: with both uses on V1, use-b (24-48) shifted -30
+        // would cover use-a (0-24).
+        let mut stacked = minimal_model();
+        stacked.clip_uses[0].role = "a_roll".into();
+        let projection = plan_projection(&stacked).unwrap();
+        let clip_ids = BTreeMap::from([
+            ("use-a".to_owned(), vec![7u64]),
+            ("use-b".to_owned(), vec![9u64]),
+        ]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-ripple-overwrite",
+            "clip.ripple",
+            "use-b",
+            serde_json::json!({"delta_frames": -30}),
+        );
+        let err = plan_ren_edit(&stacked, &projection, &edit, &context).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "ripple_would_overwrite"),
+            "overlapping ripple must refuse by name, got {err:?}"
+        );
+        // The model mutation refuses with the same code.
+        let model_err = apply_ren_edit_to_model(&stacked, &edit).unwrap_err();
+        assert!(
+            format!("{model_err}").contains("ripple_would_overwrite"),
+            "model mutation must refuse with the same code, got {model_err}"
+        );
         // Gain on a placement without audio refuses by name.
         let clip_ids = BTreeMap::from([("use-b".to_owned(), vec![9u64])]);
         let context = ren_edit_context(&clip_ids);
@@ -2329,5 +2867,309 @@ mod tests {
             (halves[1].timeline_interval.start, halves[1].timeline_interval.end),
             (12, 24)
         );
+    }
+
+    #[test]
+    fn percent_to_rate_is_exact_or_refuses() {
+        for (percent, num, den) in [
+            (200.0, 2, 1),
+            (50.0, 1, 2),
+            (150.0, 3, 2),
+            (100.0, 1, 1),
+            (12.5, 1, 8),
+            (25.0, 1, 4),
+        ] {
+            let rate = percent_to_rate(percent, "edit-rate").unwrap();
+            assert_eq!(
+                (rate.numerator, rate.denominator),
+                (num, den),
+                "{percent}% must be exact"
+            );
+        }
+        for percent in [33.333333333333336, 123456789.123456789, 1e300] {
+            let err = percent_to_rate(percent, "edit-rate").unwrap_err();
+            assert!(
+                matches!(err, AdapterError::Unsupported { ref code, .. } if code == "retime_rate_inexact"),
+                "{percent}% must refuse as retime_rate_inexact, got {err:?}"
+            );
+        }
+        for percent in [0.0, -50.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                percent_to_rate(percent, "edit-rate").is_err(),
+                "{percent}% must refuse"
+            );
+        }
+    }
+
+    #[test]
+    fn ren_delete_plans_lift_or_ripple_delete() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let lift = ren_edit("edit-delete-lift", "clip.delete", "use-a", serde_json::json!({}));
+        let operations = plan_ren_edit(&model, &projection, &lift, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Delete { clips, .. } if clips == &vec![7u64]
+        ));
+        // The ripple flag defaults off; an explicit false still lifts.
+        let lift = ren_edit(
+            "edit-delete-lift-false",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({"ripple": false}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &lift, &context).unwrap();
+        assert!(matches!(&operations[0], Operation::Delete { .. }));
+        let ripple = ren_edit(
+            "edit-delete-ripple",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({"ripple": true}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &ripple, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::RippleDelete { clips, .. } if clips == &vec![7u64]
+        ));
+        // A non-boolean ripple flag is malformed, not a guess.
+        let bad = ren_edit(
+            "edit-delete-bad",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({"ripple": "yes"}),
+        );
+        assert!(plan_ren_edit(&model, &projection, &bad, &context).is_err());
+    }
+
+    #[test]
+    fn ren_ripple_plans_compensated_moves_in_free_order() {
+        let mut stacked = minimal_model();
+        stacked.clip_uses[0].role = "a_roll".into();
+        let projection = plan_projection(&stacked).unwrap();
+        let clip_ids = BTreeMap::from([
+            ("use-a".to_owned(), vec![7u64]),
+            ("use-b".to_owned(), vec![9u64]),
+        ]);
+        let context = ren_edit_context(&clip_ids);
+        // Right shift runs last-first so every destination is free.
+        let edit = ren_edit(
+            "edit-ripple-right",
+            "clip.ripple",
+            "use-a",
+            serde_json::json!({"delta_frames": 12}),
+        );
+        let operations = plan_ren_edit(&stacked, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 2);
+        match (&operations[0], &operations[1]) {
+            (
+                Operation::Move {
+                    clip: 9,
+                    timeline_ticks: second,
+                    insert: false,
+                    ..
+                },
+                Operation::Move {
+                    clip: 7,
+                    timeline_ticks: first,
+                    insert: false,
+                    ..
+                },
+            ) => {
+                // use-b 24 -> 36, use-a 0 -> 12, both compensated +1.
+                assert_eq!(*second, 37 * ENGINE_TICKS_PER_SECOND / 24);
+                assert_eq!(*first, 13 * ENGINE_TICKS_PER_SECOND / 24);
+            }
+            other => panic!("expected two compensated moves, got {other:?}"),
+        }
+        // Left shift runs first-last; open a gap so the destination is
+        // free (a packed left shift lands on its predecessor and refuses).
+        stacked.clip_uses[0].timeline_interval.start = 36;
+        stacked.clip_uses[0].timeline_interval.end = 60;
+        let projection = plan_projection(&stacked).unwrap();
+        let edit = ren_edit(
+            "edit-ripple-left",
+            "clip.ripple",
+            "use-b",
+            serde_json::json!({"delta_frames": -12}),
+        );
+        let operations = plan_ren_edit(&stacked, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        match &operations[0] {
+            Operation::Move {
+                clip: 9,
+                timeline_ticks,
+                insert: false,
+                ..
+            } => {
+                // use-b 36 -> 24, compensated +1. use-a is upstream and stays.
+                assert_eq!(*timeline_ticks, 25 * ENGINE_TICKS_PER_SECOND / 24);
+            }
+            other => panic!("expected one compensated move, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ren_retime_plans_single_ripple_speed() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
+        let context = ren_edit_context(&clip_ids);
+        for operation in ["retime", "span_retime"] {
+            let edit = ren_edit(
+                "edit-retime",
+                operation,
+                "use-a",
+                serde_json::json!({"percent": 200.0}),
+            );
+            let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+            assert_eq!(operations.len(), 1);
+            assert!(matches!(
+                &operations[0],
+                Operation::Retime {
+                    clips,
+                    speed_percent,
+                    ripple: true,
+                    ..
+                } if clips == &vec![7u64] && *speed_percent == 200.0
+            ));
+        }
+    }
+
+    #[test]
+    fn ren_model_mutation_matches_planned_deletes_ripples_retimes() {
+        let mut stacked = minimal_model();
+        stacked.clip_uses[0].role = "a_roll".into();
+        // Lift: the target goes, followers stay, a gap remains.
+        let edit = ren_edit(
+            "edit-mutate-lift",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({}),
+        );
+        let mutated = apply_ren_edit_to_model(&stacked, &edit).unwrap();
+        assert_eq!(mutated.clip_uses.len(), 1);
+        assert_eq!(mutated.clip_uses[0].id.0, "use-b");
+        assert_eq!(
+            (
+                mutated.clip_uses[0].timeline_interval.start,
+                mutated.clip_uses[0].timeline_interval.end
+            ),
+            (24, 48)
+        );
+        // Ripple delete: followers close the gap.
+        let edit = ren_edit(
+            "edit-mutate-ripple-delete",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({"ripple": true}),
+        );
+        let mutated = apply_ren_edit_to_model(&stacked, &edit).unwrap();
+        assert_eq!(mutated.clip_uses.len(), 1);
+        assert_eq!(
+            (
+                mutated.clip_uses[0].timeline_interval.start,
+                mutated.clip_uses[0].timeline_interval.end
+            ),
+            (0, 24)
+        );
+        // Standalone ripple shifts the target and everything downstream.
+        let edit = ren_edit(
+            "edit-mutate-ripple",
+            "clip.ripple",
+            "use-a",
+            serde_json::json!({"delta_frames": 12}),
+        );
+        let mutated = apply_ren_edit_to_model(&stacked, &edit).unwrap();
+        let starts: Vec<(String, i64, i64)> = {
+            let mut uses: Vec<_> = mutated.clip_uses.iter().collect();
+            uses.sort_by_key(|u| u.timeline_interval.start);
+            uses.into_iter()
+                .map(|u| {
+                    (
+                        u.id.0.clone(),
+                        u.timeline_interval.start,
+                        u.timeline_interval.end,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(
+            starts,
+            vec![
+                ("use-a".to_owned(), 12, 36),
+                ("use-b".to_owned(), 36, 60),
+            ]
+        );
+        // Speed-up anchors the start and shortens; the map carries 2/1.
+        let edit = ren_edit(
+            "edit-mutate-retime-up",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 200.0}),
+        );
+        let mutated = apply_ren_edit_to_model(&stacked, &edit).unwrap();
+        let use_a = mutated
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == "use-a")
+            .unwrap();
+        assert_eq!(
+            (use_a.timeline_interval.start, use_a.timeline_interval.end),
+            (0, 12)
+        );
+        let use_b = mutated
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == "use-b")
+            .unwrap();
+        assert_eq!(
+            (use_b.timeline_interval.start, use_b.timeline_interval.end),
+            (12, 36)
+        );
+        let projection = plan_projection(&mutated).unwrap();
+        let map = build_frame_map(&mutated, &projection, "clock-render", "map-retime").unwrap();
+        assert_eq!(map.segments[0].mapping_kind, MappingKind::Retimed);
+        assert_eq!(
+            map.segments[0].rate,
+            Some(Rational {
+                numerator: 2,
+                denominator: 1
+            })
+        );
+        assert_eq!(map.segments[1].mapping_kind, MappingKind::OneToOne);
+        assert_eq!(render_span(&map), 36);
+        // Slow-down doubles the span and still re-projects: the logged
+        // retime edit explains the longer timeline span.
+        let edit = ren_edit(
+            "edit-mutate-retime-down",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 50.0}),
+        );
+        let mutated = apply_ren_edit_to_model(&stacked, &edit).unwrap();
+        let use_a = mutated
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == "use-a")
+            .unwrap();
+        assert_eq!(
+            (use_a.timeline_interval.start, use_a.timeline_interval.end),
+            (0, 48)
+        );
+        let projection = plan_projection(&mutated).unwrap();
+        let map = build_frame_map(&mutated, &projection, "clock-render", "map-slow").unwrap();
+        assert_eq!(map.segments[0].mapping_kind, MappingKind::Retimed);
+        assert_eq!(
+            map.segments[0].rate,
+            Some(Rational {
+                numerator: 1,
+                denominator: 2
+            })
+        );
+        assert_eq!(render_span(&map), 72);
     }
 }
