@@ -22,7 +22,13 @@ from tests.scenarios import golden
 def run_build_cli(monkeypatch, folder, command):
     """Run the actual build-reels parser and dispatcher on this test's double."""
     import manage_project
+    from library.tools import worker_requirements
 
+    # The worker gate is pinned, not measured: this proves the
+    # build/promotion, and the live `resolve.scripting` advertisement
+    # depends on whether Resolve happens to be reachable on the runner
+    # (2026-10-10).
+    monkeypatch.setattr(worker_requirements, "check_build", lambda: [])
     monkeypatch.setattr(
         sys, "argv",
         ["manage_project.py", "build-reels", *command, str(folder)])
@@ -157,6 +163,8 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     # ── deliver: the approved reel rendered, mastered and verified ──
     from library.tools import reel_deliver
 
+    # Pinned as above: this proves the deliver, not the `render.build` gate.
+    monkeypatch.setattr(reel_deliver, "check_render", lambda: [])
     delivered = reel_deliver.deliver_reel(str(folder), 1)
     assert delivered["delivered"] is True
     assert delivered["timeline_name"] == golden.REEL

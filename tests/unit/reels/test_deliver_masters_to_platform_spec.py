@@ -56,6 +56,10 @@ def test_deliver_masters_to_the_named_platforms_targets(
 
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(tmp_path / "lock"))
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    # The worker gate is pinned, not measured: this proves the mastering
+    # forwarding, and the live `render.build` advertisement depends on
+    # whether Resolve happens to be reachable on the runner (2026-10-10).
+    monkeypatch.setattr(reel_deliver, "check_render", lambda: [])
     monkeypatch.setattr(reel_deliver, "timeline_name_for_reel",
                         lambda folder, reel: "Reel 01 - x")
     monkeypatch.setattr(reel_build, "_connect_resolve_project",
@@ -105,6 +109,8 @@ def test_mastering_targets_default_to_the_registry_default(
 
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(tmp_path / "lock"))
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    # Pinned as above: this proves the default forwarding, not the gate.
+    monkeypatch.setattr(reel_deliver, "check_render", lambda: [])
     monkeypatch.setattr(reel_deliver, "timeline_name_for_reel",
                         lambda folder, reel: "Reel 01 - x")
     monkeypatch.setattr(reel_build, "_connect_resolve_project",

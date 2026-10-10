@@ -626,6 +626,11 @@ def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
         return 0
 
     monkeypatch.setattr(manage_project, "preflight_check", lambda _cmd: None)
+    # The worker gate is pinned, not measured: this proves the caption
+    # plan, and the live `resolve.scripting` advertisement depends on
+    # whether Resolve happens to be reachable on the runner (2026-10-10).
+    monkeypatch.setattr(
+        "library.tools.worker_requirements.check_build", lambda: [])
     monkeypatch.setattr(sys, "argv", [
         "manage_project.py", "build-reels", str(project),
         "--rebuild-all", "--only-reel", "15",

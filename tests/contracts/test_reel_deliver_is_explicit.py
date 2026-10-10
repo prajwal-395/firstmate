@@ -189,7 +189,6 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
     from library.tools import reel_deliver
 
     folder = _project_with_proposal(tmp_path)
-
     timeline = MagicMock()
     timeline.GetName.return_value = "Reel 03 - hook"
     timeline.GetSetting.return_value = "30"
@@ -204,6 +203,11 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
               "disk_resolution": "904x480"}]
     with (patch("library.tools.reel_build._connect_resolve_project",
                 return_value=project),
+          # The worker gate is pinned, not measured: this proves the
+          # stale-overlay refusal, and the live `render.build`
+          # advertisement depends on whether Resolve happens to be
+          # reachable on the runner (2026-10-10).
+          patch.object(reel_deliver, "check_render", return_value=[]),
           patch("library.tools.execution.resolve_render._find_timeline",
                 return_value=timeline),
           patch("library.tools.execution.resolve_render.render_timeline",
@@ -299,8 +303,13 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                               "no black")
 
     with (patch("library.tools.reel_build._connect_resolve_project",
-                return_value=project),
-          patch("library.tools.execution.resolve_render.render_timeline",
+                 return_value=project),
+           # The worker gate is pinned, not measured: this proves the
+           # reel-shaped caller, and the live `render.build`
+           # advertisement depends on whether Resolve happens to be
+           # reachable on the runner (2026-10-10).
+           patch.object(reel_deliver, "check_render", return_value=[]),
+           patch("library.tools.execution.resolve_render.render_timeline",
                 side_effect=fake_render),
           patch("library.tools.master_loudness.master_render_report",
                 side_effect=fake_master),

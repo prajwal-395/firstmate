@@ -209,6 +209,12 @@ def test_reel24_carries_type_change_and_refuses_different_copy(
         staged_enabled, staged_display, should_promote):
     """Replay the saved Reel 24 type change through build-reels offline."""
     from library.tools import reel_disabled_clip_carry as disabled_carry
+    from library.tools import worker_requirements
+
+    # The worker gate is pinned, not measured: this proves the carry,
+    # and the live `resolve.scripting` advertisement depends on whether
+    # Resolve happens to be reachable on the runner (2026-10-10).
+    monkeypatch.setattr(worker_requirements, "check_build", lambda: [])
 
     final = "Reel 24 - why-ai-trusts-youtube"
     staging = final + " (rebuild staging)"
@@ -450,6 +456,11 @@ def test_build_reels_carries_reel15_restyled_rerenders(
 
     Changed copy refusing and a type change carrying are the Reel 24
     replay above, through the same `cmd_build_reels` path."""
+    from library.tools import worker_requirements
+
+    # Pinned as above: this proves the restyled carry, not the gate.
+    monkeypatch.setattr(worker_requirements, "check_build", lambda: [])
+
     case_final = "Reel 15 - the-3d-nail-art-salon-beats-the-chains"
     case_staging = case_final + " (rebuild staging)"
     folder = _ready_project(tmp_path)

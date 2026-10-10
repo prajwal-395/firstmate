@@ -16,6 +16,10 @@ def test_deliver_connects_inside_the_instance_lease(tmp_path, monkeypatch):
     `deliver_reel` connected before taking one."""
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(tmp_path / "lock"))
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    # The worker gate is pinned, not measured: this proves the lease
+    # shape, and the live `render.build` advertisement depends on
+    # whether Resolve happens to be reachable on the runner (2026-10-10).
+    monkeypatch.setattr(reel_deliver, "check_render", lambda: [])
     (tmp_path / "project.yaml").write_text(
         "resolve:\n  project_name: Scratch\n", encoding="utf-8")
     monkeypatch.setattr(reel_deliver, "resolve_deliver_settings",

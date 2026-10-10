@@ -146,6 +146,7 @@ from library.tools import capabilities  # noqa: E402
 from library.tools import operations  # noqa: E402
 from library.tools import processes as processes_mod  # noqa: E402
 from library.tools import requirements as _R  # noqa: E402
+from library.tools import worker_requirements  # noqa: E402
 from library.tools.timeline_transcript import transcript_path  # noqa: E402
 
 
@@ -189,6 +190,11 @@ def test_the_loop_passes_a_ready_project_and_runs_what_follows_touchup(
     `reel.ask` plus `reel.verify` still run after it."""
     folder = _ready_project(tmp_path)
     ran = []
+
+    # The worker gate is pinned, not measured: this proves the loop, and
+    # the live `resolve.scripting` advertisement depends on whether
+    # Resolve happens to be reachable on the runner (2026-10-10).
+    monkeypatch.setattr(worker_requirements, "check_build", lambda: [])
 
     build_mod = operations.load_step_module("step_7_01_build_reels")
     verify_mod = operations.load_step_module("step_7_02_verify_reels")
