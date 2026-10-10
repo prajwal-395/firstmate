@@ -42,6 +42,11 @@
 #   (q3) no-mistakes + squash-merged, same file, different content   -> REFUSE
 #   (q4) no-mistakes + squash-merged rebased local plus extra commit -> REFUSE
 #   (q5) gh down + squash-merged stale local, content not in default -> REFUSE
+#   (z) no-mistakes + pushed work + recorded PR still OPEN       -> REFUSE (open-PR guard)
+#   (z2) same as (z) + --abandon-pr                             -> ALLOW  (intentional abandon)
+#   (z3) same as (z) + --force without --abandon-pr             -> REFUSE (force never lifts)
+#   (z4) no-mistakes + pushed work + recorded PR merged         -> ALLOW  (no false refusal)
+#   (z5) no-mistakes + pushed work + recorded PR, forge down    -> ALLOW  (fail-open to landed checks)
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
 # killed crew process (bin/fm-teardown.sh's teardown_treehouse_return).
@@ -273,6 +278,29 @@ echo "error: pull request not found" >&2
 exit 1
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+# Override GitHub lookups to report the recorded PR in the given state word
+# (OPEN or MERGED) for the state query bin/fm-teardown.sh's open-PR refusal
+# issues, while every other lookup still fails. This represents a
+# pushed-but-unmerged review: the work is reachable from a remote, so only the
+# open-PR refusal stands in the way of teardown.
+# Args: case_dir state-word
+add_gh_pr_state() {
+  local case_dir=$1 word=$2
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *" --json state "*) printf '%s\n' '$word' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh"
 }
 
 # Squash-merged history whose pipeline rebased the branch onto a newer main that
@@ -1185,6 +1213,120 @@ test_gh_error_and_content_absent_refuses() {
   expect_code 1 "$rc" "gh-error: teardown should refuse when the PR lookup errors and content is not landed"
   grep -q REFUSED "$case_dir/stderr" || fail "gh-error: no REFUSED line in stderr"
   pass "gh lookup error with content not in default refuses (fail-safe)"
+}
+
+test_recorded_open_pr_refuses_despite_pushed_work() {
+  local case_dir rc head
+  case_dir=$(make_case open-pr-refuses)
+  write_meta "$case_dir" no-mistakes ship
+  # Pushed to origin, so the reachability check alone would read this as
+  # landed: only the open-PR refusal stands in the way. This is the chained
+  # merge-then-teardown shape, where a refused merge left the review open.
+  wt_commit "$case_dir" "pushed but unmerged work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_url "$case_dir"
+  add_gh_pr_state "$case_dir" OPEN
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "open-pr-refuses: teardown should refuse a ship task whose recorded PR is still open"
+  grep -q REFUSED "$case_dir/stderr" || fail "open-pr-refuses: no REFUSED line in stderr"
+  grep -q "still open" "$case_dir/stderr" || fail "open-pr-refuses: refusal did not name the open PR"
+  grep -q -- '--abandon-pr' "$case_dir/stderr" \
+    || fail "open-pr-refuses: refusal did not name the --abandon-pr path"
+  assert_refusal_retained_task_state "$case_dir" open-pr-refuses "$head"
+  pass "a ship task with a pushed but still-open recorded PR is refused"
+}
+
+test_recorded_open_pr_abandon_flag_allows() {
+  local case_dir rc
+  case_dir=$(make_case open-pr-abandon)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit "$case_dir" "pushed but abandoned work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_url "$case_dir"
+  add_gh_pr_state "$case_dir" OPEN
+
+  set +e
+  run_teardown "$case_dir" --abandon-pr > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "open-pr-abandon: teardown should succeed with --abandon-pr for an intentionally abandoned review"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "open-pr-abandon: teardown printed a REFUSED line"
+  pass "an intentionally abandoned open PR tears down with --abandon-pr"
+}
+
+test_recorded_open_pr_force_still_refuses() {
+  local case_dir rc head
+  case_dir=$(make_case open-pr-force)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit "$case_dir" "pushed but unmerged work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_url "$case_dir"
+  add_gh_pr_state "$case_dir" OPEN
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "open-pr-force: --force must not lift the open-PR refusal without --abandon-pr"
+  grep -q REFUSED "$case_dir/stderr" || fail "open-pr-force: no REFUSED line in stderr"
+  grep -q "still open" "$case_dir/stderr" || fail "open-pr-force: refusal did not name the open PR"
+  assert_refusal_retained_task_state "$case_dir" open-pr-force "$head"
+  pass "--force without --abandon-pr still refuses a still-open recorded PR"
+}
+
+test_recorded_merged_pr_still_allows() {
+  local case_dir rc
+  case_dir=$(make_case open-pr-merged)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit "$case_dir" "pushed and merged work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_url "$case_dir"
+  add_gh_pr_state "$case_dir" MERGED
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "open-pr-merged: teardown should succeed once the recorded PR is merged"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "open-pr-merged: teardown printed a REFUSED line"
+  pass "a ship task whose recorded PR already merged is not held by the open-PR guard"
+}
+
+test_recorded_pr_lookup_error_falls_through_to_landed_checks() {
+  local case_dir rc
+  case_dir=$(make_case open-pr-offline)
+  write_meta "$case_dir" no-mistakes ship
+  # Pushed work with a recorded PR while the forge is unreachable: an
+  # unreadable PR state is not proof of open, so the landed-work checks own
+  # the verdict and this pushed work still tears down.
+  wt_commit "$case_dir" "pushed work, forge down"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_url "$case_dir"
+  add_gh_axi_error "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "open-pr-offline: an unreadable PR state must not strand pushed work on its own"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "open-pr-offline: teardown printed a REFUSED line"
+  pass "an unreadable recorded-PR state falls through to the landed-work checks"
 }
 
 # Write a meta that predates the spawn_gen field entirely. Args: case_dir mode kind
@@ -3806,6 +3948,11 @@ test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
+test_recorded_open_pr_refuses_despite_pushed_work
+test_recorded_open_pr_abandon_flag_allows
+test_recorded_open_pr_force_still_refuses
+test_recorded_merged_pr_still_allows
+test_recorded_pr_lookup_error_falls_through_to_landed_checks
 test_legacy_record_without_the_flag_refuses
 test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
 test_legacy_record_teardown_refuses_unlanded_work
