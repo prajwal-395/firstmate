@@ -50,6 +50,7 @@ keeps the headline and points here.
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
@@ -112,6 +113,327 @@ def _is_midpoint(start: float, mid: float, end: float) -> bool:
     """
     return math.isclose(mid, (start + end) / 2.0,
                         rel_tol=1e-9, abs_tol=1e-9)
+
+
+def zoom_size_curve(
+    *,
+    first: int,
+    last: int,
+    start: float,
+    mid: float,
+    end: float,
+    easing: str = DRIFT_EASING,
+    window=None,
+    windows=(),
+    pan_end=None,
+    zoom_in_duration_frames=None,
+    zoom_release_offset_frames=None,
+    zoom_out_duration_frames=None,
+):
+    """The Transform Size `fx.zoom` would key, without building nodes.
+
+    ONE source of truth for the zoom curve: `fx.zoom` builds its
+    BezierSpline from this, and the EffectCraft move projector bakes
+    its per-frame `transform/scale` keys from this, so the two engines
+    cannot drift apart into two implementations of one move.
+
+    `first`/`last` are the played comp frames (from `played_range`);
+    `window` is the anchored span as comp frames `(first, last)`
+    inclusive or None; `windows` the multi-window Ken Burns spans.
+    Returns `(kind, payload)`:
+
+    - `("baked", {frame: size})`: every keyframe `fx.zoom` writes, each
+      rounded to 6 decimals exactly as the serialized comp carries
+      them. Segments between non-adjacent keys are linear - both
+      engines linearize, so sampling this piecewise-linearly at every
+      frame reproduces the rendered curve.
+    - `("static", size)`: a constant reframe (`cut_in`) - `fx.zoom`
+      writes no spline, just a constant Size. The value is raw,
+      unrounded, as `set_input` carries it.
+    - `("legacy_punch", None)`: the off-midpoint three-point spline
+      with smooth Bezier handles, which no per-frame Linear bake can
+      express. `fx.zoom` still draws it; a projector that needs Linear
+      keys must refuse it rather than approximate it.
+
+    Every ValueError below is `fx.zoom`'s own refusal, moved verbatim:
+    the curve answers the same inputs or raises the same message.
+    """
+    windows = list(windows or ())
+    timing = (zoom_in_duration_frames,
+              zoom_release_offset_frames,
+              zoom_out_duration_frames)
+    has_timing = any(value is not None for value in timing)
+    has_anim = (not (start == mid == end) or bool(windows)
+                or has_timing)
+
+    if has_timing:
+        if any(value is None for value in timing):
+            raise ValueError(
+                "zoom emphasis timing needs independent in duration, "
+                "release offset and out duration")
+        if windows:
+            raise ValueError(
+                "zoom emphasis timing cannot be combined with "
+                "zoom_windows")
+        if any(isinstance(value, bool) or not isinstance(value, int)
+               or value < 1 for value in (
+                   zoom_in_duration_frames,
+                   zoom_out_duration_frames)):
+            raise ValueError(
+                "zoom emphasis in/out durations must be positive "
+                "whole frame counts")
+        if (isinstance(zoom_release_offset_frames, bool)
+                or not isinstance(zoom_release_offset_frames, int)
+                or zoom_release_offset_frames < 0):
+            raise ValueError(
+                "zoom emphasis release offset must be a non-negative "
+                "whole frame count")
+
+        if window is None:
+            w0, w1 = first, last
+        else:
+            try:
+                if (len(window) != 2
+                        or any(isinstance(value, bool)
+                               or not isinstance(value, int)
+                               for value in window)):
+                    raise ValueError
+                w0, w1 = window
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "zoom emphasis needs an integer frame window")
+        if w0 < first or w1 > last or w1 <= w0:
+            raise ValueError(
+                f"zoom emphasis window [{w0}, {w1}] does not fit "
+                f"played frames [{first}, {last}]")
+
+        peak_frame = w0 + zoom_in_duration_frames
+        release_frame = w0 + zoom_release_offset_frames
+        out_frame = release_frame + zoom_out_duration_frames
+        if release_frame < peak_frame:
+            raise ValueError(
+                "zoom emphasis ramps overlap: the release starts "
+                "before the in ramp reaches its peak")
+        if peak_frame > w1 or out_frame > w1:
+            raise ValueError(
+                f"zoom emphasis peak/release [{peak_frame}, {out_frame}] "
+                f"falls outside its frame window [{w0}, {w1}]")
+
+        held: dict[int, float] = {}
+        if w0 > first:
+            held[first] = 1.0
+            if w0 - 1 > first:
+                held[w0 - 1] = 1.0
+        if out_frame < last:
+            if out_frame + 1 < last:
+                held[out_frame + 1] = 1.0
+            held[last] = 1.0
+
+        held[w0] = start
+        zoom_in = BezierSpline.sampled(
+            "Size", start_frame=w0, end_frame=peak_frame,
+            easing=easing, scale=mid - start, offset=start,
+            color=(233, 217, 11))
+        for keyframe in zoom_in.keyframes:
+            held[keyframe.frame] = keyframe.value
+        held[peak_frame] = mid
+        held[release_frame] = mid
+        zoom_out = BezierSpline.sampled(
+            "Size", start_frame=release_frame,
+            end_frame=out_frame, easing=easing,
+            scale=end - mid, offset=mid, color=(233, 217, 11))
+        for keyframe in zoom_out.keyframes:
+            held[keyframe.frame] = keyframe.value
+        held[out_frame] = end
+        return ("baked", {frame: round(value, 6)
+                          for frame, value in held.items()})
+
+    if windows:
+        if window is not None:
+            raise ValueError(
+                "zoom_windows and one effect window cannot be combined")
+        if pan_end is not None:
+            raise ValueError(
+                "a multi-window Ken Burns move cannot carry pan_end")
+        held = {first: 1.0}
+        cursor = first
+        current = 1.0
+        previous_end = first - 1
+        for index, item in enumerate(windows):
+            try:
+                w0 = int(item["first_frame"])
+                w1 = int(item["last_frame"])
+                zoom_start = float(item["zoom_start"])
+                zoom_end = float(item["zoom_end"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"zoom window {index} is incomplete") from exc
+            if (w0 < first or w1 > last or w1 <= w0
+                    or w0 <= previous_end):
+                raise ValueError(
+                    f"zoom window {index} frames [{w0}, {w1}] do not "
+                    f"fit as a separate span inside [{first}, {last}]")
+            if not math.isclose(zoom_start, current, rel_tol=0.0,
+                                abs_tol=1e-4):
+                raise ValueError(
+                    f"zoom window {index} starts at {zoom_start:g}, "
+                    f"but the held camera scale is {current:g}")
+            window_easing = item.get("easing", easing)
+            if window_easing not in EASING_FUNCTIONS:
+                raise ValueError(
+                    f"Unknown drift easing {window_easing!r}: choose one of "
+                    f"{', '.join(sorted(EASING_FUNCTIONS))}.")
+            if w0 > cursor:
+                held[w0] = current
+            ramp = BezierSpline.sampled(
+                "Size", start_frame=w0, end_frame=w1,
+                easing=window_easing, scale=zoom_end - zoom_start,
+                offset=zoom_start, color=(233, 217, 11))
+            for keyframe in ramp.keyframes:
+                held[keyframe.frame] = keyframe.value
+            held[w1] = zoom_end
+            current = zoom_end
+            cursor = w1 + 1
+            previous_end = w1
+        if cursor <= last:
+            held[last] = current
+        return ("baked", {frame: round(value, 6)
+                          for frame, value in held.items()})
+
+    w0, w1 = first, last
+    if window is not None:
+        try:
+            w0 = max(first, min(last, int(window[0])))
+            w1 = max(first, min(last, int(window[1])))
+        except (TypeError, ValueError, IndexError):
+            w0, w1 = first, last
+    windowed = (w0, w1) != (first, last)
+
+    if windowed:
+        # The anchored span: the move plays inside [w0, w1] and
+        # the Size holds neutral outside it. Holds sit one frame
+        # off the window edges so the punch snaps in and out
+        # instead of ramping in from frame 0.
+        held = {}
+        if w0 > first:
+            held[first] = 1.0
+            if w0 - 1 > first:
+                held[w0 - 1] = 1.0
+        if w1 < last:
+            if w1 + 1 < last:
+                held[w1 + 1] = 1.0
+            held[last] = 1.0
+        if not has_anim:
+            held[w0] = start
+            held[w1] = end
+        elif _is_midpoint(start, mid, end):
+            if easing not in EASING_FUNCTIONS:
+                raise ValueError(
+                    f"Unknown drift easing {easing!r}: choose one of "
+                    f"{', '.join(sorted(EASING_FUNCTIONS))}."
+                )
+            _ramp = BezierSpline.sampled(
+                "Size",
+                start_frame=w0, end_frame=w1,
+                easing=easing,
+                scale=end - start, offset=start,
+                color=(233, 217, 11),
+            )
+            for _kf in _ramp.keyframes:
+                held[_kf.frame] = _kf.value
+        else:
+            seg_dur = w1 - w0
+            mid_frame = w0 + seg_dur // 2
+            held[w0] = start
+            held[mid_frame] = mid
+            held[w1] = end
+        return ("baked", {frame: round(value, 6)
+                          for frame, value in held.items()})
+
+    if has_anim:
+        if _is_midpoint(start, mid, end):
+            # A drift: one eased ramp, baked per frame.
+            if easing not in EASING_FUNCTIONS:
+                raise ValueError(
+                    f"Unknown drift easing {easing!r}: choose one of "
+                    f"{', '.join(sorted(EASING_FUNCTIONS))}."
+                )
+            sampled = BezierSpline.sampled(
+                "Size",
+                start_frame=first, end_frame=last,
+                easing=easing,
+                scale=end - start, offset=start,
+                color=(233, 217, 11),
+            )
+            return ("baked", {keyframe.frame: keyframe.value
+                              for keyframe in sampled.keyframes})
+        return ("legacy_punch", None)
+
+    return ("static", start)
+
+
+def sample_held_linear(held: dict[int, float], first: int,
+                       last: int) -> dict[int, float]:
+    """Every frame's value under piecewise-linear interpolation.
+
+    Both engines linearize baked splines (`BezierSpline.linearize`,
+    EffectCraft Linear keys), so a sparse held dict means straight
+    segments between adjacent keys. Frames outside the key span hold
+    the nearest key - every caller here always keys at least one
+    frame, and the zoom builders always key the played range's ends
+    where it matters.
+    """
+    if not held:
+        raise ValueError("cannot sample an empty held curve")
+    frames = sorted(held)
+    values = dict(held)
+    dense: dict[int, float] = {}
+    for frame in range(first, last + 1):
+        if frame in values:
+            dense[frame] = values[frame]
+        elif frame < frames[0]:
+            dense[frame] = values[frames[0]]
+        elif frame > frames[-1]:
+            dense[frame] = values[frames[-1]]
+        else:
+            lower = max(f for f in frames if f < frame)
+            upper = min(f for f in frames if f > frame)
+            span = upper - lower
+            alpha = (frame - lower) / span if span else 0.0
+            dense[frame] = (values[lower]
+                            + (values[upper] - values[lower]) * alpha)
+    return dense
+
+
+def shake_center_curve(clip_dur: int, x_amount: float,
+                       y_amount: float,
+                       decay_frames=None) -> list[tuple[float, float]]:
+    """Per-frame Transform Center `(cx, cy)` for `fx.shake`.
+
+    ONE source of truth for the shake offsets: full amplitude on the
+    first frame from a deterministically seeded (`Random(42)`)
+    uniform draw per axis per frame, falling linearly to neutral by
+    `decay_frames`, still after that - or constant amplitude for the
+    whole clip when no decay is stated. `fx.shake` keys this; the
+    EffectCraft move projector bakes its `transform/position` keys
+    from this.
+    """
+    r = random.Random(42)  # Deterministic for reproducible comps
+
+    def envelope(frame: int) -> float:
+        if not decay_frames or decay_frames <= 0:
+            return 1.0
+        if frame >= decay_frames:
+            return 0.0
+        return 1.0 - (frame / float(decay_frames))
+
+    centers = []
+    for f in range(0, clip_dur):
+        scale = envelope(f)
+        xo = r.uniform(-x_amount, x_amount) * scale
+        yo = r.uniform(-y_amount, y_amount) * scale
+        centers.append((0.5 + xo, 0.5 + yo))
+    return centers
 
 
 def _unknown_transition_message(ttype) -> str:
@@ -459,273 +781,61 @@ class fx:
             # Identity: no zoom, no pan - skip entirely
             return EffectBlock(nodes=[], input_name="", output_name="")
 
+        # Keyframes in the comp's own frames, which are the
+        # PLAYED frames numbered from zero.
+        first, last = played_range(clip_dur, source_in, source_out)
+        kind, payload = zoom_size_curve(
+            first=first, last=last,
+            start=start, mid=mid, end=end,
+            easing=easing,
+            window=window,
+            windows=windows,
+            pan_end=pan_end,
+            zoom_in_duration_frames=zoom_in_duration_frames,
+            zoom_release_offset_frames=zoom_release_offset_frames,
+            zoom_out_duration_frames=zoom_out_duration_frames,
+        )
+
         tf_name = _next_name("Transform")
         nodes = []
 
         tf = FusionNode(tf_name, "Transform")
         tf.set_attr("CtrlWZoom", False)
 
-        # Keyframes in the comp's own frames, which are the
-        # PLAYED frames numbered from zero.
-        first, last = played_range(clip_dur, source_in, source_out)
-        if has_timing:
-            if any(value is None for value in timing):
-                raise ValueError(
-                    "zoom emphasis timing needs independent in duration, "
-                    "release offset and out duration")
-            if windows:
-                raise ValueError(
-                    "zoom emphasis timing cannot be combined with "
-                    "zoom_windows")
-            if any(isinstance(value, bool) or not isinstance(value, int)
-                   or value < 1 for value in (
-                       zoom_in_duration_frames,
-                       zoom_out_duration_frames)):
-                raise ValueError(
-                    "zoom emphasis in/out durations must be positive "
-                    "whole frame counts")
-            if (isinstance(zoom_release_offset_frames, bool)
-                    or not isinstance(zoom_release_offset_frames, int)
-                    or zoom_release_offset_frames < 0):
-                raise ValueError(
-                    "zoom emphasis release offset must be a non-negative "
-                    "whole frame count")
-
-            if window is None:
-                w0, w1 = first, last
-            else:
-                try:
-                    if (len(window) != 2
-                            or any(isinstance(value, bool)
-                                   or not isinstance(value, int)
-                                   for value in window)):
-                        raise ValueError
-                    w0, w1 = window
-                except (TypeError, ValueError):
-                    raise ValueError(
-                        "zoom emphasis needs an integer frame window")
-            if w0 < first or w1 > last or w1 <= w0:
-                raise ValueError(
-                    f"zoom emphasis window [{w0}, {w1}] does not fit "
-                    f"played frames [{first}, {last}]")
-
-            peak_frame = w0 + zoom_in_duration_frames
-            release_frame = w0 + zoom_release_offset_frames
-            out_frame = release_frame + zoom_out_duration_frames
-            if release_frame < peak_frame:
-                raise ValueError(
-                    "zoom emphasis ramps overlap: the release starts "
-                    "before the in ramp reaches its peak")
-            if peak_frame > w1 or out_frame > w1:
-                raise ValueError(
-                    f"zoom emphasis peak/release [{peak_frame}, {out_frame}] "
-                    f"falls outside its frame window [{w0}, {w1}]")
-
-            spline_name = f"{tf_name}Size"
-            held: dict[int, float] = {}
-            if w0 > first:
-                held[first] = 1.0
-                if w0 - 1 > first:
-                    held[w0 - 1] = 1.0
-            if out_frame < last:
-                if out_frame + 1 < last:
-                    held[out_frame + 1] = 1.0
-                held[last] = 1.0
-
-            held[w0] = start
-            zoom_in = BezierSpline.sampled(
-                spline_name, start_frame=w0, end_frame=peak_frame,
-                easing=easing, scale=mid - start, offset=start,
-                color=(233, 217, 11))
-            for keyframe in zoom_in.keyframes:
-                held[keyframe.frame] = keyframe.value
-            held[peak_frame] = mid
-            held[release_frame] = mid
-            zoom_out = BezierSpline.sampled(
-                spline_name, start_frame=release_frame,
-                end_frame=out_frame, easing=easing,
-                scale=end - mid, offset=mid, color=(233, 217, 11))
-            for keyframe in zoom_out.keyframes:
-                held[keyframe.frame] = keyframe.value
-            held[out_frame] = end
-
+        spline_name = f"{tf_name}Size"
+        if kind == "baked":
             spline = BezierSpline(spline_name)
-            for frame in sorted(held):
-                spline.add_key(frame, round(held[frame], 6))
+            for frame in sorted(payload):
+                spline.add_key(frame, payload[frame])
             spline.linearize()
             tf.set_input("Size", spline)
             nodes.append(spline)
-            if pan_end is not None:
-                tf.set_input("Center", pan_end)
-            tf.pos = (110, 0)
-            nodes.insert(0, tf)
-            return EffectBlock(
-                nodes=nodes, input_name=tf_name, input_key="Input",
-                output_name=tf_name)
-
-        if windows:
-            if window is not None:
-                raise ValueError(
-                    "zoom_windows and one effect window cannot be combined")
-            if pan_end is not None:
-                raise ValueError(
-                    "a multi-window Ken Burns move cannot carry pan_end")
-            spline_name = f"{tf_name}Size"
-            held: dict[int, float] = {first: 1.0}
-            cursor = first
-            current = 1.0
-            previous_end = first - 1
-            for index, item in enumerate(windows):
-                try:
-                    w0 = int(item["first_frame"])
-                    w1 = int(item["last_frame"])
-                    zoom_start = float(item["zoom_start"])
-                    zoom_end = float(item["zoom_end"])
-                except (KeyError, TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"zoom window {index} is incomplete") from exc
-                if (w0 < first or w1 > last or w1 <= w0
-                        or w0 <= previous_end):
-                    raise ValueError(
-                        f"zoom window {index} frames [{w0}, {w1}] do not "
-                        f"fit as a separate span inside [{first}, {last}]")
-                if not math.isclose(zoom_start, current, rel_tol=0.0,
-                                    abs_tol=1e-4):
-                    raise ValueError(
-                        f"zoom window {index} starts at {zoom_start:g}, "
-                        f"but the held camera scale is {current:g}")
-                easing = item.get("easing", easing)
-                if easing not in EASING_FUNCTIONS:
-                    raise ValueError(
-                        f"Unknown drift easing {easing!r}: choose one of "
-                        f"{', '.join(sorted(EASING_FUNCTIONS))}.")
-                if w0 > cursor:
-                    held[w0] = current
-                ramp = BezierSpline.sampled(
-                    spline_name, start_frame=w0, end_frame=w1,
-                    easing=easing, scale=zoom_end - zoom_start,
-                    offset=zoom_start, color=(233, 217, 11))
-                for keyframe in ramp.keyframes:
-                    held[keyframe.frame] = keyframe.value
-                held[w1] = zoom_end
-                current = zoom_end
-                cursor = w1 + 1
-                previous_end = w1
-            if cursor <= last:
-                held[last] = current
+        elif kind == "static":
+            if payload != 1.0:
+                # A constant reframe - what cut_in is. Without this a
+                # static zoom produced a Transform with Size left at its
+                # default of 1, so the effect drew nothing.
+                tf.set_input("Size", payload)
+        else:
+            # A punch: the three-point spline, peak at the middle.
+            seg_dur = last - first
+            mid_frame = first + seg_dur // 2
+            third = seg_dur // 3
             spline = BezierSpline(spline_name)
-            for frame in sorted(held):
-                spline.add_key(frame, round(held[frame], 6))
-            spline.linearize()
-            tf.set_input("Size", spline)
-            nodes.append(spline)
-            tf.pos = (110, 0)
-            nodes.insert(0, tf)
-            return EffectBlock(
-                nodes=nodes, input_name=tf_name, input_key="Input",
-                output_name=tf_name)
 
-        w0, w1 = first, last
-        if window is not None:
-            try:
-                w0 = max(first, min(last, int(window[0])))
-                w1 = max(first, min(last, int(window[1])))
-            except (TypeError, ValueError, IndexError):
-                w0, w1 = first, last
-        windowed = (w0, w1) != (first, last)
+            rh0 = start + (mid - start) * 0.33
+            lh_end = end + (mid - end) * 0.33
 
-        if windowed:
-            # The anchored span: the move plays inside [w0, w1] and
-            # the Size holds neutral outside it. Holds sit one frame
-            # off the window edges so the punch snaps in and out
-            # instead of ramping in from frame 0.
-            held: dict[int, float] = {}
-            if w0 > first:
-                held[first] = 1.0
-                if w0 - 1 > first:
-                    held[w0 - 1] = 1.0
-            if w1 < last:
-                if w1 + 1 < last:
-                    held[w1 + 1] = 1.0
-                held[last] = 1.0
-            spline_name = f"{tf_name}Size"
-            if not has_anim:
-                held[w0] = start
-                held[w1] = end
-            elif _is_midpoint(start, mid, end):
-                if easing not in EASING_FUNCTIONS:
-                    raise ValueError(
-                        f"Unknown drift easing {easing!r}: choose one of "
-                        f"{', '.join(sorted(EASING_FUNCTIONS))}."
-                    )
-                _ramp = BezierSpline.sampled(
-                    spline_name,
-                    start_frame=w0, end_frame=w1,
-                    easing=easing,
-                    scale=end - start, offset=start,
-                    color=(233, 217, 11),
-                )
-                for _kf in _ramp.keyframes:
-                    held[_kf.frame] = _kf.value
-            else:
-                seg_dur = w1 - w0
-                mid_frame = w0 + seg_dur // 2
-                held[w0] = start
-                held[mid_frame] = mid
-                held[w1] = end
-            spline = BezierSpline(spline_name)
-            for _f in sorted(held):
-                spline.add_key(_f, round(held[_f], 6))
-            spline.linearize()
-            tf.set_input("Size", spline)
-            nodes.append(spline)
-        elif has_anim:
-
-            spline_name = f"{tf_name}Size"
-            if _is_midpoint(start, mid, end):
-                # A drift: one eased ramp, baked per frame. `sampled`
-                # writes Linear flags that Resolve ignores, so the
-                # spline is linearized into explicit handles - the
-                # easing is verified in the serialized comp, never in
-                # the flags.
-                if easing not in EASING_FUNCTIONS:
-                    raise ValueError(
-                        f"Unknown drift easing {easing!r}: choose one of "
-                        f"{', '.join(sorted(EASING_FUNCTIONS))}."
-                    )
-                spline = BezierSpline.sampled(
-                    spline_name,
-                    start_frame=first, end_frame=last,
-                    easing=easing,
-                    scale=end - start, offset=start,
-                    color=(233, 217, 11),
-                )
-                spline.linearize()
-            else:
-                # A punch: the three-point spline, peak at the middle.
-                seg_dur = last - first
-                mid_frame = first + seg_dur // 2
-                third = seg_dur // 3
-                spline = BezierSpline(spline_name)
-
-                rh0 = start + (mid - start) * 0.33
-                lh_end = end + (mid - end) * 0.33
-
-                spline.add_key(first, start, rh=(first + third, round(rh0, 4)))
-                spline.add_key(
-                    mid_frame, mid,
-                    lh=(mid_frame - third, mid),
-                    rh=(mid_frame + third, mid),
-                )
-                spline.add_key(last, end, lh=(last - third, round(lh_end, 4)))
+            spline.add_key(first, start, rh=(first + third, round(rh0, 4)))
+            spline.add_key(
+                mid_frame, mid,
+                lh=(mid_frame - third, mid),
+                rh=(mid_frame + third, mid),
+            )
+            spline.add_key(last, end, lh=(last - third, round(lh_end, 4)))
 
             tf.set_input("Size", spline)
             nodes.append(spline)
-        elif start != 1.0:
-            # A constant reframe - what cut_in is. Without this a
-            # static zoom produced a Transform with Size left at its
-            # default of 1, so the effect drew nothing.
-            tf.set_input("Size", start)
 
         if pan_end is not None:
             tf.set_input("Center", pan_end)
@@ -1440,9 +1550,6 @@ class fx:
         if x_amount <= 0 and y_amount <= 0:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
-        import random
-        r = random.Random(42) # Deterministic for reproducible comps
-
         tf_name = _next_name("ShakeTransform")
         tf = FusionNode(tf_name, "Transform")
         tf.set_attr("CtrlWZoom", False)
@@ -1453,19 +1560,10 @@ class fx:
         x_spline = BezierSpline(f"{tf_name}X")
         y_spline = BezierSpline(f"{tf_name}Y")
 
-        def envelope(frame: int) -> float:
-            if not decay_frames or decay_frames <= 0:
-                return 1.0
-            if frame >= decay_frames:
-                return 0.0
-            return 1.0 - (frame / float(decay_frames))
-
-        for f in range(0, clip_dur):
-            scale = envelope(f)
-            xo = r.uniform(-x_amount, x_amount) * scale
-            yo = r.uniform(-y_amount, y_amount) * scale
-            x_spline.add_key(f, 0.5 + xo, flags={"Linear": True})
-            y_spline.add_key(f, 0.5 + yo, flags={"Linear": True})
+        for f, (cx, cy) in enumerate(shake_center_curve(
+                clip_dur, x_amount, y_amount, decay_frames)):
+            x_spline.add_key(f, cx, flags={"Linear": True})
+            y_spline.add_key(f, cy, flags={"Linear": True})
 
         x_spline.linearize()
         y_spline.linearize()

@@ -65,8 +65,20 @@ from typing import Any
 
 try:
     from library.tools.project_model import SCHEMA_VERSION, validate_project_model
+    from library.tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+        UnprojectableMove,
+        move_comp_frames,
+        project_move,
+    )
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools.project_model import SCHEMA_VERSION, validate_project_model
+    from tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+        UnprojectableMove,
+        move_comp_frames,
+        project_move,
+    )
 
 ADAPTER_VERSION = 1
 """Version of this projection/ingest contract (``details.adapter_version``)."""
@@ -109,15 +121,22 @@ mapped: inventing an upstream effect id or parameter name would be a
 guess about a young, fast-moving engine, so anything else raises
 :class:`UnknownEffect`.
 
-Surveyed and deliberately unmapped: the plan_vfx toolkit
-(``slow_zoom_in/out``, ``zoom_emphasis``, ``screen_shake``, ``cut_in``)
-is Fusion-transform vocabulary with no exact EffectCraft counterpart
-measured; the motion-graphics roster states dimensions, never values;
-built-in Fusion clip effects are Resolve-side. Graphics IR's blur and
-drop-shadow filters share concepts with ``ec.blur.gaussian`` but are a
-different vocabulary (Graphics IR filter nodes, not model effects) and
-are not minted as model effects by any producer, so no mapping claims
-them.
+Surveyed and deliberately unmapped: the motion-graphics roster states
+dimensions, never values; built-in Fusion clip effects are Resolve-side.
+Graphics IR's blur and drop-shadow filters share concepts with
+``ec.blur.gaussian`` but are a different vocabulary (Graphics IR filter
+nodes, not model effects) and are not minted as model effects by any
+producer, so no mapping claims them.
+
+The plan_vfx toolkit (``slow_zoom_in/out``, ``zoom_emphasis``,
+``screen_shake``, ``cut_in``) is NOT in this map either, but it is not
+unmapped: ``move.*`` model classes project through
+:mod:`library.tools.project_model_effectcraft_moves` onto keyframed
+``transform/scale`` and ``transform/position`` layer keys - moves are
+Fusion-transform vocabulary, and EffectCraft carries them as transform
+animation, not as engine effects. Anything in that module that cannot
+meet the declared tolerance keeps refusing with
+:class:`UnprojectableMove <library.tools.project_model_effectcraft_moves.UnprojectableMove>`.
 """
 
 MASK_SHAPES = ("ellipse", "rect")
@@ -149,6 +168,66 @@ class UnprojectableMask(EffectCraftAdapterError):
 
 class UnprojectableEffectTarget(EffectCraftAdapterError):
     """An effect whose target is no projected clip use or mask."""
+
+
+def _project_move_effect(effect: dict[str, Any],
+                         layers: dict[str, dict[str, str]],
+                         mask_layers: dict[str, str],
+                         model: dict[str, Any], comp: CompSpec,
+                         operations: list[dict[str, Any]],
+                         effect_layers: dict[str, dict[str, Any]]) -> None:
+    """Project one ``move.*`` effect into transform keyframe operations.
+
+    Moves are per-clip Transforms, not engine effects: the target must
+    be a projected clip use (a mask has no picture of its own to
+    move), and the effect must carry no model keyframes (the curve is
+    baked from its params; keyframes would double-drive it).
+    """
+    target = effect["target_id"]
+    layer = None
+    for use in model["clip_uses"]:
+        if use["id"] == target:
+            layer = next(
+                (name for name, bound in layers.items()
+                 if bound["clip_use"] == target),
+                None,
+            )
+    if layer is None:
+        if target in mask_layers:
+            raise UnprojectableMove(
+                f"move {effect['id']!r} ({effect['class_id']}) targets "
+                f"mask {target!r}: moves are per-clip Transforms, and "
+                f"a mask has no picture of its own to move"
+            )
+        raise UnprojectableEffectTarget(
+            f"effect {effect['id']!r} target {target!r} is no projected "
+            "clip use or mask"
+        )
+    if effect.get("keyframes"):
+        raise UnprojectableMove(
+            f"move {effect['id']!r} carries model keyframes with no "
+            f"parameter for them to animate: the move's curve is baked "
+            f"from its params, so keyframes are refused rather than "
+            f"double-driven"
+        )
+    interval = effect["interval"]
+    ticks = _ticks_per_second(model, interval["clock_id"])
+    first, last = move_comp_frames(interval, ticks, comp.frame_rate,
+                                   effect["id"])
+    fresh = project_move(
+        class_id=effect["class_id"], effect_id=effect["id"],
+        parameters=effect["parameters"], layer=layer,
+        first_frame=first, last_frame=last,
+        comp_frames=comp.expected_frames(),
+        comp_width=comp.width, comp_height=comp.height,
+        frame_rate=comp.frame_rate)
+    operations.extend(fresh)
+    effect_layers[effect["id"]] = {
+        "layer": layer,
+        "move": effect["class_id"],
+        "paths": sorted({op["path"] for op in fresh}),
+        "frames": [first, last],
+    }
 
 
 class EmptyProjection(EffectCraftAdapterError):
@@ -868,6 +947,14 @@ def project_to_request(
 
     effect_index_per_layer: dict[str, int] = {}
     for effect in sorted(model["effects"], key=lambda e: e["id"]):
+        if effect["class_id"] in MOVE_CLASS_IDS:
+            # A move is transform animation, not an engine effect: it
+            # takes no effect slot and needs no registry entry (the
+            # driver's keyframe path carries it). Anything it cannot
+            # express exactly refuses with UnprojectableMove.
+            _project_move_effect(effect, layers, mask_layers, model,
+                                 comp, operations, effect_layers)
+            continue
         entry = mapping.get(effect["class_id"])
         if entry is None:
             raise UnknownEffect(

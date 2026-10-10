@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "project_id": "ec-conformance-move-shake",
+  "operations": [
+    {
+      "op": "new_comp",
+      "name": "Main",
+      "width": 96,
+      "height": 64,
+      "frame_rate": 10.0,
+      "duration": 0.5
+    },
+    {
+      "op": "import_footage",
+      "path": "checker.bmp"
+    },
+    {
+      "op": "add_footage_layer",
+      "footage": "checker.bmp"
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "transform/position",
+      "time": 0.0,
+      "value": [
+        48.53539890607827,
+        32.60798623331499
+      ]
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "transform/position",
+      "time": 0.1,
+      "value": [
+        47.42407505502494,
+        32.23619350344634
+      ]
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "transform/position",
+      "time": 0.2,
+      "value": [
+        48.30268315412994,
+        31.92460821869956
+      ]
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "transform/position",
+      "time": 0.3,
+      "value": [
+        48.0,
+        32.0
+      ]
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "transform/position",
+      "time": 0.4,
+      "value": [
+        48.0,
+        32.0
+      ]
+    }
+  ],
+  "renders": [
+    {
+      "format": "rgba_png_sequence",
+      "comp": "Main",
+      "output": "move-shake_#####.png",
+      "start_seconds": null,
+      "end_seconds": null
+    }
+  ]
+}

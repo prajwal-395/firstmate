@@ -29,6 +29,10 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         "request-effect.json",
         "request-title.json",
         "request-matte.json",
+        "request-move-drift.json",
+        "request-move-punch.json",
+        "request-move-shake.json",
+        "request-move-cut.json",
     ] {
         let request = read_request(name);
         assert_eq!(request.version, ren_effectcraft::REQUEST_VERSION);
@@ -63,6 +67,79 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         if id == "ec.blur.gaussian"
             && params.get("blurriness").and_then(|v| v.as_f64()) == Some(6.0)
     ));
+    // Unit 7c: moves project as transform keys, never engine effects.
+    // The drift opens at neutral scale and closes 4% in; the punch
+    // peaks mid-window and settles back; the shake carries only
+    // position keys; the cut holds one constant reframe.
+    let drift = read_request("request-move-drift.json");
+    let scales: Vec<(f64, f64)> = drift
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Keyframe { path, time, value, .. }
+                if path == "transform/scale" =>
+            {
+                Some((*time, value[0].as_f64().unwrap()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(scales.len(), 5);
+    assert!((scales[0].1 - 100.0).abs() < 1e-9);
+    assert!((scales[4].1 - 104.0).abs() < 1e-9);
+    assert!(drift.operations.iter().all(|op| !matches!(
+        op,
+        Operation::ApplyEffect { .. }
+    )));
+    let punch = read_request("request-move-punch.json");
+    let peaks: Vec<f64> = punch
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Keyframe { path, value, .. }
+                if path == "transform/scale" =>
+            {
+                Some(value[0].as_f64().unwrap())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(peaks.len(), 5);
+    assert!((peaks[1] - 108.0).abs() < 1e-9);
+    assert!((peaks[3] - 100.0).abs() < 1e-9);
+    let shake = read_request("request-move-shake.json");
+    assert!(shake.operations.iter().all(|op| !matches!(
+        op,
+        Operation::Keyframe { path, .. }
+        if path == "transform/scale"
+    )));
+    assert_eq!(
+        shake
+            .operations
+            .iter()
+            .filter(|op| matches!(
+                op,
+                Operation::Keyframe { path, .. }
+                if path == "transform/position"
+            ))
+            .count(),
+        5
+    );
+    let cut = read_request("request-move-cut.json");
+    let held: Vec<f64> = cut
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Keyframe { path, value, .. }
+                if path == "transform/scale" =>
+            {
+                Some(value[0].as_f64().unwrap())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(held.contains(&106.0));
+    assert!(held.contains(&100.0));
 }
 
 #[test]
@@ -73,6 +150,10 @@ fn projected_operations_validate_against_the_pinned_registry() {
         "request-effect.json",
         "request-title.json",
         "request-matte.json",
+        "request-move-drift.json",
+        "request-move-punch.json",
+        "request-move-shake.json",
+        "request-move-cut.json",
     ] {
         let request = read_request(name);
         for op in &request.operations {
