@@ -314,7 +314,10 @@ When it is implemented and committed, push your branch and open a PR with \`gh-a
 When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done: PR {url} checks complete\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
-When the repo runs no checks for the PR (no workflow in \`.github/workflows\` fires on pull requests for this branch), there is no verdict to wait for: append \`done: PR {url}\` and stop. Never wait on checks that do not exist.
+When the repo runs no checks for the PR (no workflow in \`.github/workflows\` fires on pull requests for this branch), there is no verdict to wait for.
+Run the affected test suites and lint yourself before reporting.
+Then append \`done: PR {url} tests <passed>/<total> lint <clean|failed> sha <sha>\` with the counts you saw and the commit sha you ran them against, and stop.
+Never wait on checks that do not exist.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
