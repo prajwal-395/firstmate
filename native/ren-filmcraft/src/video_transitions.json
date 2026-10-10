@@ -1,0 +1,2233 @@
+[
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "additive_dissolve",
+    "kind": "VideoTransition",
+    "name": "Additive Dissolve",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "additive_dissolve_legacy",
+    "kind": "VideoTransition",
+    "name": "Additive Dissolve (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "band_slide",
+    "kind": "VideoTransition",
+    "name": "Band Slide",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "barn_doors",
+    "kind": "VideoTransition",
+    "name": "Barn Doors",
+    "params": [
+      "orientation",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "block_motion",
+    "kind": "VideoTransition",
+    "name": "Block Motion",
+    "params": [
+      "direction",
+      "blocks",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "blur_dissolve",
+    "kind": "VideoTransition",
+    "name": "Blur Dissolve",
+    "params": [
+      "blur"
+    ],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "burn_alpha",
+    "kind": "VideoTransition",
+    "name": "Burn Alpha",
+    "params": [
+      "burn_color",
+      "softness",
+      "seed"
+    ],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "burn_chroma",
+    "kind": "VideoTransition",
+    "name": "Burn Chroma",
+    "params": [
+      "amount"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "center_split",
+    "kind": "VideoTransition",
+    "name": "Center Split",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "chaos",
+    "kind": "VideoTransition",
+    "name": "Chaos",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "checker_wipe",
+    "kind": "VideoTransition",
+    "name": "Checker Wipe",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "chroma_leak",
+    "kind": "VideoTransition",
+    "name": "Chroma Leak",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "clock_wipe",
+    "kind": "VideoTransition",
+    "name": "Clock Wipe",
+    "params": [
+      "center",
+      "start",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "clock_wipe_legacy",
+    "kind": "VideoTransition",
+    "name": "Clock Wipe (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "cross_dissolve",
+    "kind": "VideoTransition",
+    "name": "Cross Dissolve",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "cross_dissolve_legacy",
+    "kind": "VideoTransition",
+    "name": "Cross Dissolve (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "cross_zoom",
+    "kind": "VideoTransition",
+    "name": "Cross Zoom",
+    "params": [
+      "center",
+      "strength"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "cross_zoom_legacy",
+    "kind": "VideoTransition",
+    "name": "Cross Zoom (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "cube_spin",
+    "kind": "VideoTransition",
+    "name": "Cube Spin",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "dip_to_black",
+    "kind": "VideoTransition",
+    "name": "Dip to Black",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "dip_to_black_legacy",
+    "kind": "VideoTransition",
+    "name": "Dip to Black (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "dip_to_color",
+    "kind": "VideoTransition",
+    "name": "Dip to Color",
+    "params": [
+      "color",
+      "hold"
+    ],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "dip_to_white",
+    "kind": "VideoTransition",
+    "name": "Dip to White",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "dip_to_white_legacy",
+    "kind": "VideoTransition",
+    "name": "Dip to White (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "directional_blur_transition",
+    "kind": "VideoTransition",
+    "name": "Directional Blur",
+    "params": [
+      "angle",
+      "blur"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "earthquake",
+    "kind": "VideoTransition",
+    "name": "Earthquake",
+    "params": [
+      "shake",
+      "seed",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "film_dissolve",
+    "kind": "VideoTransition",
+    "name": "Film Dissolve",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "film_dissolve_legacy",
+    "kind": "VideoTransition",
+    "name": "Film Dissolve (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "film_roll",
+    "kind": "VideoTransition",
+    "name": "Film Roll",
+    "params": [
+      "direction",
+      "gap",
+      "gap_color",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "flare",
+    "kind": "VideoTransition",
+    "name": "Flare",
+    "params": [
+      "color",
+      "amount",
+      "angle"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "flash",
+    "kind": "VideoTransition",
+    "name": "Flash",
+    "params": [
+      "color",
+      "intensity"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "flicker",
+    "kind": "VideoTransition",
+    "name": "Flicker",
+    "params": [
+      "flickers",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "flip_motion",
+    "kind": "VideoTransition",
+    "name": "Flip Motion",
+    "params": [
+      "direction",
+      "perspective",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "flip_over",
+    "kind": "VideoTransition",
+    "name": "Flip Over",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "fold_motion",
+    "kind": "VideoTransition",
+    "name": "Fold Motion",
+    "params": [
+      "direction",
+      "perspective"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "frame",
+    "kind": "VideoTransition",
+    "name": "Frame",
+    "params": [
+      "frame_width",
+      "frame_color",
+      "scale"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "glass",
+    "kind": "VideoTransition",
+    "name": "Glass",
+    "params": [
+      "cell_size",
+      "refraction",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "glitch",
+    "kind": "VideoTransition",
+    "name": "Glitch",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "glow",
+    "kind": "VideoTransition",
+    "name": "Glow",
+    "params": [
+      "radius",
+      "intensity"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "gradient_wipe",
+    "kind": "VideoTransition",
+    "name": "Gradient Wipe",
+    "params": [
+      "softness"
+    ],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "grunge",
+    "kind": "VideoTransition",
+    "name": "Grunge",
+    "params": [
+      "scale",
+      "edge_color",
+      "edge_width",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "inset",
+    "kind": "VideoTransition",
+    "name": "Inset",
+    "params": [
+      "corner",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "iris_box",
+    "kind": "VideoTransition",
+    "name": "Iris Box",
+    "params": [
+      "center",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "iris_cross",
+    "kind": "VideoTransition",
+    "name": "Iris Cross",
+    "params": [
+      "center",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "iris_diamond",
+    "kind": "VideoTransition",
+    "name": "Iris Diamond",
+    "params": [
+      "center",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "iris_round",
+    "kind": "VideoTransition",
+    "name": "Iris Round",
+    "params": [
+      "center",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "kaleidoscope",
+    "kind": "VideoTransition",
+    "name": "Kaleidoscope",
+    "params": [
+      "segments",
+      "zoom"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "lens_blur",
+    "kind": "VideoTransition",
+    "name": "Lens Blur",
+    "params": [
+      "radius"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "light_leak",
+    "kind": "VideoTransition",
+    "name": "Light Leak",
+    "params": [
+      "color",
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "light_sweep",
+    "kind": "VideoTransition",
+    "name": "Light Sweep",
+    "params": [
+      "angle",
+      "width",
+      "color",
+      "amount"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "linear_wipe",
+    "kind": "VideoTransition",
+    "name": "Linear Wipe",
+    "params": [
+      "angle",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "liquid_distortion",
+    "kind": "VideoTransition",
+    "name": "Liquid Distortion",
+    "params": [
+      "amount",
+      "scale",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "louver",
+    "kind": "VideoTransition",
+    "name": "Louver",
+    "params": [
+      "slats",
+      "orientation"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "luma_fade",
+    "kind": "VideoTransition",
+    "name": "Luma Fade",
+    "params": [
+      "source",
+      "softness",
+      "invert"
+    ],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "mirror_transition",
+    "kind": "VideoTransition",
+    "name": "Mirror",
+    "params": [
+      "direction"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "morph_cut",
+    "kind": "VideoTransition",
+    "name": "Morph Cut",
+    "params": [],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Dissolve"
+    ],
+    "folder": "Dissolve",
+    "id": "mosaic_transition",
+    "kind": "VideoTransition",
+    "name": "Mosaic",
+    "params": [
+      "block_size",
+      "dissolve"
+    ],
+    "path": "Video Transitions/Dissolve"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Smart Tools"
+    ],
+    "folder": "Smart Tools",
+    "id": "motion_camera",
+    "kind": "VideoTransition",
+    "name": "Motion Camera",
+    "params": [
+      "zoom",
+      "rotation",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Smart Tools"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Smart Tools"
+    ],
+    "folder": "Smart Tools",
+    "id": "motion_tween",
+    "kind": "VideoTransition",
+    "name": "Motion Tween",
+    "params": [
+      "scale"
+    ],
+    "path": "Video Transitions/Smart Tools"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "neon_wipe",
+    "kind": "VideoTransition",
+    "name": "Neon Wipe",
+    "params": [
+      "angle",
+      "color",
+      "glow",
+      "amount"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "non_additive_dissolve",
+    "kind": "VideoTransition",
+    "name": "Non-Additive Dissolve",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "page_peel",
+    "kind": "VideoTransition",
+    "name": "Page Peel",
+    "params": [
+      "corner",
+      "radius",
+      "shadow"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "page_turn",
+    "kind": "VideoTransition",
+    "name": "Page Turn",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "panel_wipe",
+    "kind": "VideoTransition",
+    "name": "Panel Wipe",
+    "params": [
+      "direction",
+      "panels",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "phosphor",
+    "kind": "VideoTransition",
+    "name": "Phosphor",
+    "params": [
+      "color",
+      "decay"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "plateau_wipe",
+    "kind": "VideoTransition",
+    "name": "Plateau Wipe",
+    "params": [
+      "angle",
+      "plateaus",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "pop_motion",
+    "kind": "VideoTransition",
+    "name": "Pop Motion",
+    "params": [
+      "overshoot",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "pull_motion",
+    "kind": "VideoTransition",
+    "name": "Pull Motion",
+    "params": [
+      "direction",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "push",
+    "kind": "VideoTransition",
+    "name": "Push",
+    "params": [
+      "direction",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "push_legacy",
+    "kind": "VideoTransition",
+    "name": "Push (Legacy)",
+    "params": [
+      "direction"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "radial_blur",
+    "kind": "VideoTransition",
+    "name": "Radial Blur",
+    "params": [
+      "center",
+      "angle"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "radial_wipe",
+    "kind": "VideoTransition",
+    "name": "Radial Wipe",
+    "params": [
+      "corner",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "radial_wipe_legacy",
+    "kind": "VideoTransition",
+    "name": "Radial Wipe (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "ray",
+    "kind": "VideoTransition",
+    "name": "Ray",
+    "params": [
+      "center",
+      "amount",
+      "length"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "roll",
+    "kind": "VideoTransition",
+    "name": "Roll",
+    "params": [
+      "direction",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "roll_3d",
+    "kind": "VideoTransition",
+    "name": "3D Roll",
+    "params": [
+      "direction",
+      "perspective"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Smart Tools"
+    ],
+    "folder": "Smart Tools",
+    "id": "shape_dissolve",
+    "kind": "VideoTransition",
+    "name": "Shape Dissolve",
+    "params": [
+      "shape",
+      "size",
+      "softness",
+      "rotation",
+      "order",
+      "seed"
+    ],
+    "path": "Video Transitions/Smart Tools"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Smart Tools"
+    ],
+    "folder": "Smart Tools",
+    "id": "shape_flow",
+    "kind": "VideoTransition",
+    "name": "Shape Flow",
+    "params": [
+      "shape",
+      "direction",
+      "softness"
+    ],
+    "path": "Video Transitions/Smart Tools"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "slice",
+    "kind": "VideoTransition",
+    "name": "Slice",
+    "params": [
+      "slices",
+      "angle",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "slide",
+    "kind": "VideoTransition",
+    "name": "Slide",
+    "params": [
+      "direction",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "slide_legacy",
+    "kind": "VideoTransition",
+    "name": "Slide (Legacy)",
+    "params": [
+      "direction"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "soft_wipe",
+    "kind": "VideoTransition",
+    "name": "Soft Wipe",
+    "params": [
+      "angle",
+      "feather"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "solarize",
+    "kind": "VideoTransition",
+    "name": "Solarize",
+    "params": [
+      "amount"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "spin_3d",
+    "kind": "VideoTransition",
+    "name": "3D Spin",
+    "params": [
+      "direction",
+      "perspective"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "spin_motion",
+    "kind": "VideoTransition",
+    "name": "Spin Motion",
+    "params": [
+      "rotation",
+      "spin",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "spinback_3d",
+    "kind": "VideoTransition",
+    "name": "3D Spinback",
+    "params": [
+      "direction",
+      "depth"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "split",
+    "kind": "VideoTransition",
+    "name": "Split",
+    "params": [
+      "orientation",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "split_legacy",
+    "kind": "VideoTransition",
+    "name": "Split (Legacy)",
+    "params": [],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "spring_motion",
+    "kind": "VideoTransition",
+    "name": "Spring Motion",
+    "params": [
+      "direction",
+      "bounce",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "star_wipe",
+    "kind": "VideoTransition",
+    "name": "Star Wipe",
+    "params": [
+      "center",
+      "points",
+      "inner",
+      "rotation",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "stretch",
+    "kind": "VideoTransition",
+    "name": "Stretch",
+    "params": [
+      "direction"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Wipe"
+    ],
+    "folder": "Wipe",
+    "id": "stretch_wipe",
+    "kind": "VideoTransition",
+    "name": "Stretch Wipe",
+    "params": [
+      "direction",
+      "stretch"
+    ],
+    "path": "Video Transitions/Wipe"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "stripe",
+    "kind": "VideoTransition",
+    "name": "Stripe",
+    "params": [
+      "stripes",
+      "angle",
+      "color"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Text"
+    ],
+    "folder": "Text",
+    "id": "text_animator",
+    "kind": "VideoTransition",
+    "name": "Text Animator",
+    "params": [
+      "columns",
+      "rows"
+    ],
+    "path": "Video Transitions/Text"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Animation"
+    ],
+    "folder": "Animation",
+    "id": "travel_motion",
+    "kind": "VideoTransition",
+    "name": "Travel Motion",
+    "params": [
+      "direction",
+      "zoom",
+      "motion_blur"
+    ],
+    "path": "Video Transitions/Animation"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "tv_power",
+    "kind": "VideoTransition",
+    "name": "TV Power",
+    "params": [
+      "glow_color",
+      "line"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Text"
+    ],
+    "folder": "Text",
+    "id": "typewriter",
+    "kind": "VideoTransition",
+    "name": "Typewriter",
+    "params": [
+      "columns",
+      "rows",
+      "cursor"
+    ],
+    "path": "Video Transitions/Text"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": false
+    },
+    "category": [
+      "Obsolete",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "venetian_blinds",
+    "kind": "VideoTransition",
+    "name": "Venetian Blinds",
+    "params": [],
+    "path": "Obsolete/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Grunge & Distort"
+    ],
+    "folder": "Grunge & Distort",
+    "id": "vhs_damage",
+    "kind": "VideoTransition",
+    "name": "VHS Damage",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Grunge & Distort"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_chroma_leaks",
+    "kind": "VideoTransition",
+    "name": "VR Chroma Leaks",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_gradient_wipe",
+    "kind": "VideoTransition",
+    "name": "VR Gradient Wipe",
+    "params": [
+      "softness",
+      "invert"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_iris_wipe",
+    "kind": "VideoTransition",
+    "name": "VR Iris Wipe",
+    "params": [
+      "center",
+      "feather",
+      "border_width",
+      "border_color",
+      "antialias"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_light_leaks",
+    "kind": "VideoTransition",
+    "name": "VR Light Leaks",
+    "params": [
+      "amount",
+      "seed"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_light_rays",
+    "kind": "VideoTransition",
+    "name": "VR Light Rays",
+    "params": [
+      "center",
+      "amount"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_mobius_zoom",
+    "kind": "VideoTransition",
+    "name": "VR Mobius Zoom",
+    "params": [
+      "zoom",
+      "twist"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_random_blocks",
+    "kind": "VideoTransition",
+    "name": "VR Random Blocks",
+    "params": [
+      "block_size",
+      "softness",
+      "seed"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Immersive Video"
+    ],
+    "folder": "Immersive Video",
+    "id": "vr_spherical_blur",
+    "kind": "VideoTransition",
+    "name": "VR Spherical Blur",
+    "params": [
+      "blur"
+    ],
+    "path": "Video Transitions/Immersive Video"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Transformers"
+    ],
+    "folder": "Transformers",
+    "id": "wave",
+    "kind": "VideoTransition",
+    "name": "Wave",
+    "params": [
+      "direction",
+      "amplitude",
+      "wavelength"
+    ],
+    "path": "Video Transitions/Transformers"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Slide"
+    ],
+    "folder": "Slide",
+    "id": "whip",
+    "kind": "VideoTransition",
+    "name": "Whip",
+    "params": [
+      "direction",
+      "blur"
+    ],
+    "path": "Video Transitions/Slide"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "whip_legacy",
+    "kind": "VideoTransition",
+    "name": "Whip (Legacy)",
+    "params": [
+      "direction"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": false,
+      "yuv": true
+    },
+    "category": [
+      "Legacy",
+      "Video Transitions"
+    ],
+    "folder": "Video Transitions",
+    "id": "wipe",
+    "kind": "VideoTransition",
+    "name": "Wipe",
+    "params": [
+      "direction"
+    ],
+    "path": "Legacy/Video Transitions"
+  },
+  {
+    "badges": {
+      "accelerated": true,
+      "float32": true,
+      "yuv": false
+    },
+    "category": [
+      "Video Transitions",
+      "Lights & Blurs"
+    ],
+    "folder": "Lights & Blurs",
+    "id": "zoom_blur",
+    "kind": "VideoTransition",
+    "name": "Zoom Blur",
+    "params": [
+      "center",
+      "strength"
+    ],
+    "path": "Video Transitions/Lights & Blurs"
+  }
+]

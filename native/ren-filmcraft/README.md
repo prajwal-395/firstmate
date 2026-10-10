@@ -1,8 +1,9 @@
 # ren-filmcraft
 
 Ren's headless FilmCraft adapter. It invokes only `filmcraft-cli`, never the desktop UI or its
-crate graph. The pin currently lives in `src/lib.rs` as one immutable SHA; replace that source with
-the intake lane's manifest constant when it lands. The CLI is located from `REN_FILMCRAFT_CLI` or
+crate graph. The pin lives in `src/lib.rs` as one immutable SHA (`FILMCRAFT_REVISION`);
+that constant is the sole pin source and `library/tools/upstream_engines.json` mirrors it,
+enforced by `assert_pins_match_crates` (`library/tools/local_ci/upstream.py`). The CLI is located from `REN_FILMCRAFT_CLI` or
 `FILMCRAFT_CLI`; otherwise it is installed on demand into a revision-addressed directory under
 `~/.cache/ren/filmcraft/` using the exact Git revision and Cargo's lockfile.
 

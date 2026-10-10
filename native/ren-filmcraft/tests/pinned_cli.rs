@@ -201,3 +201,46 @@ fn pinned_cli_drives_edits_inspection_still_render_and_all_required_exports() {
     }
     assert!(clip > 0);
 }
+
+#[test]
+fn checked_in_transition_authority_matches_the_pinned_cli() {
+    // G10 drift guard: `src/video_transitions.json` is the plan-time
+    // authority for transition effect validation. The pinned CLI must still
+    // report exactly its id set; a pin move re-measures the file.
+    let cli = ren_filmcraft::locate_or_build_cli().unwrap();
+    let output = std::process::Command::new(&cli)
+        .args([
+            "exec",
+            "effects.list",
+            r#"{"kind":"VideoTransition"}"#,
+            "--compact",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "effects.list must succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let live: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut live_ids: Vec<&str> = live
+        .as_array()
+        .expect("effects.list answers an array")
+        .iter()
+        .map(|entry| entry["id"].as_str().expect("transition entry carries id"))
+        .collect();
+    live_ids.sort_unstable();
+    let authority: serde_json::Value =
+        serde_json::from_str(include_str!("../src/video_transitions.json")).unwrap();
+    let mut pinned_ids: Vec<&str> = authority
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    pinned_ids.sort_unstable();
+    assert_eq!(
+        live_ids, pinned_ids,
+        "pinned CLI drifted from the checked-in transition authority; re-measure `effects.list` and update `src/video_transitions.json` with the pin move"
+    );
+}

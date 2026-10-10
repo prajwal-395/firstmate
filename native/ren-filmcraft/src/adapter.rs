@@ -549,6 +549,27 @@ fn after_i64(edit: &EditOperation, after: &serde_json::Value, key: &str) -> Resu
     })
 }
 
+/// Refuse an unknown transition effect before planning any driver operation.
+/// The engine fails such names generically at execution, after the project
+/// may already be mutated; the checked-in authority
+/// (`src/video_transitions.json`, measured from the pinned CLI) lets this
+/// pure planner refuse first, with a named code. `None` (the engine default
+/// transition) stays valid; the transition-type mapping itself belongs to
+/// whoever mints the first producer.
+fn check_transition_effect(edit: &EditOperation, effect: Option<&str>) -> Result<()> {
+    match effect {
+        None => Ok(()),
+        Some(name) if super::transition_effect_known(name) => Ok(()),
+        Some(name) => Err(unsupported(
+            "unknown_transition_effect",
+            format!(
+                "edit `{}` names transition effect `{name}`, which is not among the pinned engine's VideoTransition names (`src/video_transitions.json`); omit `effect` for the engine default transition",
+                edit.id.0
+            ),
+        )),
+    }
+}
+
 /// Translate one model edit into the pinned driver operation. Only explicit
 /// `filmcraft.*` operations are supported here; Ren's own editorial
 /// vocabulary (`clip.trim` and the rest) translates through [`plan_ren_edit`],
@@ -619,15 +640,17 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
                         edit.id.0
                     ))
                 })?;
+            let effect = after
+                .get("effect")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            check_transition_effect(edit, effect.as_deref())?;
             Ok(Operation::Transition {
                 project,
                 clip,
                 edge,
                 frames,
-                effect: after
-                    .get("effect")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned),
+                effect,
             })
         }
         "filmcraft.audio_gain" => {
@@ -1025,15 +1048,17 @@ pub fn plan_ren_edit(
                         edit.id.0
                     ))
                 })?;
+            let effect = fields
+                .get("effect")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            check_transition_effect(edit, effect.as_deref())?;
             Ok(vec![Operation::Transition {
                 project,
                 clip,
                 edge,
                 frames,
-                effect: fields
-                    .get("effect")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned),
+                effect,
             }])
         }
         "audio.gain" => {
@@ -2415,6 +2440,61 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(export, Operation::Export { .. }));
+    }
+
+    #[test]
+    fn unknown_transition_effects_refuse_at_plan_time() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let context = EditContext {
+            project: Path::new("test.fcproj"),
+            clip_ids: &BTreeMap::from([("use-a".to_owned(), vec![7u64])]),
+        };
+        // Names the engine does not list refuse on every planning path,
+        // before any driver operation is produced.
+        for (operation, after) in [
+            (
+                "filmcraft.transition",
+                serde_json::json!({"edge": "in", "frames": 4, "effect": "smooth_cut"}),
+            ),
+            (
+                "transition",
+                serde_json::json!({"edge": "in", "frames": 4, "effect": "spin"}),
+            ),
+            (
+                "transition",
+                serde_json::json!({"transition": {"edge": "out", "frames": 4, "effect": "bogus_xyz_nope"}}),
+            ),
+        ] {
+            let edit = filmcraft_edit("edit-transition", operation, after);
+            let err = if operation.starts_with("filmcraft.") {
+                plan_edit(&edit, &context).unwrap_err()
+            } else {
+                plan_ren_edit(&model, &projection, &edit, &context).unwrap_err()
+            };
+            assert!(
+                matches!(err, AdapterError::Unsupported { ref code, .. } if code == "unknown_transition_effect"),
+                "{operation} must refuse the unknown effect, got {err:?}"
+            );
+        }
+        // Known ids, display names and case/space variants still plan, as
+        // does the omitted effect (the engine default transition).
+        for effect in [
+            serde_json::json!({"edge": "in", "frames": 4, "effect": "cross_dissolve"}),
+            serde_json::json!({"edge": "in", "frames": 4, "effect": "Cross Dissolve"}),
+            serde_json::json!({"edge": "in", "frames": 4, "effect": "SLIDE"}),
+            serde_json::json!({"edge": "in", "frames": 4}),
+        ] {
+            let edit = filmcraft_edit("edit-transition", "transition", effect.clone());
+            let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+            assert_eq!(operations.len(), 1);
+            assert!(matches!(operations[0], Operation::Transition { .. }));
+            let edit = filmcraft_edit("edit-transition", "filmcraft.transition", effect);
+            assert!(matches!(
+                plan_edit(&edit, &context).unwrap(),
+                Operation::Transition { .. }
+            ));
+        }
     }
 
     #[test]

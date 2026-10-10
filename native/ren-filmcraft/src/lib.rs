@@ -8,8 +8,10 @@ pub mod adapter;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::BTreeSet,
     path::{Path, PathBuf},
     process::Command,
+    sync::OnceLock,
 };
 use thiserror::Error;
 
@@ -21,6 +23,67 @@ pub const FILMCRAFT_CLI_VERSION: &str = "0.5.0";
 pub const FILMCRAFT_PROJECT_FORMAT: &str = "filmcraft.project";
 pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 13;
 pub const ADAPTER_SCHEMA: u32 = 1;
+
+/// Checked-in transition authority: verbatim `filmcraft-cli exec effects.list
+/// '{"kind":"VideoTransition"}'` output measured from the pinned revision.
+/// `plan_ren_edit` is pure (no I/O, no CLI), so plan-time validation reads
+/// this file compiled in rather than asking the engine; `tests/pinned_cli.rs`
+/// asserts the live CLI still reports exactly this id set, so a pin move
+/// re-measures the file instead of silently trusting it.
+const VIDEO_TRANSITIONS_JSON: &str = include_str!("video_transitions.json");
+
+/// The engine's own spelling rule (measured against the pinned CLI):
+/// surrounding whitespace is ignored, case is ignored, and one space equals
+/// one underscore - `Cross Dissolve`, `cross_dissolve` and `CROSS_DISSOLVE`
+/// all apply, while `cross-dissolve`, `cross__dissolve` and `Cross  Dissolve`
+/// all refuse. Both the transition id and its display name are accepted.
+pub fn normalize_transition_effect(raw: &str) -> String {
+    raw.trim().to_lowercase().replace(' ', "_")
+}
+
+fn transition_effect_names() -> &'static BTreeSet<String> {
+    static NAMES: OnceLock<BTreeSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let effects: Vec<Value> = serde_json::from_str(VIDEO_TRANSITIONS_JSON)
+            .expect("checked-in transition authority parses as a JSON array");
+        let mut names = BTreeSet::new();
+        for effect in &effects {
+            if let Some(id) = effect.get("id").and_then(Value::as_str) {
+                names.insert(normalize_transition_effect(id));
+            }
+            if let Some(name) = effect.get("name").and_then(Value::as_str) {
+                names.insert(normalize_transition_effect(name));
+            }
+        }
+        assert!(
+            !names.is_empty(),
+            "checked-in transition authority carries no names"
+        );
+        names
+    })
+}
+
+/// True when the pinned engine would accept `name` as a
+/// `sequence.applyVideoTransition` effect (id or display name, engine
+/// spelling rule). Used by the adapter so model edits refuse unknown names
+/// with a named code before any mutation.
+pub fn transition_effect_known(name: &str) -> bool {
+    transition_effect_names().contains(&normalize_transition_effect(name))
+}
+
+/// Refuse an unknown transition name before any mutation. `None` (the engine
+/// default transition) stays valid; anything else must normalize to an id or
+/// display name in the checked-in authority.
+pub fn validate_transition_effect(effect: Option<&str>) -> Result<()> {
+    match effect {
+        None => Ok(()),
+        Some(name) if transition_effect_known(name) => Ok(()),
+        Some(name) => Err(Error::Schema(format!(
+            "unknown FilmCraft transition effect `{name}`; it is not among the {} known names in the pinned authority (`src/video_transitions.json`, measured from revision {FILMCRAFT_REVISION}); omit `effect` for the engine default transition",
+            transition_effect_names().len()
+        ))),
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -496,13 +559,18 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
             edge,
             frames,
             effect,
-        } => (
-            Some(project),
-            "transition",
-            "sequence.applyVideoTransition",
-            json!({"clip":clip,"edge":edge,"frames":frames,"effect":effect}),
-            true,
-        ),
+        } => {
+            // Unknown names refuse here, before any CLI call mutates the
+            // project; the engine would fail them generically at execution.
+            validate_transition_effect(effect.as_deref())?;
+            (
+                Some(project),
+                "transition",
+                "sequence.applyVideoTransition",
+                json!({"clip":clip,"edge":edge,"frames":frames,"effect":effect}),
+                true,
+            )
+        }
         Operation::AudioGain {
             project,
             track,
@@ -1030,6 +1098,72 @@ mod tests {
         let losses = detect_move_loss(&dirty).unwrap();
         assert_eq!(losses.len(), 1);
         assert_eq!(losses[0].code, "move_overwrote");
+    }
+
+    #[test]
+    fn transition_authority_pins_the_pinned_engine_surface() {
+        // The authority shape: every entry is a named VideoTransition.
+        let effects: Vec<Value> =
+            serde_json::from_str(super::VIDEO_TRANSITIONS_JSON).expect("authority parses");
+        assert_eq!(effects.len(), 112);
+        assert!(effects.iter().all(|e| e["kind"] == "VideoTransition"
+            && e["id"].is_string()
+            && e["name"].is_string()));
+        // Engine spelling rule: id, display name and case/space variants
+        // are known; pipeline-native names the engine lacks are not.
+        for known in [
+            "cross_dissolve",
+            "Cross Dissolve",
+            "CROSS_DISSOLVE",
+            "slide",
+            " Slide ",
+            "morph_cut",
+            "Morph Cut",
+        ] {
+            assert!(
+                super::transition_effect_known(known),
+                "{known} must be known"
+            );
+            assert!(super::validate_transition_effect(Some(known)).is_ok());
+        }
+        for unknown in [
+            "smooth_cut",
+            "Smooth Cut",
+            "spin",
+            "Spin",
+            "bogus_xyz_nope",
+            "",
+            "   ",
+            "cross-dissolve",
+        ] {
+            assert!(
+                !super::transition_effect_known(unknown),
+                "{unknown:?} must be unknown"
+            );
+            assert!(super::validate_transition_effect(Some(unknown)).is_err());
+        }
+        // No effect names the engine default transition and stays valid.
+        assert!(super::validate_transition_effect(None).is_ok());
+    }
+
+    #[test]
+    fn transition_operations_validate_effect_before_the_engine() {
+        let operation = Operation::Transition {
+            project: "x.fcproj".into(),
+            clip: 7,
+            edge: TrimEdge::In,
+            frames: 4,
+            effect: Some("smooth_cut".into()),
+        };
+        assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        let operation = Operation::Transition {
+            project: "x.fcproj".into(),
+            clip: 7,
+            edge: TrimEdge::In,
+            frames: 4,
+            effect: Some("cross_dissolve".into()),
+        };
+        assert!(plan(operation).is_ok());
     }
 }
 
