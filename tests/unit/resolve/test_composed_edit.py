@@ -26,6 +26,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import composed_edit as ce  # noqa: E402
+from library.tools import reel_build as _reel_build  # noqa: E402,F401
 from library.tools import reel_read  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
     IDENTITY_PROPERTIES,
