@@ -374,17 +374,17 @@ fm_opencode_ladder_go_priority() {  # <state-dir> [config-dir]
 # than through this choice, and the free-model fallback stays reachable only
 # there.
 fm_opencode_ladder_pick_go_workspace() {  # <state-dir> [config-dir]
-  local state_dir=$1 config_arg=${2:-} priority other
+  local state_dir=$1 config_arg=${2:-} priority other_ws
   local priority_capped=0 other_capped=0
   fm_opencode_second_configured "$config_arg" \
     || { printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"; return 0; }
   priority=$(fm_opencode_ladder_go_priority "$state_dir" "$config_arg" 2>/dev/null) \
     || priority=$FM_OPENCODE_WORKSPACE_MAIN
   if [ "$priority" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-    other=$FM_OPENCODE_WORKSPACE_MAIN
+    other_ws=$FM_OPENCODE_WORKSPACE_MAIN
   else
     priority=$FM_OPENCODE_WORKSPACE_MAIN
-    other=$FM_OPENCODE_WORKSPACE_SECOND
+    other_ws=$FM_OPENCODE_WORKSPACE_SECOND
   fi
   if [ "$priority" = "$FM_OPENCODE_WORKSPACE_MAIN" ]; then
     fm_opencode_ladder_go_main_capped "$state_dir" && priority_capped=1
@@ -397,7 +397,7 @@ fm_opencode_ladder_pick_go_workspace() {  # <state-dir> [config-dir]
     printf '%s\n' "$priority"; return 0
   fi
   if [ "$other_capped" -eq 0 ]; then
-    printf '%s\n' "$other"; return 0
+    printf '%s\n' "$other_ws"; return 0
   fi
   printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"
 }
@@ -627,7 +627,7 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 # separately declared exhausted-ladder fallback. Other refusals return 1.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} cap='' horizon='' bound=''
-  local word free_capped=0 plus_capped=0 go_capped=0 second_capped=0 second_ready=0
+  local word free_capped=0 plus_capped=0 go_capped=0 second_ready=0
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_FREE
   fi
@@ -688,13 +688,11 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   # The Go tier's workspace is one decision owned by
   # fm_opencode_ladder_pick_go_workspace: the monthly-soonest plan serves
   # while uncapped, and a plan under a shorter cap yields to the other until
-  # that limit resets. The reactive scan below runs for its preservation
-  # side effect whenever a second workspace is configured - even while the
-  # pick stays on main - so a proven secondary cap is recorded when
-  # observed, not only once the priority plan caps. Without a configured
-  # second workspace nothing here runs at all.
+  # that limit resets. The pick runs the secondary reactive scan itself for
+  # its preservation side effect, so a proven secondary cap is recorded when
+  # observed even while the pick stays on main. Without a configured second
+  # workspace nothing here runs at all.
   if fm_opencode_second_configured; then
-    fm_opencode_ladder_go_second_reactive_capped "$state_dir" && second_capped=1
     [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ] \
       && second_ready=1
   fi
