@@ -13,11 +13,15 @@
 #      and task status, and explicitly not for the memory, learnings, or
 #      captain-preference sweeps.
 #   4. Every unsafe case says what is known: pre-restart capability and persist
-#      failures use the nudge path, while a failed relaunch is reported as an
-#      unknown outcome; none is reported as a clean reload.
+#      failures use the nudge path, while a failed relaunch - and a relaunch
+#      that never confirms a running agent - is reported as an unknown outcome;
+#      none is reported as a clean reload. Only ready=confirmed is restarted.
 #   5. A remote mate restarts by running the SAME local control-plane relaunch on
 #      its host, over the fm-on transport, with the profile resolved from the
-#      PARENT's own pin rather than the remote home's copy of it.
+#      mate's own durable record rather than the remote home's copy of the fleet
+#      pin; the fleet-wide config only fills an axis the record leaves empty.
+#      A local mate relaunches onto the same recorded profile, passed
+#      explicitly, instead of re-resolving the fleet pin on its own.
 #   6. End to end with bin/fm-update.sh: a live mate whose home needed no
 #      fast-forward is still named for restart and genuinely restarted, and one
 #      whose runtime cannot prove a restart keeps the honest re-read path with
@@ -399,9 +403,11 @@ test_refused_restart_falls_back_without_claiming_a_reload() {
   dir=$(new_case refused)
   add_local_mate "$dir" sm1
   arm_answer "$dir" sm1
-  # muse is a crewmate-only adapter, so the control plane refuses a secondmate
-  # relaunch onto it BEFORE stopping anything.
-  printf 'muse\n' > "$dir/home/config/secondmate-harness"
+  # The mate's home vanishes after it confirms its open work is written down, so
+  # the control plane refuses before anything is stopped: without the recorded
+  # local copy there is nothing whose unlanded work the checkpoint could account
+  # for, and stopping the agent anyway would strand it.
+  rm -rf "$dir/sm1-home"
   before=$(cat "$dir/fake/command")
 
   out=$(run_restart "$dir" sm1); rc=$?
@@ -417,13 +423,14 @@ test_refused_restart_falls_back_without_claiming_a_reload() {
   pass "T5 a refused restart leaves the mate running and reports an unknown outcome"
 }
 
-# --- T6: a remote mate restarts over the fm-on hop, on the parent's pin -------
+# --- T6: a remote mate restarts over the hop, on its own recorded runtime ----
 # The seam decodes what fm-on.sh actually put on the wire, so this pins the
 # host-local command and the profile the PARENT resolved, not a local shortcut.
 # The far side also models the live mate: it answers the persist request that
 # crossed the same hop, on the parent channel, with that request's own token.
-setup_remote_case() {  # <case-dir> <id> <ssh-mode>
+setup_remote_case() {  # <case-dir> <id> <ssh-mode> [harness] [model] [effort]
   local dir=$1 id=$2 mode=$3
+  local harness=${4:-claude} model=${5:-default} effort=${6:-default}
   local fb="$dir/fakebin"
   mkdir -p "$dir/$id-home"
   {
@@ -431,12 +438,12 @@ setup_remote_case() {  # <case-dir> <id> <ssh-mode>
     echo "endpoint_task_id=$id"
     echo "worktree=$dir/$id-home"
     echo "project=$dir/$id-home"
-    echo "harness=claude"
+    echo "harness=$harness"
     echo "kind=secondmate"
     echo "mode=secondmate"
     echo "yolo=off"
-    echo "model=default"
-    echo "effort=default"
+    echo "model=$model"
+    echo "effort=$effort"
     echo "home=$dir/$id-home"
     echo "remote_host=remote-mac"
     echo "remote_backend=herdr"
@@ -478,7 +485,17 @@ case "${rargs[1]:-}" in
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
     esac
-    printf 'relaunched %s\n' "${rargs[2]}"
+    # Model the host-local control plane's own readiness attestation: the real
+    # relaunch line carries harness= and ready=, and the primary reports
+    # restarted only on ready=confirmed.
+    case "${FM_FAKE_SSH_MODE:-ok}" in
+      starting-relaunch)
+        printf 'relaunched %s harness=%s ready=starting\n' "${rargs[2]}" "${rargs[3]}"
+        ;;
+      *)
+        printf 'relaunched %s harness=%s ready=confirmed\n' "${rargs[2]}" "${rargs[3]}"
+        ;;
+    esac
     ;;
 esac
 exit 0
@@ -493,22 +510,23 @@ SH
 test_remote_mate_restarts_over_the_transport_hop() {
   local dir out rc relaunch_line
   dir=$(new_case remote)
-  setup_remote_case "$dir" sm2 ok
+  setup_remote_case "$dir" sm2 ok opencode opencode-model-x low
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
-  # The parent's own pin is what the replacement must run on; the remote home's
-  # copy of config/secondmate-harness is a different home's file.
-  printf 'codex big-model high\n' > "$dir/home/config/secondmate-harness"
+  # The mate was hand-recovered onto opencode while the fleet pin still names
+  # claude: the mate's own recorded runtime must win, so the restart keeps it
+  # on opencode instead of moving it onto a runtime its host may not have.
+  printf 'claude fleet-model high\n' > "$dir/home/config/secondmate-harness"
 
   out=$(run_restart "$dir" fm-sm2); rc=$?
   unset FM_FAKE_ANSWER_STATUS
 
   expect_code 0 "$rc" "a remote mate should restart over its transport hop"$'\n'"$out"
-  assert_contains "$out" "restarted: sm2 on remote-mac (codex)" \
-    "a remote restart should be reported with its host and the parent's pinned runtime"
+  assert_contains "$out" "restarted: sm2 on remote-mac (opencode)" \
+    "a remote restart should be reported with its host and the mate's own recorded runtime"
   relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
   [ -n "$relaunch_line" ] || fail "no relaunch crossed the transport hop"$'\n'"$(cat "$dir/ssh.log")"
-  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 codex big-model high" ] \
-    || fail "the host-local relaunch did not carry the parent's resolved profile: $relaunch_line"
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 opencode opencode-model-x low" ] \
+    || fail "the host-local relaunch did not carry the mate's recorded profile: $relaunch_line"
   # The persist request crossed the SAME hop before the restart did.
   [ "$(grep -n '^fm-remote-secondmate-control.sh send' "$dir/ssh.log" | head -1 | cut -d: -f1)" \
      -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
@@ -531,29 +549,31 @@ test_unreachable_host_is_reported_unknown() {
   pass "T7 an unreachable host is reported honestly instead of claimed as reloaded"
 }
 
-# --- T8: a local restart lands on this home's durable pin, and says which -----
-test_local_restart_uses_the_home_pin_and_reports_what_ran() {
+# --- T8: a local restart keeps the mate's recorded runtime, and says which ---
+test_local_restart_keeps_the_recorded_runtime_and_reports_what_ran() {
   local dir out rc
   dir=$(new_case pin)
   add_local_mate "$dir" sm1
   arm_answer "$dir" sm1
+  # The fleet pin names codex, but the mate itself runs claude: the restart must
+  # keep it on its own recorded runtime rather than move it onto the fleet pin.
   printf 'codex\n' > "$dir/home/config/secondmate-harness"
-  printf 'codex' > "$dir/fake/becomes"
+  printf 'claude' > "$dir/fake/becomes"
 
   out=$(run_restart "$dir" sm1); rc=$?
 
-  expect_code 0 "$rc" "a pinned local restart should succeed"$'\n'"$out"
-  assert_contains "$out" "restarted: sm1 (codex)" \
-    "the restart should land on this home's pin and report the runtime that actually came up"
-  [ "$(grep '^harness=' "$dir/home/state/sm1.meta" | tail -1)" = "harness=codex" ] \
-    || fail "the durable record did not follow the replacement onto the pinned runtime"
-  pass "T8 a local restart re-resolves this home's pin and reports the runtime that came up"
+  expect_code 0 "$rc" "a local restart on the recorded runtime should succeed"$'\n'"$out"
+  assert_contains "$out" "restarted: sm1 (claude)" \
+    "the restart should stay on the mate's recorded runtime and report the runtime that actually came up"
+  [ "$(grep '^harness=' "$dir/home/state/sm1.meta" | tail -1)" = "harness=claude" ] \
+    || fail "the durable record did not stay on the mate's recorded runtime"
+  pass "T8 a local restart keeps the mate's recorded runtime and reports the runtime that came up"
 }
 
 test_native_ultra_restart_keeps_local_and_remote_profiles() {
   local dir out rc relaunch_line
   dir=$(new_case native-local)
-  add_local_mate "$dir" sm1
+  add_local_mate "$dir" sm1 pi
   arm_answer "$dir" sm1
   printf 'pi codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
   printf 'pi' > "$dir/fake/becomes"
@@ -566,7 +586,7 @@ test_native_ultra_restart_keeps_local_and_remote_profiles() {
   assert_contains "$(cat "$dir/fake/literal")" "--codex-effort 'ultra'" "local restart dropped native launch flag"
 
   dir=$(new_case native-remote)
-  setup_remote_case "$dir" sm2 ok
+  setup_remote_case "$dir" sm2 ok pi-signed
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
   printf 'pi-signed codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
   out=$(run_restart "$dir" sm2); rc=$?
@@ -630,12 +650,12 @@ test_persist_waits_are_polled_together() {
   pass "T10 pending persist answers are polled as one fleet"
 }
 
-# --- T11: a placed-but-starting replacement restarts the mate ---------------
+# --- T11: a placed-but-starting replacement is unknown, never a reload ------
 # A relaunch whose replacement is in place but has not registered an agent yet
-# is an unfinished start, not a failure: the endpoint and the work are both
-# where they belong, so the restart reports the mate restarted rather than
-# unreached - and still never describes the durable enqueue as a nudge.
-test_post_stop_starting_replacement_is_reported_restarted() {
+# proves no running agent: the endpoint and the work are both where they
+# belong, so the outcome is unknown rather than a failure - and it is still
+# never described as a nudge, nor claimed as a clean reload.
+test_post_stop_starting_replacement_is_reported_unknown() {
   local dir out rc
   dir=$(new_case post-stop)
   add_local_mate "$dir" sm1
@@ -644,13 +664,40 @@ test_post_stop_starting_replacement_is_reported_restarted() {
 
   out=$(run_restart "$dir" sm1); rc=$?
 
-  expect_code 0 "$rc" "a placed-but-starting replacement restarts the mate"$'\n'"$out"
-  assert_contains "$out" "restarted: sm1" "a stopped mate with its replacement in place must be reported as restarted"
-  assert_not_contains "$out" "unreached: sm1" "an unfinished start must not be reported as unreached"
+  expect_code 3 "$rc" "a starting replacement proves no running agent"$'\n'"$out"
+  assert_contains "$out" "unreached: sm1" "a stopped mate with no confirmed agent must be reported as unknown"
+  assert_contains "$out" "restart outcome is unknown" "the report must not attribute the ambiguous outcome"
+  assert_not_contains "$out" "restarted: sm1" "an unconfirmed replacement must not be reported as restarted"
   assert_not_contains "$out" "nudged: sm1" "a durable enqueue must not masquerade as a running mate's nudge"
-  assert_contains "$out" "summary: 1 of 1 restarted, 0 nudged, 0 unreached" \
-    "the summary must count the restarted mate"
-  pass "T11 post-stop replacement that is still starting restarts the mate without a nudge"
+  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 1 unreached" \
+    "the summary must count the unconfirmed mate as unreached"
+  pass "T11 a post-stop replacement that is still starting is reported unknown without a nudge"
+}
+
+# --- T11b: a remote host that never confirms an agent is unknown -------------
+# The host ran the relaunch and reported back, but its own attestation says the
+# replacement never registered an agent - the shape a missing harness binary
+# takes. The pass reports the outcome as unknown rather than claiming the mate
+# reloaded on a runtime that never started.
+test_remote_starting_replacement_is_reported_unknown() {
+  local dir out rc relaunch_line
+  dir=$(new_case remote-starting)
+  setup_remote_case "$dir" sm2 starting-relaunch
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" fm-sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 3 "$rc" "an unconfirmed remote replacement must not be reported as a reload"$'\n'"$out"
+  assert_contains "$out" "unreached: sm2" "a remote mate with no confirmed agent must be reported as unknown"
+  assert_contains "$out" "restart outcome is unknown" "the report must not attribute the ambiguous outcome"
+  assert_not_contains "$out" "restarted: sm2" "an unconfirmed remote replacement must not be reported as restarted"
+  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 1 unreached" \
+    "the summary must count the unconfirmed mate as unreached"
+  relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 claude default default" ] \
+    || fail "the host-local relaunch did not carry the mate's recorded profile: $relaunch_line"
+  pass "T11b a remote replacement that never confirms an agent is reported unknown"
 }
 
 # --- T12: relaunch work does not stop polling other persist answers ----------
@@ -872,9 +919,9 @@ test_refused_restart_still_retires_the_answered_request() {
   dir=$(new_case refused-retires)
   add_local_mate "$dir" sm1
   arm_answer "$dir" sm1
-  # muse is a crewmate-only adapter, so the control plane refuses a secondmate
-  # relaunch onto it BEFORE stopping anything.
-  printf 'muse\n' > "$dir/home/config/secondmate-harness"
+  # The mate's home vanishes after it answers, so the restart is refused in its
+  # checkpoint BEFORE stopping anything - the shape every pre-stop refusal takes.
+  rm -rf "$dir/sm1-home"
 
   out=$(run_restart "$dir" sm1); rc=$?
 
@@ -957,13 +1004,14 @@ test_answer_between_resolution_and_timeout_wins
 test_unprovable_runtime_falls_back
 test_unknown_mate_is_accounted_for
 test_refused_restart_falls_back_without_claiming_a_reload
-test_local_restart_uses_the_home_pin_and_reports_what_ran
+test_local_restart_keeps_the_recorded_runtime_and_reports_what_ran
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
 test_persist_waits_are_polled_together
-test_post_stop_starting_replacement_is_reported_restarted
+test_post_stop_starting_replacement_is_reported_unknown
+test_remote_starting_replacement_is_reported_unknown
 test_relaunches_do_not_block_persist_polling
 test_unpublished_worker_result_is_accounted_for
 test_result_published_while_reaping_is_honored
