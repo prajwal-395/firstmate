@@ -115,6 +115,13 @@ it whenever the goal is about what is IN the footage.
   `library/tools/reel_read.py`, never a new probe. Address a Resolve
   project by its EXACT listed name, never a prefix. Judge every Resolve
   call by what it RETURNS, never by `hasattr`.
+- Every native-engine read goes through `bin/native-axi`
+  (`library/tools/native_axi.py`): `model` (a Project Model's clips,
+  edits, renders + counts), `timeline` (a FilmCraft project's clips),
+  `masks` (masks + effects), `ops` (a projection as effectcraft-cli
+  command lines), `swap-plan` (a swap-back plan from measured numbers).
+  Never dump a whole model, projection or inspect JSON to answer a
+  summary question; never hand-roll the op-to-CLI mapping.
 - When a Resolve read has a measured queue delay and you have independent
   file or planning work, submit it without holding the agent on the
   receipt. Keep this for reads with real waiting; near-zero-wait reads
