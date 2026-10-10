@@ -1509,6 +1509,31 @@ EOF
   pass "fm-brief.sh: --check warns once for a legacy brief and still dispatches"
 }
 
+# A repo with no PR checks has no verdict to wait for, so the direct-PR
+# no-checks branch must tell the worker to run the affected suites and lint
+# itself and to report the counts and sha it saw. Four lanes in a row on
+# 2026-09-18 reported done with a confident test claim without executing the
+# suite, so losing this instruction reopens the unverified-merge gap.
+test_direct_pr_no_checks_requires_local_evidence() {
+  local home id brief
+  home="$TMP_ROOT/no-checks-evidence-home"
+  mkdir -p "$home/data"
+  id="brief-no-checks-evidence"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "direct-PR scaffold failed"
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "direct-PR brief was not scaffolded"
+  assert_grep "Run the affected test suites and lint yourself before reporting." "$brief" \
+    "direct-PR no-checks branch lost the self-run instruction"
+  assert_grep 'tests <passed>/<total> lint <clean|failed> sha <sha>' "$brief" \
+    "direct-PR no-checks branch lost the evidence-carrying ready line"
+  assert_grep "the commit sha you ran them against" "$brief" \
+    "direct-PR no-checks branch lost the sha-binding rationale"
+  assert_no_grep "there is no verdict to wait for: append" "$brief" \
+    "direct-PR no-checks branch kept the old stop-without-verification wording"
+  pass "fm-brief.sh: direct-PR no-checks branch requires local evidence with counts and sha"
+}
+
 test_check_takes_only_a_task_id() {
   local home out status
   home="$TMP_ROOT/check-args-home"
@@ -1544,6 +1569,7 @@ test_scope_check_allows_guarded_scope_language
 test_scope_check_documents_its_blind_spot
 test_scope_check_legacy_brief_warns_and_passes
 test_check_takes_only_a_task_id
+test_direct_pr_no_checks_requires_local_evidence
 test_decision_key_position_is_taught
 test_script_parses
 test_no_heredoc_in_command_substitution
