@@ -25,3 +25,9 @@ def test_unknown_version_and_empty_half_open_interval_are_refused():
     model["observations"][0]["interval"]["end"] = 0
     with pytest.raises(ValueError, match="half-open"):
         project_model.validate_project_model(model)
+
+
+def test_e2e_fixture_matches_schema_and_has_expected_media():
+    fixture = project_model.validate_fixture()
+    assert fixture["id"] == "pm-e2e-fixture"
+    assert {use["role"] for use in fixture["clip_uses"]} == {"a_roll", "b_roll"}

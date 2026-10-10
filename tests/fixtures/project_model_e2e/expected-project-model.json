@@ -1,0 +1,638 @@
+{
+  "id": "pm-e2e-fixture",
+  "schema_version": 1,
+  "timebase_policy": "rational_frames",
+  "clocks": [
+    {
+      "id": "clock-ada",
+      "domain": {
+        "kind": "source",
+        "asset_id": "asset-ada",
+        "stream_id": "stream-ada-video"
+      },
+      "ticks_per_second": 24,
+      "frame_rate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    },
+    {
+      "id": "clock-ben",
+      "domain": {
+        "kind": "source",
+        "asset_id": "asset-ben",
+        "stream_id": "stream-ben-video"
+      },
+      "ticks_per_second": 24,
+      "frame_rate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    },
+    {
+      "id": "clock-broll",
+      "domain": {
+        "kind": "source",
+        "asset_id": "asset-broll",
+        "stream_id": "stream-broll-video"
+      },
+      "ticks_per_second": 24,
+      "frame_rate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    },
+    {
+      "id": "clock-project",
+      "domain": {
+        "kind": "project"
+      },
+      "ticks_per_second": 24,
+      "frame_rate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    },
+    {
+      "id": "clock-render",
+      "domain": {
+        "kind": "render",
+        "render_id": "render-e2e"
+      },
+      "ticks_per_second": 24,
+      "frame_rate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset-ada",
+      "kind": "video",
+      "uri": "media/person-ada-aroll.mp4",
+      "content_digest": "sha256:04c39232dfa81f2c39c25ce74506d2bf46b90f3379aa277959c2506acc90e78c",
+      "metadata": {
+        "license": "original generated fixture material",
+        "content": "fictional portrait and speech"
+      },
+      "provenance": [
+        "prov-synthetic"
+      ]
+    },
+    {
+      "id": "asset-ben",
+      "kind": "video",
+      "uri": "media/person-ben-aroll.mp4",
+      "content_digest": "sha256:cdb7c96f2012ff8b0f1e80bf531cff1b5965af7849e1f6341866e903baaf3a49",
+      "metadata": {
+        "license": "original generated fixture material",
+        "content": "fictional portrait and speech"
+      },
+      "provenance": [
+        "prov-synthetic"
+      ]
+    },
+    {
+      "id": "asset-broll",
+      "kind": "video",
+      "uri": "media/coast-broll.mp4",
+      "content_digest": "sha256:351a76f2ed82433a745443b505049b501be26fb80d478bb4f21794ffeb8deae2",
+      "metadata": {
+        "license": "original generated fixture material",
+        "content": "FFmpeg testsrc2 pattern"
+      },
+      "provenance": [
+        "prov-synthetic"
+      ]
+    },
+    {
+      "id": "asset-render",
+      "kind": "render",
+      "uri": "renders/expected.mp4",
+      "content_digest": null,
+      "metadata": {},
+      "provenance": [
+        "prov-synthetic"
+      ]
+    }
+  ],
+  "streams": [
+    {
+      "id": "stream-ada-video",
+      "asset_id": "asset-ada",
+      "stream_index": 0,
+      "clock_id": "clock-ada",
+      "metadata": {
+        "codec_type": "video"
+      }
+    },
+    {
+      "id": "stream-ada-audio",
+      "asset_id": "asset-ada",
+      "stream_index": 1,
+      "clock_id": "clock-ada",
+      "metadata": {
+        "codec_type": "audio"
+      }
+    },
+    {
+      "id": "stream-ben-video",
+      "asset_id": "asset-ben",
+      "stream_index": 0,
+      "clock_id": "clock-ben",
+      "metadata": {
+        "codec_type": "video"
+      }
+    },
+    {
+      "id": "stream-ben-audio",
+      "asset_id": "asset-ben",
+      "stream_index": 1,
+      "clock_id": "clock-ben",
+      "metadata": {
+        "codec_type": "audio"
+      }
+    },
+    {
+      "id": "stream-broll-video",
+      "asset_id": "asset-broll",
+      "stream_index": 0,
+      "clock_id": "clock-broll",
+      "metadata": {
+        "codec_type": "video"
+      }
+    },
+    {
+      "id": "stream-broll-audio",
+      "asset_id": "asset-broll",
+      "stream_index": 0,
+      "clock_id": "clock-broll",
+      "metadata": {
+        "codec_type": "video"
+      }
+    }
+  ],
+  "entities": [
+    {
+      "id": "person-ada",
+      "kind": "person",
+      "label": "Ada (fictional)",
+      "object_class_id": null
+    },
+    {
+      "id": "person-ben",
+      "kind": "person",
+      "label": "Ben (fictional)",
+      "object_class_id": null
+    },
+    {
+      "id": "class-coast-pattern",
+      "kind": "object",
+      "label": "Synthetic test pattern",
+      "object_class_id": "class-pattern"
+    }
+  ],
+  "observations": [
+    {
+      "id": "obs-ada-face",
+      "asset_id": "asset-ada",
+      "interval": {
+        "clock_id": "clock-ada",
+        "start": 0,
+        "end": 48
+      },
+      "modality": "face",
+      "payload": {
+        "description": "Fictional illustrated portrait of Ada",
+        "bbox": [
+          0.35,
+          0.1,
+          0.3,
+          0.65
+        ]
+      },
+      "confidence": 1.0,
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "obs-ada-speech",
+      "asset_id": "asset-ada",
+      "interval": {
+        "clock_id": "clock-ada",
+        "start": 0,
+        "end": 48
+      },
+      "modality": "speech",
+      "payload": {
+        "text": "I am Ada. I explain the first idea.",
+        "speaker_entity_id": "person-ada"
+      },
+      "confidence": 1.0,
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "obs-ben-face",
+      "asset_id": "asset-ben",
+      "interval": {
+        "clock_id": "clock-ben",
+        "start": 0,
+        "end": 48
+      },
+      "modality": "face",
+      "payload": {
+        "description": "Fictional illustrated portrait of Ben",
+        "bbox": [
+          0.35,
+          0.1,
+          0.3,
+          0.65
+        ]
+      },
+      "confidence": 1.0,
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "obs-ben-speech",
+      "asset_id": "asset-ben",
+      "interval": {
+        "clock_id": "clock-ben",
+        "start": 0,
+        "end": 48
+      },
+      "modality": "speech",
+      "payload": {
+        "text": "I am Ben. I show the second view.",
+        "speaker_entity_id": "person-ben"
+      },
+      "confidence": 1.0,
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "obs-broll-pattern",
+      "asset_id": "asset-broll",
+      "interval": {
+        "clock_id": "clock-broll",
+        "start": 0,
+        "end": 24
+      },
+      "modality": "object",
+      "payload": {
+        "entity_id": "class-coast-pattern",
+        "description": "synthetic test pattern"
+      },
+      "confidence": 1.0,
+      "provenance_id": "prov-synthetic"
+    }
+  ],
+  "identity_links": [
+    {
+      "id": "link-ada-face",
+      "entity_id": "person-ada",
+      "observation_id": "obs-ada-face",
+      "confidence": 1.0,
+      "method": "fixture_ground_truth",
+      "status": "verified",
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "link-ada-speech",
+      "entity_id": "person-ada",
+      "observation_id": "obs-ada-speech",
+      "confidence": 1.0,
+      "method": "fixture_ground_truth",
+      "status": "verified",
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "link-ben-face",
+      "entity_id": "person-ben",
+      "observation_id": "obs-ben-face",
+      "confidence": 1.0,
+      "method": "fixture_ground_truth",
+      "status": "verified",
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "link-ben-speech",
+      "entity_id": "person-ben",
+      "observation_id": "obs-ben-speech",
+      "confidence": 1.0,
+      "method": "fixture_ground_truth",
+      "status": "verified",
+      "provenance_id": "prov-synthetic"
+    }
+  ],
+  "masks": [
+    {
+      "id": "mask-ada",
+      "entity_id": "person-ada",
+      "interval": {
+        "clock_id": "clock-ada",
+        "start": 0,
+        "end": 48
+      },
+      "representation": {
+        "kind": "ellipse",
+        "normalized_bbox": [
+          0.35,
+          0.1,
+          0.3,
+          0.65
+        ],
+        "keyframes": [
+          {
+            "tick": 0,
+            "bbox": [
+              0.35,
+              0.1,
+              0.3,
+              0.65
+            ]
+          },
+          {
+            "tick": 47,
+            "bbox": [
+              0.35,
+              0.1,
+              0.3,
+              0.65
+            ]
+          }
+        ]
+      },
+      "source_model": "synthetic_fixture",
+      "provenance_id": "prov-synthetic"
+    },
+    {
+      "id": "mask-ben",
+      "entity_id": "person-ben",
+      "interval": {
+        "clock_id": "clock-ben",
+        "start": 0,
+        "end": 48
+      },
+      "representation": {
+        "kind": "ellipse",
+        "normalized_bbox": [
+          0.35,
+          0.1,
+          0.3,
+          0.65
+        ],
+        "keyframes": [
+          {
+            "tick": 0,
+            "bbox": [
+              0.35,
+              0.1,
+              0.3,
+              0.65
+            ]
+          },
+          {
+            "tick": 47,
+            "bbox": [
+              0.35,
+              0.1,
+              0.3,
+              0.65
+            ]
+          }
+        ]
+      },
+      "source_model": "synthetic_fixture",
+      "provenance_id": "prov-synthetic"
+    }
+  ],
+  "object_classes": [
+    {
+      "id": "class-pattern",
+      "name": "test_pattern",
+      "taxonomy": "fixture"
+    }
+  ],
+  "tracks": [],
+  "relations": [],
+  "intents": [
+    {
+      "id": "intent-shorter-ada",
+      "brief_ref": "README.md",
+      "constraints": [
+        {
+          "kind": "trim",
+          "frames_removed": 12
+        }
+      ],
+      "evidence_links": [
+        "obs-ada-face",
+        "obs-ada-speech"
+      ]
+    }
+  ],
+  "clip_uses": [
+    {
+      "id": "use-ada",
+      "asset_id": "asset-ada",
+      "source_interval": {
+        "clock_id": "clock-ada",
+        "start": 0,
+        "end": 48
+      },
+      "timeline_interval": {
+        "clock_id": "clock-project",
+        "start": 0,
+        "end": 36
+      },
+      "entity_links": [
+        "person-ada"
+      ],
+      "role": "a_roll",
+      "intent_id": "intent-shorter-ada"
+    },
+    {
+      "id": "use-ben",
+      "asset_id": "asset-ben",
+      "source_interval": {
+        "clock_id": "clock-ben",
+        "start": 0,
+        "end": 48
+      },
+      "timeline_interval": {
+        "clock_id": "clock-project",
+        "start": 36,
+        "end": 84
+      },
+      "entity_links": [
+        "person-ben"
+      ],
+      "role": "a_roll",
+      "intent_id": null
+    },
+    {
+      "id": "use-broll",
+      "asset_id": "asset-broll",
+      "source_interval": {
+        "clock_id": "clock-broll",
+        "start": 0,
+        "end": 24
+      },
+      "timeline_interval": {
+        "clock_id": "clock-project",
+        "start": 84,
+        "end": 108
+      },
+      "entity_links": [
+        "class-coast-pattern"
+      ],
+      "role": "b_roll",
+      "intent_id": null
+    }
+  ],
+  "edits": [
+    {
+      "id": "edit-trim-ada",
+      "operation": "clip.trim",
+      "target_ids": [
+        "use-ada"
+      ],
+      "before": {
+        "timeline_end": 48,
+        "duration": 48
+      },
+      "after": {
+        "timeline_end": 36,
+        "duration": 36
+      },
+      "intent_id": "intent-shorter-ada",
+      "evidence_ids": [
+        "obs-ada-speech"
+      ],
+      "author": "fixture",
+      "parent_revision": "rev-0"
+    }
+  ],
+  "effects": [
+    {
+      "id": "effect-coast-tint",
+      "class_id": "color.saturation",
+      "target_id": "use-broll",
+      "interval": {
+        "clock_id": "clock-project",
+        "start": 84,
+        "end": 108
+      },
+      "parameters": {
+        "saturation": 0.8
+      },
+      "keyframes": [
+        {
+          "tick": 84,
+          "value": 0.8
+        },
+        {
+          "tick": 108,
+          "value": 0.8
+        }
+      ]
+    }
+  ],
+  "renders": [
+    {
+      "id": "render-e2e",
+      "input_revision": "rev-1",
+      "output_asset_id": "asset-render",
+      "settings": {
+        "frame_rate": 24,
+        "expected_frames": 108
+      },
+      "receipt_id": "receipt-e2e",
+      "frame_map_id": "map-e2e"
+    }
+  ],
+  "frame_maps": [
+    {
+      "id": "map-e2e",
+      "from_clock": "clock-project",
+      "to_clock": "clock-render",
+      "segments": [
+        {
+          "from": {
+            "clock_id": "clock-project",
+            "start": 0,
+            "end": 36
+          },
+          "to": {
+            "clock_id": "clock-render",
+            "start": 0,
+            "end": 36
+          },
+          "mapping_kind": "one_to_one",
+          "rate": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "source_clip_use": "use-ada"
+        },
+        {
+          "from": {
+            "clock_id": "clock-project",
+            "start": 36,
+            "end": 84
+          },
+          "to": {
+            "clock_id": "clock-render",
+            "start": 36,
+            "end": 84
+          },
+          "mapping_kind": "one_to_one",
+          "rate": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "source_clip_use": "use-ben"
+        },
+        {
+          "from": {
+            "clock_id": "clock-project",
+            "start": 84,
+            "end": 108
+          },
+          "to": {
+            "clock_id": "clock-render",
+            "start": 84,
+            "end": 108
+          },
+          "mapping_kind": "one_to_one",
+          "rate": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "source_clip_use": "use-broll"
+        }
+      ]
+    }
+  ],
+  "nle_bindings": [],
+  "receipts": [
+    {
+      "id": "receipt-e2e",
+      "status": "expected",
+      "renderer": "fixture",
+      "input_revision": "rev-1",
+      "output_asset_id": "asset-render",
+      "details": {
+        "expected_frames": 108
+      }
+    }
+  ],
+  "provenance": [
+    {
+      "id": "prov-synthetic",
+      "producer": "project-model-e2e fixture",
+      "producer_version": "1",
+      "source_digest": null,
+      "recorded_at": "2026-10-10T00:00:00Z"
+    }
+  ]
+}

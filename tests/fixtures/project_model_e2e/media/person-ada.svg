@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+<rect width="320" height="180" fill="#e8f1f4"/><rect y="130" width="320" height="50" fill="#176b87"/>
+<path d="M110 180 Q118 112 160 112 Q202 112 210 180" fill="#176b87"/>
+<ellipse cx="160" cy="76" rx="43" ry="52" fill="#f0c49b"/>
+<path d="M117 70 Q112 18 160 18 Q207 20 203 69 Q187 48 160 48 Q134 48 117 70" fill="#30251e"/>
+<circle cx="145" cy="77" r="4" fill="#211b19"/><circle cx="176" cy="77" r="4" fill="#211b19"/>
+<path d="M145 99 Q160 110 176 98" fill="none" stroke="#7f3434" stroke-width="4" stroke-linecap="round"/>
+<text x="160" y="164" text-anchor="middle" font-family="sans-serif" font-size="16" fill="white">Ada</text></svg>
