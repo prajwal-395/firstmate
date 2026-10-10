@@ -20,11 +20,13 @@
 #
 # All four mechanisms terminate the whole process GROUP, not just the direct
 # child, so a hung grandchild (a vendor CLI spawned by a wrapper script, a git
-# fetch spawned by a sweep) cannot outlive the bound. GNU/BSD `timeout` does
-# this by default because it does not run the command in the foreground process
-# group; the perl fallback does it explicitly with setpgrp plus a negative pid,
-# and the bash fallback uses monitor mode to give the bounded child its own
-# process group before signaling its negative pid.
+# fetch spawned by a sweep) cannot outlive the bound. The external path creates
+# that group itself with monitor mode around the asynchronous launch, because
+# GNU/BSD timeout signals only its direct child and a background job without
+# job control otherwise stays in the caller's group; the perl fallback does it
+# explicitly with setpgrp plus a negative pid, and the bash fallback uses
+# monitor mode to give the bounded child its own process group before signaling
+# its negative pid.
 set -u
 
 fm_timeout_mechanism() {
@@ -87,14 +89,23 @@ fm_run_bash_timeout() {
 }
 
 fm_run_external_timeout() {
-  local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc
+  local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc monitor_was_on=0
   shift 2
   status_file=$(mktemp "${TMPDIR:-/tmp}/fm-timeout-status.XXXXXX" 2>/dev/null) || return 124
-  # Run timeout asynchronously so its pid - also the process-group id created
-  # by GNU/BSD timeout without --foreground - remains available for cleanup.
+  # Give the timeout subtree its own process group so a real timeout reaps the
+  # whole tree, not just timeout's direct child. GNU/BSD timeout does not create
+  # one itself: it signals only its direct child, and a background `&` without
+  # job control stays in the caller's group, so the old cleanup kill addressed a
+  # group that was never created (a silent no-op) while a descendant that
+  # ignores TERM - a worker whose disposition was inherited as ignored, a
+  # pure-bash snapshot mid-fold that never receives a forwarded signal - kept
+  # running unbounded past the deadline. Monitor mode makes the background job
+  # a group leader, so -$runner_pid below names exactly this subtree.
   # A shell wrapper can exit promptly on TERM while one of its descendants
   # ignores TERM; timeout then considers the command finished and does not send
   # its configured KILL. Explicitly reap that leftover group on a real timeout.
+  case $- in *m*) monitor_was_on=1 ;; esac
+  set -m
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
   "$runner" -k 1 "$seconds" bash -c '
     status_file=$1
@@ -105,6 +116,7 @@ fm_run_external_timeout() {
     exit "$command_rc"
   ' _ "$status_file" "$@" &
   runner_pid=$!
+  [ "$monitor_was_on" -eq 1 ] || set +m
   if wait "$runner_pid"; then
     runner_rc=0
   else
@@ -118,6 +130,11 @@ fm_run_external_timeout() {
   esac
   case "$runner_rc" in
     124|137)
+      # TERM first so a trapped worker still flushes (lock release, temp
+      # removal), then KILL for whatever ignores TERM. Both address the group,
+      # which now exists because of the monitor-mode launch above.
+      kill -TERM -- "-$runner_pid" 2>/dev/null || true
+      sleep 0.5
       kill -KILL -- "-$runner_pid" 2>/dev/null || true
       return 124
       ;;

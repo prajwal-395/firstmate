@@ -654,6 +654,38 @@ _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb
   printf '%s' "$open"
 }
 
+# stdin -> stdout: only the status-stream lines that can move the decision
+# fold, optionally with grep -n line numbers (`-n`). _fm_decision_fold_line
+# opens on the needs-decision/blocked verbs and closes on the resolve/held
+# verbs, and status_line_verb only ever trims or drops words - so a parsed verb
+# is always a substring of its line, and a line holding none of the four
+# effective verbs folds as a provable no-op. Every whole-stream bash loop below
+# folds only these candidates, which keeps the per-line fork cost proportional
+# to decision traffic rather than total log size; the C-speed grep still scans
+# the whole stream, but that is milliseconds on a multi-megabyte log where the
+# bash fold was minutes. Semantics are unchanged by construction, so this needs
+# no fold-version bump: the skipped lines could not have moved the open set. A
+# degenerate override (an empty resolve or held verb) disables the filter rather
+# than matching everything. -a keeps a stray non-text byte from flipping grep
+# into binary-match mode, which would print a match notice instead of lines.
+_fm_decision_candidate_lines() {
+  local numbered=0 resolve held
+  if [ "${1:-}" = -n ]; then numbered=1; shift; fi
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
+  if [ -n "$resolve" ] && [ -n "$held" ]; then
+    if [ "$numbered" -eq 1 ]; then
+      grep -a -n -F -e 'needs-decision' -e 'blocked' -e "$resolve" -e "$held" || true
+    else
+      grep -a -F -e 'needs-decision' -e 'blocked' -e "$resolve" -e "$held" || true
+    fi
+  elif [ "$numbered" -eq 1 ]; then
+    grep -a -n -F -e '' || true
+  else
+    cat
+  fi
+}
+
 # Fold the WHOLE status stream into the set of decisions still open. Prints one
 # TAB-separated "<key>\t<verb>\t<summary>" line per still-open decision, in
 # most-recently-opened-last order; prints nothing when none are open. Pure read of
@@ -673,7 +705,7 @@ status_open_decisions() {  # <status-file>
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
     open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
-  done < "$f"
+  done < <(_fm_decision_candidate_lines < "$f")
   printf '%s' "$open"
 }
 
@@ -724,9 +756,9 @@ status_key_closing_verb() {  # <status-file> <key>
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   if [ "$want" = default ]; then
-    stream=$(cat "$f") || return 0
+    stream=$(_fm_decision_candidate_lines < "$f") || return 0
   else
-    stream=$(grep -F "[key=$want]" "$f") || stream=''
+    stream=$(grep -F "[key=$want]" "$f" | _fm_decision_candidate_lines) || stream=''
   fi
   [ -n "$stream" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -1019,7 +1051,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
     while IFS= read -r line || [ -n "$line" ]; do
       open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
-    done < "$chunk_file"
+    done < <(_fm_decision_candidate_lines < "$chunk_file")
     rm -f "$chunk_file"
     offset=$size
     cursor_dirty=1
@@ -1614,11 +1646,12 @@ _fm_decision_replacements_stream() {
 
 # Replay one status file's whole stream into its silenced replacements. Prints
 # nothing when the file is missing, unreadable, symlinked, or holds no open
-# key that replaced another.
+# key that replaced another. Only candidate lines can open or close, so the
+# replay prefilters exactly like the folds above with no change in output.
 status_decision_replacements() {  # <status-file>
   local f=$1
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
-  _fm_decision_replacements_stream < "$f"
+  _fm_decision_candidate_lines < "$f" | _fm_decision_replacements_stream
 }
 
 # Fleet-wide wrapper around status_decision_replacements: scans every task's
@@ -1660,7 +1693,7 @@ scan_decision_replacements_snapshot() {  # <state> <task-and-endpoint-snapshot>
     tmp="$f.repl.$$"
     _fm_status_read_span "$f" 0 "$endpoint" > "$tmp" 2>/dev/null \
       || { rm -f "$tmp"; continue; }
-    repl=$(_fm_decision_replacements_stream < "$tmp")
+    repl=$(_fm_decision_candidate_lines < "$tmp" | _fm_decision_replacements_stream)
     rm -f "$tmp"
     [ -n "$repl" ] || continue
     while IFS= read -r line; do
@@ -1973,12 +2006,17 @@ EOF
 }
 
 _fm_status_open_decision_origins() {  # <status-file>
-  local f=$1 line open='' after key verb note number=0 origins=''
+  local f=$1 line open='' after key verb note number origins='' numbered
   local resolve held
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
-  while IFS= read -r line || [ -n "$line" ]; do
-    number=$((number + 1))
+  # grep -n keeps every candidate's true 1-based line number, which the live
+  # check below compares against - so the numbering the filter skips stays
+  # exact while the bash loop only pays for lines that can open or close.
+  while IFS= read -r numbered || [ -n "$numbered" ]; do
+    number=${numbered%%:*}
+    line=${numbered#*:}
+    case "$number" in ''|*[!0-9]*) continue ;; esac
     after=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
     key=$(_fm_decision_key "$line") || { open=$after; continue; }
     verb=$(status_line_verb "$line")
@@ -2001,7 +2039,7 @@ _fm_status_open_decision_origins() {  # <status-file>
         ;;
     esac
     open=$after
-  done < "$f"
+  done < <(_fm_decision_candidate_lines -n < "$f")
   printf '%s' "$origins"
 }
 
