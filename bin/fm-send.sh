@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Steer a task by durable record: write the message into the task's steering
 # inbox and ring a constant doorbell line into its terminal, best-effort.
-# Usage: fm-send.sh <target> [--resolve-key <key>]... [--fire-and-forget <delivery-id>] <text...>
+# Usage: fm-send.sh <target> [--resolve-key <key>]... [--fire-and-forget <delivery-id>] [--] <text...>
 #   <target> may be an exact task id, a legacy fm-<id> task label resolved
 #   through this home's state/<id>.meta, or an explicit well-formed backend
 #   target. fm-send refuses unresolved guesses rather than falling back to a
@@ -197,7 +197,9 @@
 # direction). A send without the flag never closes anything: a routine steer,
 # working:, or done: event still cannot clear a captain decision. The flag is
 # refused with --key, with an explicit backend target (no task ledger in this
-# home), and with an empty message.
+# home), and with an empty message. A plain send with an empty or
+# whitespace-only message is refused the same way, as is a message leading
+# with an unrecognised --flag (pass "--" first to send dash-leading text).
 #
 # After a successful TYPED-plane submit fm-send pauses FM_SEND_SETTLE seconds
 # (default 1, 0 disables) before returning: submit confirmation only proves the
@@ -728,7 +730,24 @@ if [ "${1:-}" = "--key" ]; then
   fm_send_clear_after_interrupt "$semantic_key" || exit 1
   fm_send_record_interrupt "$semantic_key" || exit 1
 else
+  # A lone "--" ends option parsing so a message that genuinely starts with
+  # dashes can still be sent (fm-send t1 -- --help). Anything else leading
+  # with "--" is refused: it is far more likely a misspelled flag than a
+  # message that happens to start with two dashes.
+  if [ "${1:-}" = "--" ]; then
+    shift
+  elif case "${1:-}" in --*) true ;; *) false ;; esac; then
+    echo "error: unknown option '$1'; nothing was sent. To send text starting with '--', place '--' before it." >&2
+    exit 1
+  fi
   MESSAGE=$*
+  case "$MESSAGE" in
+    *[![:space:]]*) ;;
+    *)
+      echo "error: refusing to send an empty message to $T; nothing was sent" >&2
+      exit 1
+      ;;
+  esac
   if [ "$TARGET_BACKEND" = remote ]; then
     FM_SEND_REMOTE_BUDGET=${FM_SEND_REMOTE_BUDGET:-30}
     case "$FM_SEND_REMOTE_BUDGET" in
