@@ -5,7 +5,7 @@
 # source. Crates land here as the Rust-core migrations ship them; the
 # first is `ren-cli`, the native front door.
 [workspace]
-members = ["ren-cli", "ren-core", "ren-protocol", "ren-graphics-fframes", "ren-resolved", "resolve-control", "ren-filmcraft"]
+members = ["ren-cli", "ren-core", "ren-protocol", "ren-graphics-fframes", "ren-resolved", "resolve-control", "ren-effectcraft", "ren-filmcraft"]
 resolver = "2"
 
 [workspace.package]

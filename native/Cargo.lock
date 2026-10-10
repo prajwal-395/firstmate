@@ -2016,6 +2016,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ren-effectcraft"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ren-filmcraft"
 version = "0.1.0"
 dependencies = [

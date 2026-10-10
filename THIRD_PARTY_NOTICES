@@ -565,6 +565,22 @@ fetched     : downloaded-at-first-use (npx hyperframes@0.8.70)
 commercial  : ok
 hash-verified: no (pinned npm release; npm transport)
 
+component-id : engine.effectcraft_cli
+edition      : public
+component   : EffectCraft headless CLI 0.7.0; Ren's adapter does not
+              package or invoke the desktop application.
+pin         : 813c7c4650f0d4c805da620c8d5837c9600ad2e3
+              (native/ren-effectcraft/src/lib.rs)
+source      : https://github.com/storytold/effectcraft
+license     : MIT OR Apache-2.0
+fetched     : downloaded-at-first-use (pinned source checkout; local
+              effectcraft-cli build into the user cache)
+commercial  : ok
+hash-verified: yes (Git checkout verifies the immutable revision)
+note        : Cargo.lock at the pinned source revision identifies its
+              transitive Rust dependencies; no copyleft-only dependency
+              was found in the measured closure.
+
 component-id : renderer.fframes
 edition      : public
 package-path : native/ren-graphics-fframes
