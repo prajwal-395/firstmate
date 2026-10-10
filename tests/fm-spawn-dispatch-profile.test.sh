@@ -1445,6 +1445,88 @@ test_non_claude_harness_ignores_claude_permission_mode() {
 # migrates the pin database and serves the fixture login while the real
 # sqlite3 does the seeding, so the pinned case needs sqlite3 and says so
 # when it is absent; the refusal and default cases need nothing live.
+DUAL_MAIN_ORG_ID='org_01FIXTUREMAIN00000'
+DUAL_SECOND_ORG_ID='org_01FIXTURESECONDARY00'
+
+# make_dual_workspace_fixture <case-dir> <fakebin>: fixture login plus a fake
+# opencode whose `debug config` resolves the workspace name from the pin
+# database's own active workspace id and whose `console orgs` lists the main
+# row beside the secondary row. Unquoted heredoc: runtime `$` stays escaped
+# while the fixture ids expand at install time.
+make_dual_workspace_fixture() {  # <case-dir> <fakebin>: fixture login + mapping opencode
+  local dir=$1 fakebin=$2 datadir
+  datadir="$dir/opencode-data"
+  mkdir -p "$datadir"
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account VALUES('acc_01FIXTURE','fixture@example.invalid','https://opencode.ai/console','tok-access','tok-refresh',1893456000,1780000000,1780000000);" \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
+    || return 1
+  cat > "$fakebin/opencode" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  [ -n "\${OPENCODE_DB:-}" ] || exit 1
+  sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' || exit 1
+  sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' || exit 1
+  active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
+  if [ "\$active" = "$DUAL_MAIN_ORG_ID" ]; then
+    printf '%s\n' '{"provider": {"opencode": {"name": "main / OpenCode", "models": {}}}}'
+  elif [ "\$active" = "$DUAL_SECOND_ORG_ID" ]; then
+    printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
+  else
+    printf '%s\n' '{"provider": {"opencode": {"name": "unknown / OpenCode", "models": {}}}}'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "\${FM_FAKE_OPENCODE_DATA:-/nonexistent}"
+  exit 0
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf 'main  fixture@example.invalid  https://opencode.ai/console  %s\n    secondary  fixture@example.invalid  https://opencode.ai/console  %s\n' "$DUAL_MAIN_ORG_ID" "$DUAL_SECOND_ORG_ID"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$fakebin/opencode"
+  printf '%s\n' "$datadir"
+}
+
+# make_mainless_workspace_fixture <case-dir> <fakebin>: like the dual
+# fixture, but the console login names no main workspace, so a main launch
+# that cannot prove its pin must refuse.
+make_mainless_workspace_fixture() {  # <case-dir> <fakebin>
+  local dir=$1 fakebin=$2 datadir
+  datadir=$(make_dual_workspace_fixture "$dir" "$fakebin") || return 1
+  cat > "$fakebin/opencode" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "\${FM_FAKE_OPENCODE_DATA:-/nonexistent}"
+  exit 0
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf 'secondary  fixture@example.invalid  https://opencode.ai/console  %s\n' "$DUAL_SECOND_ORG_ID"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$fakebin/opencode"
+  printf '%s\n' "$datadir"
+}
+
 make_second_workspace_fixture() {  # <case-dir> <fakebin>: fixture login + fake opencode
   local dir=$1 fakebin=$2 datadir
   datadir="$dir/opencode-data"
@@ -1520,7 +1602,7 @@ test_opencode_second_workspace_pins_launch() {
   pass "a capped Go rung pins the launch to the second workspace"
 }
 
-test_opencode_main_workspace_launch_is_unpinned() {
+test_opencode_main_workspace_launch_is_unpinned_without_second() {
   local rec id out status launch
   id=profile-main-workspace-z31
   rec=$(make_spawn_case profile-main-workspace opencode "$id")
@@ -1534,8 +1616,66 @@ test_opencode_main_workspace_launch_is_unpinned() {
   assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
   assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
   launch=$(cat "$LAUNCH_LOG")
-  assert_not_contains "$launch" "OPENCODE_DB=" "a main-workspace launch must not pin a database"
-  pass "an uncapped Go rung launches unpinned exactly as before"
+  assert_not_contains "$launch" "OPENCODE_DB=" "a single-workspace main launch must not pin a database"
+  pass "an uncapped Go rung without a second workspace launches unpinned exactly as before"
+}
+
+test_opencode_main_workspace_pins_launch_when_second_configured() {
+  local rec id out status launch datadir
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "main-workspace pin needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  id=profile-main-pinned-z33
+  rec=$(make_spawn_case profile-main-pinned opencode "$id")
+  read_case_record "$rec"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the fixture login could not be built"
+
+  # Exported, not prefixed: the fixture opencode reads it in the spawn's own
+  # process, which a command-prefix assignment cannot reach. Unset right
+  # after so no later case inherits it.
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "an uncapped Go rung with a second workspace should spawn pinned on main: $out"
+  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/config/opencode-main.db'" \
+    "the main launch did not carry its pinned database"
+  [ "$(cat "$HOME_DIR/config/opencode-main-org")" = "$DUAL_MAIN_ORG_ID" ] \
+    || fail "the main launch did not record the discovered workspace id"
+  pass "a two-workspace main launch rides its own pin, never the machine-wide active workspace"
+}
+
+test_opencode_main_launch_refuses_when_pin_unprovable() {
+  local rec id out status
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "main-workspace refusal needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  id=profile-main-refuses-z34
+  rec=$(make_spawn_case profile-main-refuses opencode "$id")
+  read_case_record "$rec"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+  datadir=$(make_mainless_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the fixture login could not be built"
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 1 "$status" "a main launch with no provable pin must be refused: $out"
+  assert_contains "$out" "refusing" "the refusal must say it refuses rather than launching unpinned"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn must launch nothing"
+  pass "a main launch that cannot prove its pin is refused rather than run unpinned"
 }
 
 test_opencode_workspace_flag_refuses_fresh_spawn() {
@@ -1556,7 +1696,9 @@ test_launch_brief_text_is_absent_from_recorded_argv
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_opencode_second_workspace_pins_launch
-test_opencode_main_workspace_launch_is_unpinned
+test_opencode_main_workspace_launch_is_unpinned_without_second
+test_opencode_main_workspace_pins_launch_when_second_configured
+test_opencode_main_launch_refuses_when_pin_unprovable
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths

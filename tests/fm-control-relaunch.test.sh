@@ -1604,11 +1604,12 @@ test_relaunch_does_not_disarm_a_live_pr_poll() {
 
 # Moving an opencode Go lane between workspaces keeps the model id and flips
 # the workspace marker; without the flag a relaunch preserves the recorded
-# workspace. The fixture opencode migrates the pin database and serves the
-# fixture login while the real sqlite3 does the seeding, so this case needs
-# sqlite3 and says so when it is absent.
+# workspace. Each side rides its own pin: the fixture opencode resolves the
+# workspace name from the pin database's own active workspace id and serves
+# the fixture login while the real sqlite3 does the seeding, so this case
+# needs sqlite3 and says so when it is absent.
 test_relaunch_opencode_workspace_moves_and_preserves_the_pin() {
-  local dir out rc datadir pins_before
+  local dir out rc datadir
   command -v sqlite3 >/dev/null 2>&1 || {
     pass "workspace pin moves need sqlite3 (absent here; live proof covers the real path)"
     return 0
@@ -1620,6 +1621,7 @@ test_relaunch_opencode_workspace_moves_and_preserves_the_pin() {
   printf 'zsh' > "$dir/fake/command"
   mkdir -p "$dir/home/config"
   printf '%s' 'org_01FIXTURESECONDARY00' > "$dir/home/config/opencode-second-org"
+  printf '%s' 'org_01FIXTUREMAIN00000' > "$dir/home/config/opencode-main-org"
   datadir="$dir/opencode-data"
   mkdir -p "$datadir"
   sqlite3 "$datadir/opencode.db" \
@@ -1641,11 +1643,22 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   [ -n "\${OPENCODE_DB:-}" ] || exit 1
   sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' || exit 1
   sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' || exit 1
-  printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
+  active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
+  if [ "\$active" = "org_01FIXTUREMAIN00000" ]; then
+    printf '%s\n' '{"provider": {"opencode": {"name": "main / OpenCode", "models": {}}}}'
+  elif [ "\$active" = "org_01FIXTURESECONDARY00" ]; then
+    printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
+  else
+    printf '%s\n' '{"provider": {"opencode": {"name": "unknown / OpenCode", "models": {}}}}'
+  fi
   exit 0
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
   printf 'data %s\n' "$datadir"
+  exit 0
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf 'main  fixture@example.invalid  https://opencode.ai/console  org_01FIXTUREMAIN00000\n    secondary  fixture@example.invalid  https://opencode.ai/console  org_01FIXTURESECONDARY00\n'
   exit 0
 fi
 exit 1
@@ -1672,7 +1685,6 @@ SH
     || fail "a flagless relaunch must preserve the recorded workspace"
   unset FM_FAKE_OPENCODE_DATA
 
-  pins_before=$(grep -c "OPENCODE_DB=" "$dir/fake/literal")
   export FM_FAKE_OPENCODE_DATA="$datadir"
   out=$(run_control "$dir" wq1 relaunch --harness opencode \
     --model opencode-go/muse-spark-1.3-contributor \
@@ -1681,8 +1693,8 @@ SH
   unset FM_FAKE_OPENCODE_DATA
   [ "$(meta_field "$dir" wq1 opencode_workspace)" = "" ] \
     || fail "moving back to main must clear the marker"
-  [ "$(grep -c "OPENCODE_DB=" "$dir/fake/literal")" = "$pins_before" ] \
-    || fail "the main-workspace replacement must launch unpinned"
+  assert_grep "OPENCODE_DB='$dir/home/config/opencode-main.db'" "$dir/fake/literal" \
+    "the main-workspace replacement must carry the main pinned database, never the machine-wide active workspace"
   pass "fm-control relaunch: --opencode-workspace moves the pin and its absence preserves it"
 }
 

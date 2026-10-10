@@ -2302,19 +2302,23 @@ case "$HARNESS" in
     ;;
 esac
 
-# The second-workspace pin (bin/fm-opencode-second-lib.sh owns the
-# mechanism). A fresh ladder-routed Go launch rides the second workspace
-# exactly when the tier pick
-# (bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace) says
-# so: the monthly-soonest plan serves while uncapped, and a plan under a
+# The Go workspace pins (bin/fm-opencode-second-lib.sh owns the mechanism).
+# A fresh ladder-routed Go launch rides the second workspace exactly when the
+# tier pick (bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace)
+# says so: the monthly-soonest plan serves while uncapped, and a plan under a
 # shorter cap yields to the other until that limit resets;
 # an explicit Go request keeps the main workspace (with a proven main-Go cap
 # the gate above already refused it). A relaunch keeps the recorded workspace
 # unless --opencode-workspace moves it, and a harness switch away from
-# opencode drops the pin. Without a configured second workspace this is the
-# main workspace, exactly as today.
+# opencode drops the pin. In a home with a configured second workspace every
+# Go launch rides its own pin, main and secondary alike: an unpinned main
+# launch would inherit the machine-wide active workspace and bill the capped
+# secondary plan while its record reads main, so a main pin that cannot be
+# proven refuses the launch rather than running unpinned. Without a configured
+# second workspace the main workspace runs exactly as today.
 OPENCODE_WORKSPACE=main
 OPENCODE_SECOND_DB=
+OPENCODE_MAIN_DB=
 if [ "$HARNESS" = opencode ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
     if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
@@ -2329,6 +2333,8 @@ if [ "$HARNESS" = opencode ]; then
 fi
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
   OPENCODE_SECOND_DB=$(fm_opencode_second_db) || exit 1
+elif [ "$HARNESS" = opencode ] && fm_opencode_second_configured 2>/dev/null; then
+  OPENCODE_MAIN_DB=$(fm_opencode_main_db) || exit 1
 fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
@@ -5088,17 +5094,24 @@ esac
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
-# A secondary-workspace opencode launch rides its pinned console database so
-# the vendor attributes the session to the second workspace even though the
-# machine-wide active workspace is elsewhere. The database was ensured where
+# A pinned opencode launch rides its workspace's console database so the
+# vendor attributes the session to that workspace even though the
+# machine-wide active workspace is elsewhere. Each database was ensured where
 # the workspace resolved above, before any endpoint or record existed; a
-# missing path here is refused rather than launched unpinned.
+# launch whose resolved workspace the pin cannot prove is refused rather than
+# launched unpinned, so a Go launch never runs on a workspace the ladder did
+# not choose.
 if [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
   [ -n "$OPENCODE_SECOND_DB" ] || {
     echo "error: task $ID is pinned to the second OpenCode workspace but its database is missing; refusing to launch unpinned" >&2
     exit 1
   }
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_SECOND_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_MAIN_DB" ]; then
+  LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_MAIN_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = main ] && fm_opencode_second_configured 2>/dev/null; then
+  echo "error: task $ID is on the main OpenCode workspace but its pinned database is missing; refusing to launch unpinned" >&2
+  exit 1
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
