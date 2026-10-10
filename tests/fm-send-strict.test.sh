@@ -231,6 +231,59 @@ test_key_send_exit_status_follows_delivery() {
   pass "fm-send --key: exit status follows delivery, and an undelivered key never reports success"
 }
 
+# An empty steer used to be written as a well-formed durable record and lost
+# silently: the receiver filed it as handled and nothing ever reported it.
+# A send with no body, or a whitespace-only body, must refuse before anything
+# is recorded, the same way --resolve-key already refuses an empty answer.
+test_empty_message_refuses_before_record() {
+  local dir fb home err log rc
+  dir="$TMP_ROOT/empty"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home empty); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/lane-empty.meta" "window=sess:fm-lane-empty" "kind=ship"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" lane-empty >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "an empty steer should refuse"
+  assert_contains "$(cat "$err")" "empty message" "the empty-message refusal should be explicit"
+  assert_contains "$(cat "$err")" "nothing was sent" "the empty-message refusal should state nothing was sent"
+  [ ! -d "$home/state/lane-empty.inbox" ] || fail "a refused empty steer still enqueued an inbox record"
+  [ ! -s "$log" ] || fail "a refused empty steer still attempted a send"$'\n'"$(cat "$log")"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" lane-empty "   " >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a whitespace-only steer should refuse"
+  assert_contains "$(cat "$err")" "empty message" "the whitespace-only refusal should be explicit"
+  [ ! -d "$home/state/lane-empty.inbox" ] || fail "a refused whitespace-only steer still enqueued an inbox record"
+  [ ! -s "$log" ] || fail "a refused whitespace-only steer still attempted a send"$'\n'"$(cat "$log")"
+  pass "fm-send strict: empty and whitespace-only steers refuse before anything is recorded"
+}
+
+# A flag that does not exist was accepted as message text: --file /path/to/msg
+# was delivered as the literal instruction. An unrecognised leading --flag is
+# far more likely a caller error than a message starting with two dashes.
+test_unknown_leading_flag_refuses_before_record() {
+  local dir fb home err log rc
+  dir="$TMP_ROOT/unknown-flag"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home unknownflag); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/lane-flag.meta" "window=sess:fm-lane-flag" "kind=ship"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" lane-flag --file /tmp/msg >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "an unrecognised leading flag should refuse"
+  assert_contains "$(cat "$err")" "unknown option '--file'" "the refusal should name the bad flag"
+  assert_contains "$(cat "$err")" "nothing was sent" "the refusal should state nothing was sent"
+  [ ! -d "$home/state/lane-flag.inbox" ] || fail "a refused flag still enqueued an inbox record"
+  [ ! -s "$log" ] || fail "a refused flag still attempted a send"$'\n'"$(cat "$log")"
+
+  # The "--" separator keeps dash-leading text sendable on purpose.
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" lane-flag -- --file /tmp/msg >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "dash-leading text after '--' should still send"
+  grep -qF -- '--file /tmp/msg' "$home/state/lane-flag.inbox/001.msg" \
+    || fail "dash-leading text after '--' should reach the inbox verbatim"
+  pass "fm-send strict: unrecognised leading --flags refuse, '--' still sends dash-leading text"
+}
+
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
 test_unset_fm_home_fails
@@ -239,3 +292,5 @@ test_prefixless_herdr_pane_id_fails
 test_unmatched_single_colon_target_must_exist
 test_fm_prefixed_herdr_session_is_an_explicit_target
 test_healthy_fm_id_send_still_works
+test_empty_message_refuses_before_record
+test_unknown_leading_flag_refuses_before_record
