@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "fps": 10.0,
+  "width": 32,
+  "height": 32,
+  "duration": 0.2,
+  "hold_frames": null,
+  "nodes": [
+    {
+      "id": "checker",
+      "type": "image",
+      "transform": null,
+      "opacity": 1.0,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 32.0,
+        "height": 32.0
+      },
+      "z_index": 0,
+      "mask": "checker-mask",
+      "clip": null,
+      "blend": "normal",
+      "filters": [],
+      "timing": null,
+      "animations": [],
+      "tracks": [],
+      "text": null,
+      "shape": null,
+      "image": {
+        "src": "checker.bmp",
+        "alt": "checkerboard card"
+      },
+      "svg": null,
+      "shader": null,
+      "camera": null,
+      "filter": null,
+      "effect": null,
+      "audio": null,
+      "html": null,
+      "children": []
+    },
+    {
+      "id": "checker-mask",
+      "type": "shape",
+      "transform": null,
+      "opacity": 1.0,
+      "bounds": {
+        "x": 4.0,
+        "y": 4.0,
+        "width": 24.0,
+        "height": 24.0
+      },
+      "z_index": 0,
+      "mask": null,
+      "clip": null,
+      "blend": "normal",
+      "filters": [],
+      "timing": null,
+      "animations": [],
+      "tracks": [],
+      "text": null,
+      "shape": {
+        "shape": "ellipse",
+        "fill": null,
+        "pattern": null,
+        "stroke": null,
+        "stroke_width": null,
+        "path": null,
+        "corner_radius": null
+      },
+      "image": null,
+      "svg": null,
+      "shader": null,
+      "camera": null,
+      "filter": null,
+      "effect": null,
+      "audio": null,
+      "html": null,
+      "children": []
+    }
+  ]
+}

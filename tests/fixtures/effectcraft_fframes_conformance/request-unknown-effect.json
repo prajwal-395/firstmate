@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "project_id": "ec-conformance-unknown",
+  "operations": [
+    {
+      "op": "new_comp",
+      "name": "Main",
+      "width": 32,
+      "height": 32,
+      "frame_rate": 10.0,
+      "duration": 0.2
+    },
+    {
+      "op": "apply_effect",
+      "layer": "Title",
+      "effect_id": "ren.effect.does-not-exist",
+      "params": {}
+    }
+  ],
+  "renders": []
+}

@@ -1,0 +1,167 @@
+{
+  "id": "ec-conformance",
+  "schema_version": 1,
+  "timebase_policy": "rational_frames",
+  "clocks": [
+    {
+      "id": "clock-src",
+      "domain": {
+        "kind": "source",
+        "asset_id": "asset-checker",
+        "stream_id": "stream-checker"
+      },
+      "ticks_per_second": 10,
+      "frame_rate": {
+        "numerator": 10,
+        "denominator": 1
+      }
+    },
+    {
+      "id": "clock-project",
+      "domain": {
+        "kind": "project"
+      },
+      "ticks_per_second": 10,
+      "frame_rate": {
+        "numerator": 10,
+        "denominator": 1
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset-checker",
+      "kind": "image",
+      "uri": "checker.bmp",
+      "content_digest": null,
+      "metadata": {
+        "license": "ren-owned test pattern"
+      },
+      "provenance": [
+        "prov-ec-conf"
+      ]
+    }
+  ],
+  "streams": [
+    {
+      "id": "stream-checker",
+      "asset_id": "asset-checker",
+      "stream_index": 0,
+      "clock_id": "clock-src",
+      "metadata": {}
+    }
+  ],
+  "entities": [
+    {
+      "id": "object-checker",
+      "kind": "object",
+      "label": "checkerboard card",
+      "object_class_id": "class-card"
+    }
+  ],
+  "observations": [],
+  "identity_links": [],
+  "masks": [
+    {
+      "id": "mask-checker",
+      "entity_id": "object-checker",
+      "interval": {
+        "clock_id": "clock-src",
+        "start": 0,
+        "end": 2
+      },
+      "representation": {
+        "kind": "ellipse",
+        "normalized_bbox": [
+          0.125,
+          0.125,
+          0.75,
+          0.75
+        ],
+        "keyframes": [
+          {
+            "tick": 0,
+            "bbox": [
+              0.125,
+              0.125,
+              0.75,
+              0.75
+            ]
+          }
+        ]
+      },
+      "source_model": "synthetic_fixture",
+      "provenance_id": "prov-ec-conf"
+    }
+  ],
+  "object_classes": [
+    {
+      "id": "class-card",
+      "name": "test_card",
+      "taxonomy": "fixture"
+    }
+  ],
+  "tracks": [],
+  "relations": [],
+  "intents": [],
+  "clip_uses": [
+    {
+      "id": "use-checker",
+      "asset_id": "asset-checker",
+      "source_interval": {
+        "clock_id": "clock-src",
+        "start": 0,
+        "end": 2
+      },
+      "timeline_interval": {
+        "clock_id": "clock-project",
+        "start": 0,
+        "end": 2
+      },
+      "entity_links": [
+        "object-checker"
+      ],
+      "role": "b_roll",
+      "intent_id": null
+    }
+  ],
+  "edits": [],
+  "effects": [
+    {
+      "id": "effect-blur",
+      "class_id": "blur.gaussian",
+      "target_id": "use-checker",
+      "interval": {
+        "clock_id": "clock-project",
+        "start": 0,
+        "end": 2
+      },
+      "parameters": {
+        "blurriness": 6.0
+      },
+      "keyframes": [
+        {
+          "tick": 0,
+          "value": 6.0
+        },
+        {
+          "tick": 2,
+          "value": 6.0
+        }
+      ]
+    }
+  ],
+  "renders": [],
+  "frame_maps": [],
+  "nle_bindings": [],
+  "receipts": [],
+  "provenance": [
+    {
+      "id": "prov-ec-conf",
+      "producer": "effectcraft conformance fixture",
+      "producer_version": "1",
+      "source_digest": null,
+      "recorded_at": "2026-10-10T00:00:00Z"
+    }
+  ]
+}

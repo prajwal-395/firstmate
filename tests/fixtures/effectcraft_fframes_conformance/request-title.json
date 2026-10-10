@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "project_id": "ec-conformance-title",
+  "operations": [
+    {
+      "op": "new_comp",
+      "name": "Main",
+      "width": 96,
+      "height": 64,
+      "frame_rate": 10.0,
+      "duration": 0.5
+    },
+    {
+      "op": "add_text",
+      "name": "Title",
+      "text": "REN",
+      "size": 28.0,
+      "fill": "#ffffff",
+      "position": [
+        48.0,
+        32.0
+      ],
+      "font": "Inter"
+    },
+    {
+      "op": "keyframe",
+      "layer": "Title",
+      "path": "transform/opacity",
+      "time": 0.0,
+      "value": 0.0
+    },
+    {
+      "op": "keyframe",
+      "layer": "Title",
+      "path": "transform/opacity",
+      "time": 0.2,
+      "value": 100.0
+    }
+  ],
+  "renders": [
+    {
+      "format": "rgba_png_sequence",
+      "comp": "Main",
+      "output": "title_#####.png",
+      "start_seconds": 0.0,
+      "end_seconds": 0.5
+    }
+  ]
+}

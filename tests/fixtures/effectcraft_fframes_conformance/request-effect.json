@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "project_id": "ec-conformance-effect",
+  "operations": [
+    {
+      "op": "new_comp",
+      "name": "Main",
+      "width": 32,
+      "height": 32,
+      "frame_rate": 10.0,
+      "duration": 0.2
+    },
+    {
+      "op": "import_footage",
+      "path": "checker.bmp"
+    },
+    {
+      "op": "add_footage_layer",
+      "footage": "checker.bmp"
+    },
+    {
+      "op": "add_mask",
+      "layer": "checker.bmp",
+      "shape": "ellipse",
+      "rect": [
+        4.0,
+        4.0,
+        24.0,
+        24.0
+      ]
+    },
+    {
+      "op": "apply_effect",
+      "layer": "checker.bmp",
+      "effect_id": "ec.blur.gaussian",
+      "params": {
+        "blurriness": 6.0
+      }
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "effects/#1/blurriness",
+      "time": 0.0,
+      "value": 6.0
+    },
+    {
+      "op": "keyframe",
+      "layer": "checker.bmp",
+      "path": "effects/#1/blurriness",
+      "time": 0.2,
+      "value": 6.0
+    }
+  ],
+  "renders": [
+    {
+      "format": "rgba_png_sequence",
+      "comp": "Main",
+      "output": "effect_#####.png",
+      "start_seconds": null,
+      "end_seconds": null
+    }
+  ]
+}

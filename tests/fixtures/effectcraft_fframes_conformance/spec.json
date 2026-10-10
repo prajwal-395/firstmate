@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "note": "Agreed graphics both FFrames (Graphics IR scene-*.json) and EffectCraft (request-*.json) can render. Pixel expectations are asserted by the dual-render test only where both binaries are present; otherwise that test skips naming the missing binary.",
+  "cases": [
+    {
+      "id": "alpha-title",
+      "effectcraft_request": "request-title.json",
+      "graphics_ir_scene": "scene-title.json",
+      "expect": {
+        "width": 96,
+        "height": 64,
+        "frames": 5,
+        "first_frame_alpha_sum": 0,
+        "last_frame_has_visible": true
+      },
+      "scales": {
+        "effectcraft_opacity": [
+          0.0,
+          100.0
+        ],
+        "graphics_ir_opacity": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": "masked-footage",
+      "model": "model-masked.json",
+      "effectcraft_request": "request-masked.json",
+      "graphics_ir_scene": "scene-masked.json",
+      "expect": {
+        "width": 32,
+        "height": 32,
+        "frames": 2,
+        "corner_alpha": 0,
+        "center_alpha_min": 1
+      }
+    },
+    {
+      "id": "masked-blur-effect",
+      "model": "model-effect.json",
+      "effectcraft_request": "request-effect.json",
+      "graphics_ir_scene": null,
+      "note": "EffectCraft-measured only: gaussian blur has no agreed FFrames filter mapping yet, so no dual-render expectation is recorded."
+    }
+  ]
+}

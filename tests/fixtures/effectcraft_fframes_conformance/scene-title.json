@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "fps": 10.0,
+  "width": 96,
+  "height": 64,
+  "duration": 0.5,
+  "hold_frames": null,
+  "nodes": [
+    {
+      "id": "title",
+      "type": "text",
+      "transform": null,
+      "opacity": 0.0,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 96.0,
+        "height": 64.0
+      },
+      "z_index": 0,
+      "mask": null,
+      "clip": null,
+      "blend": "normal",
+      "filters": [],
+      "timing": null,
+      "animations": [
+        {
+          "target": "title",
+          "property": "opacity",
+          "from_value": 0.0,
+          "to_value": 1.0,
+          "start": 0.0,
+          "duration": 0.2,
+          "easing": {
+            "kind": "linear"
+          }
+        }
+      ],
+      "tracks": [],
+      "text": {
+        "text": "REN",
+        "font_family": "Inter",
+        "font_file": null,
+        "font_size": 28.0,
+        "font_weight": null,
+        "color": "#ffffff",
+        "text_align": null,
+        "line_height": null,
+        "letter_spacing": null,
+        "text_transform": null,
+        "text_shadow": null,
+        "runs": [],
+        "layout": null,
+        "reveal_ramp": null
+      },
+      "shape": null,
+      "image": null,
+      "svg": null,
+      "shader": null,
+      "camera": null,
+      "filter": null,
+      "effect": null,
+      "audio": null,
+      "html": null,
+      "children": []
+    }
+  ]
+}
