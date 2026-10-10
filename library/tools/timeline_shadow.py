@@ -24,6 +24,14 @@ Two producers, and the row says which:
   result back. The row carries the patch and its receipt, which is what
   lets a later patch on a stale base ask what happened in between.
 
+A row also carries its model linkage (Lane A3): `model_revision`, the
+Project Model revision the placed clips' ids were read from, and
+`nle_binding_ids`, the bindings verified against this generation.
+Both are recorded after the row exists - the revision does not exist
+until the build commits it - through `attach_model_link` (or `record`
+where the revision is already known). The shadow stays the NLE-truth
+cache; the model stays the identity authority.
+
 What the shadow is NOT
 ----------------------
 It is not the live timeline. It is the timeline AS OF the generation's
@@ -105,6 +113,8 @@ CREATE TABLE IF NOT EXISTS generations (
     receipt       TEXT,
     recorded_at   REAL NOT NULL,
     verified_at   REAL NOT NULL,
+    model_revision INTEGER,
+    nle_binding_ids TEXT,
     PRIMARY KEY (project, timeline_id, generation)
 );
 CREATE INDEX IF NOT EXISTS generations_by_name
@@ -137,6 +147,24 @@ class ShadowError(LookupError):
 
 class HeadMoved(RuntimeError):
     """A generation was appended against a head that is no longer the head."""
+
+
+#: Lane A3 model-linkage columns on `generations`, added after the
+#: table already existed on machines. `CREATE TABLE IF NOT EXISTS`
+#: never adds a column to an existing table, so a store made before
+#: this lane gains them here, idempotently.
+_GENERATION_MODEL_COLUMNS = (
+    ("model_revision", "INTEGER"),
+    ("nle_binding_ids", "TEXT"),
+)
+
+
+def _migrate_generations(db) -> None:
+    columns = {row["name"] for row in
+               db.execute("PRAGMA table_info(generations)").fetchall()}
+    for name, kind in _GENERATION_MODEL_COLUMNS:
+        if name not in columns:
+            db.execute(f"ALTER TABLE generations ADD COLUMN {name} {kind}")
 
 
 def default_db_path() -> Path:
@@ -287,6 +315,14 @@ class Generation:
     receipt: dict | None
     recorded_at: float
     verified_at: float
+    model_revision: int | None = None
+    """The Project Model revision this generation is linked to (Lane A3).
+
+    None where no model linkage has been recorded yet: the shadow
+    predates the link, or the timeline state was observed without one.
+    """
+    nle_binding_ids: tuple = ()
+    """The model `NleBinding` ids verified against this generation."""
 
     def summary(self) -> dict:
         return {
@@ -299,17 +335,52 @@ class Generation:
             "patch_id": (self.patch or {}).get("id"),
             "recorded_at": self.recorded_at,
             "verified_at": self.verified_at,
+            "model_revision": self.model_revision,
+            "nle_binding_ids": list(self.nle_binding_ids),
         }
 
 
 def _row_to_generation(row) -> Generation:
+    try:
+        binding_ids = json.loads(row["nle_binding_ids"])
+    except (TypeError, ValueError):
+        binding_ids = []
+    if not isinstance(binding_ids, list):
+        binding_ids = []
     return Generation(
         project=row["project"], timeline_id=row["timeline_id"],
         generation=row["generation"], timeline_name=row["timeline_name"],
         hash=row["hash"], source=row["source"],
         patch=json.loads(row["patch"]) if row["patch"] else None,
         receipt=json.loads(row["receipt"]) if row["receipt"] else None,
-        recorded_at=row["recorded_at"], verified_at=row["verified_at"])
+        recorded_at=row["recorded_at"], verified_at=row["verified_at"],
+        model_revision=row["model_revision"],
+        nle_binding_ids=tuple(binding_ids))
+
+
+def _checked_model_revision(value) -> int | None:
+    """A model revision fit to record, or None where none is recorded."""
+    if value is None:
+        return None
+    if (not isinstance(value, int) or isinstance(value, bool)
+            or value < 1):
+        raise ValueError(
+            f"a linked model revision must be >= 1, not {value!r}: "
+            "revision 0 is the empty store, not a build")
+    return value
+
+
+def _checked_binding_ids(values) -> tuple:
+    """Canonical binding ids: a tuple of non-empty strings."""
+    if values is None:
+        return ()
+    ids = tuple(values)
+    for binding_id in ids:
+        if not isinstance(binding_id, str) or not binding_id:
+            raise ValueError(
+                f"an NLE binding id must be a non-empty string, "
+                f"not {binding_id!r}")
+    return ids
 
 
 class ShadowStore:
@@ -321,6 +392,7 @@ class ShadowStore:
         with self._connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
+            _migrate_generations(db)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -524,7 +596,9 @@ class ShadowStore:
     def record(self, *, project: str, timeline_id: str, timeline_name: str,
                snapshot: dict, source: str, expected_head: int,
                patch: dict | None = None,
-               receipt: dict | None = None) -> Generation:
+               receipt: dict | None = None,
+               model_revision: int | None = None,
+               nle_binding_ids=None) -> Generation:
         """Append a generation, or refresh the head when nothing changed.
 
         Compare-and-set on `expected_head` (0 for a timeline never read):
@@ -533,9 +607,24 @@ class ShadowStore:
         snapshot hashes equal to the head's, no generation is added and
         the head's `verified_at` advances - unless the caller is a patch,
         which always records its own row so its receipt has a home.
+
+        `model_revision` + `nle_binding_ids` (Lane A3) link the row to
+        the Project Model revision the placed clips' ids were read from
+        and the bindings verified against it. A row recorded without
+        them carries None/() and gains them later through
+        `attach_model_link`, once the build's revision is committed -
+        placement is recorded first, the revision after it, because the
+        revision does not exist until the build commits it.
         """
         if source not in SOURCES:
             raise ValueError(f"source {source!r} is not one of {SOURCES}")
+        revision = _checked_model_revision(model_revision)
+        binding_ids = _checked_binding_ids(nle_binding_ids)
+        if binding_ids and revision is None:
+            raise ValueError(
+                "nle_binding_ids name model entities and need the model "
+                "revision they were verified against: refusing ids "
+                "without a revision")
         digest = snapshot_hash(snapshot)
         now = time.time()
         with self._connect() as db:
@@ -558,22 +647,81 @@ class ShadowStore:
                         " AND generation=?",
                         (now, timeline_name, project, timeline_id, head))
                     db.execute("COMMIT")
+                    if revision is not None:
+                        return self.attach_model_link(
+                            project=project, timeline_id=timeline_id,
+                            generation=head, model_revision=revision,
+                            nle_binding_ids=binding_ids)
                     return self.get(project, timeline_id, head)
                 db.execute(
                     "INSERT OR IGNORE INTO snapshots (hash, body)"
                     " VALUES (?, ?)", (digest, canonical(snapshot)))
                 db.execute(
-                    "INSERT INTO generations VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO generations (project, timeline_id,"
+                    " generation, timeline_name, hash, source, patch,"
+                    " receipt, recorded_at, verified_at, model_revision,"
+                    " nle_binding_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (project, timeline_id, head + 1, timeline_name, digest,
                      source,
                      json.dumps(patch, sort_keys=True) if patch else None,
                      json.dumps(receipt, sort_keys=True) if receipt else None,
-                     now, now))
+                     now, now, revision,
+                     json.dumps(list(binding_ids)) if binding_ids else None))
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
         return self.get(project, timeline_id, head + 1)
+
+    def attach_model_link(self, *, project: str, timeline_id: str,
+                          generation: int, model_revision: int,
+                          nle_binding_ids=None) -> Generation:
+        """Join one recorded generation to a committed model revision.
+
+        The revision is known only after the build commits it, which is
+        after the generation row exists - so the link is an UPDATE, not
+        a second row. Fail-closed: an unknown generation raises
+        `ShadowError`, and a revision older than the one recorded
+        raises `ValueError` (revisions only move forward along the
+        store's hash chain). The same revision with different binding
+        ids is also refused: one revision carries one set of bindings.
+        """
+        revision = _checked_model_revision(model_revision)
+        if revision is None:  # unreachable: the check above refuses None
+            raise ValueError("attach_model_link needs a model revision")
+        binding_ids = _checked_binding_ids(nle_binding_ids)
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT model_revision, nle_binding_ids FROM generations"
+                " WHERE project=? AND timeline_id=? AND generation=?",
+                (project, timeline_id, generation)).fetchone()
+            if row is None:
+                raise ShadowError(
+                    f"no generation {generation} of timeline {timeline_id!r} "
+                    f"in project {project!r}")
+            previous = row["model_revision"]
+            if previous is not None and revision < previous:
+                raise ValueError(
+                    f"generation {generation} already links revision "
+                    f"{previous}; refusing older revision {revision}")
+            try:
+                previous_ids = tuple(json.loads(
+                    row["nle_binding_ids"] or "[]"))
+            except ValueError:
+                previous_ids = ()
+            if (previous == revision and previous_ids
+                    and tuple(previous_ids) != binding_ids):
+                raise ValueError(
+                    f"generation {generation} already links revision "
+                    f"{revision} with different bindings; refusing")
+            db.execute(
+                "UPDATE generations SET model_revision=?,"
+                " nle_binding_ids=? WHERE project=? AND timeline_id=?"
+                " AND generation=?",
+                (revision,
+                 json.dumps(list(binding_ids)) if binding_ids else None,
+                 project, timeline_id, generation))
+        return self.get(project, timeline_id, generation)
 
     def export_document(self, project: str) -> dict:
         """The project-scoped mirror document for `project`.
@@ -602,6 +750,8 @@ class ShadowStore:
                 "receipt": generation.receipt,
                 "recorded_at": generation.recorded_at,
                 "verified_at": generation.verified_at,
+                "model_revision": generation.model_revision,
+                "nle_binding_ids": list(generation.nle_binding_ids),
             })
             snapshots[generation.hash] = body
         return {
@@ -659,9 +809,16 @@ class ShadowStore:
                             "mirror_hash": entry["hash"],
                         })
                         continue
+                    revision = _checked_model_revision(
+                        entry.get("model_revision"))
+                    binding_ids = _checked_binding_ids(
+                        entry.get("nle_binding_ids"))
                     db.execute(
-                        "INSERT INTO generations VALUES"
-                        " (?,?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO generations (project, timeline_id,"
+                        " generation, timeline_name, hash, source, patch,"
+                        " receipt, recorded_at, verified_at,"
+                        " model_revision, nle_binding_ids)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         (entry["project"], entry["timeline_id"],
                          entry["generation"], entry["timeline_name"],
                          entry["hash"], entry["source"],
@@ -669,7 +826,10 @@ class ShadowStore:
                          if entry.get("patch") else None,
                          json.dumps(entry["receipt"], sort_keys=True)
                          if entry.get("receipt") else None,
-                         entry["recorded_at"], entry["verified_at"]))
+                         entry["recorded_at"], entry["verified_at"],
+                         revision,
+                         json.dumps(list(binding_ids))
+                         if binding_ids else None))
                     report["generations"] += 1
                 db.execute("COMMIT")
             except BaseException:
