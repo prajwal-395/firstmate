@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import textwrap
 import tomllib
 from pathlib import Path
@@ -15,6 +16,13 @@ LOCAL_GATE = REPO_ROOT / "scripts" / "full_suite_gate.sh"
 
 
 def _write_shim(tmp_path: Path, source: str) -> Path:
+    # The shim stands in for the gate interpreter, so its non-pytest
+    # fallthrough must run the SAME interpreter the test itself runs
+    # under - never the ambient `python3`, which on this machine is a
+    # bare 3.14 with none of the ML stack. A shim that delegates to a
+    # different interpreter judges the gate's static checks under an
+    # environment the real gate never runs in.
+    source = source.replace("exec python3", f'exec "{sys.executable}"')
     shim = tmp_path / "pytest-shim.sh"
     shim.write_text(source, encoding="utf-8")
     shim.chmod(0o755)

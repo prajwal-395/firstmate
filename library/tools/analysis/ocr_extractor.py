@@ -1,13 +1,15 @@
-import cv2
-import easyocr
-import numpy as np
+from __future__ import annotations
+
 from dataclasses import dataclass, asdict
-from typing import Tuple, List, Dict, Optional
+from typing import TYPE_CHECKING, Tuple, List, Dict, Optional
 import json
 import math
 import os
 from collections import defaultdict
 from pathlib import Path
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only, for the frame hint
+    import numpy as np
 
 @dataclass
 class TextDetection:
@@ -151,6 +153,15 @@ class OCRExtractor:
         
     def _get_reader(self):
         if self.reader is None:
+            try:
+                import easyocr
+            except ImportError as exc:
+                raise ImportError(
+                    "easyocr is not installed, so on-screen text cannot be "
+                    "measured. Install the ML environment "
+                    "(docs/ML_ENVIRONMENT.md) or "
+                    "`pip install -r requirements.txt`."
+                ) from exc
             self.reader = easyocr.Reader(['en'])
         return self.reader
         
@@ -191,6 +202,15 @@ class OCRExtractor:
         return detections
 
     def extract_text_from_clip(self, video_path: str, sample_fps: float = 1.0, scene_boundaries: Optional[List[float]] = None) -> OCRResult:
+        try:
+            import cv2
+        except ImportError as exc:
+            raise ImportError(
+                "opencv (cv2) is not installed, so video frames cannot be "
+                "read for OCR. Install the ML environment "
+                "(docs/ML_ENVIRONMENT.md) or "
+                "`pip install -r requirements.txt`."
+            ) from exc
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video {video_path}")

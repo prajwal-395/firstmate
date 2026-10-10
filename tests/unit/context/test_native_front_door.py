@@ -62,11 +62,17 @@ def test_a_built_tree_ships_the_native_front_door_with_cargo(
 
 
 def test_the_native_front_door_still_runs_the_python_implementation(
-        tmp_path, packageable_native_runtime):
+        tmp_path, monkeypatch, packageable_native_runtime):
     """The placed binary is a front door, not a different product: it
     answers `ren --version` off the tree it sits in."""
     if not _cargo_available():
         pytest.skip("no Rust toolchain on this machine")
+    # An explicit `$REN_ENGINE_ROOT` names the engine outright and wins
+    # over the tree holding the binary - so without this, a worker
+    # launched with that variable set (ren-ci inherits it from its own
+    # checkout) would name the ambient engine instead of the built tree
+    # and fail for no reason the binary controls.
+    monkeypatch.delenv("REN_ENGINE_ROOT", raising=False)
     dest = _build_tree(tmp_path / "engine")
     done = subprocess.run(
         [str(dest / "bin" / "ren"), "--version"],
