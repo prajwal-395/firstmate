@@ -19,7 +19,9 @@ only until the candidate SHA resolves) and verifies the checkout with
 `git rev-parse` before building. No fork, no floating branch, no upstream PRs.
 
 The qualified starting revisions are the source-built revisions measured in
-the 2026-10-10 engine evaluation:
+the 2026-10-10 engine evaluation. That table is the historical baseline;
+the current pins live in `library/tools/upstream_engines.json`, mirrored
+from the driver crates, and each promotion appends an intake record below.
 
 | Engine | Qualified source SHA | Upstream evidence |
 |---|---|---|
@@ -28,6 +30,86 @@ the 2026-10-10 engine evaluation:
 
 These measurements are historical qualification evidence, not a substitute
 for the fixed, committed regression corpus below.
+
+## Intake record: 2026-10-10 FilmCraft `7bd7621` -> `98ba9ac`
+
+Upstream `main` advanced 256 commits (`7bd76212629a067a9d1c5426d751de9faf4664b7`
+to `98ba9acbcedcbb630ba2a07b782176b66835edd2`, head merge PR #421 "GPU export
+rendering on by default"), also carrying TTS narration (schema v14), AAF
+fixes, and anamorphic PAR. The daily poll ran 06:52 UTC and correctly
+recorded the pin: the new head landed 12:35 UTC, after the poll, so no poll
+change was needed. EffectCraft `main` was still at its pin
+(`813c7c4650f0d4c805da620c8d5837c9600ad2e3`); it was not intaken.
+
+Gate (all at the candidate, Apple M5 / 24 GB):
+
+- `cargo build --release -p filmcraft-cli -j4`: clean.
+- `cargo test --release -p filmcraft-interchange -p filmcraft-golden -j4`:
+  99 passed, 0 failed.
+- Patch replay: `library/tools/upstream_patches/filmcraft/` is empty; nothing
+  to replay.
+- Committed render corpus (`corpus_version 2026-10-10.1`): passed at the
+  candidate with fidelity identical to the old pin (solids center diff 0 on
+  all five, stereo level -0.001 dB, `filmcraft-edit-50` 1.07 s / 103.5 MB
+  vs 1.069 s / 103.3 MB at the old pin, ratio 1.00). This run exposed a
+  corpus harness bug, not an engine change: the headless still render is
+  1920x1080 RGBA while the fixtures are 64x36 RGB, so the center-crop
+  comparison refused on buffer length at BOTH pins. Fixed in
+  `library/tools/local_ci/corpus.py` (`rgb_crop`: compare color, refuse any
+  non-opaque alpha) with the fake CLI runner now emitting the real RGBA
+  shape; both pins render fully opaque.
+- Adapter suites against the candidate CLI (`cargo test -p ren-filmcraft`):
+  26 unit + 10 `adapter_qualification` + 4 `pinned_cli`, all passed.
+- `ren qualification pm-e2e --no-resolve`: passed (ingest, identity,
+  filmcraft head-trim 12..48 with 36-frame measured render and frame map,
+  effectcraft, swapback plan, failure injection; `resolve_live` skipped).
+
+Behaviour deltas the adapter absorbs (no papering; each verified live):
+
+- Project schema 13 -> 14 (v13->v14 is a no-op narrations migration).
+  `FILMCRAFT_PROJECT_SCHEMA` moved to 14; `--version` still prints
+  `filmcraft-cli 0.5.0`.
+- `sequence.inspect` gained a top-level `transitionSelection` key; the
+  response contract allows it (still not required).
+- Transition authority unchanged: the candidate's
+  `exec effects.list '{"kind":"VideoTransition"}'` reports exactly the 112
+  ids checked in by PR #2261, with byte-identical entries - no removals.
+- All three measured defects reproduce unchanged, so every compensation
+  stands: a V1-only razor still leaves linked audio (video 1->2 items,
+  audio stays 1); the -318-frame ripple-out trim still answers
+  `delta -752215464000` ticks and lands at duration 1, tick-identical at
+  both pins; a move to the same tick target reads back the same
+  `startFrame` at both pins.
+
+Export wall time, standard 4K H.264 render with GPU export Auto
+(`file.exportMedia` `{format h264, hardwareEncoding auto, wait true}` over
+a 3840x2160/24fps/96-frame `testsrc2` fixture on a 3840x2160 sequence,
+export exec timed, run under verify slot 2 with the daemon's Tier-1 checks
+active on slot 0):
+
+| Pin | Rep walls (s) | Median wall (s) | Median fps | Output |
+|---|---|---|---|---|
+| `7bd7621` (old) | 3.69, 3.69, 3.58 (+4.87 setup run) | 3.69 | 26.0 | 3840x2160, 96 frames, 10143827 B |
+| `98ba9ac` (new) | 3.23, 3.98, 5.14 (+5.69/4.22 setup runs) | 3.98 | 24.1 | 3840x2160, 96 frames, 10143791 B |
+
+Both pins emit byte-near-identical encodes (36 B apart) at exact 4K
+dimensions and 96 frames; medians differ by ~8% with overlapping ranges
+under shared-machine noise, and the engine-internal `render_fps` agrees
+(~23 both). No systematic export regression; the anamorphic PAR work did
+not move output geometry.
+
+Pin moved in every place it lives: `FILMCRAFT_REVISION` and
+`FILMCRAFT_PROJECT_SCHEMA` in `native/ren-filmcraft/src/lib.rs` (sole
+source), `library/tools/upstream_engines.json`
+(`qualified_sha`/`last_seen_upstream_sha`), `FILMCRAFT_REVISION` in
+`library/tools/project_model_qualification.py`, the FilmCraft pin in
+`THIRD_PARTY_NOTICES` (closure re-measured at the candidate: 270 crates,
+all MIT/Apache-2.0/BSD/Zlib/Unlicense/0BSD/Unicode-3.0/ISC plus symphonia
+x16 MPL-2.0; no UI crates, no GPL/AGPL/LGPL-only), and the
+`test_daily_poll_records_new_commit_and_release_without_moving_pin`
+assertion now reads the manifest instead of a hardcoded SHA. The
+`qualification-receipts.json` fixture keeps the 09:41 UTC full-run record
+at the old pin as history; it refreshes on the next full (`--resolve`) run.
 
 ## Qualification gate
 

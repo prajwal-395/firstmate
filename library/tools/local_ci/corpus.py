@@ -158,6 +158,32 @@ def center_crop(image: dict, size: int) -> bytes:
     return bytes(out)
 
 
+def rgb_crop(image: dict, crop: bytes) -> bytes:
+    """Color bytes of a center crop, dropping the alpha channel.
+
+    The headless still render carries alpha the RGB fixtures do not, so a
+    direct crop comparison refuses on buffer length even when every color
+    matches. A still over letterbox black must be fully opaque: any
+    non-opaque alpha pixel refuses rather than being silently dropped.
+    """
+    channels = image["channels"]
+    if channels == 3:
+        return crop
+    if channels != 4 or len(crop) % 4:
+        raise CorpusRefused(
+            f"cannot compare a {channels}-channel crop against RGB fixtures")
+    rgb = bytearray()
+    transparent = 0
+    for off in range(0, len(crop), 4):
+        rgb += crop[off:off + 3]
+        if crop[off + 3] != 255:
+            transparent += 1
+    if transparent:
+        raise CorpusRefused(
+            f"still render carries {transparent} non-opaque pixels")
+    return bytes(rgb)
+
+
 def max_abs_diff(a: bytes, b: bytes) -> int:
     if len(a) != len(b):
         raise CorpusRefused("pixel buffers have different lengths")
@@ -416,8 +442,8 @@ def case_stills_roundtrip(cli: str, case: dict, workdir: Path, log) -> dict:
         fc_render_frame(cli, project, index + 0.5, out, log)
         rendered = read_png(out)
         reference = read_png(FIXTURES_DIR / name)
-        crop_rendered = center_crop(rendered, crop_px)
-        crop_reference = center_crop(reference, crop_px)
+        crop_rendered = rgb_crop(rendered, center_crop(rendered, crop_px))
+        crop_reference = rgb_crop(reference, center_crop(reference, crop_px))
         # Full-frame palette: still color and letterbox black only.
         palette = {bytes(reference["pixels"][0:3]), b"\x00\x00\x00"}
         tolerance = int(expect.get("palette_tolerance", 3))

@@ -18,10 +18,10 @@ use thiserror::Error;
 pub const FILMCRAFT_REPOSITORY: &str = "https://github.com/storytold/filmcraft.git";
 /// Mirrored by library/tools/upstream_engines.json; the upstream intake refuses
 /// promotion when the manifest drifts from this constant. Keep this as the sole pin source.
-pub const FILMCRAFT_REVISION: &str = "7bd76212629a067a9d1c5426d751de9faf4664b7";
+pub const FILMCRAFT_REVISION: &str = "98ba9acbcedcbb630ba2a07b782176b66835edd2";
 pub const FILMCRAFT_CLI_VERSION: &str = "0.5.0";
 pub const FILMCRAFT_PROJECT_FORMAT: &str = "filmcraft.project";
-pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 13;
+pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 14;
 pub const ADAPTER_SCHEMA: u32 = 1;
 
 /// Checked-in transition authority: verbatim `filmcraft-cli exec effects.list
@@ -758,6 +758,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
             "in",
             "out",
             "split",
+            "transitionSelection",
             "markers",
             "video",
             "audio",
@@ -1024,13 +1025,13 @@ mod tests {
         let path = dir.path().join("project.fcproj");
         std::fs::write(
             &path,
-            r#"{"format":"filmcraft.project","schema_version":12,"project":{}}"#,
+            r#"{"format":"filmcraft.project","schema_version":13,"project":{}}"#,
         )
         .unwrap();
         assert!(matches!(check_project_schema(&path), Err(Error::Schema(_))));
         std::fs::write(
             &path,
-            r#"{"format":"filmcraft.project","schema_version":13,"project":{}}"#,
+            r#"{"format":"filmcraft.project","schema_version":14,"project":{}}"#,
         )
         .unwrap();
         assert!(check_project_schema(&path).is_ok());
@@ -1043,7 +1044,7 @@ mod tests {
         );
         assert!(unknown.is_err());
         let unknown: std::result::Result<Receipt, _> = serde_json::from_str(
-            r#"{"adapter_schema":1,"engine_revision":"x","project_schema":13,"operation":"inspect","engine_response":{},"losses":[],"extra":true}"#,
+            r#"{"adapter_schema":1,"engine_revision":"x","project_schema":14,"operation":"inspect","engine_response":{},"losses":[],"extra":true}"#,
         );
         assert!(unknown.is_err());
     }

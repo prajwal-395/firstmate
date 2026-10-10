@@ -76,8 +76,9 @@ def test_daily_poll_records_new_commit_and_release_without_moving_pin(
     assert engine["last_seen_upstream_sha"] == head
     assert engine["candidate_sha"] == head
     assert engine["observations"][0]["new_releases"] == ["v9.9.9"]
+    manifest = upstream._manifest()
     assert upstream.pin_status(str(tmp_path))["filmcraft"]["qualified_sha"] == (
-        "7bd76212629a067a9d1c5426d751de9faf4664b7")
+        manifest["engines"]["filmcraft"]["qualified_sha"])
     upstream.poll(str(tmp_path))
     state = json.loads((tmp_path / "upstream-intake.json").read_text(
         encoding="utf-8"))

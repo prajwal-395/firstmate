@@ -204,7 +204,11 @@ def fake_fc_runner(monkeypatch, tmp_path, fixture_map=None, import_errors=None):
             index = int(seconds - 0.5)
             names = ["still-red.png", "still-green.png", "still-blue.png",
                      "still-white.png", "still-gray.png"]
-            shutil.copy(corpus.FIXTURES_DIR / names[index], out)
+            # The real headless render carries alpha the RGB fixtures do
+            # not, so the fake reproduces that shape (fully opaque).
+            source = corpus.read_png(corpus.FIXTURES_DIR / names[index])
+            write_png(Path(out), source["width"], source["height"],
+                      source["pixels"][:3] + b"\xff")
             text = "rendered"
         else:
             code = 1
@@ -223,6 +227,19 @@ def test_stills_roundtrip_passes_on_proven_shapes(monkeypatch, tmp_path):
         "filmcraft-cli", case, tmp_path, Log())
     assert measurement["frames_verified"] == 5
     assert all(m["max_abs_diff"] == 0 for m in measurement["cases"])
+
+
+def test_rgb_crop_drops_opaque_alpha_and_refuses_transparency():
+    opaque = {"width": 16, "height": 16, "channels": 4,
+              "pixels": bytes(256 * [200, 10, 10, 255])}
+    assert corpus.rgb_crop(opaque, opaque["pixels"]) == bytes(256 * [200, 10, 10])
+    rgb = {"width": 16, "height": 16, "channels": 3,
+           "pixels": bytes(256 * [200, 10, 10])}
+    assert corpus.rgb_crop(rgb, rgb["pixels"]) == rgb["pixels"]
+    clear = {"width": 16, "height": 16, "channels": 4,
+             "pixels": bytes(255 * [200, 10, 10, 255] + [200, 10, 10, 0])}
+    with pytest.raises(corpus.CorpusRefused, match="non-opaque"):
+        corpus.rgb_crop(clear, clear["pixels"])
 
 
 def test_stills_roundtrip_refuses_import_errors(monkeypatch, tmp_path):

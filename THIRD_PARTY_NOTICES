@@ -569,7 +569,7 @@ component-id : engine.filmcraft_cli
 edition      : public
 component   : FilmCraft headless CLI 0.5.0; Ren's adapter does not
               package or invoke the desktop application.
-pin         : 7bd76212629a067a9d1c5426d751de9faf4664b7
+pin         : 98ba9acbcedcbb630ba2a07b782176b66835edd2
               (native/ren-filmcraft/src/lib.rs)
 source      : https://github.com/storytold/filmcraft
 license     : MIT OR Apache-2.0
@@ -579,12 +579,15 @@ commercial  : ok
 hash-verified: yes (cargo install pins the immutable revision)
 note        : Cargo.lock at the pinned source revision identifies its
               transitive Rust dependencies. Measured 2026-10-10 over
-              `cargo tree -p filmcraft-cli` (176 crates): all upstream
-              workspace crates MIT OR Apache-2.0; registry crates
-              MIT/Apache-2.0/BSD/Zlib/Unlicense/Unicode-3.0/ISC plus
-              symphonia x13 MPL-2.0 (weak file-scoped copyleft, reached
-              through filmcraft-codecs audio decode; commercial use with
-              notice). No GPL/AGPL/LGPL-only, noncommercial or
+              `cargo tree -p filmcraft-cli` at the pinned revision
+              (270 crates): all upstream workspace crates MIT OR
+              Apache-2.0 (including the new filmcraft-tts/narration
+              crates; the whisper/download features stay off, so no
+              model is downloaded or bundled); registry crates
+              MIT/Apache-2.0/BSD/Zlib/Unlicense/0BSD/Unicode-3.0/ISC
+              plus symphonia x16 MPL-2.0 (weak file-scoped copyleft,
+              reached through filmcraft-codecs audio decode; commercial
+              use with notice). No GPL/AGPL/LGPL-only, noncommercial or
               proprietary dependency. No desktop UI crate in the CLI
               closure (no filmcraft-ui-egui, egui, eframe, winit, rfd,
               cpal, muda); objc2-* entries are Apple media platform
