@@ -3,6 +3,8 @@
 //! Ren owns the request and receipt types here. FilmCraft project files remain an engine
 //! projection and are checked against the exact format revision this driver qualifies.
 
+pub mod adapter;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -210,12 +212,12 @@ pub fn locate_or_build_cli() -> Result<PathBuf> {
             FILMCRAFT_REPOSITORY,
             "--rev",
             FILMCRAFT_REVISION,
-            "--package",
-            "filmcraft-cli",
             "--root",
         ])
         .arg(&root)
-        .arg("--locked")
+        // Current Cargo resolves the git package as a positional crate, not
+        // `--package`, and the install stays within the lane's job budget.
+        .args(["--locked", "-j", "4", "filmcraft-cli"])
         .output()?;
     if !output.status.success() {
         return Err(Error::Cli(format!(

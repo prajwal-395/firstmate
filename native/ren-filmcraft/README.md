@@ -16,3 +16,23 @@ render and inspection.
 Run crate checks from the `native/` workspace. The fixture integration test uses the committed
 short A/V clip and a real CLI built from the pinned SHA; it checks the known unlinked-audio razor
 and trim-delta defects and requires an explicit loss report for either.
+
+## Project Model adapter (`src/adapter.rs`, Unit 6)
+
+The deterministic bridge between Ren's canonical Project Model
+(`ren-protocol`) and this driver. `plan_projection` turns a model's clip
+uses into ordered imports plus `timeline.place` operations (A-roll on V1,
+B-roll on V2) with no I/O, so the same model always plans identical bytes.
+`plan_edit` translates only explicit `filmcraft.*` model edits into driver
+operations; legacy strings such as `clip.trim` refuse as
+`unsupported_edit_operation` instead of being inferred. Model effects, masks,
+and object tracks become explicit loss entries, never silent drops.
+`reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
+clip ids (linked-audio placements mint one id per track; edits address the
+first). `build_frame_map` emits the exact timeline-to-render map, with
+timeline gaps as explicit `Gap` segments. `validate_render_asset` checks the
+export exists, is non-empty, and decodes to at least one stream when ffprobe
+is available. Driver losses (including both measured defects) pass through
+`summarize_losses` verbatim. `tests/adapter_qualification.rs` drives
+placement, trim, split, transition, audio, render, and unsupported-op
+behavior through the pinned CLI.
