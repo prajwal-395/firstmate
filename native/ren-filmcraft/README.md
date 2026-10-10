@@ -12,7 +12,8 @@ and the adapter checks its explicit format identifier and schema version before 
 Unknown adapter versions, project schemas, malformed command output and unrecognized command
 response shapes are errors. The request vocabulary stays bounded to project create / import,
 placement, razor, trim, move / insert, delete / ripple delete, link, retime,
-transition, audio gain, H.264 / ProRes / WAV export, still
+transition, track gain, per-clip gain (`clip.audioGain`, mode `set`),
+audio-track growth, H.264 / ProRes / WAV export, still
 render and inspection.
 
 Run crate checks from the `native/` workspace. The fixture integration test uses the committed
@@ -68,7 +69,9 @@ refuses as `source_too_short` otherwise. Model effects,
 masks, and object tracks become explicit loss entries, never silent drops.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
-whole array for retime and link, the first id otherwise). `build_frame_map` emits the exact timeline-to-render map, with
+whole array for retime and link, the first id otherwise - per-clip gain
+rides the first id because the engine follows clip links onto the audio
+item, measured). `build_frame_map` emits the exact timeline-to-render map, with
 timeline gaps as explicit `Gap` segments and reversed retimes carrying a
 negative rate numerator (-1/1: the sign is the direction).
 `validate_render_asset` checks the
@@ -77,3 +80,37 @@ is available. Driver losses (including both measured defects) pass through
 `summarize_losses` verbatim. `tests/adapter_qualification.rs` drives
 placement, trim, split, link repair, delete, ripple delete, ripple, retime, ramps, reverse (including a render-level direction proof), transition, audio, render, and unsupported-op
 behavior through the pinned CLI.
+
+## Native audio mix (`music`/`sfx` stems, per-clip gain)
+
+`plan_projection` maps `music` and `sfx` clip-use roles onto audio strips
+from A2 upward: the bed allocates first (a declared crossfade is a real
+overlap, so its pieces take two strips), then SFX starts above whatever
+the bed used - the order `library/tools/otio_mix.py` and `music_bed.py`
+render in on the Resolve path. A1 stays linked dialogue at unity. Picture
+overlaps still refuse; stem overlaps allocate. Plans addressing strips
+past the fresh sequence's own A1-A3 grow the sequence first
+(`AddAudioTracks`, audio only - no stray video track). Per-clip
+`audio.gain` edits plan into `ClipAudioGain`; the model mutation logs the
+span-neutral edit so qualification compares the inspected `gainDb`
+against the log and re-plans each logged edit identically.
+
+Explicitly unwired, never silent: keyframed audio (`audio.fade`,
+`audio.automation`) refuses as `audio_keyframes_require_volume_automation`
+until the volume-automation op lands - this adapter plans static clip
+gain only, not a second keyframe path. `audio.pan` refuses as
+`audio_pan_not_projected`: Ren's mix has no measured pan mapping (the OTIO
+surface is volume only), so a pan would render differently per engine.
+Engine-generated ducking (`essentialSound.generateDucking`) is deliberately
+not driven: it would substitute the engine's own ducking amounts for the
+mix the plan declared, and Ren's ducking curve ships as keyframed volume
+automation from the plan instead. Keyframed ducking itself arrives with
+the volume-automation op; static gains are the whole mix until then.
+
+No pipeline producer mints `music`/`sfx` uses yet: the editorial bridge
+(`library/tools/project_model_editorial.py`) covers A-roll/B-roll nodes
+and carries mix nodes as operations only. Minting manifest bed segments
+and SFX buckets into stem uses (plus static `audio.gain` edits from
+`mix_targets`) attaches there, the way toolkit moves attach at
+`post_bridge.py` - stated here so the projector's lack of a live caller
+reads as a gap, not a guess.

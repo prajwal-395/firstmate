@@ -220,6 +220,27 @@ pub enum Operation {
         track: String,
         gain_db: f64,
     },
+    /// Per-clip gain in dB (`clip.audioGain`, mode `set`). The engine
+    /// follows clip links (measured: gaining a video item writes the
+    /// linked audio item's `gainDb`), so addressing the use's first
+    /// reconciled id suffices; the receipt names the audio item that
+    /// landed it. Mode is pinned to `set`: `adjust` is relative to
+    /// whatever level the clip already carries, which no plan can name,
+    /// and the normalize modes are unmeasured.
+    ClipAudioGain {
+        project: PathBuf,
+        clips: Vec<u64>,
+        gain_db: f64,
+    },
+    /// Grow the sequence's audio track count (`sequence.addTracks` with
+    /// `video: 0`, so no stray video track lands). Fresh sequences carry
+    /// three audio tracks (A1-A3); a stem plan addressing A4 or higher
+    /// runs this first with the exact deficit. Read back the strips off
+    /// `mixer.inspect`, not this receipt.
+    AddAudioTracks {
+        project: PathBuf,
+        audio_tracks: u32,
+    },
     Export {
         project: PathBuf,
         path: PathBuf,
@@ -483,7 +504,10 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
                 ));
             }
             let mut p = json!({"item":item,"track":track,"frame":frame,"sourceIn":source_in_ticks,"duration":duration_ticks});
-            if let Some(audio) = audio_track {
+            // The engine names a sound's track once: a sound-only
+            // placement whose strip equals its track carries no
+            // `audioTrack` alongside `track` (measured refusal).
+            if let Some(audio) = audio_track.filter(|strip| *strip != track) {
                 p["audioTrack"] = json!(audio);
             }
             (Some(project), "place", "timeline.place", p, true)
@@ -615,6 +639,42 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
                 "audio_gain",
                 "mixer.setValue",
                 json!({"strip":track,"lane":"volume","value":gain_db}),
+                true,
+            )
+        }
+        Operation::ClipAudioGain {
+            project,
+            clips,
+            gain_db,
+        } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("clip gain request names no clips".into()));
+            }
+            if !gain_db.is_finite() {
+                return Err(Error::Schema("clip gain must be a finite dB value".into()));
+            }
+            (
+                Some(project),
+                "clip_audio_gain",
+                "clip.audioGain",
+                json!({"clips":clips,"mode":"set","db":gain_db}),
+                true,
+            )
+        }
+        Operation::AddAudioTracks {
+            project,
+            audio_tracks,
+        } => {
+            if audio_tracks == 0 {
+                return Err(Error::Schema(
+                    "add-audio-tracks request names zero tracks".into(),
+                ));
+            }
+            (
+                Some(project),
+                "add_audio_tracks",
+                "sequence.addTracks",
+                json!({"video":0,"audio":audio_tracks}),
                 true,
             )
         }
@@ -761,6 +821,59 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
                 detail: "expected JSON null".into(),
             })
         };
+    }
+    // Clip gain answers `{"clips":n,"gainDb":[{"clip","gainDb"}],"mode":"set"}`:
+    // the receipt names the audio item that landed the level, which is how
+    // the equivalence proof ties the plan back to the use (measured: gaining
+    // a linked video item reports its audio item here).
+    if command == "clip.audioGain" {
+        let object = value.as_object().ok_or_else(|| Error::UnknownResponse {
+            command: command.into(),
+            detail: "expected JSON object".into(),
+        })?;
+        if object.get("clips").and_then(Value::as_u64).is_none() {
+            return Err(Error::UnknownResponse {
+                command: command.into(),
+                detail: "missing integer `clips`".into(),
+            });
+        }
+        if value["mode"].as_str() != Some("set") {
+            return Err(Error::UnknownResponse {
+                command: command.into(),
+                detail: "expected `mode` \"set\"".into(),
+            });
+        }
+        let landed = value["gainDb"].as_array().ok_or_else(|| Error::UnknownResponse {
+            command: command.into(),
+            detail: "missing `gainDb` array".into(),
+        })?;
+        if landed.iter().any(|entry| {
+            entry.get("clip").and_then(Value::as_u64).is_none()
+                || entry.get("gainDb").and_then(Value::as_f64).is_none()
+        }) {
+            return Err(Error::UnknownResponse {
+                command: command.into(),
+                detail: "`gainDb` entries must carry integer `clip` and numeric `gainDb`".into(),
+            });
+        }
+        return Ok(());
+    }
+    // Track growth answers the minted track ids per family; the strips
+    // themselves read back off `mixer.inspect`.
+    if command == "sequence.addTracks" {
+        let object = value.as_object().ok_or_else(|| Error::UnknownResponse {
+            command: command.into(),
+            detail: "expected JSON object".into(),
+        })?;
+        for key in ["audio", "submix", "video"] {
+            if !object.get(key).is_some_and(Value::is_array) {
+                return Err(Error::UnknownResponse {
+                    command: command.into(),
+                    detail: format!("missing `{key}` array"),
+                });
+            }
+        }
+        return Ok(());
     }
     let allowed: &[&str] = match command {
         "file.newSequence" => &["sequence"],
@@ -1145,6 +1258,88 @@ mod tests {
         let losses = detect_move_loss(&dirty).unwrap();
         assert_eq!(losses.len(), 1);
         assert_eq!(losses[0].code, "move_overwrote");
+    }
+
+    #[test]
+    fn clip_gain_and_track_growth_validate_before_the_engine() {
+        // Empty clip lists and zero-track growth refuse without a CLI call.
+        assert!(matches!(
+            plan(Operation::ClipAudioGain {
+                project: "x.fcproj".into(),
+                clips: vec![],
+                gain_db: -6.0,
+            }),
+            Err(Error::Schema(_))
+        ));
+        assert!(matches!(
+            plan(Operation::AddAudioTracks {
+                project: "x.fcproj".into(),
+                audio_tracks: 0,
+            }),
+            Err(Error::Schema(_))
+        ));
+        // Non-finite gains refuse.
+        for gain in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(
+                matches!(
+                    plan(Operation::ClipAudioGain {
+                        project: "x.fcproj".into(),
+                        clips: vec![14],
+                        gain_db: gain,
+                    }),
+                    Err(Error::Schema(_))
+                ),
+                "gain {gain} must refuse"
+            );
+        }
+        // Clip gain pins mode `set`: the plan names an absolute level.
+        let (_, operation, command, params, saving) = plan(Operation::ClipAudioGain {
+            project: "x.fcproj".into(),
+            clips: vec![14],
+            gain_db: -12.0,
+        })
+        .unwrap();
+        assert_eq!(operation, "clip_audio_gain");
+        assert_eq!(command, "clip.audioGain");
+        assert_eq!(params, json!({"clips": [14], "mode": "set", "db": -12.0}));
+        assert!(saving);
+        // Track growth adds audio only: a stray video track would shift
+        // every V-row the projection planned.
+        let (_, operation, command, params, _) = plan(Operation::AddAudioTracks {
+            project: "x.fcproj".into(),
+            audio_tracks: 2,
+        })
+        .unwrap();
+        assert_eq!(operation, "add_audio_tracks");
+        assert_eq!(command, "sequence.addTracks");
+        assert_eq!(params, json!({"video": 0, "audio": 2}));
+        // The pinned receipt shapes accept exactly what the engine answers.
+        assert!(validate_response_contract(
+            "clip.audioGain",
+            &json!({"clips": 1, "gainDb": [{"clip": 14, "gainDb": -12.0}], "mode": "set"}),
+        )
+        .is_ok());
+        for bad in [
+            json!({"clips": 1, "gainDb": [], "mode": "adjust"}),
+            json!({"clips": 1, "mode": "set"}),
+            json!({"gainDb": [], "mode": "set"}),
+            Value::Null,
+        ] {
+            assert!(
+                validate_response_contract("clip.audioGain", &bad).is_err(),
+                "gain receipt {bad} must refuse"
+            );
+        }
+        assert!(validate_response_contract(
+            "sequence.addTracks",
+            &json!({"audio": [17, 18], "submix": [], "video": []}),
+        )
+        .is_ok());
+        assert!(validate_response_contract(
+            "sequence.addTracks",
+            &json!({"audio": [], "submix": []}),
+        )
+        .is_err());
     }
 
     #[test]
