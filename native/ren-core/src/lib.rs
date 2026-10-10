@@ -23,6 +23,7 @@ pub mod conditions;
 pub mod patch;
 pub mod snapshot;
 pub mod verify;
+pub mod frame_map;
 
 #[cfg(feature = "extension-module")]
 pub mod python;
