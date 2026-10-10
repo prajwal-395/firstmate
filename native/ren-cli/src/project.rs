@@ -1209,14 +1209,28 @@ pub fn get_project(reference: &str, engine_root: &Path) -> Located {
     ))
 }
 
+/// The default `RenRefusal` first line (`library/tools/ren_refusal.py`
+/// `USER_MESSAGE`): the plain-language consequence every refusal carries
+/// first, before the technical `what`/`why`/`fix`. A refusal family may
+/// override this on the Python side; every path this crate renders uses
+/// the default, so the native verbs stay byte-identical to the Python
+/// front door (`tests/native_commands.rs` fails on any drift).
+pub const REFUSAL_USER_MESSAGE: &str = "I couldn't safely finish this step. The requested change has not been confirmed; resolve the issue below before continuing.";
+
+/// `RenRefusal.render()`: the one refusal shape every `ren` verb prints.
+pub fn render_refusal(what: &str, why: &str, fix: &str) -> String {
+    format!("ren: refused - {REFUSAL_USER_MESSAGE}\n  what: {what}\n  why: {why}\n  fix: {fix}")
+}
+
 /// The `RenRefusal` a command raises when the project is not there, in the
 /// one shape every `ren` verb prints.
 pub fn project_not_found_refusal(slug: &str, message: &str) -> String {
-    format!(
-        "ren: refused - {message}\n  why: no project with this slug is under \
-         PIPELINE_PROJECTS_ROOT\n  fix: run `ren new {slug}` to create it, `ren \
-         projects` to list them, or pass the project's absolute path instead of \
-         the slug"
+    render_refusal(
+        message,
+        "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+        &format!(
+            "run `ren new {slug}` to create it, `ren projects` to list them, or pass the project's absolute path instead of the slug"
+        ),
     )
 }
 

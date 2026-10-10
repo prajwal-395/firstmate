@@ -228,7 +228,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "timeline", group: "Resolve", summary: "Answer what a timeline holds from its recorded generations; touches no Resolve" },
     Verb { name: "resolved", group: "Resolve", summary: "Run or ask the broker that schedules the one Resolve (serve|ensure|status|list|submit|result|stop|kpi)" },
     Verb { name: "shadow-watch", group: "Resolve", summary: "Watch the current timeline for hand edits on a schedule (standalone; the broker hosts it)" },
-    Verb { name: "qualification", group: "Resolve", summary: "Build, qualify or run the full real-footage workflow in Ren Qualification (media|reset|qualify|workflow)" },
+    Verb { name: "qualification", group: "Resolve", summary: "Build, qualify or run the full real-footage workflow in Ren Qualification (media|reset|qualify|workflow|pm-e2e)" },
     Verb { name: "computer-use", group: "Resolve", summary: "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)" },
     Verb { name: "effects", group: "Resolve", summary: "Search the installed ResolveFX/OFX effects: route and verification state (read only)" },
     Verb { name: "search", group: "Footage", summary: "Find where in a project's footage something happens" },
@@ -547,7 +547,7 @@ fn python_dict(counts: &[(String, i64)]) -> String {
 }
 
 fn refusal(what: &str, why: &str, fix: &str) -> String {
-    format!("ren: refused - {what}\n  why: {why}\n  fix: {fix}")
+    project::render_refusal(what, why, fix)
 }
 
 /// `library.tools.brand_registry.resolve_template_reference`.
