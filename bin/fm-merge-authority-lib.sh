@@ -20,7 +20,9 @@
 # the words model landed is still consumed, but they are never written again.
 # The identity comes from the merge run's immutable canonical URL parse;
 # persistence revalidates the task's current pr= metadata under its metadata
-# and lifecycle locks and refuses a mismatch. The file is atomically published,
+# and lifecycle locks and refuses a mismatch. The recovery variant persists
+# the same format with no record to revalidate against and refuses when any
+# task record exists. The file is atomically published,
 # mode 0600, single-link, and on the state filesystem. A poll consumes it only
 # when all identity fields match its own validated snapshot. Missing, malformed,
 # or mismatched state means external; it is never resolved again from a later
@@ -114,6 +116,48 @@ fm_merge_authority_persist() {  # <state> <task-id> <meta> <provider> <host> <pa
     && [ "$FM_PR_META_HOST" = "$host" ] \
     && [ "$FM_PR_META_PATH" = "$path" ] \
     && [ "$FM_PR_META_NUMBER" = "$number" ] || return 1
+  record="$state/$id.merge-authority"
+  lock="$record.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  fm_pr_regular_destination_on_device_or_absent "$record" "$state_device" || status=1
+  if [ "$status" -eq 0 ]; then
+    umask 077
+    tmp=$(mktemp "$state/.fm-merge-authority.XXXXXX") || status=1
+  fi
+  if [ "$status" -eq 0 ]; then
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+      fm-merge-authority-v1 "$provider" "$host" "$path" "$number" "$authority" > "$tmp" \
+      || status=1
+  fi
+  if [ "$status" -eq 0 ]; then
+    chmod 0600 "$tmp" \
+      && fm_merge_authority_record_matches "$tmp" "$state_device" \
+        "$provider" "$host" "$path" "$number" \
+      && fm_pr_regular_destination_on_device_or_absent "$record" "$state_device" \
+      && mv -f -- "$tmp" "$record" \
+      && fm_merge_authority_record_matches "$record" "$state_device" \
+        "$provider" "$host" "$path" "$number" \
+      || status=1
+  fi
+  [ "$status" -eq 0 ] || rm -f -- "$tmp"
+  fm_lock_release "$lock" || status=1
+  return "$status"
+}
+
+# Absent-task recovery persistence. bin/fm-pr-merge.sh --recover-absent-task
+# merges a PR whose task record is already gone, so there is no pr= metadata
+# to revalidate against. This writes the same record format from the merge
+# run's immutable canonical URL parse alone, and refuses when a task record
+# exists at all: a present record must go through fm_merge_authority_persist,
+# which binds the authority to that record's pr= instead.
+fm_merge_authority_persist_recovery() {  # <state> <task-id> <meta> <provider> <host> <path> <number> <authority>
+  local state=$1 id=$2 meta=$3 provider=$4 host=$5 path=$6 number=$7 authority=$8
+  local record tmp='' state_device lock status=0
+  fm_pr_task_id_valid "$id" || return 1
+  case "$authority" in yolo|away-grant|attended) ;; *) return 1 ;; esac
+  [ -d "$state" ] && [ ! -L "$state" ] || return 1
+  if [ -e "$meta" ] || [ -L "$meta" ]; then return 1; fi
+  state_device=$(fm_pr_file_device "$state") || return 1
   record="$state/$id.merge-authority"
   lock="$record.lock"
   fm_lock_acquire_wait "$lock" || return 1

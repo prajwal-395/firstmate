@@ -3130,6 +3130,54 @@ SH
   pass "poll retirement preserves a replacement authority record"
 }
 
+# APFS device numbers change across a reboot while inodes persist, so a
+# registration bound on st_dev:st_ino is rejected as unauthenticated after
+# every restart. v3 binds the inode plus the stored content hashes instead.
+# This rewrites a published registration with a stale device prefix but the
+# live inodes (the reboot shape) and proves validation still passes, then
+# proves a replaced file (a wrong inode) is still rejected.
+test_poll_registration_survives_reboot_device_change() {
+  local dir state data_ino check_ino data_hash template_hash
+  dir=$(make_case poll-registration-reboot)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/1
+  fm_pr_poll_prepare "$state" task-a github https://github.com/o/r/pull/1 github.com o/r 1 "$POLL" \
+    || fail "could not prepare the reboot fixture"
+  fm_pr_poll_publish_prepared || fail "could not publish the reboot fixture"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "published poll was not initially valid"
+  [ "$(sed -n '1p' "$state/task-a.pr-poll-registration")" = fm-pr-poll-registration-v3 ] \
+    || fail "published registration did not carry the stable v3 tag"
+  data_ino=$(fm_pr_file_inode "$state/task-a.pr-poll") || fail "could not read the sidecar inode"
+  check_ino=$(fm_pr_file_inode "$state/task-a.check.sh") || fail "could not read the check inode"
+  case "$(sed -n '10p' "$state/task-a.pr-poll-registration")" in
+    *:*) fail "published v3 registration still stored a device prefix" ;;
+  esac
+  data_hash=$(fm_pr_sha256 "$state/task-a.pr-poll") || fail "could not hash the sidecar"
+  template_hash=$(fm_pr_sha256 "$state/task-a.check.sh") || fail "could not hash the check"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+    fm-pr-poll-registration-v2 task-a github https://github.com/o/r/pull/1 github.com o/r 1 \
+    "$data_hash" "$template_hash" "1:$data_ino" "1:$check_ino" > "$state/task-a.pr-poll-registration" \
+    || fail "could not write the stale-device fixture"
+  chmod 0600 "$state/task-a.pr-poll-registration"
+  [ "$(fm_pr_file_device "$state/task-a.pr-poll")" != 1 ] \
+    || fail "the stale-device fixture accidentally matched the live device"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "a reboot-shaped registration (stale device, live inodes) was rejected"
+  fm_pr_poll_snapshot_capture "$state" task-a "$POLL" \
+    || fail "the watcher snapshot refused a reboot-shaped registration"
+  fm_pr_poll_snapshot_matches "$state" task-a "$POLL" \
+    || fail "the watcher snapshot did not match a reboot-shaped registration"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+    fm-pr-poll-registration-v2 task-a github https://github.com/o/r/pull/1 github.com o/r 1 \
+    "$data_hash" "$template_hash" "1:999999999" "1:$check_ino" > "$state/task-a.pr-poll-registration" \
+    || fail "could not write the replaced-file fixture"
+  chmod 0600 "$state/task-a.pr-poll-registration"
+  ! fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "a replaced sidecar (wrong inode) remained valid"
+  pass "poll registrations survive a reboot device change and still reject replaced files"
+}
+
 # The captain's standing never-upstream ruling is a mechanical refusal, not a
 # reminder. The input is the canonical PR URL; the invocations are
 # bin/fm-pr-check.sh (registration) and bin/fm-pr-merge.sh (landing). The guard
@@ -3211,6 +3259,7 @@ test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
 test_poll_publication_refuses_unsafe_destinations
+test_poll_registration_survives_reboot_device_change
 test_live_artifact_single_link_and_privacy_validation
 test_device_renumbered_poll_stays_armed
 test_device_rerecord_refuses_tampered_artifacts

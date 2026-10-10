@@ -43,11 +43,20 @@ FM_SECONDMATE_PERSIST_REQUEST='Firstmate was updated and I am about to restart y
 #   FM_SECONDMATE_RESTART_BACKEND    the backend whose classifier must prove the stop
 #   FM_SECONDMATE_RESTART_HARNESS    the verified control adapter it runs on
 #   FM_SECONDMATE_RESTART_HOST       the configured host (remote placement only)
+#   FM_SECONDMATE_RESTART_MODEL      its recorded model axis, empty when the record names none
+#   FM_SECONDMATE_RESTART_EFFORT     its recorded effort axis, empty when the record names none
 # and on failure sets FM_SECONDMATE_RESTART_REASON to one operator-readable line.
+# The recorded profile is the mate's own per-mate runtime pin: a restart
+# relaunches the mate onto what its own record says it runs, so a mate that
+# must run on a different runtime than the fleet default survives the restart.
+# The fleet-wide config/secondmate-harness is only the fallback for an axis the
+# record leaves empty, never an override of what the record names.
 FM_SECONDMATE_RESTART_PLACEMENT=""
 FM_SECONDMATE_RESTART_BACKEND=""
 FM_SECONDMATE_RESTART_HARNESS=""
 FM_SECONDMATE_RESTART_HOST=""
+FM_SECONDMATE_RESTART_MODEL=""
+FM_SECONDMATE_RESTART_EFFORT=""
 FM_SECONDMATE_RESTART_REASON=""
 fm_secondmate_restart_capable() {  # <meta-file>
   local meta=$1 kind window remote_host backend harness family
@@ -55,6 +64,8 @@ fm_secondmate_restart_capable() {  # <meta-file>
   FM_SECONDMATE_RESTART_BACKEND=""
   FM_SECONDMATE_RESTART_HARNESS=""
   FM_SECONDMATE_RESTART_HOST=""
+  FM_SECONDMATE_RESTART_MODEL=""
+  FM_SECONDMATE_RESTART_EFFORT=""
   FM_SECONDMATE_RESTART_REASON=""
 
   if [ ! -f "$meta" ] || [ -L "$meta" ]; then
@@ -97,5 +108,7 @@ fm_secondmate_restart_capable() {  # <meta-file>
     return 1
   fi
   FM_SECONDMATE_RESTART_HARNESS=$family
+  FM_SECONDMATE_RESTART_MODEL=$(fm_meta_get "$meta" model)
+  FM_SECONDMATE_RESTART_EFFORT=$(fm_meta_get "$meta" effort)
   return 0
 }

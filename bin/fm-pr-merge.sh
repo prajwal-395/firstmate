@@ -135,7 +135,17 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--recover-absent-task] [--attended-override] [--allow-red <check-name>] [-- <extra forge merge args>]
+# A task whose record is already gone (torn down while its PR was still open)
+# is refused unless --recover-absent-task is passed explicitly. Recovery proves
+# the same forge-side conditions as a normal merge - the PR is open and
+# mergeable at a named head, every required check is green, and the merge is
+# verified afterwards - while the task-side gates that need a record are
+# answered from what remains: a still-held captain call still refuses, away
+# authority resolves without a recorded yolo posture, and no merge poll is
+# armed because a poll requires task metadata. The absent-task case is
+# recorded explicitly in state/<task-id>.merge-recovery rather than
+# pretending a task existed.
 # For projects without CI, verify open crew PRs as a batch first: bin/fm-batch-pr-verify.sh.
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
@@ -203,10 +213,19 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
+RECOVER_ABSENT_TASK=false
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --recover-absent-task)
+      RECOVER_ABSENT_TASK=true
+      shift
+      ;;
+    --recover-absent-task=*)
+      echo "error: --recover-absent-task takes no value" >&2
+      exit 2
+      ;;
     --attended-override)
       ATTENDED_OVERRIDE=true
       shift
@@ -395,14 +414,35 @@ META="$STATE/$ID.meta"
 fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
 
 if [ ! -f "$META" ] || [ -L "$META" ]; then
-  echo "error: task metadata is unavailable" >&2
-  exit 1
+  if [ -L "$META" ]; then
+    echo "error: task metadata is unsafe; refusing to merge" >&2
+    exit 1
+  fi
+  if [ "$RECOVER_ABSENT_TASK" != true ]; then
+    echo "error: task metadata is unavailable" >&2
+    echo "hint: the task record is gone; to merge its still-open PR through this guarded path, re-run with --recover-absent-task" >&2
+    exit 1
+  fi
+  RECOVERY=1
+  RECOVERY_RETRY_ARGS=" --recover-absent-task"
+  printf 'notice: task %s has no record; merging %s as an absent-task recovery\n' "$ID" "$URL" >&2
+else
+  if [ "$RECOVER_ABSENT_TASK" = true ]; then
+    echo "error: --recover-absent-task applies only when the task record is absent; task $ID still has one" >&2
+    exit 2
+  fi
+  RECOVERY=0
+  RECOVERY_RETRY_ARGS=
 fi
-if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-  echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
+if [ "$RECOVERY" -eq 0 ]; then
+  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+    echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  fi
+  MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
+else
+  MERGE_EXPECTED_SPAWN_GEN=
 fi
-MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 
 MERGE_CONTROL_LOCK=
 MERGE_META_LOCK=
@@ -414,13 +454,20 @@ merge_control_cleanup() {
 trap merge_control_cleanup EXIT
 MERGE_CONTROL_LOCK="$STATE/.control-$ID.lock"
 fm_lock_acquire_wait "$MERGE_CONTROL_LOCK"
-if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-  echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
-fi
-if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
-  echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
-  exit 1
+if [ "$RECOVERY" -eq 0 ]; then
+  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+    echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  fi
+  if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
+    echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
+    exit 1
+  fi
+else
+  if [ -e "$META" ] || [ -L "$META" ]; then
+    echo "error: task $ID gained a record while waiting to merge; refusing the recovery - re-run without --recover-absent-task" >&2
+    exit 1
+  fi
 fi
 
 # Reading the merge request state needs both tools. Report them together and
@@ -451,8 +498,9 @@ fi
 
 # The recorded head is read before bin/fm-pr-check.sh rewrites the metadata,
 # because that script re-records pr= and drops a pr_head= it cannot resolve.
+# A recovery has no record to read back, so there is nothing to compare.
 RECORDED_HEAD=
-if [ "$PROVIDER" = gitlab ]; then
+if [ "$PROVIDER" = gitlab ] && [ "$RECOVERY" -eq 0 ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
@@ -1081,6 +1129,34 @@ record_pr_metadata() {
   }
 }
 
+record_absent_task_recovery() {
+  local recovery_file=$STATE/$ID.merge-recovery tmp state_device
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
+  if [ -e "$META" ] || [ -L "$META" ]; then
+    echo "error: task $ID gained a record; refusing the recovery - re-run without --recover-absent-task" >&2
+    return 1
+  fi
+  if ! fm_pr_head_valid "$FM_PR_MERGE_HEAD"; then
+    echo "error: absent-task recovery has no verified head to record" >&2
+    return 1
+  fi
+  state_device=$(fm_pr_file_device "$STATE") || return 1
+  fm_pr_regular_destination_on_device_or_absent "$recovery_file" "$state_device" || return 1
+  umask 077
+  tmp=$(mktemp "$STATE/.fm-merge-recovery.XXXXXX") || return 1
+  if ! printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+      fm-merge-recovery-v1 "$PROVIDER" "$PR_HOST" "$PR_PATH" "$PR_NUMBER" \
+      "$FM_PR_MERGE_HEAD" "${FM_PR_MERGE_AUTHORITY:-attended}" > "$tmp" \
+    || ! chmod 0600 "$tmp" \
+    || ! fm_pr_regular_destination_on_device_or_absent "$recovery_file" "$state_device" \
+    || ! mv -f -- "$tmp" "$recovery_file"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  printf 'notice: recorded the absent-task recovery for %s at head %s in state/%s.merge-recovery\n' \
+    "$URL" "$FM_PR_MERGE_HEAD" "$ID" >&2
+}
+
 require_released_captain_hold() {
   local hold_status=0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -1154,6 +1230,17 @@ require_current_away_authority() {
 
 persist_accepted_merge_authority() {
   local status=0
+  if [ "${RECOVERY:-0}" -eq 1 ]; then
+    fm_merge_authority_persist_recovery "$STATE" "$ID" "$META" \
+      "$PROVIDER" "$PR_HOST" "$PR_PATH" "$PR_NUMBER" "$FM_PR_MERGE_AUTHORITY" \
+      || status=1
+    if [ "$status" -eq 0 ]; then
+      return 0
+    fi
+    printf 'actionable: the forge accepted the merge request for %s but its merge authority could not be persisted; the outcome is still reported below\n' \
+      "$URL" >&2
+    return 1
+  fi
   MERGE_META_LOCK=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$MERGE_META_LOCK" || return 1
   fm_merge_authority_persist "$STATE" "$ID" "$META" \
@@ -1268,8 +1355,8 @@ github_report_queue_rules() {
         printf 'error: this run refuses even though the request for %s was accepted with the exact flags base branch %s requires (--auto --%s): the pull request has still not entered the merge queue, so no landed or queued outcome is proven; re-check the pull request'"'"'s merge queue state before retrying\n' \
           "$URL" "$FM_PR_GITHUB_BASE" "$queue_method" >&2
       else
-        printf 'error: base branch %s requires the merge queue; retry with: %s %s %s --attended-override -- --auto --%s\n' \
-          "$FM_PR_GITHUB_BASE" "$0" "$ID" "$URL" "$queue_method" >&2
+        printf 'error: base branch %s requires the merge queue; retry with: %s %s %s%s --attended-override -- --auto --%s\n' \
+          "$FM_PR_GITHUB_BASE" "$0" "$ID" "$URL" "${RECOVERY_RETRY_ARGS:-}" "$queue_method" >&2
       fi
       ;;
     conflicting)
@@ -1338,12 +1425,19 @@ gitlab_confirm_merged() {
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
+# A recovery has no record to arm a poll from, so it records nothing yet: the
+# explicit absent-task record is written after the head is verified, inside
+# each provider branch below.
 away_status=0
 require_current_away_authority || away_status=$?
 [ "$away_status" -eq 0 ] || exit "$away_status"
-require_recorded_pr_identity || exit 1
-record_pr_metadata || exit 1
-require_released_captain_hold || exit 1
+if [ "${RECOVERY:-0}" -eq 1 ]; then
+  require_released_captain_hold || exit 1
+else
+  require_recorded_pr_identity || exit 1
+  record_pr_metadata || exit 1
+  require_released_captain_hold || exit 1
+fi
 
 # Accepted confused-agent-grade limitation, as in bin/fm-lease-lib.sh, not an
 # oversight: if this lock-owning shell dies while its gh or glab child lives,
@@ -1357,34 +1451,9 @@ case "$PROVIDER" in
       merge_args=(--squash)
     fi
     FM_PR_GITHUB_CALLER_METHOD=$(caller_merge_method "$@")
-    # mergeable reads UNKNOWN for a short while after a push or base-branch
-    # change while GitHub recomputes it; retry a bounded number of times,
-    # re-reading and re-checking every live condition on each attempt, rather
-    # than refusing a pull request that is simply still being computed. The
-    # delay is capped at 0-10 seconds so the wait stays short under the lock.
-    mergeable_retry_delay=${FM_PR_GITHUB_MERGEABLE_RETRY_DELAY:-3}
-    case "$mergeable_retry_delay" in
-      [0-9] | 10) ;;
-      *) mergeable_retry_delay=3 ;;
-    esac
-    mergeable_attempt=1
-    while :; do
-      mergeable_status=0
-      github_verify_mergeable || mergeable_status=$?
-      if [ "$mergeable_status" -eq 0 ]; then
-        break
-      fi
-      if [ "$mergeable_status" -ne 3 ] || [ "$mergeable_attempt" -ge 5 ]; then
-        break
-      fi
-      sleep "$mergeable_retry_delay"
-      mergeable_attempt=$((mergeable_attempt + 1))
-    done
-    if [ "$mergeable_status" -ne 0 ]; then
-      if [ "$mergeable_status" -eq 3 ]; then
-        printf 'error: mergeability for %s is still being computed by GitHub; retry shortly\n' "$URL" >&2
-      fi
-      exit 1
+    github_verify_mergeable || exit 1
+    if [ "${RECOVERY:-0}" -eq 1 ]; then
+      record_absent_task_recovery || exit 1
     fi
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
@@ -1437,6 +1506,9 @@ case "$PROVIDER" in
     ;;
   gitlab)
     gitlab_verify_mergeable || exit 1
+    if [ "${RECOVERY:-0}" -eq 1 ]; then
+      record_absent_task_recovery || exit 1
+    fi
     # --sha binds the merge to the head this run verified, so a push that lands
     # in between is refused by GitLab instead of merged unverified. --yes only
     # skips the interactive confirmation, which no supervised run can answer;

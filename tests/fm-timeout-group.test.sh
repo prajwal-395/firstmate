@@ -51,6 +51,7 @@ i=0
 while [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
 EOF
   chmod +x "$dir/worker.sh"
+  # shellcheck disable=SC2016 # $0/$1 belong to the inner bash -c process.
   fm_run_timed 2 bash -c '"$0" "$1"' "$dir/worker.sh" "$dir/worker"
   rc=$?
   [ "$rc" -eq 124 ] || fail "overdue worker tree should exit 124, got $rc"
@@ -106,6 +107,7 @@ i=0
 while [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
 EOF
   chmod +x "$dir/worker.sh"
+  # shellcheck disable=SC2016 # $0/$1 belong to the inner bash -c process.
   PATH="$dir/bin:$PATH" fm_run_timed 2 bash -c '"$0" "$1"' "$dir/worker.sh" "$dir/worker"
   rc=$?
   [ "$rc" -eq 124 ] || fail "deficient runner should still report 124, got $rc"

@@ -72,8 +72,12 @@
 # by itself causes a false refusal of landed work.
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
-# Uncommitted changes are never landed; dirty refusals distinguish untracked-only
-# leftovers from tracked edits and list at most ten non-exempt untracked paths.
+# Uncommitted changes are never landed.
+# A ship task whose recorded pr= is still OPEN is refused even when its commits
+# are pushed: reachability from a remote (a fork counts) would otherwise read
+# pushed-but-unmerged work as landed and close the task while the review is
+# open and the guarded merge can no longer run. Pass --abandon-pr only for an
+# intentional abandon; --force never lifts this refusal.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -183,10 +187,13 @@
 # leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
+# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record] [--abandon-pr]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
+#   --abandon-pr lifts the refusal of a ship task whose recorded PR is still
+#   open. Only use it when the captain has explicitly said to abandon the
+#   review; --force alone never lifts that refusal.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
 #   teardown then proceeds only when the recorded endpoint is confirmed dead or
 #   agent-less (bin/fm-backend.sh's recovery-grade classifier), and without
@@ -397,11 +404,13 @@ if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
 fi
 ID=$1
 FORCE=
+ABANDON_PR=
 LEGACY_RECORD_GIVEN=0
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
+    --abandon-pr) ABANDON_PR=--abandon-pr ;;
     --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
     *)
       echo "error: invalid teardown request" >&2
@@ -1621,6 +1630,33 @@ pr_is_merged() {
     PR_URL=$resolved_url
   fi
   return 0
+}
+
+# Is the task's recorded PR provably still OPEN? Returns 0 only on a positive
+# open read of the recorded pr= URL; any lookup failure, unparseable URL, or
+# non-open state returns non-zero, so an unreachable forge never strands a
+# teardown on its own and the landed-work checks still own that verdict.
+pr_recorded_is_open() {
+  local url=$1 state project_url
+  [ -n "$url" ] || return 1
+  fm_pr_url_parse "$url" || return 1
+  case "$FM_PR_PROVIDER" in
+    github)
+      [ -n "${WT:-}" ] && [ -d "$WT" ] || return 1
+      state=$(cd "$WT" && gh pr view "$url" --json state -q .state 2>/dev/null) || return 1
+      ;;
+    gitlab)
+      command -v glab >/dev/null 2>&1 || return 1
+      command -v jq >/dev/null 2>&1 || return 1
+      project_url="https://$FM_PR_HOST/$FM_PR_PATH"
+      state=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$FM_PR_NUMBER" -R "$project_url" -F json 2>/dev/null | jq -r '.state // ""' 2>/dev/null) || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  case "$state" in
+    OPEN|open|opened) return 0 ;;
+  esac
+  return 1
 }
 
 # Is the branch's content already present in the up-to-date default branch? Fetches
@@ -3528,6 +3564,18 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   fi
   require_orca_worktree_path_match "$ORCA_WORKTREE_ID" "$WT" || exit 1
   ORCA_PATH_MATCH_VERIFIED=1
+fi
+
+# A ship task whose recorded PR is still OPEN has not landed, even when its
+# commits are pushed: --abandon-pr is the only explicit intent to drop that
+# review, and --force never implies it. An unreadable PR state is not proof of
+# open, so that case falls through to the landed-work checks below.
+if [ "$KIND" = ship ] && [ -n "$PR_URL" ] && [ -z "$ABANDON_PR" ]; then
+  if pr_recorded_is_open "$PR_URL"; then
+    echo "REFUSED: task $ID's recorded PR $PR_URL is still open." >&2
+    echo "Land it first (merge the PR), or re-run with --abandon-pr after explicit approval to abandon the review." >&2
+    exit 1
+  fi
 fi
 
 if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then

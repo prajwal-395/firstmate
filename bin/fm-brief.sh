@@ -1096,6 +1096,7 @@ $ASK_USER_BLOCK
    timed-out call was only waiting for a read while the run kept working.
 8. Before you report done, leave the worktree holding nothing but committed work: keep scratch outside the worktree, or remove it, because cleanup cannot distinguish debris from unlanded work and refuses rather than guess.
 9. A screenshot proves a browser was pointed somewhere, not that a page rendered: when you claim visual verification, first capture the port from the server's own output rather than assuming one, because another process may already hold the conventional port; then poll the URL and confirm it answers before opening a browser at it, because a screenshot of a refused connection is still a screenshot; then confirm the image IS the page by asserting something only the real page contains (an expected element or a known string) and by LOOKING at the image rather than counting files, because only that proves the page rendered. Reporting a screenshot as verification without these checks is reporting an unverified claim.
+10. When you are finished but must hold for a batch gate (firstmate calls one gate for the batch, not a per-lane gate): report \`$PAUSED_VERB: {why}\` per the rule 4 definition above and STAY ALIVE - do not go silent and do not stop, because a worker that holds by going quiet gets escalated, and a worker that gets stopped leaves a parked window that cleanup cannot remove until its work merges.
 
 $WAIT_BLOCK$INBOX_SECTION
 

@@ -641,15 +641,8 @@ The primary records that remote nudge before delivery and retries it during lock
 Local secondmates retain their generation-specific local pointer contract.
 Remote transfers do not copy those primary-local instruction paths.
 
-### Relaunch a live remote second mate
-
-A live remote second mate is restarted with `relaunch`, which runs the ordinary [control plane](agent-control.md) on that host.
-The endpoint record there was written by a host-local launch and carries no remote placement.
-So the transaction, its checkpoint, and its postconditions are the local ones.
-
-The primary passes `<harness> <model|default|-> <effort|default|->` explicitly, using `default` when an axis has no parent pin.
-It passes them explicitly because `config/secondmate-harness` is not inherited into a second mate's home, and the file on that host belongs to a different home.
-Letting the far side re-resolve it would silently move the mate onto another runtime.
+A live remote second mate is restarted with `relaunch`, which runs the ordinary [control plane](agent-control.md) on that host: the endpoint record there was written by a host-local launch and carries no remote placement, so the transaction, its checkpoint, and its postconditions are the local ones.
+The primary passes `<harness> <model|default|-> <effort|default|->` explicitly, carrying the mate's own recorded profile with the fleet-wide `config/secondmate-harness` only filling an axis the record leaves empty, because that file is not inherited into a second mate's home and the copy on that host belongs to a different home; letting the far side re-resolve it would silently move the mate onto another runtime.
 SSH exit 255 leaves completion unknown and the route preserved, exactly as every other verb here.
 Move a live remote second mate onto a newly pinned harness, model, or effort with [`bin/fm-remote-secondmate-relaunch.sh`](../bin/fm-remote-secondmate-relaunch.sh) rather than calling `relaunch` through `fm-on.sh` directly: the host-local relaunch it drives can only rewrite the host's own endpoint record, so this wrapper reads the confirmed identity back from that record afterward and republishes the primary's own route metadata to match, the same way launch already records a fresh route.
 

@@ -43,7 +43,18 @@
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
 # clean reload. Once a relaunch is attempted, any failed or ambiguous result is
-# reported as unknown rather than attributing it to either incarnation.
+# reported as unknown rather than attributing it to either incarnation: the
+# relaunch's own ready= attestation is the verdict, so only ready=confirmed is
+# reported restarted, while a still-starting replacement, or a relaunch that
+# never attests one, is unknown.
+#
+# The relaunched profile is the mate's own recorded one: harness, model, and
+# effort come from its durable record, with the fleet-wide
+# config/secondmate-harness only filling an axis the record leaves empty. A
+# mate that must run on a different runtime than the fleet default therefore
+# survives the restart instead of being moved onto a runtime its host may not
+# have. Moving a mate deliberately stays an explicit relaunch, which is what
+# re-resolves the fleet pin.
 #
 # Placement changes the transport and nothing else. A local mate is restarted
 # with bin/fm-control.sh <id> relaunch, which republishes this home's own
@@ -202,7 +213,7 @@ persist_answer_settled() {  # <array-index>
 }
 
 restart_mate() {  # <array-index>
-  local i=$1 id restart_out restart_rc restart_reason ran_on
+  local i=$1 id restart_out restart_rc restart_reason ran_on ready
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -211,18 +222,36 @@ restart_mate() {  # <array-index>
     restart_rc=$?
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
+      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch \
+      --harness "${HARNESS[i]}" --model "${MODEL[i]:-default}" --effort "${EFFORT[i]:-default}" 2>&1)
     restart_rc=$?
   fi
   if [ "$restart_rc" -eq 0 ]; then
     ran_on=$(printf '%s\n' "$restart_out" | sed -n 's/^relaunched .* harness=\([^ ]*\).*/\1/p' | tail -1)
     [ -n "$ran_on" ] || ran_on=${HARNESS[i]}
-    if [ "${PLACEMENT[i]}" = remote ]; then
-      printf 'restarted: %s on %s (%s)\n' "$id" "${HOST[i]}" "$ran_on"
-    else
-      printf 'restarted: %s (%s)\n' "$id" "$ran_on"
-    fi
-    return
+    # Only a confirmed agent is a reload. The relaunch watches its own
+    # replacement and attests ready=confirmed when that agent is observed
+    # running; anything else - still starting, or no attestation at all - is
+    # ambiguous, and this pass reports ambiguity as unknown, never as success.
+    ready=$(printf '%s\n' "$restart_out" | sed -n 's/^relaunched .* ready=\([^ ]*\).*/\1/p' | tail -1)
+    case "$ready" in
+      confirmed)
+        if [ "${PLACEMENT[i]}" = remote ]; then
+          printf 'restarted: %s on %s (%s)\n' "$id" "${HOST[i]}" "$ran_on"
+        else
+          printf 'restarted: %s (%s)\n' "$id" "$ran_on"
+        fi
+        return
+        ;;
+      starting)
+        report_unreached "$id" "its replacement is in place on $ran_on but no running agent could be confirmed there yet, so the restart outcome is unknown"
+        return
+        ;;
+      *)
+        report_unreached "$id" "the restart did not report whether its replacement's agent is running, so the restart outcome is unknown"
+        return
+        ;;
+    esac
   fi
 
   restart_reason=$(first_reported_line "$restart_out")
@@ -306,26 +335,41 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   PLACEMENT[i]=$FM_SECONDMATE_RESTART_PLACEMENT
   HOST[i]=$FM_SECONDMATE_RESTART_HOST
   HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-  if [ "${PLACEMENT[i]}" = remote ]; then
-    # A local relaunch re-resolves this home's durable secondmate pin on its own,
-    # which is the one owner of that resolution. A remote one cannot: it runs in
-    # a home whose config/secondmate-harness is deliberately NOT inherited, so
-    # the file on that host belongs to a different home and re-resolving there
-    # would silently move the mate onto another runtime. Resolve the pin here and
-    # pass it explicitly, so both placements land on the same decision.
+  MODEL[i]=$FM_SECONDMATE_RESTART_MODEL
+  EFFORT[i]=$FM_SECONDMATE_RESTART_EFFORT
+  # The profile is the mate's own recorded one on both placements, resolved
+  # here: a local relaunch must not re-resolve this home's fleet-wide pin on
+  # its own, and a remote one cannot re-resolve anything there - the
+  # config/secondmate-harness copy on its host belongs to a different home, so
+  # re-resolving there would silently move the mate onto another runtime.
+  # Either re-resolution would move a mate that must run on a different runtime
+  # than the fleet default onto one its host may not have. The fleet pin only
+  # fills an axis the mate's own record leaves empty.
+  if [ -z "${HARNESS[i]}" ]; then
     HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-    [ -n "${HARNESS[i]}" ] || HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-    MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
-    case "${EFFORT[i]}" in
-      ''|low|medium|high|xhigh|max|ultra) ;;
-      *) EFFORT[i]="" ;;
-    esac
-    if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
-      REASON[i]="the configured Ultra profile does not select native Codex through Pi"
-      i=$((i + 1))
-      continue
-    fi
+  fi
+  # A recorded `default` is no pin at all, exactly like an empty axis: the mate
+  # was launched without a choice there, so the fleet pin still governs it.
+  # Only a concrete recorded value pins that axis to the mate.
+  case "${MODEL[i]}" in
+    ''|default)
+      MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
+      ;;
+  esac
+  case "${EFFORT[i]}" in
+    low|medium|high|xhigh|max|ultra) ;;
+    *)
+      EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+      case "${EFFORT[i]}" in
+        ''|low|medium|high|xhigh|max|ultra) ;;
+        *) EFFORT[i]="" ;;
+      esac
+      ;;
+  esac
+  if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
+    REASON[i]="its resolved Ultra profile does not select native Codex through Pi"
+    i=$((i + 1))
+    continue
   fi
 
   if ! corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$id" \

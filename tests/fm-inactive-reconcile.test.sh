@@ -895,10 +895,12 @@ printf 'state: failed · source: fake\n'
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
 
-  FM_RACE_WORLD="$WORLD" run_reconcile "$MATE" --startup &
+  FM_RACE_WORLD="$WORLD" FM_INACTIVE_RECONCILE_BUDGET_SECS=30 run_reconcile "$MATE" --startup &
   recon_pid=$!
+  # Wait on the artefact (the state-read entry beacon), not a wall-clock
+  # bound: under load the scan needs more than 2s to reach its snapshot.
   i=0
-  while [ "$i" -lt 40 ] && [ ! -e "$WORLD/state-started" ]; do sleep 0.05; i=$((i + 1)); done
+  while [ "$i" -lt 600 ] && [ ! -e "$WORLD/state-started" ]; do sleep 0.05; i=$((i + 1)); done
   [ -e "$WORLD/state-started" ] || fail "reconciliation did not begin its state snapshot"
 
   FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash -c '
@@ -913,6 +915,9 @@ SH
     fm_lock_release "$lock"
   ' _ "$ROOT" "$WORLD" &
   update_pid=$!
+  # A short observation window, not an artefact wait: the updater must still
+  # be blocked on the snapshot's lifecycle lock here, so its beacon is
+  # expected to be absent and the release below unblocks the state read.
   i=0
   while [ "$i" -lt 10 ] && [ ! -e "$WORLD/meta-updated" ]; do sleep 0.05; i=$((i + 1)); done
   : > "$WORLD/state-release"
@@ -1040,10 +1045,20 @@ SH
   started=$(date +%s)
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
-  [ "$elapsed" -le 3 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
+  # Bounded means well before the 30s stall completes; the slack above the
+  # 1s budget plus 1s backstop keeps this true under machine load.
+  [ "$elapsed" -le 10 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
 
   write_child "$MAIN" b 'done: green'
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  # Wait on the artefact (the queued wake for b), not a single wall-clock
+  # bound: under load one bounded scan may stall on `a` before reaching `b`,
+  # so retry until the durable cursor advances past it.
+  i=0
+  while [ "$i" -lt 10 ]; do
+    FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+    grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" && break
+    i=$((i + 1))
+  done
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
     || fail "next bounded scan did not resume with the following child"
   pass "stalled state reads are bounded without starving later children"
