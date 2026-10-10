@@ -133,30 +133,133 @@ def test_pytest_runs_only_paths_the_checkout_has(monkeypatch, tmp_path):
     assert "tests/contracts" in seen
 
 
-def test_a_hub_module_stays_within_budget(monkeypatch, tmp_path):
+def test_a_hub_selection_fills_the_time_budget_by_priority(
+        monkeypatch, tmp_path):
     # PRs 2271/2273 ran 3,500-4,977 tests in Tier-1 because the
-    # dependent selection widens for widely imported modules. Above the
-    # declared budget Tier-1 keeps only the direct tests and leaves
-    # breadth to the Tier-2 batched full suite.
-    wide = [f"tests/unit/x/test_{n}.py" for n in range(100)]
-    monkeypatch.setattr(selection, "dependent", lambda paths, repo: wide)
+    # dependent selection widens for widely imported modules. The
+    # time budget keeps the highest-priority tests - direct first,
+    # then by import distance - and leaves breadth to the Tier-2
+    # batched full suite.
+    distances = {"tests/unit/x/test_hub.py": 0,
+                 **{f"tests/unit/x/test_near_{n}.py": 1
+                    for n in range(4)},
+                 **{f"tests/unit/x/test_far_{n}.py": 2
+                    for n in range(4)}}
+    durations = {"tests/unit/x/test_hub.py": 5.0,
+                 **{f"tests/unit/x/test_near_{n}.py": 5.0
+                    for n in range(4)},
+                 **{f"tests/unit/x/test_far_{n}.py": 5.0
+                    for n in range(4)}}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
     monkeypatch.setattr(selection, "direct_tests_for",
                         lambda paths, repo: ["tests/unit/x/test_hub.py"])
-    result = selection.capped_selection_for(["library/hub.py"],
-                                            str(tmp_path))
+    result = selection.capped_selection_for(
+        ["library/hub.py"], str(tmp_path), budget_seconds=15.0,
+        durations=durations, failure_rates={})
     assert result["capped"] is True
-    assert result["dependent_total"] == 100
-    assert result["dependent_kept"] == 1
+    assert result["dependent_total"] == 9
+    assert result["dependent_kept"] == 3
+    assert result["deferred"] == 6
     assert "tests/unit/x/test_hub.py" in result["paths"]
+    assert "tests/unit/x/test_near_0.py" in result["paths"]
+    assert "tests/unit/x/test_far_0.py" not in result["paths"]
+    assert result["estimated_seconds"] == 15.0
     for entry in config.ALWAYS_RUN:
         assert entry in result["paths"]
-    assert len(result["paths"]) <= 1 + len(config.ALWAYS_RUN)
+    assert len(result["deferred_paths"]) == 6
 
 
-def test_an_ordinary_selection_is_not_capped(monkeypatch, tmp_path):
-    narrow = ["tests/unit/x/test_a.py", "tests/unit/y/test_b.py"]
-    monkeypatch.setattr(selection, "dependent", lambda paths, repo: narrow)
-    result = selection.capped_selection_for(["library/a.py"], str(tmp_path))
+def test_an_ordinary_selection_under_budget_is_not_capped(
+        monkeypatch, tmp_path):
+    distances = {"tests/unit/x/test_a.py": 1,
+                 "tests/unit/y/test_b.py": 1}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=30.0,
+        durations={"tests/unit/x/test_a.py": 1.0,
+                   "tests/unit/y/test_b.py": 1.0},
+        failure_rates={})
     assert result["capped"] is False
-    for path in narrow:
-        assert path in result["paths"]
+    assert result["deferred"] == 0
+    assert "tests/unit/x/test_a.py" in result["paths"]
+    assert "tests/unit/y/test_b.py" in result["paths"]
+
+
+def test_unmeasured_files_cost_the_default_estimate(monkeypatch, tmp_path):
+    # Unknown is never zero (zero would let unmeasured files bypass
+    # the budget) and never infinite (which would starve new tests).
+    distances = {f"tests/unit/x/test_{n}.py": 1 for n in range(4)}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=5.0,
+        durations={}, failure_rates={})
+    assert result["estimated_seconds"] == (
+        2 * config.TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS)
+    assert result["dependent_kept"] == 2
+    assert result["deferred"] == 2
+
+
+def test_higher_failure_rate_wins_within_one_distance(
+        monkeypatch, tmp_path):
+    # At equal distance the historically failing test runs first:
+    # a quiet test deferred to Tier-2 costs nothing, a flaky one
+    # skipped from Tier-1 costs the fast signal.
+    distances = {"tests/unit/x/test_flaky.py": 1,
+                 "tests/unit/x/test_quiet.py": 1}
+    durations = {"tests/unit/x/test_flaky.py": 5.0,
+                 "tests/unit/x/test_quiet.py": 5.0}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=5.0,
+        durations=durations,
+        failure_rates={"tests/unit/x/test_flaky.py": 0.4})
+    assert result["dependent_kept"] == 1
+    assert "tests/unit/x/test_flaky.py" in result["paths"]
+    assert result["deferred_paths"] == ["tests/unit/x/test_quiet.py"]
+
+
+def test_direct_tests_run_even_when_they_alone_exceed_the_budget(
+        monkeypatch, tmp_path):
+    # The floor: a change always answers for its own tests, even when
+    # they alone cost more than the budget. Everything else defers.
+    distances = {"tests/unit/x/test_hub.py": 0,
+                 "tests/unit/x/test_other.py": 1}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: ["tests/unit/x/test_hub.py"])
+    result = selection.capped_selection_for(
+        ["library/hub.py"], str(tmp_path), budget_seconds=5.0,
+        durations={"tests/unit/x/test_hub.py": 60.0,
+                   "tests/unit/x/test_other.py": 1.0},
+        failure_rates={})
+    assert "tests/unit/x/test_hub.py" in result["paths"]
+    assert "tests/unit/x/test_other.py" not in result["paths"]
+    assert result["capped"] is True
+
+
+def test_always_run_stays_mandatory_outside_the_budget(
+        monkeypatch, tmp_path):
+    # No filename predicts the cross-cutting contract failures, so the
+    # budget must not eat them: they ride along whatever the dependent
+    # half costs.
+    distances = {"tests/unit/x/test_a.py": 1}
+    monkeypatch.setattr(selection, "dependent_distances",
+                        lambda paths, repo: dict(distances))
+    monkeypatch.setattr(selection, "direct_tests_for",
+                        lambda paths, repo: [])
+    result = selection.capped_selection_for(
+        ["library/a.py"], str(tmp_path), budget_seconds=1.0,
+        durations={"tests/unit/x/test_a.py": 1.0}, failure_rates={})
+    assert result["capped"] is False
+    assert result["estimated_seconds"] == 1.0
+    for entry in config.ALWAYS_RUN:
+        assert entry in result["paths"]

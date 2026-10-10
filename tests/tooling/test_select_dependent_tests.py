@@ -91,6 +91,20 @@ def test_changed_test_file_is_selected_for_itself():
     assert path in select([path])
 
 
+def test_distances_rank_the_changed_test_before_its_dependents():
+    """Tier-1 fills its time budget in distance order, so the order
+    itself is a contract: the changed test is 0, a direct importer is
+    1, and nothing outranks the change itself."""
+    module = _load_selector()
+    distances = module.select_with_distances(
+        ["tests/tooling/test_select_dependent_tests.py"])
+    path = "tests/tooling/test_select_dependent_tests.py"
+    assert distances[path] == 0
+    assert set(distances) == set(module.select(
+        ["tests/tooling/test_select_dependent_tests.py"]))
+    assert all(hops >= 0 for hops in distances.values())
+
+
 def test_selection_roots_at_ren_select_root(monkeypatch, tmp_path):
     """ren-ci selects against the PR checkout, not the tree the script
     lives in: with REN_SELECT_ROOT at a foreign tree, the index reads

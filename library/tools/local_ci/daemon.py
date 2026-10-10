@@ -88,9 +88,12 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
         command = (selection.selection_command(files) + " + always-run(" +
                    ", ".join(config.ALWAYS_RUN) + ")")
         if capped["capped"]:
-            command += (f" [capped: {capped['dependent_kept']} direct of "
-                        f"{capped['dependent_total']} dependent, "
-                        f"budget {capped['budget']}; breadth to Tier-2]")
+            command += (f" [time-budget: {capped['dependent_kept']} of "
+                        f"{capped['dependent_total']} dependent "
+                        f"(~{capped['estimated_seconds']:.1f}s of "
+                        f"{capped['budget_seconds']:.0f}s, "
+                        f"{capped['deferred']} deferred); "
+                        f"breadth to Tier-2]")
         static = runner.run_static(checkout, files)
         if not static["ok"]:
             return {"pr": number, "head": head, "url": url, "ok": False,

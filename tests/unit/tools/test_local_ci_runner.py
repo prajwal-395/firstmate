@@ -53,7 +53,7 @@ def test_full_suite_gate_prepends_disposable_checkout_to_pythonpath(
 
 
 def test_run_gate_excludes_real_model_and_limits_workers(monkeypatch,
-                                                         tmp_path):
+                                                          tmp_path):
     calls = []
 
     def run_logged(command, cwd, log_path, timeout):
@@ -64,13 +64,56 @@ def test_run_gate_excludes_real_model_and_limits_workers(monkeypatch,
 
     monkeypatch.setattr(runner, "_run_logged", run_logged)
 
-    result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"))
+    result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"),
+                             timeout=1200)
 
     assert result["ok"] is True
     assert calls[0][0] == [
         "bash", "scripts/full_suite_gate.sh", "--exclude-real-model",
         "-n", "2",
     ]
+
+
+def test_a_timed_out_gate_requeues_as_no_verdict(monkeypatch, tmp_path):
+    # The October lane: an unloaded 700s suite killed at a fixed 1200s
+    # under agent load at 98% complete. A timeout judged nothing, so
+    # the batch requeues - it is never a red verdict on the members.
+    def run_logged(command, cwd, log_path, timeout):
+        with open(log_path, "w", encoding="utf-8") as log:
+            log.write(f"\nREN-CI TIMEOUT after {timeout}s; "
+                      "process_group_clean=True\n")
+        return {"timed_out": True, "group_clean": True}
+
+    monkeypatch.setattr(runner, "_run_logged", run_logged)
+
+    result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"),
+                             timeout=1200)
+
+    assert result["ok"] is False
+    assert result["requeue"] is True
+    assert result["timed_out"] is True
+    assert "timed out" in result["reason"]
+
+
+def test_run_gate_scales_its_timeout_from_the_measured_suite(
+        monkeypatch, tmp_path):
+    from library.tools.local_ci import history
+    seen = []
+
+    def run_logged(command, cwd, log_path, timeout):
+        seen.append(timeout)
+        with open(log_path, "w", encoding="utf-8") as log:
+            log.write("FULL-SUITE GATE: PASS  |  unit+scenario: 7 passed")
+        return {"timed_out": False, "group_clean": True}
+
+    monkeypatch.setattr(runner, "_run_logged", run_logged)
+    monkeypatch.setattr(history, "full_suite_wall_seconds",
+                        lambda _d: 700.0)
+
+    result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"))
+
+    assert result["ok"] is True
+    assert seen == [1400]
 
 
 def test_read_verdict_keeps_gate_outcomes_distinct(tmp_path):

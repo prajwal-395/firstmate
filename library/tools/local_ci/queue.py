@@ -45,7 +45,7 @@ from __future__ import annotations
 import os
 import time
 
-from library.tools.local_ci import config, runner, state
+from library.tools.local_ci import config, history, runner, state
 
 
 class StaleHead(RuntimeError):
@@ -120,7 +120,9 @@ class World:
                 return TestResult(False, reason=stack["reason"])
             log = os.path.join(self.state_dir, "logs",
                                f"tier2-{int(time.time())}.log")
-            gate = runner.run_gate(checkout, log)
+            gate = runner.run_gate(
+                checkout, log,
+                timeout=history.default_tier2_timeout(self.state_dir))
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"])
 

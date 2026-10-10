@@ -22,12 +22,58 @@ STATUS_CONTEXT = "ren-ci/pr-checks"
 # captain-visible half; the command is the agent half.
 READY_LABEL = "ren-ci-ready"
 
-# Tier-1 parallelism is MEASURED per dispatch (`load.targets()`), not
-# fixed: a quiet machine runs up to TIER1_MAX jobs (load.TIER1_MAX), a
-# loaded one serialises to one. pytest -n per job likewise follows the
-# machine (1..2). The one fixed bound is Tier-2: a full-gate cluster
-# owns the machine alone, always.
+# Tier-1 is the quick check, not the verdict: the dependent half is
+# bounded by TEST TIME, not file count, so one hub-module PR cannot
+# bill half the suite per push. The budget is filled from historical
+# per-test durations (`scripts/pytest_timing.py` data); above it the
+# run keeps the highest-priority tests (direct first, then by import
+# distance) and leaves breadth to the Tier-2 batched full suite, which
+# already runs everything on the exact stacked tree before any merge.
+# 30 seconds of dependent test time keeps the signal fast under agent
+# load; ordinary PRs (a handful of files, a few seconds) never notice
+# it, while the October hub selections (3,500-5,000 tests) defer their
+# breadth instead of billing it per push.
+TIER1_TIME_BUDGET_SECONDS = 30
+
+# A dependent file with no measured duration still costs the budget
+# something: unknown is estimated here, never zero (zero would let
+# unmeasured files bypass the budget entirely) and never infinite
+# (which would starve new tests of a run). Roughly the suite's median
+# per-file cost.
+TIER1_UNKNOWN_FILE_ESTIMATE_SECONDS = 2.0
+
+
+def tier1_time_budget_seconds() -> float:
+    """The Tier-1 dependent time budget, overridable per machine.
+
+    The constant is the default; REN_CI_TIER1_BUDGET_SECONDS (a plain
+    number of seconds) wins when set and positive, so a loaded service
+    machine can tighten or loosen the budget without a code change.
+    """
+    try:
+        override = float(
+            os.environ.get("REN_CI_TIER1_BUDGET_SECONDS", "").strip())
+    except (TypeError, ValueError):
+        return float(TIER1_TIME_BUDGET_SECONDS)
+    if override > 0:
+        return override
+    return float(TIER1_TIME_BUDGET_SECONDS)
+
+# Tier-2 owns the machine alone for one full-gate run. Its timeout
+# SCALES from the measured full-suite wall time times a load factor,
+# the same way Tier-1 is budgeted from measured durations: an unloaded
+# 700s suite killed at a fixed 1200s under agent load (98% complete,
+# whole run wasted) must instead bill what the machine needs right
+# now. Floor keeps today's bound when the measurement is missing or
+# tiny; ceiling keeps a hung gate from holding the machine forever.
 TIER2_TIMEOUT_SECONDS = 20 * 60
+TIER2_TIMEOUT_FLOOR_SECONDS = 20 * 60
+TIER2_TIMEOUT_CEILING_SECONDS = 60 * 60
+TIER2_TIMEOUT_LOAD_FACTOR = 2.0
+
+# Fallback full-suite wall time when neither Tier-2 logs nor timing
+# telemetry can measure one: the unloaded October 2026 suite (~700s).
+TIER2_MEASURED_FALLBACK_WALL_SECONDS = 700.0
 
 # How long one Tier-1 pytest run may take before the slot is reclaimed.
 # A dependent selection is small; 30 minutes is a hung run, not a slow
@@ -70,11 +116,6 @@ DISK_FLOOR_BYTES = 10 * 1024 * 1024 * 1024
 # (60s, then 120s): a hung machine gets two more chances, not forever.
 TIER1_TIMEOUT_MAX_RETRIES = 2
 TIER1_TIMEOUT_RETRY_BASE_SECONDS = 60
-
-# How long one Tier-1 pytest run may take before the slot is reclaimed.
-# A dependent selection is small; 30 minutes is a hung run, not a slow
-# one.
-RUN_TIMEOUT_SECONDS = 30 * 60
 
 # New-head detection poll. This is DETECTION, not a batch window: no
 # test waits for it, and a ready PR starts the moment a slot frees.

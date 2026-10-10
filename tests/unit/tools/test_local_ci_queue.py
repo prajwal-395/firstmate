@@ -11,7 +11,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from library.tools.local_ci import config, github, hygiene, queue, runner, state
+from library.tools.local_ci import config, github, history, hygiene, queue, runner, state
 
 
 def _git(repo, *argv):
@@ -96,8 +96,8 @@ def test_tier2_fetches_the_exact_base_before_creating_its_checkout(
         events.append(("stack", checkout, base, heads))
         return {"ok": True, "reason": ""}
 
-    def run_gate(checkout, log):
-        events.append(("gate", checkout))
+    def run_gate(checkout, log, timeout=None):
+        events.append(("gate", checkout, timeout))
         return {"ok": True, "reason": "", "requeue": False}
 
     monkeypatch.setattr(hygiene, "fetch_base", fetch_base)
@@ -109,12 +109,12 @@ def test_tier2_fetches_the_exact_base_before_creating_its_checkout(
     verdict = world.test_stack("current-main-sha", [_member(1)])
 
     assert verdict.ok is True
-    assert events == [
-        ("fetch", "mirror", "current-main-sha"),
-        ("checkout", "mirror", "current-main-sha", str(tmp_path)),
-        ("stack", "checkout", "current-main-sha", ["head-1"]),
-        ("gate", "checkout"),
-    ]
+    assert events[0] == ("fetch", "mirror", "current-main-sha")
+    assert events[1] == ("checkout", "mirror", "current-main-sha",
+                         str(tmp_path))
+    assert events[2] == ("stack", "checkout", "current-main-sha", ["head-1"])
+    assert events[3][0] == "gate" and events[3][1] == "checkout"
+    assert events[3][2] == history.default_tier2_timeout(str(tmp_path))
 
 
 def test_a_red_stack_bisects_to_the_culprit_and_merges_the_rest():
@@ -274,6 +274,25 @@ def test_an_unjudgeable_cluster_requeues_instead_of_kicking():
     green, kicked, requeued = queue.resolve_batch(world, "base",
                                                   [_member(1), _member(2)])
     assert green == [] and kicked == []  # nobody judged, nobody blamed
+    assert sorted(m["pr"] for m in requeued) == [1, 2]
+    assert all(m["status"] == state.ENTRY_QUEUED for m in requeued)
+
+
+def test_a_timed_out_batch_requeues_every_member_without_kicking():
+    # A Tier-2 timeout (the gate's own clock, not a test verdict)
+    # requeues the batch as no verdict: no culprit is named, no
+    # member is kicked, and every member waits for a better moment.
+    class TimedOut(FakeWorld):
+        def test_stack(self, base, members):
+            return queue.TestResult(
+                False, reason="full gate did not run (timed out), "
+                              "log /tmp/tier2.log",
+                requeue=True)
+
+    world = TimedOut()
+    green, kicked, requeued = queue.resolve_batch(world, "base",
+                                                  [_member(1), _member(2)])
+    assert green == [] and kicked == []
     assert sorted(m["pr"] for m in requeued) == [1, 2]
     assert all(m["status"] == state.ENTRY_QUEUED for m in requeued)
 

@@ -22,7 +22,7 @@ import signal
 import subprocess
 import time
 
-from library.tools.local_ci import config, hygiene
+from library.tools.local_ci import config, history, hygiene
 
 # Pytest's terminal summary is surrounded by `=` characters. Anchor the
 # parse to that line: an unanchored regex with optional groups matched the
@@ -285,8 +285,14 @@ def run_static(checkout: str, changed: list) -> dict:
 
 
 def run_gate(checkout: str, log_path: str,
-             timeout: int = config.TIER2_TIMEOUT_SECONDS) -> dict:
+             timeout: int | None = None) -> dict:
     """Tier-2: the FULL suite on the exact tree that would land.
+
+    The timeout SCALES from the measured full-suite wall time times
+    the load factor (history.default_tier2_timeout), the same way
+    Tier-1 is budgeted from measured durations: an unloaded 700s
+    suite must not die at a fixed 1200s under agent load at 98%
+    complete. An explicit timeout still wins (tests pin it).
 
     Runs the checkout's OWN full_suite_gate.sh (the code under test
     gates itself - a stale gate script cannot bless a new tree) and
@@ -295,7 +301,12 @@ def run_gate(checkout: str, log_path: str,
     (requeue=True) rather than kicking - the PR is not the culprit, the
     machine is incomplete. FAIL is red. Anything else (no verdict
     line, timeout, crash) is DID NOT RUN: requeue, never merge blind.
+    A TIMED-OUT gate judged nothing: the batch requeues as no verdict
+    and no member is kicked - resolve_batch requeues the whole cluster
+    on requeue=True without naming a culprit.
     """
+    if timeout is None:
+        timeout = history.default_tier2_timeout()
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
     result = _run_logged(
         ["bash", "scripts/full_suite_gate.sh", "--exclude-real-model",

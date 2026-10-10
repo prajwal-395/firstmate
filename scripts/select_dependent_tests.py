@@ -9,6 +9,11 @@ uses the changed module, plus one hop through re-exporters).
 Usage: `python3 scripts/select_dependent_tests.py <changed-file> ...`
 prints test paths relative to the repo root, one per line.
 
+`--distances` prints `<hops> <path>` instead: the import distance
+from the change to each selected test (0 the changed test itself, 1
+a direct importer or same-stem test, 2 a hop through a re-exporter
+or a contract set). Tier-1 fills its time budget in this order.
+
 `--loop` prints the per-change loop instead: the `tests/unit/<subsystem>/`
 directory of every subsystem the change reaches, plus `tests/contracts/`,
 the global contract suite (`tests/layers.py`). A subsystem is reached when
@@ -127,6 +132,20 @@ def _read(path):
 
 def select(changed):
     """Test paths (repo-relative) covering the changed files."""
+    return sorted(_select_with_distances(changed))
+
+
+def select_with_distances(changed):
+    """Test paths mapped to import distance from the changed files.
+
+    0 is the changed test itself, 1 a direct importer or same-stem
+    test, 2 a hop through a re-exporter or a contract-set entry.
+    The minimum wins when several changed files reach one test.
+    """
+    return dict(_select_with_distances(changed))
+
+
+def _select_with_distances(changed):
     library_modules = _modules_under(LIBRARY)
     test_modules = _modules_under(TESTS)
     # One index per invocation: every module's imported stems, parsed
@@ -154,7 +173,12 @@ def select(changed):
     test_files = {os.path.basename(abs_path): abs_path
                   for _dotted, abs_path in test_modules
                   if os.path.basename(abs_path).startswith("test_")}
-    selected = set()
+    selected: dict = {}
+    def add(path, distance):
+        if path in selected:
+            selected[path] = min(selected[path], distance)
+        else:
+            selected[path] = distance
     for path in changed:
         abs_path = (path if os.path.isabs(path)
                     else os.path.join(REPO_ROOT, path))
@@ -167,7 +191,7 @@ def select(changed):
         if (os.path.commonpath([absolute, TESTS]) == TESTS
                 and os.path.basename(absolute).startswith("test_")
                 and absolute.endswith(".py") and os.path.isfile(absolute)):
-            selected.add(os.path.relpath(absolute, REPO_ROOT))
+            add(os.path.relpath(absolute, REPO_ROOT), 0)
 
         resolvers = set()
         if stem in CONTRACT_SETS:
@@ -182,7 +206,7 @@ def select(changed):
                 resolvers.add(used)
             same = "test_" + used + ".py"
             if same in test_files:
-                selected.add(os.path.relpath(test_files[same], REPO_ROOT))
+                add(os.path.relpath(test_files[same], REPO_ROOT), 1)
 
         # FORWARD: what uses the changed module. Only RE-EXPORTERS
         # extend the carrier set: a module that re-exports a name is
@@ -198,30 +222,32 @@ def select(changed):
             if _reexports(lib_text.get(importer, "")):
                 carriers.add(importer.split(".")[-1])
         for carrier in carriers:
+            hop = 1 if carrier == stem else 2
             for dotted, test_abs in test_modules:
                 rel = os.path.relpath(test_abs, REPO_ROOT)
                 if os.path.basename(test_abs) == "test_" + carrier + ".py":
-                    selected.add(rel)
+                    add(rel, hop)
                 elif carrier in test_imports.get(test_abs, set()):
-                    selected.add(rel)
+                    add(rel, hop)
             if carrier in CONTRACT_SETS:
                 resolvers.add(carrier)
         for dotted, test_abs in test_modules:
             rel = os.path.relpath(test_abs, REPO_ROOT)
             if os.path.basename(test_abs) == "test_" + stem + ".py":
-                selected.add(rel)
+                add(rel, 1)
             elif stem in test_imports.get(test_abs, set()):
-                selected.add(rel)
+                add(rel, 1)
 
         for resolver in resolvers:
-            selected.update(CONTRACT_SETS[resolver])
+            for entry in CONTRACT_SETS[resolver]:
+                add(entry, 2)
 
     # Pytest treats conftest.py as configuration, not a test module. It can
     # enter the import graph as a carrier, but passing it as a path causes
     # module-name collisions when another subsystem has its own conftest.
-    return sorted(path for path in selected
-                  if os.path.basename(path).startswith("test_")
-                  and path.endswith(".py"))
+    return {path: distance for path, distance in selected.items()
+            if os.path.basename(path).startswith("test_")
+            and path.endswith(".py")}
 
 
 def loop(changed):
@@ -247,11 +273,17 @@ def loop(changed):
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip().splitlines()[0])
-        print("usage: select_dependent_tests.py [--loop] <changed-file> ...")
+        print("usage: select_dependent_tests.py [--loop] [--distances] "
+              "<changed-file> ...")
         return 0
     if argv[0] == "--loop":
         for path in loop(argv[1:]):
             print(path)
+        return 0
+    if argv[0] == "--distances":
+        distances = select_with_distances(argv[1:])
+        for path in sorted(distances):
+            print(f"{distances[path]} {path}")
         return 0
     for path in select(argv):
         print(path)
