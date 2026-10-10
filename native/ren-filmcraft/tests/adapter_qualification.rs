@@ -420,3 +420,324 @@ fn adapter_drives_transition_audio_move_and_refuses_unsupported() {
         "model effects must appear as explicit loss entries"
     );
 }
+
+use ren_filmcraft::adapter::{
+    apply_ren_edit_to_model, build_frame_map as build_map, plan_projection as plan_proj,
+    plan_ren_edit,
+};
+
+fn ren_edit_for(id: &str, operation: &str, target: &str, after: serde_json::Value) -> EditOperation {
+    EditOperation {
+        id: ren_protocol::project_model::EditOperationId(id.into()),
+        operation: operation.into(),
+        target_ids: vec![target.into()],
+        before: None,
+        after: Some(after),
+        intent_id: None,
+        evidence_ids: vec![],
+        author: "ren-equivalence".into(),
+        parent_revision: None,
+    }
+}
+
+/// Video spans on the engine timeline, frame-exact: (startFrame, durationFrames).
+fn inspect_spans(inspection: &serde_json::Value, kind: &str) -> Vec<(i64, i64)> {
+    let mut spans = Vec::new();
+    for track in inspection[kind].as_array().unwrap() {
+        for item in track["items"].as_array().unwrap() {
+            spans.push((
+                item["startFrame"].as_i64().unwrap(),
+                item["durationFrames"].as_i64().unwrap(),
+            ));
+        }
+    }
+    spans.sort();
+    spans
+}
+
+/// Expected spans from the mutated model's projection: placement frame plus
+/// timeline length in frames (the 24fps qualification clocks tick per frame).
+fn expected_spans(model: &ProjectModel) -> Vec<(i64, i64)> {
+    let projection = plan_proj(model).unwrap();
+    let mut spans: Vec<(i64, i64)> = projection
+        .placements
+        .iter()
+        .map(|p| {
+            let duration_frames = p.timeline_end - p.timeline_start;
+            (p.frame, duration_frames)
+        })
+        .collect();
+    spans.sort();
+    spans
+}
+
+#[test]
+fn ren_split_equivalence_drives_linked_audio_with_no_loss() {
+    let adapter = FilmCraft::new().unwrap();
+    let model = test_model(&linked_av_fixture(), true, false);
+    let placed = place_through_adapter(&adapter, "ren-split-equiv", &model);
+
+    // A V1-only razor reproduces the measured defect, proving the loss is
+    // real before the Ren plan drives both tracks.
+    let before_len = {
+        let inspection = adapter
+            .execute(request(Operation::Inspect {
+                project: placed.project.clone(),
+            }))
+            .unwrap();
+        inspect_spans(&inspection.engine_response, "video").len()
+    };
+    assert_eq!(before_len, 1);
+    let single_razor = Operation::Razor {
+        project: placed.project.clone(),
+        track: "V1".into(),
+        frame: 24,
+    };
+    let defect = adapter.execute(request(single_razor)).unwrap();
+    assert!(
+        defect
+            .losses
+            .iter()
+            .any(|loss| loss.code == "linked_audio_not_razored"),
+        "a V1-only razor must still surface the measured defect: {:#?}",
+        defect.losses
+    );
+
+    // Re-place cleanly, then plan Ren's own split: video plus linked audio.
+    let placed = place_through_adapter(&adapter, "ren-split-clean", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-split",
+        "clip.split",
+        "use-first",
+        serde_json::json!({"at_frame": 24}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(
+        operations.len(),
+        2,
+        "linked audio must be driven explicitly, got {operations:#?}"
+    );
+    let mut all_losses = Vec::new();
+    let mut second_clean = true;
+    for (index, operation) in operations.into_iter().enumerate() {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        if index == 1
+            && receipt
+                .losses
+                .iter()
+                .any(|loss| loss.code == "linked_audio_not_razored")
+        {
+            second_clean = false;
+        }
+        all_losses.extend(receipt.losses.clone());
+    }
+    assert!(
+        second_clean,
+        "the explicit linked-audio razor must itself be clean: {all_losses:#?}"
+    );
+
+    // Equivalence: the engine timeline matches the ren-core-mutated model
+    // frame-exact, and the frame map covers the same spans.
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+        "FilmCraft video must match Ren's expected clip uses frame-exact"
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+        "linked audio must follow the picture edit"
+    );
+    let before_map = build_map(&model, &projection, "clock-render", "map-before").unwrap();
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-after").unwrap();
+    assert_eq!(ren_filmcraft::adapter::render_span(&before_map), 72);
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 72);
+    assert_eq!(after_map.segments.len(), 2);
+    assert_eq!(
+        (after_map.segments[0].to.start, after_map.segments[0].to.end),
+        (0, 24)
+    );
+    assert_eq!(
+        (after_map.segments[1].to.start, after_map.segments[1].to.end),
+        (24, 72)
+    );
+}
+
+#[test]
+fn ren_trim_move_transition_gain_match_model_frame_exact() {
+    let adapter = FilmCraft::new().unwrap();
+
+    // Trim out edge 72 -> 60: engine and model agree, render map shortens.
+    let model = test_model(&linked_av_fixture(), false, false);
+    let placed = place_through_adapter(&adapter, "ren-trim-equiv", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-trim",
+        "clip.trim",
+        "use-first",
+        serde_json::json!({"in_frame": 0, "out_frame": 60}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            !receipt
+                .losses
+                .iter()
+                .any(|loss| loss.code == "trim_delta_mismatch"),
+            "a small exact trim must apply without delta loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-trim").unwrap();
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 60);
+
+    // Move to frame 24 (single-clip model, no overlap): engine and model agree.
+    let model = test_model(&linked_av_fixture(), false, false);
+    let placed = place_through_adapter(&adapter, "ren-move-equiv", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-move",
+        "clip.move",
+        "use-first",
+        serde_json::json!({"to_frame": 24}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    for operation in operations {
+        adapter.execute(request(operation)).unwrap();
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+
+    // Transition and gain change no timeline spans; receipts prove the drive.
+    let model = test_model(&linked_av_fixture(), true, false);
+    let placed = place_through_adapter(&adapter, "ren-tg-equiv", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let razor = ren_edit_for(
+        "edit-ren-tg-split",
+        "clip.split",
+        "use-first",
+        serde_json::json!({"at_frame": 24}),
+    );
+    for operation in plan_ren_edit(&model, &projection, &razor, &context).unwrap() {
+        adapter.execute(request(operation)).unwrap();
+    }
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let second_clip = inspection.engine_response["video"][0]["items"][1]["clip"]
+        .as_u64()
+        .unwrap();
+    let mut ids = placed.clip_ids.clone();
+    ids.insert("use-first".into(), vec![second_clip]);
+    let tcontext = EditContext {
+        project: &placed.project,
+        clip_ids: &ids,
+    };
+    let transition = ren_edit_for(
+        "edit-ren-transition",
+        "transition",
+        "use-first",
+        serde_json::json!({"edge": "in", "frames": 4}),
+    );
+    for operation in plan_ren_edit(&model, &projection, &transition, &tcontext).unwrap() {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(receipt.engine_response["transition"].is_u64());
+    }
+    let gain = ren_edit_for(
+        "edit-ren-gain",
+        "audio.gain",
+        "use-first",
+        serde_json::json!({"db": -3.0}),
+    );
+    for operation in plan_ren_edit(&model, &projection, &gain, &context).unwrap() {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert_eq!(receipt.engine_response["value"].as_f64(), Some(-3.0));
+    }
+}
+
+#[test]
+fn ren_refusals_carry_named_codes_through_the_cli_path() {
+    let model = test_model(&linked_av_fixture(), true, false);
+    let projection = plan_proj(&model).unwrap();
+    let clip_ids = std::collections::BTreeMap::from([("use-first".to_owned(), vec![7u64])]);
+    let context = EditContext {
+        project: std::path::Path::new("test.fcproj"),
+        clip_ids: &clip_ids,
+    };
+    for (operation, after, code) in [
+        (
+            "clip.delete",
+            serde_json::json!({}),
+            "delete_not_representable",
+        ),
+        (
+            "clip.ripple",
+            serde_json::json!({"delta_frames": 4}),
+            "ripple_not_representable",
+        ),
+        (
+            "retime",
+            serde_json::json!({"percent": 200.0}),
+            "retime_not_representable",
+        ),
+    ] {
+        let edit = ren_edit_for("edit-refuse", operation, "use-first", after);
+        let err = plan_ren_edit(&model, &projection, &edit, &context).unwrap_err();
+        assert!(
+            format!("{err}").contains(code),
+            "{operation} must refuse as {code}, got {err}"
+        );
+        let model_err = apply_ren_edit_to_model(&model, &edit).unwrap_err();
+        assert!(
+            format!("{model_err}").contains(code),
+            "model mutation must refuse {operation} with the same code, got {model_err}"
+        );
+    }
+}

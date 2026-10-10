@@ -24,9 +24,21 @@ The deterministic bridge between Ren's canonical Project Model
 uses into ordered imports plus `timeline.place` operations (A-roll on V1,
 B-roll on V2) with no I/O, so the same model always plans identical bytes.
 `plan_edit` translates only explicit `filmcraft.*` model edits into driver
-operations; legacy strings such as `clip.trim` refuse as
-`unsupported_edit_operation` instead of being inferred. Model effects, masks,
-and object tracks become explicit loss entries, never silent drops.
+operations. `plan_ren_edit` translates Ren's own editorial vocabulary -
+split, trim (both edges, including the E2E fixture's `timeline_end` /
+`duration` shape), move/slide, transition and audio gain - resolved against
+the model and projection, with `timeline.patch` expanding into its inner
+algebra operations. Delete, ripple, retime and plan-level records refuse
+with named codes (`delete_not_representable`, `ripple_not_representable`,
+`retime_not_representable`, `plan_level_not_executable`); gain without an
+audio stream refuses as `no_audio_for_gain`. A split over linked audio
+plans two razors (video plus audio) so the measured V1-only razor defect
+does not recur; a Ren move compensates the measured one-frame-early
+`timeline.move` defect to land frame-exact. `apply_ren_edit_to_model`
+mutates clip uses for the equivalence proof, so qualification compares the
+engine's inspected timeline against Ren's expected clip uses frame-exact
+and the render's frame map against the mutated model's map. Model effects,
+masks, and object tracks become explicit loss entries, never silent drops.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
 first). `build_frame_map` emits the exact timeline-to-render map, with

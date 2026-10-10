@@ -17,11 +17,19 @@
 //!   refusal (overlapping timeline ranges, unknown roles, short sources,
 //!   inexact tick conversion, unknown edit operations). Nothing is guessed.
 //! - Legacy editorial operation strings (for example `clip.trim` without
-//!   explicit engine parameters) are refused as unsupported: the adapter never
-//!   infers an edge, mode, or delta from before/after snapshots.
-//! - The two measured FilmCraft defects (V1-only razor leaving linked audio,
-//!   wrong trim delta) are detected by the driver and propagated here verbatim
-//!   through [`summarize_losses`]; this adapter never swallows a driver loss.
+//!   explicit engine parameters) are translated by [`plan_ren_edit`], which
+//!   resolves the target against the model and projection: split drives the
+//!   video track plus linked audio explicitly, trim resolves both edges to
+//!   regular-mode deltas, move converts timeline frames to engine ticks,
+//!   transition and audio gain map onto their driver commands. Anything
+//!   FilmCraft cannot represent exactly (delete, ripple, retime, plan-level
+//!   ops, unknown roles/tracks) refuses with a NAMED loss code rather than
+//!   a guess.
+//! - The three measured FilmCraft defects (V1-only razor leaving linked audio,
+//!   wrong trim delta, move landing one frame early) are handled explicitly:
+//!   razor/trim defects propagate verbatim through [`summarize_losses`],
+//!   while the Ren move translation compensates the off-by-one so the clip
+//!   lands frame-exact; this adapter never swallows a driver loss.
 //! - Retimed playback has no representation in `timeline.place`: a clip use
 //!   whose source holds fewer frames than its timeline range refuses with
 //!   `source_too_short`. A longer source is a trim and plays its leading
@@ -44,7 +52,7 @@ use super::{
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
 pub const ENGINE_TICKS_PER_SECOND: i64 = 254_016_000_000;
 /// Version of this projection contract. Bump on any planning-rule change.
-pub const ADAPTER_VERSION: u32 = 1;
+pub const ADAPTER_VERSION: u32 = 2;
 
 #[derive(Debug)]
 pub enum AdapterError {
@@ -526,9 +534,10 @@ fn after_i64(edit: &EditOperation, after: &serde_json::Value, key: &str) -> Resu
 }
 
 /// Translate one model edit into the pinned driver operation. Only explicit
-/// `filmcraft.*` operations are supported; every other operation string -
-/// including legacy editorial strings such as `clip.trim` - refuses with
-/// `unsupported_edit_operation` instead of being inferred.
+/// `filmcraft.*` operations are supported here; Ren's own editorial
+/// vocabulary (`clip.trim` and the rest) translates through [`plan_ren_edit`],
+/// which resolves targets against the model instead of inferring from
+/// snapshots alone. Anything else refuses with `unsupported_edit_operation`.
 pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Operation> {
     let project = context.project.into();
     match edit.operation.as_str() {
@@ -678,6 +687,861 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
             ),
         )),
     }
+}
+
+/// Ren's real edit vocabulary, translated against the model and projection.
+///
+/// `plan_edit` above handles only explicit `filmcraft.*` operations.
+/// This function handles what Ren actually decides in practice - at least
+/// split, trim (both edges), move, delete/ripple delete, speed/retime,
+/// transitions and audio gain - each mapped onto FilmCraft driver commands,
+/// or refused with a NAMED loss code when FilmCraft cannot represent it
+/// exactly. Nothing is guessed: every delta is resolved from the target
+/// clip use's measured intervals, and every conversion must be exact.
+///
+/// Linked audio follows the picture explicitly: a split over a placement
+/// that carries an audio track plans one razor on the video track and a
+/// second razor on the linked audio track at the same frame, so the
+/// measured V1-only razor defect surfaces as no loss instead of
+/// `linked_audio_not_razored`. A split that names no audio drive while the
+/// placement carries audio is still planned with both razors; callers that
+/// execute only the first element will see the driver loss verbatim.
+///
+/// `timeline.patch` (the Unit 4 migration envelope) expands into its inner
+/// algebra operations, each translated as if it were a top-level Ren edit
+/// against the same model.
+pub fn plan_ren_edit(
+    model: &ProjectModel,
+    projection: &Projection,
+    edit: &EditOperation,
+    context: &EditContext<'_>,
+) -> Result<Vec<Operation>> {
+    let project: PathBuf = context.project.into();
+    match edit.operation.as_str() {
+        // Explicit engine operations keep their single-op translation.
+        op @ ("filmcraft.trim" | "filmcraft.split" | "filmcraft.razor" | "filmcraft.transition"
+        | "filmcraft.audio_gain" | "filmcraft.move" | "filmcraft.export") => {
+            Ok(vec![plan_edit(edit, context).map_err(|e| match e {
+                AdapterError::Unsupported { code, detail } => {
+                    unsupported(&code, format!("{op}: {detail}"))
+                }
+                other => other,
+            })?])
+        }
+        "clip.split" => {
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let clip_use = clip_use_by_id(model, target_id, edit)?;
+            let placement = placement_by_id(projection, target_id, edit)?;
+            let timeline = clock_by_id(model, &projection.timeline_clock)?;
+            let after = after_object(edit)?;
+            let at_frame = after
+                .get("at_frame")
+                .or_else(|| after.get("frame"))
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.at_frame` as an integer timeline frame",
+                        edit.id.0
+                    ))
+                })?;
+            let (start_frame, end_frame) = timeline_frames_of(model, timeline, clip_use, edit)?;
+            if at_frame <= start_frame || at_frame >= end_frame {
+                return Err(invalid(format!(
+                    "edit `{}` splits `{target_id}` at frame {at_frame}, outside ({start_frame}, {end_frame})",
+                    edit.id.0
+                )));
+            }
+            let video_track = after
+                .get("track")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| placement.track.clone());
+            let mut operations = vec![Operation::Razor {
+                project: project.clone(),
+                track: video_track,
+                frame: at_frame,
+            }];
+            // Drive linked audio explicitly: the pinned driver razors only
+            // the named track, so a V1-only razor would leave linked audio
+            // behind as `linked_audio_not_razored`.
+            if let Some(audio_track) = placement.audio_track.clone() {
+                operations.push(Operation::Razor {
+                    project,
+                    track: audio_track,
+                    frame: at_frame,
+                });
+            }
+            let _ = clip;
+            Ok(operations)
+        }
+        "clip.trim" => {
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let clip_use = clip_use_by_id(model, target_id, edit)?;
+            let timeline = clock_by_id(model, &projection.timeline_clock)?;
+            let source_clock = clock_by_id(model, &clip_use.source_interval.clock_id.0)?;
+            let after = after_object(edit)?;
+            let (old_start_frame, old_end_frame) =
+                timeline_frames_of(model, timeline, clip_use, edit)?;
+            let (new_start_frame, new_end_frame) =
+                ren_trim_frames(edit, after, old_start_frame, old_end_frame)?;
+            if new_start_frame >= new_end_frame {
+                return Err(invalid(format!(
+                    "edit `{}` trims `{target_id}` to an empty timeline range [{new_start_frame}, {new_end_frame})",
+                    edit.id.0
+                )));
+            }
+            let new_duration_frames = new_end_frame - new_start_frame;
+            let source_len = clip_use.source_interval.end - clip_use.source_interval.start;
+            let source_frames = ticks_to_frames(
+                source_len,
+                source_clock,
+                &format!("edit `{}` source length", edit.id.0),
+            )?;
+            if source_frames < new_duration_frames {
+                return Err(unsupported(
+                    "source_too_short",
+                    format!(
+                        "edit `{}` trims `{target_id}` to {new_duration_frames} timeline frames from {source_frames} source frames; freeze, repeat, or retimed playback has no `timeline.place` representation",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let mut operations = Vec::new();
+            if new_start_frame != old_start_frame {
+                operations.push(Operation::Trim {
+                    project: project.clone(),
+                    clip,
+                    edge: TrimEdge::In,
+                    mode: TrimMode::Regular,
+                    delta_frames: new_start_frame - old_start_frame,
+                });
+            }
+            if new_end_frame != old_end_frame {
+                operations.push(Operation::Trim {
+                    project,
+                    clip,
+                    edge: TrimEdge::Out,
+                    mode: TrimMode::Regular,
+                    delta_frames: new_end_frame - old_end_frame,
+                });
+            }
+            if operations.is_empty() {
+                return Err(unsupported(
+                    "empty_trim",
+                    format!(
+                        "edit `{}` changes no edge of `{target_id}`; [{old_start_frame}, {old_end_frame}) is already the target range",
+                        edit.id.0
+                    ),
+                ));
+            }
+            Ok(operations)
+        }
+        "clip.move" | "clip.slide" => {
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let placement = placement_by_id(projection, target_id, edit)?;
+            let timeline = clock_by_id(model, &projection.timeline_clock)?;
+            let after = after_object(edit)?;
+            // `timeline.patch` inner ops name `to_frame`; an explicit
+            // `timeline_ticks` (engine ticks, filmcraft.move shape) passes
+            // through after exact validation.
+            if let Some(ticks) = after.get("timeline_ticks").and_then(|v| v.as_i64()) {
+                let track = after
+                    .get("track")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| placement.track.clone());
+                let insert = after.get("insert").and_then(|v| v.as_bool()).unwrap_or(false);
+                return Ok(vec![Operation::Move {
+                    project,
+                    clip,
+                    track,
+                    timeline_ticks: ticks,
+                    insert,
+                }]);
+            }
+            let to_frame = after
+                .get("to_frame")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.to_frame` as an integer timeline frame",
+                        edit.id.0
+                    ))
+                })?;
+            // Measured engine defect (qualification `probe_move_offsets`):
+            // `timeline.move` lands one frame early - requesting the engine
+            // ticks for frame F starts the clip at frame F-1 for every F > 0
+            // (frame 0 is exact). Ren speaks frames, so the translation
+            // requests F+1 to land frame-exact; explicit `timeline_ticks`
+            // (the `filmcraft.move` shape above) passes through untouched.
+            let compensated = if to_frame > 0 { to_frame + 1 } else { 0 };
+            let timeline_ticks = frames_to_engine_ticks(
+                compensated,
+                timeline,
+                &format!("edit `{}` move target", edit.id.0),
+            )?;
+            let track = after
+                .get("track")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| placement.track.clone());
+            // `clip.move` is a local reposition; `clip.slide` rolls its
+            // neighbours, which is FilmCraft's insert move.
+            let insert = after
+                .get("insert")
+                .and_then(|v| v.as_bool())
+                .unwrap_or_else(|| edit.operation.as_str() == "clip.slide");
+            Ok(vec![Operation::Move {
+                project,
+                clip,
+                track,
+                timeline_ticks,
+                insert,
+            }])
+        }
+        "clip.delete" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            Err(unsupported(
+                "delete_not_representable",
+                format!(
+                    "edit `{}` deletes `{target}`; the FilmCraft driver has no delete command - re-project without the clip use instead of deleting in place",
+                    edit.id.0
+                ),
+            ))
+        }
+        "clip.ripple" => {
+            let delta = edit
+                .after
+                .as_ref()
+                .and_then(|v| v.get("delta_frames"))
+                .and_then(|v| v.as_i64())
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| "unknown".into());
+            Err(unsupported(
+                "ripple_not_representable",
+                format!(
+                    "edit `{}` ripples by {delta} frames; FilmCraft shifts followers only inside a ripple trim, never as a standalone shift - plan one `timeline.move` per following placement instead",
+                    edit.id.0
+                ),
+            ))
+        }
+        "retime" | "span_retime" | "retime.segments" => {
+            let rate = edit
+                .after
+                .as_ref()
+                .and_then(|v| {
+                    v.get("percent")
+                        .and_then(|p| p.as_f64())
+                        .map(|p| format!("{p}%"))
+                        .or_else(|| {
+                            v.get("segments")
+                                .map(|_| "stepped segments".to_owned())
+                        })
+                })
+                .unwrap_or_else(|| "unknown rate".into());
+            Err(unsupported(
+                "retime_not_representable",
+                format!(
+                    "edit `{}` retimes at {rate}; `timeline.place` plays 1:1 only - a shorter timeline span is a trim, a longer one refuses as `source_too_short`",
+                    edit.id.0
+                ),
+            ))
+        }
+        "transition" => {
+            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let after = after_object(edit)?;
+            // Ren's plan-level transition may nest its fields under
+            // `transition` (the algebra carrier shape); accept both.
+            let fields = after
+                .get("transition")
+                .filter(|v| v.is_object())
+                .unwrap_or(after);
+            let edge = match fields
+                .get("edge")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.edge` (`in`/`out`) for `{target_id}`",
+                        edit.id.0
+                    ))
+                })? {
+                "in" => TrimEdge::In,
+                "out" => TrimEdge::Out,
+                other => {
+                    return Err(invalid(format!(
+                        "edit `{}` names unknown transition edge `{other}`",
+                        edit.id.0
+                    )));
+                }
+            };
+            let frames = fields
+                .get("frames")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.frames` as a non-negative integer",
+                        edit.id.0
+                    ))
+                })?;
+            Ok(vec![Operation::Transition {
+                project,
+                clip,
+                edge,
+                frames,
+                effect: fields
+                    .get("effect")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+            }])
+        }
+        "audio.gain" => {
+            let (target_id, _) = ren_edit_target(edit, context)?;
+            let placement = placement_by_id(projection, target_id, edit)?;
+            let audio_track = placement.audio_track.clone().ok_or_else(|| {
+                unsupported(
+                    "no_audio_for_gain",
+                    format!(
+                        "edit `{}` gains `{target_id}`, which carries no audio stream; there is no mixer strip to drive",
+                        edit.id.0
+                    ),
+                )
+            })?;
+            let after = after_object(edit)?;
+            let gain_db = after
+                .get("gain_db")
+                .or_else(|| after.get("db"))
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.db` (or `after.gain_db`) as a number of dB",
+                        edit.id.0
+                    ))
+                })?;
+            if !gain_db.is_finite() {
+                return Err(invalid(format!(
+                    "edit `{}` names a non-finite gain of {gain_db} dB",
+                    edit.id.0
+                )));
+            }
+            let track = after
+                .get("track")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .unwrap_or(audio_track);
+            Ok(vec![Operation::AudioGain {
+                project,
+                track,
+                gain_db,
+            }])
+        }
+        "timeline.patch" => {
+            let after = after_object(edit)?;
+            let operations = after.get("operations").and_then(|v| v.as_array()).ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` is a migrated patch without `after.operations`; expand the patch before projecting",
+                    edit.id.0
+                ))
+            })?;
+            let mut planned = Vec::new();
+            for (index, inner) in operations.iter().enumerate() {
+                let synthetic = patch_inner_to_edit(edit, index, inner)?;
+                let mut steps = plan_ren_edit(model, projection, &synthetic, context).map_err(|e| match e {
+                    AdapterError::Unsupported { code, detail } => unsupported(
+                        &code,
+                        format!("edit `{}` inner op {index}: {detail}", edit.id.0),
+                    ),
+                    other => other,
+                })?;
+                planned.append(&mut steps);
+            }
+            if planned.is_empty() {
+                return Err(unsupported(
+                    "empty_patch",
+                    format!(
+                        "edit `{}` carries no translatable inner operations; plan-level and refused ops leave no FilmCraft command",
+                        edit.id.0
+                    ),
+                ));
+            }
+            Ok(planned)
+        }
+        "composed.insert" | "composed.extend" | "composed.move" | "composed.replace"
+        | "edit_graph.aroll" | "edit_graph.broll" | "edit_ledger.cut" | "edit_ledger.trim"
+        | "angle_plan" | "plan_change" | "shot_selection" | "speech_selection"
+        | "story_pacing" | "music_selection" | "audio_mix" | "look" | "visual_effect"
+        | "sound_effect" | "subject_effect" | "motion_graphic" | "brand_asset" | "end_card" => {
+            Err(unsupported(
+                "plan_level_not_executable",
+                format!(
+                    "edit `{}` names operation `{}`; it is a planning record, not a timeline write, and has no FilmCraft command",
+                    edit.id.0, edit.operation
+                ),
+            ))
+        }
+        other if other.starts_with("edit_graph.")
+            || other.starts_with("edit_ledger.")
+            || other.starts_with("composed.") =>
+        {
+            Err(unsupported(
+                "plan_level_not_executable",
+                format!(
+                    "edit `{}` names operation `{other}`; it is a planning record, not a timeline write, and has no FilmCraft command",
+                    edit.id.0
+                ),
+            ))
+        }
+        other => Err(unsupported(
+            "unsupported_edit_operation",
+            format!(
+                "edit `{}` names operation `{other}`; the FilmCraft projection maps Ren's split, trim, move, transition and audio gain - everything else refuses by name",
+                edit.id.0
+            ),
+        )),
+    }
+}
+
+/// Apply one translatable Ren edit to the model, returning the updated model.
+///
+/// This is the ren-core side of the equivalence proof: the same edit the
+/// adapter plans into FilmCraft commands mutates the canonical clip uses
+/// here, so qualification can compare the engine's inspected timeline
+/// against these expected clip uses frame-exact, and the render's frame
+/// map (via [`build_frame_map`]) against the mutated model's map.
+/// Refused operations (delete, ripple, retime, plan-level records) refuse
+/// here with the same named code they refuse planning with.
+pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Result<ProjectModel> {
+    match edit.operation.as_str() {
+        "clip.split" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let timeline = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported(
+                        "unknown_clock",
+                        format!(
+                            "edit `{}` targets `{target}` on an unknown timeline clock",
+                            edit.id.0
+                        ),
+                    )
+                })?;
+            let after = after_object(edit)?;
+            let at_frame = after
+                .get("at_frame")
+                .or_else(|| after.get("frame"))
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.at_frame` as an integer timeline frame",
+                        edit.id.0
+                    ))
+                })?;
+            let (start_frame, end_frame) = timeline_frames_of(model, timeline, &clip_use, edit)?;
+            if at_frame <= start_frame || at_frame >= end_frame {
+                return Err(invalid(format!(
+                    "edit `{}` splits `{target}` at frame {at_frame}, outside ({start_frame}, {end_frame})",
+                    edit.id.0
+                )));
+            }
+            let at_tick = frames_to_timeline_ticks(at_frame, timeline, &format!("edit `{}` split point", edit.id.0))?;
+            // Split the source window proportionally (exact only): the
+            // timeline offset into the use maps onto the same fraction of
+            // the source window, so 1:1 media splits at the same offset.
+            let timeline_len = clip_use.timeline_interval.end - clip_use.timeline_interval.start;
+            let source_len = clip_use.source_interval.end - clip_use.source_interval.start;
+            let offset = at_tick - clip_use.timeline_interval.start;
+            let product = i128::from(offset)
+                .checked_mul(i128::from(source_len))
+                .ok_or_else(|| invalid(format!("edit `{}` split scaling overflow", edit.id.0)))?;
+            if product % i128::from(timeline_len) != 0 {
+                return Err(unsupported(
+                    "inexact_tick",
+                    format!(
+                        "edit `{}` splits `{target}` where the source window does not divide exactly; refusing rather than rounding",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let source_at = clip_use.source_interval.start + (product / i128::from(timeline_len)) as i64;
+            let mut left = clip_use.clone();
+            let mut right = clip_use.clone();
+            left.id.0 = format!("{}-a", target);
+            right.id.0 = format!("{}-b", target);
+            left.timeline_interval.end = at_tick;
+            left.source_interval.end = source_at;
+            right.timeline_interval.start = at_tick;
+            right.source_interval.start = source_at;
+            let mut updated = model.clone();
+            updated.clip_uses = model
+                .clip_uses
+                .iter()
+                .filter(|u| u.id.0 != *target)
+                .cloned()
+                .chain([left, right])
+                .collect();
+            updated.clip_uses.sort_by(|a, b| {
+                (a.timeline_interval.start, &a.id.0).cmp(&(b.timeline_interval.start, &b.id.0))
+            });
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("split model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "clip.trim" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let timeline = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported(
+                        "unknown_clock",
+                        format!(
+                            "edit `{}` targets `{target}` on an unknown timeline clock",
+                            edit.id.0
+                        ),
+                    )
+                })?;
+            let after = after_object(edit)?;
+            let (old_start_frame, old_end_frame) =
+                timeline_frames_of(model, timeline, &clip_use, edit)?;
+            let (new_start_frame, new_end_frame) =
+                ren_trim_frames(edit, after, old_start_frame, old_end_frame)?;
+            if new_start_frame >= new_end_frame {
+                return Err(invalid(format!(
+                    "edit `{}` trims `{target}` to an empty range",
+                    edit.id.0
+                )));
+            }
+            let new_start_tick =
+                frames_to_timeline_ticks(new_start_frame, timeline, &format!("edit `{}` trim start", edit.id.0))?;
+            let new_end_tick =
+                frames_to_timeline_ticks(new_end_frame, timeline, &format!("edit `{}` trim end", edit.id.0))?;
+            let mut updated_use = clip_use.clone();
+            updated_use.timeline_interval.start = new_start_tick;
+            updated_use.timeline_interval.end = new_end_tick;
+            // The source window is untouched: a longer source is a trim that
+            // plays its leading timeline-length portion, and a shorter
+            // source refuses below.
+            let source_clock = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == updated_use.source_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported("unknown_clock", format!("edit `{}` source clock is unknown", edit.id.0))
+                })?;
+            let source_frames = ticks_to_frames(
+                updated_use.source_interval.end - updated_use.source_interval.start,
+                source_clock,
+                &format!("edit `{}` source length", edit.id.0),
+            )?;
+            if source_frames < new_end_frame - new_start_frame {
+                return Err(unsupported(
+                    "source_too_short",
+                    format!(
+                        "edit `{}` trims `{target}` beyond its source media",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let mut updated = model.clone();
+            for use_ in &mut updated.clip_uses {
+                if use_.id.0 == *target {
+                    *use_ = updated_use.clone();
+                }
+            }
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("trim model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "clip.move" | "clip.slide" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?.clone();
+            let timeline = model
+                .clocks
+                .iter()
+                .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+                .ok_or_else(|| {
+                    unsupported(
+                        "unknown_clock",
+                        format!(
+                            "edit `{}` targets `{target}` on an unknown timeline clock",
+                            edit.id.0
+                        ),
+                    )
+                })?;
+            let after = after_object(edit)?;
+            let to_frame = after
+                .get("to_frame")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.to_frame` as an integer timeline frame",
+                        edit.id.0
+                    ))
+                })?;
+            let to_tick =
+                frames_to_timeline_ticks(to_frame, timeline, &format!("edit `{}` move target", edit.id.0))?;
+            let duration = clip_use.timeline_interval.end - clip_use.timeline_interval.start;
+            let mut updated_use = clip_use.clone();
+            updated_use.timeline_interval.start = to_tick;
+            updated_use.timeline_interval.end = to_tick + duration;
+            let mut updated = model.clone();
+            for use_ in &mut updated.clip_uses {
+                if use_.id.0 == *target {
+                    *use_ = updated_use.clone();
+                }
+            }
+            updated.clip_uses.sort_by(|a, b| {
+                (a.timeline_interval.start, &a.id.0).cmp(&(b.timeline_interval.start, &b.id.0))
+            });
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("move model rejected: {detail}")))?;
+            Ok(updated)
+        }
+        "clip.delete" => Err(unsupported(
+            "delete_not_representable",
+            format!(
+                "edit `{}` deletes; the model mutation refuses with the same code as planning - re-project without the clip use",
+                edit.id.0
+            ),
+        )),
+        "clip.ripple" => Err(unsupported(
+            "ripple_not_representable",
+            format!(
+                "edit `{}` ripples; the model mutation refuses with the same code as planning",
+                edit.id.0
+            ),
+        )),
+        "retime" | "span_retime" | "retime.segments" => Err(unsupported(
+            "retime_not_representable",
+            format!(
+                "edit `{}` retimes; the model mutation refuses with the same code as planning",
+                edit.id.0
+            ),
+        )),
+        other => Err(unsupported(
+            "unsupported_edit_operation",
+            format!(
+                "edit `{}` names operation `{other}`; the model mutation maps only split, trim and move",
+                edit.id.0
+            ),
+        )),
+    }
+}
+
+fn clip_use_by_id<'m>(
+    model: &'m ProjectModel,
+    target: &str,
+    edit: &EditOperation,
+) -> Result<&'m ren_protocol::project_model::ClipUse> {
+    model.clip_uses.iter().find(|u| u.id.0 == target).ok_or_else(|| {
+        invalid(format!(
+            "edit `{}` targets `{target}` which is not a clip use in the model",
+            edit.id.0
+        ))
+    })
+}
+
+fn placement_by_id<'p>(
+    projection: &'p Projection,
+    target: &str,
+    edit: &EditOperation,
+) -> Result<&'p Placement> {
+    projection
+        .placements
+        .iter()
+        .find(|p| p.clip_use_id == target)
+        .ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` targets `{target}` which has no placement in the projection",
+                edit.id.0
+            ))
+        })
+}
+
+fn ren_edit_target<'e>(
+    edit: &'e EditOperation,
+    context: &EditContext<'_>,
+) -> Result<(&'e String, u64)> {
+    edit_target(edit, context)
+}
+
+fn timeline_frames_of(
+    _model: &ProjectModel,
+    timeline: &Clock,
+    clip_use: &ren_protocol::project_model::ClipUse,
+    edit: &EditOperation,
+) -> Result<(i64, i64)> {
+    let start = ticks_to_frames(
+        clip_use.timeline_interval.start,
+        timeline,
+        &format!("edit `{}` timeline start", edit.id.0),
+    )?;
+    // A timeline interval's end frame is start + length in frames: the
+    // half-open end rarely converts exactly on its own, so derive it.
+    let len = ticks_to_frames(
+        clip_use.timeline_interval.end - clip_use.timeline_interval.start,
+        timeline,
+        &format!("edit `{}` timeline length", edit.id.0),
+    )?;
+    Ok((start, start + len))
+}
+
+/// Exact frame count to timeline ticks on `clock`.
+fn frames_to_timeline_ticks(frame: i64, clock: &Clock, what: &str) -> Result<i64> {
+    let (num, den) = clock_frame_rate(clock)?;
+    scale_exact(
+        frame,
+        i128::from(clock.ticks_per_second) * i128::from(den),
+        i128::from(num),
+        what,
+    )
+}
+
+/// Exact timeline frame count to FilmCraft engine ticks.
+fn frames_to_engine_ticks(frame: i64, clock: &Clock, what: &str) -> Result<i64> {
+    let (num, den) = clock_frame_rate(clock)?;
+    scale_exact(
+        frame,
+        i128::from(ENGINE_TICKS_PER_SECOND) * i128::from(den),
+        i128::from(num),
+        what,
+    )
+}
+
+/// Resolve a trim's new timeline frames from every `after` shape Ren emits.
+///
+/// Accepts explicit `in_frame`/`out_frame`, the E2E fixture's
+/// `timeline_end`/`duration` pair, or an explicit `edge`/`delta_frames`
+/// pair against the current frames. Missing edges keep the model's edge.
+fn ren_trim_frames(
+    edit: &EditOperation,
+    after: &serde_json::Value,
+    old_start: i64,
+    old_end: i64,
+) -> Result<(i64, i64)> {
+    if let Some(edge) = after.get("edge").and_then(|v| v.as_str()) {
+        let delta = after.get("delta_frames").and_then(|v| v.as_i64()).ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` names an edge without an integer `after.delta_frames`",
+                edit.id.0
+            ))
+        })?;
+        return match edge {
+            "in" => Ok((old_start + delta, old_end)),
+            "out" => Ok((old_start, old_end + delta)),
+            other => Err(invalid(format!(
+                "edit `{}` names unknown trim edge `{other}`",
+                edit.id.0
+            ))),
+        };
+    }
+    let mut new_start = old_start;
+    let mut new_end = old_end;
+    if let Some(in_frame) = after.get("in_frame").and_then(|v| v.as_i64()) {
+        new_start = in_frame;
+    }
+    if let Some(out_frame) = after.get("out_frame").and_then(|v| v.as_i64()) {
+        new_end = out_frame;
+    }
+    if let Some(timeline_end) = after.get("timeline_end").and_then(|v| v.as_i64()) {
+        new_end = timeline_end;
+        if let Some(duration) = after.get("duration").and_then(|v| v.as_i64()) {
+            new_start = timeline_end - duration;
+        }
+    } else if let Some(duration) = after.get("duration").and_then(|v| v.as_i64()) {
+        // A bare duration shortens the out edge, keeping the start.
+        new_end = new_start + duration;
+    }
+    Ok((new_start, new_end))
+}
+
+/// Turn one `timeline.patch` inner algebra operation into a synthetic
+/// [`EditOperation`] the Ren translator can plan directly.
+///
+/// Inner operations name their algebra id under `op` (Python `to_dict`
+/// shape) with the op's fields beside it; the inner `unique_id` becomes
+/// the single target. Only the translatable timeline writes map here;
+/// anything else becomes a synthetic edit whose operation string carries
+/// the refusal through `plan_ren_edit` with its named code.
+fn patch_inner_to_edit(
+    outer: &EditOperation,
+    index: usize,
+    inner: &serde_json::Value,
+) -> Result<EditOperation> {
+    let object = inner.as_object().ok_or_else(|| {
+        invalid(format!(
+            "edit `{}` inner op {index} is not an object",
+            outer.id.0
+        ))
+    })?;
+    let op_id = object
+        .get("op")
+        .or_else(|| object.get("id"))
+        .or_else(|| object.get("operation"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` inner op {index} names no `op` algebra id",
+                outer.id.0
+            ))
+        })?;
+    let target = object
+        .get("unique_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .unwrap_or_default();
+    // The inner op's own fields become the synthetic `after`, minus the
+    // identity keys that are addressing, not parameters.
+    let mut after = serde_json::Map::new();
+    for (key, value) in object {
+        if matches!(key.as_str(), "op" | "id" | "operation" | "unique_id") {
+            continue;
+        }
+        after.insert(key.clone(), value.clone());
+    }
+    // Normalise the two field spellings Ren emits: `at_frame` (algebra)
+    // and `frame` (qualification shorthand) both address a split point;
+    // `db` (algebra `audio.gain`) and `gain_db` (driver) both name gain.
+    Ok(EditOperation {
+        id: ren_protocol::project_model::EditOperationId(format!("{}#p{index}", outer.id.0)),
+        operation: op_id.into(),
+        target_ids: if target.is_empty() { vec![] } else { vec![target] },
+        before: None,
+        after: Some(serde_json::Value::Object(after)),
+        intent_id: outer.intent_id.clone(),
+        evidence_ids: vec![],
+        author: outer.author.clone(),
+        parent_revision: None,
+    })
 }
 
 /// Exact timeline-to-render frame map for a projection. Render output packs
@@ -1106,5 +1970,364 @@ mod tests {
         let empty = dir.path().join("empty.mp4");
         std::fs::write(&empty, b"").unwrap();
         assert!(validate_render_asset(&empty).is_err());
+    }
+
+    fn ren_edit_context<'a>(
+        clip_ids: &'a BTreeMap<String, Vec<u64>>,
+    ) -> EditContext<'a> {
+        EditContext {
+            project: Path::new("test.fcproj"),
+            clip_ids,
+        }
+    }
+
+    fn ren_edit(id: &str, operation: &str, target: &str, after: serde_json::Value) -> EditOperation {
+        EditOperation {
+            id: ren_protocol::project_model::EditOperationId(id.into()),
+            operation: operation.into(),
+            target_ids: vec![target.into()],
+            before: None,
+            after: Some(after),
+            intent_id: None,
+            evidence_ids: vec![],
+            author: "unit".into(),
+            parent_revision: None,
+        }
+    }
+
+    #[test]
+    fn ren_split_drives_video_plus_linked_audio_explicitly() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        // use-a carries an audio stream, so the plan must drive both tracks.
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-ren-split",
+            "clip.split",
+            "use-a",
+            serde_json::json!({"at_frame": 12}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 2, "linked audio must be driven explicitly");
+        assert!(matches!(
+            &operations[0],
+            Operation::Razor { track, frame: 12, .. } if track == "V1"
+        ));
+        assert!(matches!(
+            &operations[1],
+            Operation::Razor { track, frame: 12, .. } if track == "A1"
+        ));
+        // A placement without audio plans a single video razor.
+        let clip_ids = BTreeMap::from([("use-b".to_owned(), vec![9u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-ren-split-b",
+            "clip.split",
+            "use-b",
+            serde_json::json!({"at_frame": 30}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Razor { track, frame: 30, .. } if track == "V2"
+        ));
+    }
+
+    #[test]
+    fn ren_trim_resolves_both_edges_to_regular_trims() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
+        let context = ren_edit_context(&clip_ids);
+        // Out edge only: 24 -> 20.
+        let edit = ren_edit(
+            "edit-ren-trim-out",
+            "clip.trim",
+            "use-a",
+            serde_json::json!({"in_frame": 0, "out_frame": 20}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Trim {
+                clip: 7,
+                edge: TrimEdge::Out,
+                mode: TrimMode::Regular,
+                delta_frames: -4,
+                ..
+            }
+        ));
+        // Both edges move: two trims, in then out.
+        let edit = ren_edit(
+            "edit-ren-trim-both",
+            "clip.trim",
+            "use-a",
+            serde_json::json!({"in_frame": 2, "out_frame": 20}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 2);
+        assert!(matches!(
+            &operations[0],
+            Operation::Trim {
+                edge: TrimEdge::In,
+                delta_frames: 2,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &operations[1],
+            Operation::Trim {
+                edge: TrimEdge::Out,
+                delta_frames: -4,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn ren_trim_accepts_e2e_fixture_shape() {
+        let json =
+            include_str!("../../../tests/fixtures/project_model_e2e/expected-project-model.json");
+        let model = decode_project_model(json).expect("e2e fixture decodes");
+        // The fixture stores the POST-trim state (Ada 0-36); rewind to the
+        // pre-trim layout (Ada 0-48, followers shifted +12) so the stored
+        // edit record plans a real -12 out-edge delta.
+        let mut pre = model.clone();
+        for use_ in &mut pre.clip_uses {
+            match use_.id.0.as_str() {
+                "use-ada" => {
+                    use_.timeline_interval.end = 48;
+                }
+                "use-ben" => {
+                    use_.timeline_interval.start = 48;
+                    use_.timeline_interval.end = 96;
+                }
+                "use-broll" => {
+                    use_.timeline_interval.start = 96;
+                    use_.timeline_interval.end = 120;
+                }
+                _ => {}
+            }
+        }
+        let projection = plan_projection(&pre).unwrap();
+        let clip_ids = BTreeMap::from([
+            ("use-ada".to_owned(), vec![11u64]),
+            ("use-ben".to_owned(), vec![12u64]),
+            ("use-broll".to_owned(), vec![13u64]),
+        ]);
+        let context = ren_edit_context(&clip_ids);
+        // The fixture's own edit record: Ada 48 -> 36 on the out edge.
+        let stored = model
+            .edits
+            .iter()
+            .find(|e| e.operation == "clip.trim")
+            .expect("fixture carries a clip.trim edit");
+        let operations = plan_ren_edit(&pre, &projection, stored, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Trim {
+                clip: 11,
+                edge: TrimEdge::Out,
+                mode: TrimMode::Regular,
+                delta_frames: -12,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn ren_move_transition_and_gain_map_to_driver_commands() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-ren-move",
+            "clip.move",
+            "use-a",
+            serde_json::json!({"to_frame": 48}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        match &operations[0] {
+            Operation::Move {
+                clip: 7,
+                track,
+                timeline_ticks,
+                insert: false,
+                ..
+            } => {
+                assert_eq!(track, "V1");
+                // The move compensates the measured one-frame-early defect.
+                assert_eq!(*timeline_ticks, 49 * ENGINE_TICKS_PER_SECOND / 24);
+            }
+            other => panic!("expected a local V1 move, got {other:?}"),
+        }
+        let edit = ren_edit(
+            "edit-ren-transition",
+            "transition",
+            "use-a",
+            serde_json::json!({"edge": "in", "frames": 4}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert!(matches!(
+            &operations[0],
+            Operation::Transition {
+                clip: 7,
+                edge: TrimEdge::In,
+                frames: 4,
+                ..
+            }
+        ));
+        let edit = ren_edit(
+            "edit-ren-gain",
+            "audio.gain",
+            "use-a",
+            serde_json::json!({"db": -3.0}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert!(matches!(
+            &operations[0],
+            Operation::AudioGain { track, gain_db, .. }
+            if track == "A1" && *gain_db == -3.0
+        ));
+    }
+
+    #[test]
+    fn ren_patch_expands_inner_algebra_operations() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = EditOperation {
+            id: ren_protocol::project_model::EditOperationId("edit-patch-1".into()),
+            operation: "timeline.patch".into(),
+            target_ids: vec!["capability:edit".into()],
+            before: None,
+            after: Some(serde_json::json!({
+                "operations": [
+                    {"op": "clip.split", "unique_id": "use-a", "at_frame": 12},
+                ],
+            })),
+            intent_id: None,
+            evidence_ids: vec![],
+            author: "unit".into(),
+            parent_revision: None,
+        };
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        // The inner split drives video plus linked audio.
+        assert_eq!(operations.len(), 2);
+        assert!(operations.iter().all(|op| matches!(op, Operation::Razor { .. })));
+    }
+
+    #[test]
+    fn ren_unrepresentable_operations_refuse_with_named_codes() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
+        let context = ren_edit_context(&clip_ids);
+        for (operation, after, code) in [
+            (
+                "clip.delete",
+                serde_json::json!({}),
+                "delete_not_representable",
+            ),
+            (
+                "clip.ripple",
+                serde_json::json!({"delta_frames": -4}),
+                "ripple_not_representable",
+            ),
+            (
+                "retime",
+                serde_json::json!({"percent": 200.0}),
+                "retime_not_representable",
+            ),
+            (
+                "span_retime",
+                serde_json::json!({"percent": 50.0}),
+                "retime_not_representable",
+            ),
+            (
+                "edit_graph.aroll",
+                serde_json::json!({}),
+                "plan_level_not_executable",
+            ),
+            (
+                "composed.extend",
+                serde_json::json!({}),
+                "plan_level_not_executable",
+            ),
+        ] {
+            let edit = ren_edit("edit-refuse", operation, "use-a", after);
+            let err = plan_ren_edit(&model, &projection, &edit, &context).unwrap_err();
+            assert!(
+                matches!(&err, AdapterError::Unsupported { code: got, .. } if got == code),
+                "{operation} must refuse as {code}, got {err:?}"
+            );
+        }
+        // Gain on a placement without audio refuses by name.
+        let clip_ids = BTreeMap::from([("use-b".to_owned(), vec![9u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit("edit-gain-noaudio", "audio.gain", "use-b", serde_json::json!({"db": -3.0}));
+        let err = plan_ren_edit(&model, &projection, &edit, &context).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_gain"),
+            "gain without audio must refuse by name, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn ren_model_mutation_matches_planned_trims_and_moves() {
+        let model = minimal_model();
+        // Trim use-a 24 -> 20 on the out edge; the mutated model's
+        // projection must carry the shorter placement the plan describes.
+        let edit = ren_edit(
+            "edit-mutate-trim",
+            "clip.trim",
+            "use-a",
+            serde_json::json!({"in_frame": 0, "out_frame": 20}),
+        );
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        let use_a = mutated
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == "use-a")
+            .unwrap();
+        assert_eq!(
+            (use_a.timeline_interval.start, use_a.timeline_interval.end),
+            (0, 20)
+        );
+        let projection = plan_projection(&mutated).unwrap();
+        assert_eq!(projection.placements[0].clip_use_id, "use-a");
+        assert_eq!(
+            projection.placements[0].duration_ticks,
+            20 * ENGINE_TICKS_PER_SECOND / 24
+        );
+        // Split use-a at 12: two clip uses back to back, same total span.
+        let edit = ren_edit(
+            "edit-mutate-split",
+            "clip.split",
+            "use-a",
+            serde_json::json!({"at_frame": 12}),
+        );
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        let halves: Vec<_> = mutated
+            .clip_uses
+            .iter()
+            .filter(|u| u.id.0 == "use-a-a" || u.id.0 == "use-a-b")
+            .collect();
+        assert_eq!(halves.len(), 2);
+        assert_eq!(
+            (halves[0].timeline_interval.start, halves[0].timeline_interval.end),
+            (0, 12)
+        );
+        assert_eq!(
+            (halves[1].timeline_interval.start, halves[1].timeline_interval.end),
+            (12, 24)
+        );
     }
 }
