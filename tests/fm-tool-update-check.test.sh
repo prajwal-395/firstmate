@@ -615,6 +615,78 @@ SH
   pass "a stalled repository probe is reported as no answer, not as not a repository"
 }
 
+test_git_network_probes_outlast_a_short_local_probe_bound() {
+  local home work dir out report
+  # Ordinary remote latency straddles the local probe bound: a fork whose
+  # ls-remote answers in 5 seconds is healthy, but a 2-second local bound would
+  # report it as a check failure twice a day. The network probes carry their own
+  # longer bound, so this clone reports its 2 commits behind instead.
+  # (The local bound stays at 2 rather than 1 because the fixture's own git
+  # wrapper answers local probes in a large fraction of a second.)
+  home=$(make_home git-network-bound)
+  work=$(git_fixture git-network-bound-repo)
+  git -C "$work" reset -q --hard HEAD~2
+
+  dir="$TMP_ROOT/git-network-bound/bin"
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [ "\$arg" = ls-remote ]; then
+    sleep 5
+    break
+  fi
+done
+exec $(command -v git) "\$@"
+SH
+  chmod 0755 "$dir/git"
+
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=2
+  report=$(cat "$out")
+  assert_contains "$report" "firstmate update available: local main is 2 commits behind origin/main" "a network probe that answered past the local bound was not reported as an update"
+  assert_not_contains "$report" "did not answer" "a network probe that answered inside its own bound was reported as unanswered"
+  pass "a network probe that answers past the local bound still reports its update"
+}
+
+test_git_probe_bound_override_is_respected_and_refused_when_invalid() {
+  local home work dir out report status
+  home=$(make_home git-bound-override)
+  work=$(git_fixture git-bound-override-repo)
+  git -C "$work" reset -q --hard HEAD~2
+
+  dir="$TMP_ROOT/git-bound-override/bin"
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [ "\$arg" = ls-remote ]; then
+    sleep 3
+    break
+  fi
+done
+exec $(command -v git) "\$@"
+SH
+  chmod 0755 "$dir/git"
+
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  # A 1-second network bound kills the same 3-second answer the default bound
+  # accepts, so the override reaches the network probes.
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_GIT_PROBE_SECS=1
+  report=$(cat "$out")
+  assert_contains "$report" "firstmate check failed: origin did not answer where main points" "the network probe did not use its own bound"
+
+  status=0
+  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=0 "$CHECK" >/dev/null 2>&1 || status=$?
+  expect_code 2 "$status" "zero git probe bound exit"
+  status=0
+  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=999 "$CHECK" >/dev/null 2>&1 || status=$?
+  expect_code 2 "$status" "oversized git probe bound exit"
+  pass "the network probe bound is configurable and refuses what it cannot use"
+}
+
 # --- registry and reporting contract ----------------------------------------
 
 test_absent_registry_is_silent() {
@@ -1028,6 +1100,8 @@ test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
 test_a_git_probe_that_does_not_answer_is_not_an_update
 test_a_stalled_repository_probe_is_not_reported_as_not_a_repository
+test_git_network_probes_outlast_a_short_local_probe_bound
+test_git_probe_bound_override_is_respected_and_refused_when_invalid
 test_absent_registry_is_silent
 test_malformed_registry_is_reported_not_ignored
 test_findings_are_reported_once_until_they_change

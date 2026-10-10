@@ -43,9 +43,14 @@
 #
 # Probing costs real time, so `check` runs its probes at most once per
 # FM_TOOL_UPDATE_INTERVAL (default 900, 0 disables the gate, otherwise 60..86400)
-# and stays silent in between. Each probe is bounded by
+# and stays silent in between. Each local probe is bounded by
 # FM_TOOL_UPDATE_PROBE_SECS (default 5, valid 1..30) and a whole sweep by
-# FM_TOOL_UPDATE_BUDGET_SECS (default 20, valid 1..120).
+# FM_TOOL_UPDATE_BUDGET_SECS (default 20, valid 1..120). The two network probes
+# (`git ls-remote`, which reads the remote over the network rather than the
+# local clone) are bounded by FM_TOOL_UPDATE_GIT_PROBE_SECS (default 15, valid
+# 1..30) instead, because ordinary GitHub latency already straddles the local
+# bound and a timed-out network read reports as a check failure the operator
+# cannot act on.
 #
 # The sweep has to finish inside the watcher's own per check bound, because a run
 # the watcher kills prints nothing and writes no record, so it would repeat that
@@ -131,6 +136,18 @@ case "$PROBE_SECS" in
 esac
 if [ "$PROBE_SECS" -gt 30 ]; then
   printf 'fm-tool-update-check: FM_TOOL_UPDATE_PROBE_SECS must be a whole number from 1 to 30\n' >&2
+  exit 2
+fi
+
+GIT_PROBE_SECS=${FM_TOOL_UPDATE_GIT_PROBE_SECS:-15}
+case "$GIT_PROBE_SECS" in
+  ''|*[!0-9]*|0)
+    printf 'fm-tool-update-check: FM_TOOL_UPDATE_GIT_PROBE_SECS must be a whole number from 1 to 30\n' >&2
+    exit 2
+    ;;
+esac
+if [ "$GIT_PROBE_SECS" -gt 30 ]; then
+  printf 'fm-tool-update-check: FM_TOOL_UPDATE_GIT_PROBE_SECS must be a whole number from 1 to 30\n' >&2
   exit 2
 fi
 
@@ -223,18 +240,20 @@ budget_allows() {
   return 1
 }
 
-# The bound for one probe: the probe bound, cut down to whatever the sweep
-# budget has left, so no probe can run past the end of the sweep. Never below
-# PROBE_MIN_SECS, because fm_run_timed treats a non-positive bound as no bound.
+# The bound for one probe: the probe bound for its kind, cut down to whatever
+# the sweep budget has left, so no probe can run past the end of the sweep.
+# Never below PROBE_MIN_SECS, because fm_run_timed treats a non-positive bound
+# as no bound. The optional ceiling defaults to the local probe bound; network
+# probes pass the git bound instead.
 probe_bound() {
-  local left
+  local max=${1:-$PROBE_SECS} left
   left=$((DEADLINE - $(real_epoch)))
   if [ "$left" -lt "$PROBE_MIN_SECS" ]; then
     printf '%s\n' "$PROBE_MIN_SECS"
-  elif [ "$left" -lt "$PROBE_SECS" ]; then
+  elif [ "$left" -lt "$max" ]; then
     printf '%s\n' "$left"
   else
-    printf '%s\n' "$PROBE_SECS"
+    printf '%s\n' "$max"
   fi
 }
 
@@ -519,6 +538,17 @@ git_probe() {
   fm_run_timed "$(probe_bound)" git -C "$repo" "$@"
 }
 
+# The same contract for the probes that read over the network (`git ls-remote`).
+# They carry the git bound rather than the local probe bound, because ordinary
+# remote latency already straddles the local bound and a timed-out network read
+# is reported as a check failure either way.
+git_network_probe() {
+  local repo=$1
+  shift
+  budget_exhausted && return "$GIT_PROBE_NOT_ISSUED"
+  fm_run_timed "$(probe_bound "$GIT_PROBE_SECS")" git -C "$repo" "$@"
+}
+
 # The single place that reads a probe status as no answer at all, so every probe
 # reports an unanswered read the same way instead of taking it for the answer no.
 git_probe_answered() {
@@ -570,7 +600,7 @@ git_findings() {
     # A clone made with --single-branch, or one that never ran remote set-head,
     # has no local record of the remote's default branch. Ask the remote itself
     # rather than reporting a check failure the operator cannot act on.
-    symref=$(git_probe "$repo" ls-remote --symref "$remote" HEAD 2>/dev/null)
+    symref=$(git_network_probe "$repo" ls-remote --symref "$remote" HEAD 2>/dev/null)
     git_probe_answered "$?" "$name" "$remote" "which branch it uses by default" || return 0
     branch=$(printf '%s\n' "$symref" \
       | awk '$1 == "ref:" { sub(/^refs\/heads\//, "", $2); print $2; exit }')
@@ -580,7 +610,7 @@ git_findings() {
     return 0
   fi
 
-  remote_sha=$(git_probe "$repo" ls-remote "$remote" "refs/heads/$branch" 2>/dev/null)
+  remote_sha=$(git_network_probe "$repo" ls-remote "$remote" "refs/heads/$branch" 2>/dev/null)
   status=$?
   git_probe_answered "$status" "$name" "$remote" "where $branch points" || return 0
   if [ "$status" -ne 0 ]; then
