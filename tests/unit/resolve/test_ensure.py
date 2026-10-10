@@ -62,7 +62,12 @@ def lock_dir(monkeypatch):
     if fingerprint is not None:
         entry = cache / fingerprint
         entry.mkdir(parents=True, exist_ok=True)
-        (entry / "ren_native.test-seed.so").write_bytes(b"test-seed")
+        # Named for the RUNNING interpreter (`ren_native_cache`
+        # only counts a build the running interpreter would itself
+        # import): any other name reads as missing and startup would
+        # compile the extension for real.
+        from importlib.machinery import EXTENSION_SUFFIXES
+        (entry / ("ren_native" + EXTENSION_SUFFIXES[0])).write_bytes(b"test-seed")
         (entry / ren_native_cache.FINGERPRINT_FILENAME).write_text(
             fingerprint + "\n", encoding="utf-8")
     yield directory

@@ -22,11 +22,16 @@ entry matching its own tree; a shared-venv copy whose baked
 fingerprint disagrees never triggers a rebuild - only the absence of
 THIS tree's entry builds, and it builds from THIS tree's sources.
 
-Layout of one entry: `ren_native*.so` (the built extension, ABI-tagged
-by maturin) beside a `fingerprint` file recording what it was built
-from. `select()` loads the `.so` for this tree's fingerprint and
-refuses it unless the baked fingerprint matches - the entry directory
-names the claim, the binary carries the proof, and the two must agree.
+Layout of one entry: one `ren_native*.so` per interpreter (each
+ABI-tagged by maturin, e.g. `ren_native.cpython-312-darwin.so`) beside
+a `fingerprint` file recording what the sources were when it was last
+built from. `select()` loads the `.so` for this tree's fingerprint AND
+this interpreter - the entry directory names the source claim, the
+binary carries the proof, and the two must agree - and refuses
+anything else: a build for another tree, or for another interpreter,
+is never returned, and a refused load never lingers in `sys.modules`.
+In every None case the Python edit backend runs; the switch is an
+optimisation, never a prerequisite.
 A whole entry is one tree's build; concurrent builders of the same
 entry serialize on the heavy-work lock with a recheck first (the
 `native_refresh` pattern), so the second finds the first's build.
@@ -55,8 +60,35 @@ built from. The entry directory already names it; the file is what
 record) still reads as unbuilt."""
 
 EXTENSION_GLOB = "ren_native*.so"
-"""The built extension inside an entry, ABI-tagged by maturin
-(`ren_native.cpython-312-darwin.so`)."""
+"""Every built extension inside an entry, whatever interpreter each
+was built for (`ren_native.cpython-312-darwin.so`). Only the one
+`loadable_names()` names is ever loaded; the rest are other
+interpreters' files sharing the entry, never candidates."""
+
+
+def loadable_names() -> set[str]:
+    """Filenames this interpreter imports as the `ren_native` module.
+
+    Exactly `ren_native` plus each of this interpreter's own extension
+    suffixes (`importlib.machinery.EXTENSION_SUFFIXES`) - the same rule
+    the import system applies, so a plain `import ren_native` and this
+    cache agree on what is loadable. The generic `.so` suffix counts
+    only as `ren_native.so`: `ren_native.cpython-312-darwin.so` is not
+    `ren_native` plus `.so` under import rules (that suffix leaves the
+    module named `ren_native.cpython-312-darwin`), and must not read as
+    loadable on an interpreter whose versioned tag disagrees.
+    """
+    from importlib.machinery import EXTENSION_SUFFIXES
+
+    return {"ren_native" + suffix for suffix in EXTENSION_SUFFIXES}
+
+
+def this_interpreter_tag() -> str:
+    """The most specific extension suffix of the running interpreter,
+    for messages naming what no build was found for."""
+    from importlib.machinery import EXTENSION_SUFFIXES
+
+    return EXTENSION_SUFFIXES[0] if EXTENSION_SUFFIXES else ".so"
 
 
 def cache_dir(cache: str | Path | None = None) -> Path:
@@ -83,10 +115,22 @@ def entry_dir(fingerprint: str, cache: str | Path | None = None) -> Path:
 
 
 def extension_file(entry: str | Path) -> Path | None:
-    """The built `.so` inside `entry`, or None where none is built."""
-    candidates = sorted(Path(entry).glob(EXTENSION_GLOB))
-    for candidate in candidates:
-        if candidate.is_file():
+    """This interpreter's built `.so` inside `entry`, or None.
+
+    Only a file the running interpreter would itself import as
+    `ren_native` counts (`loadable_names()`). The entry may hold builds
+    for several interpreters side by side; a build for another one is
+    that interpreter's file, never a candidate here. Loading it anyway -
+    which `spec_from_file_location` permits, bypassing the import
+    system's own tag check - runs a foreign ABI against this
+    interpreter: measured 2026-10-10 as a SIGABRT in
+    `ren_native::python::judge_conditions` when a 3.14 test process
+    loaded its own tree's `cpython-312` build (the source fingerprint
+    matched, so nothing else refused it).
+    """
+    loadable = loadable_names()
+    for candidate in sorted(Path(entry).glob(EXTENSION_GLOB)):
+        if candidate.is_file() and candidate.name in loadable:
             return candidate
     return None
 
@@ -121,6 +165,12 @@ def load_extension(path: str | Path) -> ModuleType:
     from `sys.modules` (see `select`), or a later plain
     `import ren_native` would inherit the refused build.
     """
+    path = Path(path)
+    if path.name not in loadable_names():
+        raise ImportError(
+            f"cannot load ren_native from {path}: built for another "
+            "interpreter, not this one"
+        )
     name = "ren_native"
     spec = importlib.util.spec_from_file_location(name, str(path))
     if spec is None or spec.loader is None:
@@ -142,12 +192,13 @@ def select(root: str | Path, *, cache: str | Path | None = None,
     """This tree's cached `ren_native` build, or None.
 
     None where the tree holds no native sources (nothing to tie a
-    build to), where this tree's entry holds no built extension, where
-    the build fails to load, or where its baked-in source fingerprint
-    does not match this tree - a build for another tree is never
-    returned, and a refused load never lingers in `sys.modules`. In
-    every None case the Python edit backend runs; the switch is an
-    optimisation, never a prerequisite.
+    build to), where this tree's entry holds no extension loadable by
+    THIS interpreter (nothing built, or only other interpreters'
+    builds), where the build fails to load, or where its baked-in
+    source fingerprint does not match this tree - a build for another
+    tree or another interpreter is never returned, and a refused load
+    never lingers in `sys.modules`. In every None case the Python edit
+    backend runs; the switch is an optimisation, never a prerequisite.
     """
     from library.tools import ren_native_source
 

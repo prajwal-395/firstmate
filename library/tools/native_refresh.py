@@ -285,6 +285,11 @@ def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str,
             return "fresh", "built from this tree"
         if built is None and recorded is None:
             return "missing", f"no build for this tree in {entry}"
+        if built is None:
+            return "missing", (
+                "no build for this interpreter "
+                f"({ren_native_cache.this_interpreter_tag()}) in {entry}"
+            )
         return "stale", "the entry holds no recorded build for this tree"
     binary = _binary_path(root, part, specs)
     if binary is not None:

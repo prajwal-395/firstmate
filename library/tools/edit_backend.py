@@ -71,7 +71,11 @@ def rust():
     Selection is per-tree: the machine's content-addressed cache
     (`library/tools/ren_native_cache.py`) holds one build per source
     fingerprint, and the entry matching the running tree is loaded -
-    checkouts on different trees never share an artifact. The shared
+    checkouts on different trees never share an artifact. A build for
+    another interpreter is refused before loading (its ABI tag must be
+    one the running interpreter imports as `ren_native`); loading it
+    anyway aborts the process on the first FFI call, measured
+    2026-10-10. The shared
     venv's copy is the legacy fallback, accepted only where its baked
     fingerprint matches the tree. A build whose fingerprint does not
     match the tree is refused, not used: it predates the algebra the
