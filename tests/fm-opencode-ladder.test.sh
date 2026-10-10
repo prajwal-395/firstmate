@@ -928,6 +928,188 @@ test_unconfigured_exhaustion_ignores_second_record() {
   pass "without a second workspace the ladder refuses exactly as before"
 }
 
+# --- Go tier by billing timing ------------------------------------------------
+# The two Go workspaces are one tier: the plan whose overall (monthly) quota
+# resets soonest serves first, and a plan under a shorter cap (5-hour, then
+# weekly) yields to the other until that limit resets, then traffic returns
+# on its own. Per-plan monthly resets come from config/opencode-go-resets;
+# the second plan's shorter windows are reactive-only, so its caps carry a
+# horizon but no window identity - the switch-back horizon IS that limit's
+# reset whatever window it was.
+
+priority_config() {  # <name> <main-iso> <second-iso> -> config dir with billing resets
+  local dir="$TMP_ROOT/cfg-$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$dir/opencode-second-org"
+  printf '%s %s\n%s %s\n' 'main' "$2" 'secondary' "$3" > "$dir/opencode-go-resets"
+  printf '%s\n' "$dir"
+}
+
+cap_free_plus() {  # <state-dir>: proven caps below the Go tier
+  local state=$1
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+}
+
+test_monthly_projection_rolls_forward() {
+  local anchor now got want
+  anchor='2026-10-25T14:00:00Z'
+  want=$(jq -nr '"2026-10-25T14:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  now=$(jq -nr '"2026-10-10T00:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  got=$(fm_opencode_go_next_monthly "$anchor" "$now") || fail "a future anchor must project to itself"
+  [ "$got" = "$want" ] || fail "a future anchor is its own next reset, got '$got' want '$want'"
+  want=$(jq -nr '"2026-11-25T14:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  now=$(jq -nr '"2026-10-26T00:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  got=$(fm_opencode_go_next_monthly "$anchor" "$now") || fail "a past anchor must roll forward"
+  [ "$got" = "$want" ] || fail "a past anchor must roll to the same day next month, got '$got' want '$want'"
+  want=$(jq -nr '"2026-02-28T10:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  now=$(jq -nr '"2026-02-01T00:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  got=$(fm_opencode_go_next_monthly '2026-01-31T10:00:00Z' "$now") || fail "a month-end anchor must project"
+  [ "$got" = "$want" ] || fail "a 31st anchor must clamp to Feb 28 in a common year, got '$got' want '$want'"
+  want=$(jq -nr '"2024-02-29T10:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  now=$(jq -nr '"2024-02-01T00:00:00Z"|fromdateiso8601') || fail "jq refused fixture"
+  got=$(fm_opencode_go_next_monthly '2024-01-31T10:00:00Z' "$now") || fail "a month-end anchor must project"
+  [ "$got" = "$want" ] || fail "a 31st anchor must clamp to Feb 29 in a leap year, got '$got' want '$want'"
+  fm_opencode_go_next_monthly 'not-a-date' "$now" 2>/dev/null \
+    && fail "an unparsable anchor must read as unknown"
+  pass "monthly anchors project forward by calendar month with month-end clamping"
+}
+
+test_priority_plan_serves_first() {
+  local state out cfg
+  state=$(fresh_state priorityfirst)
+  cfg=$(priority_config priorityfirst '2026-11-08T02:02:34Z' '2026-10-25T14:00:00Z')
+  cap_free_plus "$state"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "a live priority plan must accept the spawn, said: $out"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "the monthly-soonest plan must serve first, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the priority route must name the second workspace: ${NOTE:-<silent>}" ;; esac
+  pass "the plan whose overall quota resets soonest serves first"
+}
+
+test_priority_falls_back_on_shorter_cap() {
+  local state out cfg
+  state=$(fresh_state prioritycap)
+  cfg=$(priority_config prioritycap '2026-11-08T02:02:34Z' '2026-10-25T14:00:00Z')
+  cap_free_plus "$state"
+  "$HELPER" record-cap "$state" go-second "$(ms_from_now 18000)" || fail "record refused priority-plan cap"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "the other plan must accept the spawn"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a capped priority plan must yield to the other plan, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) fail "the fallback route must not name the second workspace: $NOTE" ;; esac
+  pass "a priority plan under a shorter cap yields to the other plan"
+}
+
+test_priority_returns_after_cap_reset() {
+  local state out cfg
+  state=$(fresh_state priorityback)
+  cfg=$(priority_config priorityback '2026-11-08T02:02:34Z' '2026-10-25T14:00:00Z')
+  cap_free_plus "$state"
+  "$HELPER" record-cap "$state" go-second "$(ms_from_now -100)" || fail "record refused expired fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "the reset priority plan must accept the spawn"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "traffic must return to the priority plan after its limit resets, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the return route must name the second workspace: ${NOTE:-<silent>}" ;; esac
+  pass "traffic returns to the priority plan once its shorter limit resets"
+}
+
+rolling_zero_fixture() {  # <path>: quota-axi snapshot with the 5-hour window at zero
+  cat > "$1" <<'JSON'
+{"providers":[{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"rolling","resetsAt":"2030-01-01T05:00:00Z"},{"id":"monthly","resetsAt":"2026-11-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"limitingWindowIds":["rolling"]}]}}]}
+JSON
+}
+
+weekly_zero_fixture() {  # <path>: quota-axi snapshot with the weekly window at zero
+  cat > "$1" <<'JSON'
+{"providers":[{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"weekly","resetsAt":"2030-01-08T00:00:00Z"},{"id":"monthly","resetsAt":"2026-11-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"limitingWindowIds":["weekly"]}]}}]}
+JSON
+}
+
+healthy_fixture() {  # <path>: quota-axi snapshot with full quota and a main-sooner monthly window
+  cat > "$1" <<'JSON'
+{"providers":[{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"rolling","resetsAt":"2030-01-01T00:05:00Z"},{"id":"weekly","resetsAt":"2030-01-08T00:00:00Z"},{"id":"monthly","resetsAt":"2026-11-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100,"limitingWindowIds":["rolling"]}]}}]}
+JSON
+}
+
+test_5h_cap_falls_back_and_returns() {
+  local state out cfg fixture healthy
+  state=$(fresh_state fiveh)
+  cfg=$(priority_config fiveh '2026-10-08T02:02:34Z' '2026-12-01T00:00:00Z')
+  fixture="$TMP_ROOT/fiveh-zero.json"
+  rolling_zero_fixture "$fixture"
+  cap_free_plus "$state"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "the other plan must accept the spawn past a 5-hour cap"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a 5-hour-capped priority plan must yield, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the 5-hour fallback must name the second workspace: ${NOTE:-<silent>}" ;; esac
+  state=$(fresh_state fivehback)
+  cap_free_plus "$state"
+  "$HELPER" record-cap "$state" go "$(ms_from_now -100)" || fail "record refused expired fixture"
+  healthy="$TMP_ROOT/fiveh-healthy.json"
+  healthy_fixture "$healthy"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$healthy" run_gate "$state" "$FREE") \
+    || fail "the reset priority plan must serve again"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "traffic must return after the 5-hour window resets, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) fail "the return route must stay on the priority plan: $NOTE" ;; esac
+  pass "a 5-hour cap yields to the other plan and returns after it resets"
+}
+
+test_weekly_cap_falls_back_and_returns() {
+  local state out cfg fixture healthy
+  state=$(fresh_state weekly)
+  cfg=$(priority_config weekly '2026-10-08T02:02:34Z' '2026-12-01T00:00:00Z')
+  fixture="$TMP_ROOT/weekly-zero.json"
+  weekly_zero_fixture "$fixture"
+  cap_free_plus "$state"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "the other plan must accept the spawn past a weekly cap"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a weekly-capped priority plan must yield, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the weekly fallback must name the second workspace: ${NOTE:-<silent>}" ;; esac
+  state=$(fresh_state weeklyback)
+  cap_free_plus "$state"
+  "$HELPER" record-cap "$state" go "$(ms_from_now -100)" || fail "record refused expired fixture"
+  healthy="$TMP_ROOT/weekly-healthy.json"
+  healthy_fixture "$healthy"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$healthy" run_gate "$state" "$FREE") \
+    || fail "the reset priority plan must serve again"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "traffic must return after the weekly window resets, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) fail "the return route must stay on the priority plan: $NOTE" ;; esac
+  pass "a weekly cap yields to the other plan and returns after it resets"
+}
+
+test_longcat_unreachable_while_second_plan_live() {
+  local state note got rc cfg
+  state=$(fresh_state longcatlive)
+  cfg=$(second_config longcatlive)
+  cap_three_rungs "$state"
+  note=$(mktemp "$TMP_ROOT/longcatlive.XXXXXX")
+  got=$(FM_CONFIG_OVERRIDE="$cfg" PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note")
+  rc=$?
+  [ "$rc" = 0 ] || fail "a live second plan must accept the spawn, returned $rc (got '$got')"
+  [ "$got" = "$GO" ] || fail "a live second plan must route Go, got '$got'"
+  case "$(cat "$note")" in *'second workspace'*) : ;; *) fail "the route must name the second workspace: $(cat "$note")" ;; esac
+  pass "the free-model fallback stays unreachable while either Go plan can serve"
+}
+
+test_unstarted_window_never_prioritizes_idle_plan() {
+  local state cfg fixture pick
+  state=$(fresh_state idlewindow)
+  cfg=$(second_config idlewindow)
+  fixture="$TMP_ROOT/idle-healthy.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"rolling","resetsAt":"2030-01-01T00:05:00Z"},{"id":"weekly","resetsAt":"2030-01-08T00:00:00Z"},{"id":"monthly","resetsAt":"2030-02-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100,"limitingWindowIds":["rolling"]}]}}]}
+JSON
+  pick=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
+    fm_opencode_ladder_pick_go_workspace "$state" 2>/dev/null) || fail "the pick must answer on healthy quota"
+  [ "$pick" = main ] || fail "an idle plan's near window reset must not win over monthly priority, got '$pick'"
+  pass "an unstarted window on an idle plan never counts as resetting soonest"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
@@ -965,3 +1147,11 @@ test_main_lane_evidence_feeds_main_go
 test_explicit_go_refuses_despite_live_second_rung
 test_plus_request_falls_to_second_workspace
 test_unconfigured_exhaustion_ignores_second_record
+test_monthly_projection_rolls_forward
+test_priority_plan_serves_first
+test_priority_falls_back_on_shorter_cap
+test_priority_returns_after_cap_reset
+test_5h_cap_falls_back_and_returns
+test_weekly_cap_falls_back_and_returns
+test_longcat_unreachable_while_second_plan_live
+test_unstarted_window_never_prioritizes_idle_plan

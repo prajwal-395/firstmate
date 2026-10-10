@@ -52,13 +52,16 @@
 # validation and bin/fm-busy-lib.sh owns the OpenCode session latch.
 #
 # WHAT MOVES, AND WHAT ONLY SURFACES. A capped free lane moves to Codex Plus
-# unless Plus is capped, then to Go, then to Go on the second workspace when
-# one is configured; a capped Plus lane moves to Go, then to second-workspace
-# Go; a capped main-workspace Go lane moves to second-workspace Go. The fourth
-# rung is exhaustion order, not overflow: it is only a target while the first
-# Go rung holds a proven cap and the fourth rung itself is uncapped, and the
-# lane's model id is unchanged - the task meta's workspace marker is what
-# moves it. Second-workspace Go has no later rung. A secondmate or a lane
+# unless Plus is capped, then to the Go tier; a capped Plus lane moves to
+# the Go tier; a capped main-workspace Go lane moves to Go on the other
+# workspace while that plan is uncapped. The Go tier's workspace is the
+# dispatch pick (bin/fm-opencode-ladder-lib.sh
+# fm_opencode_ladder_pick_go_workspace), never a fixed order: the
+# monthly-soonest plan serves while uncapped, and a plan under a shorter cap
+# yields to the other until that limit resets, and the lane's model id is
+# unchanged - the task meta's workspace marker is what moves it. A capped
+# secondary lane returns to main while main is uncapped, the mirror move:
+# parked is parked in either direction. A secondmate or a lane
 # with no recorded model is refused rather than moved blind. Off-ladder
 # models are never governed. A move the durable record did not follow is
 # reported as `unrecorded`. Each episode gets one automatic attempt, and a
@@ -556,21 +559,28 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     target_rung=plus
     [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] && target_rung=go
     target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
-    # A capped Go lane descends within the Go tier: main-workspace Go moves to
-    # Go on the second workspace while that rung is configured and uncapped,
-    # and a second-workspace Go lane has no later rung. The model id is the
-    # same on both; the workspace marker is what moves.
+    # A capped Go lane descends within the Go tier in either direction: the
+    # other plan is always a candidate while uncapped, so a parked
+    # secondary lane returns to main just as a parked main lane moves to
+    # the second workspace. The model id is the same on both; the workspace
+    # marker is what moves. No climb-back rule is broken: the lane is
+    # parked with no forward progress, not healthy.
     if [ "$model_bare" = "$go_bare" ]; then
       lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || lane_ws=$FM_OPENCODE_WORKSPACE_MAIN
       if [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-        if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-          printf 'refused %s is on Go on the second workspace %s and it is capped too (%s); the ladder has no later rung - firstmate decision needed\n' \
-            "$id" "$model" "$when"
+        if fm_opencode_ladder_go_main_capped "$state_dir"; then
+          if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+            printf 'refused %s is on Go on the second workspace %s and it is capped too (%s); Go on the main workspace is capped as well - firstmate decision needed\n' \
+              "$id" "$model" "$when"
+          fi
+          continue
         fi
-        continue
-      fi
-      if fm_opencode_second_configured \
-        && ! fm_opencode_ladder_go_second_reactive_capped "$state_dir"; then
+        target_model=$FM_OPENCODE_LADDER_GO
+        target_harness=opencode
+        target_workspace=$FM_OPENCODE_WORKSPACE_MAIN
+        target_rung=$FM_OPENCODE_LADDER_GO_RUNG
+        target_cap=
+      elif [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
         target_model=$FM_OPENCODE_LADDER_GO
         target_harness=opencode
         target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
@@ -606,12 +616,11 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
           target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
         fi
         case "$target_cap" in *'status=blocked'*)
-          # The last overflow: Go on the second workspace, only while that
-          # rung is configured and uncapped. The model id stays the Go id;
+          # The last overflow: the Go tier's other workspace, through the same
+          # pick the dispatch gate uses. The model id stays the Go id;
           # the workspace marker carries the move.
           if [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] \
-            && fm_opencode_second_configured \
-            && ! fm_opencode_ladder_go_second_reactive_capped "$state_dir"; then
+            && [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
             target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
             target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
             target_cap=
@@ -625,6 +634,17 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
         esac
         ;;
     esac
+
+    # The Go tier's workspace follows the dispatch pick even when the main
+    # workspace is uncapped: monthly priority can serve the second plan
+    # first, and a relaunch must land where a new spawn would. A lane the
+    # branches above already placed on the second workspace keeps it.
+    if [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] \
+      && [ "$target_workspace" = "$FM_OPENCODE_WORKSPACE_MAIN" ] \
+      && [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+      target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
+      target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
+    fi
 
     # The move: the proven free cap relaunches the lane onto Go. The handoff
     # note owns the ambiguity when the cap evidence carries no model binding,
@@ -645,7 +665,17 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     relaunch_args=("$id" relaunch --harness "$target_harness" --model "$target_model" --note "$note")
     [ "$target_harness" != codex ] || relaunch_args+=(--effort "$(fm_opencode_ladder_plus_effort)")
-    [ "$target_workspace" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || relaunch_args+=(--opencode-workspace secondary)
+    # The workspace flag rides every Go-tier move in both directions: a move
+    # to main must clear a stale secondary marker, and an absent flag would
+    # preserve it (bin/fm-spawn.sh). Codex targets carry no flag, exactly as
+    # before - leaving the tier drops the pin by itself.
+    if [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ]; then
+      if [ "$target_workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+        relaunch_args+=(--opencode-workspace secondary)
+      else
+        relaunch_args+=(--opencode-workspace main)
+      fi
+    fi
     ctl_out=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$state_dir" \
       "$(fm_opencode_descent_control)" "${relaunch_args[@]}" 2>&1) && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then

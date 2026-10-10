@@ -2294,8 +2294,11 @@ case "$HARNESS" in
 esac
 
 # The second-workspace pin (bin/fm-opencode-second-lib.sh owns the
-# mechanism). A fresh ladder-routed Go launch rides the fourth rung only
-# while the first Go rung holds a proven cap and the fourth rung is uncapped;
+# mechanism). A fresh ladder-routed Go launch rides the second workspace
+# exactly when the tier pick
+# (bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace) says
+# so: the monthly-soonest plan serves while uncapped, and a plan under a
+# shorter cap yields to the other until that limit resets;
 # an explicit Go request keeps the main workspace (with a proven main-Go cap
 # the gate above already refused it). A relaunch keeps the recorded workspace
 # unless --opencode-workspace moves it, and a harness switch away from
@@ -2311,7 +2314,7 @@ if [ "$HARNESS" = opencode ]; then
       OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
     fi
   elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
-    && fm_opencode_ladder_go_second_ready "$STATE"; then
+    && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
     OPENCODE_WORKSPACE=secondary
   fi
 fi
