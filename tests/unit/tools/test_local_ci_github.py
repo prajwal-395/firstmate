@@ -148,3 +148,49 @@ def test_label_removal_quotes_the_label_path_component(monkeypatch):
 def test_pull_url_points_at_the_configured_repository():
     assert github.pull_url(42) == (
         "https://github.com/prajwal-395/video_editing_pilot/pull/42")
+
+
+def test_list_open_prs_requests_full_output(monkeypatch):
+    """gh-axi 0.1.37 truncates long lines with `... (truncated)` unless
+    `--full` is passed; a truncated base64 line fails to decode and the
+    daemon refuses every pass as "github unreachable". The stub below
+    truncates exactly like that when `--full` is absent, so a passing
+    parse proves the call requested full output.
+    """
+    records = [_projected_pull(2083, "ren-ci-ready"),
+               _projected_pull(2084, "reviewed")]
+    encoded = [base64.b64encode(json.dumps(record).encode()).decode()
+               for record in records]
+    calls = []
+
+    def fake_run(*args):
+        calls.append(args)
+        if "--full" not in args:
+            truncated = encoded[0][:len(encoded[0]) // 2] + "... (truncated)"
+            return truncated + "\n" + "\n".join(encoded[1:])
+        return "\n".join(encoded)
+
+    monkeypatch.setattr(github, "_run", fake_run)
+    prs = github.list_open_prs()
+
+    assert [pr["number"] for pr in prs] == [2083, 2084]
+    assert "--full" in calls[0]
+
+
+def test_truncated_jq_output_without_full_is_unreachable(monkeypatch):
+    """The 0.1.37 failure mode, pinned: a truncated line is a loud
+    GitHubError, the daemon's "github unreachable" refusal.
+    """
+    record = _projected_pull(2083, "ren-ci-ready")
+    encoded = base64.b64encode(json.dumps(record).encode()).decode()
+
+    def fake_run(*args):
+        assert "--full" not in args
+        return encoded[:len(encoded) // 2] + "... (truncated)"
+
+    monkeypatch.setattr(github, "_run", fake_run)
+    with pytest.raises(github.GitHubError, match="invalid base64 JSON"):
+        github._decode_jq_objects(
+            github._parse_response(
+                github._run("api", "pulls", "--jq", ". | @base64"), "pulls"),
+            "pulls")

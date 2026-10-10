@@ -44,9 +44,12 @@ def _run(*argv: str, input_text: str = "") -> str:
 def _parse_response(out: str, path: str) -> object:
     """gh-axi's envelope off, payload out.
 
-    gh-axi prints a one-line count tag (`[N]:`) plus the YAML payload.
-    Its `--jq` responses use an `api_response: {body, truncated}`
-    envelope. Plain JSON passes through untouched.
+    Older gh-axi printed a one-line count tag (`[N]:`) plus the YAML
+    payload, and its `--jq` responses used an `api_response:
+    {body, truncated}` envelope. gh-axi 0.1.37 prints the payload raw
+    with no envelope: plain calls return YAML, `--jq ... | @base64`
+    returns newline-delimited base64. Plain JSON passes through
+    untouched.
     """
     text = out.strip()
     if not text:
@@ -73,6 +76,11 @@ def _parse_response(out: str, path: str) -> object:
             return json.loads(body) if isinstance(body, str) else body
         except ValueError:
             return body
+    if isinstance(data, str):
+        # Raw multi-line text (gh-axi 0.1.37 `--jq` output): YAML folds
+        # plain-scalar lines into one space-joined string, which would
+        # corrupt newline-delimited records, so hand back the lines.
+        return payload
     return data if data is not None else {}
 
 
