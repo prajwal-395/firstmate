@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "project_id": "ec-conformance-matte",
+  "operations": [
+    {
+      "op": "new_comp",
+      "name": "Main",
+      "width": 32,
+      "height": 32,
+      "frame_rate": 10.0,
+      "duration": 0.2
+    },
+    {
+      "op": "import_footage",
+      "path": "checker.bmp"
+    },
+    {
+      "op": "add_footage_layer",
+      "footage": "checker.bmp"
+    },
+    {
+      "op": "import_footage",
+      "path": "matte_00000.png"
+    },
+    {
+      "op": "interpret_footage",
+      "frame_rate": 10.0
+    },
+    {
+      "op": "add_footage_layer",
+      "footage": "mask-checker_matte_[00000-00001].png"
+    },
+    {
+      "op": "set_track_matte",
+      "layer": "checker.bmp",
+      "matte": "mask-checker_matte_[00000-00001].png",
+      "kind": "alpha"
+    }
+  ],
+  "renders": [
+    {
+      "format": "rgba_png_sequence",
+      "comp": "Main",
+      "output": "matted_#####.png",
+      "start_seconds": null,
+      "end_seconds": null
+    }
+  ]
+}

@@ -116,6 +116,8 @@ pub enum Operation {
     },
     AddFootageLayer {
         footage: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_time: Option<f64>,
     },
     Keyframe {
         layer: String,
@@ -127,6 +129,14 @@ pub enum Operation {
         layer: String,
         shape: String,
         rect: [f64; 4],
+    },
+    InterpretFootage {
+        frame_rate: f64,
+    },
+    SetTrackMatte {
+        layer: String,
+        matte: String,
+        kind: TrackMatteKind,
     },
     ApplyEffect {
         layer: String,
@@ -150,6 +160,22 @@ pub struct RenderRequest {
 pub enum RenderFormat {
     RgbaPngSequence,
     Prores4444Alpha,
+}
+
+/// Track-matte kinds the pinned engine accepts on `layer.setTrackMatte`.
+///
+/// The engine lowercases anything unknown into `Alpha`, so this enum is
+/// the fail-closed vocabulary: nothing unlisted here reaches the engine.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TrackMatteKind {
+    #[serde(rename = "alpha")]
+    Alpha,
+    #[serde(rename = "alphaInverted")]
+    AlphaInverted,
+    #[serde(rename = "luma")]
+    Luma,
+    #[serde(rename = "lumaInverted")]
+    LumaInverted,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -347,7 +373,21 @@ impl Driver {
                 "layer.newShape",
                 json!({"name":name,"kind":kind,"fill":fill,"size":size,"position":position}),
             ),
-            Operation::AddFootageLayer { footage } => one("layer.addItem", json!({"item":footage})),
+            Operation::AddFootageLayer {
+                footage,
+                start_time,
+            } => {
+                if let Some(t) = start_time {
+                    if !t.is_finite() || *t < 0.0 {
+                        return Err(Error::Invalid(format!(
+                            "footage layer start time must be non-negative, got {t}"
+                        )));
+                    }
+                    one("layer.addItem", json!({"item":footage,"time":t}))
+                } else {
+                    one("layer.addItem", json!({"item":footage}))
+                }
+            }
             Operation::Keyframe {
                 layer,
                 path,
@@ -361,6 +401,36 @@ impl Driver {
                 "layer.addMask",
                 json!({"layer":layer,"shape":shape,"rect":rect}),
             ),
+            Operation::InterpretFootage { frame_rate } => {
+                if !frame_rate.is_finite() || *frame_rate <= 0.0 {
+                    return Err(Error::Invalid(format!(
+                        "interpret footage frame rate must be positive, got {frame_rate}"
+                    )));
+                }
+                // No `items`: the engine applies this to its current
+                // footage selection, which `file.import` sets to exactly
+                // the just-imported items. The caller must emit this
+                // immediately after the import it conforms; anything
+                // else imported in between would be conformed instead.
+                one("file.interpretFootage", json!({"frameRate":frame_rate}))
+            }
+            Operation::SetTrackMatte { layer, matte, kind } => {
+                if layer == matte {
+                    return Err(Error::Invalid(
+                        "a layer cannot be its own track matte".into(),
+                    ));
+                }
+                let kind = match kind {
+                    TrackMatteKind::Alpha => "alpha",
+                    TrackMatteKind::AlphaInverted => "alphaInverted",
+                    TrackMatteKind::Luma => "luma",
+                    TrackMatteKind::LumaInverted => "lumaInverted",
+                };
+                one(
+                    "layer.setTrackMatte",
+                    json!({"layer":layer,"matte":matte,"kind":kind}),
+                )
+            }
             Operation::ApplyEffect {
                 layer,
                 effect_id,

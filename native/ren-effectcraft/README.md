@@ -12,8 +12,10 @@ also requires `REN_EFFECTCRAFT_REV` to declare that exact SHA. Effect support an
 headless CLI's `list_effects` registry; unknown effect ids, parameters and JSON value kinds refuse.
 
 Requests map to the pinned CLI's command vocabulary for comp creation, footage import/layering,
-text/shape/footage layers, keyframes, masks, effects and rendering. PNG sequence renders require a
-`#` frame-number pattern and are checked for dimensions and alpha. ProRes 4444 renders use the
-RGBA channel request and are checked with `ffprobe` for an alpha pixel format before a receipt is
-returned. Fixture coverage runs the real pinned CLI against a short animated alpha title and a
-committed checkerboard image.
+text/shape/footage layers, keyframes, masks, track mattes (`layer.setTrackMatte`, with image
+sequences conformed to the comp clock through `file.interpretFootage`), effects and rendering.
+PNG sequence renders require a `#` frame-number pattern and are checked for dimensions and alpha.
+ProRes 4444 renders use the RGBA channel request and are checked with `ffprobe` for an alpha pixel
+format before a receipt is returned. Fixture coverage runs the real pinned CLI against a short
+animated alpha title, a committed checkerboard image, a per-frame track-matte sequence, and the
+Project Model E2E fixture's person mask against its own A-roll.

@@ -28,6 +28,7 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         "request-masked.json",
         "request-effect.json",
         "request-title.json",
+        "request-matte.json",
     ] {
         let request = read_request(name);
         assert_eq!(request.version, ren_effectcraft::REQUEST_VERSION);
@@ -43,6 +44,14 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         Operation::AddMask { layer, shape, rect }
         if layer == "checker.bmp" && shape == "ellipse"
             && rect == &[4.0, 4.0, 24.0, 24.0]
+    ));
+    let matte = read_request("request-matte.json");
+    assert!(matches!(
+        &matte.operations[6],
+        Operation::SetTrackMatte { layer, matte, kind }
+        if layer == "checker.bmp"
+            && matte == "mask-checker_matte_[00000-00001].png"
+            && *kind == ren_effectcraft::TrackMatteKind::Alpha
     ));
     let effect = read_request("request-effect.json");
     assert!(matches!(
@@ -63,6 +72,7 @@ fn projected_operations_validate_against_the_pinned_registry() {
         "request-masked.json",
         "request-effect.json",
         "request-title.json",
+        "request-matte.json",
     ] {
         let request = read_request(name);
         for op in &request.operations {
