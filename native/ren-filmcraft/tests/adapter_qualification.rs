@@ -427,11 +427,16 @@ fn adapter_drives_transition_audio_move_and_refuses_unsupported() {
 }
 
 use ren_filmcraft::adapter::{
-    apply_ren_edit_to_model, build_frame_map as build_map, plan_projection as plan_proj,
-    plan_ren_edit,
+    apply_ren_edit_to_model, build_frame_map as build_map, expand_retime_ramp,
+    plan_projection as plan_proj, plan_ren_edit,
 };
 
-fn ren_edit_for(id: &str, operation: &str, target: &str, after: serde_json::Value) -> EditOperation {
+fn ren_edit_for(
+    id: &str,
+    operation: &str,
+    target: &str,
+    after: serde_json::Value,
+) -> EditOperation {
     EditOperation {
         id: ren_protocol::project_model::EditOperationId(id.into()),
         operation: operation.into(),
@@ -1033,6 +1038,578 @@ fn ren_retime_up_and_down_match_model_with_exact_rate() {
 }
 
 #[test]
+fn ren_retime_ramp_expands_to_razors_plus_constant_retimes() {
+    let adapter = FilmCraft::new().unwrap();
+    // 72 + 72 fixture model; the ramp plays the first 36 frames doubled and
+    // the next 36 halved: 36 + 36 becomes 18 + 72, follower shifts +18.
+    let model = test_model(&linked_av_fixture(), true, true);
+    let placed = place_through_adapter(&adapter, "ren-ramp-equiv", &model);
+    let ramp = ren_edit_for(
+        "edit-ren-ramp",
+        "retime.segments",
+        "use-first",
+        serde_json::json!({"segments": [
+            {"record_frame": 0, "percent": 200.0},
+            {"record_frame": 36, "percent": 50.0},
+        ]}),
+    );
+    let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+    assert_eq!(expanded.razor_frames, vec![36]);
+    // One split, two link repairs for the severed second piece, one constant
+    // retime per piece.
+    assert_eq!(expanded.edits.len(), 5);
+    // The unexpanded ramp still refuses planning by name: the expansion is
+    // the only route onto the engine.
+    let projection = plan_proj(&model).unwrap();
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let err = plan_ren_edit(&model, &projection, &ramp, &context).unwrap_err();
+    assert!(format!("{err}").contains("retime_segments_not_supported"));
+
+    // Drive the split first, re-projecting so the piece placement resolves
+    // against the current model. The V1 razor alone reproduces the measured
+    // linked-audio defect; the explicit audio razor balances it.
+    let mut model = model;
+    let mut clip_ids = placed.clip_ids.clone();
+    for edit in expanded
+        .edits
+        .iter()
+        .filter(|e| e.operation == "clip.split")
+    {
+        let projection = plan_proj(&model).unwrap();
+        let context = EditContext {
+            project: &placed.project,
+            clip_ids: &clip_ids,
+        };
+        let operations = plan_ren_edit(&model, &projection, edit, &context).unwrap();
+        assert_eq!(operations.len(), 2);
+        for (index, operation) in operations.into_iter().enumerate() {
+            let receipt = adapter.execute(request(operation)).unwrap();
+            if index == 0 {
+                assert!(
+                    receipt
+                        .losses
+                        .iter()
+                        .any(|loss| loss.code == "linked_audio_not_razored"),
+                    "the V1-only razor must still surface the measured defect: {:#?}",
+                    receipt.losses
+                );
+            } else {
+                assert!(
+                    receipt.losses.is_empty(),
+                    "the explicit linked-audio razor must be clean: {:#?}",
+                    receipt.losses
+                );
+            }
+        }
+        model = apply_ren_edit_to_model(&model, edit).unwrap();
+    }
+    // Read the post-razor engine clip ids off inspection by start frame and
+    // address the Ren piece ids onto their video-plus-audio pairs: a razor
+    // severs the A/V link on the second half (measured distinct link ids),
+    // so each piece retime drives both ids in one call. Mirrors the split
+    // proof's id read-back.
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let track_ids = |kind: &str| -> Vec<(i64, u64)> {
+        let mut ids: Vec<(i64, u64)> = inspection.engine_response[kind][0]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                (
+                    item["startFrame"].as_i64().unwrap(),
+                    item["clip"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        ids.sort();
+        ids
+    };
+    let video = track_ids("video");
+    let audio = track_ids("audio");
+    assert_eq!(video.len(), 3);
+    assert_eq!(audio.len(), 3);
+    for piece in &expanded.pieces {
+        let engine_video = video
+            .iter()
+            .find(|(start, _)| *start == piece.start_frame)
+            .unwrap_or_else(|| panic!("no engine video clip starts at {}", piece.start_frame))
+            .1;
+        let engine_audio = audio
+            .iter()
+            .find(|(start, _)| *start == piece.start_frame)
+            .unwrap_or_else(|| panic!("no engine audio clip starts at {}", piece.start_frame))
+            .1;
+        clip_ids.insert(piece.piece_id.clone(), vec![engine_video, engine_audio]);
+    }
+    // Drive link repairs then constant retimes in expansion order. The
+    // severed piece's two link receipts must read false-then-true (the
+    // measured toggle convergence: clear, then link); each retime receipt is
+    // lossless and linked audio follows the speed. The intact first piece
+    // carries no link edits.
+    let mut link_calls = 0;
+    for edit in expanded
+        .edits
+        .iter()
+        .filter(|e| e.operation != "clip.split")
+    {
+        let projection = plan_proj(&model).unwrap();
+        let context = EditContext {
+            project: &placed.project,
+            clip_ids: &clip_ids,
+        };
+        let operations = plan_ren_edit(&model, &projection, edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        for operation in operations {
+            let receipt = adapter.execute(request(operation)).unwrap();
+            if edit.operation == "clip.link" {
+                link_calls += 1;
+                let linked = receipt.engine_response["linked"].as_bool();
+                assert_eq!(
+                    linked,
+                    Some(link_calls % 2 == 0),
+                    "severed link repair must read false-then-true: {:#?}",
+                    receipt.engine_response
+                );
+            } else {
+                assert!(
+                    receipt.losses.is_empty(),
+                    "a clean piece retime reports no loss: {:#?}",
+                    receipt.losses
+                );
+            }
+        }
+        model = apply_ren_edit_to_model(&model, edit).unwrap();
+    }
+    assert_eq!(link_calls, 2);
+    // Equivalence: the engine timeline matches the ren-core-mutated model
+    // frame-exact on both tracks, with per-piece speeds on the picture.
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&model),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&model),
+    );
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 18, 2.0), (18, 72, 0.5), (90, 72, 1.0)],
+    );
+    let after_projection = plan_proj(&model).unwrap();
+    let after_map = build_map(&model, &after_projection, "clock-render", "map-ramp").unwrap();
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: 2,
+            denominator: 1
+        })
+    );
+    assert_eq!(
+        after_map.segments[0].mapping_kind,
+        ren_protocol::project_model::MappingKind::Retimed
+    );
+    assert_eq!(
+        after_map.segments[1].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: 1,
+            denominator: 2
+        })
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 162);
+}
+
+/// Engine reverse flag per video span, frame-exact: (start, reversed).
+fn inspect_reverse(inspection: &serde_json::Value, kind: &str) -> Vec<(i64, bool)> {
+    let mut spans = Vec::new();
+    for track in inspection[kind].as_array().unwrap() {
+        for item in track["items"].as_array().unwrap() {
+            spans.push((
+                item["startFrame"].as_i64().unwrap(),
+                item["reverse"].as_bool().unwrap(),
+            ));
+        }
+    }
+    spans.sort();
+    spans
+}
+
+/// Average PSNR (dB) of `rev` against `fwd` under a direction hypothesis:
+/// `reversed=false` compares frame-for-frame, `reversed=true` compares
+/// against the reversed frame order. Shells out to ffmpeg's psnr filter;
+/// ffmpeg is a declared requirement of this file, so its absence fails the
+/// proof rather than passing vacuously.
+fn psnr_average(rev: &Path, fwd: &Path, reversed: bool) -> f64 {
+    let filter = if reversed {
+        "[1:v]reverse[ra];[0:v][ra]psnr"
+    } else {
+        "[0:v][1:v]psnr"
+    };
+    let output = std::process::Command::new("ffmpeg")
+        .args(["-v", "info", "-i"])
+        .arg(rev)
+        .args(["-i"])
+        .arg(fwd)
+        .args(["-lavfi", filter, "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg must be on PATH for the render-direction proof");
+    assert!(
+        output.status.success(),
+        "ffmpeg psnr comparison failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let marker = "average:";
+    let start = stderr
+        .find(marker)
+        .expect("ffmpeg psnr output carries an average")
+        + marker.len();
+    let rest = stderr[start..].trim_start();
+    let end = rest
+        .find(|c: char| c != '.' && !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let number = &rest[..end];
+    if number == "inf" {
+        f64::INFINITY
+    } else {
+        number.parse().expect("psnr average parses as f64")
+    }
+}
+
+#[test]
+fn ren_reverse_plays_backwards_frame_exact() {
+    let adapter = FilmCraft::new().unwrap();
+    // Single 72-frame A/V clip: reversing at full speed changes nothing but
+    // direction.
+    let model = test_model(&linked_av_fixture(), true, false);
+    let placed = place_through_adapter(&adapter, "ren-reverse", &model);
+    // Forward control render first; the reversed render follows the retime.
+    let forward_render = placed._temp.path().join("ren-reverse-fwd.mp4");
+    let forward = adapter
+        .execute(request(Operation::Export {
+            project: placed.project.clone(),
+            path: forward_render.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+        }))
+        .unwrap();
+    assert_eq!(
+        forward.engine_response["result"]["frames"].as_u64(),
+        Some(72)
+    );
+    let projection = plan_proj(&model).unwrap();
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let edit = ren_edit_for(
+        "edit-ren-reverse",
+        "retime",
+        "use-first",
+        serde_json::json!({"percent": 100.0, "reverse": true}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean reverse reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    // Direction is set on both tracks; speed stays 1.0.
+    for kind in ["video", "audio"] {
+        assert_eq!(
+            inspect_reverse(&inspection.engine_response, kind),
+            vec![(0, true)],
+            "{kind} must play backwards"
+        );
+    }
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 72, 1.0)],
+    );
+    // The frame map carries the direction in the sign: -1/1.
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-rev").unwrap();
+    assert_eq!(
+        after_map.segments[0].mapping_kind,
+        ren_protocol::project_model::MappingKind::Retimed
+    );
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: -1,
+            denominator: 1
+        })
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 72);
+    // The render plays backwards: decoded frame order matches the reversed
+    // source, not frame-for-frame. Bounds from the 2026-10-10 measurement
+    // (61 vs 39 dB on this fixture) keep 10+ dB headroom; a static fixture
+    // would tie and fail the margin, correctly unproven.
+    let reversed_render = placed._temp.path().join("ren-reverse-rev.mp4");
+    let reversed = adapter
+        .execute(request(Operation::Export {
+            project: placed.project.clone(),
+            path: reversed_render.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+        }))
+        .unwrap();
+    assert_eq!(
+        reversed.engine_response["result"]["frames"].as_u64(),
+        Some(72)
+    );
+    let fwd_psnr = psnr_average(&reversed_render, &forward_render, false);
+    let rev_psnr = psnr_average(&reversed_render, &forward_render, true);
+    assert!(
+        rev_psnr >= 50.0,
+        "the reversed alignment must be near-identical, got {rev_psnr:.1} dB"
+    );
+    assert!(
+        rev_psnr - fwd_psnr >= 10.0,
+        "reversed {rev_psnr:.1} dB must beat frame-for-frame {fwd_psnr:.1} dB by 10 dB"
+    );
+
+    // Reversed at double speed halves spans exactly like forward.
+    let model = test_model(&linked_av_fixture(), true, true);
+    let placed = place_through_adapter(&adapter, "ren-reverse-fast", &model);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let projection = plan_proj(&model).unwrap();
+    let edit = ren_edit_for(
+        "edit-ren-reverse-fast",
+        "retime",
+        "use-first",
+        serde_json::json!({"percent": 200.0, "reverse": true}),
+    );
+    let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+    assert_eq!(operations.len(), 1);
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(
+            receipt.losses.is_empty(),
+            "a clean reversed speed-up reports no loss: {:#?}",
+            receipt.losses
+        );
+    }
+    let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&mutated),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&mutated),
+    );
+    for kind in ["video", "audio"] {
+        assert_eq!(
+            inspect_reverse(&inspection.engine_response, kind),
+            vec![(0, true), (36, false)],
+            "{kind} must reverse only the first clip"
+        );
+    }
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 36, 2.0), (36, 72, 1.0)],
+    );
+    let after_projection = plan_proj(&mutated).unwrap();
+    let after_map = build_map(&mutated, &after_projection, "clock-render", "map-rev-fast").unwrap();
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: -2,
+            denominator: 1
+        })
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 108);
+}
+
+#[test]
+fn ren_retime_ramp_with_reversed_piece_matches_model_frame_exact() {
+    let adapter = FilmCraft::new().unwrap();
+    // 72 + 72 fixture model; the ramp plays the first 36 frames doubled
+    // forwards and the next 36 halved backwards: 36 + 36 becomes 18 + 72.
+    let model = test_model(&linked_av_fixture(), true, true);
+    let placed = place_through_adapter(&adapter, "ren-ramp-rev", &model);
+    let ramp = ren_edit_for(
+        "edit-ren-ramp-rev",
+        "retime.segments",
+        "use-first",
+        serde_json::json!({"segments": [
+            {"record_frame": 0, "percent": 200.0},
+            {"record_frame": 36, "percent": 50.0, "reverse": true},
+        ]}),
+    );
+    let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+    assert_eq!(expanded.razor_frames, vec![36]);
+    assert_eq!(expanded.edits.len(), 5);
+    assert!(expanded.pieces[1].reverse);
+
+    let mut model = model;
+    let mut clip_ids = placed.clip_ids.clone();
+    for edit in expanded.edits.iter().filter(|e| e.operation == "clip.split") {
+        let projection = plan_proj(&model).unwrap();
+        let context = EditContext {
+            project: &placed.project,
+            clip_ids: &clip_ids,
+        };
+        let operations = plan_ren_edit(&model, &projection, edit, &context).unwrap();
+        assert_eq!(operations.len(), 2);
+        for operation in operations {
+            adapter.execute(request(operation)).unwrap();
+        }
+        model = apply_ren_edit_to_model(&model, edit).unwrap();
+    }
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let track_ids = |kind: &str| -> Vec<(i64, u64)> {
+        let mut ids: Vec<(i64, u64)> = inspection.engine_response[kind][0]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                (
+                    item["startFrame"].as_i64().unwrap(),
+                    item["clip"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        ids.sort();
+        ids
+    };
+    let video = track_ids("video");
+    let audio = track_ids("audio");
+    for piece in &expanded.pieces {
+        let engine_video = video
+            .iter()
+            .find(|(start, _)| *start == piece.start_frame)
+            .unwrap()
+            .1;
+        let engine_audio = audio
+            .iter()
+            .find(|(start, _)| *start == piece.start_frame)
+            .unwrap()
+            .1;
+        clip_ids.insert(piece.piece_id.clone(), vec![engine_video, engine_audio]);
+    }
+    let mut link_calls = 0;
+    for edit in expanded
+        .edits
+        .iter()
+        .filter(|e| e.operation != "clip.split")
+    {
+        let projection = plan_proj(&model).unwrap();
+        let context = EditContext {
+            project: &placed.project,
+            clip_ids: &clip_ids,
+        };
+        let operations = plan_ren_edit(&model, &projection, edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        for operation in operations {
+            let receipt = adapter.execute(request(operation)).unwrap();
+            if edit.operation == "clip.link" {
+                link_calls += 1;
+                assert_eq!(
+                    receipt.engine_response["linked"].as_bool(),
+                    Some(link_calls % 2 == 0),
+                    "severed link repair must read false-then-true: {:#?}",
+                    receipt.engine_response
+                );
+            } else {
+                assert!(
+                    receipt.losses.is_empty(),
+                    "a clean piece retime reports no loss: {:#?}",
+                    receipt.losses
+                );
+            }
+        }
+        model = apply_ren_edit_to_model(&model, edit).unwrap();
+    }
+    assert_eq!(link_calls, 2);
+    // Equivalence on both tracks: spans match, only the second piece plays
+    // backwards, speeds read per piece.
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "video"),
+        expected_spans(&model),
+    );
+    assert_eq!(
+        inspect_spans(&inspection.engine_response, "audio"),
+        expected_spans(&model),
+    );
+    for kind in ["video", "audio"] {
+        assert_eq!(
+            inspect_reverse(&inspection.engine_response, kind),
+            vec![(0, false), (18, true), (90, false)],
+            "{kind} must reverse only the second piece"
+        );
+    }
+    assert_eq!(
+        inspect_speeds(&inspection.engine_response),
+        vec![(0, 18, 2.0), (18, 72, 0.5), (90, 72, 1.0)],
+    );
+    let after_projection = plan_proj(&model).unwrap();
+    let after_map = build_map(&model, &after_projection, "clock-render", "map-ramp-rev").unwrap();
+    assert_eq!(
+        after_map.segments[0].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: 2,
+            denominator: 1
+        })
+    );
+    assert_eq!(
+        after_map.segments[1].rate,
+        Some(ren_protocol::project_model::Rational {
+            numerator: -1,
+            denominator: 2
+        })
+    );
+    assert_eq!(ren_filmcraft::adapter::render_span(&after_map), 162);
+}
+
+#[test]
 fn ren_refusals_carry_named_codes_through_the_cli_path() {
     let model = test_model(&linked_av_fixture(), true, false);
     let projection = plan_proj(&model).unwrap();
@@ -1046,11 +1623,6 @@ fn ren_refusals_carry_named_codes_through_the_cli_path() {
             "retime.segments",
             serde_json::json!({"segments": [{"record_frame": 36, "percent": 200.0}]}),
             "retime_segments_not_supported",
-        ),
-        (
-            "retime",
-            serde_json::json!({"percent": 200.0, "reverse": true}),
-            "reverse_not_supported",
         ),
         (
             "retime",

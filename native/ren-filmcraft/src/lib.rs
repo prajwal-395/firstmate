@@ -168,13 +168,31 @@ pub enum Operation {
         clips: Vec<u64>,
     },
     /// Constant-speed retime. `speed_percent` is Ren percent (200 = double
-    /// speed); `ripple` shifts followers exactly as ren-core's ripple does.
-    /// Answers `null`. Reverse is never sent: it refuses at planning time.
+    /// speed); `ripple` shifts followers exactly as ren-core's ripple does;
+    /// `reverse` plays the source window backwards at that speed (measured:
+    /// the flag persists on inspect and the render plays backwards).
+    /// `clips` carries every engine clip of the retimed use (video plus
+    /// linked audio) in one call: co-linked ids ripple once as a unit, while
+    /// a razor severs the A/V link on later pieces, so those pieces are
+    /// re-linked first (see `Operation::Link`). Answers `null`.
     Retime {
         project: PathBuf,
         clips: Vec<u64>,
         speed_percent: f64,
         ripple: bool,
+        reverse: bool,
+    },
+    /// Re-link engine clips into one link group (`clip.link` toggle).
+    /// A razor severs the A/V link on later pieces (measured distinct
+    /// video/audio link ids), and a retime over severed ids ripples once per
+    /// id instead of once. The toggle converges only through the measured
+    /// sequence: mixed links clear to none (`linked:false`), unlinked clips
+    /// gain a shared id (`linked:true`), and an intact pair unlinks - so a
+    /// severed pair needs exactly two calls (clear, then link) while the
+    /// intact first piece needs none. Answers `{"linked":bool}`.
+    Link {
+        project: PathBuf,
+        clips: Vec<u64>,
     },
     Trim {
         project: PathBuf,
@@ -510,6 +528,7 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
             clips,
             speed_percent,
             ripple,
+            reverse,
         } => {
             if clips.is_empty() {
                 return Err(Error::Schema("retime request names no clips".into()));
@@ -523,7 +542,19 @@ fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, 
                 Some(project),
                 "retime",
                 "clip.speedDuration",
-                json!({"clips":clips,"speed":speed_percent,"ripple":ripple}),
+                json!({"clips":clips,"speed":speed_percent,"ripple":ripple,"reverse":reverse}),
+                true,
+            )
+        }
+        Operation::Link { project, clips } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("link request names no clips".into()));
+            }
+            (
+                Some(project),
+                "link",
+                "clip.link",
+                json!({"clips":clips}),
                 true,
             )
         }
@@ -745,6 +776,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "timeline.razor" => &["cuts"],
         "timeline.trim" => &["delta"],
         "timeline.move" => &["moved", "overwritten"],
+        "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
         "file.exportMedia" => &["job", "path", "preset", "result"],
@@ -798,6 +830,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "timeline.razor" => &["cuts"],
         "timeline.trim" => &["delta"],
         "timeline.move" => &["moved", "overwritten"],
+        "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
         "file.exportMedia" => &["job", "path"],
@@ -823,6 +856,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "timeline.razor" => value["cuts"].is_u64(),
         "timeline.trim" => value["delta"].is_i64(),
         "timeline.move" => value["moved"].is_array() && value["overwritten"].is_array(),
+        "clip.link" => value["linked"].is_boolean(),
         "sequence.applyVideoTransition" => value["transition"].is_u64(),
         "mixer.setValue" => value["value"].is_number(),
         "file.exportMedia" => value["job"].is_u64() && value["path"].is_string(),
@@ -1066,6 +1100,11 @@ mod tests {
                 clips: vec![],
                 speed_percent: 200.0,
                 ripple: true,
+                reverse: false,
+            },
+            Operation::Link {
+                project: "x.fcproj".into(),
+                clips: vec![],
             },
         ] {
             assert!(matches!(plan(operation), Err(Error::Schema(_))));
@@ -1077,6 +1116,7 @@ mod tests {
                 clips: vec![7],
                 speed_percent: speed,
                 ripple: true,
+                reverse: false,
             };
             assert!(
                 matches!(plan(operation), Err(Error::Schema(_))),
@@ -1088,6 +1128,12 @@ mod tests {
             assert!(validate_response_contract(command, &Value::Null).is_ok());
             assert!(validate_response_contract(command, &json!({})).is_err());
         }
+        // The link toggle answers exactly `{"linked":bool}`.
+        for linked in [true, false] {
+            assert!(validate_response_contract("clip.link", &json!({"linked": linked})).is_ok());
+        }
+        assert!(validate_response_contract("clip.link", &Value::Null).is_err());
+        assert!(validate_response_contract("clip.link", &json!({})).is_err());
         // A move that trims only moved clips (sub-frame normalization)
         // is clean; trimming an occupant outside the moved set is a loss.
         let clean = json!({"moved": [7], "overwritten": []});

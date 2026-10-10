@@ -11,7 +11,7 @@ The public API is a versioned typed request and receipt. `.fcproj` remains an en
 and the adapter checks its explicit format identifier and schema version before accepting it.
 Unknown adapter versions, project schemas, malformed command output and unrecognized command
 response shapes are errors. The request vocabulary stays bounded to project create / import,
-placement, razor, trim, move / insert, delete / ripple delete, retime,
+placement, razor, trim, move / insert, delete / ripple delete, link, retime,
 transition, audio gain, H.264 / ProRes / WAV export, still
 render and inspection.
 
@@ -28,20 +28,31 @@ B-roll on V2) with no I/O, so the same model always plans identical bytes.
 `plan_edit` translates only explicit `filmcraft.*` model edits into driver
 operations. `plan_ren_edit` translates Ren's own editorial vocabulary -
 split, trim (both edges, including the E2E fixture's `timeline_end` /
-`duration` shape), move/slide, delete (lift, or ripple delete with
+`duration` shape), move/slide, link, delete (lift, or ripple delete with
 `after.ripple`), standalone ripple (one compensated move per affected
 placement, ordered so destinations stay free), constant retime
-(`retime` / `span_retime` via `clip.speedDuration` with ripple),
+(`retime` / `span_retime` via `clip.speedDuration` with ripple, addressing
+every reconciled engine clip of the use in one call, `reverse` riding the
+engine's flag),
 transition and audio gain - resolved against
 the model and projection, with `timeline.patch` expanding into its inner
-algebra operations. Stepped `retime.segments`, reverse, inexact rates,
+algebra operations. A stepped `retime.segments` ramp refuses both paths with
+`retime_segments_not_supported` and expands instead through
+`expand_retime_ramp` into razor points, link repairs, and one constant
+`retime` per piece: a razor severs the A/V link on later pieces (measured
+distinct link ids), a retime over severed ids ripples once per id, and
+`clip.link` is a toggle, so each severed piece is re-linked first
+(clear, then link - receipts read false-then-true) while the intact first
+piece needs no repair. A reversed piece rides its retime's flag; only
+whole-ramp reversal refuses, with `reverse_not_supported`. Inexact rates,
 fractional-frame retime spans, overlapping ripple destinations and
 plan-level records refuse
-with named codes (`retime_segments_not_supported`,
-`reverse_not_supported`, `retime_rate_inexact`,
+with named codes (`retime_rate_inexact`,
 `retime_inexact_duration`, `ripple_would_overwrite`,
 `plan_level_not_executable`); gain without an
-audio stream refuses as `no_audio_for_gain`. A split over linked audio
+audio stream refuses as `no_audio_for_gain`. The engine's remaining
+retime gap - variable speed has no engine parameter at all - is tracked in
+`library/tools/upstream_patches/filmcraft/REQUESTS.md`, not fork-patched. A split over linked audio
 plans two razors (video plus audio) so the measured V1-only razor defect
 does not recur; delete, ripple delete and retime rely on the engine
 following linked audio itself (measured); a Ren move compensates the measured one-frame-early
@@ -57,10 +68,12 @@ refuses as `source_too_short` otherwise. Model effects,
 masks, and object tracks become explicit loss entries, never silent drops.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
-first). `build_frame_map` emits the exact timeline-to-render map, with
-timeline gaps as explicit `Gap` segments. `validate_render_asset` checks the
+whole array for retime and link, the first id otherwise). `build_frame_map` emits the exact timeline-to-render map, with
+timeline gaps as explicit `Gap` segments and reversed retimes carrying a
+negative rate numerator (-1/1: the sign is the direction).
+`validate_render_asset` checks the
 export exists, is non-empty, and decodes to at least one stream when ffprobe
 is available. Driver losses (including both measured defects) pass through
 `summarize_losses` verbatim. `tests/adapter_qualification.rs` drives
-placement, trim, split, delete, ripple delete, ripple, retime, transition, audio, render, and unsupported-op
+placement, trim, split, link repair, delete, ripple delete, ripple, retime, ramps, reverse (including a render-level direction proof), transition, audio, render, and unsupported-op
 behavior through the pinned CLI.

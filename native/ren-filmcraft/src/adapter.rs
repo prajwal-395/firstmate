@@ -25,21 +25,33 @@
 //!   `after.ripple`), ripple plans one compensated `timeline.move` per
 //!   affected placement in an order whose destinations are always free,
 //!   constant retime (`retime`, `span_retime`) drives `clip.speedDuration`
-//!   with ripple so followers shift, and transition and audio gain map onto
-//!   their driver commands. Anything FilmCraft cannot represent exactly
-//!   (stepped `retime.segments`, reverse, inexact rates or fractional-frame
+//!   with ripple so followers shift, addressing every reconciled engine clip
+//!   of the use in one call, and link (`clip.link`) re-groups a use's engine
+//!   clips - a razor severs the A/V link on later pieces and a retime over
+//!   severed ids ripples once per id, so the ramp expansion re-links each
+//!   severed piece first (clear-then-link) while the intact first piece needs
+//!   no repair; transition and audio gain map onto
+//!   their driver commands. A stepped `retime.segments` ramp expands through
+//!   [`expand_retime_ramp`] into razor points plus one constant `retime` per
+//!   piece; anything FilmCraft cannot represent exactly
+//!   (unexpanded ramps, whole-ramp reversal, inexact rates or fractional-frame
 //!   retime spans, overlapping ripple destinations, plan-level ops,
 //!   unknown roles/tracks) refuses with a NAMED loss code rather than
 //!   a guess.
-//! - The four measured FilmCraft defects (V1-only razor leaving linked audio,
+//! - The six measured FilmCraft behaviors (four defects plus two link rules:
+//!   V1-only razor leaving linked audio,
 //!   wrong trim delta, move landing one frame early, sub-frame-long
-//!   non-zero-frame placements that contact-trim an abutting move) are
+//!   non-zero-frame placements that contact-trim an abutting move, razor
+//!   severing the A/V link on later pieces, retime over severed ids
+//!   rippling once per id) are
 //!   handled explicitly:
 //!   razor/trim defects propagate verbatim through [`summarize_losses`],
 //!   while the Ren move translation compensates the off-by-one so the clip
 //!   lands frame-exact; move contact-trims report `move_overwrote` when the
 //!   trimmed clip sits outside the moved set, while sub-frame
-//!   normalization of the moved clips themselves is not loss; this adapter
+//!   normalization of the moved clips themselves is not loss; ramp piece
+//!   retimes re-link severed pieces through `clip.link` so the retime
+//!   ripples once; this adapter
 //!   never swallows a driver loss.
 //! - Retimed playback has no representation in `timeline.place`: a clip use
 //!   whose source holds fewer frames than its timeline range refuses with
@@ -50,6 +62,9 @@
 //!   retimed placements [`MappingKind::Retimed`] with the exact playback
 //!   speed as the rational rate (2/1 at 200%); spans stay timeline-to-render
 //!   packing, so the rate documents playback rather than the span affine.
+//!   A reversed retime negates the numerator (-1/1): the sign is the
+//!   direction, and ren-core's tick math refuses negative rates loudly
+//!   rather than mapping them forwards.
 //! - Resolve remains the finishing destination: `.fcproj` files are disposable
 //!   engine working artifacts, never Ren's database.
 
@@ -732,7 +747,7 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
 ///
 /// `plan_edit` above handles only explicit `filmcraft.*` operations.
 /// This function handles what Ren actually decides in practice - at least
-/// split, trim (both edges), move, delete/ripple delete, speed/retime,
+/// split, trim (both edges), move, delete/ripple delete, link, speed/retime,
 /// transitions and audio gain - each mapped onto FilmCraft driver commands,
 /// or refused with a NAMED loss code when FilmCraft cannot represent it
 /// exactly. Nothing is guessed: every delta is resolved from the target
@@ -962,8 +977,25 @@ pub fn plan_ren_edit(
             let delta = ripple_delta(edit)?;
             plan_ripple_moves(model, projection, context, edit, target_id, &clip_use, timeline, delta)
         }
+        "clip.link" => {
+            let (target_id, _) = ren_edit_target(edit, context)?;
+            // Existence against the model keeps the error anchored; a clip
+            // use is one timeline span, so its engine clips are
+            // co-positioned and safe to group. The toggle converges only
+            // through clear-then-link (see `Operation::Link`): callers drive
+            // this twice for severed pieces and assert the receipts read
+            // false-then-true rather than assuming one call links.
+            let _ = clip_use_by_id(model, target_id, edit)?;
+            let clips = context.clip_ids.get(target_id).cloned().ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` targets `{target_id}` which lost its reconciled engine clip ids",
+                    edit.id.0
+                ))
+            })?;
+            Ok(vec![Operation::Link { project, clips }])
+        }
         "retime" | "span_retime" => {
-            let (target_id, clip) = ren_edit_target(edit, context)?;
+            let (target_id, _) = ren_edit_target(edit, context)?;
             let clip_use = clip_use_by_id(model, target_id, edit)?.clone();
             let timeline = clock_by_id(model, &projection.timeline_clock)?;
             let after = after_object(edit)?;
@@ -976,38 +1008,51 @@ pub fn plan_ren_edit(
                         edit.id.0
                     ))
                 })?;
-            if after
-                .get("reverse")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                return Err(unsupported(
-                    "reverse_not_supported",
-                    format!(
-                        "edit `{}` plays `{target_id}` in reverse; the FilmCraft projection plans forward speeds only",
+            // Direction rides the engine's `reverse` flag (measured: it
+            // persists on inspect and the render plays backwards); span math
+            // below is magnitude-only either way.
+            let reverse = match after.get("reverse") {
+                None => false,
+                Some(value) => value.as_bool().ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.reverse` as a boolean when present",
                         edit.id.0
-                    ),
-                ));
-            }
+                    ))
+                })?,
+            };
             let (old_start_frame, old_end_frame) =
                 timeline_frames_of(model, timeline, &clip_use, edit)?;
             // Validate exactness up front: fractional retime spans refuse
             // here with a named code rather than rounding in the engine.
             retimed_length(edit, percent, old_end_frame - old_start_frame)?;
+            // Drive every engine clip of the use, not just the primary: a
+            // razor severs the A/V link on the second half (measured:
+            // post-razor pieces carry distinct video/audio link ids), so a
+            // video-only retime would leave a severed audio piece playing
+            // its old speed under the retimed picture. One call carries the
+            // whole array and ripples once (measured), never once per clip.
+            let clips = context.clip_ids.get(target_id).cloned().ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` targets `{target_id}` which lost its reconciled engine clip ids",
+                    edit.id.0
+                ))
+            })?;
             // Ripple so followers shift exactly as ren-core's ripple
             // temporal effect does; the engine shifts every downstream
-            // track (measured), and linked audio follows the speed.
+            // track (measured). Intact linked audio follows the speed;
+            // severed pieces ride the explicit id array above.
             Ok(vec![Operation::Retime {
                 project,
-                clips: vec![clip],
+                clips,
                 speed_percent: percent,
                 ripple: true,
+                reverse,
             }])
         }
         "retime.segments" => Err(unsupported(
             "retime_segments_not_supported",
             format!(
-                "edit `{}` names a stepped speed ramp; the pure planner cannot address the post-razor piece ids a ramp needs - plan one constant `retime` per piece instead",
+                "edit `{}` names a stepped speed ramp; the pure planner cannot address the post-razor piece ids a ramp needs - expand it first with `expand_retime_ramp` into razor points plus one constant `retime` per piece instead",
                 edit.id.0
             ),
         )),
@@ -1160,7 +1205,7 @@ pub fn plan_ren_edit(
         other => Err(unsupported(
             "unsupported_edit_operation",
             format!(
-                "edit `{}` names operation `{other}`; the FilmCraft projection maps Ren's split, trim, move, delete, ripple, retime, transition and audio gain - everything else refuses by name",
+                "edit `{}` names operation `{other}`; the FilmCraft projection maps Ren's split, trim, move, delete, ripple, link, retime, transition and audio gain - everything else refuses by name",
                 edit.id.0
             ),
         )),
@@ -1175,7 +1220,9 @@ pub fn plan_ren_edit(
 /// against these expected clip uses frame-exact, and the render's frame
 /// map (via [`build_frame_map`]) against the mutated model's map.
 /// Stepped `retime.segments`, reverse and plan-level records refuse here
-/// with the same named code they refuse planning with. Constant retimes
+/// with the same named code they refuse planning with: expand a ramp first
+/// with [`expand_retime_ramp`], then mutate with each returned edit in order.
+/// Constant retimes
 /// log into `model.edits` so the frame map carries their exact rate.
 pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Result<ProjectModel> {
     match edit.operation.as_str() {
@@ -1477,6 +1524,21 @@ pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Re
                 .map_err(|detail| invalid(format!("ripple model rejected: {detail}")))?;
             Ok(updated)
         }
+        "clip.link" => {
+            // A link changes no spans: the mutation is a validated no-op so
+            // link edits flow through the same expand-then-apply loop as the
+            // splits and retimes around them. The engine-side effect (one
+            // link group per piece) is proven on the receipts, not here.
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let _ = clip_use_by_id(model, target, edit)?;
+            Ok(model.clone())
+        }
         "retime" | "span_retime" => {
             let [target] = edit.target_ids.as_slice() else {
                 return Err(invalid(format!(
@@ -1509,18 +1571,17 @@ pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Re
                         edit.id.0
                     ))
                 })?;
-            if after
-                .get("reverse")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                return Err(unsupported(
-                    "reverse_not_supported",
-                    format!(
-                        "edit `{}` plays `{target}` in reverse; the model mutation plans forward speeds only",
+            // Direction needs no span math of its own: a reversed retime
+            // shortens, lengthens and ripples exactly like a forward one at
+            // the same percent, and the logged edit below carries the flag
+            // so the frame map marks the direction.
+            if let Some(value) = after.get("reverse") {
+                if value.as_bool().is_none() {
+                    return Err(invalid(format!(
+                        "edit `{}` needs `after.reverse` as a boolean when present",
                         edit.id.0
-                    ),
-                ));
+                    )));
+                }
             }
             let (old_start_frame, old_end_frame) =
                 timeline_frames_of(model, timeline, &clip_use, edit)?;
@@ -1556,18 +1617,311 @@ pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Re
         "retime.segments" => Err(unsupported(
             "retime_segments_not_supported",
             format!(
-                "edit `{}` names a stepped speed ramp; the model mutation plans constant retimes only",
+                "edit `{}` names a stepped speed ramp; the model mutation plans constant retimes only - expand it first with `expand_retime_ramp` into `clip.split` plus one constant `retime` per piece instead",
                 edit.id.0
             ),
         )),
         other => Err(unsupported(
             "unsupported_edit_operation",
             format!(
-                "edit `{}` names operation `{other}`; the model mutation maps split, trim, move, delete, ripple and constant retime",
+                "edit `{}` names operation `{other}`; the model mutation maps split, trim, move, delete, ripple, link and constant retime",
                 edit.id.0
             ),
         )),
     }
+}
+
+/// One constant-speed piece of an expanded stepped ramp: the post-split Ren
+/// clip-use id, the percent the constant `retime` for that piece plays, and
+/// whether it plays backwards. `start_frame` is the piece's timeline frame
+/// before any retime lands.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RetimeRampPiece {
+    pub piece_id: String,
+    pub start_frame: i64,
+    pub percent: f64,
+    pub reverse: bool,
+}
+
+/// A stepped `retime.segments` ramp expanded into executable Ren edits: one
+/// `clip.split` per interior razor point in timeline order, then one constant
+/// `retime` per piece in REVERSE timeline order. Reverse order matters: each
+/// retime ripples its followers, so retiming the last piece first leaves
+/// every earlier piece unmoved, and each earlier retime then shifts only
+/// already-retimed followers - the final layout is the pieces back to back
+/// at their retimed lengths with followers shifted by the total delta.
+///
+/// Every piece after the first is preceded by the two `clip.link` edits the
+/// engine toggle needs to converge (clear, then link): a razor severs the
+/// A/V link on later pieces (measured distinct video/audio link ids), and a
+/// retime over severed ids ripples once per id instead of once. The first
+/// piece keeps the intact link and needs no repair.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpandedRetimeRamp {
+    pub target_id: String,
+    pub razor_frames: Vec<i64>,
+    pub pieces: Vec<RetimeRampPiece>,
+    pub edits: Vec<EditOperation>,
+}
+
+/// Expand a stepped `retime.segments` ramp into razor points plus one
+/// constant `retime` per piece.
+///
+/// The planner (`plan_ren_edit`) and the model mutation
+/// (`apply_ren_edit_to_model`) both refuse a ramp with
+/// `retime_segments_not_supported` because neither can address the
+/// post-razor piece ids a ramp needs. This helper is the named owner of that
+/// expansion: it validates every piece exactly the way a constant retime is
+/// validated (`retime_rate_inexact`, `retime_inexact_duration`), derives the
+/// post-split piece ids with the same `{target}-a` / `{target}-b` naming the
+/// split mutation mints, repairs each severed piece's A/V link ahead of its
+/// retime (two `clip.link` edits; the first piece keeps the intact link),
+/// carries each piece's direction into its retime, and returns the edits in
+/// execution order. A ramp-level `reverse` keeps refusing with
+/// `reverse_not_supported` (whole-ramp reversal is reversed piece order, not
+/// a flag on this expansion); the engine's per-clip `reverse` flag is wired
+/// through every constant retime instead.
+pub fn expand_retime_ramp(
+    model: &ProjectModel,
+    edit: &EditOperation,
+) -> Result<ExpandedRetimeRamp> {
+    if edit.operation.as_str() != "retime.segments" {
+        return Err(invalid(format!(
+            "edit `{}` is not a stepped speed ramp; `expand_retime_ramp` expands `retime.segments` only",
+            edit.id.0
+        )));
+    }
+    let [target] = edit.target_ids.as_slice() else {
+        return Err(invalid(format!(
+            "edit `{}` must target exactly one clip use; it targets {}",
+            edit.id.0,
+            edit.target_ids.len()
+        )));
+    };
+    let clip_use = clip_use_by_id(model, target, edit)?.clone();
+    let timeline = model
+        .clocks
+        .iter()
+        .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+        .ok_or_else(|| {
+            unsupported(
+                "unknown_clock",
+                format!(
+                    "edit `{}` targets `{target}` on an unknown timeline clock",
+                    edit.id.0
+                ),
+            )
+        })?;
+    let after = after_object(edit)?;
+    // A ramp-level reverse would play the whole ramp backwards - reversed
+    // piece order, not just reversed pieces - which this expansion does not
+    // express. It keeps refusing by name; mark reversed pieces individually
+    // with per-segment `reverse` flags instead.
+    if after
+        .get("reverse")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Err(unsupported(
+            "reverse_not_supported",
+            format!(
+                "edit `{}` reverses the whole ramp on `{target}`; the expansion plays pieces in timeline order - mark reversed pieces individually instead",
+                edit.id.0
+            ),
+        ));
+    }
+    let segments = after
+        .get("segments")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` needs `after.segments` as a non-empty array of `{{record_frame, percent}}` steps",
+                edit.id.0
+            ))
+        })?;
+    if segments.is_empty() {
+        return Err(invalid(format!(
+            "edit `{}` names a stepped speed ramp with no segments",
+            edit.id.0
+        )));
+    }
+    let mut steps: Vec<(i64, f64, bool)> = Vec::with_capacity(segments.len());
+    for (index, segment) in segments.iter().enumerate() {
+        // Direction rides the piece retime's flag; span math below is
+        // magnitude-only either way.
+        let reverse = match segment.get("reverse") {
+            None => false,
+            Some(value) => value.as_bool().ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` names segment {index} with `reverse` as a non-boolean",
+                    edit.id.0
+                ))
+            })?,
+        };
+        let record_frame = segment.get("record_frame").and_then(|v| v.as_i64()).ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` names segment {index} without `record_frame` as an integer timeline frame",
+                edit.id.0
+            ))
+        })?;
+        let percent = segment
+            .get("percent")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` names segment {index} without `percent` as a number",
+                    edit.id.0
+                ))
+            })?;
+        steps.push((record_frame, percent, reverse));
+    }
+    steps.sort_by_key(|(frame, _, _)| *frame);
+    let (start_frame, end_frame) = timeline_frames_of(model, timeline, &clip_use, edit)?;
+    if steps[0].0 != start_frame {
+        return Err(invalid(format!(
+            "edit `{}` ramps `{target}` from frame {}, but the clip starts at {start_frame}; a ramp must cover its clip from the first frame",
+            edit.id.0, steps[0].0
+        )));
+    }
+    for pair in steps.windows(2) {
+        if pair[0].0 >= pair[1].0 {
+            return Err(invalid(format!(
+                "edit `{}` ramps `{target}` with a repeated razor point at frame {}; segment starts must strictly increase",
+                edit.id.0, pair[1].0
+            )));
+        }
+    }
+    for (frame, _, _) in steps.iter().skip(1) {
+        if *frame <= start_frame || *frame >= end_frame {
+            return Err(invalid(format!(
+                "edit `{}` ramps `{target}` with a razor point at frame {frame}, outside ({start_frame}, {end_frame})",
+                edit.id.0
+            )));
+        }
+    }
+    // Validate every piece exactly as a constant retime: exact rational rate
+    // and exact whole-frame retimed length, never rounded.
+    let mut bounds: Vec<i64> = steps.iter().map(|(frame, _, _)| *frame).collect();
+    bounds.push(end_frame);
+    for window in bounds.windows(2) {
+        let piece_len = window[1] - window[0];
+        let percent = steps
+            .iter()
+            .find(|(frame, _, _)| *frame == window[0])
+            .map(|(_, percent, _)| *percent)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` ramps `{target}` with an unaligned piece at frame {}",
+                    edit.id.0, window[0]
+                ))
+            })?;
+        percent_to_rate(percent, &edit.id.0)?;
+        retimed_length(edit, percent, piece_len)?;
+    }
+    // Derive post-split piece ids with the exact `{target}-a` / `{target}-b`
+    // naming the split mutation mints, simulating the splits in order.
+    let mut pieces: Vec<(String, i64, i64)> = vec![(target.clone(), start_frame, end_frame)];
+    let mut split_targets: Vec<(String, i64)> = Vec::new();
+    for (frame, _, _) in steps.iter().skip(1) {
+        let index = pieces
+            .iter()
+            .position(|(_, s, e)| *s < *frame && *frame < *e)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` ramps `{target}` with a razor point at frame {frame} that lands on no open piece",
+                    edit.id.0
+                ))
+            })?;
+        let (id, s, e) = pieces.remove(index);
+        split_targets.push((id.clone(), *frame));
+        pieces.insert(index, (format!("{id}-a"), s, *frame));
+        pieces.insert(index + 1, (format!("{id}-b"), *frame, e));
+    }
+    let razor_frames: Vec<i64> = steps.iter().skip(1).map(|(frame, _, _)| *frame).collect();
+    let ramp_pieces: Vec<RetimeRampPiece> = pieces
+        .iter()
+        .map(|(piece_id, start, _)| {
+            let (percent, reverse) = steps
+                .iter()
+                .find(|(frame, _, _)| *frame == *start)
+                .map(|(_, percent, reverse)| (*percent, *reverse))
+                .expect("piece starts align with segment starts");
+            RetimeRampPiece {
+                piece_id: piece_id.clone(),
+                start_frame: *start,
+                percent,
+                reverse,
+            }
+        })
+        .collect();
+    let mut edits =
+        Vec::with_capacity(split_targets.len() + ramp_pieces.len() + 2 * (ramp_pieces.len() - 1));
+    for (index, (split_id, at_frame)) in split_targets.iter().enumerate() {
+        edits.push(EditOperation {
+            id: ren_protocol::project_model::EditOperationId(format!(
+                "{}-split-{}",
+                edit.id.0,
+                index + 1
+            )),
+            operation: "clip.split".into(),
+            target_ids: vec![split_id.clone()],
+            before: None,
+            after: Some(serde_json::json!({"at_frame": at_frame})),
+            intent_id: edit.intent_id.clone(),
+            evidence_ids: edit.evidence_ids.clone(),
+            author: edit.author.clone(),
+            parent_revision: None,
+        });
+    }
+    // Retimes run last piece first so each ripple shifts only followers that
+    // already carry their final length. Every piece after the first carries
+    // its two link repairs ahead of its retime; the first piece keeps the
+    // intact link and needs none.
+    for (index, piece) in ramp_pieces.iter().enumerate().rev() {
+        if index > 0 {
+            for pass in 1..=2 {
+                edits.push(EditOperation {
+                    id: ren_protocol::project_model::EditOperationId(format!(
+                        "{}-link-{index}-{pass}",
+                        edit.id.0
+                    )),
+                    operation: "clip.link".into(),
+                    target_ids: vec![piece.piece_id.clone()],
+                    before: None,
+                    after: Some(serde_json::json!({})),
+                    intent_id: edit.intent_id.clone(),
+                    evidence_ids: edit.evidence_ids.clone(),
+                    author: edit.author.clone(),
+                    parent_revision: None,
+                });
+            }
+        }
+        edits.push(EditOperation {
+            id: ren_protocol::project_model::EditOperationId(format!(
+                "{}-retime-{}",
+                edit.id.0,
+                index + 1
+            )),
+            operation: "retime".into(),
+            target_ids: vec![piece.piece_id.clone()],
+            before: None,
+            after: Some(if piece.reverse {
+                serde_json::json!({"percent": piece.percent, "reverse": true})
+            } else {
+                serde_json::json!({"percent": piece.percent})
+            }),
+            intent_id: edit.intent_id.clone(),
+            evidence_ids: edit.evidence_ids.clone(),
+            author: edit.author.clone(),
+            parent_revision: None,
+        });
+    }
+    Ok(ExpandedRetimeRamp {
+        target_id: target.clone(),
+        razor_frames,
+        pieces: ramp_pieces,
+        edits,
+    })
 }
 
 fn clip_use_by_id<'m>(
@@ -1575,12 +1929,16 @@ fn clip_use_by_id<'m>(
     target: &str,
     edit: &EditOperation,
 ) -> Result<&'m ren_protocol::project_model::ClipUse> {
-    model.clip_uses.iter().find(|u| u.id.0 == target).ok_or_else(|| {
-        invalid(format!(
-            "edit `{}` targets `{target}` which is not a clip use in the model",
-            edit.id.0
-        ))
-    })
+    model
+        .clip_uses
+        .iter()
+        .find(|u| u.id.0 == target)
+        .ok_or_else(|| {
+            invalid(format!(
+                "edit `{}` targets `{target}` which is not a clip use in the model",
+                edit.id.0
+            ))
+        })
 }
 
 fn placement_by_id<'p>(
@@ -1740,10 +2098,27 @@ fn retime_rate_for(model: &ProjectModel, clip_use_id: &str) -> Option<Rational> 
     })
 }
 
+/// Whether the logged retime for a clip use plays backwards: direction is
+/// orthogonal to the speed magnitude, so it reads the edit flag rather than
+/// the rate.
+fn retime_reversed(model: &ProjectModel, clip_use_id: &str) -> bool {
+    model.edits.iter().any(|edit| {
+        matches!(edit.operation.as_str(), "retime" | "span_retime")
+            && edit.target_ids.iter().any(|t| t == clip_use_id)
+            && edit
+                .after
+                .as_ref()
+                .and_then(|after| after.get("reverse"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+    })
+}
+
 /// Slow motion keeps the whole source window and plays it slower, so a
 /// timeline span longer than its source is projectable exactly when a
-/// logged retime edit explains the ratio: `timeline * num == source * den`
-/// in integer arithmetic, no rounding on either side.
+/// logged retime edit explains the ratio: `timeline * |num| == source * den`
+/// in integer arithmetic, no rounding on either side. Direction is
+/// irrelevant to the span ratio, so the comparison uses the magnitude.
 fn retime_explains(
     model: &ProjectModel,
     clip_use_id: &str,
@@ -1751,7 +2126,8 @@ fn retime_explains(
     timeline_frames: i64,
 ) -> bool {
     retime_rate_for(model, clip_use_id).is_some_and(|rate| {
-        i128::from(timeline_frames) * i128::from(rate.numerator)
+        let magnitude = i128::from(rate.numerator).abs();
+        i128::from(timeline_frames) * magnitude
             == i128::from(source_frames) * i128::from(rate.denominator)
     })
 }
@@ -1837,12 +2213,15 @@ fn plan_ripple_moves(
         if start < target_start {
             continue;
         }
-        let ids = context.clip_ids.get(&placement.clip_use_id).ok_or_else(|| {
-            invalid(format!(
-                "edit `{}` ripples `{}` which has no reconciled engine clip id",
-                edit.id.0, placement.clip_use_id
-            ))
-        })?;
+        let ids = context
+            .clip_ids
+            .get(&placement.clip_use_id)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` ripples `{}` which has no reconciled engine clip id",
+                    edit.id.0, placement.clip_use_id
+                ))
+            })?;
         affected.push(RippleMove {
             clip_use_id: placement.clip_use_id.clone(),
             clip: primary_clip_id(ids, &placement.clip_use_id)?,
@@ -1945,10 +2324,7 @@ fn ripple_delta(edit: &EditOperation) -> Result<i64> {
     if delta == 0 {
         return Err(unsupported(
             "empty_ripple",
-            format!(
-                "edit `{}` ripples by 0 frames; nothing moves",
-                edit.id.0
-            ),
+            format!("edit `{}` ripples by 0 frames; nothing moves", edit.id.0),
         ));
     }
     Ok(delta)
@@ -1966,12 +2342,15 @@ fn ren_trim_frames(
     old_end: i64,
 ) -> Result<(i64, i64)> {
     if let Some(edge) = after.get("edge").and_then(|v| v.as_str()) {
-        let delta = after.get("delta_frames").and_then(|v| v.as_i64()).ok_or_else(|| {
-            invalid(format!(
-                "edit `{}` names an edge without an integer `after.delta_frames`",
-                edit.id.0
-            ))
-        })?;
+        let delta = after
+            .get("delta_frames")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` names an edge without an integer `after.delta_frames`",
+                    edit.id.0
+                ))
+            })?;
         return match edge {
             "in" => Ok((old_start + delta, old_end)),
             "out" => Ok((old_start, old_end + delta)),
@@ -2051,7 +2430,11 @@ fn patch_inner_to_edit(
     Ok(EditOperation {
         id: ren_protocol::project_model::EditOperationId(format!("{}#p{index}", outer.id.0)),
         operation: op_id.into(),
-        target_ids: if target.is_empty() { vec![] } else { vec![target] },
+        target_ids: if target.is_empty() {
+            vec![]
+        } else {
+            vec![target]
+        },
         before: None,
         after: Some(serde_json::Value::Object(after)),
         intent_id: outer.intent_id.clone(),
@@ -2115,10 +2498,28 @@ pub fn build_frame_map(
             .ok_or_else(|| invalid("render cursor overflow over placements".into()))?;
         // A logged constant retime marks its placement Retimed with the
         // exact playback speed (2/1 at 200%): the engine's `speed` field as
-        // a rational. Spans stay timeline-to-render packing - the rate
-        // documents playback rather than the span affine.
+        // a rational. A reversed retime negates the numerator (-1/1 at full
+        // reverse): the sign IS the direction, the magnitude the speed, and
+        // ren-core's tick math refuses negative rates loudly rather than
+        // mapping them forwards. Spans stay timeline-to-render packing - the
+        // rate documents playback rather than the span affine.
         let (mapping_kind, rate) = match retime_rate_for(model, &placement.clip_use_id) {
-            Some(speed) => (MappingKind::Retimed, speed),
+            Some(speed) => {
+                let rate = if retime_reversed(model, &placement.clip_use_id) {
+                    Rational {
+                        numerator: speed.numerator.checked_neg().ok_or_else(|| {
+                            invalid(format!(
+                                "reversed rate for `{}` overflows",
+                                placement.clip_use_id
+                            ))
+                        })?,
+                        denominator: speed.denominator,
+                    }
+                } else {
+                    speed
+                };
+                (MappingKind::Retimed, rate)
+            }
             None => (
                 MappingKind::OneToOne,
                 Rational {
@@ -2557,16 +2958,19 @@ mod tests {
         assert!(validate_render_asset(&empty).is_err());
     }
 
-    fn ren_edit_context<'a>(
-        clip_ids: &'a BTreeMap<String, Vec<u64>>,
-    ) -> EditContext<'a> {
+    fn ren_edit_context<'a>(clip_ids: &'a BTreeMap<String, Vec<u64>>) -> EditContext<'a> {
         EditContext {
             project: Path::new("test.fcproj"),
             clip_ids,
         }
     }
 
-    fn ren_edit(id: &str, operation: &str, target: &str, after: serde_json::Value) -> EditOperation {
+    fn ren_edit(
+        id: &str,
+        operation: &str,
+        target: &str,
+        after: serde_json::Value,
+    ) -> EditOperation {
         EditOperation {
             id: ren_protocol::project_model::EditOperationId(id.into()),
             operation: operation.into(),
@@ -2594,7 +2998,11 @@ mod tests {
             serde_json::json!({"at_frame": 12}),
         );
         let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
-        assert_eq!(operations.len(), 2, "linked audio must be driven explicitly");
+        assert_eq!(
+            operations.len(),
+            2,
+            "linked audio must be driven explicitly"
+        );
         assert!(matches!(
             &operations[0],
             Operation::Razor { track, frame: 12, .. } if track == "V1"
@@ -2806,7 +3214,9 @@ mod tests {
         let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
         // The inner split drives video plus linked audio.
         assert_eq!(operations.len(), 2);
-        assert!(operations.iter().all(|op| matches!(op, Operation::Razor { .. })));
+        assert!(operations
+            .iter()
+            .all(|op| matches!(op, Operation::Razor { .. })));
     }
 
     #[test]
@@ -2820,11 +3230,6 @@ mod tests {
                 "retime.segments",
                 serde_json::json!({"segments": [{"record_frame": 12, "percent": 200.0}]}),
                 "retime_segments_not_supported",
-            ),
-            (
-                "retime",
-                serde_json::json!({"percent": 200.0, "reverse": true}),
-                "reverse_not_supported",
             ),
             (
                 "retime",
@@ -2890,7 +3295,12 @@ mod tests {
         // Gain on a placement without audio refuses by name.
         let clip_ids = BTreeMap::from([("use-b".to_owned(), vec![9u64])]);
         let context = ren_edit_context(&clip_ids);
-        let edit = ren_edit("edit-gain-noaudio", "audio.gain", "use-b", serde_json::json!({"db": -3.0}));
+        let edit = ren_edit(
+            "edit-gain-noaudio",
+            "audio.gain",
+            "use-b",
+            serde_json::json!({"db": -3.0}),
+        );
         let err = plan_ren_edit(&model, &projection, &edit, &context).unwrap_err();
         assert!(
             matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_gain"),
@@ -2940,11 +3350,17 @@ mod tests {
             .collect();
         assert_eq!(halves.len(), 2);
         assert_eq!(
-            (halves[0].timeline_interval.start, halves[0].timeline_interval.end),
+            (
+                halves[0].timeline_interval.start,
+                halves[0].timeline_interval.end
+            ),
             (0, 12)
         );
         assert_eq!(
-            (halves[1].timeline_interval.start, halves[1].timeline_interval.end),
+            (
+                halves[1].timeline_interval.start,
+                halves[1].timeline_interval.end
+            ),
             (12, 24)
         );
     }
@@ -2987,7 +3403,12 @@ mod tests {
         let projection = plan_projection(&model).unwrap();
         let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
         let context = ren_edit_context(&clip_ids);
-        let lift = ren_edit("edit-delete-lift", "clip.delete", "use-a", serde_json::json!({}));
+        let lift = ren_edit(
+            "edit-delete-lift",
+            "clip.delete",
+            "use-a",
+            serde_json::json!({}),
+        );
         let operations = plan_ren_edit(&model, &projection, &lift, &context).unwrap();
         assert_eq!(operations.len(), 1);
         assert!(matches!(
@@ -3120,6 +3541,157 @@ mod tests {
     }
 
     #[test]
+    fn ren_retime_drives_every_reconciled_clip() {
+        // A use with linked audio reconciles to video plus audio ids; the
+        // planned retime carries both in one call so a severed audio piece
+        // retimes with its picture. A video-only use still plans one id.
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-retime-av",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 50.0}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Retime {
+                clips,
+                speed_percent,
+                ripple: true,
+                ..
+            } if clips == &vec![7u64, 8u64] && *speed_percent == 50.0
+        ));
+        let clip_ids = BTreeMap::from([("use-b".to_owned(), vec![9u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit(
+            "edit-retime-v",
+            "retime",
+            "use-b",
+            serde_json::json!({"percent": 200.0}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert!(matches!(
+            &operations[0],
+            Operation::Retime { clips, .. } if clips == &vec![9u64]
+        ));
+    }
+
+    #[test]
+    fn ren_link_plans_grouped_ids_and_mutates_nothing() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let edit = ren_edit("edit-link", "clip.link", "use-a", serde_json::json!({}));
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Link { clips, .. } if clips == &vec![7u64, 8u64]
+        ));
+        // The mutation is a validated no-op: spans are untouched.
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        assert_eq!(mutated.clip_uses, model.clip_uses);
+        // An unknown target refuses on both paths.
+        let edit = ren_edit(
+            "edit-link-ghost",
+            "clip.link",
+            "use-ghost",
+            serde_json::json!({}),
+        );
+        assert!(plan_ren_edit(&model, &projection, &edit, &context).is_err());
+        assert!(apply_ren_edit_to_model(&model, &edit).is_err());
+    }
+
+    #[test]
+    fn ren_reverse_plans_flagged_speed_with_negative_map_rate() {
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64, 8u64])]);
+        let context = ren_edit_context(&clip_ids);
+        // Reverse plans onto the engine flag: same span math as forward at
+        // the same percent, direction carried separately.
+        let edit = ren_edit(
+            "edit-reverse",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 200.0, "reverse": true}),
+        );
+        let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::Retime {
+                clips,
+                speed_percent,
+                ripple: true,
+                reverse: true,
+                ..
+            } if clips == &vec![7u64, 8u64] && *speed_percent == 200.0
+        ));
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        let use_a = mutated
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == "use-a")
+            .unwrap();
+        assert_eq!(
+            (use_a.timeline_interval.start, use_a.timeline_interval.end),
+            (0, 12)
+        );
+        // The map marks the direction with the sign: -2/1, never forward.
+        let projection = plan_projection(&mutated).unwrap();
+        let map = build_frame_map(&mutated, &projection, "clock-render", "map-rev").unwrap();
+        assert_eq!(map.segments[0].mapping_kind, MappingKind::Retimed);
+        assert_eq!(
+            map.segments[0].rate,
+            Some(Rational {
+                numerator: -2,
+                denominator: 1
+            })
+        );
+        // A reversed slow-down still re-projects: the span ratio is
+        // magnitude-only, so the logged retime explains the longer span.
+        let edit = ren_edit(
+            "edit-reverse-slow",
+            "span_retime",
+            "use-a",
+            serde_json::json!({"percent": 50.0, "reverse": true}),
+        );
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        let projection = plan_projection(&mutated).unwrap();
+        let map = build_frame_map(&mutated, &projection, "clock-render", "map-rev-slow").unwrap();
+        assert_eq!(
+            map.segments[0].rate,
+            Some(Rational {
+                numerator: -1,
+                denominator: 2
+            })
+        );
+        assert_eq!(render_span(&map), 72);
+        // A non-boolean reverse flag is caller error on both paths.
+        let edit = ren_edit(
+            "edit-reverse-bad",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 200.0, "reverse": "yes"}),
+        );
+        assert!(matches!(
+            plan_ren_edit(&model, &projection, &edit, &context).unwrap_err(),
+            AdapterError::InvalidModel(_)
+        ));
+        assert!(matches!(
+            apply_ren_edit_to_model(&model, &edit).unwrap_err(),
+            AdapterError::InvalidModel(_)
+        ));
+    }
+
+    #[test]
     fn ren_model_mutation_matches_planned_deletes_ripples_retimes() {
         let mut stacked = minimal_model();
         stacked.clip_uses[0].role = "a_roll".into();
@@ -3179,10 +3751,7 @@ mod tests {
         };
         assert_eq!(
             starts,
-            vec![
-                ("use-a".to_owned(), 12, 36),
-                ("use-b".to_owned(), 36, 60),
-            ]
+            vec![("use-a".to_owned(), 12, 36), ("use-b".to_owned(), 36, 60),]
         );
         // Speed-up anchors the start and shortens; the map carries 2/1.
         let edit = ren_edit(
@@ -3251,5 +3820,406 @@ mod tests {
             })
         );
         assert_eq!(render_span(&map), 72);
+    }
+
+    #[test]
+    fn retime_ramp_expands_to_splits_then_reverse_order_retimes() {
+        // use-a spans (0, 24): two 12-frame pieces, fast then slow.
+        let model = minimal_model();
+        let ramp = ren_edit(
+            "edit-ramp",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 12, "percent": 50.0},
+                {"record_frame": 0, "percent": 200.0},
+            ]}),
+        );
+        // Segments arrive unsorted; the expansion sorts them.
+        let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+        assert_eq!(expanded.target_id, "use-a");
+        assert_eq!(expanded.razor_frames, vec![12]);
+        assert_eq!(
+            expanded.pieces,
+            vec![
+                RetimeRampPiece {
+                    piece_id: "use-a-a".into(),
+                    start_frame: 0,
+                    percent: 200.0,
+                    reverse: false,
+                },
+                RetimeRampPiece {
+                    piece_id: "use-a-b".into(),
+                    start_frame: 12,
+                    percent: 50.0,
+                    reverse: false,
+                },
+            ]
+        );
+        assert_eq!(expanded.edits.len(), 5);
+        // Splits run in timeline order.
+        assert_eq!(expanded.edits[0].operation, "clip.split");
+        assert_eq!(expanded.edits[0].target_ids, vec!["use-a".to_owned()]);
+        assert_eq!(
+            expanded.edits[0].after,
+            Some(serde_json::json!({"at_frame": 12}))
+        );
+        // The severed second piece carries its two link repairs ahead of its
+        // retime; retimes run last piece first so each ripple shifts only
+        // followers that already carry their final length.
+        assert_eq!(expanded.edits[1].operation, "clip.link");
+        assert_eq!(expanded.edits[1].target_ids, vec!["use-a-b".to_owned()]);
+        assert_eq!(expanded.edits[2].operation, "clip.link");
+        assert_eq!(expanded.edits[2].target_ids, vec!["use-a-b".to_owned()]);
+        assert_eq!(expanded.edits[3].operation, "retime");
+        assert_eq!(expanded.edits[3].target_ids, vec!["use-a-b".to_owned()]);
+        assert_eq!(
+            expanded.edits[3].after,
+            Some(serde_json::json!({"percent": 50.0}))
+        );
+        // The first piece keeps the intact link: retime only, no repairs.
+        assert_eq!(expanded.edits[4].operation, "retime");
+        assert_eq!(expanded.edits[4].target_ids, vec!["use-a-a".to_owned()]);
+        assert_eq!(
+            expanded.edits[4].after,
+            Some(serde_json::json!({"percent": 200.0}))
+        );
+        assert_eq!(expanded.edits[0].id.0, "edit-ramp-split-1");
+        assert_eq!(expanded.edits[1].id.0, "edit-ramp-link-1-1");
+        assert_eq!(expanded.edits[2].id.0, "edit-ramp-link-1-2");
+        assert_eq!(expanded.edits[3].id.0, "edit-ramp-retime-2");
+        assert_eq!(expanded.edits[4].id.0, "edit-ramp-retime-1");
+        // Deterministic: expanding twice mints identical edits.
+        let again = expand_retime_ramp(&model, &ramp).unwrap();
+        assert_eq!(
+            serde_json::to_string(&expanded.edits).unwrap(),
+            serde_json::to_string(&again.edits).unwrap()
+        );
+    }
+
+    #[test]
+    fn retime_ramp_mutation_matches_piecewise_constant_speeds() {
+        let model = minimal_model();
+        let ramp = ren_edit(
+            "edit-ramp",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 200.0},
+                {"record_frame": 12, "percent": 50.0},
+            ]}),
+        );
+        let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+        let mut mutated = model.clone();
+        for edit in &expanded.edits {
+            mutated = apply_ren_edit_to_model(&mutated, edit).unwrap();
+        }
+        // 12 frames at 200% play in 6, 12 at 50% in 24: the pieces sit back
+        // to back and the V2 follower shifts by the total delta (+6).
+        let spans: Vec<(String, i64, i64)> = {
+            let mut uses: Vec<_> = mutated.clip_uses.iter().collect();
+            uses.sort_by_key(|u| u.timeline_interval.start);
+            uses.into_iter()
+                .map(|u| {
+                    (
+                        u.id.0.clone(),
+                        u.timeline_interval.start,
+                        u.timeline_interval.end,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(
+            spans,
+            vec![
+                ("use-a-a".to_owned(), 0, 6),
+                ("use-a-b".to_owned(), 6, 30),
+                ("use-b".to_owned(), 30, 54),
+            ]
+        );
+        // The mutated model re-projects and the map carries both rates.
+        let projection = plan_projection(&mutated).unwrap();
+        let map = build_frame_map(&mutated, &projection, "clock-render", "map-ramp").unwrap();
+        assert_eq!(map.segments.len(), 3);
+        assert_eq!(map.segments[0].mapping_kind, MappingKind::Retimed);
+        assert_eq!(
+            map.segments[0].rate,
+            Some(Rational {
+                numerator: 2,
+                denominator: 1
+            })
+        );
+        assert_eq!(map.segments[1].mapping_kind, MappingKind::Retimed);
+        assert_eq!(
+            map.segments[1].rate,
+            Some(Rational {
+                numerator: 1,
+                denominator: 2
+            })
+        );
+        assert_eq!(map.segments[2].mapping_kind, MappingKind::OneToOne);
+        assert_eq!(render_span(&map), 54);
+    }
+
+    #[test]
+    fn retime_ramp_nests_piece_ids_for_three_steps() {
+        let model = minimal_model();
+        let ramp = ren_edit(
+            "edit-ramp-3",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 100.0},
+                {"record_frame": 8, "percent": 200.0},
+                {"record_frame": 16, "percent": 50.0},
+            ]}),
+        );
+        let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+        assert_eq!(expanded.razor_frames, vec![8, 16]);
+        // The second split addresses the right half of the first, so piece
+        // ids nest exactly as sequential split mutations mint them.
+        assert_eq!(
+            expanded
+                .pieces
+                .iter()
+                .map(|p| p.piece_id.clone())
+                .collect::<Vec<_>>(),
+            vec!["use-a-a", "use-a-b-a", "use-a-b-b"]
+        );
+        // Splits, then per severed piece (last first) two link repairs plus
+        // its retime, then the intact first piece's retime alone.
+        assert_eq!(expanded.edits.len(), 9);
+        let ops: Vec<(&str, &str)> = expanded
+            .edits
+            .iter()
+            .map(|e| (e.operation.as_str(), e.target_ids[0].as_str()))
+            .collect();
+        assert_eq!(
+            ops,
+            vec![
+                ("clip.split", "use-a"),
+                ("clip.split", "use-a-b"),
+                ("clip.link", "use-a-b-b"),
+                ("clip.link", "use-a-b-b"),
+                ("retime", "use-a-b-b"),
+                ("clip.link", "use-a-b-a"),
+                ("clip.link", "use-a-b-a"),
+                ("retime", "use-a-b-a"),
+                ("retime", "use-a-a"),
+            ]
+        );
+        let mut mutated = model.clone();
+        for edit in &expanded.edits {
+            mutated = apply_ren_edit_to_model(&mutated, edit).unwrap();
+        }
+        // 8 at 100% stays 8, 8 at 200% plays in 4, 8 at 50% in 16.
+        let spans: Vec<(String, i64, i64)> = {
+            let mut uses: Vec<_> = mutated.clip_uses.iter().collect();
+            uses.sort_by_key(|u| u.timeline_interval.start);
+            uses.into_iter()
+                .map(|u| {
+                    (
+                        u.id.0.clone(),
+                        u.timeline_interval.start,
+                        u.timeline_interval.end,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(
+            spans,
+            vec![
+                ("use-a-a".to_owned(), 0, 8),
+                ("use-a-b-a".to_owned(), 8, 12),
+                ("use-a-b-b".to_owned(), 12, 28),
+                ("use-b".to_owned(), 28, 52),
+            ]
+        );
+    }
+
+    #[test]
+    fn retime_ramp_single_step_is_one_constant_retime() {
+        let model = minimal_model();
+        let ramp = ren_edit(
+            "edit-ramp-1",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [{"record_frame": 0, "percent": 50.0}]}),
+        );
+        let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+        assert!(expanded.razor_frames.is_empty());
+        assert_eq!(expanded.edits.len(), 1);
+        assert_eq!(expanded.edits[0].operation, "retime");
+        assert_eq!(expanded.edits[0].target_ids, vec!["use-a".to_owned()]);
+    }
+
+    #[test]
+    fn retime_ramp_level_reverse_keeps_refusing_with_a_named_code() {
+        let model = minimal_model();
+        // A ramp-level reverse would play the whole ramp backwards -
+        // reversed piece order, not just reversed pieces - which the
+        // expansion does not express. It keeps refusing by name.
+        let ramp = ren_edit(
+            "edit-ramp-rev",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"reverse": true, "segments": [
+                {"record_frame": 0, "percent": 200.0},
+                {"record_frame": 12, "percent": 200.0},
+            ]}),
+        );
+        let err = expand_retime_ramp(&model, &ramp).unwrap_err();
+        assert!(
+            matches!(&err, AdapterError::Unsupported { code, .. } if code == "reverse_not_supported"),
+            "ramp reverse must refuse by name, got {err:?}"
+        );
+        // A reversed piece inside the ramp expands instead: direction rides
+        // the piece retime's flag while span math stays magnitude-only.
+        let ramp = ren_edit(
+            "edit-ramp-seg-rev",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 200.0},
+                {"record_frame": 12, "percent": 50.0, "reverse": true},
+            ]}),
+        );
+        let expanded = expand_retime_ramp(&model, &ramp).unwrap();
+        assert!(expanded.pieces[0].reverse == false);
+        assert!(expanded.pieces[1].reverse == true);
+        let retime = expanded
+            .edits
+            .iter()
+            .find(|e| e.operation == "retime" && e.target_ids == vec!["use-a-b".to_owned()])
+            .unwrap();
+        assert_eq!(
+            retime.after,
+            Some(serde_json::json!({"percent": 50.0, "reverse": true}))
+        );
+        // A non-boolean reverse flag is caller error, not a direction.
+        let ramp = ren_edit(
+            "edit-ramp-seg-rev-bad",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 200.0},
+                {"record_frame": 12, "percent": 50.0, "reverse": "yes"},
+            ]}),
+        );
+        assert!(matches!(
+            expand_retime_ramp(&model, &ramp).unwrap_err(),
+            AdapterError::InvalidModel(_)
+        ));
+    }
+
+    #[test]
+    fn retime_ramp_malformed_shapes_refuse_without_guessing() {
+        let model = minimal_model();
+        // Not a ramp at all.
+        let edit = ren_edit(
+            "edit-not-ramp",
+            "retime",
+            "use-a",
+            serde_json::json!({"percent": 200.0}),
+        );
+        assert!(expand_retime_ramp(&model, &edit).is_err());
+        for (id, after) in [
+            // No segments.
+            ("edit-ramp-empty", serde_json::json!({"segments": []})),
+            // The ramp must cover its clip from the first frame.
+            (
+                "edit-ramp-late-start",
+                serde_json::json!({"segments": [
+                    {"record_frame": 4, "percent": 200.0},
+                    {"record_frame": 12, "percent": 200.0},
+                ]}),
+            ),
+            // A repeated razor point is not two pieces.
+            (
+                "edit-ramp-dup",
+                serde_json::json!({"segments": [
+                    {"record_frame": 0, "percent": 200.0},
+                    {"record_frame": 12, "percent": 200.0},
+                    {"record_frame": 12, "percent": 50.0},
+                ]}),
+            ),
+            // A razor point at the clip end splits nothing.
+            (
+                "edit-ramp-past-end",
+                serde_json::json!({"segments": [
+                    {"record_frame": 0, "percent": 200.0},
+                    {"record_frame": 24, "percent": 50.0},
+                ]}),
+            ),
+        ] {
+            let ramp = ren_edit(id, "retime.segments", "use-a", after);
+            let err = expand_retime_ramp(&model, &ramp).unwrap_err();
+            assert!(
+                matches!(err, AdapterError::InvalidModel(_)),
+                "{id} must refuse as invalid, got {err:?}"
+            );
+        }
+        // An inexact rate refuses exactly as a constant retime does.
+        let ramp = ren_edit(
+            "edit-ramp-rate",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 33.333333333333336},
+                {"record_frame": 12, "percent": 100.0},
+            ]}),
+        );
+        let err = expand_retime_ramp(&model, &ramp).unwrap_err();
+        assert!(
+            matches!(&err, AdapterError::Unsupported { code, .. } if code == "retime_rate_inexact"),
+            "inexact ramp rate must refuse by name, got {err:?}"
+        );
+        // A fractional piece length refuses rather than rounding: 10 frames
+        // at 150% play in 20/3 frames.
+        let ramp = ren_edit(
+            "edit-ramp-fraction",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 150.0},
+                {"record_frame": 10, "percent": 100.0},
+            ]}),
+        );
+        let err = expand_retime_ramp(&model, &ramp).unwrap_err();
+        assert!(
+            matches!(&err, AdapterError::Unsupported { code, .. } if code == "retime_inexact_duration"),
+            "fractional ramp piece must refuse by name, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn retime_ramp_refusals_name_the_expansion_helper() {
+        // The unexpanded ramp still refuses planning and mutation by name,
+        // and the refusal now says who owns the expansion.
+        let model = minimal_model();
+        let projection = plan_projection(&model).unwrap();
+        let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
+        let context = ren_edit_context(&clip_ids);
+        let ramp = ren_edit(
+            "edit-ramp-raw",
+            "retime.segments",
+            "use-a",
+            serde_json::json!({"segments": [
+                {"record_frame": 0, "percent": 200.0},
+                {"record_frame": 12, "percent": 50.0},
+            ]}),
+        );
+        let err = plan_ren_edit(&model, &projection, &ramp, &context).unwrap_err();
+        assert!(
+            matches!(&err, AdapterError::Unsupported { code, .. } if code == "retime_segments_not_supported")
+                && format!("{err}").contains("expand_retime_ramp"),
+            "plan refusal must name the helper, got {err:?}"
+        );
+        let err = apply_ren_edit_to_model(&model, &ramp).unwrap_err();
+        assert!(
+            matches!(&err, AdapterError::Unsupported { code, .. } if code == "retime_segments_not_supported")
+                && format!("{err}").contains("expand_retime_ramp"),
+            "mutation refusal must name the helper, got {err:?}"
+        );
     }
 }
