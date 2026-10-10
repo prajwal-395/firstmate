@@ -61,7 +61,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:  # titles wiring only; resolved by the caller
+    from library.tools.safe_area import SafeAreaInsets
 
 try:
     from library.tools.project_model import SCHEMA_VERSION, validate_project_model
@@ -848,6 +851,10 @@ def project_to_request(
     media_root: str | Path | None = None,
     project_id: str | None = None,
     mattes: dict[str, MatteSequence] | None = None,
+    titles: dict[str, Any] | None = None,
+    titles_fps: float | None = None,
+    titles_safe_area: SafeAreaInsets | None = None,
+    titles_comp_start_seconds: float = 0.0,
 ) -> Projection:
     """Project model masks and effects into an EffectCraft driver request.
 
@@ -856,13 +863,22 @@ def project_to_request(
     snake_case render formats), the identity map ingest stores on the
     receipt, and the loss report of what the engine could not represent.
     Raises instead of passing anything unknown through.
+
+    ``titles`` is an optional titles document for
+    :mod:`library.tools.project_model_effectcraft_titles` (audit G3):
+    ``timed_text_overlay`` moments and text-bearing motion-graphics
+    entries projected into ``AddText``/``Keyframe`` ops appended after
+    the footage work. It needs ``titles_fps`` (the plan fps the title
+    frames were resolved at) and ``titles_safe_area`` (a
+    ``SafeAreaInsets``, resolved by the caller against the comp frame);
+    without both, titles are refused rather than placed by a default.
     """
     validate_project_model(model)
     mapping = VERIFIED_EFFECT_MAP if effect_map is None else effect_map
     registry = fixture_catalog() if catalog is None else catalog
     if not renders:
         raise EffectCraftAdapterError("at least one render spec is required")
-    if not model["masks"] and not model["effects"]:
+    if not model["masks"] and not model["effects"] and titles is None:
         raise EmptyProjection("model has no masks or effects to project")
 
     model_id = model["id"]
@@ -1054,6 +1070,30 @@ def project_to_request(
                 "value": value,
             })
 
+    if titles is not None:
+        # Audit G3: titles ride the same request after the footage work,
+        # so one comp can carry picture and copy. The import is local so
+        # this module never depends on the roster at import time.
+        try:
+            from library.tools import project_model_effectcraft_titles as _titles
+        except ImportError:  # imported as ``tools.*`` from inside library/
+            from tools import project_model_effectcraft_titles as _titles
+        if titles_fps is None or titles_safe_area is None:
+            raise EffectCraftAdapterError(
+                "titles need titles_fps and titles_safe_area: title "
+                "frames resolve at the plan's fps against the comp's "
+                "safe area, and neither has a default"
+            )
+        projection = _titles.project_titles(
+            titles, comp, titles_fps, titles_safe_area,
+            comp_start_seconds=titles_comp_start_seconds)
+        operations.extend(projection.operations)
+        losses.extend(projection.losses)
+        title_records = [record.as_json()
+                         for record in projection.titles]
+    else:
+        title_records = []
+
     render_dicts = []
     for render in renders:
         payload = render.validated()
@@ -1072,6 +1112,7 @@ def project_to_request(
         "mattes": matte_records,
         "effects": effect_layers,
         "entities": entity_layers,
+        "titles": title_records,
     }
     return Projection(
         request=request,
@@ -1300,6 +1341,14 @@ def main(argv: list[str] | None = None) -> int:
     project.add_argument("--matte", action="append", default=[],
                          help="matte sidecar JSON from the matte command; "
                               "repeatable, one per non-static mask")
+    project.add_argument("--titles", type=Path, default=None,
+                         help="titles document JSON (timed_text props and/or "
+                              "resolved motion moments, audit G3); needs "
+                              "--titles-fps")
+    project.add_argument("--titles-fps", type=float, default=None,
+                         help="plan fps the title frames were resolved at")
+    project.add_argument("--project-folder", default=None,
+                         help="project root for the safe-area policy")
 
     matte = sub.add_parser("matte", help="rasterize one mask to a matte sequence")
     matte.add_argument("model", type=Path)
@@ -1334,10 +1383,21 @@ def main(argv: list[str] | None = None) -> int:
                 raw = _read_json(Path(sidecar))
                 sequence = MatteSequence.from_json(raw["matte"])
                 mattes[sequence.mask_id] = sequence
+            titles = (_read_json(args.titles) if args.titles else None)
+            titles_safe = None
+            if titles is not None:
+                try:
+                    from library.tools.safe_area import resolve_safe_area
+                except ImportError:
+                    from tools.safe_area import resolve_safe_area
+                titles_safe = resolve_safe_area(
+                    args.project_folder, width=args.width,
+                    height=args.height)
             projection = project_to_request(
                 model, comp, renders,
                 media_root=args.media_root, project_id=args.project_id,
-                mattes=mattes)
+                mattes=mattes, titles=titles,
+                titles_fps=args.titles_fps, titles_safe_area=titles_safe)
             args.out.write_text(json.dumps({
                 "projection": {
                     "request": projection.request,
