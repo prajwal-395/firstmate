@@ -526,20 +526,24 @@ By accepted design, a `clear` result does not enforce catalog/authentication, re
 
 The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
 
-## Second OpenCode Go workspace (config/opencode-second-org)
+## Second OpenCode Go workspace (config/opencode-second-org, config/opencode-main-org)
 
 When one OpenCode account holds a second workspace with its own Go subscription, firstmate spends it as the Go tier's second member: the tier drains the plan whose overall (monthly) quota resets soonest first, and a plan under a shorter cap yields to the other until that limit resets. Order is exhaustion, never an even split.
 Write the second workspace id alone into the gitignored `config/opencode-second-org` (exactly one line).
+The main workspace id needs no hand setup: on the first main Go launch that needs it, firstmate reads it from the machine's own console login and records it alone in the gitignored `config/opencode-main-org`, and a hand-written file there wins when one exists.
 Write each plan's monthly billing reset into the gitignored `config/opencode-go-resets`, one `<main|secondary> <ISO-8601>` line per plan (blank lines and `#` comments ignored); the dates project forward by calendar month, so a past date stays valid as the cycle anchor. A missing file means monthly timing is known only for the main plan through live `quota-axi`, and a second plan with no usable line reads as unknown, which keeps the choice on main exactly as before.
-A missing file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
+A missing second-workspace file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
 No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
-On the first launch that needs it, firstmate builds the gitignored `config/opencode-second.db`: a migrated database seeded from this machine's console login and pinned to the configured workspace.
+On the first launch that needs it, firstmate builds the gitignored pin database beside each id file (`config/opencode-second.db`, `config/opencode-main.db`): a migrated database seeded from this machine's console login and pinned to that workspace.
 On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
-Before the launch rides the pin, the pinned config must resolve the `opencode` provider to the secondary workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
-That launch carries `OPENCODE_DB` at the pinned database, so the vendor attributes the session to the second workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
-The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a pinned lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
-The org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
-Each home builds its own `config/opencode-second.db` from its own machine's live console login on the first launch that needs it; the database itself is never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
+The pin is a copy, never the login itself: a pin path that names the live console database is refused before anything reads or writes either file.
+Before a launch rides its pin, the pinned config must resolve the `opencode` provider to that launch's own workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
+Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no launch ever inherits the machine-wide active workspace; a launch whose pin cannot be proven is refused rather than run unpinned.
+A home with no second workspace runs the main workspace exactly as before.
+Each launch carries `OPENCODE_DB` at its pinned database, so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
+The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a secondary lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
+Each org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
+Each home builds its own pin databases from its own machine's live console login on the first launch that needs them; the databases themselves are never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
 `bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
