@@ -238,8 +238,8 @@ JSON
   pass "fm-claude-trust.sh: preserves unrelated keys on the project-root entry"
 }
 
-# hasClaudeMdExternalIncludesApproved===false on the project-root entry is a
-# human's explicit "No, disable" answer, recorded in the SAME store their own
+# hasClaudeMdExternalIncludesApproved===false with WarningShown===true on the
+# project-root entry is a human's explicit "No, disable" answer, recorded in the SAME store their own
 # interactive sessions read. A spawn must never flip that to true on their
 # behalf: doing so would grant every later interactive session in that
 # checkout silent external-file inclusion the human declined. The whole
@@ -303,10 +303,34 @@ JSON
   expect_code 1 $? "a project that already declined external imports must be refused: $out"
   assert_contains "$out" "declined external CLAUDE.md imports" \
     "the refusal did not name the declined-consent reason"
+  assert_contains "$out" "approve the imports dialog interactively" \
+    "the refusal did not name the recovery"
   after=$(cat "$store")
   [ "$before" = "$after" ] || fail "the store was modified despite the refusal"
   assert_not_trusted "$store" "$WT" "the worktree entry was registered despite the refusal"
   pass "fm-claude-trust.sh: refuses to override a project's declined external-imports consent"
+}
+
+# Claude Code's own default project entry carries BOTH external-imports flags as
+# false before the dialog was ever shown; answering the dialog either way sets
+# hasClaudeMdExternalIncludesWarningShown to true. So false/false is "never
+# asked", not "No, disable": it must be treated like an absent flag - trust
+# registered, no import consent manufactured - rather than refused.
+test_project_root_entry_default_import_flags_are_not_a_decline() {
+  local rec store out
+  rec=$(make_case project-default-flags)
+  read_case "$rec"
+  store="$CONFIG/.claude.json"
+  cat > "$store" <<JSON
+{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"allowedTools":[],"mcpContextUris":[],"mcpServers":{},"enabledMcpjsonServers":[],"disabledMcpjsonServers":[],"hasTrustDialogAccepted":false,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false}}}
+JSON
+  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  expect_code 0 $? "a never-asked default entry must not be refused as a decline: $out"
+  assert_trust_only_no_import_consent "$store" "$WT" \
+    "the worktree entry either lost trust or gained unearned import consent"
+  assert_trust_only_no_import_consent "$store" "$PROJ" \
+    "the project-root entry either lost trust or gained import consent it was never asked for"
+  pass "fm-claude-trust.sh: a never-asked default external-imports pair is not treated as a decline"
 }
 
 test_registration_is_idempotent() {
@@ -718,10 +742,10 @@ JSON
 }
 
 # The spawn half: a real fm-spawn of a claude worker must pre-register the
-# worktree AND deliver the launch command carrying the brief, with no dialog to
+# worktree AND deliver a record-backed doorbell for the brief, with no dialog to
 # answer and no human in the loop.
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
-  local case_dir home proj wt config fakebin launch_log out
+  local case_dir home proj wt config fakebin launch_log out launch doorbell record
   case_dir="$TMP_ROOT/spawn"
   home="$case_dir/home"
   proj="$case_dir/project"
@@ -742,13 +766,19 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   assert_present "$launch_log" "the claude spawn sent no launch command"
   assert_grep 'claude --dangerously-skip-permissions' "$launch_log" \
     "the launch command was not the claude worker launch"
-  assert_grep "$home/data/trustspawn/launch-brief.md" "$launch_log" \
-    "the launch command did not carry the brief the worker must read"
+  launch=$(cat "$launch_log")
+  doorbell=$(claude_launch_doorbell "$launch")
+  record=$(printf '%s' "$doorbell" | sed -n "s/.*: Firstmate operational input waiting: read '\([^']*\)'.*/\1/p")
+  [ -n "$record" ] || fail "the launch command did not carry a brief doorbell"
+  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+    || fail "the launch command's doorbell did not name a brief record in the receiving home"
+  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-operational-input.sh" open "$record")" = "$(cat "$home/data/trustspawn/launch-brief.md")" ] \
+    || fail "the worker could not read its launch brief from the record"
   # The worker must read the SAME store the registration wrote, or the trust
   # would land somewhere the pane never looks.
   assert_grep "CLAUDE_CONFIG_DIR='$config'" "$launch_log" \
     "the launch command did not point the worker at the store that was trusted"
-  pass "fm-spawn.sh: a claude spawn pre-trusts its worktree and launches with the brief"
+  pass "fm-spawn.sh: a claude spawn pre-trusts its worktree and launches with a readable brief doorbell"
 }
 
 # A secondmate home is the second directory a claude launch starts in, and it is
@@ -757,7 +787,7 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
 # nothing was registered and the pane stopped on the dialog before it read its
 # charter.
 test_secondmate_standalone_clone_home_is_trusted() {
-  local case_dir home out
+  local case_dir home out launch doorbell record
   case_dir="$TMP_ROOT/sm-clone-spawn"
   home="$case_dir/fm-homes/nomistakes-n1"
   seed_secondmate_home "$home" nomistakes-n1 clone
@@ -768,8 +798,14 @@ test_secondmate_standalone_clone_home_is_trusted() {
   assert_present "$case_dir/launch.log" "the claude secondmate spawn sent no launch command"
   assert_grep 'claude --dangerously-skip-permissions' "$case_dir/launch.log" \
     "the launch command was not the claude secondmate launch"
-  assert_grep "$home/data/charter.md" "$case_dir/launch.log" \
-    "the launch command did not carry the charter the secondmate must read"
+  launch=$(cat "$case_dir/launch.log")
+  doorbell=$(claude_launch_doorbell "$launch")
+  record=$(printf '%s' "$doorbell" | sed -n "s/.*: Firstmate operational input waiting: read '\([^']*\)'.*/\1/p")
+  [ -n "$record" ] || fail "the secondmate launch command did not carry a brief doorbell"
+  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+    || fail "the secondmate's doorbell did not name a brief record in its home"
+  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-operational-input.sh" open "$record")" = "$(cat "$home/data/charter.md")" ] \
+    || fail "the secondmate could not read its charter from the record"
   # The pane must read the SAME store the registration wrote, or the trust would
   # land somewhere it never looks and the dialog would appear anyway.
   assert_grep "CLAUDE_CONFIG_DIR='$case_dir/claude-config'" "$case_dir/launch.log" \

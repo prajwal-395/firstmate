@@ -12,9 +12,12 @@
 # verbs addressed to an exact task id, with the per-harness mechanics owned
 # here rather than improvised per harness in agent prose.
 #
-# This file owns three capability tables plus their pure artifact-path tables
-# and nothing else. It has no side effects, runs no backend command, and reads
-# no state, so it can be sourced by a test as a pure contract:
+# This file owns three capability tables plus their pure artifact-path tables,
+# and ONE named exception to that purity - fm_control_endpoint_absence_verdict,
+# the single owner of the per-backend endpoint-absence proof, which does run
+# backend reads. Everything else has no side effects, runs no backend command,
+# and reads no state, so sourcing this file is still free and the tables can be
+# read by a test as a pure contract:
 #
 #   1. Verb allowlist. There is no arbitrary-text and no generic raw-key entry
 #      point on the control plane; a caller either names an allowlisted verb or
@@ -104,6 +107,7 @@ fm_control_harness_family() {  # <recorded-harness>
     pi-signed) printf 'pi-signed' ;;
     omp) printf 'omp' ;;
     agy) printf 'agy' ;;
+    devin) printf 'devin' ;;
     claude*) printf 'claude' ;;
     codex*) printf 'codex' ;;
     opencode*) printf 'opencode' ;;
@@ -117,7 +121,7 @@ fm_control_harness_family() {  # <recorded-harness>
   esac
 }
 
-# Which task kinds an adapter is verified to run. muse, gemini, rovo, and agy
+# Which task kinds an adapter is verified to run. muse, gemini, rovo, agy, and devin
 # are crewmate/scout adapters only: none has a primary supervision protocol,
 # and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
 # plane asks this BEFORE it stops anything, so an incompatible relaunch target is
@@ -127,7 +131,7 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   local harness=${1-} kind=${2-}
   fm_control_harness_supported "$harness" || return 1
   case "$harness" in
-    muse|gemini|rovo|agy) [ "$kind" != secondmate ] || return 1 ;;
+    muse|gemini|rovo|agy|devin) [ "$kind" != secondmate ] || return 1 ;;
   esac
   return 0
 }
@@ -144,18 +148,61 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # through Herdr).
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
-    claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy) printf 'Escape' ;;
+    claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy|devin) printf 'Escape' ;;
     grok) printf 'C-c' ;;
     *) return 1 ;;
   esac
 }
 
-# How many times the interrupt key must be delivered. OpenCode needs a double
+# How many times the interrupt key must be delivered. OpenCode and Devin need a double
 # Escape; every other verified adapter interrupts on a single press.
 fm_control_interrupt_repeat() {  # <harness>
   case "${1-}" in
-    opencode) printf '2' ;;
+    opencode|devin) printf '2' ;;
     claude|codex|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '1' ;;
+    *) return 1 ;;
+  esac
+}
+
+# The rendered proof, read from the visible viewport between presses, that the
+# first interrupt press landed on a RUNNING turn; empty when the adapter sends
+# its presses blind. Devin needs it because the same fast double Escape that
+# cancels a running turn opens its /revert "Revert to step" picker on an idle
+# agent, where a later Enter reverts file changes. One Escape on a running turn
+# renders `esc again to interrupt` for about three seconds, while an idle agent
+# renders nothing, so the second press is sent only after that proof and never
+# sooner than fm_control_interrupt_press_gap: an unproven arm sends nothing
+# more. Verified live on devin 3000.11.1: an idle pair opened the picker at a
+# 0.05-0.1 s gap and did not at 0.15 s or more, and a running turn cancelled
+# with a 0.6 s gap.
+fm_control_interrupt_arm_signal() {  # <harness>
+  case "${1-}" in
+    devin) printf '%s' 'esc again to interrupt' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
+    *) return 1 ;;
+  esac
+}
+
+# The minimum seconds between two presses of an armed interrupt: several times
+# Devin's observed idle double-tap window, well inside its three-second armed
+# window. A turn that ends between the presses therefore cannot pair them.
+fm_control_interrupt_press_gap() {  # <harness>
+  case "${1-}" in
+    devin) printf '0.5' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '0.2' ;;
+    *) return 1 ;;
+  esac
+}
+
+# A rendered surface that a mistimed interrupt press can open and that must be
+# dismissed with one more interrupt key before anything else is typed; empty
+# when the adapter has none. Devin's revert picker is recognized by either of
+# two independent rows, its `Revert to step:` title or its `↵ revert` footer,
+# and Escape cancels it without reverting (verified live, devin 3000.11.1).
+fm_control_interrupt_hazard_signal() {  # <harness>
+  case "${1-}" in
+    devin) printf '%s' 'Revert to step:|↵ revert' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
     *) return 1 ;;
   esac
 }
@@ -176,7 +223,7 @@ fm_control_interrupt_repeat() {  # <harness>
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
     muse) printf 'C-u' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin) ;;
     *) return 1 ;;
   esac
 }
@@ -191,7 +238,7 @@ fm_control_interrupt_ack_source() {  # <harness>
     # rovo's TUI prints "Agent cancelled" on Escape, but for parity with
     # claude/cursor this stays 'none': the ack is a rendered string, not a
     # recorded state source, and rovo has no busy wiring to confirm against.
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) printf 'none' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin) printf 'none' ;;
     *) return 1 ;;
   esac
 }
@@ -200,9 +247,46 @@ fm_control_interrupt_ack_source() {  # <harness>
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
     claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
-    codex|pi|pi-signed|omp|gemini|agy) printf '/quit' ;;
+    codex|pi|pi-signed|omp|gemini|agy|devin) printf '/quit' ;;
     *) return 1 ;;
   esac
+}
+
+# The launch argument that makes a RELAUNCH of <harness> RESUME an exact agent
+# session instead of starting a fresh one, printed only when <registered-agent>
+# is the label that session reference belongs to; nothing otherwise.
+#
+# This exists for one runtime failure, not as a general resume feature. Herdr
+# gives a pane one status authority, and for Pi with its installed integration
+# that authority is the lifecycle hooks, which also suppress Herdr's screen
+# detection for the pane. That registration outlives its agent process in the
+# crew shape - a nested worktree shell under the pane's top shell - and Herdr
+# then applies only reports carrying the session identity it bound. A
+# replacement agent started fresh in that same pane reports a NEW session, so
+# its state reports are ignored and the pane stays frozen at whatever the
+# previous agent last reported: a working crewmate reads idle until its task
+# ends (reproduced and fixed live 2026-09-21, herdr 0.9.1; the read that
+# supplies the reference is
+# bin/backends/herdr.sh's fm_backend_herdr_pane_agent_session_ref).
+#
+# So the reference is not chosen from what looks recent - it is the exact
+# identity the endpoint's own runtime recorded, which is why a matched
+# registered-agent label is required: resuming a reference reported by a
+# DIFFERENT agent would inject another agent's conversation into this launch.
+# `pi` is the label Pi and pi-signed both report, so one entry covers both.
+# Every other harness returns nothing and keeps today's fresh-session
+# relaunch, which is what the adapter tables above (and the absence of a
+# verified resume form for those harnesses) require.
+#
+# Prints the flag name only; the caller quotes and appends the reference, since
+# shell quoting belongs to the owner of the launch line (bin/fm-spawn.sh).
+fm_control_relaunch_resume_flag() {  # <harness> <registered-agent>
+  case "${1-}" in
+    pi|pi-signed)
+      [ "${2-}" = pi ] && printf -- '--session'
+      ;;
+  esac
+  return 0
 }
 
 # Which named keys a backend adapter can deliver. Every session provider
@@ -232,6 +316,71 @@ fm_control_backend_state_verified() {  # <backend>
     tmux|herdr) return 0 ;;
   esac
   return 1
+}
+
+# fm_control_endpoint_absence_verdict: the ONE owner of the per-backend proof
+# that an endpoint reading `missing` is actually GONE rather than merely
+# unreachable from this seat. Call it only for a `missing` raw state.
+#
+# Prints "<verdict>\t<reason>" - always exactly one TAB, so a caller splits
+# unambiguously with ${raw%%$'\t'*} and ${raw#*$'\t'}. The reason is empty
+# except on `unproven`, where it is the concrete sentence the caller's refusal
+# message embeds. It is returned on stdout rather than set in a variable
+# because every caller reads this through a command substitution, where an
+# assignment made here could never reach them.
+#
+# The verdicts:
+#   gone     - absence is PROVEN. There is no endpoint and therefore no agent.
+#   dead     - the endpoint is there after all and holds no agent.
+#   alive    - the endpoint is there and an agent is running in it.
+#   unproven - neither could be established; the caller must refuse.
+#
+# fm_backend_agent_state's `missing` conflates "the endpoint was DESTROYED"
+# with "the endpoint is UNREACHABLE from here right now". An unreachable
+# endpoint can still hold a live agent on the task's worktree, so every caller
+# that would act on absence - `exit` claiming the agent stopped, `relaunch`
+# re-creating the endpoint - must come through here rather than trusting the
+# raw verdict.
+#
+# Whether absence is provable AT ALL is a property of the backend, not of the
+# reading:
+#   herdr CAN prove it. Every read goes through fm_backend_herdr_cli, which
+#     passes `--session <session>`, so the recheck starts and reads the session
+#     the RECORD names, through that session's own socket. The answer is about
+#     the task's endpoint and nothing else.
+#   tmux CANNOT. `list-windows -a` describes only the server the CURRENT
+#     process addresses (its TMUX_TMPDIR/socket), and a task's record does not
+#     carry the endpoint's socket identity - so a different but running server
+#     would answer "not anywhere" about a window it was never able to see.
+#     There is no read available here that closes that gap, so tmux always
+#     returns `unproven` and both verbs refuse. tmux is left exactly as
+#     deadlocked as it was before this change - no worse - but deliberately.
+#
+# Both control-plane callers share this one implementation so the proof cannot
+# drift into two answers for the same endpoint.
+fm_control_endpoint_absence_verdict() {  # <backend> <target>
+  local backend=${1-} target=${2-}
+  fm_backend_source "$backend" \
+    || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
+  case "$backend" in
+    tmux)
+      printf 'unproven\ttmux absence cannot be proven from a task record: the record does not carry the endpoint'"'"'s socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another'
+      ;;
+    herdr)
+      # Start the RECORDED session's server (only the server - nothing is
+      # created) and re-read the recorded pane. A pane that comes back with the
+      # server was never destroyed.
+      case "$(fm_backend_herdr_endpoint_absence_recheck "$target")" in
+        dead) printf 'dead\t' ;;
+        alive) printf 'alive\t' ;;
+        missing) printf 'gone\t' ;;
+        *) printf 'unproven\tthe recorded herdr session'"'"'s server could not be started, or its pane could not be classified once it was running' ;;
+      esac
+      ;;
+    *)
+      printf 'unproven\tbackend %s has no recovery-grade classifier, so absence cannot be proven on it at all' "'$backend'"
+      ;;
+  esac
 }
 
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that
@@ -279,6 +428,7 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
     # is written into the worktree, whose own .gemini/settings.json belongs to
     # the project, and nothing global is installed.
     gemini) printf '%s\n' "$state/$id.gemini-settings.json" ;;
+    devin) printf '%s\n' "$state/$id.devin-config.json" ;;
   esac
 }
 

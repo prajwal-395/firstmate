@@ -62,6 +62,13 @@ case "${1:-}" in
     done
     payload=${1:-}
     if [ "$literal" = 1 ]; then
+      case "$payload" in
+        ". '"*"'")
+          staged=${payload#". '"}
+          staged=${staged%"'"}
+          [ ! -f "$staged" ] || payload=$(cat "$staged")
+          ;;
+      esac
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)
@@ -109,7 +116,7 @@ case "${1:-}" in
       prev=$a
     done
     printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '> \n'; exit 0 ;;
+  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
 esac
 exit 0
@@ -478,7 +485,15 @@ case "${rargs[1]:-}" in
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
     esac
-    printf 'relaunched %s\n' "${rargs[2]}"
+    printf 'relaunched %s harness=%s from=claude model=%s effort=%s backend=herdr endpoint=fm-remote:2ndmate-%s worktree=/srv/fm\n' \
+      "${rargs[2]}" "${rargs[3]}" "${rargs[4]}" "${rargs[5]}" "${rargs[2]}"
+    printf 'schema=fm-remote-secondmate-control.v1\n'
+    printf 'backend=herdr\n'
+    printf 'target=fm-remote:2ndmate-%s\n' "${rargs[2]}"
+    printf 'herdr_session=fm-remote\n'
+    printf 'harness=%s\n' "${rargs[3]}"
+    printf 'model=%s\n' "${rargs[4]}"
+    printf 'effort=%s\n' "${rargs[5]}"
     ;;
 esac
 exit 0

@@ -49,18 +49,31 @@
 #   kimi-wire, kimi-hook  reserved: standalone Kimi, gated by fm_busy_kimi_verified
 # Firstmate-owned sources accepted for every converted adapter:
 #   fm-spawn         the launch-brief turn seeded at spawn
-#   fm-interrupt     the legacy Claude fm-send --key Escape idle event
+#   fm-interrupt     the legacy Claude fm-send --key Escape idle event, and the
+#                    unknown invalidation fm-control writes after a Devin interrupt
 #   fm-recovery      a documented recovery reset after relaunch
 # Classifier-only sources (never written into a record):
 #   endpoint-gone, herdr-native, grok-regex, rovo-regex, agy-regex, muse-session-log,
 #   cursor-transcript, missing, malformed, gen-mismatch, source-mismatch,
-#   kimi-unverified, codex-unverified, capture-failed, no-target
+#   kimi-unverified, codex-unverified, capture-failed, no-target, launch-prompt
 #
 # Classification (fm_busy_classify): busy | idle | unknown | dead, always
 # with the producing source as the second token. Precedence:
 #   1. dead endpoint (fm_busy_classify_live only) -> dead endpoint-gone
 #   2. standalone Kimi before verification       -> unknown kimi-unverified
-#   3. a valid, gen-matching, source-trusted record -> its state and source
+#   3. a valid, gen-matching, source-trusted record -> its state and source,
+#      UNLESS the record is still the untouched seed fm-spawn wrote at arm
+#      time (state=busy source=fm-spawn - no adapter hook has posted since
+#      launch) AND the caller supplied a captured tail that matches that
+#      harness's own recognized interactive-prompt signature (a trust
+#      dialog, sign-in screen, or first-run menu - fm_busy_launch_prompt_parked
+#      owns the per-harness table). That combination classifies unknown
+#      launch-prompt instead: the launch never actually started the brief, so
+#      it must not read as proof of an active turn. A record that has
+#      advanced past fm-spawn (any real hook event) is NEVER reclassified
+#      this way, however its rendered tail looks, so a genuinely working turn
+#      keeps its ordinary busy verdict and the general BUSY_TURN_MAX_SECS
+#      bound is unchanged.
 #   4. no record at all: herdr's native busy verdict is trusted as busy
 #      (generation state is sufficient for busy, not for idle), then the
 #      muse session-log and cursor transcript pull sources, then the
@@ -213,6 +226,7 @@ fm_busy_sources_for_harness() {  # <harness>
       ;;
     opencode*) adapter=opencode-plugin ;;
     gemini*) adapter=gemini-hook ;;
+    devin) adapter=devin-hook ;;
     pi|pi-signed) adapter=pi-ext ;;
     omp) adapter=omp-ext ;;
     agy*) adapter=agy-hook ;;
@@ -979,7 +993,12 @@ fm_busy_classify_semantic() {  # <backend> <target> <harness> <id> <state-dir> [
     out=${out#* }
     r_source=${out%% *}
     if fm_busy_source_trusted "$harness" "$r_source"; then
-      printf '%s %s' "$r_state" "$r_source"
+      if [ "$r_state" = busy ] && [ "$r_source" = fm-spawn ] && [ -n "$tail40" ] \
+        && printf '%s' "$tail40" | fm_busy_launch_prompt_parked "$harness"; then
+        printf 'unknown launch-prompt'
+      else
+        printf '%s %s' "$r_state" "$r_source"
+      fi
     else
       printf 'unknown source-mismatch'
     fi
@@ -1104,7 +1123,8 @@ fm_busy_classify_live() {  # <backend> <target> <harness> <id> <state-dir> [expe
 # fm_busy_classify_meta: classify a task from its recorded metadata, so every
 # consumer resolves backend, target, and harness the same way instead of
 # re-deriving them. Requires fm-backend.sh to be sourced. <tail40> is
-# optional pre-captured plain output reused by the Grok arm.
+# optional pre-captured plain output reused by the contract's rendered-text
+# checks: the Grok/Rovo/AGY busy fallbacks and the launch-prompt backstop.
 fm_busy_classify_meta() {  # <meta-file> <id> <state-dir> [tail40]
   local meta=$1 id=$2 state=$3 tail40=${4-} backend target harness
   [ -f "$meta" ] || { printf 'unknown missing'; return 0; }

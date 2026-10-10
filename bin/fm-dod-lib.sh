@@ -1,13 +1,47 @@
 #!/usr/bin/env bash
-# Single owner of a ship task's mode-specific "Definition of done" block.
+# Single owner of a ship task's mode-specific "Definition of done" block and of
+# the named-head reachability gate that accepts a ship `done:` claim.
 # Sourced by bin/fm-brief.sh, which renders it into a generated ship brief, and by
 # bin/fm-promote.sh, which renders it into the ship instructions a promoted scout
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> prints the block on
-# stdout with no trailing blank line. The caller validates the mode; an unknown
-# mode is refused rather than silently rendered as the pipeline contract.
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
+# prints the block on stdout with no trailing blank line. The caller validates the
+# mode; an unknown mode is refused rather than silently rendered as the pipeline
+# contract.
+# The optional third argument is the task's full ship-branch name (a project's
+# registered prefix may replace the legacy `fm/` one); it defaults to `fm/<task-id>`
+# and is the immutable task branch rendered in every delivery contract.
+# The optional fifth argument is the task's base branch from bin/fm-brief.sh
+# --base-branch; empty means the repository default. A named base is the branch
+# the worker starts from, never pushes to, and targets with its pull request, and
+# fm_base_branch_valid refuses it where no pull request carries the work.
+# Callers of the gate are bin/fm-crew-state.sh (current-state done),
+# bin/fm-pr-check.sh (PR registration), and bin/fm-inactive-reconcile.sh
+# (secondmate ledger-first publish of a child done). A ship `done:` is not
+# accepted while the named head exists only in the worker's disposable copy.
+# The check tests that head, not whether some branch moved. In no-mistakes
+# mode the pre-validation `done: {summary}` is the pipeline handoff and is
+# not gated; only the later CI-ready `done: PR <url> checks green` is, or on a
+# Gerrit project the later `done: PR <change url> published for review`. The
+# named head is the worker copy's HEAD, except that a done naming the task's
+# recorded pr= passes when the forge holds that head: a forge-reported
+# pr_head= in no-mistakes mode, or a recorded merge
+# (state/<id>.pr-poll-merge-notified). A push to Gerrit's refs/for/ leaves no
+# ref a fetch can see, so a done naming a Gerrit change skips the remote-tracking
+# reachability test entirely: it passes when that change is already the task's
+# recorded pr=, which bin/fm-pr-check.sh writes only after this gate accepted it
+# at arming, and otherwise only when a live read shows the change's current
+# patch set carrying the worker copy's HEAD tree. A published-for-review report
+# whose URL is not a canonical Gerrit change is refused outright. A squash is a new commit on the
+# server's base, so the tree rather than the commit is what names the published
+# content. In no-mistakes mode that live read is preceded by
+# fm_dod_nm_custody_returned: a copy that publishes before recovering the
+# pipeline's fix commits agrees with its own unfixed patch set, so the copy must
+# also hold the result of a passed run. These live reads are the one check at the ready
+# decision; a later rebase or patch set on the server does not revoke an armed
+# task's done. Teardown's landed-work test remains the complete discard gate.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # This file is also the single owner of the brief scope-discipline contract
@@ -49,25 +83,136 @@
 # refers to is written into it as substance, never left as a pointer.
 # bin/fm-brief.sh scaffolds those two `# Task` subsections; bin/fm-spawn.sh and
 # bin/fm-promote.sh refuse leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders
+# and a `## Captain's intent` line opening with a Captain label or address
 # through the helpers below. Other mentions of `--intent` point here rather than
 # restating the rule.
 # Every heredoc here stays outside a command substitution: `VAR=$(cat <<EOF ...)`
 # breaks parsing of the whole file on Bash 3.2 (tests/fm-brief.test.sh).
 # fm_brief_worker_role owns the ship/scout role scope. bin/fm-spawn.sh is its one
-# emitter, supplying it to every ship/scout launch brief and never to a
-# secondmate charter. Like fm_brief_intent_overlay it is a distinctly titled
-# launch section that states its own precedence for Firstmate tasks, so a brief
-# that authors its own role wording is superseded rather than duplicated.
+# emitter, supplying it first in every ship/scout launch brief and never to a
+# secondmate charter. It names the one task-owned steering inbox without
+# relaxing isolation from every other home's endpoint namespace. Like
+# fm_brief_intent_overlay it is a distinctly titled launch section that states
+# its own precedence, so a brief or project instruction that authors a
+# conflicting role is superseded rather than duplicated.
+# The code root argument is the Firstmate checkout that holds
+# .agents/skills/firstmate-coding-guidelines/SKILL.md. A worker in a Firstmate
+# worktree loads that skill by name from its own checkout. A worker whose
+# session does not register the skill, such as one in another project's
+# worktree, cannot, so the role also names the file as the fallback to read;
+# the Claude launch grants the skills directory that holds it.
+# fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
+# ordinary ship brief and the durable contract written during scout promotion.
+# It takes the same optional trailing forge argument, because the rule that keeps
+# a worker off a remote is exactly the rule that changes when the forge does.
 
-fm_brief_worker_role() {
+# shellcheck source=bin/fm-pr-lib.sh
+. "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-pr-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-classify-lib.sh"
+# shellcheck source=bin/fm-nm-run-lib.sh
+. "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-brief-heading-lib.sh
+. "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-brief-heading-lib.sh"
+
+fm_brief_worker_role() {  # <state-dir> <task-id> <code-root>
+  local state=$1 task_id=$2 root=$3
   cat <<'EOF'
 # Current worker role contract
-When this task works on Firstmate itself, this section supersedes every earlier brief instruction about your role and identity.
-When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is the primary/secondmate supervisor's contract: follow this brief instead of that supervisor contract.
-For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
-This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
-Other projects retain their own instructions unchanged.
+You are a crewmate: an autonomous worker agent managed by firstmate.
+This section establishes your current identity before every project or task instruction below and supersedes any conflicting role identity in those instructions.
+Do the assigned work yourself and report only to firstmate; do not adopt a firstmate or secondmate supervisor identity, delegate the task, run fleet supervision, or address the captain.
 EOF
+  printf "Your steering inbox is \`%s/%s.inbox\`; this exact path belongs to your current task even when it is outside the worktree or under the supervising firstmate home, so read and acknowledge its messages and do not reject it as another home's state.\n" "$state" "$task_id"
+  cat <<'EOF'
+Never inspect or change any other home's endpoint namespace; this authorization is limited to the exact task paths named by this brief.
+When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
+Project instructions still govern the work wherever they do not conflict with this worker identity, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+EOF
+  printf "If the \`firstmate-coding-guidelines\` skill name does not resolve in this session, read \`%s/.agents/skills/firstmate-coding-guidelines/SKILL.md\` instead.\n" "$root"
+}
+
+# Closed-set gate shared by every forge-aware renderer and bin/fm-brief.sh, so a
+# caller cannot reach a half-rendered contract. local-only is refused rather than
+# rendered with an inert annotation: it publishes nothing, and its landing
+# fast-forwards local main with content the review server has never seen.
+fm_forge_valid_for_mode() {  # <forge> <mode> <caller>
+  local forge=$1 mode=$2 caller=$3
+  case "$forge" in
+    none|gerrit) ;;
+    *)
+      echo "error: $caller: unknown forge '$forge' (expected none or gerrit)" >&2
+      return 1 ;;
+  esac
+  if [ "$forge" != none ] && [ "$mode" = local-only ]; then
+    echo "error: $caller: forge=$forge cannot ship mode=local-only - that mode publishes nothing, so a forge has no meaning there, and its landing would fast-forward local main with content the review server has never seen; ship no-mistakes or direct-PR, which publish through the forge" >&2
+    return 1
+  fi
+  return 0
+}
+
+# A task's optional base branch replaces the repository default as the branch
+# its copy starts from and its pull request targets. bin/fm-brief.sh records it
+# as a "Base branch: <name>" line under the brief's `# Setup` heading,
+# bin/fm-spawn.sh takes it as --base-branch, refuses a brief whose Base branch
+# lines (fm_brief_base_branches) disagree, and records base_branch= in the task
+# metadata, and every later consumer reads that metadata field. It is
+# refused on local-only, whose landing fast-forwards local main, and on a Gerrit
+# forge, whose publish path targets the change's own branch.
+fm_base_branch_valid() {  # <base> <mode> <forge> <caller>
+  local base=$1 mode=$2 forge=$3 caller=$4
+  [ -n "$base" ] || return 0
+  if [ "${base#-}" != "$base" ] || ! git check-ref-format --branch "$base" >/dev/null 2>&1; then
+    echo "error: $caller: base branch '$base' is not a valid git branch name" >&2
+    return 1
+  fi
+  if [ "$mode" = local-only ]; then
+    echo "error: $caller: a base branch cannot ship mode=local-only, whose landing fast-forwards local main; ship no-mistakes or direct-PR, which open a pull request against the base" >&2
+    return 1
+  fi
+  if [ "$forge" != none ]; then
+    echo "error: $caller: a base branch is not supported on forge=$forge" >&2
+    return 1
+  fi
+  return 0
+}
+
+# Print the value of every "Base branch: <name>" line that directly follows the
+# base-variant Setup sentence bin/fm-brief.sh writes; return 1 when there is
+# none. Any other "Base branch:" line is prose and ignored.
+fm_brief_base_branches() {  # <brief>
+  awk '
+    setup && sub(/^Base branch: /, "") { print; n++ }
+    { setup = /^You are in a disposable git worktree of .*, at a detached HEAD on a clean copy of its base branch\.$/ }
+    END { exit !n }
+  ' "$1"
+}
+
+fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>] [<base>]
+  local mode=$1 id=$2 forge=${4:-none} base=${5:-}
+  local branch=${3:-fm/$id} target='the default branch'
+  fm_forge_valid_for_mode "$forge" "$mode" fm_ship_rule_one || return 1
+  fm_base_branch_valid "$base" "$mode" "$forge" fm_ship_rule_one || return 1
+  [ -z "$base" ] || target="the base branch \`$base\` or the default branch"
+  if [ "$forge" = gerrit ]; then
+    printf '%s\n' "1. Never push with git and never create a change except through the one \`gerrit-axi publish --squash\` your Definition of done names. Never run \`gerrit-axi submit\`, never vote or review a change by any path, including \`gerrit review\` or a label option on a push, and never abandon one: a human reviewer approves and submits it on the server."
+    return 0
+  fi
+  case "$mode" in
+    direct-PR)
+      printf '%s\n' "1. Never push to $target (push only your \`$branch\` branch). Never merge a PR."
+      ;;
+    local-only)
+      printf '%s\n' "1. Never push to any remote and never open a PR. Work only on your \`$branch\` branch; firstmate handles the merge into local \`main\`."
+      ;;
+    no-mistakes)
+      printf '%s\n' "1. Never push to $target. Never merge a PR."
+      ;;
+    *)
+      echo "error: fm_ship_rule_one: unknown delivery mode '$mode'" >&2
+      return 1
+      ;;
+  esac
 }
 
 # Return 0 when a Task subsection still consists only of its scaffold
@@ -82,24 +227,15 @@ fm_brief_task_placeholders_present() {  # <file>
   return 1
 }
 
-# Parse an exact ATX heading outside fenced blocks. Body mode prints through
-# the next unfenced heading at the same or a higher level; present mode reports
-# whether the heading exists.
-fm_brief_heading_parse() {  # <file|-> <heading> <body|present>
-  local file=$1 heading=$2 mode=$3 input=$1
-  if [ "$file" = - ]; then
-    input=/dev/stdin
-  else
-    [ -f "$file" ] || { [ "$mode" = body ]; return; }
-  fi
-  awk -v heading="$heading" -v mode="$mode" '
-    BEGIN {
-      target_level = 0
-      while (substr(heading, target_level + 1, 1) == "#") target_level++
-    }
+# Print the words of every provenance-marked line in a legacy `# Task` body.
+# The marker is read the way bin/fm-brief-heading-lib.sh reads a heading: a
+# line inside a ``` or ~~~ fenced block, or indented four spaces or a tab as an
+# indented example, is never a marked line, so a fenced `Captain:` sample cannot
+# pass the provenance gate as the ship contract's intent (issue 3608).
+fm_brief_marked_captain_words() {  # <task-body>
+  printf '%s\n' "$1" | awk '
     {
-      line = $0
-      scan = line
+      scan = $0
       spaces = 0
       while (spaces < 3 && substr(scan, 1, 1) == " ") {
         scan = substr(scan, 2)
@@ -110,68 +246,21 @@ fm_brief_heading_parse() {  # <file|-> <heading> <body|present>
       if (marker == "`" || marker == "~") {
         while (substr(scan, marker_len + 1, 1) == marker) marker_len++
       }
-      is_fence = marker_len >= 3
-      was_fenced = fenced
-
-      if (is_fence) {
-        rest = substr(scan, marker_len + 1)
+      if (marker_len >= 3) {
         if (!fenced) {
           fenced = 1
           fence_marker = marker
           fence_len = marker_len
-        } else if (marker == fence_marker && marker_len >= fence_len && rest ~ /^[[:space:]]*$/) {
+        } else if (marker == fence_marker && marker_len >= fence_len && substr(scan, marker_len + 1) ~ /^[[:space:]]*$/) {
           fenced = 0
         }
-      }
-
-      if (!found && !was_fenced && line == heading) {
-        found = 1
-        if (mode == "present") next
-        grab = 1
         next
       }
-      if (mode == "present" || !grab) next
-      if (is_fence || was_fenced) {
-        print line
-        next
+      if (fenced || substr(scan, 1, 1) ~ /^[ \t]$/) next
+      if (match(scan, /^(\[captain\]|Captain('\''s (words|ask|intent))?:)[[:space:]]*/)) {
+        words = substr(scan, RLENGTH + 1)
+        if (words ~ /[^[:space:]]/) print words
       }
-
-      level = 0
-      while (substr(scan, level + 1, 1) == "#") level++
-      if (level > 0 && level <= target_level && substr(scan, level + 1, 1) ~ /^[[:space:]]?$/) exit
-      print line
-    }
-    END {
-      if (mode == "present" && !found) exit 1
-    }
-  ' "$input"
-}
-
-fm_brief_heading_body() {  # <file> <heading>
-  fm_brief_heading_parse "$1" "$2" body
-}
-
-fm_brief_heading_present() {  # <file> <heading>
-  fm_brief_heading_parse "$1" "$2" present >/dev/null
-}
-
-fm_brief_task_heading_body() {  # <file> <heading>
-  local task
-  task=$(fm_brief_heading_body "$1" "# Task")
-  printf '%s\n' "$task" | fm_brief_heading_parse - "$2" body
-}
-
-fm_brief_task_heading_present() {  # <file> <heading>
-  local task
-  task=$(fm_brief_heading_body "$1" "# Task")
-  printf '%s\n' "$task" | fm_brief_heading_parse - "$2" present >/dev/null
-}
-
-fm_brief_marked_captain_words() {  # <task-body>
-  printf '%s\n' "$1" | awk '
-    match($0, /^[[:space:]]*Captain('\''s (words|ask|intent))?:[[:space:]]*/) {
-      words = substr($0, RLENGTH + 1)
-      if (words ~ /[^[:space:]]/) print words
     }
   '
 }
@@ -181,16 +270,14 @@ fm_brief_intent_overlay() {  # <captain-intent>
 
 # Current no-mistakes intent contract
 This section supersedes every earlier brief instruction about constructing `--intent`, but not later clarifications actually supplied by the captain.
-Use the serialized captain intent below plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
+Use everything under `## Captain intent authorized for --intent` through the end of this brief, including any nested subheadings but excluding that heading, plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
+Preserve those words without adding speaker labels or direct address.
+Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
+The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent below refers to into its substance rather than passing the pointer.
 
 ## Captain intent authorized for --intent
 EOF
   printf '%s\n' "$1"
-  cat <<'EOF'
-
-Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
-The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent above refers to into its substance rather than passing the pointer.
-EOF
 }
 
 # Accept the current two-subsection contract only when both bodies have content;
@@ -296,7 +383,7 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
   local data=$1 id=$2
   cat <<EOF
    For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to \`$data/$id/nm-<run>-findings.txt\`, then report the gate with
-   \`needs-decision [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=$data/$id/nm-<run>-findings.txt\`
+   \`needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=$data/$id/nm-<run>-findings.txt\`
    naming every ask-user finding id from that gate. The status line only points at the file; it never restates or summarizes a finding's content.
 EOF
 }
@@ -342,17 +429,17 @@ Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
-When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection plus any later words the captain actually said.
-For a legacy brief with no such subsection, include only words explicitly labeled \`Captain:\`, \`Captain's words:\`, \`Captain's ask:\`, or \`Captain's intent:\`; never copy its mixed \`# Task\` wholesale. If it has no provenance-marked captain words, stop and ask firstmate instead of starting no-mistakes.
+When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
+Preserve the actual words without adding speaker labels or direct address; the subsection heading supplies provenance outside the pipeline input.
+For a legacy brief with no such subsection, include only words on lines marked \`[captain] \`, excluding that metadata prefix; never copy its mixed \`# Task\` wholesale.
+If it has no provenance-marked captain words, stop and ask firstmate instead of starting no-mistakes.
 Do not include \`## Firstmate spec\`, later Firstmate build constraints, or your own decisions and tradeoffs.
 The \`--intent\` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
 When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into \`--intent\` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.
 This replaces the no-mistakes skill's advice to enrich \`--intent\` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
-One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
-So background the drive call and poll \`no-mistakes axi status\` from a separate call instead of sitting in one blocking hold your harness will kill.
-Where a harness's own command limit is not established, assume it bounds commands and use that same background-and-poll shape.
+$drive_block
 A killed or timed-out call is never evidence the daemon died: the daemon accepts your response immediately and runs the round in the background, so the call was only ever waiting for a read while the run kept working.
 Reattach and keep going rather than reporting the pipeline blocked; rule 7 owns the checks that decide when a pipeline block is real.
 
@@ -372,4 +459,228 @@ EOF
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
       return 1 ;;
   esac
+}
+
+# 0 when <sha> is contained in a ref under <namespace> in <repo>.
+# --contains tests that exact commit, so a branch that moved to a different
+# tip does not count.
+fm_dod_ref_contains() {  # <repo> <ref-namespace> <sha>
+  local repo=$1 ns=$2 sha=$3 hit
+  [ -n "$repo" ] && [ -d "$repo" ] || return 1
+  [ -n "$sha" ] || return 1
+  hit=$(git -C "$repo" for-each-ref --format='%(refname)' --contains="$sha" --count=1 "$ns" 2>/dev/null) || return 1
+  [ -n "$hit" ]
+}
+
+# 0 when a done: note reports the no-mistakes CI-ready PR (`PR <url> checks
+# green`, with any surrounding text). bin/fm-crew-state.sh takes its CI-ready
+# path on this same test, so every CI-ready line it acts on is gated.
+fm_dod_note_reports_ci_ready() {  # <note>
+  case "$1" in
+    *PR*"checks green"*|*"checks green"*PR*) return 0 ;;
+  esac
+  return 1
+}
+
+# 0 when a done: note reports a change published to a Gerrit review server
+# (`PR <change url> published for review`), which is the ready report of both
+# publishing modes on that forge.
+fm_dod_note_reports_published_change() {  # <note>
+  case "$1" in
+    *PR*"published for review"*) return 0 ;;
+  esac
+  return 1
+}
+
+# 0 when this ship done: is one the named-head gate must accept or refuse.
+# no-mistakes pre-validation done: is the pipeline handoff and is not gated.
+# Empty mode is treated as no-mistakes, the unregistered-project default.
+fm_dod_should_gate_ship_done() {  # <kind> <mode> <line>
+  local note
+  [ "$1" = ship ] || return 1
+  [ "$(status_line_verb "$3")" = "done" ] || return 1
+  note=$(status_line_note "$3")
+  case "$2" in
+    direct-PR|local-only) return 0 ;;
+    no-mistakes|'')
+      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The PR/MR URL from a `done: PR <url>...` note, or empty.
+fm_dod_pr_url_from_done_note() {  # <note>
+  local note=$1 url
+  case "$note" in
+    PR\ https://*|PR\ http://*) ;;
+    *) return 1 ;;
+  esac
+  url=${note#PR }
+  url=${url%% *}
+  printf '%s\n' "$url"
+}
+
+# The last recorded <key>= value in <meta>, or empty.
+fm_dod_meta_value() {  # <meta> <key>
+  grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-
+}
+
+# 0 when the forge's head for a PR is the head the done names. In no-mistakes
+# mode the pipeline pushes it, possibly with commits the worker clone never
+# fetched. A direct-PR worker pushes from its own copy, so its named head stays
+# that copy's HEAD and a later unpushed commit is refused.
+fm_dod_forge_head_is_named_head() {  # <mode>
+  case "$1" in
+    no-mistakes|'') return 0 ;;
+  esac
+  return 1
+}
+
+# 0 when <url> is the task's recorded pr= and the forge holds its head:
+# bin/fm-pr-check.sh recorded the forge's pr_head= for it in no-mistakes mode,
+# or the merge poll recorded it merged (<state>/<id>.pr-poll-merge-notified,
+# bin/fm-pr-lib.sh). That head is stored outside the worker copy even when
+# this clone never fetched it or fleet sync pruned its branch after a squash
+# merge. A recorded Gerrit change needs neither: its pr= is written only after
+# the live published-tree check accepted it.
+fm_dod_recorded_pr_on_forge() {  # <state> <id> <meta> <mode> <url>
+  local state=$1 id=$2 meta=$3 mode=$4 url=$5
+  [ -n "$meta" ] && [ -f "$meta" ] || return 1
+  [ "$(fm_dod_meta_value "$meta" pr)" = "$url" ] || return 1
+  if fm_dod_forge_head_is_named_head "$mode" && [ -n "$(fm_dod_meta_value "$meta" pr_head)" ]; then
+    return 0
+  fi
+  ( fm_pr_url_parse "$url" \
+    && { [ "$FM_PR_PROVIDER" = gerrit ] \
+      || fm_pr_poll_merge_already_notified "$state" "$id" \
+        "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER"; } )
+}
+
+# 0 when <url> names a Gerrit change whose current patch set carries the tree of
+# the worktree's HEAD. The revision is read live and bounded, because the server
+# is the only place a refs/for/ push leaves it, and it must already be an object
+# in the worktree - the publish that made it ran there - so a patch set pushed
+# from elsewhere matches only once this copy holds it.
+fm_dod_gerrit_change_carries_head() {  # <worktree> <url>
+  local wt=$1 url=$2 revision head_tree revision_tree lib
+  fm_pr_url_parse "$url" || return 1
+  [ "$FM_PR_PROVIDER" = gerrit ] || return 1
+  lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-pr-lib.sh"
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  revision=$(fm_run_timed 10 bash -c '
+    . "$1"
+    fm_pr_gerrit_read_revision "$2" "$3" || exit 1
+    printf "%s\n" "$FM_PR_RECORD_REVISION"
+  ' _ "$lib" "$FM_PR_HOST" "$FM_PR_NUMBER" 2>/dev/null) || return 1
+  fm_pr_head_valid "$revision" || return 1
+  head_tree=$(git -C "$wt" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null) || return 1
+  revision_tree=$(git -C "$wt" rev-parse --verify --quiet "$revision^{tree}" 2>/dev/null) || return 1
+  [ -n "$head_tree" ] && [ "$head_tree" = "$revision_tree" ]
+}
+
+# 0 when the worker copy holds the result of its own passed no-mistakes run:
+# the run's outcome is passed, passed-with-skips or passed-with-override (the
+# passing set bin/fm-crew-state.sh reads), that pipeline owns no unreturned work (branch_sync.next_action.code is neither
+# recover_custody nor continue_active_run) and HEAD's tree equals the tree of the
+# pipeline's current head resolved in this copy. On a Gerrit project push is
+# skipped, so a fix round's commits stay in the gate until custody is recovered,
+# and a copy that publishes before recovering has a server patch set that agrees
+# with its own unfixed HEAD - the published-tree check alone accepts it. Trees
+# are compared rather than ancestry because the publish stamps a Change-Id and
+# rewrites the branch's messages. An unreadable status refuses, as an unreadable
+# change does. 1 when refused; stdout then holds a one-line reason.
+fm_dod_nm_custody_returned() {  # <worktree>
+  local wt=$1 out outcome code pipeline_head head_tree pipeline_tree
+  if ! out=$(fm_nm_run_checked "$wt" 15 axi status) || ! printf '%s\n' "$out" | grep -q '^run:'; then
+    printf '%s\n' "the no-mistakes run for this copy could not be read, so its fixes cannot be proven recovered"
+    return 1
+  fi
+  outcome=$(fm_nm_strip_quotes "$(fm_nm_field "$out" outcome)")
+  case "$outcome" in
+    passed|passed-with-skips|passed-with-override) ;;
+    *)
+      printf '%s\n' "the no-mistakes run for this copy has outcome ${outcome:-(none)}, not a pass, so the published work is not validated"
+      return 1 ;;
+  esac
+  code=$(fm_nm_branch_sync_nested "$out" next_action code)
+  case "$code" in
+    recover_custody|continue_active_run)
+      printf '%s\n' "the no-mistakes run still holds this copy's branch (next action $code), so its fixes are not recovered into the published work"
+      return 1 ;;
+  esac
+  pipeline_head=$(fm_nm_branch_sync_nested "$out" pipeline current_head)
+  [ -n "$pipeline_head" ] || pipeline_head=$(fm_nm_strip_quotes "$(fm_nm_field "$out" head_sha)")
+  head_tree=$(git -C "$wt" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null) || head_tree=
+  pipeline_tree=
+  if fm_pr_head_valid "$pipeline_head"; then
+    pipeline_tree=$(git -C "$wt" rev-parse --verify --quiet "$pipeline_head^{tree}" 2>/dev/null) || pipeline_tree=
+  fi
+  if [ -z "$head_tree" ] || [ -z "$pipeline_tree" ] || [ "$head_tree" != "$pipeline_tree" ]; then
+    printf '%s\n' "this copy's HEAD does not carry the no-mistakes run's result ${pipeline_head:-(unknown head)}, so the pipeline's fixes are not in the published work"
+    return 1
+  fi
+  return 0
+}
+
+# 0 when <sha> is reachable from a ref that survives the disposable worktree:
+# any remote-tracking ref, or - for local-only - heads in the project clone.
+fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> <sha>
+  local wt=$1 project=$2 mode=$3 sha=$4
+  fm_dod_ref_contains "$wt" refs/remotes "$sha" && return 0
+  fm_dod_ref_contains "$project" refs/remotes "$sha" && return 0
+  [ "$mode" = local-only ] && fm_dod_ref_contains "$project" refs/heads "$sha"
+}
+
+# 0 when <line> is not a ship done: to gate, when it names the task's recorded
+# PR whose head the forge holds, when it names a Gerrit change whose current
+# patch set carries the worker copy's HEAD tree, or otherwise when its named
+# head - the worker copy's HEAD - is reachable outside that disposable copy. A
+# published-for-review report that names no Gerrit change is refused.
+# There is no free-text SHA scan: a SHA that happens to appear in the note is
+# not the named head. 1 when
+# the claim is refused; stdout then holds a one-line reason and no other
+# output. <state> <id> <meta> supply pr=,
+# pr_head=, and the merge-notified marker; <meta> may be a captured copy
+# (bin/fm-fleet-snapshot.sh), so the marker is read from <state>.
+fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
+  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
+  fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
+  if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
+    && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
+    return 0
+  fi
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    printf '%s\n' "named head cannot be verified: worktree missing"
+    return 1
+  fi
+  if ! git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
+    printf '%s\n' "named head cannot be verified: worktree is not a git copy"
+    return 1
+  fi
+  sha=$(git -C "$wt" rev-parse --verify HEAD 2>/dev/null) || {
+    printf '%s\n' "named head could not be resolved"
+    return 1
+  }
+  gerrit=0
+  [ -n "$url" ] && fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = gerrit ] && gerrit=1
+  if [ "$gerrit" = 0 ] && fm_dod_note_reports_published_change "$(status_line_note "$line")"; then
+    printf '%s\n' "the published-for-review report does not name a Gerrit change in the canonical https://<host>/c/<project>/+/<number> form"
+    return 1
+  fi
+  if [ "$gerrit" = 1 ]; then
+    case "$mode" in
+      no-mistakes|'')
+        fm_dod_nm_custody_returned "$wt" || return 1 ;;
+    esac
+    if fm_dod_gerrit_change_carries_head "$wt" "$url"; then
+      return 0
+    fi
+    printf '%s\n' "named head $sha is not the published content of $url: the change's current patch set does not carry this copy's HEAD tree, or it could not be read"
+    return 1
+  fi
+  if fm_dod_named_head_reachable_outside_worktree "$wt" "$project" "$mode" "$sha"; then
+    return 0
+  fi
+  printf '%s\n' "named head $sha is unreachable outside the worker copy"
+  return 1
 }

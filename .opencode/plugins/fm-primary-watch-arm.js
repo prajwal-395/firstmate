@@ -1,14 +1,28 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.js";
 
+// Supervision host: a home opted in with config/supervision-host
+// (docs/configuration.md "Supervision host" owns the gate, which
+// bin/fm-supervision-engine-lib.sh enabled answers; config/supervision-host-off opts out) spawns
+// bin/fm-supervision-host.sh park --restart in the arm's place, which takes
+// away-posture wakes itself and closes only when main is needed; its header
+// owns the output read here. A "supervision-host:" line is actionable like a
+// wake line, and the delivered message carries every such line in order while
+// wake lines keep an eight-line cap. The host prints the first cycle's status
+// line as soon as it is verified, so readiness and the handling handoff work
+// as they do for the arm, with a longer readiness budget for the host's own
+// startup. On a home that does not run the host nothing below changes.
 const COORDINATOR_KEY = "__firstmateOpenCodeWatchArm";
 // 35s on Windows so the budget stays above arm's MSYS confirm default (30s in
 // bin/fm-watch-arm.sh): a slow but successful Git Bash cold start must not be
 // SIGTERMed mid-confirmation. Conditioned on win32 so other platforms keep 12s.
 const ARM_READY_TIMEOUT_DEFAULT_MS = process.platform === "win32" ? 35000 : 12000;
 const ARM_READY_TIMEOUT_MS = positiveInteger("FM_OPENCODE_ARM_READY_TIMEOUT_MS", ARM_READY_TIMEOUT_DEFAULT_MS);
+const HOST_READY_TIMEOUT_MS = Math.max(ARM_READY_TIMEOUT_MS, 30000);
+const WAKE_LINE = /^(signal:|stale:|check:|heartbeat($|:))/;
+const HOST_LINE = /^supervision-host:/;
 const ARM_RETIRE_TIMEOUT_MS = positiveInteger("FM_WATCH_ARM_RETIRE_TIMEOUT_MS", 1000);
 const REARM_RETRY_BASE_MS = positiveInteger("FM_WATCH_REARM_RETRY_BASE_MS", 250);
 const REARM_RETRY_MAX_MS = positiveInteger("FM_WATCH_REARM_RETRY_MAX_MS", 4000);
@@ -24,6 +38,7 @@ let armClose = new WeakMap();
 let armReadiness = new WeakMap();
 let armHandoff = new WeakMap();
 let armRecovery = new WeakMap();
+let armHostMode = new WeakMap();
 
 function positiveInteger(name, fallback) {
   const value = Number(process.env[name]);
@@ -135,14 +150,32 @@ async function isPrimaryRoot(root, home) {
   return gitDir.stdout.trim() === commonDir.stdout.trim();
 }
 
+// bin/fm-supervision-lib.sh's fm_supervision_needed is the single owner of the
+// arm condition set (the turn-end guard decides with the same shared
+// predicate), so this plugin can never disagree with the guard again. Away
+// mode stays a local decline: its daemon owns supervision. X-mode homes arm
+// before their relay poll is registered in the state directory.
 function shouldArm(paths) {
   if (existsSync(`${paths.state}/.afk`)) return false;
   if (existsSync(`${paths.config}/x-mode.env`)) return true;
-  try {
-    return readdirSync(paths.state).some((name) => name.endsWith(".meta"));
-  } catch {
-    return false;
-  }
+  return supervisionNeeded(paths);
+}
+
+// fm_supervision_needed <state-dir> exits 0 exactly when the shared predicate
+// says the home needs supervision; exit 0 means arm here.
+function supervisionNeeded(paths) {
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      '. "$1/bin/fm-supervision-lib.sh" && fm_supervision_needed "$2"',
+      "fm-primary-watch-arm",
+      paths.root,
+      paths.state,
+    ],
+    { stdio: "ignore" },
+  );
+  return result.status === 0;
 }
 
 async function sessionOwnsLock(paths) {
@@ -164,9 +197,54 @@ async function sessionOwnsLock(paths) {
   return false;
 }
 
-function classifyArmClose(stdout, stderr, code, signal) {
+// An away record, never quiet mode's (bin/fm-afk-contract.sh mode owns that
+// reading): a record whose mode cannot be read as quiet reads as away.
+function awayRecordPresent(paths) {
+  if (!existsSync(`${paths.state}/.afk-contract`)) return false;
+  const result = spawnSync("bash", [`${paths.root}/bin/fm-afk-contract.sh`, "mode"], {
+    encoding: "utf8",
+    env: { ...process.env, FM_STATE_OVERRIDE: paths.state },
+  });
+  return String(result.stdout || "").trim() !== "quiet";
+}
+
+// Whether this home runs the supervision host for an OpenCode primary; the
+// gate's owner answers, and a query that cannot run reads as no host.
+function hostModeEnabled(paths) {
+  const result = spawnSync("bash", [`${paths.root}/bin/fm-supervision-engine-lib.sh`, "enabled", paths.config, "opencode"], {
+    stdio: "ignore",
+  });
+  return result.status === 0;
+}
+
+// The host-mode wake message: every "supervision-host:" line in order, wake
+// lines capped at eight, and the away note while an away record exists.
+function hostWakeMessage(paths, combined) {
+  let shown = 0;
+  const lines = combined.split(/\r?\n/).filter((line) => {
+    if (HOST_LINE.test(line)) return true;
+    if (WAKE_LINE.test(line) && shown < 8) {
+      shown += 1;
+      return true;
+    }
+    return false;
+  });
+  if (lines.length === 0) return "";
+  if (awayRecordPresent(paths)) {
+    lines.push("This wake comes from automatic supervision under the away-posture record, not from the captain: it is not a return, so handle it under the away posture.");
+  }
+  return lines.join("\n");
+}
+
+function classifyArmClose(paths, hostMode, stdout, stderr, code, signal) {
   const combined = `${stdout}\n${stderr}`;
-  const reason = combined.split(/\r?\n/).find((line) => /^(signal:|stale:|check:|heartbeat($|:))/.test(line));
+  if (hostMode) {
+    const message = hostWakeMessage(paths, combined);
+    if (message) return { kind: "actionable", message };
+    const stoodDown = combined.split(/\r?\n/).find((line) => /^supervision-host stood down:/.test(line));
+    if (stoodDown) return { kind: "failure", message: `watcher: FAILED - ${stoodDown}` };
+  }
+  const reason = combined.split(/\r?\n/).find((line) => WAKE_LINE.test(line));
   if (reason) return { kind: "actionable", message: reason };
   const healthy = combined.split(/\r?\n/).find((line) => /^watcher: healthy\b/.test(line));
   if (healthy) {
@@ -184,9 +262,10 @@ function classifyArmClose(stdout, stderr, code, signal) {
     };
   }
   if (code && code !== 0) {
+    const script = hostMode ? "fm-supervision-host.sh" : "fm-watch-arm.sh";
     return {
       kind: "failure",
-      message: `watcher: FAILED - fm-watch-arm.sh exited ${code}${combined.trim() ? `\n${combined.trim()}` : ""}`,
+      message: `watcher: FAILED - ${script} exited ${code}${combined.trim() ? `\n${combined.trim()}` : ""}`,
     };
   }
   return {
@@ -195,9 +274,9 @@ function classifyArmClose(stdout, stderr, code, signal) {
   };
 }
 
-function observeArmOutput(stdout, stderr, settleReadiness) {
+function observeArmOutput(hostMode, stdout, stderr, settleReadiness) {
   const combined = `${stdout}\n${stderr}`;
-  if (combined.split(/\r?\n/).some((line) => /^(signal:|stale:|check:|heartbeat($|:))/.test(line))) {
+  if (combined.split(/\r?\n/).some((line) => WAKE_LINE.test(line) || (hostMode && HOST_LINE.test(line)))) {
     setArmStatus("wake");
     settleReadiness("wake");
     return;
@@ -377,6 +456,7 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
 
 function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
   setArmStatus("starting");
+  const hostMode = hostModeEnabled(paths);
   const env = {
     ...process.env,
     FM_HOME: paths.home,
@@ -389,6 +469,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     env,
     stdio: ["ignore", "pipe", "pipe", "pipe"],
   });
+  armHostMode.set(armChild, hostMode);
   child = armChild;
   let stdout = "";
   let stderr = "";
@@ -445,7 +526,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     settled = true;
     resolveClosed();
     releaseChild();
-    const classification = classifyArmClose(stdout, stderr, code, signal);
+    const classification = classifyArmClose(paths, hostMode, stdout, stderr, code, signal);
     settleReadiness(classification.kind === "actionable" ? "wake" : "failed");
     const predecessor = String(armChild.pid ?? "");
     if (classification.kind === "actionable") {
