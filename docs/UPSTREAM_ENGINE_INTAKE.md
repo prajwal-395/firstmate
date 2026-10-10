@@ -63,3 +63,43 @@ Ren-specific patch series belong under
 belong in Ren-owned crates, not here. Upstream source is checked out detached
 at an immutable SHA. Engine UI crates are never built: qualification builds
 the CLI and named test packages only.
+
+## Edition and license closure (Unit 8, measured 2026-10-10)
+
+Both headless integrations are public components: `engine.filmcraft_cli`
+and `engine.effectcraft_cli` in `THIRD_PARTY_NOTICES`, gated at runtime
+through `library/tools/engine_edition.py` (`require_engine` before the
+intake fetch/build in `upstream._qualify_engine` and before the corpus
+drives either CLI). Both editions run the same Ren model and adapter
+protocol; the public tree ships the adapter sources byte-identical and
+contains no personal-only asset and no engine UI crate
+(`tests/unit/context/test_product_editions.py`).
+
+Dependency closure, measured over `cargo tree -p <cli>` at the pinned
+revisions (FilmCraft CLI 0.5.0: 176 crates; EffectCraft CLI 0.7.0:
+352 crates):
+
+- All upstream workspace crates are MIT OR Apache-2.0 (workspace license).
+- Registry crates are MIT/Apache-2.0/BSD/Zlib/Unlicense/Unicode-3.0/ISC,
+  plus symphonia x13 MPL-2.0 (weak file-scoped copyleft, reached through
+  audio decode; commercial use with notice), self_cell
+  Apache-2.0 OR GPL-2.0-only (used under Apache-2.0), and
+  epaint_default_fonts (MIT OR Apache-2.0) AND OFL-1.1 AND
+  Ubuntu-font-1.0 (egui default fonts, EffectCraft closure only).
+- No GPL/AGPL/LGPL-only, noncommercial, or proprietary dependency was
+  found in either closure: nothing blocks public eligibility.
+- Both headless binaries embed the upstream OFL-1.1 fonts (Inter x5,
+  JetBrainsMono-Regular, NotoSerif-Regular via `include_bytes` in each
+  engine's `crates/text`); CRAFT_FONTS is empty (Ren sets no
+  `CRAFT_FONTS_DIR`). The FilmCraft whisper/download features stay off
+  (Ren installs default features), so no model is downloaded or bundled.
+- The ArtCraft name, wordmark, and logos in each repo's `docs/brand/`
+  are trademarks, not open source (`docs/brand/LICENSE-brand.txt`); Ren
+  packages no upstream source, docs, or marks.
+- FilmCraft's CLI closure holds no desktop UI crate (no ui-egui, egui,
+  eframe, winit, rfd, cpal, muda). EffectCraft's CLI links
+  effectcraft-ui-egui (eframe/egui/winit/wgpu) for its headless
+  `bench --ops` helper only; it has no window entry point and Ren invokes
+  only run/render/info/mcp. Ren builds neither desktop app nor web bundle:
+  the built package set is `library/tools/engine_edition.py`
+  `INTAKE_PACKAGES`, disjoint from `UI_PACKAGES` by test.

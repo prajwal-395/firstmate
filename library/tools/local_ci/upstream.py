@@ -318,6 +318,8 @@ def _qualify_engine(name: str, engine: dict, qualified_sha: str,
                     candidate_sha: str, workspace: Path, log,
                     prior_perf: dict | None = None) -> dict:
     from library.tools.local_ci import corpus as corpus_mod
+    from library.tools import engine_edition
+    engine_edition.require_engine(name, action="fetch")
     details = {"previous_qualified_sha": qualified_sha,
                "candidate_sha": candidate_sha, "patches": [], "steps": []}
     checkout = workspace / name
@@ -377,19 +379,20 @@ def _qualify_engine(name: str, engine: dict, qualified_sha: str,
         if checked["returncode"] != 0:
             details["error"] = f"{name} patch replay failed: {patch_file.name}"
             return details
-    package = "filmcraft-cli" if name == "filmcraft" else "effectcraft-cli"
-    built = _run(["cargo", "build", "--release", "-p", package, "-j", "4"],
+    cli_package = engine_edition.intake_packages(name)[0]
+    built = _run(["cargo", "build", "--release", "-p", cli_package, "-j", "4"],
                  checkout, log)
     details["steps"].append({"name": "cli_build", **built})
     if built["returncode"] != 0:
         details["error"] = f"{name} CLI build failed"
         return details
+    test_packages = engine_edition.intake_packages(name)
     tests = ([
-        ["cargo", "test", "--release", "-p", "filmcraft-interchange", "-j", "4"],
-        ["cargo", "test", "--release", "-p", "filmcraft-golden", "-j", "4"],
+        ["cargo", "test", "--release", "-p", test_packages[1], "-j", "4"],
+        ["cargo", "test", "--release", "-p", test_packages[2], "-j", "4"],
     ] if name == "filmcraft" else [
-        ["cargo", "test", "-p", "effectcraft-effects", "--lib", "-j", "4"],
-        ["cargo", "test", "-p", "effectcraft-cli", "-j", "4"],
+        ["cargo", "test", "-p", test_packages[1], "--lib", "-j", "4"],
+        ["cargo", "test", "-p", test_packages[0], "-j", "4"],
     ])
     failed_test = False
     for test_argv in tests:
@@ -399,7 +402,7 @@ def _qualify_engine(name: str, engine: dict, qualified_sha: str,
     if failed_test:
         details["error"] = f"{name} relevant crate tests failed"
         return details
-    cli_binary = checkout / "target" / "release" / package
+    cli_binary = checkout / "target" / "release" / cli_package
     if not cli_binary.is_file():
         details["error"] = f"{name} CLI binary missing after build"
         return details

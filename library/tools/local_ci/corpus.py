@@ -603,7 +603,13 @@ def run_corpus(cli_paths: dict[str, str], workdir: Path, log,
                prior_perf: dict | None = None,
                only: set[str] | None = None) -> dict:
     """Run every corpus case; raise CorpusRefused on anything unexpected."""
+    from library.tools import engine_edition
     corpus = load_corpus()
+    scoped = (only if only is not None else
+              {case["engine"] for case in corpus["cases"]}
+              | {workload["engine"] for workload in corpus["perf"]["workloads"]})
+    for scoped_engine in sorted(scoped):
+        engine_edition.require_engine(scoped_engine, action="load")
     fixtures = verify_fixtures(corpus)
     budgets = corpus["perf"]["budgets"]
     result: dict = {"corpus_version": corpus["corpus_version"],

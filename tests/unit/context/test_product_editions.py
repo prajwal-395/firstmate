@@ -1,9 +1,12 @@
 """The product edition is baked once and gates packaged/runtime components."""
 
+import inspect
+import json
 import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -23,6 +26,26 @@ RESTRICTED = {
 
 PUBLIC_OPTIONAL = {
     "python.praat_parselmouth",
+}
+
+ENGINE_COMPONENTS = {
+    "filmcraft": "engine.filmcraft_cli",
+    "effectcraft": "engine.effectcraft_cli",
+}
+
+ENGINE_UI_PACKAGES = {
+    "filmcraft",
+    "effectcraft",
+    "filmcraft-web",
+    "effectcraft-web",
+    "filmcraft-ui-egui",
+    "effectcraft-ui-egui",
+    "egui",
+    "eframe",
+    "winit",
+    "rfd",
+    "cpal",
+    "muda",
 }
 
 
@@ -230,3 +253,160 @@ def test_doctor_reports_the_product_edition(monkeypatch):
     check = doctor.edition_check()
     assert check.ok
     assert check.detail.startswith("public;")
+
+
+def _driver_pin(crate_dir: str, constant: str) -> str:
+    text = (ROOT / "native" / crate_dir / "src" / "lib.rs").read_text(
+        encoding="utf-8")
+    match = re.search(rf'{constant}\s*:\s*&str\s*=\s*"([^"]+)"', text)
+    assert match, f"{crate_dir}/src/lib.rs must pin {constant}"
+    return match.group(1)
+
+
+def test_engine_integrations_are_inventoried_public():
+    from library.tools import engine_edition
+
+    components = edition.read_components(ROOT)
+    text = (ROOT / "THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
+    manifest = json.loads(
+        (ROOT / "library" / "tools" / "upstream_engines.json").read_text(
+            encoding="utf-8"))
+
+    assert set(engine_edition.ENGINE_COMPONENTS.values()) == set(
+        ENGINE_COMPONENTS.values())
+    for engine, component_id in ENGINE_COMPONENTS.items():
+        entry = components[component_id]
+        assert entry.edition == edition.PUBLIC
+        pin = _driver_pin(
+            f"ren-{engine}",
+            "FILMCRAFT_REVISION" if engine == "filmcraft"
+            else "PINNED_EFFECTCRAFT_REV")
+        assert len(pin) == 40
+        assert manifest["engines"][engine]["qualified_sha"] == pin
+        block = re.search(
+            rf"component-id\s*:\s*{re.escape(component_id)}\b(.*?)(?="
+            r"^component-id\s*:|\Z)", text, re.MULTILINE | re.DOTALL)
+        assert block and "commercial  : ok" in block.group(1)
+
+
+def test_engine_edition_seam_gates_unknown_engine(monkeypatch):
+    from library.tools import engine_edition
+
+    for requested in (edition.PERSONAL, edition.PUBLIC):
+        monkeypatch.setenv(edition.EDITION_ENV, requested)
+        for engine, component_id in ENGINE_COMPONENTS.items():
+            assert engine_edition.require_engine(
+                engine, action="load").id == component_id
+            assert engine_edition.require_engine(
+                engine, action="fetch").id == component_id
+
+    with pytest.raises(ValueError, match="unknown engine"):
+        engine_edition.component_id("no-such-engine")
+    with pytest.raises(ValueError, match="unknown engine"):
+        engine_edition.require_engine("no-such-engine")
+    with pytest.raises(ValueError, match="unknown engine"):
+        engine_edition.intake_packages("no-such-engine")
+
+
+def test_intake_builds_only_headless_packages():
+    from library.tools import engine_edition
+    from library.tools.local_ci import upstream
+
+    for engine, packages in engine_edition.INTAKE_PACKAGES.items():
+        assert packages[0] in ("filmcraft-cli", "effectcraft-cli")
+        assert not set(packages) & set(
+            engine_edition.UI_PACKAGES[engine]), (
+            f"{engine} intake must never build a UI package")
+
+    source = inspect.getsource(upstream._qualify_engine)
+    assert "engine_edition.intake_packages" in source
+    assert '"filmcraft-cli" if name' not in source
+    assert "filmcraft-web" not in source
+    assert "effectcraft-web" not in source
+
+
+def _ren_lock_names(root: Path) -> set[str]:
+    lock = tomllib.loads(
+        (root / "native" / "Cargo.lock").read_text(encoding="utf-8"))
+    return {package["name"] for package in lock["package"]}
+
+
+def test_public_build_ships_engines_without_ui_or_personal_assets(
+        tmp_path, monkeypatch, packageable_native_runtime):
+    from library.tools import engine_edition
+
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    from ren.package_engine import build_engine_tree
+
+    built = build_engine_tree(
+        ROOT, tmp_path / "public-engines", channel="test", sha="abc123",
+        built_at="2026-10-10", edition=edition.PUBLIC)
+
+    assert edition.current_edition(built) == edition.PUBLIC
+    # Both adapters and the shared protocol ship byte-identical in the
+    # public build: one model and adapter protocol in both editions.
+    for relative in (
+            "native/ren-filmcraft/src/lib.rs",
+            "native/ren-filmcraft/src/adapter.rs",
+            "native/ren-effectcraft/src/lib.rs",
+            "library/tools/engine_edition.py",
+            "library/tools/project_model_effectcraft.py"):
+        assert (built / relative).read_bytes() == (ROOT / relative).read_bytes()
+    for component_id in ENGINE_COMPONENTS.values():
+        assert edition.component_allowed(component_id, root=built)
+    assert set(engine_edition.INTAKE_PACKAGES) == set(ENGINE_COMPONENTS)
+
+    # No engine UI crate is reachable from Ren's own workspace: Ren shells
+    # out to the headless CLI binaries and links no upstream engine crate.
+    assert not (_ren_lock_names(built) & ENGINE_UI_PACKAGES)
+    assert not {name for name in _ren_lock_names(built)
+                if name in ("filmcraft-cli", "effectcraft-cli")}
+    members = tomllib.loads(
+        (built / "native" / "Cargo.toml").read_text(encoding="utf-8"))
+    assert not (set(members["workspace"]["members"]) & ENGINE_UI_PACKAGES)
+
+    # No desktop UI, web bundle, brand mark, or personal-only asset ships.
+    assert not (built / "docs" / "brand").exists()
+    marked = [path for path in built.rglob("*")
+              if "artcraft" in path.name.lower()
+              or "brand" in path.parts and "docs" in path.parts]
+    assert marked == []
+    for component_id in RESTRICTED:
+        assert not edition.component_allowed(component_id, root=built)
+
+
+def test_edition_delta_is_exactly_the_inventory(
+        tmp_path, monkeypatch, packageable_native_runtime):
+    from ren.package_engine import (
+        _edition_policy, build_engine_tree, COPY_DIRS,
+    )
+
+    blocked_paths, blocked_installers, _, _ = _edition_policy(ROOT, "public")
+    assert blocked_paths and blocked_installers
+    for relative in blocked_paths | blocked_installers:
+        assert (ROOT / relative).exists(), (
+            f"inventory blocks {relative} but it is absent from the source")
+
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    built = build_engine_tree(
+        ROOT, tmp_path / "public-delta", channel="test", sha="abc123",
+        built_at="2026-10-10", edition=edition.PUBLIC)
+
+    for relative in blocked_paths:
+        assert not (built / relative).exists()
+    for entry in COPY_DIRS:
+        if entry in blocked_paths or any(
+                entry.startswith(f"{path}/") for path in blocked_paths):
+            continue
+        assert (built / entry).exists(), (
+            f"{entry} is not inventoried personal-only but is missing "
+            "from the public build")
+
+
+def test_personal_build_keeps_engine_adapters(monkeypatch):
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    from library.tools import engine_edition
+
+    for engine, component_id in ENGINE_COMPONENTS.items():
+        assert edition.component_allowed(component_id, root=ROOT)
+        assert engine_edition.require_engine(engine).id == component_id

@@ -565,6 +565,44 @@ fetched     : downloaded-at-first-use (npx hyperframes@0.8.70)
 commercial  : ok
 hash-verified: no (pinned npm release; npm transport)
 
+component-id : engine.filmcraft_cli
+edition      : public
+component   : FilmCraft headless CLI 0.5.0; Ren's adapter does not
+              package or invoke the desktop application.
+pin         : 7bd76212629a067a9d1c5426d751de9faf4664b7
+              (native/ren-filmcraft/src/lib.rs)
+source      : https://github.com/storytold/filmcraft
+license     : MIT OR Apache-2.0
+fetched     : downloaded-at-first-use (pinned cargo install into the
+              user cache)
+commercial  : ok
+hash-verified: yes (cargo install pins the immutable revision)
+note        : Cargo.lock at the pinned source revision identifies its
+              transitive Rust dependencies. Measured 2026-10-10 over
+              `cargo tree -p filmcraft-cli` (176 crates): all upstream
+              workspace crates MIT OR Apache-2.0; registry crates
+              MIT/Apache-2.0/BSD/Zlib/Unlicense/Unicode-3.0/ISC plus
+              symphonia x13 MPL-2.0 (weak file-scoped copyleft, reached
+              through filmcraft-codecs audio decode; commercial use with
+              notice). No GPL/AGPL/LGPL-only, noncommercial or
+              proprietary dependency. No desktop UI crate in the CLI
+              closure (no filmcraft-ui-egui, egui, eframe, winit, rfd,
+              cpal, muda); objc2-* entries are Apple media platform
+              bindings (CoreMedia/VideoToolbox/Metal), not desktop UI.
+              The headless binary embeds the upstream OFL-1.1 fonts
+              (Inter x5, JetBrainsMono-Regular, NotoSerif-Regular via
+              include_bytes in crates/text); CRAFT_FONTS is empty
+              (Ren sets no CRAFT_FONTS_DIR). The whisper/download
+              features are off (Ren installs default features), so no
+              model is downloaded and none is bundled. The ArtCraft
+              name/wordmark/logos in docs/brand/ are trademarks, not
+              open source (docs/brand/LICENSE-brand.txt); Ren packages
+              no upstream source, docs or marks.
+note        : Ren invokes only headless surfaces (exec/run/render/info);
+              the desktop `filmcraft` and web `filmcraft-web` packages
+              are never built by Ren (intake builds filmcraft-cli plus
+              the named interchange/golden test packages only).
+
 component-id : engine.effectcraft_cli
 edition      : public
 component   : EffectCraft headless CLI 0.7.0; Ren's adapter does not
@@ -578,8 +616,32 @@ fetched     : downloaded-at-first-use (pinned source checkout; local
 commercial  : ok
 hash-verified: yes (Git checkout verifies the immutable revision)
 note        : Cargo.lock at the pinned source revision identifies its
-              transitive Rust dependencies; no copyleft-only dependency
-              was found in the measured closure.
+              transitive Rust dependencies. Measured 2026-10-10 over
+              `cargo tree -p effectcraft-cli` (352 crates): all upstream
+              workspace crates MIT OR Apache-2.0; 26 filmcraft git crates
+              at 2c5ba7a72619935f0481f99d59409e0d1844b234 (MIT OR
+              Apache-2.0); registry crates MIT/Apache-2.0/BSD/Zlib/
+              Unlicense/Unicode-3.0/ISC plus symphonia x13 MPL-2.0
+              (weak file-scoped copyleft, reached through
+              effectcraft-media; commercial use with notice), self_cell
+              Apache-2.0 OR GPL-2.0-only (used under Apache-2.0), and
+              epaint_default_fonts (MIT OR Apache-2.0) AND OFL-1.1 AND
+              Ubuntu-font-1.0 (egui default fonts). No GPL-only,
+              noncommercial or proprietary dependency. The CLI build
+              links effectcraft-ui-egui (eframe/egui/winit/wgpu) for its
+              headless `bench --ops` helper only; it has no window entry
+              point and Ren invokes only run/render/info/mcp. The
+              headless binary embeds the upstream OFL-1.1 fonts (Inter
+              x5, JetBrainsMono-Regular, NotoSerif-Regular via
+              include_bytes in crates/text). The ArtCraft
+              name/wordmark/logos in docs/brand/ are trademarks, not
+              open source (docs/brand/LICENSE-brand.txt); Ren packages
+              no upstream source, docs or marks.
+note        : Ren invokes only headless surfaces (run/render/info/mcp);
+              the desktop `effectcraft` and web `effectcraft-web`
+              packages are never built by Ren (intake builds
+              effectcraft-cli plus the named effects/cli test packages
+              only).
 
 component-id : renderer.fframes
 edition      : public
