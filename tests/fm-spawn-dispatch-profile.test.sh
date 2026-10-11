@@ -348,6 +348,47 @@ test_active_dispatch_profile_resolves_default_for_scout() {
   pass "active crew-dispatch profile resolves a deterministic default for scout spawns"
 }
 
+test_symlinked_project_routes_by_registered_name() {
+  local case_dir home real_target link_path wt wt_abs fakebin launchlog id_projects id_abs out status
+  id_projects=profile-symlink-projects-form-z20
+  id_abs=profile-symlink-abs-form-z21
+  case_dir="$TMP_ROOT/symlink-project"
+  home="$case_dir/home"
+  # The target folder is literally named "site": routing by the resolved
+  # target's basename would miss the registered-name rule below.
+  real_target="$case_dir/real/site"
+  link_path="$home/projects/starling-site"
+  wt="$case_dir/wt"
+  wt_abs="$case_dir/wt-abs"
+  launchlog="$case_dir/launch.log"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  fm_test_spawn_home "$home" claude
+  fm_test_spawn_brief "$home" "$id_projects"
+  fm_test_spawn_brief "$home" "$id_abs"
+  printf '%s\n' '{"rules":[{"when":"Lucie site work","projects":["starling-site"],"use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
+    > "$home/config/crew-dispatch.json"
+  mkdir -p "$case_dir/real"
+  fm_git_worktree "$real_target" "$wt" "wt-symlink"
+  git -C "$real_target" worktree add --quiet -b wt-symlink-abs "$wt_abs"
+  ln -s "$real_target" "$link_path"
+
+  out=$(run_ship_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id_projects" "projects/starling-site")
+  status=$?
+  expect_code 0 "$status" "symlinked project spawn should succeed: $out"
+  assert_contains "$out" "spawned $id_projects harness=grok" "spawn routed by the symlink target name instead of the registered project"
+  assert_meta_profile "$home/state/$id_projects.meta" grok grok-4 high
+  assert_grep 'dispatch_source=rule:1' "$home/state/$id_projects.meta" "meta did not record the exact registered-name rule"
+
+  : > "$launchlog"
+  out=$(run_ship_spawn "$home" "$wt_abs" "$fakebin" "$launchlog" "$id_abs" "$link_path")
+  status=$?
+  expect_code 0 "$status" "absolute symlinked path spawn should succeed: $out"
+  assert_contains "$out" "spawned $id_abs harness=grok" "absolute symlinked path routed by the target name"
+  assert_meta_profile "$home/state/$id_abs.meta" grok grok-4 high
+  assert_grep 'dispatch_source=rule:1' "$home/state/$id_abs.meta" "meta did not record the exact registered-name rule"
+  pass "a symlinked project routes dispatch by its registered name, not its target folder"
+}
+
 test_off_rule_profile_requires_captain_override_reason() {
   local rec id out status launch
   id=profile-explicit-z13
@@ -1775,6 +1816,7 @@ test_absolute_override_spelling_is_preserved_in_launch_paths
 test_unresolvable_relative_overrides_fail_loudly
 test_active_dispatch_profile_resolves_default_for_ship
 test_active_dispatch_profile_resolves_default_for_scout
+test_symlinked_project_routes_by_registered_name
 test_off_rule_profile_requires_captain_override_reason
 test_matching_explicit_profile_needs_no_override
 test_off_rule_profile_override_is_recorded
