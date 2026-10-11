@@ -30,7 +30,7 @@ def test_parity_registry_holds_twelve_probes():
 
 def test_p4_entity_copy_draws_literally():
     status, _ = probe_status("P4")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p6_all_mg_arms_lower():
@@ -45,7 +45,7 @@ def test_p7_channel_bug_bounded_and_placed():
 
 def test_p9_brand_motion_composites_video():
     status, _ = probe_status("P9")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p11_conic_draws_or_is_undeclared():

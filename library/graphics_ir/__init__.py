@@ -15,6 +15,7 @@ never baked-in defaults.
 from .easing import apply_easing
 from .evaluator import evaluate, evaluate_property
 from .lowering import (
+    lower_brand_motion,
     lower_full_frame_card,
     lower_motion_graphics,
     lower_post_header,
@@ -43,6 +44,7 @@ from .model import (
     TextContent,
     Timing,
     Transform,
+    VideoContent,
 )
 from .serialization import (
     SCHEMA_VERSION,
@@ -75,10 +77,12 @@ __all__ = [
     "TextContent",
     "Timing",
     "Transform",
+    "VideoContent",
     "apply_easing",
     "deserialize",
     "evaluate",
     "evaluate_property",
+    "lower_brand_motion",
     "lower_full_frame_card",
     "lower_motion_graphics",
     "lower_post_header",

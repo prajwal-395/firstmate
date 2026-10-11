@@ -164,3 +164,26 @@ python repro/metrics.py <out_dir>
 
 Run from the repository root with `PYTHONPATH=.` and `bin/vep`; the
 binary is built by `scripts/build_fframes_runtime.sh`.
+
+## S2 arms-d (G2): comparison_bars, counter_roll, step_counter, pointer_annotation, context_stamp, website_panel
+
+Extended in `../s2-arms-d/`: FFrames lowerings for the last group of
+MotionGraphics arms, each compared against Remotion on nine synthetic
+props (no real card uses these arms) with full-life curves. Settled
+ink IoU 0.91-1.00 except the counter/step figures (0.63-0.75 on
+identical per-frame values - proportional figures vs Remotion's
+tabular-nums, an IR gap recorded there). Three bugs found and fixed by
+the comparison (pointer 80px is the border box, side-anchored bars
+shrink-wrap the widest label, glow never enters layout).
+
+## S2 real-use arms (G2): subject_emblem, review_panel, beat_accent
+
+Extended in `../s2-arms-real-b/`: FFrames lowerings for the second group
+of real-use MotionGraphics arms, each compared against Remotion on real
+geo-podcast tight props plus two synthetic props (typewriter entrance,
+centre-anchored card). Settled ink IoU 0.98-1.00 on every case with
+full-life curves; two bugs found and fixed by the comparison (review
+rows are border-box, 453 not 457; `box-shadow` blur maps at half into
+`DropShadowFilter`). Open follow-ups are recorded there (1px vertical
+phase on integer-origin small text, tabular-nums, caret blink, exit
+typewriter, ellipsis clipping, co-live beat stacks).

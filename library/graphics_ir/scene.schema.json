@@ -196,7 +196,7 @@
       "type": "object"
     },
     "ConicGradient": {
-      "description": "A CSS ``conic-gradient``.\n\nusvg paints no conic gradient, so the FFrames adapter draws it with a\nshader; the browser adapters draw it with CSS ``conic-gradient``\ndirectly. Declared for vocabulary completeness.",
+      "description": "A CSS ``conic-gradient``.\n\nDeclared for vocabulary completeness so a future lowering has a\ntarget; NOT drawn yet. No lowering emits one, and the FFrames\nadapter warns and paints ``none`` for it (usvg has no conic\nprimitive and there is no shader path); the browser adapters draw\nit with CSS ``conic-gradient`` directly. Either wire a renderer\npath or keep it out of lowered scenes - never silently expect it\nto draw.",
       "properties": {
         "kind": {
           "const": "conic",
@@ -614,6 +614,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ImageContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "video": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoContent"
             },
             {
               "type": "null"
@@ -1454,6 +1465,20 @@
         }
       },
       "title": "Transform",
+      "type": "object"
+    },
+    "VideoContent": {
+      "description": "The content of a Video node. ``src`` is a file path to the decoded\nvideo (a project-supplied file such as a brand sting mezzanine).\n\nThe node plays the file whole from its first frame in wall-clock\ntime at the scene rate (BrandMotion's ``native_sample``: composition\nframe ``i`` at ``t = i / fps`` shows source frame\n``round(t * source_fps)``, clamped - the mapping\n``docs/BRAND_MOTION_MEASURED.md`` measured in Remotion's\n``<OffthreadVideo>``). The renderer demuxes and decodes the file\nitself (straight-alpha RGBA, alpha intact where present) and draws\nthe mapped frame stretched over the node's bounds (CSS\n``object-fit: fill``, the composition's own fit). Geometry is\nrefused upstream when the source is not the delivery frame, so the\nstretch is 1:1 wherever the props were built honestly.",
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src"
+      ],
+      "title": "VideoContent",
       "type": "object"
     }
   },

@@ -28,6 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -154,6 +155,8 @@ struct IRNode {
     shape: Option<IRShapeContent>,
     #[serde(default)]
     image: Option<IRImageContent>,
+    #[serde(default)]
+    video: Option<IRVideoContent>,
     #[serde(default)]
     svg: Option<IRSVGContent>,
     #[serde(default)]
@@ -344,6 +347,16 @@ struct IRPatternFill {
 
 #[derive(Debug, Deserialize, Clone)]
 struct IRImageContent {
+    src: String,
+}
+
+/// A decoded video file one node plays whole, full frame, with its own
+/// alpha (BrandMotion's `native_sample`: wall-clock sampling, each
+/// composition frame seeking the source timestamp, nothing blended).
+/// `src` is the file the scene resolved to an absolute path; the
+/// renderer demuxes and decodes it itself via the system ffmpeg.
+#[derive(Debug, Deserialize, Clone)]
+struct IRVideoContent {
     src: String,
 }
 
@@ -553,7 +566,7 @@ fn spring_progress(t: f64, stiffness: f64, damping: f64, mass: f64, fps: f64) ->
             f = f + uneven_rest;
         }
         let (pos, vel, ts) = spring_advance(
-            1.0, last_timestamp, current, velocity, f,
+            1.0, last_timestamp, current, velocity, (f / fps) * 1000.0,
             damping, mass, stiffness,
         );
         current = pos;
@@ -1087,12 +1100,197 @@ fn preload_image(
     ))
 }
 
-fn escape_xml(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+// ── Video: demux and decode through the system ffmpeg ──────────────
+//
+// A Video node plays a project-supplied file (a brand sting) whole,
+// full frame, with its own alpha. The binary carries no codec of its
+// own - the fframes_render module docstring records why no codec
+// features are enabled in the build - so the file is demuxed and
+// decoded by the system ffmpeg on PATH (AGENTS.md 9: ffmpeg is on
+// PATH), once per node, into straight-alpha RGBA frames. Each decoded
+// frame enters the same preloaded-image path still images use, under
+// its own name; the draw arm picks the frame the scene clock maps to.
+//
+// Timing is BrandMotion's `native_sample`: composition frame `i` at
+// `t = i / fps` seeks the source timestamp, and the browser answers
+// the nearest source frame (measured in docs/BRAND_MOTION_MEASURED.md:
+// 30fps at 24000/1001 shows source frames 0,1,3,4,5,...). So the mapped
+// source frame is `round(t * source_fps)`, clamped to the decoded
+// range - past the end holds the last frame, the way a video element
+// does.
+
+/// One decoded file: the preloaded name of every source frame, in order.
+struct VideoClip {
+    /// Image names in the media provider, one per decoded source frame.
+    frames: Vec<String>,
+    /// The source rate, for the wall-clock mapping below.
+    src_fps: f64,
 }
+
+/// Which decoded source frame the scene clock `t` (seconds) shows.
+///
+/// `round(t * src_fps)`, clamped: the nearest-frame mapping Remotion's
+/// `<OffthreadVideo>` draws (docs/BRAND_MOTION_MEASURED.md 3). A
+/// negative clock holds the first frame; past the end holds the last.
+fn video_frame_index(t: f64, src_fps: f64, nframes: usize) -> usize {
+    if nframes == 0 {
+        return 0;
+    }
+    let idx = (t * src_fps + 0.5).floor() as i64;
+    idx.clamp(0, nframes as i64 - 1) as usize
+}
+
+/// `(width, height, fps, codec)` of the file's first video stream, via
+/// ffprobe. The codec name picks the decoder below: ffmpeg's native VP9
+/// decoder drops WebM alpha while `libvpx-vp9` recovers every frame
+/// (measured in docs/BRAND_MOTION_MEASURED.md 2 - the same reason
+/// `brand_motion.ALPHA_DECODERS` exists Python-side).
+fn probe_video(src: &str, what: &str) -> Result<(u32, u32, f64, String), String> {
+    let out = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,avg_frame_rate,codec_name",
+            "-of", "json",
+            src,
+        ])
+        .output()
+        .map_err(|e| format!("{what}: cannot run ffprobe on {src}: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "{what}: ffprobe could not read {src}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("{what}: ffprobe returned unparseable output for {src}: {e}"))?;
+    let stream = json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.first())
+        .ok_or_else(|| format!("{what}: ffprobe found no video stream in {src}"))?;
+    let width = stream
+        .get("width")
+        .and_then(|w| w.as_u64())
+        .ok_or_else(|| format!("{what}: ffprobe found no width in {src}"))? as u32;
+    let height = stream
+        .get("height")
+        .and_then(|h| h.as_u64())
+        .ok_or_else(|| format!("{what}: ffprobe found no height in {src}"))? as u32;
+    let rate = stream
+        .get("avg_frame_rate")
+        .and_then(|r| r.as_str())
+        .unwrap_or("");
+    let fps = parse_rate(rate)
+        .ok_or_else(|| format!("{what}: ffprobe found no usable rate {rate:?} in {src}"))?;
+    if width == 0 || height == 0 || fps <= 0.0 {
+        return Err(format!("{what}: ffprobe measured {width}x{height} at {fps}fps in {src}"));
+    }
+    let codec = stream
+        .get("codec_name")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    Ok((width, height, fps, codec))
+}
+
+/// `"30000/1001"` to `29.97`: ffprobe's `avg_frame_rate` spelling.
+fn parse_rate(rate: &str) -> Option<f64> {
+    let (num, den) = rate.split_once('/')?;
+    let (num, den): (f64, f64) = (num.parse().ok()?, den.parse().ok()?);
+    if den == 0.0 || num <= 0.0 {
+        return None;
+    }
+    Some(num / den)
+}
+
+/// Decode the whole file to straight-alpha RGBA frames, one per source
+/// frame, in order. `-pix_fmt rgba` keeps the alpha plane where the
+/// file carries one (ProRes 4444, VP9 `yuva420p`); a file with no alpha
+/// decodes opaque. The decoder is chosen by codec: VP9 decodes through
+/// `libvpx-vp9` and VP8 through `libvpx`, because ffmpeg's native
+/// decoders drop WebM alpha (docs/BRAND_MOTION_MEASURED.md 2;
+/// `brand_motion.ALPHA_DECODERS`). The byte count, not the container's
+/// frame count, is the truth: a count that is not a whole number of
+/// frames is refused rather than drawn short.
+fn decode_video(src: &str, width: u32, height: u32, codec: &str, what: &str) -> Result<Vec<Vec<u8>>, String> {
+    let mut args: Vec<&str> = vec!["-v", "error"];
+    // One instrument per codec, mirroring brand_motion.ALPHA_DECODERS -
+    // a second decoder is not a fallback, it is the one that sees alpha.
+    let forced = match codec {
+        "vp9" => Some("libvpx-vp9"),
+        "vp8" => Some("libvpx"),
+        _ => None,
+    };
+    if let Some(decoder) = forced {
+        args.extend(["-c:v", decoder]);
+    }
+    args.extend(["-i", src, "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+    let out = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("{what}: cannot run ffmpeg on {src}: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "{what}: ffmpeg could not decode {src}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let frame_size = width as usize * height as usize * 4;
+    if frame_size == 0 || out.stdout.is_empty() || out.stdout.len() % frame_size != 0 {
+        return Err(format!(
+            "{what}: ffmpeg decoded {} bytes for a {width}x{height} file - not a whole number of frames",
+            out.stdout.len()
+        ));
+    }
+    Ok(out.stdout.chunks_exact(frame_size).map(|c| c.to_vec()).collect())
+}
+
+/// Decode one Video node and preload every source frame as its own
+/// image. Returns the clip; the caller inserts the images into the
+/// media map under their names.
+fn preload_video(
+    node_id: &str,
+    src: &str,
+    next_name: &mut usize,
+) -> Result<
+    (
+        VideoClip,
+        Vec<(String, fframes::media::ImageData<'static>)>,
+    ),
+    String,
+> {
+    let what = format!("video of node {node_id}");
+    let (width, height, src_fps, codec) = probe_video(src, &what)?;
+    let frames = decode_video(src, width, height, &codec, &what)?;
+    if frames.is_empty() {
+        return Err(format!("{what}: {src} decoded to no frames"));
+    }
+    let mut clip = VideoClip { frames: Vec::with_capacity(frames.len()), src_fps };
+    let mut images = Vec::with_capacity(frames.len());
+    for rgba in &frames {
+        let name = format!("ren-video-{node_id}-{}", *next_name);
+        *next_name += 1;
+        // Straight alpha, the convention the SVG-raster path unpaints
+        // back to: ffmpeg's `rgba` rawvideo is already straight.
+        let data = fframes::usvgr::PreloadedImageData::new(name.clone(), width, height, rgba);
+        let image = fframes::media::ImageData::new_from_raw_data(
+            Arc::new(data),
+            name.clone(),
+            fframes::media::ImageMetadata { width, height },
+        );
+        clip.frames.push(name.clone());
+        images.push((name, image));
+    }
+    Ok((clip, images))
+}
+
+// NOTE (G1): text passed to the tree API is NEVER XML-escaped. `El` lowers
+// directly to nested-tree nodes - no XML serialization happens between here
+// and the shaper - so escaping would land in the tree as literal characters
+// (`&quot;` drawn as six glyphs for one `"`). Escape only at a real
+// serialization boundary that parses the text back (none today: `<image
+// href>` names preloaded pixels, `font-family` names a staged face).
 
 // ── The scene, rendered as a nested tree ────────────────────────────
 
@@ -1103,6 +1301,8 @@ struct SceneVideo {
     metrics: HashMap<String, FaceMetrics>,
     /// Image or pattern node id -> the name its pixels are preloaded under.
     images: HashMap<String, String>,
+    /// Video node id -> its decoded clip (one preloaded image per source frame).
+    videos: HashMap<String, VideoClip>,
     /// Font file path -> its advance widths.
     advances: HashMap<String, Advances>,
 }
@@ -1473,6 +1673,9 @@ impl SceneVideo {
                         _ => text.color.clone(),
                     };
                     g = self.draw_text(ctx, g, node, text, colour.as_deref(), t);
+                    // G6: draw_text draws INSIDE the node's own group, which
+                    // carries the sampled opacity, transform, clip and
+                    // filters - never instead of it.
                 }
             }
             "shape" => g = self.draw_shape(ctx, g, node),
@@ -1489,6 +1692,26 @@ impl SceneVideo {
                         .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
                         .a("preserveAspectRatio", "xMidYMid meet")
                         .a("href", key));
+                }
+            }
+            "video" => {
+                // The wall-clock frame: `round(t * src_fps)`, clamped.
+                // `preserveAspectRatio="none"` is the composition's own
+                // `objectFit: fill`; geometry is refused upstream when the
+                // source is not the delivery frame, so the stretch is 1:1
+                // wherever the props were built honestly.
+                if let Some(clip) = self.videos.get(&node.id) {
+                    if let Some(b) = node.bounds {
+                        let idx = video_frame_index(t, clip.src_fps, clip.frames.len());
+                        if let Some(key) = clip.frames.get(idx) {
+                            g = g.c(El::new("image")
+                                .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                                .a("preserveAspectRatio", "none")
+                                .a("href", key));
+                        }
+                    }
+                } else {
+                    eprintln!("WARNING: video node {} has no decoded clip; skipped", node.id);
                 }
             }
             "svg" => g = self.draw_svg_path(g, node),
@@ -1611,13 +1834,15 @@ impl SceneVideo {
                 }
                 let top = b.y + i as f32 * line_box;
                 let baseline = top + (line_box - (m.ascent + m.descent) * size) / 2.0 + m.ascent * size;
-                let content = escape_xml(line);
+                // The tree carries the line literally (see NOTE G1 above):
+                // no escaping between here and the shaper.
+                let content = line.to_string();
                 for shadow in shadows.iter().rev() {
                     g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
-                        text.font_weight, shadow.colour.as_deref().unwrap_or(fill), anchor, Some(shadow)));
+                        text.font_weight, shadow.colour.as_deref().unwrap_or(fill), anchor, spacing, Some(shadow)));
                 }
                 g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
-                    text.font_weight, fill, anchor, None));
+                    text.font_weight, fill, anchor, spacing, None));
             }
             return g;
         }
@@ -1628,11 +1853,8 @@ impl SceneVideo {
             if run.opacity <= 0.0 {
                 continue;
             }
-            let mut el = self.text_el(ctx, &escape_xml(&run.text), run.x, run.baseline, run.size,
-                run.family.as_deref(), Some(run.weight), &run.colour, "start", None);
-            if run.letter_spacing != 0.0 {
-                el = el.a("letter-spacing", run.letter_spacing);
-            }
+            let mut el = self.text_el(ctx, &run.text, run.x, run.baseline, run.size,
+                run.family.as_deref(), Some(run.weight), &run.colour, "start", run.letter_spacing, None);
             if run.opacity < 1.0 {
                 el = el.a("opacity", run.opacity);
             }
@@ -1643,17 +1865,25 @@ impl SceneVideo {
 
     fn text_el(&self, ctx: &mut RenderContext, content: &str, x: f32, y: f32, size: f32,
                family: Option<&str>, weight: Option<f32>, colour: &str, anchor: &str,
-               shadow: Option<&Shadow>) -> El {
+               letter_spacing: f32, shadow: Option<&Shadow>) -> El {
         let mut el = El::new("text")
             .a("x", x).a("y", y)
             .a("text-anchor", anchor)
             .a("space", "preserve");
         if let Some(family) = family {
-            el = el.a("font-family", format!("'{}'", escape_xml(family)));
+            el = el.a("font-family", format!("'{family}'"));
         }
         el = el.a("font-size", size);
         if let Some(weight) = weight {
             el = el.a("font-weight", weight.round());
+        }
+        // Whole-text nodes carry their tracking here: usvg draws
+        // `letter-spacing` on every cluster but the last, so the ink
+        // matches the lowering's measured advance minus the one trailing
+        // unit the anchor math already compensates for. Without this the
+        // display run renders untracked while measuring tracked (G5).
+        if letter_spacing != 0.0 {
+            el = el.a("letter-spacing", letter_spacing);
         }
         let (dx, dy) = shadow.map(|s| (s.dx, s.dy)).unwrap_or((0.0, 0.0));
         if dx != 0.0 || dy != 0.0 {
@@ -1896,13 +2126,16 @@ fn main() {
     }
 }
 
-/// The scene's fonts and images, handed to FFrames as its media.
+/// The scene's fonts, images and videos, handed to FFrames as its media.
 ///
 /// FFrames resolves an `<image href>` only against preloaded image data,
 /// so every image node's pixels - and every pattern fill's tile - are
 /// decoded here once and named; the returned map is the owning node's id ->
-/// that name. The bytes live for the whole process, which is one render.
-fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<String, String>), String> {
+/// that name. Every video node's file is demuxed and decoded here once
+/// into straight-alpha RGBA frames, each preloaded under its own name;
+/// the returned clips map is the owning node's id -> its clip. The bytes
+/// live for the whole process, which is one render.
+fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<String, String>, HashMap<String, VideoClip>), String> {
     let mut fonts: Vec<RawFontData> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
     for node in &scene.nodes {
@@ -1963,6 +2196,17 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
             }
         }
     }
+    let mut clips = HashMap::new();
+    let mut video_seq = 0usize;
+    for node in &scene.nodes {
+        if let Some(video) = &node.video {
+            let (clip, frames) = preload_video(&node.id, &video.src, &mut video_seq)?;
+            for (name, data) in frames {
+                images.insert(name, data);
+            }
+            clips.insert(node.id.clone(), clip);
+        }
+    }
     let provider = DynamicMediaProvider::new(
         Default::default(),
         images,
@@ -1970,7 +2214,7 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
         Default::default(),
         fonts,
     );
-    Ok((provider, names))
+    Ok((provider, names, clips))
 }
 
 /// Everything a render needs once the scene is parsed: the video and its
@@ -2014,11 +2258,11 @@ fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
         .nodes
         .iter()
         .any(|n| n.text.as_ref().map_or(false, |t| t.font_file.is_none()));
-    let (media, images) = scene_media(&scene)?;
+    let (media, images, videos) = scene_media(&scene)?;
     let (width, height) = (scene.width, scene.height);
     let total_frames = frame_count(&scene);
 
-    let video = SceneVideo { scene, node_map, roots, metrics, images, advances };
+    let video = SceneVideo { scene, node_map, roots, metrics, images, videos, advances };
 
     let metal_ctx = SkiaMetalCtx::new(width as usize, height as usize)
         .map_err(|e| format!("cannot create Metal context: {}", e))?;
@@ -2144,4 +2388,56 @@ fn render_scene_raw(
     out.flush()
         .map_err(|e| format!("cannot flush stdout: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod spring_tests {
+    use super::*;
+
+    #[test]
+    fn spring_progress_uses_millisecond_timestamps() {
+        // The integrator steps in milliseconds (Python: ``now=(f / fps) *
+        // 1000``). Passing raw frame counts slows the curve ~100x: at
+        // t=1.0 the spring reads 0.04 instead of settled. These literals
+        // are the Python evaluator's answers for stiffness 80, damping
+        // 15, mass 0.8 at 30fps - the digit-roll config.
+        assert!((spring_progress(0.0, 80.0, 15.0, 0.8, 30.0) - 0.0).abs() < 1e-6);
+        assert!((spring_progress(0.5, 80.0, 15.0, 0.8, 30.0) - 0.9771).abs() < 1e-3);
+        assert!((spring_progress(1.0, 80.0, 15.0, 0.8, 30.0) - 1.0).abs() < 1e-2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::video_frame_index;
+
+    /// The wall-clock mapping Remotion's `<OffthreadVideo>` draws,
+    /// measured in docs/BRAND_MOTION_MEASURED.md 3: a 30fps source at
+    /// 24000/1001 shows source frames 0,1,3,4,5,6,8,9,10,11,13,14 over
+    /// the first 12 composition frames.
+    #[test]
+    fn video_mapping_matches_measured_native_sample() {
+        let comp_fps = 24000.0 / 1001.0;
+        let expected = [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14];
+        for (i, want) in expected.iter().enumerate() {
+            let t = i as f64 / comp_fps;
+            assert_eq!(video_frame_index(t, 30.0, 45), *want, "composition frame {i}");
+        }
+    }
+
+    #[test]
+    fn video_mapping_clamps_outside_the_decoded_range() {
+        assert_eq!(video_frame_index(-1.0, 30.0, 45), 0);
+        assert_eq!(video_frame_index(0.0, 30.0, 45), 0);
+        assert_eq!(video_frame_index(100.0, 30.0, 45), 44);
+        assert_eq!(video_frame_index(0.0, 30.0, 0), 0);
+    }
+
+    #[test]
+    fn video_mapping_is_one_to_one_at_same_rate() {
+        for i in 0..45 {
+            let t = i as f64 / 30.0;
+            assert_eq!(video_frame_index(t, 30.0, 45), i);
+        }
+    }
 }

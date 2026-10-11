@@ -498,9 +498,13 @@ FFRAMES_COMPOSITIONS = (
     "MotionGraphics",
     "PostHeader",
     "StagedScene",
+    "BrandMotion",
 )
 """The compositions with an FFrames form: the five standard ones plus
-StagedScene, each through its IR lowering."""
+StagedScene, each through its IR lowering. BrandMotion plays a
+project-supplied video file through the IR Video node - the renderer
+demuxes and decodes it itself (straight-alpha RGBA, alpha intact),
+because no codec features are enabled in the build."""
 
 DEFAULT_FAMILY = {"TimedTextOverlay": "Helvetica"}
 """The family each template falls back to when the props name none -
@@ -598,7 +602,11 @@ def resolve_props(composition: str, props: dict, project_folder: str = "") -> di
     face resolves to the bundled file - the face the HyperFrames template
     always carries. Any other undeclared family stays a family, drawn
     from the system the way a browser draws it. Images and element
-    assets resolve the same way.
+    assets resolve the same way, and so does BrandMotion's ``src`` - the
+    ``brand/<file>`` the composition wraps in ``staticFile``, resolved to
+    the project's staged mezzanine before it reaches the scene, because
+    the renderer decodes the file itself and a ``brand/`` reference is
+    Remotion's spelling, not a path Skia can read.
     """
     from library.tools.hyperframes_render import bundled_font_file
 
@@ -620,6 +628,8 @@ def resolve_props(composition: str, props: dict, project_folder: str = "") -> di
             style["fontFile"] = font_file
     if isinstance(resolved.get("image"), str) and resolved["image"]:
         resolved["image"] = _project_file(resolved["image"], project_folder, "image")
+    if isinstance(resolved.get("src"), str) and resolved["src"]:
+        resolved["src"] = _project_file(resolved["src"], project_folder, "src")
     ground = resolved.get("ground")
     if isinstance(ground, dict) and isinstance(ground.get("texture"), str) \
             and ground["texture"]:
@@ -646,6 +656,7 @@ def lower_composition(composition: str, props: dict):
         "MotionGraphics": lowering.lower_motion_graphics,
         "PostHeader": lowering.lower_post_header,
         "StagedScene": lowering.lower_staged_scene,
+        "BrandMotion": lowering.lower_brand_motion,
     }.get(composition)
     if lower is None:
         raise FFramesRenderError(

@@ -374,6 +374,27 @@ ENVIRONMENT_CONDITIONS = (
         capability="renderer.fframes",
         install_hint="scripts/build_fframes_runtime.sh",
     ),
+    # The ren-graphics-fframes binary is a cargo build artifact of this
+    # tree's native/ sources, in the same class as the ren_native
+    # extension above: the sources are always here, whether the binary
+    # the renderer resolves was built from them - and is CURRENT -
+    # varies by machine (devs rebuild with
+    # scripts/build_fframes_runtime.sh, safe points rebuild stale
+    # parts, packaging refreshes the shipped prebuilt). A machine with
+    # a stale binary skips the pixel proof that only means something
+    # against a current build; the skip fires only where the build is
+    # stale, so it is narrowing.
+    EnvironmentCondition(
+        pattern=r"ren-graphics-fframes was built from older sources",
+        false_when="the ren-graphics-fframes binary the renderer resolves "
+                   "is built from this tree's native/ sources - "
+                   "scripts/build_fframes_runtime.sh records the source "
+                   "fingerprint beside the build, and `ren setup` runs it "
+                   "- so the recorded fingerprint matches and the pixel "
+                   "proof runs",
+        capability="renderer.fframes",
+        install_hint="scripts/build_fframes_runtime.sh",
+    ),
 )
 
 

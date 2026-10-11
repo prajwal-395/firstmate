@@ -147,6 +147,7 @@ ACCENT_SIZE = 80
 EMBLEM_PLATE = 200
 BEAT_SIZE = 120
 POINTER_SIZE = 80
+POINTER_BORDER = 8
 POINTER_GLOW = 16
 
 SELF_POSITIONING = ("progress_bar", "frame_accents")
@@ -216,19 +217,23 @@ def review_panel_size(element: dict, scale: float) -> tuple[float, float]:
         px(panel["authorSize"] * panel["authorLine"])
         + px(panel["authorToBody"])
         + panel["bodyLines"] * body_line)
-    row_h = px(panel["rule"]) + 2 * px(panel["rowPadY"]) + row_inner
+    # The row div is border-box: its top rule lives INSIDE the row
+    # height, so the rule is not added (measured 453, not 457, on the
+    # real two-row panel).
+    row_h = 2 * px(panel["rowPadY"]) + row_inner
     height = (2 * px(panel["pad"]) + name_h + px(panel["nameToScore"])
               + score_h + px(panel["scoreToRows"])
               + len(rows) * row_h)
     return float(px(panel["width"])), float(height)
 
 # Column gaps and paddings per text arm: (gap_between_runs,
-# extra_width, extra_height) at scale 1.
+# extra_width, extra_height) at scale 1. `context_stamp` is absent: it
+# draws its copy at 0.8 scale with its own padding, so it has a
+# dedicated arm in `_element_size` rather than sharing this table.
 COLUMN_CHROME = {
     "title_lockup": (12, 0, 0),
     "quote_card": (16, 36, 0),
     "lower_third": (8, 72, 48),
-    "context_stamp": (0, 32, 16),
     "stat_callout": (12, 0, 0),
     "counter_roll": (8, 0, 0),
     "digit_counter": (8, 0, 0),
@@ -455,7 +460,13 @@ def _element_size(element: dict, scale: float, project_folder: str,
         side = BEAT_SIZE * scale
         return side, side
     if kind == "pointer_annotation":
-        side = POINTER_SIZE * scale + 2 * POINTER_GLOW
+        # The ring's 80px is the BORDER BOX (Tailwind preflight sizes
+        # the Remotion div border-box: the 8px border lives inside the
+        # 80, measured 80x80 ink on the Remotion side). Glow and shadow
+        # never enter layout - the shared MG_PAD carries the spill the
+        # way it carries every text shadow - so the union is the outer
+        # edge, never outer-plus-glow.
+        side = POINTER_SIZE * scale
         return side, side
     if kind == "subject_emblem":
         runs = element.get("runs") or []
@@ -501,21 +512,59 @@ def _element_size(element: dict, scale: float, project_folder: str,
             if element.get("runs") else (0.0, 0.0)
         gap = 8 * scale if element.get("runs") else 0.0
         return max(num_w + 4 * scale + of_w, label_w), num_h + gap + label_h
+    if kind == "context_stamp":
+        # The pill's copy draws at 0.8 scale (`scl={scale * 0.8}`), so it
+        # is measured at 0.8, not at the footprint - the shared column
+        # estimator would over-read every run by the ladder. Padding is
+        # the arm's own 16px sides and 8px top/bottom, with no gap
+        # between runs (a fragment of divs, not a gapped column).
+        runs = element.get("runs") or []
+        eff = scale * 0.8
+        width = 0.0
+        height = 0.0
+        for run in runs:
+            width = max(width, _run_width(
+                run.get("text", ""), run.get("type_role", "supporting"),
+                eff, project_folder, _cache,
+                uppercase=bool(run.get("uppercase", False))))
+            height += TYPE_SIZE.get(
+                run.get("type_role", "supporting"),
+                TYPE_SIZE["supporting"]) * eff * LINE_HEIGHT
+        return width + 32 * scale, height + 16 * scale
     if kind == "comparison_bars":
-        # The bar track is width:100%: the full usable width wherever
-        # the stack sits. Height is labels plus tracks.
+        # The bar track is width:100% of its container. A centre stack
+        # spans the insets, so the track spans the usable width; a side
+        # stack shrink-wraps its content, so the track resolves against
+        # the widest label (measured 292px side-anchored vs 960 usable).
+        # Height is labels plus tracks either way, labels on the 1.5
+        # pin both browser sides agree on (HyperFrames states it;
+        # Remotion's unset `normal` resolves the same under the bundled
+        # Chromium) - not the 1.1 the text arms use.
         runs = element.get("runs") or []
         data = element.get("data") or {}
         values = data.get("values") if isinstance(
             data.get("values"), list) else []
         count = min(len(runs), len(values)) or len(runs)
+        if _horizontal(element.get("anchor", "")) == "centre":
+            width = usable_width
+        else:
+            width = 0.0
+            for run in runs[:max(count, 0)]:
+                size = TYPE_SIZE.get(run.get("type_role", "micro"),
+                                    TYPE_SIZE["micro"]) * scale
+                weight = TYPE_WEIGHT.get(run.get("type_role", "micro"),
+                                        TYPE_WEIGHT["micro"])
+                width = max(width, _list_item_width(
+                    str(run.get("text", "")), size, weight,
+                    project_folder, _cache))
         height = 0.0
         for run in runs[:max(count, 0)]:
-            height += _run_line_height(run.get("type_role", "micro"), scale)
+            height += (TYPE_SIZE.get(run.get("type_role", "micro"),
+                                    TYPE_SIZE["micro"]) * scale * 1.5)
             height += 4 * scale + 12 * scale
         if count > 1:
             height += 16 * scale * (count - 1)
-        return usable_width, height
+        return width, height
     if kind == "list_build":
         runs = element.get("runs") or []
         # Peer items share ONE size - the lead item's type_role governs

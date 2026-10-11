@@ -30,3 +30,35 @@ def test_a_project_face_the_project_lacks_refuses(tmp_path):
     with pytest.raises(fframes_render.FFramesRenderError, match="brand_assets"):
         fframes_render.resolve_props(
             "PostHeader", {"fontFile": "brand/Missing.ttf"}, str(tmp_path))
+
+
+def test_brand_motion_has_an_fframes_form():
+    """BrandMotion lowers - the last composition without an FFrames path.
+
+    The Remotion ``OffthreadVideo`` path stays as the selectable engine;
+    this form is what ``bookend_render`` draws when FFrames is selected.
+    """
+    assert fframes_render.fframes_has_form("BrandMotion")
+    scene = fframes_render.lower_composition(
+        "BrandMotion",
+        {"src": "/tmp/repro-sting.webm", "fps": 30, "width": 320,
+         "height": 240, "durationInFrames": 30, "muted": True})
+    assert scene.nodes[0].type == "video"
+
+
+def test_brand_motion_src_resolves_absolute_and_refuses_missing(tmp_path):
+    """The ``brand/<file>`` reference becomes a path the renderer can read.
+
+    Remotion wraps it in ``staticFile``; the FFrames renderer decodes the
+    file itself, so it needs the absolute staged mezzanine - and a
+    reference the project does not have refuses rather than drawing
+    without it.
+    """
+    staged = tmp_path / "repro-sting.webm"
+    staged.write_bytes(b"not a real sting, only a path probe")
+    resolved = fframes_render.resolve_props(
+        "BrandMotion", {"src": str(staged)}, str(tmp_path))
+    assert resolved["src"] == str(staged)
+    with pytest.raises(fframes_render.FFramesRenderError, match="brand_assets"):
+        fframes_render.resolve_props(
+            "BrandMotion", {"src": "brand/Missing.webm"}, str(tmp_path))

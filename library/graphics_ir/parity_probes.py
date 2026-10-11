@@ -192,6 +192,7 @@ def check_p9_video_composite() -> str:
             "P9 video-composite: BrandMotion has no FFrames form")
     scene = fframes_render.lower_composition("BrandMotion", {
         "fps": 30, "width": 1080, "height": 1920, "durationInFrames": 30,
+        "src": "brand/sting.mp4",
     })
     kinds = {n.type.value for n in scene.nodes}
     if "video" not in kinds:
@@ -396,9 +397,9 @@ the pixel half - the brief's pixel list names five, and the twelfth
 probe needs a home; it is artefact-measured, so pixel it is)."""
 
 EXPECTED_FAIL_TODAY = frozenset({
-    "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12",
+    "P3", "P5", "P6", "P7", "P8", "P10", "P11", "P12",
 })
-"""Probes failing today (score 2/12: P1, P2). ``parity_score`` labels
+"""Probes failing today (score 4/12: P1, P2, P4, P9). ``parity_score`` labels
 these expected-fail and the per-probe tests assert each outcome matches
 its label. When a C-item lands, its probe's check passes and the score
 moves - then remove the id here; the probe's test fails until you do,

@@ -213,6 +213,26 @@ class ImageContent(BaseModel):
     alt: str | None = None
 
 
+class VideoContent(BaseModel):
+    """The content of a Video node. ``src`` is a file path to the decoded
+    video (a project-supplied file such as a brand sting mezzanine).
+
+    The node plays the file whole from its first frame in wall-clock
+    time at the scene rate (BrandMotion's ``native_sample``: composition
+    frame ``i`` at ``t = i / fps`` shows source frame
+    ``round(t * source_fps)``, clamped - the mapping
+    ``docs/BRAND_MOTION_MEASURED.md`` measured in Remotion's
+    ``<OffthreadVideo>``). The renderer demuxes and decodes the file
+    itself (straight-alpha RGBA, alpha intact where present) and draws
+    the mapped frame stretched over the node's bounds (CSS
+    ``object-fit: fill``, the composition's own fit). Geometry is
+    refused upstream when the source is not the delivery frame, so the
+    stretch is 1:1 wherever the props were built honestly.
+    """
+
+    src: str
+
+
 class SVGContent(BaseModel):
     """The content of an SVG node: one path in ``viewBox`` units, scaled
     to fill the node's bounds."""
@@ -301,9 +321,13 @@ class RadialGradient(BaseModel):
 class ConicGradient(BaseModel):
     """A CSS ``conic-gradient``.
 
-    usvg paints no conic gradient, so the FFrames adapter draws it with a
-    shader; the browser adapters draw it with CSS ``conic-gradient``
-    directly. Declared for vocabulary completeness.
+    Declared for vocabulary completeness so a future lowering has a
+    target; NOT drawn yet. No lowering emits one, and the FFrames
+    adapter warns and paints ``none`` for it (usvg has no conic
+    primitive and there is no shader path); the browser adapters draw
+    it with CSS ``conic-gradient`` directly. Either wire a renderer
+    path or keep it out of lowered scenes - never silently expect it
+    to draw.
     """
 
     kind: Literal["conic"]
@@ -315,9 +339,11 @@ Paint = Union[str, LinearGradient, RadialGradient, ConicGradient]
 """A node's fill: a solid colour (``str``) or a gradient.
 
 A plain string is a solid colour, the way every composition states one
-today, so a scene that names no gradient keeps its meaning. A gradient
-maps 1:1 to CSS ``linear-gradient`` / ``radial-gradient`` /
-``conic-gradient`` and to SVG ``linearGradient`` / ``radialGradient``.
+today, so a scene that names no gradient keeps its meaning. Linear and
+radial gradients map 1:1 to CSS ``linear-gradient`` /
+``radial-gradient`` and to SVG ``linearGradient`` / ``radialGradient``.
+``conic-gradient`` is browser-only until a renderer path exists
+(see ``ConicGradient``) and must not reach a lowered scene.
 """
 
 
@@ -337,6 +363,13 @@ class DropShadowFilter(BaseModel):
 
     ``sigma`` equals the CSS blur radius (measured: 1.0x, not b/2).
     Maps 1:1 to CSS ``filter: drop-shadow()`` and SVG ``feDropShadow``.
+
+    ``box-shadow`` is a different source function with a different
+    mapping: its blur radius draws like HALF the ``drop-shadow()`` blur
+    of the same number (measured on the review card's falloff), so a
+    lowering quoting a ``box-shadow`` halves the radius before emitting
+    this filter. The halving lives in the lowering, not here, because
+    this filter's own source function maps 1:1.
     """
 
     kind: Literal["drop_shadow"]
@@ -511,6 +544,7 @@ class Node(BaseModel):
     text: TextContent | None = None
     shape: ShapeContent | None = None
     image: ImageContent | None = None
+    video: VideoContent | None = None
     svg: SVGContent | None = None
     shader: ShaderContent | None = None
     camera: CameraContent | None = None

@@ -1,0 +1,61 @@
+{
+  "progress_bar": {
+    "arm": "progress_bar",
+    "frames": {
+      "f15": {
+        "ink_iou": 0.993,
+        "opacity_ff_rm": 1.002,
+        "premult_ff": true
+      },
+      "f45": {
+        "ink_iou": 0.997,
+        "opacity_ff_rm": 1.001,
+        "premult_ff": true
+      }
+    }
+  },
+  "frame_accents": {
+    "arm": "frame_accents",
+    "frames": {
+      "f15": {
+        "ink_iou": 1.0,
+        "opacity_ff_rm": 1.0,
+        "premult_ff": true
+      },
+      "f45": {
+        "ink_iou": 1.0,
+        "opacity_ff_rm": 1.0,
+        "premult_ff": true
+      }
+    }
+  },
+  "digit_counter": {
+    "arm": "digit_counter",
+    "frames": {
+      "f15": {
+        "ink_iou": 0.409,
+        "opacity_ff_rm": 0.925,
+        "premult_ff": true
+      },
+      "f45": {
+        "ink_iou": 0.558,
+        "opacity_ff_rm": 0.929,
+        "premult_ff": true
+      },
+      "f5": {
+        "ink_iou": 0.556,
+        "note": "mid-roll, maximal warp divergence region"
+      },
+      "f30": {
+        "ink_iou": 0.288,
+        "note": "mid-roll"
+      },
+      "f59": {
+        "ink_iou": 0.783,
+        "ink_ff": 9160,
+        "ink_rm": 10207,
+        "note": "most settled frame of the 60f span"
+      }
+    }
+  }
+}

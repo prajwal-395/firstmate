@@ -49,12 +49,14 @@ from .model import (
     RadialGradient,
     Scene,
     ShapeContent,
+    SpringEasing,
     StepsEasing,
     SVGContent,
     TextContent,
     TextRun,
     Timing,
     Track,
+    VideoContent,
 )
 
 EPS = 0.001
@@ -110,6 +112,205 @@ MG_DISPLAY_LETTER_SPACING = 3.0
 MG_ELEMENT_GAPS = {"title_lockup": 12, "quote_card": 16, "lower_third": 12}
 """MotionGraphics: run line height, anchor-stack gap, the display role's
 tracking, and each text arm's run gap."""
+
+MG_STAMP_PAD_V = 8
+MG_STAMP_PAD_H = 16
+MG_STAMP_RADIUS = 4
+MG_STAMP_TEXT_SCALE = 0.8
+"""context_stamp's pill: vertical/horizontal padding, corner radius, and
+the copy scale inside it (``scl={scale * 0.8}``). The ink is white on the
+plan's colour with no text shadow of its own - the pill carries the one
+box shadow (``0 4px 12px rgba(0,0,0,0.4)``)."""
+
+MG_BAR_GAP = 16
+MG_BAR_LABEL_GAP = 4
+MG_BAR_TRACK_HEIGHT = 12
+MG_BAR_RADIUS = 6
+MG_BAR_LABEL_LINE_HEIGHT = 1.5
+"""comparison_bars' stack gap, label-to-track gap, track height and radii,
+and the label line box. The label states no line-height in Remotion, so
+both browser sides read ``normal``; HyperFrames pins 1.5 explicitly
+because the two bundled Chromiums resolve Montserrat's normal
+differently (measured ~10px short with it unset on a 120-frame stack).
+The lowering quotes the pin."""
+
+MG_COUNTER_FIGURE_SCALE = 1.5
+MG_COUNTER_LABEL_SCALE = 0.7
+MG_COUNTER_GAP = 8
+MG_COUNTER_ROLL_SPAN = 0.8
+MG_COUNTER_LETTER_SPACING = 2.0
+"""counter_roll's figure scale (``scale * 1.5`` at weight 900), label
+scale, figure-to-label gap, the fraction of the life the roll runs over
+(``durationFrames * 0.8``, cubic ease-out), and the figure tracking."""
+
+MG_STEP_GAP = 8
+MG_STEP_NUMBER_GAP = 4
+MG_STEP_OF_LINE_HEIGHT = 1.5
+MG_STEP_OF_OPACITY = 0.6
+"""step_counter's figure-to-label gap, the number-to-"of" gap, the "of"
+span's line box (same unset-``normal`` pin as the bars labels), and its
+faded opacity."""
+
+MG_POINTER_SIZE = 80
+MG_POINTER_BORDER = 8
+MG_POINTER_GLOW = 16
+"""pointer_annotation's ring outer size, border thickness, and glow
+spread (``box-shadow: 0 0 16px`` outer plus an inset twin the IR cannot
+express - the lowering draws the outer only). The 80px is the BORDER
+BOX: Tailwind's preflight (imported by the Remotion app's index.css)
+sizes the div border-box, so the 8px border lives INSIDE the 80 and the
+content is 64 (measured 80x80 ink on the Remotion side, not 96)."""
+
+MG_WEBSITE_RADIUS = 16
+MG_WEBSITE_BORDER = 3
+MG_WEBSITE_BACKGROUND = "rgba(0, 0, 0, 0.85)"
+MG_WEBSITE_ADDRESS_PAD_V = 10
+MG_WEBSITE_ADDRESS_PAD_H = 16
+"""website_panel's chrome: corner radius, border thickness, panel fill,
+and the address bar's padding. The bar carries the plan's first copy run
+as the address (micro, white, 1.5 line box); no copy stated, no bar. The
+capture is a project-supplied file the plan names - the engine never
+screenshots the web itself."""
+
+MG_BOX_SHADOW_HALF = 0.5
+"""Where a template ``box-shadow`` blur lands in a ``DropShadowFilter``.
+
+Measured on the review card's ``0 10px 30px`` falloff (alpha 56 vs 44 at
+15px out unhalved, 73/74-43/44-11/10 halved): the SVG filter's gaussian
+spreads about twice as far per unit as the CSS shadow's. ``filter:
+drop-shadow()`` still maps 1:1 (the StagedScene parity gate passes on
+it) - the halving is the box-shadow spelling only."""
+MG_BAR_HEIGHT = 12.0
+MG_BAR_TRACK = "rgba(255, 255, 255, 0.15)"
+MG_BAR_GLOW = 16.0
+"""`progress_bar`'s drawing, quoted from `DrawnElement`'s arm in
+`remotion-subtitles/src/compositions/MotionGraphics/index.tsx` (and the
+same arm in `hyperframes/compositions/MotionGraphics.html`): a 12px bar
+spanning the safe box at the top inset when the anchor starts with
+`top`, else at the bottom inset, over a white-at-15% track, the fill in
+the plan's colour with an unscaled `0 0 16px` glow in its own colour.
+The fill lerps `timelineProgressStart` to `timelineProgressEnd` (whole
+fractions of 100) across the window minus one frame, clamped, ease
+none. The arm reads neither the entrance nor the exit transform, so the
+lowering carries no character animations for it - opacity only. The
+glow's 16px goes in as sigma 8: a `box-shadow` blur radius draws like
+half the `drop-shadow()` filter blur of the same number (measured
+30px -> 15 on the real review card's falloff)."""
+
+MG_ACCENT_SIZE = 80.0
+MG_ACCENT_STROKE = 6.0
+"""`frame_accents`' drawing, quoted from the same files: four corner
+brackets, each an 80px square carrying two 6px borders in the plan's
+colour (top+left, top+right, bottom+left, bottom+right), pinned to the
+four safe insets. Chrome, like the bar: opacity only, no character."""
+
+MG_COUNTER_SCALE = 1.5
+MG_COUNTER_TRACKING = 2.0
+MG_COUNTER_DIGIT_WIDTH = 0.65
+MG_COUNTER_LINE_HEIGHT = 1.2
+MG_COUNTER_GLOW = "0 0 40px {color}40, 0 4px 16px rgba(0,0,0,0.5)"
+"""`digit_counter`'s drawing, quoted from `DigitRoll` /
+`buildDigitCounter` / `armDigitRoll` in the same files: the figure at
+the display size times 1.5 in weight 900, each digit rolling in its own
+`fontSize * 0.65` by `fontSize * 1.2` cell on a ten-high strip, the row
+tracked at 2px under the figure glow; the plan's label runs underneath
+at 0.7 scale through the shared run style, with an 8px gap. Non-digit
+characters (grouping commas, decimals, affixes) draw static."""
+
+MG_DIGIT_STIFFNESS = 80.0
+MG_DIGIT_DAMPING = 15.0
+MG_DIGIT_MASS = 0.8
+MG_DIGIT_STAGGER = 0.06
+"""The digit roll's spring, quoted from `DigitRoll`'s `spring()` call in
+the Remotion composition: damping 15, stiffness 80, mass 0.8, each digit
+staggered 0.06s per reverse index so the least significant settles
+first, over the window minus its stagger. The lowering emits one IR
+`SpringEasing` animation per rail with that same config - the IR
+evaluator and the FFrames renderer integrate the same analytic
+damped-harmonic-oscillator physics Remotion's `spring()` uses, so the
+curve matches by shared integrator rather than by baked samples."""
+MG_EMBLEM_PLATE = 200.0
+MG_EMBLEM_RADIUS = 48.0
+MG_EMBLEM_GAP = 16.0
+MG_EMBLEM_MARK_SIZE = 112.0
+MG_EMBLEM_LABEL_SCALE = 0.8
+MG_EMBLEM_MARK_WEIGHT = 900.0
+MG_EMBLEM_MARK_SHADOW = "0 4px 16px rgba(0,0,0,0.5)"
+MG_EMBLEM_PLATE_SHADOW = (0.0, 8.0, 16.0, "rgba(0,0,0,0.45)")
+"""`subject_emblem`'s drawing, quoted from `DrawnElement`'s arm in
+`remotion-subtitles/src/compositions/MotionGraphics/index.tsx`: the plate
+is a 200px square at radius 48 carrying the display run as its mark at
+twice the display size in weight 900, white with a dark shadow, over the
+plan's colour with an unscaled 0 8px 32px shadow; the supporting runs
+label it underneath at 0.8 scale through the shared run style, with a
+16px gap and no gap between the label runs themselves (a fragment, not
+a column). The mark is the run's raw text: the arm sets no
+`textTransform` on it, so a display run's 3px tracking does not apply
+either. Every `box-shadow` blur below reaches the IR halved: a
+`box-shadow` blur radius draws like half the `drop-shadow()` filter
+blur of the same number (measured 30px -> 15 on the real review card's
+falloff, 74/73 44/43 10/11 at 5/15/30px out), so the plate's 32px goes
+in as 16."""
+
+MG_BEAT_SIZE = 120.0
+MG_BEAT_GROWTH = (0.5, 1.5)
+"""`beat_accent`'s drawing, quoted from the same file: a disc in the
+plan's colour with an unscaled `0 0 24px` glow in its own colour, whose
+diameter is `round(120 * scale * (0.5 + progress))` and whose opacity is
+the element's ramp times `(1 - progress)`. The arm reads neither the
+entrance nor the exit transform, so the lowering carries no character
+animations for it. Its unscaled `0 0 24px` glow goes in at half blur,
+like every `box-shadow` below."""
+
+MG_REVIEW_PANEL = {
+    "width": 660,
+    "pad": 26,
+    "radius": 20,
+    "rule": 2,
+    "nameSize": 34,
+    "nameLine": 1.25,
+    "nameToScore": 12,
+    "scoreSize": 30,
+    "scoreLine": 1.2,
+    "scoreGap": 10,
+    "headerStar": 26,
+    "labelSize": 24,
+    "scoreToRows": 20,
+    "rowPadY": 18,
+    "avatar": 46,
+    "avatarLetter": 22,
+    "avatarGap": 16,
+    "authorSize": 26,
+    "authorLine": 1.2,
+    "authorToBody": 8,
+    "rowStar": 20,
+    "whenSize": 22,
+    "bodySize": 26,
+    "bodyLine": 1.35,
+    "bodyLines": 2,
+    "nameWeight": 600,
+    "scoreWeight": 700,
+    "labelWeight": 500,
+    "authorWeight": 600,
+    "whenWeight": 500,
+    "bodyWeight": 400,
+}
+"""`review_panel`'s drawing, quoted from `REVIEW_PANEL` in the same file:
+a review-listing mockup whose every box carries an explicit height, so
+the drawn height is arithmetic rather than browser line boxes. The card
+states its own left alignment and an unscaled `0 10px 30px
+rgba(0,0,0,0.45)` shadow, which goes in at half blur like every
+`box-shadow` below; the stars are drawn paths (see
+`MG_REVIEW_STAR_PATH`), never glyphs."""
+
+MG_REVIEW_STAR_PATH = (
+    "M12 2.1l3.06 6.2 6.84 1-4.95 4.82 1.17 6.81L12 17.72 "
+    "5.88 20.93l1.17-6.81L2.1 9.3l6.84-1z"
+)
+MG_REVIEW_STAR_VIEWBOX = "0 0 24 24"
+"""The drawn star's path and viewBox, quoted from `STAR_PATH` beside the
+arm: a five-star rating draws five of these at the header or row size,
+each filled star clipped to its fraction over a muted one."""
 
 MG_LIST_LINE_HEIGHT = 1.3
 """list_build's ``LINE_HEIGHT``: every item sits on a 1.3 line box, not the
@@ -697,7 +898,10 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
 
     Each element becomes a Group windowed to its span, carrying the
     opacity ramp and the entrance/exit character. Child nodes depend on
-    the element's arm (title_lockup, quote_card, lower_third, channel_bug).
+    the element's arm (title_lockup, quote_card, lower_third,
+    channel_bug, context_stamp, comparison_bars, counter_roll,
+    step_counter, pointer_annotation, website_panel,
+    subject_emblem, review_panel, beat_accent).
     Text arms sit in their anchor's stack the way the template stacks
     them: a 24px-gap column at the safe area's edge, rows ordered, and
     only the elements live together laid out together.
@@ -1173,6 +1377,99 @@ def _mg_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list
     return out
 
 
+def _mg_emblem_runs(el: dict[str, Any]) -> tuple[dict | None, list[dict]]:
+    """The emblem's mark (the display run) and its label runs."""
+    runs = el.get("runs") or []
+    mark = next((r for r in runs if r.get("type_role") == "display"), None)
+    label = [r for r in runs if r.get("type_role") != "display"]
+    return mark, label
+
+
+def _mg_emblem_label_style(run: dict[str, Any], scale: float,
+                           ctx: _MGContext) -> dict[str, Any]:
+    """The shared run style at the emblem label's 0.8 scale."""
+    role = run.get("type_role", "supporting")
+    return dict(
+        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_EMBLEM_LABEL_SCALE,
+        font_file=ctx.font_file,
+        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        letter_spacing=MG_DISPLAY_LETTER_SPACING if role == "display" else 0.0,
+        text_transform="uppercase" if run.get("uppercase") else None,
+    )
+
+
+def _mg_emblem_label_lines(el: dict[str, Any], box_width: float,
+                           ctx: _MGContext) -> list[tuple]:
+    """``(run, style, lines)`` for the label, wrapped at *box_width*."""
+    scale = _mg_scale(el)
+    out = []
+    for run in _mg_emblem_runs(el)[1]:
+        style = _mg_emblem_label_style(run, scale, ctx)
+        out.append((run, style, wrap_text(run.get("text", ""), box_width, **style)))
+    return out
+
+
+def _mg_emblem_mark_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    """The mark's unwrapped width at twice the display size."""
+    mark, _ = _mg_emblem_runs(el)
+    if mark is None:
+        return 0.0
+    scale = _mg_scale(el)
+    style = dict(font_size=MG_EMBLEM_MARK_SIZE * scale, font_file=ctx.font_file,
+                 font_weight=MG_EMBLEM_MARK_WEIGHT)
+    return block_width(str(mark.get("text", "")).split("\n"), **style)
+
+
+def _mg_review_rows(el: dict[str, Any]) -> list[dict]:
+    data = el.get("data") or {}
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def _mg_review_palette(el: dict[str, Any]) -> dict | None:
+    data = el.get("data") or {}
+    palette = data.get("palette")
+    if not isinstance(palette, dict):
+        return None
+    if any(role not in palette for role in ("surface", "ink", "muted", "star", "rule")):
+        return None
+    return palette
+
+
+def _mg_review_card_size(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float]:
+    """The card's drawn size, quoting the arm's piece-by-piece arithmetic.
+
+    Mirrors `review_panel_size` in `library/tools/mg_tight_box.py`, which
+    quotes the same table: every box carries an explicit height, so no
+    font is measured here.
+    """
+    panel = MG_REVIEW_PANEL
+    scale = _mg_scale(el)
+
+    def px(value: float) -> int:
+        return _mg_px(value, scale)
+
+    name_h = px(panel["nameSize"] * panel["nameLine"])
+    score_h = max(px(panel["scoreSize"] * panel["scoreLine"]), px(panel["headerStar"]))
+    body_line = px(panel["bodySize"] * panel["bodyLine"])
+    row_inner = max(
+        px(panel["avatar"]),
+        px(panel["authorSize"] * panel["authorLine"])
+        + px(panel["authorToBody"])
+        + panel["bodyLines"] * body_line)
+    # The row div is border-box: its top rule lives INSIDE `row_h`, so the
+    # rule is not added here. Counting it again draws every row 2px too
+    # tall and the card 2px too tall per row (measured 457 vs 453 on the
+    # real two-row panel).
+    row_h = 2 * px(panel["rowPadY"]) + row_inner
+    height = (2 * px(panel["pad"]) + name_h + px(panel["nameToScore"])
+              + score_h + px(panel["scoreToRows"])
+              + len(_mg_review_rows(el)) * row_h)
+    return float(px(panel["width"])), float(height)
+
+
 def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
     if el.get("element") == "stat_callout":
         return _mg_stat_natural_width(el, ctx)
@@ -1180,6 +1477,33 @@ def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
         return _mg_list_natural_width(el, ctx)
     if el.get("element") == "channel_bug":
         return _channel_bug_width(el, ctx)
+    if el.get("element") == "digit_counter":
+        return _mg_counter_natural_width(el, ctx)
+    kind = el.get("element", "")
+    if kind == "context_stamp":
+        return _mg_stamp_natural_width(el, ctx)
+    if kind == "comparison_bars":
+        return _mg_bars_natural_width(el, ctx)
+    if kind == "counter_roll":
+        return _mg_roll_natural_width(el, ctx)
+    if kind == "step_counter":
+        return _mg_step_natural_width(el, ctx)
+    if kind == "pointer_annotation":
+        return MG_POINTER_SIZE * _mg_scale(el)
+    if kind == "website_panel":
+        return _mg_website_size(el, ctx)[0]
+    if kind == "subject_emblem":
+        scale = _mg_scale(el)
+        widest = MG_EMBLEM_PLATE * scale
+        widest = max(widest, _mg_emblem_mark_width(el, ctx))
+        for run in _mg_emblem_runs(el)[1]:
+            style = _mg_emblem_label_style(run, scale, ctx)
+            widest = max(widest, block_width(str(run.get("text", "")).split("\n"), **style))
+        return widest
+    if kind == "review_panel":
+        return _mg_review_card_size(el, ctx)[0]
+    if kind == "beat_accent":
+        return MG_BEAT_SIZE * _mg_scale(el) * MG_BEAT_GROWTH[1]
     if el.get("element") not in _MG_TEXT_ARMS:
         return 0.0
     scale = _mg_scale(el)
@@ -1198,11 +1522,196 @@ def _mg_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
     if el.get("element") == "channel_bug":
         size = _channel_bug_size(el, ctx)
         return size[1] if size is not None else 0.0
+    if el.get("element") == "digit_counter":
+        return _mg_counter_height(el, box_width, ctx)
+    kind = el.get("element", "")
+    if kind == "context_stamp":
+        return _mg_stamp_height(el, box_width, ctx)
+    if kind == "comparison_bars":
+        return _mg_bars_height(el, box_width, ctx)
+    if kind == "counter_roll":
+        return _mg_roll_height(el, box_width, ctx)
+    if kind == "step_counter":
+        return _mg_step_height(el, box_width, ctx)
+    if kind == "pointer_annotation":
+        return MG_POINTER_SIZE * _mg_scale(el)
+    if kind == "website_panel":
+        return _mg_website_size(el, ctx)[1]
+    if kind == "subject_emblem":
+        scale = _mg_scale(el)
+        height = MG_EMBLEM_PLATE * scale
+        label = _mg_emblem_label_lines(el, box_width, ctx)
+        if label:
+            label_h = sum(len(lines) * MG_LINE_HEIGHT * style["font_size"]
+                          for _, style, lines in label)
+            height += MG_EMBLEM_GAP * scale + label_h
+        return height
+    if kind == "review_panel":
+        return _mg_review_card_size(el, ctx)[1]
+    if kind == "beat_accent":
+        return MG_BEAT_SIZE * _mg_scale(el) * MG_BEAT_GROWTH[1]
     if el.get("element") not in _MG_TEXT_ARMS:
         return 0.0
     heights = [h for *_, h in _mg_run_lines(el, box_width, ctx)]
     gap = MG_ELEMENT_GAPS.get(el.get("element"), 12)
     return sum(heights) + gap * max(0, len(heights) - 1)
+
+
+def _mg_px(value: float, scale: float) -> int:
+    """JavaScript `Math.round(n * scale)`, as each arm computes its pieces.
+
+    Every geometric piece below is rounded before it is laid out, so the
+    lowering rounds each piece too rather than rounding a total: rounding
+    once at the end disagrees by a pixel wherever the composition rounds
+    a .5 up. Python's `round` is banker's (half to even) and would round
+    those same .5s down.
+    """
+    return int(math.floor(float(value) * scale + 0.5))
+
+
+def _mg_number(value: Any) -> float:
+    """A plan fraction as a float: missing or unparseable reads as 0."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _mg_bar_geometry(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float, float, float]:
+    """The bar's `(left, y, track_width, height)`, from the safe box alone.
+
+    The bar spans the safe box left to right at the top inset when the
+    anchor starts with `top`, else at the bottom inset - the template's
+    `startsWith("top")` rule, so a centre anchor draws at the bottom.
+    """
+    scale = _mg_scale(el)
+    left = float(ctx.safe_area.get("left", 0))
+    right = float(ctx.safe_area.get("right", 0))
+    track_width = max(0.0, ctx.width - left - right)
+    bar_h = float(_mg_px(MG_BAR_HEIGHT, scale))
+    if str(el.get("anchor", "")).startswith("top"):
+        y = float(ctx.safe_area.get("top", 0))
+    else:
+        y = ctx.height - float(ctx.safe_area.get("bottom", 0)) - bar_h
+    return left, y, track_width, bar_h
+
+
+def _mg_counter_figure(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float, str]:
+    """The figure's `(font_size, digit_height, display_value)`.
+
+    `decimals > 0` fixes that many places, else the value rounds to a
+    whole grouped en-US (`12,345`) - the template's `toFixed` /
+    `toLocaleString("en-US")` contract, with JavaScript's half-up
+    rounding rather than Python's banker's.
+    """
+    data = el.get("data") or {}
+    end_value = data.get("end_value")
+    end = float(end_value) if isinstance(end_value, (int, float)) else 100.0
+    decimals = data.get("decimals")
+    places = int(decimals) if isinstance(decimals, (int, float)) else 0
+    if places > 0:
+        value = f"{end:.{places}f}"
+    else:
+        value = f"{int(math.floor(end + 0.5)):,}"
+    font_size = TYPE_SIZE["display"] * _mg_scale(el) * MG_COUNTER_SCALE
+    return font_size, font_size * MG_COUNTER_LINE_HEIGHT, value
+
+
+def _mg_counter_affix(el: dict[str, Any], name: str) -> str:
+    """The figure's prefix or suffix: a string the plan stated, else none."""
+    data = el.get("data") or {}
+    affix = data.get(name)
+    return affix if isinstance(affix, str) else ""
+
+
+def _mg_counter_chars(el: dict[str, Any], ctx: _MGContext) -> list[tuple[str, Any, float]]:
+    """The figure left to right: `(kind, payload, width)` per character.
+
+    A digit rolls in a `fontSize * 0.65` cell; anything else (grouping
+    commas, the decimal point, no digit at all) draws static at its
+    measured width. Tracking is measured with the width: the row is set
+    at 2px, the way the composition sets it.
+    """
+    font_size, _, value = _mg_counter_figure(el, ctx)
+    chars: list[tuple[str, Any, float]] = []
+    prefix = _mg_counter_affix(el, "prefix")
+    if prefix:
+        chars.append(("affix", prefix, measure_text(
+            prefix, font_size, ctx.font_file, 900.0,
+            letter_spacing=MG_COUNTER_TRACKING)))
+    for char in value:
+        if char in "0123456789":
+            chars.append(("digit", int(char), font_size * MG_COUNTER_DIGIT_WIDTH))
+        else:
+            chars.append(("static", char, measure_text(
+                char, font_size, ctx.font_file, 900.0,
+                letter_spacing=MG_COUNTER_TRACKING)))
+    suffix = _mg_counter_affix(el, "suffix")
+    if suffix:
+        chars.append(("affix", suffix, measure_text(
+            suffix, font_size, ctx.font_file, 900.0,
+            letter_spacing=MG_COUNTER_TRACKING)))
+    return chars
+
+
+def _mg_counter_label_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
+    """The label's run style at the counter's 0.7 scale.
+
+    The Remotion arm draws the label through `runStyle` with each run's
+    own `uppercase` flag - copy renders as written unless the run
+    declares it, the same rule the stat_callout lowering quotes.
+    """
+    role = run.get("type_role", "supporting")
+    display = role == "display"
+    return dict(
+        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_COUNTER_LABEL_SCALE,
+        font_file=ctx.font_file,
+        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        text_transform="uppercase" if run.get("uppercase") else None,
+    )
+
+
+def _mg_counter_label_lines(el: dict[str, Any], box_width: float,
+                            ctx: _MGContext) -> list[tuple]:
+    """``(run, style, lines, height)`` for the label, wrapped in *box_width*."""
+    scale = _mg_scale(el)
+    out = []
+    for run in el.get("runs", []):
+        style = _mg_counter_label_style(run, scale, ctx)
+        lines = wrap_text(run.get("text", ""), box_width, **style)
+        out.append((run, style, lines, len(lines) * MG_LINE_HEIGHT * style["font_size"]))
+    return out
+
+
+def _mg_counter_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    figure = sum(width for _, _, width in _mg_counter_chars(el, ctx))
+    widest = figure
+    scale = _mg_scale(el)
+    for run in el.get("runs", []):
+        style = _mg_counter_label_style(run, scale, ctx)
+        widest = max(widest, block_width(str(run.get("text", "")).split("\n"), **style))
+    return widest
+
+
+def _mg_counter_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    _, digit_height, _ = _mg_counter_figure(el, ctx)
+    height = digit_height
+    label = _mg_counter_label_lines(el, box_width, ctx)
+    if label:
+        height += round(MG_COUNTER_GAP * _mg_scale(el)) + sum(h for *_, h in label)
+    return height
+
+
+def _mg_digit_spring() -> SpringEasing:
+    """One digit rail's easing: `DigitRoll`'s own `spring()` config.
+
+    The IR evaluator and the FFrames renderer integrate this with the
+    same analytic damped-harmonic-oscillator step Remotion's `spring()`
+    uses, so the rail draws the same curve from the same numbers.
+    """
+    return SpringEasing(stiffness=MG_DIGIT_STIFFNESS,
+                        damping=MG_DIGIT_DAMPING, mass=MG_DIGIT_MASS)
 
 
 def _mg_stat_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
@@ -1306,7 +1815,7 @@ def _mg_list_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> fl
     return sum(heights) + gap * max(0, len(heights) - 1)
 
 
-def _mg_stage_starts(el: dict[str, Any], fps: float) -> tuple[list[int], float, bool]:
+def _mg_stage_starts(el: dict[str, Any], count: int, fps: float) -> tuple[list[int], float, bool]:
     """When each staged item begins, in frames local to the element.
 
     The template's ``stageStarts``: the plan's own per-stage offsets
@@ -1322,7 +1831,6 @@ def _mg_stage_starts(el: dict[str, Any], fps: float) -> tuple[list[int], float, 
     data = el.get("data") or {}
     raw = data.get("stage_offsets")
     offsets = raw if isinstance(raw, list) else []
-    count = len(el.get("runs", []))
 
     def _num(value: Any) -> float:
         try:
@@ -1343,6 +1851,732 @@ def _mg_stage_starts(el: dict[str, Any], fps: float) -> tuple[list[int], float, 
 
     stagger = hold_frames / max(1, count)
     return [round(i * stagger) for i in range(count)], stagger, False
+
+
+def _mg_stamp_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
+    """``(run, style, lines, height)`` for each stamp run at 0.8 scale."""
+    scale = _mg_scale(el) * MG_STAMP_TEXT_SCALE
+    text_width = max(0.0, box_width - 2 * MG_STAMP_PAD_H * _mg_scale(el))
+    out = []
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale, ctx)
+        lines = wrap_text(run.get("text", ""), text_width, **style)
+        out.append((run, style, lines, len(lines) * MG_LINE_HEIGHT * style["font_size"]))
+    return out
+
+
+def _mg_stamp_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    scale = _mg_scale(el) * MG_STAMP_TEXT_SCALE
+    widest = 0.0
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale, ctx)
+        widest = max(widest, block_width(str(run.get("text", "")).split("\n"), **style))
+    return widest + 2 * MG_STAMP_PAD_H * _mg_scale(el)
+
+
+def _mg_stamp_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    # The pill is a fragment of run divs: no gap between runs, padding
+    # top and bottom inside the coloured box.
+    heights = [h for *_, h in _mg_stamp_run_lines(el, box_width, ctx)]
+    return sum(heights) + 2 * MG_STAMP_PAD_V * _mg_scale(el)
+
+
+def _mg_bars_items(el: dict[str, Any]) -> tuple[list[dict], list[float]]:
+    """The bars the arm draws: runs paired with values, either cut short.
+
+    The template reads ``min(runs, values)`` - extra of either is
+    ignored - and draws nothing when either side is empty.
+    """
+    runs = el.get("runs") or []
+    data = el.get("data") or {}
+    raw_values = data.get("values")
+    values = raw_values if isinstance(raw_values, list) else []
+    count = min(len(runs), len(values))
+    if count <= 0:
+        return [], []
+    numbers: list[float] = []
+    for value in values[:count]:
+        try:
+            numbers.append(float(value))
+        except (TypeError, ValueError):
+            numbers.append(0.0)
+    return list(runs[:count]), numbers
+
+
+def _mg_bars_label_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
+    """The bars label style: the run's size and weight, drawn as written.
+
+    No tracking, no uppercase, whatever the role - the template states
+    neither, and the 1.5 line box is HyperFrames' pin for the ``normal``
+    both browser sides otherwise resolve differently.
+    """
+    role = run.get("type_role", "micro")
+    return dict(
+        font_size=TYPE_SIZE.get(role, TYPE_SIZE["micro"]) * scale,
+        font_file=ctx.font_file,
+        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["micro"]),
+    )
+
+
+def _mg_bars_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    """The widest bars label, unwrapped: what a side-anchored stack
+    sizes to. A side stack shrink-wraps its content, so the ``width:
+    100%`` track resolves against the widest label (measured 292px on
+    a side-anchored Remotion stack, not the 960px usable width) - while
+    a centre stack spans the insets and the track spans it. The stack,
+    not this number, picks which: centre stacks never consult it."""
+    runs, _ = _mg_bars_items(el)
+    if not runs:
+        return 0.0
+    scale = _mg_scale(el)
+    widest = 0.0
+    for run in runs:
+        style = _mg_bars_label_style(run, scale, ctx)
+        widest = max(widest, block_width(
+            str(run.get("text", "")).split("\n"), **style))
+    return widest
+
+
+def _mg_bars_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    runs, _ = _mg_bars_items(el)
+    if not runs:
+        return 0.0
+    scale = _mg_scale(el)
+    height = 0.0
+    for run in runs:
+        style = _mg_bars_label_style(run, scale, ctx)
+        lines = wrap_text(str(run.get("text", "")), box_width, **style)
+        height += len(lines) * MG_BAR_LABEL_LINE_HEIGHT * style["font_size"]
+        height += MG_BAR_LABEL_GAP * scale + round(MG_BAR_TRACK_HEIGHT * scale)
+    if len(runs) > 1:
+        height += round(MG_BAR_GAP * scale) * (len(runs) - 1)
+    return height
+
+
+def _mg_counter_data(el: dict[str, Any]) -> tuple[float, float, str, str, int]:
+    """The roll's drive: start, end, affixes and decimals, with the
+    template's defaults (0 to 100, no affixes, whole figures)."""
+    data = el.get("data") or {}
+
+    def _number(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    start = _number(data.get("start_value"), 0.0)
+    end = _number(data.get("end_value"), 100.0)
+    prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
+    suffix = data.get("suffix") if isinstance(data.get("suffix"), str) else ""
+    decimals = data.get("decimals")
+    decimals = int(decimals) if isinstance(decimals, (int, float)) else 0
+    return start, end, prefix, suffix, max(0, decimals)
+
+
+def _mg_counter_format(value: float, prefix: str, suffix: str, decimals: int) -> str:
+    """One roll figure, as drawn: grouped thousands (en-US, the locale
+    both browser sides render under) or fixed decimals."""
+    if decimals > 0:
+        body = f"{value:.{decimals}f}"
+    else:
+        body = f"{round(value):,}"
+    return f"{prefix}{body}{suffix}"
+
+
+def _mg_counter_value_at(el: dict[str, Any], local_frame: int) -> float:
+    """The figure on one local frame: cubic ease-out over the first 80%
+    of the life, held past it - the template's ``rollProgress``."""
+    start, end, _, _, _ = _mg_counter_data(el)
+    duration_frames = max(1, int(el.get("durationFrames", 1)))
+    progress = min(1.0, max(0.0, local_frame / max(1.0, duration_frames * MG_COUNTER_ROLL_SPAN)))
+    return start + (end - start) * (1 - (1 - progress) ** 3)
+
+
+def _mg_counter_states(el: dict[str, Any]) -> list[tuple[int, int, str]]:
+    """``(f0, f1, text)`` figure layers: consecutive frames showing one
+    figure grouped, the way the HyperFrames arm groups its ``.clip``
+    layers by displayed text."""
+    _, _, prefix, suffix, decimals = _mg_counter_data(el)
+    duration_frames = max(1, int(el.get("durationFrames", 1)))
+    states: list[tuple[int, int, str]] = []
+    last_key: str | None = None
+    for frame in range(duration_frames):
+        text = _mg_counter_format(_mg_counter_value_at(el, frame), prefix, suffix, decimals)
+        if text != last_key:
+            states.append((frame, duration_frames, text))
+            if len(states) > 1:
+                states[-2] = (states[-2][0], frame, states[-2][2])
+            last_key = text
+    return states
+
+
+def _mg_counter_figure_style(scale: float, ctx: _MGContext) -> dict[str, Any]:
+    return dict(
+        font_size=TYPE_SIZE["display"] * scale * MG_COUNTER_FIGURE_SCALE,
+        font_file=ctx.font_file,
+        font_weight=900.0,
+        letter_spacing=MG_COUNTER_LETTER_SPACING,
+    )
+
+
+def _mg_roll_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    scale = _mg_scale(el)
+    style = _mg_counter_figure_style(scale, ctx)
+    widest = 0.0
+    for _, _, text in _mg_counter_states(el):
+        widest = max(widest, measure_text(text, **style))
+    label_w = _mg_counter_label_size(el, scale, ctx)[0]
+    return max(widest, label_w)
+
+
+def _mg_roll_label_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
+    """The label runs under the figure at 0.7 scale, drawn as Runs are."""
+    scale = _mg_scale(el) * MG_COUNTER_LABEL_SCALE
+    out = []
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale, ctx)
+        lines = wrap_text(str(run.get("text", "")), box_width, **style)
+        out.append((run, style, lines, len(lines) * MG_LINE_HEIGHT * style["font_size"]))
+    return out
+
+
+def _mg_counter_label_size(el: dict[str, Any], scale: float, ctx: _MGContext) -> tuple[float, float]:
+    widest = 0.0
+    height = 0.0
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale * MG_COUNTER_LABEL_SCALE, ctx)
+        widest = max(widest, block_width(str(run.get("text", "")).split("\n"), **style))
+        height += MG_LINE_HEIGHT * style["font_size"]
+    return widest, height
+
+
+def _mg_roll_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    scale = _mg_scale(el)
+    height = TYPE_SIZE["display"] * scale * MG_COUNTER_FIGURE_SCALE * 1.0
+    if el.get("runs"):
+        label_h = sum(h for *_, h in _mg_roll_label_lines(el, box_width, ctx))
+        height += round(MG_COUNTER_GAP * scale) + label_h
+    return height
+
+
+def _mg_step_numbers(el: dict[str, Any]) -> tuple[str, str]:
+    """The position and total as drawn (``2`` and ``of 5``), defaulting
+    the way the template does (1 of 1)."""
+    data = el.get("data") or {}
+    position = data.get("position")
+    total = data.get("total")
+    try:
+        position_text = str(int(position))
+    except (TypeError, ValueError):
+        position_text = "1"
+    try:
+        total_text = str(int(total))
+    except (TypeError, ValueError):
+        total_text = "1"
+    return position_text, f"of {total_text}"
+
+
+def _mg_step_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    scale = _mg_scale(el)
+    position_text, of_text = _mg_step_numbers(el)
+    number_w = measure_text(position_text, font_size=TYPE_SIZE["display"] * scale,
+                            font_file=ctx.font_file, font_weight=900.0)
+    of_w = measure_text(of_text, font_size=TYPE_SIZE["micro"] * scale,
+                        font_file=ctx.font_file, font_weight=TYPE_WEIGHT["micro"])
+    row_w = number_w + round(MG_STEP_NUMBER_GAP * scale) + of_w
+    label_w = _mg_counter_label_size(el, scale, ctx)[0] if el.get("runs") else 0.0
+    return max(row_w, label_w)
+
+
+def _mg_step_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    scale = _mg_scale(el)
+    height = TYPE_SIZE["display"] * scale * 1.0
+    if el.get("runs"):
+        label_h = sum(h for *_, h in _mg_roll_label_lines(el, box_width, ctx))
+        height += round(MG_STEP_GAP * scale) + label_h
+    return height
+
+
+def _mg_image_size(src: str) -> tuple[float, float] | None:
+    """A project-supplied capture's pixel size, or None when it cannot
+    be read. The website panel's shot height is derived from this, so an
+    unreadable file draws nothing rather than a guessed box."""
+    try:
+        from PIL import Image
+        with Image.open(src) as im:
+            return float(im.width), float(im.height)
+    except Exception:
+        return None
+
+
+def _mg_website_address(el: dict[str, Any]) -> str:
+    """The address bar copy: the plan's first run, or nothing (no copy
+    stated, no bar - the roster refuses a stated one the capture was not
+    taken of, so the engine never invents one)."""
+    runs = el.get("runs") or []
+    if not runs:
+        return ""
+    return str(runs[0].get("text", ""))
+
+
+def _mg_website_size(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float]:
+    """The panel's drawn size: the safe usable width at the footprint,
+    wrapping the address bar (where stated) and the contained capture."""
+    scale = _mg_scale(el)
+    safe = ctx.safe_area
+    usable = max(0.0, ctx.width - float(safe.get("left", 0)) - float(safe.get("right", 0)))
+    panel_w = float(round(usable * scale))
+    asset = el.get("asset")
+    if not asset:
+        return 0.0, 0.0
+    size = _mg_image_size(asset)
+    if size is None:
+        return 0.0, 0.0
+    src_w, src_h = size
+    if src_w <= 0 or src_h <= 0:
+        return 0.0, 0.0
+    border = round(MG_WEBSITE_BORDER * scale)
+    height = 2 * border
+    if _mg_website_address(el) != "":
+        address_h = TYPE_SIZE["micro"] * scale * MG_STEP_OF_LINE_HEIGHT
+        height += 2 * round(MG_WEBSITE_ADDRESS_PAD_V * scale) + address_h + border
+    inner_w = max(0.0, panel_w - 2 * border)
+    height += inner_w * src_h / src_w
+    return panel_w, height
+
+
+def _mg_anchor_align(el: dict[str, Any]) -> str:
+    """The copy alignment inside one element's box, from its anchor's
+    horizontal half - the rule the text arms already draw by."""
+    _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+    return {"left": "left", "right": "right"}.get(horizontal, "center")
+
+
+def _build_mg_stamp_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+) -> tuple[list[str], list[Node]]:
+    """The ``context_stamp`` arm: a coloured pill with centred copy.
+
+    The ink is white with the runs' own shadow. HyperFrames recolors the
+    runs to white explicitly; Remotion leaves the runs in the plan's
+    colour on the plan's own colour - invisible wherever the two meet -
+    so the lowering quotes HyperFrames and the vocabulary's readability
+    contract, and the evidence page records the divergence.
+    """
+    scale = _mg_scale(el)
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    pill_id = f"{element_id}_pill"
+    child_nodes.append(Node(
+        id=pill_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=color,
+                           corner_radius=float(round(MG_STAMP_RADIUS * scale))),
+        bounds=Bounds(x=box.x, y=box.y, width=box.width, height=box.height),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=4.0,
+                                  sigma=12.0 * MG_BOX_SHADOW_HALF,
+                                  color="rgba(0,0,0,0.4)")],
+    ))
+    children.append(pill_id)
+    align = _mg_anchor_align(el)
+    y = box.y + round(MG_STAMP_PAD_V * scale)
+    for i, (run, style, lines, run_height) in enumerate(
+            _mg_stamp_run_lines(el, box.width, ctx)):
+        del run
+        run_id = f"{element_id}_run_{i}"
+        child_nodes.append(Node(
+            id=run_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=style["font_size"], font_weight=style["font_weight"],
+                color="#FFFFFF", text_align=align, line_height=MG_LINE_HEIGHT,
+                letter_spacing=style["letter_spacing"],
+                text_transform=style["text_transform"],
+                text_shadow=DEFAULT_TEXT_SHADOW,
+            ),
+            bounds=Bounds(x=box.x + round(MG_STAMP_PAD_H * scale), y=y,
+                           width=box.width - 2 * round(MG_STAMP_PAD_H * scale),
+                           height=run_height),
+        ))
+        children.append(run_id)
+        y += run_height
+    return children, child_nodes
+
+
+def _build_mg_bars_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+    t0: float,
+) -> tuple[list[str], list[Node]] | None:
+    """The ``comparison_bars`` arm: labelled bars growing to their share.
+
+    Each item arrives on its staged start (the plan's offsets where
+    stated, an equal share of the hold where not) with its wrap fading
+    in and its fill growing left-to-right over 70% of the reveal window,
+    cubic ease-out both. The growth is a scale-about-centre plus the
+    exact compensating translate that pins the left edge - two linear
+    tweens the renderer draws, rather than a width the renderer does
+    not animate. Labels draw as written at the 1.5 pin; no runs or no
+    values draws nothing, the arm's null.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    runs, numbers = _mg_bars_items(el)
+    if not runs:
+        return None
+    max_value = max(numbers + [1.0])
+    starts, window, _ = _mg_stage_starts(el, len(runs), fps)
+    span_frames = max(1.0, window * 0.7)
+    span = span_frames / fps
+    cubic = EaseEasing(power=3)
+    align = _mg_anchor_align(el)
+    track_h = round(MG_BAR_TRACK_HEIGHT * scale)
+    radius = float(round(MG_BAR_RADIUS * scale))
+
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    y = box.y
+    for i, run in enumerate(runs):
+        style = _mg_bars_label_style(run, scale, ctx)
+        lines = wrap_text(str(run.get("text", "")), box.width, **style)
+        label_h = len(lines) * MG_BAR_LABEL_LINE_HEIGHT * style["font_size"]
+        item_id = f"{element_id}_bar_{i}"
+        at = t0 + (starts[i] if i < len(starts) else 0) / fps
+        label_id = f"{item_id}_label"
+        child_nodes.append(Node(
+            id=label_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=style["font_size"], font_weight=style["font_weight"],
+                color=color, text_align=align,
+                line_height=MG_BAR_LABEL_LINE_HEIGHT,
+                text_shadow="0px 2px 8px rgba(0,0,0,0.5)",
+            ),
+            bounds=Bounds(x=box.x, y=y, width=box.width, height=label_h),
+        ))
+        track_id = f"{item_id}_track"
+        track_y = y + label_h + round(MG_BAR_LABEL_GAP * scale)
+        child_nodes.append(Node(
+            id=track_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill="rgba(255, 255, 255, 0.1)",
+                               corner_radius=radius),
+            bounds=Bounds(x=box.x, y=track_y, width=box.width, height=track_h),
+        ))
+        target_w = max(0.0, numbers[i] / max_value) * box.width
+        fill_id = f"{item_id}_fill"
+        child_nodes.append(Node(
+            id=fill_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=color, corner_radius=radius),
+            bounds=Bounds(x=box.x, y=track_y, width=target_w, height=track_h),
+            filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=0.0,
+                                      sigma=12.0 * MG_BOX_SHADOW_HALF,
+                                      color=f"{color}60")],
+            animations=[
+                Animation(target=fill_id, property="transform.scale",
+                          from_value=[0.0, 1.0], to_value=[1.0, 1.0],
+                          start=at, duration=span, easing=cubic),
+                Animation(target=fill_id, property="transform.translate",
+                          from_value=[-target_w / 2.0, 0.0], to_value=[0.0, 0.0],
+                          start=at, duration=span, easing=cubic),
+            ],
+        ))
+        item_h = label_h + round(MG_BAR_LABEL_GAP * scale) + track_h
+        child_nodes.append(Node(
+            id=item_id, type=NodeType.GROUP,
+            bounds=Bounds(x=box.x, y=y, width=box.width, height=item_h),
+            animations=[Animation(
+                target=item_id, property="opacity",
+                from_value=0.0, to_value=1.0,
+                start=at, duration=span, easing=cubic,
+            )],
+            children=[label_id, track_id, fill_id],
+        ))
+        children.append(item_id)
+        y += item_h + round(MG_BAR_GAP * scale)
+    return children, child_nodes
+
+
+def _build_mg_counter_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+    start_frame: int,
+) -> tuple[list[str], list[Node]]:
+    """The ``counter_roll`` arm: the figure baked per frame, label under.
+
+    The figure cannot ride a track (text has no numeric channel), so
+    each distinct displayed figure becomes a timed layer, the way the
+    HyperFrames arm groups its ``.clip`` layers by displayed text and
+    the way typewriter reveals group by shown characters. The label is
+    the plan's runs at 0.7 scale. ``tabular-nums`` is not in the IR, so
+    a rolling figure recentres as its width changes - recorded on the
+    evidence page, not approximated.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    style = _mg_counter_figure_style(scale, ctx)
+    fig_h = style["font_size"] * 1.0
+    glow = f"0 0 40px {color}40, 0 4px 16px rgba(0,0,0,0.5)"
+    for si, (f0, f1, text) in enumerate(_mg_counter_states(el)):
+        text_id = f"{element_id}_fig_{si}"
+        child_nodes.append(Node(
+            id=text_id, type=NodeType.TEXT,
+            text=TextContent(
+                text=text,
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=style["font_size"], font_weight=style["font_weight"],
+                color=color, text_align="center", line_height=1.0,
+                letter_spacing=style["letter_spacing"],
+                text_shadow=glow,
+            ),
+            bounds=Bounds(x=box.x, y=box.y, width=box.width, height=fig_h),
+        ))
+        layer_id = f"{element_id}_fig_layer_{si}"
+        child_nodes.append(Node(
+            id=layer_id, type=NodeType.GROUP,
+            timing=Timing(start=(start_frame + f0) / fps,
+                          duration=(f1 - f0) / fps),
+            children=[text_id],
+        ))
+        children.append(layer_id)
+    align = _mg_anchor_align(el)
+    y = box.y + fig_h + round(MG_COUNTER_GAP * scale)
+    for i, (run, run_style, lines, run_height) in enumerate(
+            _mg_roll_label_lines(el, box.width, ctx)):
+        del run
+        run_id = f"{element_id}_label_{i}"
+        child_nodes.append(Node(
+            id=run_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=run_style["font_size"],
+                font_weight=run_style["font_weight"],
+                color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                letter_spacing=run_style["letter_spacing"],
+                text_transform=run_style["text_transform"],
+                text_shadow=DEFAULT_TEXT_SHADOW,
+            ),
+            bounds=Bounds(x=box.x, y=y, width=box.width, height=run_height),
+        ))
+        children.append(run_id)
+        y += run_height
+    return children, child_nodes
+
+
+def _build_mg_step_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+) -> tuple[list[str], list[Node]]:
+    """The ``step_counter`` arm: position over total, label under.
+
+    The row is centred in the box (the container's ``alignItems``); the
+    number sits on line box 1.0 with its glow, the "of" span on the 1.5
+    pin at 60% opacity, bottom-aligned the way the baseline row sits.
+    """
+    scale = _mg_scale(el)
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    position_text, of_text = _mg_step_numbers(el)
+    num_size = TYPE_SIZE["display"] * scale
+    of_size = TYPE_SIZE["micro"] * scale
+    num_w = measure_text(position_text, font_size=num_size,
+                         font_file=ctx.font_file, font_weight=900.0)
+    of_w = measure_text(of_text, font_size=of_size,
+                        font_file=ctx.font_file,
+                        font_weight=TYPE_WEIGHT["micro"])
+    num_h = num_size * 1.0
+    of_h = of_size * MG_STEP_OF_LINE_HEIGHT
+    row_w = num_w + round(MG_STEP_NUMBER_GAP * scale) + of_w
+    row_x = box.x + (box.width - row_w) / 2.0
+    num_id = f"{element_id}_position"
+    child_nodes.append(Node(
+        id=num_id, type=NodeType.TEXT,
+        text=TextContent(
+            text=position_text,
+            font_family=ctx.font_family, font_file=ctx.font_file,
+            font_size=num_size, font_weight=900.0,
+            color=color, text_align="left", line_height=1.0,
+            text_shadow=f"0 0 24px {color}40, 0 4px 12px rgba(0,0,0,0.5)",
+        ),
+        bounds=Bounds(x=row_x, y=box.y, width=num_w, height=num_h),
+    ))
+    children.append(num_id)
+    of_id = f"{element_id}_total"
+    of_node = Node(
+        id=of_id, type=NodeType.TEXT,
+        text=TextContent(
+            text=of_text,
+            font_family=ctx.font_family, font_file=ctx.font_file,
+            font_size=of_size, font_weight=TYPE_WEIGHT["micro"],
+            color=color, text_align="left",
+            line_height=MG_STEP_OF_LINE_HEIGHT,
+            text_shadow="0px 2px 8px rgba(0,0,0,0.4)",
+        ),
+        bounds=Bounds(x=row_x + num_w + round(MG_STEP_NUMBER_GAP * scale),
+                       y=box.y + num_h - of_h, width=of_w, height=of_h),
+        opacity=MG_STEP_OF_OPACITY,
+    )
+    child_nodes.append(of_node)
+    children.append(of_id)
+    align = _mg_anchor_align(el)
+    y = box.y + num_h + round(MG_STEP_GAP * scale)
+    for i, (run, run_style, lines, run_height) in enumerate(
+            _mg_roll_label_lines(el, box.width, ctx)):
+        del run
+        run_id = f"{element_id}_label_{i}"
+        child_nodes.append(Node(
+            id=run_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=run_style["font_size"],
+                font_weight=run_style["font_weight"],
+                color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                letter_spacing=run_style["letter_spacing"],
+                text_transform=run_style["text_transform"],
+                text_shadow=DEFAULT_TEXT_SHADOW,
+            ),
+            bounds=Bounds(x=box.x, y=y, width=box.width, height=run_height),
+        ))
+        children.append(run_id)
+        y += run_height
+    return children, child_nodes
+
+
+def _build_mg_pointer_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+) -> tuple[list[str], list[Node]]:
+    """The ``pointer_annotation`` arm: a stroked ring where the speech
+    points. The template's 80px is the border box (Tailwind preflight),
+    so the SVG stroke - which centres on its path where the CSS border
+    sits outside the content - draws on the 64px content circle: the
+    ellipse insets half the stroke inside the outer edge and both outer
+    edges agree. The glow spills past the layout box the way every text
+    shadow does (``MG_PAD`` carries it); only the outer glow is drawn,
+    the inset twin has no IR spelling."""
+    del ctx
+    scale = _mg_scale(el)
+    stroke = float(round(MG_POINTER_BORDER * scale))
+    outer = MG_POINTER_SIZE * scale
+    ring_id = f"{element_id}_ring"
+    node = Node(
+        id=ring_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="circle", fill=None,
+                           stroke=color, stroke_width=stroke),
+        bounds=Bounds(x=box.x + stroke / 2.0,
+                       y=box.y + stroke / 2.0,
+                       width=outer - stroke, height=outer - stroke),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=0.0,
+                                  sigma=MG_POINTER_GLOW * MG_BOX_SHADOW_HALF,
+                                  color=color)],
+    )
+    return [ring_id], [node]
+
+
+def _build_mg_website_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+) -> tuple[list[str], list[Node]] | None:
+    """The ``website_panel`` arm: bordered chrome around the capture.
+
+    The address bar carries the plan's first run where stated; the shot
+    fills the panel width and holds its file's aspect (``object-fit:
+    contain`` in a tight box). No asset, or one that cannot be read,
+    draws nothing - the arm's null, and ``resolve_plan`` already refuses
+    the missing file upstream. Square capture corners over the rounded
+    panel is a known fringe, recorded on the evidence page.
+    """
+    scale = _mg_scale(el)
+    asset = el.get("asset")
+    if not asset:
+        return None
+    size = _mg_image_size(asset)
+    if size is None:
+        return None
+    src_w, src_h = size
+    if src_w <= 0 or src_h <= 0:
+        return None
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    border = round(MG_WEBSITE_BORDER * scale)
+    radius = float(round(MG_WEBSITE_RADIUS * scale))
+    panel_id = f"{element_id}_panel"
+    child_nodes.append(Node(
+        id=panel_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=MG_WEBSITE_BACKGROUND,
+                           stroke=color, stroke_width=float(border),
+                           corner_radius=radius),
+        bounds=Bounds(x=box.x, y=box.y, width=box.width, height=box.height),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=8.0,
+                                  sigma=32.0 * MG_BOX_SHADOW_HALF,
+                                  color="rgba(0,0,0,0.5)")],
+    ))
+    children.append(panel_id)
+    shot_y = box.y + border
+    address = _mg_website_address(el)
+    if address != "":
+        addr_size = TYPE_SIZE["micro"] * scale
+        addr_h = addr_size * MG_STEP_OF_LINE_HEIGHT
+        addr_id = f"{element_id}_address"
+        child_nodes.append(Node(
+            id=addr_id, type=NodeType.TEXT,
+            text=TextContent(
+                text=address,
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=addr_size, font_weight=TYPE_WEIGHT["micro"],
+                color="#FFFFFF", text_align="left",
+                line_height=MG_STEP_OF_LINE_HEIGHT,
+            ),
+            bounds=Bounds(x=box.x + border + round(MG_WEBSITE_ADDRESS_PAD_H * scale),
+                           y=box.y + border + round(MG_WEBSITE_ADDRESS_PAD_V * scale),
+                           width=(box.width - 2 * border
+                                  - 2 * round(MG_WEBSITE_ADDRESS_PAD_H * scale)),
+                           height=addr_h),
+        ))
+        children.append(addr_id)
+        rule_id = f"{element_id}_rule"
+        rule_y = (box.y + border + round(MG_WEBSITE_ADDRESS_PAD_V * scale)
+                  + addr_h + round(MG_WEBSITE_ADDRESS_PAD_V * scale))
+        child_nodes.append(Node(
+            id=rule_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=color),
+            bounds=Bounds(x=box.x + border, y=rule_y,
+                           width=box.width - 2 * border, height=border),
+        ))
+        children.append(rule_id)
+        shot_y = rule_y + border
+    inner_w = box.width - 2 * border
+    shot_h = inner_w * src_h / src_w
+    shot_id = f"{element_id}_shot"
+    child_nodes.append(Node(
+        id=shot_id, type=NodeType.IMAGE, image=ImageContent(src=asset),
+        bounds=Bounds(x=box.x + border, y=shot_y, width=inner_w, height=shot_h),
+    ))
+    children.append(shot_id)
+    return children, child_nodes
 
 
 def _stack_boxes(live: list[dict[str, Any]], anchor: str, ctx: _MGContext) -> dict[int, Bounds]:
@@ -1374,6 +2608,752 @@ def _stack_boxes(live: list[dict[str, Any]], anchor: str, ctx: _MGContext) -> di
     return boxes
 
 
+def _mg_chrome_opacity(element_id: str, entrance: str, exit_char: str,
+                       t0: float, tt: float, fps: float) -> list[Animation]:
+    """The opacity ramp chrome carries: the entrance/exit ramps, linearly.
+
+    Both the bar and the brackets fade with the element's own ramps and
+    read no transform character - the arms return no `entTransform` /
+    `extTransform`, so there is nothing to lower beyond this.
+    """
+    anims: list[Animation] = []
+    in_frames = RAMP_FRAMES.get(entrance, 0)
+    out_frames = RAMP_FRAMES.get(exit_char, 0)
+    if in_frames > 0:
+        anims.append(Animation(
+            target=element_id, property="opacity",
+            from_value=0.0, to_value=1.0,
+            start=t0, duration=in_frames / fps, easing=LinearEasing(),
+        ))
+    if out_frames > 0:
+        anims.append(Animation(
+            target=element_id, property="opacity",
+            from_value=1.0, to_value=0.0,
+            start=max(t0, t0 + tt - out_frames / fps),
+            duration=out_frames / fps, easing=LinearEasing(),
+        ))
+    return anims
+
+
+def _build_mg_bar(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    element_id: str,
+    t0: float,
+    tt: float,
+) -> tuple[Node, list[Node]]:
+    """The `progress_bar` arm: a track and a fill lerping start to end.
+
+    The fill is drawn at the track's full width and shown through a
+    scale-plus-translate pair: `scaleX` carries the lerped fraction and
+    the translate re-pins the left edge the centre-origin scale would
+    otherwise drag. Both are linear in the fraction, and the fraction is
+    linear in time, so two linear animations draw exactly the width lerp
+    the template tweens - a property the renderer never has to grow. The
+    glow sits on the wrap, outside the scaled rect, the way the
+    composition's `box-shadow` sits outside the fill div.
+    """
+    fps = ctx.fps
+    color = el.get("color", "#FFFFFF")
+    duration_frames = max(1, int(el.get("durationFrames", 1)))
+    left, y, track_w, bar_h = _mg_bar_geometry(el, ctx)
+    start_pct = _mg_number(el.get("timelineProgressStart")) * 100.0
+    end_pct = _mg_number(el.get("timelineProgressEnd")) * 100.0
+    span = max(1.0 / fps, (duration_frames - 1) / fps)
+
+    track_id = f"{element_id}_track"
+    track = Node(
+        id=track_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=MG_BAR_TRACK),
+        bounds=Bounds(x=left, y=y, width=track_w, height=bar_h),
+    )
+
+    shown0, shown1 = track_w * start_pct / 100.0, track_w * end_pct / 100.0
+    fill_id = f"{element_id}_fill"
+    fill = Node(
+        id=fill_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=color),
+        bounds=Bounds(x=left, y=y, width=track_w, height=bar_h),
+        animations=[
+            Animation(
+                target=fill_id, property="transform.scale",
+                from_value=[start_pct / 100.0, 1.0], to_value=[end_pct / 100.0, 1.0],
+                start=t0, duration=span, easing=LinearEasing(),
+            ),
+            Animation(
+                target=fill_id, property="transform.translate",
+                from_value=[-(track_w - shown0) / 2.0, 0.0],
+                to_value=[-(track_w - shown1) / 2.0, 0.0],
+                start=t0, duration=span, easing=LinearEasing(),
+            ),
+        ],
+    )
+    wrap_id = f"{element_id}_fill_wrap"
+    wrap = Node(
+        id=wrap_id, type=NodeType.GROUP,
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=0.0,
+                                  sigma=MG_BAR_GLOW / 2.0, color=color)],
+        children=[fill_id],
+    )
+
+    group = Node(
+        id=element_id, type=NodeType.GROUP,
+        timing=Timing(start=t0, duration=tt),
+        animations=_mg_chrome_opacity(element_id, el.get("entrance", "cut"),
+                                      el.get("exit", "cut"), t0, tt, fps),
+        children=[track_id, wrap_id],
+    )
+    return group, [track, fill, wrap]
+
+
+def _build_mg_accents(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    element_id: str,
+    t0: float,
+    tt: float,
+) -> tuple[Node, list[Node]]:
+    """The `frame_accents` arm: four corner brackets as eight filled bars.
+
+    A bracket is two borders of a square div; the lowering draws each
+    border as the filled bar it is - a horizontal `size` by `stroke` bar
+    and a vertical `stroke` by `size` bar - at the safe inset the corner
+    names. No glow: the template draws none.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    color = el.get("color", "#FFFFFF")
+    size = float(_mg_px(MG_ACCENT_SIZE, scale))
+    stroke = float(_mg_px(MG_ACCENT_STROKE, scale))
+    left = float(ctx.safe_area.get("left", 0))
+    right = float(ctx.safe_area.get("right", 0))
+    top = float(ctx.safe_area.get("top", 0))
+    bottom = float(ctx.safe_area.get("bottom", 0))
+
+    bars = [
+        (left, top, size, stroke),
+        (left, top, stroke, size),
+        (ctx.width - right - size, top, size, stroke),
+        (ctx.width - right - stroke, top, stroke, size),
+        (left, ctx.height - bottom - stroke, size, stroke),
+        (left, ctx.height - bottom - size, stroke, size),
+        (ctx.width - right - size, ctx.height - bottom - stroke, size, stroke),
+        (ctx.width - right - stroke, ctx.height - bottom - size, stroke, size),
+    ]
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    for i, (x, y, width, height) in enumerate(bars):
+        bar_id = f"{element_id}_bar_{i}"
+        child_nodes.append(Node(
+            id=bar_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=color),
+            bounds=Bounds(x=x, y=y, width=width, height=height),
+        ))
+        children.append(bar_id)
+
+    group = Node(
+        id=element_id, type=NodeType.GROUP,
+        timing=Timing(start=t0, duration=tt),
+        animations=_mg_chrome_opacity(element_id, el.get("entrance", "cut"),
+                                      el.get("exit", "cut"), t0, tt, fps),
+        children=children,
+    )
+    return group, child_nodes
+
+
+def _build_mg_digit(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    t0: float,
+    tt: float,
+    animations: list[Animation],
+) -> tuple[Node, list[Node]] | None:
+    """The `digit_counter` arm: an odometer figure over the label runs.
+
+    The figure row is centred in the element box: each digit rolls in
+    its own cell on a ten-high strip whose rail carries one IR
+    `SpringEasing` animation with `DigitRoll`'s own config (see
+    `_mg_digit_spring`); statics and affixes draw beside the cells.
+    The label runs sit underneath at the counter's 0.7 scale with the
+    element's anchor alignment, the way the text arms align theirs.
+    The outer group keeps the standard opacity-plus-character
+    animations: unlike the chrome arms, this one spreads both
+    transforms.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    color = el.get("color", "#FFFFFF")
+    duration_frames = max(1, int(el.get("durationFrames", 1)))
+    font_size, digit_height, _ = _mg_counter_figure(el, ctx)
+    glow = MG_COUNTER_GLOW.format(color=color)
+
+    figure_width = sum(width for _, _, width in _mg_counter_chars(el, ctx))
+    x = box.x + (box.width - figure_width) / 2.0
+    y = box.y
+
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    chars = _mg_counter_chars(el, ctx)
+    # The stagger counts back over the value's own characters, the way
+    # `DigitRoll` maps `value.split("")` - the prefix sits before the
+    # roll and the suffix after it, and neither may shift the count.
+    _, _, display_value = _mg_counter_figure(el, ctx)
+    total = len(display_value)
+    value_pos = 0
+    for index, (kind, payload, width) in enumerate(chars):
+        if kind == "digit":
+            cell_id = f"{element_id}_cell_{index}"
+            rail_id = f"{element_id}_rail_{index}"
+            reverse = total - 1 - value_pos
+            stagger = int(math.floor(reverse * fps * MG_DIGIT_STAGGER + 0.5))
+            span = max(1, duration_frames - stagger)
+            rail_anims = [
+                Animation(
+                    target=rail_id, property="transform.translate",
+                    from_value=[0.0, 0.0],
+                    to_value=[0.0, -payload * digit_height],
+                    start=t0 + stagger / fps, duration=span / fps,
+                    easing=_mg_digit_spring(),
+                )
+            ]
+            for digit in range(10):
+                digit_id = f"{rail_id}_{digit}"
+                child_nodes.append(Node(
+                    id=digit_id, type=NodeType.TEXT,
+                    text=TextContent(
+                        text=str(digit),
+                        font_family=ctx.font_family, font_file=ctx.font_file,
+                        font_size=font_size, font_weight=900.0,
+                        color=color, text_align="center",
+                        line_height=MG_COUNTER_LINE_HEIGHT,
+                        letter_spacing=MG_COUNTER_TRACKING,
+                        text_shadow=glow,
+                    ),
+                    bounds=Bounds(x=x, y=y + digit * digit_height,
+                                   width=width, height=digit_height),
+                ))
+            child_nodes.append(Node(
+                id=rail_id, type=NodeType.GROUP,
+                bounds=Bounds(x=x, y=y, width=width, height=10 * digit_height),
+                animations=rail_anims,
+                children=[f"{rail_id}_{digit}" for digit in range(10)],
+            ))
+            child_nodes.append(Node(
+                id=cell_id, type=NodeType.GROUP,
+                bounds=Bounds(x=x, y=y, width=width, height=digit_height),
+                clip="inset(0 0 0 0)",
+                children=[rail_id],
+            ))
+            children.append(cell_id)
+        else:
+            static_id = f"{element_id}_static_{index}"
+            child_nodes.append(Node(
+                id=static_id, type=NodeType.TEXT,
+                text=TextContent(
+                    text=str(payload),
+                    font_family=ctx.font_family, font_file=ctx.font_file,
+                    font_size=font_size, font_weight=900.0,
+                    color=color, text_align="center",
+                    # An affix span sets its own lineHeight: 1.0 in the
+                    # composition; a static char inherits the roll's 1.2.
+                    line_height=1.0 if kind == "affix" else MG_COUNTER_LINE_HEIGHT,
+                    letter_spacing=MG_COUNTER_TRACKING,
+                    text_shadow=glow,
+                ),
+                bounds=Bounds(x=x, y=y, width=width, height=digit_height),
+            ))
+            children.append(static_id)
+        if kind in ("digit", "static"):
+            value_pos += 1
+        x += width
+
+    _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+    align = {"left": "left", "right": "right"}.get(horizontal, "center")
+    label_y = y + digit_height + round(MG_COUNTER_GAP * scale)
+    for i, (run, style, lines, run_height) in enumerate(
+            _mg_counter_label_lines(el, box.width, ctx)):
+        run_id = f"{element_id}_label_{i}"
+        child_nodes.append(Node(
+            id=run_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=style["font_size"], font_weight=style["font_weight"],
+                color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                letter_spacing=style["letter_spacing"],
+                text_transform=style["text_transform"],
+                text_shadow=DEFAULT_TEXT_SHADOW,
+            ),
+            bounds=Bounds(x=box.x, y=label_y, width=box.width, height=run_height),
+        ))
+        children.append(run_id)
+        label_y += run_height
+
+    group = Node(
+        id=element_id, type=NodeType.GROUP,
+        bounds=box,
+        timing=Timing(start=t0, duration=tt),
+        animations=animations,
+        children=children,
+    )
+    return group, child_nodes
+
+
+def _typewriter_cursor_on(progress: float) -> bool:
+    """Whether the reveal caret draws, quoting `typewriterCursorOn`."""
+    return math.floor(progress * 30) % 2 == 0
+
+
+def _build_mg_emblem_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    color: str,
+) -> tuple[list[str], list[Node]] | None:
+    """The `subject_emblem` arm's nodes: plate, mark, label.
+
+    Returns the group children and child nodes, or None when the arm has
+    no mark to draw. The label may be absent; the plate is always drawn.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    children: list[str] = []
+    child_nodes: list[Node] = []
+
+    plate = MG_EMBLEM_PLATE * scale
+    plate_x = box.x + (box.width - plate) / 2.0
+    plate_y = box.y
+    shadow_dx, shadow_dy, shadow_sigma, shadow_color = MG_EMBLEM_PLATE_SHADOW
+    plate_id = f"{element_id}_plate"
+    child_nodes.append(Node(
+        id=plate_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=color,
+                           corner_radius=float(_mg_px(MG_EMBLEM_RADIUS, scale))),
+        bounds=Bounds(x=plate_x, y=plate_y, width=plate, height=plate),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=shadow_dx, dy=shadow_dy,
+                                  sigma=shadow_sigma, color=shadow_color)],
+    ))
+    children.append(plate_id)
+
+    mark, _ = _mg_emblem_runs(el)
+    mark_text = str(mark.get("text", "")) if mark else ""
+    mark_size = MG_EMBLEM_MARK_SIZE * scale
+    entrance = el.get("entrance", "cut")
+    in_frames = RAMP_FRAMES.get(entrance, 0)
+    duration_frames = int(el.get("durationFrames", 1))
+
+    def mark_node(node_id: str, text: str) -> Node:
+        lines = text.split("\n")
+        height = len(lines) * mark_size
+        return Node(
+            id=node_id, type=NodeType.TEXT,
+            text=TextContent(
+                text=text,
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=mark_size, font_weight=MG_EMBLEM_MARK_WEIGHT,
+                color="#FFFFFF", text_align="center", line_height=1.0,
+                text_shadow=MG_EMBLEM_MARK_SHADOW,
+            ),
+            bounds=Bounds(x=box.x, y=plate_y + (plate - height) / 2.0,
+                           width=box.width, height=height),
+        )
+
+    if mark_text and entrance == "typewriter" and in_frames > 0:
+        states = _typewriter_states([len(mark_text)], len(mark_text),
+                                    in_frames, duration_frames, None)
+        for si, st in enumerate(states):
+            text = mark_text[: st["shown"][0]]
+            if st["cursor_run"] == 0 and _typewriter_cursor_on(st["prog"]):
+                text += "|"
+            if not text:
+                continue
+            node = mark_node(f"{element_id}_mark_{si}", text)
+            child_nodes.append(node)
+            f1 = st["f1"] if st["f1"] is not None else duration_frames
+            start_frame = int(el.get("startFrame", 0))
+            child_nodes.append(Node(
+                id=f"{element_id}_mark_layer_{si}", type=NodeType.GROUP,
+                timing=Timing(start=(start_frame + st["f0"]) / fps,
+                              duration=(f1 - st["f0"]) / fps),
+                children=[node.id],
+            ))
+            children.append(f"{element_id}_mark_layer_{si}")
+    elif mark_text:
+        node = mark_node(f"{element_id}_mark", mark_text)
+        child_nodes.append(node)
+        children.append(node.id)
+
+    _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+    align = {"left": "left", "right": "right"}.get(horizontal, "center")
+    y = plate_y + plate + MG_EMBLEM_GAP * scale
+    for i, (run, style, lines) in enumerate(_mg_emblem_label_lines(el, box.width, ctx)):
+        run_height = len(lines) * MG_LINE_HEIGHT * style["font_size"]
+        run_id = f"{element_id}_label_{i}"
+        child_nodes.append(Node(
+            id=run_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=style["font_size"], font_weight=style["font_weight"],
+                color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                letter_spacing=style["letter_spacing"],
+                text_transform=style["text_transform"],
+                text_shadow=DEFAULT_TEXT_SHADOW,
+            ),
+            bounds=Bounds(x=box.x, y=y, width=box.width, height=run_height),
+        ))
+        children.append(run_id)
+        y += run_height
+    return children, child_nodes
+
+
+def _mg_review_star_nodes(
+    element_id: str,
+    index: int,
+    x: float,
+    y: float,
+    size: float,
+    value: float,
+    palette: dict,
+) -> tuple[list[str], list[Node]]:
+    """One drawn star: a muted path, with the filled fraction clipped over it."""
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    muted_id = f"{element_id}_star_{index}"
+    child_nodes.append(Node(
+        id=muted_id, type=NodeType.SVG,
+        svg=SVGContent(viewBox=MG_REVIEW_STAR_VIEWBOX, path=MG_REVIEW_STAR_PATH,
+                       fill=palette["rule"]),
+        bounds=Bounds(x=x, y=y, width=size, height=size),
+    ))
+    children.append(muted_id)
+    filled = max(0.0, min(1.0, value - index))
+    if filled > 0:
+        fill_id = f"{element_id}_star_{index}_fill"
+        node = Node(
+            id=fill_id, type=NodeType.SVG,
+            svg=SVGContent(viewBox=MG_REVIEW_STAR_VIEWBOX, path=MG_REVIEW_STAR_PATH,
+                           fill=palette["star"]),
+            bounds=Bounds(x=x, y=y, width=size, height=size),
+        )
+        if filled < 1:
+            node.clip = f"inset(0 {(1.0 - filled) * 100.0}% 0 0)"
+        child_nodes.append(node)
+        children.append(fill_id)
+    return children, child_nodes
+
+
+def _build_mg_review_children(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+) -> tuple[list[str], list[Node]] | None:
+    """The `review_panel` arm's nodes: card, header, one block per row.
+
+    Returns the group children and child nodes, or None when the panel
+    has no rows or no palette - the arm the composition draws nothing for.
+    """
+    panel = MG_REVIEW_PANEL
+    scale = _mg_scale(el)
+    rows = _mg_review_rows(el)
+    palette = _mg_review_palette(el)
+    if not rows or palette is None:
+        return None
+
+    def px(value: float) -> int:
+        return _mg_px(value, scale)
+
+    def text_node(node_id: str, text: str, size: float, weight: float,
+                  color: str, width: float, height: float, x: float, y: float,
+                  line_height: float | None, align: str = "left") -> Node:
+        return Node(
+            id=node_id, type=NodeType.TEXT,
+            text=TextContent(
+                text=text.replace("\n", " "),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=size, font_weight=weight, color=color,
+                text_align=align, line_height=line_height,
+            ),
+            bounds=Bounds(x=x, y=y, width=width, height=height),
+        )
+
+    children: list[str] = []
+    child_nodes: list[Node] = []
+    card_w, card_h = _mg_review_card_size(el, ctx)
+    card_x, card_y = box.x, box.y
+    surface_id = f"{element_id}_surface"
+    child_nodes.append(Node(
+        id=surface_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=palette["surface"],
+                           corner_radius=float(px(panel["radius"]))),
+        bounds=Bounds(x=card_x, y=card_y, width=card_w, height=card_h),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=10.0,
+                                  sigma=15.0, color="rgba(0,0,0,0.45)")],
+    ))
+    children.append(surface_id)
+
+    inner_x = card_x + px(panel["pad"])
+    inner_w = card_w - 2 * px(panel["pad"])
+
+    place = next((r.get("text", "") for r in (el.get("runs") or [])
+                  if r.get("type_role") == "display"), "")
+    name_size = float(px(panel["nameSize"]))
+    name_h = float(px(panel["nameSize"] * panel["nameLine"]))
+    name_id = f"{element_id}_name"
+    child_nodes.append(text_node(
+        name_id, str(place), name_size, float(panel["nameWeight"]), palette["ink"],
+        inner_w, name_h, inner_x, card_y + px(panel["pad"]),
+        name_h / name_size if name_size > 0 else None))
+    children.append(name_id)
+
+    score_y = card_y + px(panel["pad"]) + name_h + px(panel["nameToScore"])
+    score_h = float(max(px(panel["scoreSize"] * panel["scoreLine"]),
+                        px(panel["headerStar"])))
+    data = el.get("data") or {}
+    score_size = float(px(panel["scoreSize"]))
+    score_lb = line_box_height(score_size, None, ctx.font_file)
+    score_text = str(data.get("rating", ""))
+    score_w = measure_text(score_text, font_size=score_size, font_file=ctx.font_file,
+                           font_weight=float(panel["scoreWeight"]))
+    score_id = f"{element_id}_score"
+    child_nodes.append(text_node(
+        score_id, score_text, score_size, float(panel["scoreWeight"]), palette["ink"],
+        score_w, score_lb, inner_x, score_y + (score_h - score_lb) / 2.0, None))
+    children.append(score_id)
+
+    star_size = float(px(panel["headerStar"]))
+    star_y = score_y + (score_h - star_size) / 2.0
+    try:
+        rating_value = float(data.get("rating", 0))
+    except (TypeError, ValueError):
+        rating_value = 0.0
+    star_x = inner_x + score_w + px(panel["scoreGap"])
+    for i in range(5):
+        ids, nodes = _mg_review_star_nodes(
+            f"{element_id}_header", i, star_x + i * star_size, star_y,
+            star_size, rating_value, palette)
+        child_nodes.extend(nodes)
+        children.extend(ids)
+
+    label_runs = [str(r.get("text", "")) for r in (el.get("runs") or [])
+                  if r.get("type_role") != "display"]
+    label_text = " ".join([str(p) for p in [data.get("count", ""), *label_runs]
+                           if str(p) != ""])
+    label_size = float(px(panel["labelSize"]))
+    label_lb = line_box_height(label_size, None, ctx.font_file)
+    label_x = star_x + 5 * star_size + px(panel["scoreGap"])
+    label_id = f"{element_id}_label"
+    child_nodes.append(text_node(
+        label_id, label_text, label_size, float(panel["labelWeight"]), palette["muted"],
+        max(0.0, inner_x + inner_w - label_x), label_lb, label_x,
+        score_y + (score_h - label_lb) / 2.0, None))
+    children.append(label_id)
+
+    row_y = score_y + score_h + px(panel["scoreToRows"])
+    body_lh = float(px(panel["bodySize"] * panel["bodyLine"]))
+    body_size = float(px(panel["bodySize"]))
+    author_h = float(px(panel["authorSize"] * panel["authorLine"]))
+    avatar = float(px(panel["avatar"]))
+    avatar_gap = float(px(panel["avatarGap"]))
+    content_w = inner_w - avatar - avatar_gap
+    content_x = inner_x + avatar + avatar_gap
+    for ri, row in enumerate(rows):
+        row_h = float(2 * px(panel["rowPadY"]) + max(
+            px(panel["avatar"]),
+            px(panel["authorSize"] * panel["authorLine"])
+            + px(panel["authorToBody"])
+            + panel["bodyLines"] * body_lh))
+        rule_id = f"{element_id}_row_{ri}_rule"
+        child_nodes.append(Node(
+            id=rule_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=palette["rule"]),
+            bounds=Bounds(x=inner_x, y=row_y, width=inner_w, height=float(px(panel["rule"]))),
+        ))
+        children.append(rule_id)
+        # Border-box: the rule occupies the row's first pixels, then the
+        # top padding, before the content starts.
+        top = row_y + px(panel["rule"]) + px(panel["rowPadY"])
+
+        avatar_id = f"{element_id}_row_{ri}_avatar"
+        child_nodes.append(Node(
+            id=avatar_id, type=NodeType.SHAPE,
+            shape=ShapeContent(shape="circle", fill=palette["muted"]),
+            bounds=Bounds(x=inner_x, y=top, width=avatar, height=avatar),
+        ))
+        children.append(avatar_id)
+        letter = str(row.get("initial") or row.get("author") or "").strip()[:1]
+        if letter:
+            letter_size = float(px(panel["avatarLetter"]))
+            letter_lb = line_box_height(letter_size, None, ctx.font_file)
+            letter_id = f"{element_id}_row_{ri}_initial"
+            child_nodes.append(text_node(
+                letter_id, letter, letter_size, float(panel["authorWeight"]),
+                palette["surface"], avatar, letter_lb,
+                inner_x, top + (avatar - letter_lb) / 2.0, None, align="center"))
+            children.append(letter_id)
+
+        ax = content_x
+        author_size = float(px(panel["authorSize"]))
+        author_lb = line_box_height(author_size, None, ctx.font_file)
+        author_text = str(row.get("author", ""))
+        author_w = measure_text(author_text, font_size=author_size,
+                                font_file=ctx.font_file,
+                                font_weight=float(panel["authorWeight"]))
+        author_id = f"{element_id}_row_{ri}_author"
+        child_nodes.append(text_node(
+            author_id, author_text, author_size, float(panel["authorWeight"]),
+            palette["ink"], author_w, author_lb,
+            ax, top + (author_h - author_lb) / 2.0, None))
+        children.append(author_id)
+        ax += author_w + px(panel["scoreGap"])
+        stars = row.get("stars")
+        if isinstance(stars, bool):
+            stars = None
+        if isinstance(stars, (int, float)):
+            row_star = float(px(panel["rowStar"]))
+            for i in range(5):
+                ids, nodes = _mg_review_star_nodes(
+                    f"{element_id}_row_{ri}", i, ax + i * row_star,
+                    top + (author_h - row_star) / 2.0, row_star,
+                    float(stars), palette)
+                child_nodes.extend(nodes)
+                children.extend(ids)
+            ax += 5 * row_star + px(panel["scoreGap"])
+        when = row.get("when")
+        if when:
+            when_size = float(px(panel["whenSize"]))
+            when_lb = line_box_height(when_size, None, ctx.font_file)
+            when_w = measure_text(str(when), font_size=when_size,
+                                  font_file=ctx.font_file,
+                                  font_weight=float(panel["whenWeight"]))
+            when_id = f"{element_id}_row_{ri}_when"
+            child_nodes.append(text_node(
+                when_id, str(when), when_size, float(panel["whenWeight"]),
+                palette["muted"], when_w, when_lb,
+                ax, top + (author_h - when_lb) / 2.0, None))
+            children.append(when_id)
+
+        body_top = top + author_h + px(panel["authorToBody"])
+        body_lines = wrap_text(str(row.get("body", "")), content_w,
+                               font_size=body_size, font_file=ctx.font_file,
+                               font_weight=float(panel["bodyWeight"]))[: panel["bodyLines"]]
+        body_id = f"{element_id}_row_{ri}_body"
+        child_nodes.append(Node(
+            id=body_id, type=NodeType.TEXT,
+            text=TextContent(
+                text="\n".join(body_lines),
+                font_family=ctx.font_family, font_file=ctx.font_file,
+                font_size=body_size, font_weight=float(panel["bodyWeight"]),
+                color=palette["ink"], text_align="left",
+                line_height=body_lh / body_size if body_size > 0 else None,
+            ),
+            bounds=Bounds(x=content_x, y=body_top, width=content_w,
+                           height=panel["bodyLines"] * body_lh),
+        ))
+        children.append(body_id)
+        row_y += row_h
+    return children, child_nodes
+
+
+def _build_mg_beat(
+    el: dict[str, Any],
+    ctx: _MGContext,
+    box: Bounds,
+    element_id: str,
+    t0: float,
+    tt: float,
+) -> tuple[Node, list[Node]]:
+    """The `beat_accent` arm: a growing, fading disc on baked per-frame tracks.
+
+    The arm defines its geometry per frame - diameter
+    `round(120 * scale * (0.5 + localFrame / durationFrames))` at the
+    stack's flow position, opacity the element ramp times
+    `(1 - localFrame / durationFrames)` - and reads neither the entrance
+    nor the exit transform. The static bounds hold the full-grown disc;
+    a linear scale animation grows it and a linear translate animation
+    re-pins the corner the stack flow holds (both exact up to the arm's
+    own per-frame rounding); the opacity product is baked as one
+    single-frame animation per frame, because overlapping animations on
+    one property do not multiply - the later starter wins.
+    """
+    fps = ctx.fps
+    scale = _mg_scale(el)
+    color = el.get("color", "#FFFFFF")
+    duration_frames = max(1, int(el.get("durationFrames", 1)))
+    entrance = el.get("entrance", "cut")
+    exit_char = el.get("exit", "cut")
+    in_frames = RAMP_FRAMES.get(entrance, 0)
+    out_frames = RAMP_FRAMES.get(exit_char, 0)
+
+    full = MG_BEAT_SIZE * scale * MG_BEAT_GROWTH[1]
+    sizes = [_mg_px(MG_BEAT_SIZE * (MG_BEAT_GROWTH[0] + f / duration_frames), scale)
+             for f in range(duration_frames)]
+
+    vertical, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+    right = float(ctx.safe_area.get("right", 0))
+    bottom = float(ctx.safe_area.get("bottom", 0))
+
+    def corner(size: float) -> tuple[float, float]:
+        if horizontal == "right":
+            left = ctx.width - right - size
+        else:
+            left = box.x
+        if vertical == "top":
+            top = box.y
+        elif vertical == "bottom":
+            top = box.y + box.height - size
+        else:
+            top = (box.y + box.height / 2.0) - size / 2.0
+        return left, top
+
+    def shift(size: float) -> list[float]:
+        left, top = corner(size)
+        return [left - (box.x + (full - size) / 2.0),
+                top - (box.y + (full - size) / 2.0)]
+
+    disc_id = f"{element_id}_disc"
+    first, last = shift(float(sizes[0])), shift(float(sizes[-1]))
+    animations: list[Animation] = [
+        Animation(target=disc_id, property="transform.scale",
+                  from_value=[sizes[0] / full, sizes[0] / full],
+                  to_value=[sizes[-1] / full, sizes[-1] / full],
+                  start=t0, duration=tt, easing=LinearEasing()),
+        Animation(target=disc_id, property="transform.translate",
+                  from_value=first, to_value=last,
+                  start=t0, duration=tt, easing=LinearEasing()),
+    ]
+
+    def opacity_at(frame: int) -> float:
+        ramp_in = min(1.0, frame / in_frames) if in_frames > 0 else 1.0
+        ramp_out = min(1.0, max(0.0, (duration_frames - frame) / out_frames)) \
+            if out_frames > 0 else 1.0
+        return ramp_in * ramp_out * (1.0 - frame / duration_frames)
+
+    for f in range(duration_frames):
+        animations.append(Animation(
+            target=disc_id, property="opacity",
+            from_value=opacity_at(f), to_value=opacity_at(f + 1),
+            start=t0 + f / fps, duration=1.0 / fps, easing=LinearEasing()))
+
+    disc = Node(
+        id=disc_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="circle", fill=color),
+        bounds=Bounds(x=box.x, y=box.y, width=full, height=full),
+        filters=[DropShadowFilter(kind="drop_shadow", dx=0.0, dy=0.0,
+                                  sigma=12.0, color=color)],
+        animations=animations,
+    )
+    group = Node(
+        id=element_id, type=NodeType.GROUP, bounds=box,
+        timing=Timing(start=t0, duration=tt), children=[disc_id],
+    )
+    return group, [disc]
+
+
 def _build_mg_element(
     el: dict[str, Any],
     ctx: _MGContext,
@@ -1398,6 +3378,12 @@ def _build_mg_element(
     t_out = out_frames / fps
 
     element_id = f"element_{kind}_{start_frame}"
+    if kind in ("progress_bar", "frame_accents"):
+        if kind == "progress_bar":
+            return _build_mg_bar(el, ctx, element_id, t0, tt)
+        return _build_mg_accents(el, ctx, element_id, t0, tt)
+    if kind == "beat_accent" and box is not None:
+        return _build_mg_beat(el, ctx, box, element_id, t0, tt)
     animations: list[Animation] = []
 
     if in_frames > 0:
@@ -1421,6 +3407,8 @@ def _build_mg_element(
     child_nodes: list[Node] = []
     color = el.get("color", "#FFFFFF")
 
+    if kind == "digit_counter" and box is not None:
+        return _build_mg_digit(el, ctx, box, element_id, t0, tt, animations)
     if kind in _MG_TEXT_ARMS and box is not None:
         _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
         align = {"left": "left", "right": "right"}.get(horizontal, "center")
@@ -1489,7 +3477,7 @@ def _build_mg_element(
         row_gap = round(MG_LIST_GAP * scale)
         # WHEN each item appears is stageStarts: the plan's own offsets
         # where it has them, an equal share of the hold where not.
-        starts, reveal_window, _ = _mg_stage_starts(el, fps)
+        starts, reveal_window, _ = _mg_stage_starts(el, len(el.get("runs", [])), fps)
         reveal_frames = max(1.0, reveal_window * 0.6)
         cubic = EaseEasing(power=3)
         y = box.y
@@ -1562,6 +3550,54 @@ def _build_mg_element(
             bounds=Bounds(x=bug_x, y=box.y, width=bug_width, height=bug_height),
         ))
         children.append(image_id)
+    elif kind == "context_stamp" and box is not None:
+        stamp_children, stamp_nodes = _build_mg_stamp_children(
+            el, ctx, box, element_id, color)
+        children.extend(stamp_children)
+        child_nodes.extend(stamp_nodes)
+    elif kind == "comparison_bars" and box is not None:
+        built = _build_mg_bars_children(el, ctx, box, element_id, color, t0)
+        if built is None:
+            return None
+        bars_children, bars_nodes = built
+        children.extend(bars_children)
+        child_nodes.extend(bars_nodes)
+    elif kind == "counter_roll" and box is not None:
+        counter_children, counter_nodes = _build_mg_counter_children(
+            el, ctx, box, element_id, color, start_frame)
+        children.extend(counter_children)
+        child_nodes.extend(counter_nodes)
+    elif kind == "step_counter" and box is not None:
+        step_children, step_nodes = _build_mg_step_children(
+            el, ctx, box, element_id, color)
+        children.extend(step_children)
+        child_nodes.extend(step_nodes)
+    elif kind == "pointer_annotation" and box is not None:
+        pointer_children, pointer_nodes = _build_mg_pointer_children(
+            el, ctx, box, element_id, color)
+        children.extend(pointer_children)
+        child_nodes.extend(pointer_nodes)
+    elif kind == "website_panel" and box is not None:
+        built = _build_mg_website_children(el, ctx, box, element_id, color)
+        if built is None:
+            return None
+        website_children, website_nodes = built
+        children.extend(website_children)
+        child_nodes.extend(website_nodes)
+    elif kind == "subject_emblem" and box is not None:
+        built = _build_mg_emblem_children(el, ctx, box, element_id, color)
+        if built is None:
+            return None
+        emblem_children, emblem_nodes = built
+        children.extend(emblem_children)
+        child_nodes.extend(emblem_nodes)
+    elif kind == "review_panel" and box is not None:
+        built = _build_mg_review_children(el, ctx, box, element_id)
+        if built is None:
+            return None
+        review_children, review_nodes = built
+        children.extend(review_children)
+        child_nodes.extend(review_nodes)
     else:
         return None
 
@@ -1970,4 +4006,48 @@ def _lower_staged_light(layer: dict, layer_id: str, width: int, height: int) -> 
             path=f"M {cx} {cy} L {x0} {y0} L {x1} {y0} Z",
         ),
         bounds=bounds, animations=anims,
+    )
+
+
+def lower_brand_motion(props: dict[str, Any]) -> Scene:
+    """Lower BrandMotion props to an IR scene.
+
+    The composition plays one project-supplied file whole, full frame,
+    with its own alpha (``remotion-subtitles/src/compositions/
+    BrandMotion``: an ``AbsoluteFill`` ``OffthreadVideo`` with
+    ``objectFit: fill``). The lowering is one Video node over the whole
+    delivery frame - no trim (``brand_motion_props`` renders the whole
+    file and offers no trim parameter), no fit (a geometry mismatch is
+    refused upstream by ``GeometryMismatch`` rather than letterboxed or
+    cropped), no conform prop (the renderer draws ``native_sample``:
+    wall-clock sampling, each composition frame seeking the source
+    timestamp, nothing blended).
+
+    ``src`` names the staged file the composition wraps in
+    ``staticFile`` (``brand/<file>`` under Remotion's ``public/``); the
+    caller resolves it to an absolute path before lowering (see
+    ``fframes_render.resolve_props``), because the scene carries file
+    paths, never URLs. An empty ``src`` - which the composition draws as
+    nothing - is refused here rather than lowered to a node that draws
+    nothing, because an overlay that draws nothing is not rendered
+    (AGENTS.md 10.2).
+    """
+    fps = float(props["fps"])
+    width = int(props["width"])
+    height = int(props["height"])
+    duration_in_frames = int(props["durationInFrames"])
+    src = str(props.get("src") or "")
+    if not src:
+        raise ValueError(
+            "BrandMotion props name no src - the composition draws "
+            "nothing without one, and an overlay that draws nothing is "
+            "not rendered.")
+    return Scene(
+        version=1, fps=fps, width=width, height=height,
+        duration=duration_in_frames / fps,
+        nodes=[Node(
+            id="brand_motion", type=NodeType.VIDEO,
+            video=VideoContent(src=src),
+            bounds=Bounds(x=0, y=0, width=width, height=height),
+        )],
     )
