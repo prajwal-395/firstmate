@@ -847,7 +847,11 @@ test_spawn_secondmate_harness_model_token() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus'" \
+  # The task-channel grant (the parent home's state/<id>.inbox) travels
+  # between the permission flag and --settings, real-path resolved the way
+  # the spawn resolves it.
+  inbox_dir=$(cd "$w/home/state" && pwd -P)/sm.inbox
+  assert_contains "$launch" "claude --dangerously-skip-permissions --add-dir '$inbox_dir' --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus'" \
     "model-token: launch did not carry --model opus"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
@@ -869,7 +873,8 @@ test_spawn_secondmate_harness_model_and_effort_tokens() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
   [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus' --effort 'high'" \
+  inbox_dir=$(cd "$w/home/state" && pwd -P)/sm.inbox
+  assert_contains "$launch" "claude --dangerously-skip-permissions --add-dir '$inbox_dir' --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus' --effort 'high'" \
     "model-effort-tokens: launch did not carry both --model opus and --effort high"
   pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
 }
