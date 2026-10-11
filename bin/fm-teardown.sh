@@ -3917,6 +3917,7 @@ status_retire_presentation_task "$STATE" "$ID" || {
   exit 1
 }
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" "$STATE/$ID.stopped" \
+  "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.agy-turnend-token" "$STATE/$ID.agy-session" \
   "$STATE/$ID.muse-session" \
