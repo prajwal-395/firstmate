@@ -1620,8 +1620,46 @@ resolve_project_dir_arg() {
   esac
 }
 
+# registered_project_name <proj-arg>: the project's REGISTERED name, the name
+# under projects/ the caller passed, never the resolved symlink target's
+# folder name. A symlinked project directory (projects/starling-site pointing
+# at a folder named "site") must still route by its registered name, so
+# dispatch and delivery-mode lookups match the registry. The
+# physically-resolved path is still used for everything else spawn needs.
+registered_project_name() {
+  local proj_arg=$1 rest logical rel resolved
+  case "$proj_arg" in
+    projects/*)
+      rest=${proj_arg#projects/}
+      printf '%s\n' "${rest%%/*}"
+      return 0
+      ;;
+  esac
+  case "$proj_arg" in
+    /*) : ;;
+    *) proj_arg=$(resolve_project_dir_arg "$proj_arg") ;;
+  esac
+  # An absolute path under this home's projects dir carries the registered
+  # name as its first component below projects/, spelled through the symlink
+  # or not, so read it off the logical path before anything resolves it.
+  if [ -n "${PROJECTS:-}" ] \
+    && logical=$(cd "$proj_arg" 2>/dev/null && pwd); then
+    case "$logical" in
+      "$PROJECTS"/*)
+        rel=${logical#"$PROJECTS"/}
+        printf '%s\n' "${rel%%/*}"
+        return 0
+        ;;
+    esac
+  fi
+  # Outside projects/: fall back to the physical basename, the behavior for
+  # non-registered paths before this fix.
+  resolved=$(cd "$proj_arg" 2>/dev/null && pwd -P) || return 1
+  basename "$resolved"
+}
+
 dispatch_apply_profile() {
-  local dispatch_rules="$CONFIG/crew-dispatch.json" brief_file project_dir project_name note_file route_json route_status
+  local dispatch_rules="$CONFIG/crew-dispatch.json" brief_file project_name note_file route_json route_status
   local requested_harness requested_raw mismatch=0 expected_profile
   if [ "$KIND" = secondmate ] || [ "$RELAUNCH" -eq 1 ]; then
     if [ "$DISPATCH_OVERRIDE_SET" -eq 1 ]; then
@@ -1641,11 +1679,10 @@ dispatch_apply_profile() {
   command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/crew-dispatch.json" >&2; return 1; }
   brief_file="$DATA/$ID/brief.md"
   [ -r "$brief_file" ] || { echo "error: dispatch resolution needs the written task brief at $brief_file" >&2; return 1; }
-  project_dir=$(cd "$(resolve_project_dir_arg "$PROJ")" 2>/dev/null && pwd -P) || {
+  project_name=$(registered_project_name "$PROJ") || {
     echo "error: project directory cannot be resolved for dispatch: $PROJ" >&2
     return 1
   }
-  project_name=$(basename "$project_dir")
   note_file=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-resolve.XXXXXX") || {
     echo "error: could not prepare dispatch resolver diagnostics" >&2
     return 1
@@ -2917,7 +2954,7 @@ delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task
 # line. A spawn that disagrees would launch a worker whose instructions and whose
 # recorded task delivery differ, which is the exact drift this contract prevents.
 if [ "$KIND" = ship ]; then
-  PROJ_NAME=$(basename "$PROJ_ABS")
+  PROJ_NAME=$(registered_project_name "$PROJ" 2>/dev/null) || PROJ_NAME=$(basename "$PROJ_ABS")
   BRIEF_MODE=$(sed -n 's/^Delivery contract: mode=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
   if [ -z "$BRIEF_MODE" ]; then
     echo "warning: $BRIEF records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode $MODE - confirm its definition of done matches" >&2
