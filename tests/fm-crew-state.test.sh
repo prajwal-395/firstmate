@@ -71,6 +71,8 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 # shellcheck source=/dev/null
+. "$ROOT/bin/fm-pr-lib.sh"
+# shellcheck source=/dev/null
 . "$ROOT/bin/fm-stopped-lib.sh"
 
 CREW_STATE="$ROOT/bin/fm-crew-state.sh"
