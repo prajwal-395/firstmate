@@ -223,6 +223,15 @@ else
   echo "error: could not publish PR poll" >&2
   exit 1
 fi
+# The contribution observer uses the same authenticated check mechanism and
+# owns verdict freshness, required actors and external feedback separately from
+# the exact merged-state poll. Registration is local and performs no forge read.
+if command -v jq >/dev/null 2>&1; then
+  "$SCRIPT_DIR/fm-contributions.sh" arm >/dev/null \
+    || printf 'contributions: observation not armed; coverage is unconfirmed\n' >&2
+else
+  printf 'contributions: jq unavailable; coverage is unconfirmed\n' >&2
+fi
 # In a secondmate home the registration itself is a captain-facing fact when the
 # parent was previously told about this child (escalated, held, dispatched).
 # A child the parent never heard of is the mate's own business and its PR-ready

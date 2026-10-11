@@ -1895,7 +1895,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
       ;;
     *)
-      echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires either an agent-free endpoint (dead) or a provably absent one (missing); stop the agent first with bin/fm-control.sh $ID exit" >&2
+      echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (dead) or a provably absent one (missing); stop the agent first with bin/fm-control.sh $ID exit" >&2
       exit 1
       ;;
   esac
