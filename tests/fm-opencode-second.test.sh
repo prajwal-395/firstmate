@@ -14,16 +14,20 @@
 #      which is also what every record written before markers existed reads
 #      as.
 #   3. Each pinned database is built once (migrated through opencode itself,
-#      seeded from the live login, pinned to the workspace id), an existing
-#      database whose pin drifted is healed back, and the login rows are
-#      re-copied from the live database on every pinned launch so the pin
-#      never carries a stale token. The pin is a copy, never the login: a
-#      pin path naming the live database is refused before anything reads or
-#      writes either file, and refresh never writes the live login.
+#      seeded from a consistent snapshot of the live login, pinned to the
+#      workspace id), an existing database whose pin drifted is healed back,
+#      and the login rows are re-copied from the snapshot on every pinned
+#      launch so the pin never carries a stale token. An empty login copy
+#      fails rather than publishing a login-less pin. The pin is a copy,
+#      never the login: a pin path naming the live database is refused before
+#      anything reads or writes either file, and refresh never writes the
+#      live login.
 #   4. Before a launch rides a pin, the pinned config must resolve the
-#      opencode provider to that launch's own workspace; anything else
-#      refuses the launch, so a mis-pinned session can never bill the wrong
-#      workspace.
+#      opencode provider to that launch's own workspace. A pin proving
+#      another workspace refuses the launch, so a mis-pinned session can
+#      never bill the wrong workspace; a pin whose workspace cannot be read
+#      after a bounded retry refuses with a plain could-not-read report
+#      instead of a wrong-workspace refusal.
 # Contracts 3 and 4 run against a fixture opencode on PATH (canned
 # `debug paths`, `debug config`, and `console orgs`) plus a fixture live
 # database, so they prove the mechanics without touching this machine's
@@ -714,6 +718,200 @@ test_same_file_predicate() {
   pass "the same-file guard tells copies apart from the live database"
 }
 
+# install_flaky_mapping_fixture_opencode <name> <fail-first-n>: like the
+# mapping fixture, but the first <fail-first-n> `debug config` calls fail
+# with no output the way a console fetch failing under load does, then the
+# mapping behavior resumes. The attempt count lands in
+# $FIXTURE_DATADIR/attempts so the test can prove a retry happened. Call it
+# bare, not in a command substitution: it exports PATH and records
+# SAVED_PATH for restore_fixture_opencode, and neither survives a subshell.
+install_flaky_mapping_fixture_opencode() {  # <name> <fail-first-n>
+  local name=$1 fail_first_n=$2 bindir datadir
+  bindir="$TMP_ROOT/fbin-$name"
+  datadir="$TMP_ROOT/fdata-$name"
+  rm -rf "$bindir" "$datadir"
+  mkdir -p "$bindir" "$datadir"
+  cat > "$bindir/opencode" <<FIXTURE_EOF
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "$datadir"
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  n=\$(cat "$datadir/attempts" 2>/dev/null || echo 0)
+  n=\$((n + 1))
+  printf '%s' "\$n" > "$datadir/attempts"
+  if [ "\$n" -le "$fail_first_n" ]; then
+    exit 1
+  fi
+  if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+  fi
+  active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
+  if [ "\$active" = "$MAIN_ORG_ID" ]; then
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "main / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  elif [ "\$active" = "$ORG_ID" ]; then
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "secondary / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  else
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "unknown / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf 'main  fixture@example.invalid  https://opencode.ai/console  %s\n' "$MAIN_ORG_ID"
+  exit 0
+fi
+exit 1
+FIXTURE_EOF
+  chmod +x "$bindir/opencode"
+  SAVED_PATH=$PATH
+  PATH="$bindir:$PATH"
+  export PATH
+  FIXTURE_DATADIR=$datadir
+  export FIXTURE_DATADIR
+}
+
+# install_fetch_down_fixture_opencode <name>: like the mapping fixture, but
+# `debug config` migrates an empty database (exit 0) while every config read
+# against a database holding login rows fails with no output: migration
+# works, the console fetch does not. Call it bare, not in a command
+# substitution, for the same PATH reason as the flaky installer above.
+install_fetch_down_fixture_opencode() {  # <name>
+  local name=$1 bindir datadir
+  bindir="$TMP_ROOT/fbin-$name"
+  datadir="$TMP_ROOT/fdata-$name"
+  rm -rf "$bindir" "$datadir"
+  mkdir -p "$bindir" "$datadir"
+  cat > "$bindir/opencode" <<FIXTURE_EOF
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "$datadir"
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+  fi
+  rows=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT COUNT(*) FROM account;' 2>/dev/null) || rows=
+  case "\$rows" in ''|0) exit 0 ;; esac
+  exit 1
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf 'main  fixture@example.invalid  https://opencode.ai/console  %s\n' "$MAIN_ORG_ID"
+  exit 0
+fi
+exit 1
+FIXTURE_EOF
+  chmod +x "$bindir/opencode"
+  SAVED_PATH=$PATH
+  PATH="$bindir:$PATH"
+  export PATH
+  FIXTURE_DATADIR=$datadir
+  export FIXTURE_DATADIR
+}
+
+test_copy_refuses_an_empty_login() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "empty-login refusal needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg err
+  install_mapping_fixture_opencode empty-login
+  sqlite3 "$FIXTURE_DATADIR/opencode.db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);" \
+    || { restore_fixture_opencode; fail "the fixture login database refused its seed"; }
+  cfg=$(main_config empty-login)
+  if err=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_main_db "$cfg" 2>&1); then
+    restore_fixture_opencode
+    fail "a pin copied from an empty login must not publish"
+  fi
+  restore_fixture_opencode
+  case "$err" in
+    *'could not copy the console login'*) ;;
+    *) fail "the refusal must name the failed copy; got: $err" ;;
+  esac
+  [ -e "$cfg/opencode-main.db" ] && fail "the failed copy must not publish a login-less pin"
+  case "$err" in
+    *"$MAIN_ORG_ID"*) fail "the refusal must never print a workspace id" ;;
+  esac
+  pass "an empty login copy fails rather than publishing a login-less pin"
+}
+
+test_verify_retries_a_transient_fetch() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "verify retry needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg got attempts
+  install_flaky_mapping_fixture_opencode transient-fetch 2
+  fixture_login_db "$FIXTURE_DATADIR" 'live-access-RETRY10' 'wrk_01FIXTUREOTHER'
+  cfg=$(empty_config transient-fetch)
+  got=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_main_db "$cfg") || {
+    restore_fixture_opencode
+    fail "a transient fetch failure must be retried, not refused"
+  }
+  attempts=$(cat "$FIXTURE_DATADIR/attempts" 2>/dev/null) || attempts=
+  restore_fixture_opencode
+  [ "$got" = "$cfg/opencode-main.db" ] || fail "the pin path mismatch: got '$got'"
+  case "$attempts" in ''|*[!0-9]*) fail "the fixture never recorded its attempts" ;; esac
+  [ "$attempts" -ge 3 ] || fail "the build must have retried the failed fetch (attempts=$attempts)"
+  rm -f "$cfg/opencode-main.db" "$cfg/opencode-main-org"
+  pass "a transient console fetch is retried before any refusal"
+}
+
+test_unreadable_pin_reports_could_not_read() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "unreadable-pin reporting needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg err
+  install_fetch_down_fixture_opencode fetch-down
+  fixture_login_db "$FIXTURE_DATADIR" 'live-access-DOWN11' 'wrk_01FIXTUREOTHER'
+  cfg=$(main_config fetch-down)
+  if err=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_main_db "$cfg" 2>&1); then
+    restore_fixture_opencode
+    fail "an unreadable pin must refuse the launch"
+  fi
+  restore_fixture_opencode
+  case "$err" in
+    *'could not be verified'*'could not be read'*'refusing the launch'*) ;;
+    *) fail "the refusal must report could-not-read plainly; got: $err" ;;
+  esac
+  case "$err" in
+    *'resolves'*'not '*"'main / OpenCode'"*) fail "an unreadable pin must not be reported as a wrong workspace" ;;
+  esac
+  case "$err" in
+    *"$MAIN_ORG_ID"*) fail "the refusal must never print a workspace id" ;;
+  esac
+  pass "an unreadable pin reports could-not-read instead of a wrong workspace"
+}
+
+test_proved_wrong_verify_returns_one() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "wrong-workspace verdict needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg db rc
+  install_mapping_fixture_opencode wrong-code
+  fixture_login_db "$FIXTURE_DATADIR" 'live-access-CODE12' 'wrk_01FIXTUREOTHER'
+  cfg=$(main_config wrong-code)
+  db="$cfg/opencode-main.db"
+  sqlite3 "$db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
+     INSERT INTO account VALUES('acc_01FIXTURE', 'live-access-CODE12', 'refresh-01FIXTURE');
+     INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$ORG_ID');" \
+    || { restore_fixture_opencode; fail "fixture pin refused its seed"; }
+  FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_workspace_verify "$db" main >/dev/null 2>&1
+  rc=$?
+  restore_fixture_opencode
+  [ "$rc" -eq 1 ] || fail "a pin proving another workspace must return 1 (unreadable is 2); got $rc"
+  pass "a pin proving another workspace keeps its wrong-workspace verdict"
+}
+
 test_absent_config_is_unconfigured
 test_org_id_round_trips
 test_malformed_org_is_refused
@@ -736,3 +934,7 @@ test_main_db_refuses_a_wrong_workspace
 test_refresh_never_touches_the_live_login
 test_pin_path_naming_live_is_refused
 test_same_file_predicate
+test_copy_refuses_an_empty_login
+test_verify_retries_a_transient_fetch
+test_unreadable_pin_reports_could_not_read
+test_proved_wrong_verify_returns_one
