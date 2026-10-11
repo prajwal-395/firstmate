@@ -105,6 +105,30 @@ MG_ELEMENT_GAPS = {"title_lockup": 12, "quote_card": 16, "lower_third": 12}
 """MotionGraphics: run line height, anchor-stack gap, the display role's
 tracking, and each text arm's run gap."""
 
+MG_LIST_LINE_HEIGHT = 1.3
+"""list_build's ``LINE_HEIGHT``: every item sits on a 1.3 line box, not the
+1.1 the text arms use."""
+
+MG_STAT_SCALE = 1.5
+"""stat_callout's ``scl={scale * 1.5}``: the figure and its label draw at one
+and a half times the plan's footprint, because the callout is the moment's
+dominant graphic."""
+
+MG_STAT_GAP = 12
+"""stat_callout's container gap: a literal ``12px`` in the template, NOT
+scaled by the footprint the way list_build's gaps are."""
+
+MG_LIST_GAP = 12
+"""list_build's container gap (``gap: 12 * scale``) and row gap (the row's
+``gap: 12 * scale`` between marker and copy): both scale."""
+
+MG_LIST_DOT = 8
+"""list_build's marker diameter (``8 * scale``), a circle in the plan's own
+colour."""
+
+MG_LIST_LIFT = 20
+"""How far a list item rises as it arrives (``translateY`` 20 to 0)."""
+
 POST_NAME_COLOR = "#FFFFFF"
 POST_HANDLE_COLOR = "#8B98A5"
 POST_BADGE_FILL = "#1D9BF0"
@@ -1045,7 +1069,7 @@ class _MGContext:
 _MG_TEXT_ARMS = ("title_lockup", "quote_card", "lower_third")
 
 MG_FFRAMES_COVERED_ARMS = frozenset(
-    (*_MG_TEXT_ARMS, "channel_bug")
+    (*_MG_TEXT_ARMS, "channel_bug", "list_build", "stat_callout")
 )
 """MotionGraphics arms FFrames can draw yet (census G2).
 
@@ -1152,6 +1176,10 @@ def _mg_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list
 
 
 def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    if el.get("element") == "stat_callout":
+        return _mg_stat_natural_width(el, ctx)
+    if el.get("element") == "list_build":
+        return _mg_list_natural_width(el, ctx)
     if el.get("element") == "channel_bug":
         return _channel_bug_width(el, ctx)
     if el.get("element") not in _MG_TEXT_ARMS:
@@ -1165,6 +1193,10 @@ def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
 
 
 def _mg_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    if el.get("element") == "stat_callout":
+        return _mg_stat_height(el, box_width, ctx)
+    if el.get("element") == "list_build":
+        return _mg_list_height(el, box_width, ctx)
     if el.get("element") == "channel_bug":
         size = _channel_bug_size(el, ctx)
         return size[1] if size is not None else 0.0
@@ -1173,6 +1205,146 @@ def _mg_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
     heights = [h for *_, h in _mg_run_lines(el, box_width, ctx)]
     gap = MG_ELEMENT_GAPS.get(el.get("element"), 12)
     return sum(heights) + gap * max(0, len(heights) - 1)
+
+
+def _mg_stat_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
+    """The template's ``runStyle`` at stat_callout's scale, as measurement arguments.
+
+    ``runStyle(run.type_role, scale * 1.5, element.color, run.uppercase)``:
+    the display role tracks at 3px, and copy renders uppercased only when
+    the run declares it - the case the plan stated. This is the template's
+    rule, not ``_mg_run_style``'s (which uppercases every display run);
+    every real plan states its display copy already cased, so the two agree
+    wherever it matters, and this one draws what the template draws where
+    they do not.
+    """
+    role = run.get("type_role", "supporting")
+    display = role == "display"
+    return dict(
+        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_STAT_SCALE,
+        font_file=ctx.font_file,
+        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        text_transform="uppercase" if run.get("uppercase") else None,
+    )
+
+
+def _mg_stat_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
+    """``(run, style, lines, height)`` for each stat_callout run, wrapped in *box_width*."""
+    scale = _mg_scale(el)
+    out = []
+    for run in el.get("runs", []):
+        style = _mg_stat_run_style(run, scale, ctx)
+        lines = wrap_text(run.get("text", ""), box_width, **style)
+        out.append((run, style, lines, len(lines) * MG_LINE_HEIGHT * style["font_size"]))
+    return out
+
+
+def _mg_stat_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    widest = 0.0
+    for run in el.get("runs", []):
+        style = _mg_stat_run_style(run, _mg_scale(el), ctx)
+        widest = max(widest, block_width(run.get("text", "").split("\n"), **style))
+    return widest
+
+
+def _mg_stat_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    heights = [h for *_, h in _mg_stat_run_lines(el, box_width, ctx)]
+    # The template's gap is a literal 12px: unscaled by the footprint.
+    return sum(heights) + MG_STAT_GAP * max(0, len(heights) - 1)
+
+
+def _mg_list_lead_size(el: dict[str, Any], ctx: _MGContext) -> float:
+    """The list's ONE size: the lead item's type_role governs every item.
+
+    Peer items share one size; weights stay per-run. Quoted from the arm
+    (and from ``mg_tight_box._list_item_width``, which measures the same
+    rule): a display-first / supporting-rest plan declares emphasis, not a
+    size ladder.
+    """
+    del ctx
+    runs = el.get("runs", [])
+    lead_role = runs[0].get("type_role", "supporting") if runs else "supporting"
+    return TYPE_SIZE.get(lead_role, TYPE_SIZE["supporting"])
+
+
+def _mg_list_text_width(box_width: float, scale: float) -> float:
+    """The copy column: the box minus the marker and its gap (8 + 12, scaled)."""
+    return max(0.0, box_width - (MG_LIST_DOT + MG_LIST_GAP) * scale)
+
+
+def _mg_list_item_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
+    """``(run, size, weight, lines, height)`` per item, wrapped in the copy column."""
+    scale = _mg_scale(el)
+    size = _mg_list_lead_size(el, ctx) * scale
+    text_width = _mg_list_text_width(box_width, scale)
+    out = []
+    for run in el.get("runs", []):
+        # Items draw as written: no uppercase, no tracking, whatever the role.
+        style = dict(font_size=size, font_file=ctx.font_file,
+                     font_weight=TYPE_WEIGHT.get(run.get("type_role", "supporting"),
+                                                 TYPE_WEIGHT["supporting"]))
+        lines = wrap_text(run.get("text", ""), text_width, **style)
+        out.append((run, size, style["font_weight"], lines,
+                    len(lines) * MG_LIST_LINE_HEIGHT * size))
+    return out
+
+
+def _mg_list_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    scale = _mg_scale(el)
+    size = _mg_list_lead_size(el, ctx) * scale
+    widest = 0.0
+    for run in el.get("runs", []):
+        weight = TYPE_WEIGHT.get(run.get("type_role", "supporting"),
+                                 TYPE_WEIGHT["supporting"])
+        widest = max(widest, measure_text(run.get("text", ""), size, ctx.font_file, weight))
+    return widest + (MG_LIST_DOT + MG_LIST_GAP) * scale
+
+
+def _mg_list_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    rows = _mg_list_item_lines(el, box_width, ctx)
+    heights = [h for *_, h in rows]
+    gap = round(MG_LIST_GAP * _mg_scale(el))
+    return sum(heights) + gap * max(0, len(heights) - 1)
+
+
+def _mg_stage_starts(el: dict[str, Any], fps: float) -> tuple[list[int], float, bool]:
+    """When each staged item begins, in frames local to the element.
+
+    The template's ``stageStarts``: the plan's own per-stage offsets
+    (``data.stage_offsets``, seconds from the element's start, clamped
+    into the hold and forced non-decreasing) where it states enough of
+    them, else an equal share of the hold. The reveal window is the
+    entrance ramp on anchored stages, the stagger interval otherwise.
+    """
+    duration_frames = int(el.get("durationFrames", 1))
+    entrance = el.get("entrance", "cut")
+    exit_char = el.get("exit", "cut")
+    hold_frames = max(1, duration_frames - (RAMP_FRAMES.get(exit_char, 0) or 0))
+    data = el.get("data") or {}
+    raw = data.get("stage_offsets")
+    offsets = raw if isinstance(raw, list) else []
+    count = len(el.get("runs", []))
+
+    def _num(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if len(offsets) >= count > 0:
+        starts: list[int] = []
+        previous = 0
+        for i in range(count):
+            frame = round(max(0.0, _num(offsets[i])) * fps)
+            clamped = max(previous, min(frame, hold_frames - 1))
+            starts.append(clamped)
+            previous = clamped
+        window = max(1.0, float(RAMP_FRAMES.get(entrance, RAMP_FRAMES["fade"])))
+        return starts, window, True
+
+    stagger = hold_frames / max(1, count)
+    return [round(i * stagger) for i in range(count)], stagger, False
 
 
 def _stack_boxes(live: list[dict[str, Any]], anchor: str, ctx: _MGContext) -> dict[int, Bounds]:
@@ -1282,6 +1454,95 @@ def _build_mg_element(
             ))
             children.append(run_id)
             y += run_height + gap
+    elif kind == "stat_callout" and box is not None:
+        # The template's stat_callout arm: a centred column of runs at 1.5x,
+        # drawn through runStyle with each run's own uppercase flag.
+        _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+        align = {"left": "left", "right": "right"}.get(horizontal, "center")
+        y = box.y
+        for i, (run, style, lines, run_height) in enumerate(
+                _mg_stat_run_lines(el, box.width, ctx)):
+            run_id = f"{element_id}_run_{i}"
+            child_nodes.append(Node(
+                id=run_id, type=NodeType.TEXT,
+                text=TextContent(
+                    text="\n".join(lines),
+                    font_family=ctx.font_family, font_file=ctx.font_file,
+                    font_size=style["font_size"], font_weight=style["font_weight"],
+                    color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                    letter_spacing=style["letter_spacing"],
+                    text_transform=style["text_transform"],
+                    text_shadow=DEFAULT_TEXT_SHADOW,
+                ),
+                bounds=Bounds(x=box.x, y=y, width=box.width, height=run_height),
+            ))
+            children.append(run_id)
+            y += run_height + MG_STAT_GAP
+    elif kind == "list_build" and box is not None:
+        # The template's list_build arm: one row per run - an 8*scale dot
+        # in the plan's colour beside copy at the lead item's size - each
+        # row arriving on its staged start with a cubic ease-out over 60%
+        # of the reveal window, rising 20px as it fades in.
+        runs = el.get("runs", [])
+        if not runs:
+            return None
+        scale = _mg_scale(el)
+        dot = round(MG_LIST_DOT * scale)
+        row_gap = round(MG_LIST_GAP * scale)
+        # WHEN each item appears is stageStarts: the plan's own offsets
+        # where it has them, an equal share of the hold where not.
+        starts, reveal_window, _ = _mg_stage_starts(el, fps)
+        reveal_frames = max(1.0, reveal_window * 0.6)
+        cubic = EaseEasing(power=3)
+        y = box.y
+        for i, (run, size, weight, lines, row_height) in enumerate(
+                _mg_list_item_lines(el, box.width, ctx)):
+            item_id = f"{element_id}_item_{i}"
+            item_start = starts[i] if i < len(starts) else 0
+            at = t0 + item_start / fps
+            span = reveal_frames / fps
+            dot_id, text_id = f"{item_id}_dot", f"{item_id}_text"
+            # The marker sits on the item's optical centre, DERIVED from
+            # the single line box: (listSize * 1.3 - 8) * scale * 0.5.
+            dot_top = y + (size * MG_LIST_LINE_HEIGHT - dot) / 2.0
+            child_nodes.append(Node(
+                id=dot_id, type=NodeType.SHAPE,
+                shape=ShapeContent(shape="circle", fill=color),
+                bounds=Bounds(x=box.x, y=dot_top, width=dot, height=dot),
+            ))
+            child_nodes.append(Node(
+                id=text_id, type=NodeType.TEXT,
+                text=TextContent(
+                    text="\n".join(lines),
+                    font_family=ctx.font_family, font_file=ctx.font_file,
+                    font_size=size, font_weight=weight,
+                    color=color, text_align="left",
+                    line_height=MG_LIST_LINE_HEIGHT,
+                    text_shadow=DEFAULT_TEXT_SHADOW,
+                ),
+                bounds=Bounds(x=box.x + (MG_LIST_DOT + MG_LIST_GAP) * scale, y=y,
+                              width=_mg_list_text_width(box.width, scale),
+                              height=row_height),
+            ))
+            child_nodes.append(Node(
+                id=item_id, type=NodeType.GROUP,
+                bounds=Bounds(x=box.x, y=y, width=box.width, height=row_height),
+                animations=[
+                    Animation(
+                        target=item_id, property="opacity",
+                        from_value=0.0, to_value=1.0,
+                        start=at, duration=span, easing=cubic,
+                    ),
+                    Animation(
+                        target=item_id, property="transform.translate",
+                        from_value=[0.0, float(MG_LIST_LIFT)], to_value=[0.0, 0.0],
+                        start=at, duration=span, easing=cubic,
+                    ),
+                ],
+                children=[dot_id, text_id],
+            ))
+            children.append(item_id)
+            y += row_height + row_gap
     elif kind == "channel_bug":
         if not el.get("asset") or box is None:
             return None

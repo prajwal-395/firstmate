@@ -6,7 +6,7 @@ Remotion render over the same `frames_dir`, and shipped Remotion
 pixels while logging "engine: FFrames" - every MotionGraphics card
 paid both renders and the FFrames lowering was dead code.
 
-The guard (census S3): FFrames draws four arms
+The guard (census S3): FFrames draws six arms
 (`MG_FFRAMES_COVERED_ARMS`). A card naming any other arm, or a
 `channel_bug` whose image has no readable geometry, is routed to the
 existing Remotion render explicitly, with the reason on stderr - never
@@ -56,7 +56,7 @@ def _title_el(**kw):
 
 def _uncovered_el():
     return {
-        "element": "list_build",
+        "element": "progress_bar",
         "anchor": "centre",
         "row": 0,
         "runs": [{"text": "one", "type_role": "supporting"}],
@@ -185,7 +185,7 @@ def test_uncovered_arm_falls_back_with_the_reason(tmp_path, monkeypatch, capsys)
     assert len(calls.remotion) == 1
     err = capsys.readouterr().err
     assert "engine: Remotion" in err
-    assert "list_build" in err
+    assert "progress_bar" in err
     assert "no FFrames lowering" in err
     assert out["media_type"] == "still"
 

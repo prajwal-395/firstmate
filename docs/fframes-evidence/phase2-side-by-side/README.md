@@ -107,6 +107,53 @@ every composition.
   half-progress where GSAP interpolates, `flip`'s 3D rotation, and an SVG
   avatar (the preloader decodes raster images only).
 
+## Real-use arms: list_build and stat_callout (FF vs Remotion)
+
+Census G2's first lane (`lower_motion_graphics` now draws `list_build`
+and `stat_callout`): the same checks as above, but the reference is
+**Remotion** (the production engine for these arms) on **real
+geo-podcast props**, not the synthetic five. Props are the project's own
+`4_06_render_motion_graphics/motion_graphics/mg_*_props.json` files,
+copied byte-identical: `list_build` (4 items, middle_left, 410x480,
+96f @ 23.976fps, fade/fade) and `stat_callout` ("20%" + label,
+top_centre, 852x480, 84f, fade/fade). FFrames through
+`fframes_render.render_one_card_frames`; Remotion through
+`remotion render src/index.ts MotionGraphics --sequence` (system Chrome,
+output under /tmp per the dotted-path quirk). SSIM on both frames
+composited over mid-grey; ink IoU on alpha > 128 masks
+(`metrics_real_arms.json`, `MG_real_arms_curves.png`).
+
+Each image: Remotion left, FFrames right, settled frame, cropped to the
+union of both frames' ink and composited over the same mid-grey.
+
+| arm (frame) | ink IoU | SSIM | ink FF/RM | opacity FF/RM | premult FF |
+|---|---|---|---|---|---|
+| list_build f80 (settled) | 0.80 | 0.970 | 9545 / 10611 | 0.90 | yes |
+| list_build f6 (element fade) | 0.86 | 0.998 | 1513 / 1748 | 0.91 | yes |
+| list_build f25 (item 1 mid-reveal) | 0.81 | 0.993 | 3375 / 3862 | 0.91 | yes |
+| list_build f50 (item 2 mid-reveal) | 0.85 | 0.986 | 7060 / 7748 | 0.90 | yes |
+| stat_callout f70 (settled) | 0.80 | 0.951 | 26855 / 29473 | 0.93 | yes |
+| stat_callout f4 (element fade, both under threshold) | - (both blank at > 128) | 0.962 | 0 / 0 | - | yes |
+| stat_callout f40 (settled) | 0.80 | 0.951 | 26855 / 29473 | 0.93 | yes |
+
+Reading:
+
+- Same class as the census MG triangle: identical words in identical
+  order on identical lines (`MG_*_side_by_side.png`); the gap is fringe
+  plus ~7-10% less ink on the FFrames side (opacity ratio 0.90-0.93,
+  the same ratio the census measured FF-vs-RM on title_lockup).
+  FFrames-ready; the systematic ink shortfall is follow-up measurement,
+  not a layout defect.
+- The stagger is exact: per-frame ink curves step at the same frames on
+  both engines (list starts 0/22/44/66 with the 60%-window cubic reveal;
+  stat fade 0-8, hold, fade 76-84), and per-frame IoU holds 0.80-0.86
+  across both arms' whole lives, dipping only at reveal edges.
+- Remotion frames are straight alpha, so no premultiplied claim is made
+  about them; the FFrames frames are the adapted (premultiplied) ones.
+- Not covered: `typewriter` on stat_callout (whole runs, as the existing
+  text arms), `data.stage_offsets` anchoring (equal-share path measured;
+  the anchored path is unit-tested through the evaluator only).
+
 ## Reproduction
 
 ```

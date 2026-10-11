@@ -1,0 +1,76 @@
+{
+ "list_build": [
+  {
+   "frame": 80,
+   "ink_iou": 0.8024,
+   "ssim": 0.9698,
+   "ink_ff": 9545,
+   "ink_rm": 10611,
+   "opacity_ratio": 0.902,
+   "premult_ff": true,
+   "premult_rm": false
+  },
+  {
+   "frame": 6,
+   "ink_iou": 0.8602,
+   "ssim": 0.9984,
+   "ink_ff": 1513,
+   "ink_rm": 1748,
+   "opacity_ratio": 0.909,
+   "premult_ff": true,
+   "premult_rm": false
+  },
+  {
+   "frame": 25,
+   "ink_iou": 0.8147,
+   "ssim": 0.9929,
+   "ink_ff": 3375,
+   "ink_rm": 3862,
+   "opacity_ratio": 0.91,
+   "premult_ff": true,
+   "premult_rm": false
+  },
+  {
+   "frame": 50,
+   "ink_iou": 0.8538,
+   "ssim": 0.9855,
+   "ink_ff": 7060,
+   "ink_rm": 7748,
+   "opacity_ratio": 0.903,
+   "premult_ff": true,
+   "premult_rm": false
+  }
+ ],
+ "stat_callout": [
+  {
+   "frame": 70,
+   "ink_iou": 0.7971,
+   "ssim": 0.9505,
+   "ink_ff": 26855,
+   "ink_rm": 29473,
+   "opacity_ratio": 0.926,
+   "premult_ff": true,
+   "premult_rm": false
+  },
+  {
+   "frame": 4,
+   "ink_iou": null,
+   "ssim": 0.9624,
+   "ink_ff": 0,
+   "ink_rm": 0,
+   "opacity_ratio": 0.925,
+   "premult_ff": true,
+   "premult_rm": false
+  },
+  {
+   "frame": 40,
+   "ink_iou": 0.7971,
+   "ssim": 0.9505,
+   "ink_ff": 26855,
+   "ink_rm": 29473,
+   "opacity_ratio": 0.926,
+   "premult_ff": true,
+   "premult_rm": false
+  }
+ ]
+}

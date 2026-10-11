@@ -170,6 +170,154 @@ class TestMotionGraphicsLowering:
         assert state["element_title_lockup_0"]["opacity"] == pytest.approx(1.0, abs=0.01)
 
 
+def _stat_callout_props():
+    return {
+        "fps": 30,
+        "width": 852,
+        "height": 480,
+        "durationInFrames": 84,
+        "safeArea": {"top": 48, "right": 48, "bottom": 318, "left": 48},
+        "layoutWidth": 750.0,
+        "elements": [
+            {
+                "element": "stat_callout",
+                "anchor": "top_centre",
+                "row": 0,
+                "runs": [
+                    {"text": "20%", "type_role": "display"},
+                    {"text": "had asked", "type_role": "supporting"},
+                ],
+                "color": "#AABBCC",
+                "entrance": "fade",
+                "exit": "fade",
+                "startFrame": 0,
+                "durationFrames": 84,
+                "footprint": None,
+            }
+        ],
+    }
+
+
+def _list_build_props(**overrides):
+    el = {
+        "element": "list_build",
+        "anchor": "middle_left",
+        "row": 0,
+        "runs": [
+            {"text": "Reddit", "type_role": "supporting"},
+            {"text": "LinkedIn", "type_role": "supporting"},
+            {"text": "Press mentions", "type_role": "supporting"},
+            {"text": "Directories", "type_role": "supporting"},
+        ],
+        "color": "#FFB8D4",
+        "entrance": "fade",
+        "exit": "fade",
+        "startFrame": 0,
+        "durationFrames": 96,
+        "footprint": None,
+        "data": {},
+    }
+    el.update(overrides)
+    return {
+        "fps": 30,
+        "width": 410,
+        "height": 480,
+        "durationInFrames": 96,
+        "safeArea": {"top": 128, "right": 48, "bottom": 128, "left": 48},
+        "elements": [el],
+    }
+
+
+class TestStatCalloutLowering:
+    def test_runs_draw_at_one_and_a_half_scale(self):
+        scene = lower_motion_graphics(_stat_callout_props())
+        by_id = {n.id: n for n in scene.nodes}
+        figure = by_id["element_stat_callout_0_run_0"]
+        assert figure.text.font_size == pytest.approx(56 * 1.5)
+        assert figure.text.font_weight == 900
+        label = by_id["element_stat_callout_0_run_1"]
+        assert label.text.font_size == pytest.approx(36 * 1.5)
+
+    def test_display_tracking_without_invented_uppercase(self):
+        scene = lower_motion_graphics(_stat_callout_props())
+        by_id = {n.id: n for n in scene.nodes}
+        figure = by_id["element_stat_callout_0_run_0"]
+        assert figure.text.letter_spacing == pytest.approx(3.0)
+        # The run states no uppercase: the template draws copy as written.
+        assert figure.text.text_transform is None
+        assert figure.text.text == "20%"
+
+    def test_run_gap_is_the_literal_twelve_pixels(self):
+        scene = lower_motion_graphics(_stat_callout_props())
+        by_id = {n.id: n for n in scene.nodes}
+        figure = by_id["element_stat_callout_0_run_0"]
+        label = by_id["element_stat_callout_0_run_1"]
+        assert (label.bounds.y - (figure.bounds.y + figure.bounds.height)) == pytest.approx(12.0)
+
+
+class TestListBuildLowering:
+    def test_items_share_the_lead_size_with_per_run_weight(self):
+        scene = lower_motion_graphics(_list_build_props())
+        by_id = {n.id: n for n in scene.nodes}
+        for i in range(4):
+            text = by_id[f"element_list_build_0_item_{i}_text"]
+            assert text.text.font_size == pytest.approx(36.0)
+            assert text.text.font_weight == 700
+
+    def test_display_lead_unifies_supporting_items(self):
+        props = _list_build_props()
+        props["elements"][0]["runs"] = [
+            {"text": "Big", "type_role": "display"},
+            {"text": "small", "type_role": "supporting"},
+        ]
+        scene = lower_motion_graphics(props)
+        by_id = {n.id: n for n in scene.nodes}
+        assert by_id["element_list_build_0_item_0_text"].text.font_size == pytest.approx(56.0)
+        second = by_id["element_list_build_0_item_1_text"]
+        assert second.text.font_size == pytest.approx(56.0)
+        assert second.text.font_weight == 700
+
+    def test_items_arrive_on_equal_shares_with_cubic_ease(self):
+        # 96 frames, fade exit (8): hold 88, four items -> starts 0/22/44/66,
+        # each revealed over 60% of the 22-frame window (13.2 frames).
+        scene = lower_motion_graphics(_list_build_props())
+        state = evaluate(scene, 0)
+        assert state["element_list_build_0_item_0"]["opacity"] == pytest.approx(0.0, abs=0.01)
+        state = evaluate(scene, 14)
+        assert state["element_list_build_0_item_0"]["opacity"] == pytest.approx(1.0, abs=0.01)
+        assert state["element_list_build_0_item_1"]["opacity"] == pytest.approx(0.0, abs=0.01)
+        state = evaluate(scene, 30)
+        progress = (30 - 22) / 13.2
+        assert state["element_list_build_0_item_1"]["opacity"] == pytest.approx(
+            1 - (1 - progress) ** 3, abs=0.01)
+        assert state["element_list_build_0_item_1"]["transform.translate"][1] == pytest.approx(
+            20 * (1 - progress) ** 3, abs=0.1)
+
+    def test_anchored_offsets_set_starts(self):
+        props = _list_build_props(data={"stage_offsets": [0.0, 1.0, 2.0, 3.0]})
+        scene = lower_motion_graphics(props)
+        state = evaluate(scene, 31)
+        # Second item starts at frame 30, 8-frame entrance ramp -> 1/8 in.
+        assert state["element_list_build_0_item_1"]["opacity"] == pytest.approx(
+            1 - (1 - 1 / 4.8) ** 3, abs=0.01)
+
+    def test_marker_is_a_circle_on_the_optical_centre(self):
+        scene = lower_motion_graphics(_list_build_props())
+        by_id = {n.id: n for n in scene.nodes}
+        dot = by_id["element_list_build_0_item_0_dot"]
+        text = by_id["element_list_build_0_item_0_text"]
+        assert dot.shape.shape == "circle"
+        assert dot.bounds.width == pytest.approx(8.0)
+        assert dot.bounds.x == pytest.approx(text.bounds.x - 20.0)
+        assert dot.bounds.y == pytest.approx(
+            text.bounds.y + (36 * 1.3 - 8) / 2.0, abs=0.01)
+
+    def test_no_runs_draws_nothing(self):
+        props = _list_build_props(runs=[])
+        scene = lower_motion_graphics(props)
+        assert not [n for n in scene.nodes if "list_build" in n.id]
+
+
 class TestPostHeaderLowering:
     def test_static_scene(self):
         props = {
