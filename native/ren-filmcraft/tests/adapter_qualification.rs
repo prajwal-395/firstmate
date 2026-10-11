@@ -13,9 +13,15 @@
 //! `vep-verify-run.sh`, never bare alongside other heavy lanes.
 
 use ren_filmcraft::adapter::{
-    add_audio_tracks_operation, asset_path, build_frame_map, import_operation, plan_edit,
-    plan_projection, projection_json, reconcile_clip_ids, render_span, summarize_losses,
-    validate_render_asset, verify_media, EditContext,
+    add_audio_tracks_operation, asset_path, build_frame_map, import_operation, plan_captions,
+    apply_captions_to_model, plan_edit, plan_projection, projection_json,
+    plan_titles, apply_titles_to_model, plan_lut_effects, apply_lut_to_model,
+    lut_import_operations, lut_apply_operations, plan_effect_keyframes,
+    apply_effect_keyframes_to_model, effect_key_operations, read_effect_keyframes,
+    plan_volume_automation, apply_volume_automation_to_model, volume_operations,
+    caption_operations, title_operations,
+    reconcile_clip_ids, render_span, summarize_losses, validate_render_asset, verify_media,
+    EditContext,
 };
 use ren_filmcraft::{ExportFormat, FilmCraft, HardwareEncoding, Operation, Request};
 use ren_protocol::project_model::{decode_project_model, EditOperation, ProjectModel};
@@ -247,6 +253,8 @@ fn adapter_headless_edit_yields_receipt_render_map_ids_and_losses() {
             path: render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Auto,
+            bitrate_kbps: None,
+            bitrate_mode: None,
         }))
         .unwrap();
     assert!(export.engine_response["job"].is_u64());
@@ -434,8 +442,9 @@ fn adapter_drives_transition_audio_move_and_refuses_unsupported() {
         projection
             .losses
             .iter()
-            .any(|loss| loss.code == "effect_not_projected"),
-        "model effects must appear as explicit loss entries"
+            .any(|loss| loss.code == "effect_owned_by_effectcraft"),
+        "EffectCraft-owned effects stay there as explicit ownership entries, got {:#?}",
+        projection.losses
     );
 }
 
@@ -1322,6 +1331,8 @@ fn ren_reverse_plays_backwards_frame_exact() {
             path: forward_render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
         }))
         .unwrap();
     assert_eq!(
@@ -1401,6 +1412,8 @@ fn ren_reverse_plays_backwards_frame_exact() {
             path: reversed_render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
         }))
         .unwrap();
     assert_eq!(
@@ -1674,10 +1687,430 @@ fn ren_refusals_carry_named_codes_through_the_cli_path() {
     }
 }
 
+/// Pin the sequence to the model's 24fps timeline rate. The adapter plans
+/// every tick in engine ticks at that rate; on the default 23.976 preset
+/// the engine frame-floors tick writes (measured), so the pin keeps all
+/// readback below verbatim instead of rate-rounded.
+fn pin_24fps(adapter: &FilmCraft, project: &Path) {
+    let receipt = adapter
+        .execute(request(Operation::SequenceSettings {
+            project: project.into(),
+            fps: 24.0,
+        }))
+        .unwrap();
+    assert_eq!(receipt.engine_response["scaledClips"].as_u64(), Some(0));
+}
+
+fn push_observation(model: &mut ProjectModel, id: &str, clock: &str, start: i64, end: i64, modality: &str, text: &str) {
+    model.observations.push(
+        serde_json::from_value(serde_json::json!(
+            {"id": id, "asset_id": "asset-av",
+             "interval": {"clock_id": clock, "start": start, "end": end},
+             "modality": modality, "payload": {"text": text},
+             "confidence": 1.0, "provenance_id": "prov-qual"}
+        ))
+        .unwrap(),
+    );
+}
+
+fn push_effect(model: &mut ProjectModel, id: &str, class: &str, target: &str, params: serde_json::Value, keys: serde_json::Value) {
+    model.effects.push(
+        serde_json::from_value(serde_json::json!(
+            {"id": id, "class_id": class, "target_id": target,
+             "interval": {"clock_id": "clock-timeline", "start": 0, "end": 72},
+             "parameters": params, "keyframes": keys}
+        ))
+        .unwrap(),
+    );
+}
+
+#[test]
+fn captions_and_titles_place_frame_exact_with_readback() {
+    let adapter = FilmCraft::new().unwrap();
+    let mut model = test_model(&linked_av_fixture(), false, false);
+    push_observation(&mut model, "obs-hello", "clock-source", 0, 24, "speech", "Hello");
+    push_observation(&mut model, "obs-world", "clock-source", 24, 48, "speech", "World");
+    push_observation(&mut model, "obs-title", "clock-timeline", 0, 48, "title", "Opening");
+    let projection = plan_projection(&model).unwrap();
+    assert!(projection.losses.is_empty(), "captions and titles execute, they are never losses: {:#?}", projection.losses);
+
+    let cues = plan_captions(&model).unwrap();
+    assert_eq!(cues.len(), 2);
+    assert_eq!(apply_captions_to_model(&model, &cues).unwrap().observations.len(), 3);
+    let titles = plan_titles(&model, &projection.placements).unwrap();
+    assert_eq!(titles.len(), 1);
+    assert_eq!(
+        apply_titles_to_model(&model, &projection.placements, &titles)
+            .unwrap()
+            .observations
+            .len(),
+        3
+    );
+
+    let placed = place_through_adapter(&adapter, "captions-titles", &model);
+    pin_24fps(&adapter, &placed.project);
+
+    let track = adapter
+        .execute(request(Operation::CreateCaptionTrack {
+            project: placed.project.clone(),
+            format: "Subtitle".into(),
+            name: Some("Subs".into()),
+        }))
+        .unwrap();
+    let track_id = track.engine_response["track"].as_u64().unwrap();
+    for operation in caption_operations(&placed.project, Some("C1".into()), &cues) {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(receipt.engine_response["caption"].is_u64());
+    }
+    let listed = adapter
+        .execute(request(Operation::ListCaptions {
+            project: placed.project.clone(),
+            track: None,
+        }))
+        .unwrap();
+    let items = listed.engine_response["tracks"][0]["captions"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    for (item, cue) in items.iter().zip(cues.iter()) {
+        assert_eq!(item["text"].as_str(), Some(cue.text.as_str()));
+        assert_eq!(item["start"].as_i64(), Some(cue.start_ticks), "caption start must read back verbatim at 24fps");
+        assert_eq!(
+            item["end"].as_i64(),
+            Some(cue.start_ticks + cue.duration_ticks),
+            "caption end must read back verbatim at 24fps"
+        );
+    }
+
+    // A text/timing revision round-trips through the same readback.
+    let first = items[0]["id"].as_u64().unwrap();
+    adapter
+        .execute(request(Operation::SetCaptionText {
+            project: placed.project.clone(),
+            caption: first,
+            text: "Hello edited".into(),
+            speaker: None,
+        }))
+        .unwrap();
+    adapter
+        .execute(request(Operation::SetCaptionTimes {
+            project: placed.project.clone(),
+            caption: first,
+            start_ticks: 0,
+            end_ticks: 254_016_000_000,
+        }))
+        .unwrap();
+    let relisted = adapter
+        .execute(request(Operation::ListCaptions {
+            project: placed.project.clone(),
+            track: None,
+        }))
+        .unwrap();
+    let edited = relisted.engine_response["tracks"][0]["captions"][0].clone();
+    assert_eq!(edited["text"].as_str(), Some("Hello edited"));
+    assert_eq!(edited["start"].as_i64(), Some(0));
+    assert_eq!(edited["end"].as_i64(), Some(254_016_000_000));
+    assert_eq!(
+        listed.engine_response["tracks"][0]["id"].as_u64(),
+        Some(track_id),
+        "the created track must be the one that lists back"
+    );
+
+    // Titles bind to the host clip and read back frame-exact.
+    let title_ops = title_operations(&placed.project, &placed.clip_ids, &titles).unwrap();
+    assert_eq!(title_ops.len(), 1);
+    let receipt = adapter.execute(request(title_ops.into_iter().next().unwrap())).unwrap();
+    let title_clip = receipt.engine_response["clip"].as_u64().unwrap();
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let titled = inspection.engine_response["video"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|track| track["items"].as_array().unwrap().iter())
+        .find(|item| item["clip"].as_u64() == Some(title_clip))
+        .cloned()
+        .expect("the title item must be on the engine timeline");
+    assert_eq!(titled["name"].as_str(), Some("Opening"));
+    assert_eq!(titled["startFrame"].as_i64(), Some(0));
+    assert_eq!(titled["durationFrames"].as_i64(), Some(48));
+}
+
+#[test]
+fn lut_builtin_and_file_import_apply_with_readback() {
+    let adapter = FilmCraft::new().unwrap();
+    let mut model = test_model(&linked_av_fixture(), false, false);
+    push_effect(
+        &mut model,
+        "effect-lut-builtin",
+        "color.lut",
+        "use-first",
+        serde_json::json!({"lut": "builtin:logc3-awg3-to-rec709"}),
+        serde_json::json!([]),
+    );
+    let projection = plan_projection(&model).unwrap();
+    assert!(projection.losses.is_empty(), "a projectable LUT is executed, never a loss: {:#?}", projection.losses);
+    let plans = plan_lut_effects(&model, &projection.placements).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert!(plans[0].is_reference());
+    assert_eq!(
+        apply_lut_to_model(&model, &projection.placements, &plans)
+            .unwrap()
+            .effects
+            .len(),
+        1
+    );
+    assert!(lut_import_operations(Path::new("test.fcproj"), &plans).is_empty());
+
+    let placed = place_through_adapter(&adapter, "lut-apply", &model);
+    pin_24fps(&adapter, &placed.project);
+    let applies = lut_apply_operations(&placed.project, &placed.clip_ids, &plans, &BTreeMap::new()).unwrap();
+    assert_eq!(applies.len(), 1);
+    let receipt = adapter.execute(request(applies.into_iter().next().unwrap())).unwrap();
+    assert_eq!(receipt.engine_response["lut"].as_str(), Some("builtin:logc3-awg3-to-rec709"));
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let video_item = &inspection.engine_response["video"][0]["items"][0];
+    let lumetri = video_item["effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["effect"].as_str() == Some("lumetri"))
+        .expect("applying a LUT must attach Lumetri to the clip");
+    assert!(
+        lumetri["params"]["input_lut"]["value"].as_str().unwrap_or("").contains("builtin:logc3-awg3-to-rec709"),
+        "the Lumetri input LUT must read back the applied ref: {}",
+        lumetri["params"]["input_lut"]
+    );
+
+    // File LUTs import in a second phase: the receipt mints the ref the
+    // apply then drives, and the same inspect path reads it back.
+    let cube = placed._temp.path().join("qual.cube");
+    std::fs::write(
+        &cube,
+        "TITLE \"qual\"\nLUT_3D_SIZE 2\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n0.0 0.0 0.0\n0.0 0.0 1.0\n0.0 1.0 0.0\n0.0 1.0 1.0\n1.0 0.0 0.0\n1.0 0.0 1.0\n1.0 1.0 0.0\n1.0 1.0 1.0\n",
+    )
+    .unwrap();
+    let mut filed = test_model(&linked_av_fixture(), false, false);
+    push_effect(
+        &mut filed,
+        "effect-lut-file",
+        "color.lut",
+        "use-first",
+        serde_json::json!({"lut": cube.to_str().unwrap()}),
+        serde_json::json!([]),
+    );
+    let filed_projection = plan_projection(&filed).unwrap();
+    let filed_plans = plan_lut_effects(&filed, &filed_projection.placements).unwrap();
+    assert!(!filed_plans[0].is_reference());
+    let placed = place_through_adapter(&adapter, "lut-file", &filed);
+    pin_24fps(&adapter, &placed.project);
+    let imports = lut_import_operations(&placed.project, &filed_plans);
+    assert_eq!(imports.len(), 1);
+    let imported = adapter.execute(request(imports.into_iter().next().unwrap())).unwrap();
+    let minted = imported.engine_response["ref"].as_str().unwrap().to_owned();
+    assert!(minted.starts_with("lib:"), "file imports mint a library ref, got {minted}");
+    let listed = adapter
+        .execute(request(Operation::ListLuts {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    assert!(
+        listed.engine_response["library"].as_array().unwrap().iter().any(|e| e["ref"].as_str() == Some(minted.as_str())),
+        "the imported LUT must list back: {}",
+        listed.engine_response
+    );
+    let refs = BTreeMap::from([("effect-lut-file".to_owned(), minted.clone())]);
+    let applies = lut_apply_operations(&placed.project, &placed.clip_ids, &filed_plans, &refs).unwrap();
+    let receipt = adapter.execute(request(applies.into_iter().next().unwrap())).unwrap();
+    assert_eq!(receipt.engine_response["lut"].as_str(), Some(minted.as_str()));
+}
+
+#[test]
+fn keyframed_picture_keys_read_back_exact_and_out_of_span_refuses() {
+    let adapter = FilmCraft::new().unwrap();
+    let mut model = test_model(&linked_av_fixture(), false, false);
+    push_effect(
+        &mut model,
+        "effect-pos",
+        "transform.position",
+        "use-first",
+        serde_json::json!({}),
+        serde_json::json!([{"tick": 0, "value": [100.0, 200.0]}, {"tick": 36, "value": [300.0, 400.0]}]),
+    );
+    push_effect(
+        &mut model,
+        "effect-opacity",
+        "opacity.opacity",
+        "use-first",
+        serde_json::json!({}),
+        serde_json::json!([{"tick": 0, "value": 30.0}, {"tick": 36, "value": 80.0}]),
+    );
+    push_effect(
+        &mut model,
+        "effect-crop",
+        "transform.crop",
+        "use-first",
+        serde_json::json!({"left": 5.0, "top": 0.0, "right": 5.0, "bottom": 0.0}),
+        serde_json::json!([]),
+    );
+    let projection = plan_projection(&model).unwrap();
+    assert!(projection.losses.is_empty(), "projectable picture effects execute, they are never losses: {:#?}", projection.losses);
+    let plans = plan_effect_keyframes(&model, &projection.placements).unwrap();
+    assert_eq!(plans.len(), 3);
+    assert_eq!(
+        apply_effect_keyframes_to_model(&model, &projection.placements, &plans)
+            .unwrap()
+            .effects
+            .len(),
+        3
+    );
+
+    let placed = place_through_adapter(&adapter, "picture-keys", &model);
+    pin_24fps(&adapter, &placed.project);
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let operations = effect_key_operations(&placed.project, context.clip_ids, &plans).unwrap();
+    for operation in operations {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert!(receipt.losses.is_empty(), "exact key writes report no loss: {:#?}", receipt.losses);
+    }
+    let video_clip = ren_filmcraft::adapter::primary_clip_id(&placed.clip_ids["use-first"], "use-first").unwrap();
+
+    // Exact media-time readback from the project file: timeline ticks at
+    // 24fps are media ticks for a clip placed at zero with sourceIn zero.
+    let position = read_effect_keyframes(&placed.project, video_clip, "motion", "position").unwrap();
+    assert_eq!(
+        position,
+        vec![
+            (0, serde_json::json!([100.0, 200.0])),
+            (381_024_000_000, serde_json::json!([300.0, 400.0])),
+        ]
+    );
+    let opacity = read_effect_keyframes(&placed.project, video_clip, "opacity", "opacity").unwrap();
+    assert_eq!(
+        opacity,
+        vec![(0, serde_json::json!(30.0)), (381_024_000_000, serde_json::json!(80.0))]
+    );
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let video_item = &inspection.engine_response["video"][0]["items"][0];
+    let crop = video_item["effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["effect"].as_str() == Some("crop"))
+        .expect("the static crop must be applied to the clip");
+    for (edge, want) in [("left", 5.0), ("top", 0.0), ("right", 5.0), ("bottom", 0.0)] {
+        let rendered = crop["params"][edge]["value"].as_str().unwrap_or("");
+        let parsed: f64 = rendered
+            .strip_prefix("Float(")
+            .and_then(|s| s.strip_suffix(")"))
+            .and_then(|s| s.parse().ok())
+            .expect("crop edges read back as Float values");
+        assert_eq!(parsed, want, "crop edge {edge} must read back exact");
+    }
+
+    // The out-of-span guard: a key past the clip end refuses at planning
+    // time with its named code. The engine would answer such a write with
+    // success while placing nothing (measured), so this refusal is the
+    // compensation - nothing out-of-span ever executes.
+    let mut spanned = test_model(&linked_av_fixture(), false, false);
+    push_effect(
+        &mut spanned,
+        "effect-far",
+        "transform.scale",
+        "use-first",
+        serde_json::json!({}),
+        serde_json::json!([{"tick": 0, "value": 100.0}, {"tick": 200, "value": 150.0}]),
+    );
+    // Widen the effect interval past the clip so the clip-span guard is
+    // the one that fires, not the interval guard.
+    spanned.effects[0].interval.end = 300;
+    // Fail-closed: the whole projection refuses with the named code, so
+    // nothing out-of-span ever executes.
+    let err = plan_projection(&spanned).unwrap_err();
+    assert!(
+        format!("{err}").contains("keyframe_out_of_span"),
+        "the projection must refuse out-of-span keys by name, got {err}"
+    );
+    let spanned_projection = plan_projection(&test_model(&linked_av_fixture(), false, false)).unwrap();
+    let err = plan_effect_keyframes(&spanned, &spanned_projection.placements).unwrap_err();
+    assert!(
+        format!("{err}").contains("keyframe_out_of_span"),
+        "out-of-span keys must refuse by name, got {err}"
+    );
+    let model_err = apply_effect_keyframes_to_model(&spanned, &spanned_projection.placements, &[])
+        .unwrap_err();
+    assert!(
+        format!("{model_err}").contains("keyframe_out_of_span"),
+        "the apply counterpart must refuse the same content, got {model_err}"
+    );
+}
+
+#[test]
+fn volume_automation_writes_and_reads_back_exact() {
+    let adapter = FilmCraft::new().unwrap();
+    let mut model = test_model(&linked_av_fixture(), true, false);
+    push_effect(
+        &mut model,
+        "effect-vol",
+        "audio.volume",
+        "use-first",
+        serde_json::json!({}),
+        serde_json::json!([{"tick": 0, "value": -3.0}, {"tick": 36, "value": -6.0}]),
+    );
+    let projection = plan_projection(&model).unwrap();
+    assert!(projection.losses.is_empty(), "volume automation executes, it is never a loss: {:#?}", projection.losses);
+    let plans = plan_volume_automation(&model, &projection.placements).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].strip, "A1");
+    assert_eq!(
+        apply_volume_automation_to_model(&model, &projection.placements, &plans)
+            .unwrap()
+            .effects
+            .len(),
+        1
+    );
+
+    let placed = place_through_adapter(&adapter, "volume-auto", &model);
+    pin_24fps(&adapter, &placed.project);
+    for operation in volume_operations(&placed.project, &plans) {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert_eq!(receipt.engine_response["points"].as_u64(), Some(2));
+    }
+    let mixer = adapter
+        .execute(request(Operation::InspectMixer {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let strip = mixer.engine_response["strips"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["ref"].as_str() == Some("A1"))
+        .expect("A1 must be in the mixer readback")
+        .clone();
+    assert_eq!(
+        strip["lanes"]["volume"],
+        serde_json::json!([[0i64, -3.0], [381_024_000_000i64, -6.0]]),
+        "automation lanes must read back tick-exact"
+    );
+}
+
 /// G9 loss proof: a mask/effect/track-carrying model is executed through
 /// the pinned CLI, and the executed receipt losses must equal the
 /// plan-level losses byte-identical. Plan-level-only assertions (see the
-/// `effect_not_projected` check in
+/// `effect_owned_by_effectcraft` check in
 /// `adapter_drives_transition_audio_move_and_refuses_unsupported`) cannot
 /// catch a driver that drops or invents a loss at execution time.
 #[test]
@@ -1728,7 +2161,7 @@ fn mask_effect_track_losses_proven_byte_identical_through_the_pinned_cli() {
     assert_eq!(
         plan_codes,
         vec![
-            "effect_not_projected",
+            "effect_owned_by_effectcraft",
             "mask_not_projected",
             "object_track_not_projected"
         ],
@@ -1791,6 +2224,8 @@ fn export_batch(adapter: &FilmCraft, project: &Path, dir: &Path, slots: usize) -
                         path: out.clone(),
                         format: ExportFormat::H264,
                         hardware_encoder: HardwareEncoding::Auto,
+                        bitrate_kbps: None,
+                        bitrate_mode: None,
                     }))
                     .unwrap();
                 assert!(receipt.engine_response["job"].is_u64());
@@ -1965,6 +2400,8 @@ fn export_mix_wav(adapter: &FilmCraft, project: &Path, dir: &Path, name: &str) -
             path: out.clone(),
             format: ExportFormat::Wav,
             hardware_encoder: HardwareEncoding::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
         }))
         .unwrap();
     assert!(receipt.engine_response["job"].is_u64());

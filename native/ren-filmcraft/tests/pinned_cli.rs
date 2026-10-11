@@ -1,6 +1,6 @@
 use ren_filmcraft::{
-    ExportFormat, FilmCraft, HardwareEncoding, Operation, Request, TrimEdge, TrimMode,
-    ADAPTER_SCHEMA,
+    BitrateMode, ExportFormat, FilmCraft, HardwareEncoding, Operation, Request, TrimEdge, TrimMode,
+    ADAPTER_SCHEMA, DEFAULT_H264_BITRATE_KBPS,
 };
 use serde_json::json;
 
@@ -194,12 +194,159 @@ fn pinned_cli_drives_edits_inspection_still_render_and_all_required_exports() {
                 path: path.clone(),
                 format,
                 hardware_encoder: hardware,
+                bitrate_kbps: None,
+                bitrate_mode: None,
             }))
             .unwrap();
         assert!(receipt.engine_response["job"].is_u64());
         assert!(path.is_file(), "{name} export missing: {}", path.display());
     }
     assert!(clip > 0);
+}
+
+/// Gap-4 proof: the probed H264 video stream bitrate lands within
+/// ±10% of the requested `bitrate_kbps`, and an omitted bitrate lands
+/// within ±10% of Ren's delivery default (`DEFAULT_H264_BITRATE_KBPS`).
+///
+/// The source is generated high-complexity 1080p (testsrc2 + white noise):
+/// trivial content saturates the encoder well below any delivery target
+/// (measured: the 160x90 A/V fixture caps near 250 kbps video no matter the
+/// request), so the proof needs content demanding enough to reach it.
+/// Software encoding (`HardwareEncoding::Off`) keeps the proof
+/// deterministic; ffmpeg/ffprobe are declared requirements, so their
+/// absence fails rather than passing vacuously.
+#[test]
+fn pinned_cli_h264_export_honors_requested_bitrate() {
+    const TOLERANCE: f64 = 0.10;
+    const REQUEST_KBPS: u32 = 4_000;
+
+    fn run(cmd: &str, args: &[&str]) -> std::process::Output {
+        std::process::Command::new(cmd)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("{cmd} must be on PATH for the bitrate proof: {e}"))
+    }
+
+    let adapter = FilmCraft::new().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("noise-src.mp4");
+    let generated = run(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1920x1080:rate=24:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "anoisesrc=color=white:duration=3:sample_rate=48000",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            source.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        generated.status.success() && source.is_file(),
+        "ffmpeg must generate the bitrate-proof source: {}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+
+    let project = new_project(&adapter, temp.path(), "bitrate-proof");
+    let imported = adapter
+        .execute(request(Operation::ImportMedia {
+            project: project.clone(),
+            paths: vec![source],
+        }))
+        .unwrap();
+    let item = imported.engine_response["items"][0].as_u64().unwrap();
+    adapter
+        .execute(request(Operation::Place {
+            project: project.clone(),
+            item,
+            track: "V1".into(),
+            audio_track: Some("A1".into()),
+            frame: 0,
+            source_in_ticks: 0,
+            // 3 seconds in the engine's project clock.
+            duration_ticks: 762_048_000_000,
+        }))
+        .unwrap();
+
+    fn video_bitrate_bps(path: &std::path::Path) -> u64 {
+        let probed = std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=bit_rate",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(path)
+            .output()
+            .unwrap_or_else(|e| panic!("ffprobe must be on PATH for the bitrate proof: {e}"));
+        assert!(
+            probed.status.success(),
+            "ffprobe must read {}: {}",
+            path.display(),
+            String::from_utf8_lossy(&probed.stderr)
+        );
+        String::from_utf8_lossy(&probed.stdout)
+            .trim()
+            .parse()
+            .unwrap_or_else(|e| panic!("video bit_rate must parse for {}: {e}", path.display()))
+    }
+
+    // Explicit request: CBR 4000 kbps software-encoded.
+    let explicit = temp.path().join("bitrate-explicit.mp4");
+    adapter
+        .execute(request(Operation::Export {
+            project: project.clone(),
+            path: explicit.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+            bitrate_kbps: Some(REQUEST_KBPS),
+            bitrate_mode: Some(BitrateMode::Cbr),
+        }))
+        .unwrap();
+    let actual = video_bitrate_bps(&explicit) as f64;
+    let target = f64::from(REQUEST_KBPS) * 1000.0;
+    assert!(
+        (actual - target).abs() / target <= TOLERANCE,
+        "explicit {REQUEST_KBPS} kbps request probed at {actual} bps, outside ±{}%",
+        TOLERANCE * 100.0,
+    );
+
+    // Omitted bitrate: Ren's delivery default.
+    let defaulted = temp.path().join("bitrate-default.mp4");
+    adapter
+        .execute(request(Operation::Export {
+            project: project.clone(),
+            path: defaulted.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
+        }))
+        .unwrap();
+    let actual = video_bitrate_bps(&defaulted) as f64;
+    let target = f64::from(DEFAULT_H264_BITRATE_KBPS) * 1000.0;
+    assert!(
+        (actual - target).abs() / target <= TOLERANCE,
+        "default export probed at {actual} bps, outside ±{}% of Ren's delivery default ({target} bps)",
+        TOLERANCE * 100.0,
+    );
 }
 
 #[test]

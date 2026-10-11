@@ -14,7 +14,15 @@ response shapes are errors. The request vocabulary stays bounded to project crea
 placement, razor, trim, move / insert, delete / ripple delete, link, retime,
 transition, track gain, per-clip gain (`clip.audioGain`, mode `set`),
 audio-track growth, H.264 / ProRes / WAV export, still
-render and inspection.
+render and inspection. H264 exports carry an explicit bitrate and rate
+control (`bitrate_kbps` / `bitrate_mode`, defaulting to Ren's 1080x1920
+delivery default of 12 Mbps VBR 1-pass); bitrate on ProRes/WAV refuses,
+because the engine silently ignores it there. Plus the model-content
+families below: caption
+tracks and overlay titles from speech/title observations, LUT import and
+Lumetri input-LUT assignment, keyframed transform/crop/opacity on clip
+uses, and track volume automation, with read-only caption/mixer/LUT
+inspection and a 24fps sequence-rate pin for verbatim tick readback.
 
 Run crate checks from the `native/` workspace. The fixture integration test uses the committed
 short A/V clip and a real CLI built from the pinned SHA; it checks the known unlinked-audio razor
@@ -80,6 +88,38 @@ is available. Driver losses (including both measured defects) pass through
 `summarize_losses` verbatim. `tests/adapter_qualification.rs` drives
 placement, trim, split, link repair, delete, ripple delete, ripple, retime, ramps, reverse (including a render-level direction proof), transition, audio, render, and unsupported-op
 behavior through the pinned CLI.
+
+ Model content FilmCraft executes natively (adapter contract version 4):
+
+ - captions/titles: `speech`/`caption` observations plan into a caption
+   track (`plan_captions` to `captions.newTrack`/`add`/`setText`/`setTimes`,
+   read back with `captions.list`); `title` observations plan into overlay
+   titles bound to the overlapping clip (`plan_titles` to
+   `graphics.newText`, read back by item name/span). Each has an
+   `apply_*_to_model` counterpart anchoring the plan to the model.
+ - LUTs: `color.lut` effects (`{"lut": "builtin:…"|"lib:…"|path}`) plan
+   into `lut.import` (file paths, two-phase via the receipt `ref`) plus
+   `lumetri.setInputLut`, read back through the clip's Lumetri
+   `input_lut` value.
+ - keyframed picture: `transform.position/scale/rotation` and
+   `opacity.opacity` keyframes plus static `transform.crop` rects plan
+   into `effects.apply` (crop only) + `effects.toggleAnimation` + timed
+   `effects.setParam` writes, read back tick-exact from the project file
+   (`read_effect_keyframes`; inspect reports counts only).
+ - volume automation: `audio.volume` dB keyframes plan into
+   `mixer.writeAutomation` on the placement's audio strip, read back with
+   `mixer.inspect` lanes.
+ - out-of-span guard: a key outside its clip's timeline span refuses with
+   `keyframe_out_of_span` at planning time (the engine answers such
+   writes with success while placing nothing - measured), so the whole
+   projection refuses fail-closed instead of executing.
+ - EffectCraft boundary: `move.*`, `blur.gaussian`, `color.saturation`,
+   masks and track mattes stay with EffectCraft
+   (`effect_owned_by_effectcraft` / existing mask/track losses); anything
+   else unmapped keeps `effect_not_projected`. Pin the sequence to the
+   model's timeline rate (`SequenceSettings`, 24.0 in qualification) so
+   tick readback is verbatim; off-rate sequences inherit the engine's
+   frame floor.
 
 ## Native audio mix (`music`/`sfx` stems, per-clip gain)
 

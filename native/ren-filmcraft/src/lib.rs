@@ -241,11 +241,159 @@ pub enum Operation {
         project: PathBuf,
         audio_tracks: u32,
     },
+    /// Caption track creation (`captions.newTrack`). Answers `{"track": id}`.
+    /// `format` is the engine vocabulary (`Subtitle`, `CEA-608`, ...).
+    CreateCaptionTrack {
+        project: PathBuf,
+        format: String,
+        name: Option<String>,
+    },
+    /// Caption placement (`captions.add`). `time_ticks`/`duration_ticks`
+    /// are engine ticks on the sequence clock. Answers `{"caption": id}`.
+    AddCaption {
+        project: PathBuf,
+        track: Option<String>,
+        text: String,
+        time_ticks: i64,
+        duration_ticks: i64,
+    },
+    /// Caption text edit (`captions.setText`). Answers `null`.
+    SetCaptionText {
+        project: PathBuf,
+        caption: u64,
+        text: String,
+        speaker: Option<String>,
+    },
+    /// Caption timing edit (`captions.setTimes`). Answers `null`; the
+    /// receipt echoes the converted ticks as `{"start","end"}` through
+    /// the raw engine response path (see `captions.list` for readback).
+    SetCaptionTimes {
+        project: PathBuf,
+        caption: u64,
+        start_ticks: i64,
+        end_ticks: i64,
+    },
+    /// Read-only caption readback (`captions.list`). Answers
+    /// `{"selection","tracks"}`; the adapter never mutates through it.
+    ListCaptions {
+        project: PathBuf,
+        track: Option<String>,
+    },
+    /// Title overlay (`graphics.newText`), optionally bound to a clip.
+    /// `time_ticks`/`duration_seconds` place it on the sequence clock;
+    /// both store verbatim on a 24fps sequence (the qualification pins
+    /// the rate with `SequenceSettings` first). Answers `{"clip","layer"}`.
+    GraphicsNewText {
+        project: PathBuf,
+        text: String,
+        clip: Option<u64>,
+        time_ticks: Option<i64>,
+        duration_seconds: Option<f64>,
+    },
+    /// LUT library import (`lut.import`). Answers `{"id","lut","name","ref"`;
+    /// the `ref` (`lib:...` or builtin) is what `lumetri.setInputLut` takes.
+    ImportLut {
+        project: PathBuf,
+        path: PathBuf,
+        name: Option<String>,
+    },
+    /// LUT readback (`lut.list`). Answers `{"builtin","library"}`.
+    ListLuts {
+        project: PathBuf,
+    },
+    /// Lumetri input-LUT assignment (`lumetri.setInputLut`). Answers
+    /// `{"clip","lut","name"}`.
+    ApplyLut {
+        project: PathBuf,
+        clip: u64,
+        lut: String,
+    },
+    /// Generic effect application (`effects.apply`). Answers `null`.
+    /// Built-in `motion`/`opacity`/`lumetri` need no apply; `crop` does.
+    ApplyEffect {
+        project: PathBuf,
+        clips: Vec<u64>,
+        effect: String,
+    },
+    /// Enable per-parameter animation (`effects.toggleAnimation`).
+    /// Answers `null`.
+    ToggleEffectAnimation {
+        project: PathBuf,
+        clip: u64,
+        effect: String,
+        param: String,
+    },
+    /// Parameter write (`effects.setParam`), with optional timeline-tick
+    /// `time` for a keyframe write. Answers `{"keyframes"}` with the
+    /// count after the write. Out-of-span times
+    /// are refused at planning time (see `keyframe_out_of_span`): the
+    /// engine answers success while placing nothing.
+    SetEffectParam {
+        project: PathBuf,
+        clip: u64,
+        effect: String,
+        param: String,
+        value: serde_json::Value,
+        time_ticks: Option<i64>,
+    },
+    /// Explicit keyframe add (`effects.addKeyframe`) at a timeline tick.
+    /// Answers `null`. Same out-of-span refusal as `SetEffectParam`.
+    AddEffectKeyframe {
+        project: PathBuf,
+        clip: u64,
+        effect: String,
+        param: String,
+        time_ticks: i64,
+    },
+    /// Track volume keyframe (`mixer.setKeyframe`). Answers
+    /// `{"time","value"}`.
+    MixerSetKeyframe {
+        project: PathBuf,
+        strip: String,
+        lane: String,
+        time_ticks: i64,
+        value: f64,
+    },
+    /// Track automation batch (`mixer.writeAutomation`). Answers
+    /// `{"keyframes","points"}`.
+    MixerWriteAutomation {
+        project: PathBuf,
+        strip: String,
+        lane: String,
+        points: Vec<(i64, f64)>,
+    },
+    /// Mixer readback (`mixer.inspect`). Answers the full mixer state
+    /// including per-strip `lanes` automation.
+    InspectMixer {
+        project: PathBuf,
+    },
+    /// Sequence rate pin (`sequence.settings`). The model plans in engine
+    /// ticks at the timeline rate; pinning the sequence to that rate
+    /// (24.0 for the qualification clocks) keeps every tick readback
+    /// verbatim instead of frame-floored onto an off-rate clock.
+    /// Answers `{"scaledClips"}`.
+    SequenceSettings {
+        project: PathBuf,
+        fps: f64,
+    },
     Export {
         project: PathBuf,
         path: PathBuf,
         format: ExportFormat,
         hardware_encoder: HardwareEncoding,
+        /// H264 video bitrate in kbps. `None` takes
+        /// [`DEFAULT_H264_BITRATE_KBPS`]: Ren's delivery default, so an
+        /// export that names no bitrate still ships at delivery size
+        /// instead of the engine's hotter default (trial gap 4: 19 Mbps
+        /// against Resolve's 10-11 Mbps at the same spec). Refused on
+        /// non-H264 formats, where the engine silently ignores it (measured:
+        /// a wav export accepts `bitrateKbps` and writes plain PCM).
+        #[serde(default)]
+        bitrate_kbps: Option<u32>,
+        /// H264 rate control. `None` takes [`DEFAULT_BITRATE_MODE`].
+        /// Refused on non-H264 formats, like `bitrate_kbps`.
+        #[serde(default)]
+        bitrate_mode: Option<BitrateMode>,
     },
     RenderFrame {
         project: PathBuf,
@@ -285,6 +433,44 @@ pub enum HardwareEncoding {
     Off,
     Auto,
 }
+
+/// H264 rate control, spelled exactly as the pinned engine's
+/// `file.exportMedia` schema names it (`cbr|vbr1Pass|vbr2Pass`; measured via
+/// `filmcraft-cli describe file.exportMedia`). Explicit renames rather than
+/// `rename_all`, so an engine respelling fails the build instead of
+/// silently sending a value the engine refuses.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BitrateMode {
+    #[serde(rename = "cbr")]
+    Cbr,
+    #[serde(rename = "vbr1Pass")]
+    Vbr1Pass,
+    #[serde(rename = "vbr2Pass")]
+    Vbr2Pass,
+}
+
+impl BitrateMode {
+    fn as_engine_str(self) -> &'static str {
+        match self {
+            BitrateMode::Cbr => "cbr",
+            BitrateMode::Vbr1Pass => "vbr1Pass",
+            BitrateMode::Vbr2Pass => "vbr2Pass",
+        }
+    }
+}
+
+/// Ren's H264 delivery bitrate default, in kbps. Ren's delivery spec is
+/// 1080x1920 H264 short-form (`DEFAULT_DELIVERY_SPEC` in
+/// `library/tools/delivery_spec.py`), and the pinned engine's own preset
+/// for that frame ("Social Vertical 1080x1920") targets 12 Mbps - beside
+/// Resolve's measured 10-11 Mbps on the same frame (trial gap 4).
+pub const DEFAULT_H264_BITRATE_KBPS: u32 = 12_000;
+/// The engine's house H264 delivery mode (its 1080p/4K delivery presets are
+/// VBR 1 pass).
+pub const DEFAULT_BITRATE_MODE: BitrateMode = BitrateMode::Vbr1Pass;
+/// Above the engine's 4K delivery presets (45-60 Mbps): refuses only the
+/// absurd (a mistyped extra zero), never a real delivery target.
+pub const MAX_H264_BITRATE_KBPS: u32 = 100_000;
 
 /// Resolve the CLI without a human setup step. The explicit path is useful for managed installs;
 /// otherwise Cargo builds the binary into a revision-addressed per-user cache with no UI feature.
@@ -683,18 +869,321 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
                 true,
             )
         }
+        Operation::CreateCaptionTrack {
+            project,
+            format,
+            name,
+        } => {
+            let mut p = json!({"format": format});
+            if let Some(name) = name {
+                p["name"] = json!(name);
+            }
+            (
+                Some(project),
+                "create_caption_track",
+                "captions.newTrack",
+                p,
+                true,
+            )
+        }
+        Operation::AddCaption {
+            project,
+            track,
+            text,
+            time_ticks,
+            duration_ticks,
+        } => {
+            if time_ticks < 0 || duration_ticks <= 0 {
+                return Err(Error::Schema(
+                    "caption start must be at or after zero with positive duration".into(),
+                ));
+            }
+            let mut p = json!({"text": text, "time": time_ticks, "durationSeconds": duration_ticks as f64 / adapter::ENGINE_TICKS_PER_SECOND as f64});
+            if let Some(track) = track {
+                p["track"] = json!(track);
+            }
+            (Some(project), "add_caption", "captions.add", p, true)
+        }
+        Operation::SetCaptionText {
+            project,
+            caption,
+            text,
+            speaker,
+        } => {
+            let mut p = json!({"caption": caption, "text": text});
+            if let Some(speaker) = speaker {
+                p["speaker"] = json!(speaker);
+            }
+            (
+                Some(project),
+                "set_caption_text",
+                "captions.setText",
+                p,
+                true,
+            )
+        }
+        Operation::SetCaptionTimes {
+            project,
+            caption,
+            start_ticks,
+            end_ticks,
+        } => {
+            if start_ticks < 0 || end_ticks <= start_ticks {
+                return Err(Error::Schema(
+                    "caption times must satisfy 0 <= start < end".into(),
+                ));
+            }
+            (
+                Some(project),
+                "set_caption_times",
+                "captions.setTimes",
+                json!({"caption": caption, "startTime": start_ticks, "endTime": end_ticks}),
+                true,
+            )
+        }
+        Operation::ListCaptions { project, track } => {
+            let mut p = json!({});
+            if let Some(track) = track {
+                p["track"] = json!(track);
+            }
+            (
+                Some(project),
+                "list_captions",
+                "captions.list",
+                p,
+                false,
+            )
+        }
+        Operation::GraphicsNewText {
+            project,
+            text,
+            clip,
+            time_ticks,
+            duration_seconds,
+        } => {
+            if time_ticks.is_some_and(|t| t < 0) {
+                return Err(Error::Schema("title time must be at or after zero".into()));
+            }
+            let mut p = json!({"text": text});
+            if let Some(clip) = clip {
+                p["clip"] = json!(clip);
+            }
+            if let Some(t) = time_ticks {
+                p["time"] = json!(t);
+            }
+            if let Some(seconds) = duration_seconds {
+                if !seconds.is_finite() || seconds <= 0.0 {
+                    return Err(Error::Schema("title duration must be positive seconds".into()));
+                }
+                p["seconds"] = json!(seconds);
+            }
+            (
+                Some(project),
+                "graphics_new_text",
+                "graphics.newText",
+                p,
+                true,
+            )
+        }
+        Operation::ImportLut {
+            project,
+            path,
+            name,
+        } => {
+            let mut p = json!({"path": path});
+            if let Some(name) = name {
+                p["name"] = json!(name);
+            }
+            (Some(project), "import_lut", "lut.import", p, true)
+        }
+        Operation::ListLuts { project } => {
+            (Some(project), "list_luts", "lut.list", json!({}), false)
+        }
+        Operation::ApplyLut { project, clip, lut } => {
+            if lut.trim().is_empty() {
+                return Err(Error::Schema("LUT reference must not be empty".into()));
+            }
+            (
+                Some(project),
+                "apply_lut",
+                "lumetri.setInputLut",
+                json!({"clip": clip, "lut": lut}),
+                true,
+            )
+        }
+        Operation::ApplyEffect {
+            project,
+            clips,
+            effect,
+        } => {
+            if clips.is_empty() {
+                return Err(Error::Schema("effect application names no clips".into()));
+            }
+            if effect.trim().is_empty() {
+                return Err(Error::Schema("effect name must not be empty".into()));
+            }
+            (
+                Some(project),
+                "apply_effect",
+                "effects.apply",
+                json!({"clips": clips, "effect": effect}),
+                true,
+            )
+        }
+        Operation::ToggleEffectAnimation {
+            project,
+            clip,
+            effect,
+            param,
+        } => (
+            Some(project),
+            "toggle_effect_animation",
+            "effects.toggleAnimation",
+            json!({"clip": clip, "effect": effect, "param": param}),
+            true,
+        ),
+        Operation::SetEffectParam {
+            project,
+            clip,
+            effect,
+            param,
+            value,
+            time_ticks,
+        } => {
+            if time_ticks.is_some_and(|t| t < 0) {
+                return Err(Error::Schema("effect keyframe time must be at or after zero".into()));
+            }
+            let mut p = json!({"clip": clip, "effect": effect, "param": param, "value": value});
+            if let Some(t) = time_ticks {
+                p["time"] = json!(t);
+            }
+            (
+                Some(project),
+                "set_effect_param",
+                "effects.setParam",
+                p,
+                true,
+            )
+        }
+        Operation::AddEffectKeyframe {
+            project,
+            clip,
+            effect,
+            param,
+            time_ticks,
+        } => {
+            if time_ticks < 0 {
+                return Err(Error::Schema("effect keyframe time must be at or after zero".into()));
+            }
+            (
+                Some(project),
+                "add_effect_keyframe",
+                "effects.addKeyframe",
+                json!({"clip": clip, "effect": effect, "param": param, "time": time_ticks}),
+                true,
+            )
+        }
+        Operation::MixerSetKeyframe {
+            project,
+            strip,
+            lane,
+            time_ticks,
+            value,
+        } => {
+            if time_ticks < 0 {
+                return Err(Error::Schema("mixer keyframe time must be at or after zero".into()));
+            }
+            if !value.is_finite() {
+                return Err(Error::Schema("mixer keyframe value must be finite".into()));
+            }
+            (
+                Some(project),
+                "mixer_set_keyframe",
+                "mixer.setKeyframe",
+                json!({"strip": strip, "lane": lane, "time": time_ticks, "value": value}),
+                true,
+            )
+        }
+        Operation::MixerWriteAutomation {
+            project,
+            strip,
+            lane,
+            points,
+        } => {
+            if points.is_empty() {
+                return Err(Error::Schema("automation write names no points".into()));
+            }
+            for (ticks, value) in &points {
+                if *ticks < 0 {
+                    return Err(Error::Schema("automation point time must be at or after zero".into()));
+                }
+                if !value.is_finite() {
+                    return Err(Error::Schema("automation point value must be finite".into()));
+                }
+            }
+            let pairs: Vec<Value> = points
+                .iter()
+                .map(|(ticks, value)| json!([ticks, value]))
+                .collect();
+            (
+                Some(project),
+                "mixer_write_automation",
+                "mixer.writeAutomation",
+                json!({"strip": strip, "lane": lane, "points": pairs}),
+                true,
+            )
+        }
+        Operation::InspectMixer { project } => {
+            (
+                Some(project),
+                "inspect_mixer",
+                "mixer.inspect",
+                json!({}),
+                false,
+            )
+        }
+        Operation::SequenceSettings { project, fps } => {
+            if !fps.is_finite() || fps <= 0.0 {
+                return Err(Error::Schema("sequence fps must be a positive rate".into()));
+            }
+            (
+                Some(project),
+                "sequence_settings",
+                "sequence.settings",
+                json!({"fps": fps}),
+                true,
+            )
+        }
         Operation::Export {
             project,
             path,
             format,
             hardware_encoder,
-        } => (
-            Some(project),
-            "export",
-            "file.exportMedia",
-            json!({"path":path,"format":format_name(format),"hardwareEncoding":hardware_encoder,"wait":true}),
-            false,
-        ),
+            bitrate_kbps,
+            bitrate_mode,
+        } => {
+            if !matches!(format, ExportFormat::H264)
+                && (bitrate_kbps.is_some() || bitrate_mode.is_some())
+            {
+                return Err(Error::Schema(
+                    "bitrate_kbps/bitrate_mode apply to H264 only: ProRes bitrate is profile-determined and Wav is PCM, and the engine silently ignores the parameters there".into(),
+                ));
+            }
+            let mut params = json!({"path":path,"format":format_name(format),"hardwareEncoding":hardware_encoder,"wait":true});
+            if matches!(format, ExportFormat::H264) {
+                let kbps = bitrate_kbps.unwrap_or(DEFAULT_H264_BITRATE_KBPS);
+                if kbps == 0 || kbps > MAX_H264_BITRATE_KBPS {
+                    return Err(Error::Schema(format!(
+                        "H264 bitrate must be 1..={} kbps, got {kbps}; the engine silently accepts 0 as its own default, so 0 refuses here",
+                        MAX_H264_BITRATE_KBPS
+                    )));
+                }
+                let mode = bitrate_mode.unwrap_or(DEFAULT_BITRATE_MODE);
+                params["bitrateKbps"] = json!(kbps);
+                params["bitrateMode"] = json!(mode.as_engine_str());
+            }
+            (Some(project), "export", "file.exportMedia", params, false)
+        }
         Operation::RenderFrame {
             project,
             frame,
@@ -812,11 +1301,21 @@ fn parse_cli_output(id: &str, output: std::process::Output) -> Result<Value> {
 }
 
 pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
-    // Delete, ripple delete and retime answer `null`: the receipt carries
-    // no ids, and the equivalence proof reads the timeline back instead.
+    // Null-answering commands accept exactly null. `captions.setText`
+    // answers null; `effects.apply`, `effects.toggleAnimation`,
+    // `effects.addKeyframe` and `effects.setKeyframe` answer null as well.
+    // `captions.setTimes` echoes its converted `{"start","end"}` ticks and
+    // `effects.setParam` echoes its `{"keyframes"}` count instead.
     if matches!(
         command,
-        "edit.clear" | "edit.rippleDelete" | "clip.speedDuration"
+        "edit.clear"
+            | "edit.rippleDelete"
+            | "clip.speedDuration"
+            | "captions.setText"
+            | "effects.apply"
+            | "effects.toggleAnimation"
+            | "effects.addKeyframe"
+            | "effects.setKeyframe"
     ) {
         return if value.is_null() {
             Ok(())
@@ -897,6 +1396,26 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
+        "captions.newTrack" => &["track"],
+        "captions.add" => &["caption"],
+        "captions.setTimes" => &["start", "end"],
+        "captions.list" => &["selection", "tracks"],
+        "graphics.newText" => &["clip", "layer"],
+        "lut.import" => &["id", "lut", "name", "ref"],
+        "lut.list" => &["builtin", "library"],
+        "lumetri.setInputLut" => &["clip", "lut", "name"],
+        "effects.setParam" => &["keyframes"],
+        "mixer.setKeyframe" => &["time", "value"],
+        "mixer.writeAutomation" => &["keyframes", "points"],
+        "mixer.inspect" => &[
+            "automatchTime",
+            "clipModes",
+            "gestures",
+            "latencySamples",
+            "recording",
+            "strips",
+        ],
+        "sequence.settings" => &["scaledClips"],
         "file.exportMedia" => &["job", "path", "preset", "result"],
         "sequence.inspect" => &[
             "id",
@@ -951,6 +1470,19 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
+        "captions.newTrack" => &["track"],
+        "captions.add" => &["caption"],
+        "captions.setTimes" => &["start", "end"],
+        "captions.list" => &["tracks"],
+        "graphics.newText" => &["clip"],
+        "lut.import" => &["ref"],
+        "lut.list" => &["builtin", "library"],
+        "lumetri.setInputLut" => &["clip", "lut"],
+        "effects.setParam" => &["keyframes"],
+        "mixer.setKeyframe" => &["time", "value"],
+        "mixer.writeAutomation" => &["keyframes", "points"],
+        "mixer.inspect" => &["strips"],
+        "sequence.settings" => &["scaledClips"],
         "file.exportMedia" => &["job", "path"],
         "sequence.inspect" => &["id", "video", "audio"],
         "project.inspect" => &["name", "path", "dirty", "revision", "root"],
@@ -977,6 +1509,19 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => value["linked"].is_boolean(),
         "sequence.applyVideoTransition" => value["transition"].is_u64(),
         "mixer.setValue" => value["value"].is_number(),
+        "captions.newTrack" => value["track"].is_u64(),
+        "captions.add" => value["caption"].is_u64(),
+        "captions.setTimes" => value["start"].is_i64() && value["end"].is_i64(),
+        "captions.list" => value["tracks"].is_array(),
+        "graphics.newText" => value["clip"].is_u64(),
+        "lut.import" => value["ref"].is_string(),
+        "lut.list" => value["builtin"].is_array() && value["library"].is_array(),
+        "lumetri.setInputLut" => value["clip"].is_u64() && value["lut"].is_string(),
+        "effects.setParam" => value["keyframes"].is_u64(),
+        "mixer.setKeyframe" => value["time"].is_i64() && value["value"].is_number(),
+        "mixer.writeAutomation" => value["keyframes"].is_u64() && value["points"].is_u64(),
+        "mixer.inspect" => value["strips"].is_array(),
+        "sequence.settings" => value["scaledClips"].is_u64(),
         "file.exportMedia" => value["job"].is_u64() && value["path"].is_string(),
         "sequence.inspect" => {
             value["id"].is_u64() && value["video"].is_array() && value["audio"].is_array()
@@ -1241,11 +1786,70 @@ mod tests {
                 "speed {speed} must refuse"
             );
         }
-        // The three null-answering commands accept exactly null.
-        for command in ["edit.clear", "edit.rippleDelete", "clip.speedDuration"] {
+        // The null-answering commands accept exactly null.
+        for command in [
+            "edit.clear",
+            "edit.rippleDelete",
+            "clip.speedDuration",
+            "captions.setText",
+            "effects.apply",
+            "effects.toggleAnimation",
+            "effects.addKeyframe",
+            "effects.setKeyframe",
+        ] {
             assert!(validate_response_contract(command, &Value::Null).is_ok());
             assert!(validate_response_contract(command, &json!({})).is_err());
         }
+        // `effects.setParam` echoes its post-write keyframe count.
+        assert!(
+            validate_response_contract("effects.setParam", &json!({"keyframes": 2})).is_ok()
+        );
+        assert!(validate_response_contract("effects.setParam", &Value::Null).is_err());
+        // The echo-answering commands accept their measured shapes.
+        assert!(validate_response_contract("captions.newTrack", &json!({"track": 8})).is_ok());
+        assert!(validate_response_contract("captions.add", &json!({"caption": 9})).is_ok());
+        assert!(
+            validate_response_contract("captions.setTimes", &json!({"start": 0, "end": 1})).is_ok()
+        );
+        assert!(
+            validate_response_contract("captions.list", &json!({"selection": [], "tracks": []}))
+                .is_ok()
+        );
+        assert!(
+            validate_response_contract("graphics.newText", &json!({"clip": 13, "layer": 0}))
+                .is_ok()
+        );
+        assert!(
+            validate_response_contract("lut.import", &json!({"id": "lut12", "lut": {}, "name": "x", "ref": "lib:lut12"}))
+                .is_ok()
+        );
+        assert!(
+            validate_response_contract("lut.list", &json!({"builtin": [], "library": []})).is_ok()
+        );
+        assert!(
+            validate_response_contract(
+                "lumetri.setInputLut",
+                &json!({"clip": 10, "lut": "builtin:x", "name": "X"})
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_response_contract("mixer.setKeyframe", &json!({"time": 0, "value": -3.0}))
+                .is_ok()
+        );
+        assert!(
+            validate_response_contract(
+                "mixer.writeAutomation",
+                &json!({"keyframes": 2, "points": 2})
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_response_contract("mixer.inspect", &json!({"strips": []})).is_ok()
+        );
+        assert!(
+            validate_response_contract("sequence.settings", &json!({"scaledClips": 0})).is_ok()
+        );
         // The link toggle answers exactly `{"linked":bool}`.
         for linked in [true, false] {
             assert!(validate_response_contract("clip.link", &json!({"linked": linked})).is_ok());
@@ -1263,6 +1867,102 @@ mod tests {
         let losses = detect_move_loss(&dirty).unwrap();
         assert_eq!(losses.len(), 1);
         assert_eq!(losses[0].code, "move_overwrote");
+    }
+
+    #[test]
+    fn caption_lut_keyframe_and_automation_validate_before_the_engine() {
+        // Negative times, empty spans and empty points refuse.
+        for operation in [
+            Operation::AddCaption {
+                project: "x.fcproj".into(),
+                track: None,
+                text: "hi".into(),
+                time_ticks: -1,
+                duration_ticks: 10,
+            },
+            Operation::AddCaption {
+                project: "x.fcproj".into(),
+                track: None,
+                text: "hi".into(),
+                time_ticks: 0,
+                duration_ticks: 0,
+            },
+            Operation::SetCaptionTimes {
+                project: "x.fcproj".into(),
+                caption: 9,
+                start_ticks: 10,
+                end_ticks: 10,
+            },
+            Operation::SetEffectParam {
+                project: "x.fcproj".into(),
+                clip: 7,
+                effect: "motion".into(),
+                param: "position".into(),
+                value: json!([0.0, 0.0]),
+                time_ticks: Some(-1),
+            },
+            Operation::AddEffectKeyframe {
+                project: "x.fcproj".into(),
+                clip: 7,
+                effect: "motion".into(),
+                param: "position".into(),
+                time_ticks: -1,
+            },
+            Operation::MixerSetKeyframe {
+                project: "x.fcproj".into(),
+                strip: "A1".into(),
+                lane: "volume".into(),
+                time_ticks: -1,
+                value: -3.0,
+            },
+            Operation::MixerWriteAutomation {
+                project: "x.fcproj".into(),
+                strip: "A1".into(),
+                lane: "volume".into(),
+                points: vec![],
+            },
+            Operation::ApplyEffect {
+                project: "x.fcproj".into(),
+                clips: vec![],
+                effect: "crop".into(),
+            },
+            Operation::ApplyLut {
+                project: "x.fcproj".into(),
+                clip: 7,
+                lut: "  ".into(),
+            },
+            Operation::SequenceSettings {
+                project: "x.fcproj".into(),
+                fps: 0.0,
+            },
+        ] {
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
+        // Non-finite automation values and title durations refuse.
+        for operation in [
+            Operation::MixerSetKeyframe {
+                project: "x.fcproj".into(),
+                strip: "A1".into(),
+                lane: "volume".into(),
+                time_ticks: 0,
+                value: f64::INFINITY,
+            },
+            Operation::MixerWriteAutomation {
+                project: "x.fcproj".into(),
+                strip: "A1".into(),
+                lane: "volume".into(),
+                points: vec![(0, f64::NAN)],
+            },
+            Operation::GraphicsNewText {
+                project: "x.fcproj".into(),
+                text: "T".into(),
+                clip: None,
+                time_ticks: None,
+                duration_seconds: Some(0.0),
+            },
+        ] {
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
     }
 
     #[test]
@@ -1391,6 +2091,93 @@ mod tests {
         }
         // No effect names the engine default transition and stays valid.
         assert!(super::validate_transition_effect(None).is_ok());
+    }
+
+    #[test]
+    fn export_bitrate_defaults_validate_and_scope_to_h264() {
+        let h264 = |kbps: Option<u32>, mode: Option<BitrateMode>| Operation::Export {
+            project: "x.fcproj".into(),
+            path: "out.mp4".into(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Auto,
+            bitrate_kbps: kbps,
+            bitrate_mode: mode,
+        };
+        // Omitted bitrate defaults to Ren's delivery spec, not the
+        // engine's hotter default.
+        let (_, _, command, params, _) = plan(h264(None, None)).unwrap();
+        assert_eq!(command, "file.exportMedia");
+        assert_eq!(params["bitrateKbps"], json!(DEFAULT_H264_BITRATE_KBPS));
+        assert_eq!(params["bitrateMode"], json!("vbr1Pass"));
+        // Explicit values pass through spelled as the engine names them.
+        let (_, _, _, params, _) = plan(h264(Some(10_000), Some(BitrateMode::Cbr))).unwrap();
+        assert_eq!(params["bitrateKbps"], json!(10_000));
+        assert_eq!(params["bitrateMode"], json!("cbr"));
+        let (_, _, _, params, _) = plan(h264(Some(15_000), Some(BitrateMode::Vbr2Pass))).unwrap();
+        assert_eq!(params["bitrateMode"], json!("vbr2Pass"));
+        // Zero refuses: the engine silently accepts it as its own default.
+        assert!(matches!(plan(h264(Some(0), None)), Err(Error::Schema(_))));
+        // The absurd refuses; the top of the real delivery range passes.
+        assert!(matches!(
+            plan(h264(Some(MAX_H264_BITRATE_KBPS + 1), None)),
+            Err(Error::Schema(_))
+        ));
+        assert!(plan(h264(Some(MAX_H264_BITRATE_KBPS), None)).is_ok());
+        // Bitrate on ProRes/Wav refuses: the engine silently ignores it.
+        for format in [ExportFormat::ProRes, ExportFormat::Wav] {
+            let operation = Operation::Export {
+                project: "x.fcproj".into(),
+                path: "out".into(),
+                format,
+                hardware_encoder: HardwareEncoding::Off,
+                bitrate_kbps: Some(12_000),
+                bitrate_mode: None,
+            };
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+            let operation = Operation::Export {
+                project: "x.fcproj".into(),
+                path: "out".into(),
+                format,
+                hardware_encoder: HardwareEncoding::Off,
+                bitrate_kbps: None,
+                bitrate_mode: Some(BitrateMode::Cbr),
+            };
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
+        // And the same formats without bitrate send no bitrate keys.
+        for format in [ExportFormat::ProRes, ExportFormat::Wav] {
+            let operation = Operation::Export {
+                project: "x.fcproj".into(),
+                path: "out".into(),
+                format,
+                hardware_encoder: HardwareEncoding::Off,
+                bitrate_kbps: None,
+                bitrate_mode: None,
+            };
+            let (_, _, _, params, _) = plan(operation).unwrap();
+            assert!(params.get("bitrateKbps").is_none());
+            assert!(params.get("bitrateMode").is_none());
+        }
+        // Previously serialized exports (no bitrate keys) still parse,
+        // taking the delivery default.
+        let legacy: Request<Operation> = serde_json::from_str(
+            r#"{"adapter_schema":1,"operation":{"kind":"export","project":"x.fcproj","path":"o.mp4","format":"h264","hardware_encoder":"auto"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            legacy.operation,
+            Operation::Export {
+                bitrate_kbps: None,
+                bitrate_mode: None,
+                ..
+            }
+        ));
+        // The mode enum spells exactly what the engine accepts.
+        assert_eq!(
+            serde_json::to_value(BitrateMode::Vbr1Pass).unwrap(),
+            json!("vbr1Pass")
+        );
+        assert!(serde_json::from_str::<BitrateMode>(r#""bogus""#).is_err());
     }
 
     #[test]
