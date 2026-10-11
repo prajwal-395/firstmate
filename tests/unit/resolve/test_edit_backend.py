@@ -104,6 +104,26 @@ def test_a_missing_extension_falls_back(backend, monkeypatch, capsys):
     assert "refusing" not in capsys.readouterr().err
 
 
+def test_a_broken_extension_falls_back(backend, monkeypatch, capsys):
+    """An installed copy that raises on import is no build: measured
+    2026-10-10, the shared venv's ren_native/__init__.py referenced
+    its own unbound name, so every fallback import raised NameError
+    instead of ImportError and broke the switch. The Python backend
+    runs quietly."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def broken(name, *args, **kwargs):
+        if name == "ren_native" or name.startswith("ren_native."):
+            raise NameError("name 'ren_native' is not defined")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", broken)
+    assert backend.rust() is None
+    assert "refusing" not in capsys.readouterr().err
+
+
 def test_the_switch_off_never_imports(backend, monkeypatch):
     """With the switch off, the extension is never imported at all."""
     monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.PYTHON)

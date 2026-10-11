@@ -456,7 +456,12 @@ impl FilmCraft {
     }
 }
 
-fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, bool)> {
+/// Describe one driver operation as the engine `exec` invocation that
+/// runs it: the project it acts on, the receipt's operation name, the
+/// engine command, its params, and whether the driver saves after it.
+/// `execute` runs this mapping; the `ren project-model` verb plans
+/// through it without executing, so the plan and the run cannot drift.
+pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Value, bool)> {
     let tuple = match op {
         Operation::CreateProject { path, name } => {
             if path.extension().and_then(|s| s.to_str()) != Some("fcproj") {

@@ -3,8 +3,12 @@
 //! Every function takes plain Python objects and converts them to the
 //! typed Rust forms, so the editorial correctness logic runs over
 //! ren-protocol's `EditOp`/`EditPatch` types with the compiler checking
-//! every match. The Python side (`library/tools/edit_backend.py`) is the
-//! only caller; nothing here reaches Resolve.
+//! every match. The FilmCraft planning functions run the pinned
+//! headless adapter (`native/ren-filmcraft`) over ren-protocol's
+//! project-model types the same way. The Python callers are
+//! `library/tools/edit_backend.py` (the algebra) and
+//! `library/tools/project_model_cli.py` (the `ren project-model`
+//! verb); nothing here reaches Resolve.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -937,6 +941,177 @@ fn problems(declarations: &Bound<'_, PyAny>, capability_ids: &Bound<'_, PyAny>) 
     composition_problems(&declarations, &capability_ids)
 }
 
+// ── FilmCraft headless adapter ───────────────────────────────────────
+//
+// The `ren project-model` verb plans through these instead of carrying
+// its own copy of the adapter: the projection, the per-edit
+// translation, the receipt reconciliation and the operation-to-command
+// mapping all run here, so a plan the verb prints and the run the
+// driver executes cannot drift apart.
+
+fn filmcraft_decode_model(model: &Bound<'_, PyAny>) -> PyResult<ren_protocol::project_model::ProjectModel> {
+    let json = py_to_json(model)?;
+    let text =
+        serde_json::to_string(&json).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    ren_protocol::project_model::decode_project_model(&text)
+        .map_err(|err| PyValueError::new_err(format!("{err:?}")))
+}
+
+fn filmcraft_decode_projection(
+    projection: &Bound<'_, PyAny>,
+) -> PyResult<ren_filmcraft::adapter::Projection> {
+    serde_json::from_value(py_to_json(projection)?)
+        .map_err(|err| PyValueError::new_err(format!("not a FilmCraft projection: {err}")))
+}
+
+/// Project a model onto the pinned FilmCraft headless driver: imports,
+/// placements and losses, exactly what the driver executes.
+#[pyfunction]
+fn filmcraft_plan_projection<'py>(
+    model: &Bound<'_, PyAny>,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let model = filmcraft_decode_model(model)?;
+    let projection = ren_filmcraft::adapter::plan_projection(&model)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::to_value(&projection)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// Translate one model edit into driver operations. `clip_ids` maps a
+/// placed clip use onto its reconciled engine clip ids; planning with
+/// placeholder ids validates every parameter without executing.
+#[pyfunction]
+#[pyo3(signature = (model, projection, edit, clip_ids, project))]
+fn filmcraft_plan_ren_edit<'py>(
+    model: &Bound<'_, PyAny>,
+    projection: &Bound<'_, PyAny>,
+    edit: &Bound<'_, PyAny>,
+    clip_ids: std::collections::HashMap<String, Vec<u64>>,
+    project: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let model = filmcraft_decode_model(model)?;
+    let projection = filmcraft_decode_projection(projection)?;
+    let edit: ren_protocol::project_model::EditOperation = serde_json::from_value(py_to_json(edit)?)
+        .map_err(|err| PyValueError::new_err(format!("not a model edit: {err}")))?;
+    let ids: std::collections::BTreeMap<String, Vec<u64>> = clip_ids.into_iter().collect();
+    let project_path = std::path::PathBuf::from(project);
+    let context = ren_filmcraft::adapter::EditContext {
+        project: &project_path,
+        clip_ids: &ids,
+    };
+    let operations =
+        ren_filmcraft::adapter::plan_ren_edit(&model, &projection, &edit, &context)
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::to_value(&operations)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// Describe one driver operation as the engine `exec` invocation that
+/// runs it: project, operation name, engine command, params, and save.
+#[pyfunction]
+fn filmcraft_describe_operation<'py>(
+    operation: &Bound<'_, PyAny>,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let operation: ren_filmcraft::Operation = serde_json::from_value(py_to_json(operation)?)
+        .map_err(|err| PyValueError::new_err(format!("not a FilmCraft operation: {err}")))?;
+    let (project, name, command, params, save) = ren_filmcraft::plan(operation)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::json!({
+        "project": project,
+        "operation": name,
+        "command": command,
+        "params": params,
+        "save": save,
+    });
+    json_to_py(py, &value)
+}
+
+/// Reconcile engine-minted clip ids back onto stable Ren clip-use ids.
+/// `receipts` carries each place receipt's `clips` array in placement
+/// order; count mismatches refuse rather than guess the pairing.
+#[pyfunction]
+fn filmcraft_reconcile_clip_ids<'py>(
+    projection: &Bound<'_, PyAny>,
+    receipts: Vec<Vec<u64>>,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let reconciled = ren_filmcraft::adapter::reconcile_clip_ids(&projection, &receipts)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::to_value(&reconciled)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// Refuse before the engine runs when referenced media is absent.
+#[pyfunction]
+fn filmcraft_verify_media<'py>(
+    projection: &Bound<'_, PyAny>,
+    media_dir: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let resolved =
+        ren_filmcraft::adapter::verify_media(std::path::Path::new(media_dir), &projection)
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::to_value(&resolved)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// The single import operation for a projection over resolved media.
+#[pyfunction]
+#[pyo3(signature = (projection, media, project))]
+fn filmcraft_import_operation<'py>(
+    projection: &Bound<'_, PyAny>,
+    media: std::collections::HashMap<String, String>,
+    project: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let resolved: std::collections::BTreeMap<String, std::path::PathBuf> = media
+        .into_iter()
+        .map(|(key, value)| (key, std::path::PathBuf::from(value)))
+        .collect();
+    let operation = ren_filmcraft::adapter::import_operation(
+        std::path::PathBuf::from(project),
+        &resolved,
+        &projection,
+    );
+    let value = serde_json::to_value(&operation)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// One `timeline.place` per placement, in projection order. `items`
+/// maps asset ids to the engine item ids the import receipt minted.
+#[pyfunction]
+#[pyo3(signature = (projection, items, project))]
+fn filmcraft_placement_operations<'py>(
+    projection: &Bound<'_, PyAny>,
+    items: std::collections::HashMap<String, u64>,
+    project: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let ordered: std::collections::BTreeMap<String, u64> =
+        items.into_iter().collect();
+    let operations = ren_filmcraft::adapter::placement_operations(
+        std::path::Path::new(project),
+        &ordered,
+        &projection,
+    )
+    .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value = serde_json::to_value(&operations)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
 /// The `ren_native` extension module.
 #[pymodule]
 fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -960,5 +1135,12 @@ fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(covered, m)?)?;
     m.add_function(wrap_pyfunction!(respan, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_plan_projection, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_plan_ren_edit, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_describe_operation, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_reconcile_clip_ids, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_verify_media, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_import_operation, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_placement_operations, m)?)?;
     Ok(())
 }

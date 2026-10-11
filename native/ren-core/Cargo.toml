@@ -19,6 +19,7 @@ crate-type = ["cdylib", "rlib"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
+ren-filmcraft = { path = "../ren-filmcraft" }
 ren-protocol = { path = "../ren-protocol" }
 pyo3 = "0.29"
 serde = { version = "1", features = ["derive"] }

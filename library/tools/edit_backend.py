@@ -98,7 +98,7 @@ def rust():
             return _ren_native
         try:
             import ren_native
-        except ImportError:
+        except Exception:  # noqa: BLE001 - an unloadable install is no build
             _ren_native = None
         else:
             baked = getattr(ren_native, "source_fingerprint", lambda: None)()
