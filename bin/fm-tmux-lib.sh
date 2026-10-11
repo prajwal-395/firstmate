@@ -256,6 +256,11 @@ fm_tmux_submit_enter_core() {  # <target> <retries> <enter-sleep> [baseline-idle
     tmux send-keys -t "$target" Enter 2>/dev/null || true
     state=$(fm_submit_confirm_wait fm_tmux_composer_state "$target" "$budget")
     budget=$sleep_s
+    # The first Enter can open a picker. A later Enter would confirm it.
+    if fm_composer_blocking_dialog_noted >/dev/null; then
+      printf 'unknown'
+      return 0
+    fi
     case "$state" in
       pending|pending-unproven) ;;
       unknown)

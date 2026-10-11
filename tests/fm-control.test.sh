@@ -208,9 +208,28 @@ case "${1:-}" in
     for a in "$@"; do
       case "$a" in
         *cursor_y*)
-          # A modelled Devin screen parks the cursor on its composer row.
-          if [ -f "$D/devin" ]; then
+          # The cursor sits in the composer content itself, like a live
+          # pane: resolve it from the same screen capture-pane would
+          # return, so the row always names a content row.
+          if [ -f "$D/after-enter" ] && [ -f "$D/keys" ] && grep -qx Enter "$D/keys" 2>/dev/null; then
+            late=0
+            [ ! -f "$D/after-enter-late" ] || late=$(cat "$D/after-enter-late")
+            if [ "$late" -gt 0 ] 2>/dev/null; then
+              if [ -f "$D/devin" ]; then
+                devin_screen "$(cat "$D/devin")" | awk '/^❭ /{ print NR - 1; exit }'
+              elif [ -f "$D/pane" ]; then
+                awk '/^[│❯❭]/{ print NR - 1; exit }' "$D/pane"
+              else
+                printf '1\n'
+              fi
+            else
+              awk '/^[│❯❭]/{ print NR - 1; exit }' "$D/after-enter"
+            fi
+          elif [ -f "$D/devin" ]; then
+            # A modelled Devin screen parks the cursor on its composer row.
             devin_screen "$(cat "$D/devin")" | awk '/^❭ /{ print NR - 1; exit }'
+          elif [ -f "$D/pane" ]; then
+            awk '/^[│❯❭]/{ print NR - 1; exit }' "$D/pane"
           else
             printf '1\n'
           fi
