@@ -432,6 +432,12 @@ _mode: Optional[str] = None
 # mode when the outer one releases (last-one-out - held() must be true
 # only while the flock is really held, review of #1846).
 _modes: list = []
+# The thread holding each entry of `_modes`, in the same order: the
+# holder accounting is process-wide, so a refusal needs to tell a
+# same-thread upgrade (a caller bug - the flock cannot upgrade in
+# place) from another thread's transient hold (contention, waited
+# out). Maintained in lockstep with `_modes` under the same lock.
+_holder_idents: list = []
 # The machine-wide flock record while any holder is inside. The handle
 # stays open - and the flock held - until the LAST holder exits, so a
 # reentrant holder is never left with held() True and the fence gone.
@@ -611,6 +617,7 @@ def _take_holder(exclusive: bool, inherited) -> str | None:
                     "take the exclusive lease at the outer call")
             _depth = 1
             _modes.append(inherited_mode)
+            _holder_idents.append(threading.get_ident())
             _mode = _modes[0] if _modes else None
             return inherited_mode
         if exclusive and _mode == "shared":
@@ -625,6 +632,7 @@ def _take_holder(exclusive: bool, inherited) -> str | None:
         _depth += 1
         mode = "exclusive" if exclusive else "shared"
         _modes.append(mode)
+        _holder_idents.append(threading.get_ident())
         _mode = _modes[0] if _modes else None
         return mode
 
@@ -641,7 +649,24 @@ def _acquire_fresh(mode: str) -> None:
     with _state_lock:
         _depth += 1
         _modes.append(mode)
+        _holder_idents.append(threading.get_ident())
         _mode = _modes[0] if _modes else None
+
+
+def another_thread_holds() -> bool:
+    """Whether a thread other than this one currently holds the lease.
+
+    Lets a caller refused by an in-process hold tell contention (a
+    co-thread's transient hold, waited out) from a same-thread upgrade
+    or an empty room (raised at once, as before). A diagnostic-grade
+    read for retry decisions only - never a decision about the fence,
+    which is the flock's.
+    """
+    with _state_lock:
+        if _depth <= 0:
+            return False
+        me = threading.get_ident()
+        return any(ident != me for ident in _holder_idents)
 
 
 def _drop_holder(mode: str) -> None:
@@ -654,7 +679,14 @@ def _drop_holder(mode: str) -> None:
     global _depth, _mode
     with _state_lock:
         _depth -= 1
-        _modes.remove(mode)
+        # Kept in lockstep with `_modes`: remove the same entry (the
+        # first of this mode, matching `list.remove` semantics, and
+        # raising together with it) from both, so a holder's thread
+        # never outlives its mode.
+        index = _modes.index(mode)
+        del _modes[index]
+        if index < len(_holder_idents):
+            del _holder_idents[index]
         _mode = _modes[0] if _modes else None
         if _depth == 0:
             _release_lease()

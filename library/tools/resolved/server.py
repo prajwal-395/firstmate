@@ -56,6 +56,22 @@ SOCKET_NAME = "ren-resolved.sock"
 DB_NAME = "ren-resolved.sqlite3"
 BIND_LOCK_NAME = "ren-resolved.bind.lock"
 
+#: How long a job worker waits out a transient in-process shared hold
+#: before taking its exclusive lease, instead of failing the job on
+#: the first refusal. The holders it waits out are this process's own
+#: threads - the watchdog probe mid-flight, a hosted shadow-watcher
+#: read - and every one of them is bounded (the probe by its connect
+#: and round-trip budgets), so a bounded wait converges; a hold still
+#: standing past the budget refuses exactly as before. Cross-thread
+#: contention is waited out the way cross-process contention waits on
+#: the flock - the refusal itself is untouched (resolve_lock gains
+#: only a holder query; its upgrade refusal still raises).
+LEASE_CONTENTION_WAIT_S = 30.0
+
+#: Poll interval while waiting out a transient in-process hold: the
+#: same cadence the lease itself polls the flock with.
+LEASE_CONTENTION_POLL_S = 0.25
+
 
 def _log_broker(message: str) -> None:
     """One timestamped line on stderr: the broker's stdio is its log
@@ -349,40 +365,7 @@ class Broker:
         cancellation.begin(job["id"])
         activity_token = resolve_lock._activity_job_id.set(job["id"])
         try:
-            with resolve_lock.resolve_lease(
-                    f"ren-resolved {job['kind']} {job['id']}",
-                    exclusive=job["mode"] == "exclusive"):
-                if job["mode"] == "shared":
-                    from library.tools.resolve_lock import _start_activity_overlay
-                    _start_activity_overlay()
-                if (job["qualification"]
-                        and job["kind"] in
-                        job_kinds.BORROWING_QUALIFICATION_KINDS):
-                    # These fixed Qualification jobs borrow and restore
-                    # the currently open project inside their whole-take
-                    # lease. Their runners enforce the exact target.
-                    job_kinds.refuse_qualification(job.get("project", ""))
-                resolve = (self._resolve_handle()
-                           if job["qualification"] or job["executed"]
-                           else None)
-                if job["executed"] and resolve is not None:
-                    from library.tools.resolve_deadline import (
-                        DeadlineProxy, deadline_proxy)
-                    if not isinstance(resolve, DeadlineProxy):
-                        resolve = deadline_proxy(
-                            resolve, label=f"{job['kind']} {job['id']}")
-                if (job["qualification"]
-                        and job["kind"] not in
-                        job_kinds.BORROWING_QUALIFICATION_KINDS):
-                    found = job_kinds.open_project_name(resolve)
-                    if found != job_kinds.QUALIFICATION_PROJECT:
-                        raise job_kinds.JobRefused(
-                            f"a qualification job needs "
-                            f"{job_kinds.QUALIFICATION_PROJECT!r} open; "
-                            f"Resolve has {found or 'no project'!r}")
-                if not job["executed"]:
-                    return "granted", None, ""
-                return "done", job_kinds.run(job, resolve), ""
+            return self._run_under_lease(job)
         except CancelRequested as exc:
             clear(job["id"])
             return "cancelled", exc.result, str(exc)
@@ -401,6 +384,71 @@ class Broker:
             resolve_lock._activity_job_id.reset(activity_token)
             clear(job["id"])
             cancellation.end(job["id"])
+
+    def _run_under_lease(self, job: dict) -> tuple:
+        """Run one job's body under the instance lease.
+
+        An acquisition refused by a TRANSIENT shared hold this process
+        itself still has open (the watchdog probe mid-flight, a hosted
+        shadow-watcher read) waits for the hold to drain and retries,
+        bounded by `LEASE_CONTENTION_WAIT_S`, instead of failing the
+        job on a refusal that names process-internal accounting rather
+        than a real contention. The wait runs only while another
+        thread actually holds: a refusal with no in-process holder
+        left - the flock path already waited its own timeout - or one
+        still standing past the budget raises as before, and anything
+        the body itself raises once running (including a same-thread
+        upgrade, which is a caller bug) propagates without a retry.
+        """
+        from library.tools import resolve_lock
+        deadline = time.time() + LEASE_CONTENTION_WAIT_S
+        while True:
+            body_started = False
+            try:
+                with resolve_lock.resolve_lease(
+                        f"ren-resolved {job['kind']} {job['id']}",
+                        exclusive=job["mode"] == "exclusive"):
+                    body_started = True
+                    if job["mode"] == "shared":
+                        from library.tools.resolve_lock import _start_activity_overlay
+                        _start_activity_overlay()
+                    if (job["qualification"]
+                            and job["kind"] in
+                            job_kinds.BORROWING_QUALIFICATION_KINDS):
+                        # These fixed Qualification jobs borrow and restore
+                        # the currently open project inside their whole-take
+                        # lease. Their runners enforce the exact target.
+                        job_kinds.refuse_qualification(job.get("project", ""))
+                    resolve = (self._resolve_handle()
+                               if job["qualification"] or job["executed"]
+                               else None)
+                    if job["executed"] and resolve is not None:
+                        from library.tools.resolve_deadline import (
+                            DeadlineProxy, deadline_proxy)
+                        if not isinstance(resolve, DeadlineProxy):
+                            resolve = deadline_proxy(
+                                resolve, label=f"{job['kind']} {job['id']}")
+                    if (job["qualification"]
+                            and job["kind"] not in
+                            job_kinds.BORROWING_QUALIFICATION_KINDS):
+                        found = job_kinds.open_project_name(resolve)
+                        if found != job_kinds.QUALIFICATION_PROJECT:
+                            raise job_kinds.JobRefused(
+                                f"a qualification job needs "
+                                f"{job_kinds.QUALIFICATION_PROJECT!r} open; "
+                                f"Resolve has {found or 'no project'!r}")
+                    if not job["executed"]:
+                        return "granted", None, ""
+                    return "done", job_kinds.run(job, resolve), ""
+            except resolve_lock.ResolveBusy:
+                if body_started:
+                    raise
+                if not resolve_lock.another_thread_holds():
+                    raise
+                cancellation.checkpoint(job["id"])
+                if time.time() >= deadline:
+                    raise
+                time.sleep(LEASE_CONTENTION_POLL_S)
 
     def _resolve_handle(self):
         from library.tools import resolve_switch_guard

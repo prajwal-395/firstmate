@@ -127,8 +127,25 @@ class ResolveWatchdog:
     def start(self) -> None:
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float | None = None) -> None:
+        """Signal the probe loop to exit and wait for it to finish.
+
+        The probe holds a SHARED instance lease while it connects, and
+        the holder accounting is process-wide: a probe thread still
+        inside its lease when this returns leaves `_depth` non-zero, so
+        a later EXCLUSIVE acquisition in the same process refuses with
+        `ResolveBusy` ("holds SHARED and is asking for EXCLUSIVE").
+        Joining here releases the lease in teardown at its source -
+        the next test or broker shutdown never inherits it. An
+        in-flight probe is bounded by its connect and round-trip
+        budgets, so the join is bounded too; an idle probe wakes from
+        its wait at once and exits.
+        """
         self._stop.set()
+        thread = self._thread
+        if (thread is not None and thread.ident is not None
+                and threading.current_thread() is not thread):
+            thread.join(timeout=timeout)
 
     def is_degraded(self) -> bool:
         with self._lock:

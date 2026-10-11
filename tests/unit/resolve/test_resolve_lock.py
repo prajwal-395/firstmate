@@ -1703,3 +1703,80 @@ def test_concurrent_lease_bodies_always_observe_held(
     assert all(len(body) == rounds for body in seen)
     assert resolve_lock._depth == 0
     assert not resolve_lock.held()
+
+
+# ── The broker waits out a transient in-process hold ──────────────
+
+def test_broker_job_waits_out_transient_shared_hold(
+        lock_dir, unguarded, tmp_path, monkeypatch):
+    """An executed exclusive job that starts while another thread of the
+    broker process holds the lease SHARED waits for the hold to drain
+    instead of failing.
+
+    Live shape: the watchdog probe holds SHARED while a
+    `timeline.observe_current` (or apply_patch/ui_transaction) job
+    starts on a worker thread asking EXCLUSIVE in the same process.
+    Before the wait, `_take_holder` refused at once and the job failed
+    with `ResolveBusy` - a failure naming process-internal accounting,
+    not a real contention.
+    """
+    monkeypatch.setattr(client, "ensure", lambda *a, **k: None)
+    monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+    monkeypatch.setattr(jobs, "run", lambda job, resolve: {"ok": True})
+    store = JobStore(tmp_path / "test.sqlite3")
+    broker = Broker(store, connect=lambda: None)
+    try:
+        job = {"id": "wait-test", "kind": "timeline.observe_current",
+               "mode": "exclusive", "qualification": False, "executed": True}
+        outcome = {}
+        started = threading.Event()
+
+        def worker():
+            started.set()
+            outcome["result"] = broker._run(job)
+
+        with resolve_lease("transient shared hold", exclusive=False,
+                           honor_captain=False, timeout=10.0):
+            thread = threading.Thread(target=worker)
+            thread.start()
+            assert started.wait(10.0)
+            # The worker's first acquisition lands inside this hold in
+            # both shapes: the old code has already failed the job, the
+            # new code is still waiting it out.
+            time.sleep(0.5)
+        thread.join(timeout=30.0)
+        assert not thread.is_alive()
+        assert outcome["result"][0] == "done", outcome["result"]
+        assert outcome["result"][1] == {"ok": True}
+    finally:
+        broker.stop()
+        store.close()
+
+
+def test_broker_job_body_refusal_is_not_retried(
+        lock_dir, unguarded, tmp_path, monkeypatch):
+    """A `ResolveBusy` the job BODY raises is a caller bug, not a
+    transient hold: it fails at once instead of waiting out the
+    contention budget.
+    """
+    monkeypatch.setattr(client, "ensure", lambda *a, **k: None)
+    monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+
+    def refuse(job, resolve):
+        raise ResolveBusy("nested upgrade", "caller bug", "outer call first")
+
+    monkeypatch.setattr(jobs, "run", refuse)
+    store = JobStore(tmp_path / "test.sqlite3")
+    broker = Broker(store, connect=lambda: None)
+    try:
+        job = {"id": "body-refusal", "kind": "timeline.observe_current",
+               "mode": "exclusive", "qualification": False, "executed": True}
+        started_at = time.time()
+        state, _, error = broker._run(job)
+        assert state == "failed", (state, error)
+        assert "ResolveBusy" in error
+        assert time.time() - started_at < 5.0, \
+            "a body refusal must not wait out the contention budget"
+    finally:
+        broker.stop()
+        store.close()

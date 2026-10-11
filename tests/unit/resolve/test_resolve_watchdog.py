@@ -3,6 +3,9 @@
 import contextlib
 import os
 import shutil
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 from pathlib import Path
@@ -493,25 +496,87 @@ def test_watchdog_probe_without_lease_does_not_mark_degraded(unguarded):
         watchdog.stop()
 
 
-def test_watchdog_contention_does_not_mark_degraded(unguarded):
+def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
     """A contended lease is not a hang: the probe skips, the broker lives.
 
     While a build holds the instance exclusively, the watchdog's shared
     lease acquisition refuses (`ResolveBusy`). Contention is not
     unresponsiveness, so the watchdog must not mark Resolve degraded -
     a build in progress must not wedge the broker.
+
+    The exclusive hold is taken in a CHILD process sharing this
+    worker's lock dir, so the probe's acquisition really refuses: the
+    holder accounting is process-wide, and a hold taken in this same
+    process would nest reentrantly and succeed - never exercising the
+    skip path this test pins.
     """
-    watchdog = wd.ResolveWatchdog(connect=lambda: FakeResolve(),
-                                  probe_interval=0.01,
-                                  connect_budget=0.2)
-    watchdog.start()
+    repo_root = Path(__file__).resolve().parents[3]
+    lock_dir = os.environ.get(resolve_lock.LOCK_DIR_ENV, "")
+    assert lock_dir, "the session lock dir must be set (tests/conftest.py)"
+    ready = tmp_path / "holder-ready"
+    script = textwrap.dedent("""
+        import os
+        import sys
+        import time
+        from contextlib import contextmanager
+        from pathlib import Path
+
+        lock_dir, ready_path = sys.argv[1], sys.argv[2]
+        os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = lock_dir
+        sys.path.insert(0, __REPO__)
+
+        from library.tools import resolve_lock
+
+        os.environ.pop(resolve_lock.INHERIT_ENV, None)
+        os.environ.pop(resolve_lock.INHERIT_MODE_ENV, None)
+
+        @contextmanager
+        def no_broker_turn(*args, **kwargs):
+            yield None
+        resolve_lock._broker_turn = no_broker_turn
+
+        with resolve_lock.resolve_lease(
+                "contention holder", exclusive=True,
+                honor_captain=False, timeout=30):
+            Path(ready_path).write_text("held", encoding="utf-8")
+            time.sleep(4)
+        """).replace("__REPO__", repr(str(repo_root)))
+    holder = subprocess.Popen(
+        [sys.executable, "-c", script, lock_dir, str(ready)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8")
     try:
-        with resolve_lock.resolve_lease("test build", exclusive=True,
-                                       honor_captain=False):
-            time.sleep(0.5)
+        deadline = time.time() + 15
+        while not ready.exists():
+            assert holder.poll() is None, holder.communicate()
+            assert time.time() < deadline, \
+                "the holder never took the exclusive lease"
+            time.sleep(0.05)
+        calls = []
+
+        def connect():
+            calls.append(1)
+            return FakeResolve()
+
+        watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01,
+                                      connect_budget=0.2)
+        watchdog.start()
+        try:
+            time.sleep(0.8)
             assert not watchdog.is_degraded()
+        finally:
+            watchdog.stop()
+        # Every probe refused at the lease, so none reached `connect` -
+        # the contention above is proven, not assumed.
+        assert calls == [], \
+            f"expected every probe to refuse, {len(calls)} connected"
+        assert holder.poll() is None, \
+            "the holder exited mid-window, so contention is unproven"
     finally:
-        watchdog.stop()
+        # The holder exits on its own after its hold lapses; reaping it
+        # here (rather than killing it) proves it held for the term.
+        out, err = holder.communicate(timeout=30)
+    assert holder.returncode == 0, (out, err)
 
 
 @contextlib.contextmanager
