@@ -4763,6 +4763,7 @@ test_opencode_lock_taken_during_in_flight_refusal_still_arms() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
   : > "$repo/AGENTS.md"
+  cp "$ROOT/bin/fm-supervision-lib.sh" "$repo/bin/fm-supervision-lib.sh"
   : > "$home/state/task.meta"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
@@ -4854,6 +4855,7 @@ test_opencode_successor_still_in_login_shell_is_not_a_failed_watcher() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
   : > "$repo/AGENTS.md"
+  cp "$ROOT/bin/fm-supervision-lib.sh" "$repo/bin/fm-supervision-lib.sh"
   : > "$home/state/task.meta"
   # As in the Pi case: the first arm closes on an actionable line, and the
   # successor is held inside its login shell until this test releases it, so the

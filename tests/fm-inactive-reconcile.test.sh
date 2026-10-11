@@ -528,8 +528,7 @@ test_pr_scrape_accepts_done_line_boundary_prose() {
   mv "$MATE/state/bounded.meta.tmp" "$MATE/state/bounded.meta"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
   key=$(reported_outcome_key "$MATE" bounded 'done') || fail "bounded receipt key missing"
-  grep -Fxq "done [key=$key]: child bounded done: PR https://example.test/owner/repo/pull/66 checks green changed fixed the retry detector; left nothing left pr=https://example.test/owner/repo/pull/66 mode=no-mistakes yolo=off" \
-    "$MAIN/state/mate.status" \
+  sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$key]: child bounded done: PR https://example.test/owner/repo/pull/66 checks green changed fixed the retry detector; left nothing left pr=https://example.test/owner/repo/pull/66 mode=no-mistakes yolo=off" \
     || fail "a boundary-carrying ready line lost its PR: $(cat "$MAIN/state/mate.status")"
   pass "PR scrape accepts the done-line boundary prose"
 }

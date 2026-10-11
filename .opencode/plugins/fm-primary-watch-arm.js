@@ -518,12 +518,12 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     armChild.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
       observeRecovery();
-      observeArmOutput(stdout, stderr, settleReadiness);
+      observeArmOutput(hostMode, stdout, stderr, settleReadiness);
     });
     armChild.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
       observeRecovery();
-      observeArmOutput(stdout, stderr, settleReadiness);
+      observeArmOutput(hostMode, stdout, stderr, settleReadiness);
     });
   }
   armChild.on("close", (code, signal) => {

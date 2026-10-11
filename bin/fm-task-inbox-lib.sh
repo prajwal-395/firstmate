@@ -356,11 +356,37 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # rather than skipped; skipping it would block every later ring. On both paths
 # a lost first Enter gets one confirmed retry.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
-  local backend=$1 target=$2 rec=$3 label=${4:-} line
+  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
+  case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
+    dead|missing) return 3 ;;
+  esac
   if ! line=$(fm_task_inbox_doorbell_line "$rec"); then
     return 2
   fi
-  fm_typed_wake_ring "$backend" "$target" "$label" "$line"
+  cstate=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || cstate=unknown
+  case "$cstate" in
+    pending)
+      fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" \
+        && [ "$(fm_backend_busy_state "$backend" "$target" 2>/dev/null)" != busy ] \
+        || return 1
+      fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+      sleep 0.3
+      fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
+      fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+      return 0
+      ;;
+  esac
+  # Accepted residual race: terminal input and Enter are separate delivery
+  # steps, so an agent exiting after the liveness check could leave a bare
+  # shell only a suffix; the `: ` prefix protects complete lines only. Do not
+  # add process-bound atomic delivery here unless an incident reopens this.
+  if ! verdict=$(fm_backend_send_text_submit "$backend" "$target" "$line" 2 0.4 0.3 "$label" 2>/dev/null); then
+    return 2
+  fi
+  # The verdict is read only to report a failed keystroke; every other value
+  # (empty, pending, unknown, ...) is deliberately ignored, never proof.
+  [ "$verdict" != send-failed ] || return 2
+  return 0
 }
 
 # Type one self-describing wake line plus Enter into a live endpoint, under
