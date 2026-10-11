@@ -459,6 +459,239 @@ def test_execute_without_export_composites_nothing(tmp_path, monkeypatch):
     assert receipt["native_treatments"]["skipped"].startswith("no export")
 
 
+# ── Batched FilmCraft sessions (`filmcraft-cli run`) ──────────
+#
+# Placements and translated edits run through one `run` session per
+# phase instead of one `exec` process per command. The tests below
+# prove the batch sends the same commands in order through a single
+# invocation, names the failing command (per-command attribution), and
+# refuses a short answer rather than pairing receipts wrongly.
+
+
+def _ok_line(command: str, line: int, result) -> str:
+    return json.dumps({"id": command, "line": line, "ok": True,
+                       "result": result})
+
+
+def _fail_line(command: str, line: int, error: str) -> str:
+    return json.dumps({"id": command, "line": line, "ok": False,
+                       "error": error})
+
+
+def _run_result(stdout: str, returncode: int = 0, stderr: str = ""):
+    import subprocess
+
+    return subprocess.CompletedProcess(args=["filmcraft-cli"], returncode=returncode,
+                                       stdout=stdout, stderr=stderr)
+
+
+def test_fc_run_batch_sends_one_session_in_order(tmp_path, monkeypatch):
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+
+    seen: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(list(argv))
+        script = Path(argv[argv.index("run") + 1])
+        lines = script.read_text(encoding="utf-8").splitlines()
+        out = "\n".join(
+            _ok_line(json.loads(raw)["id"], number, {"n": number})
+            for number, raw in enumerate(lines, start=1))
+        return _run_result(out)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    commands = [{"command": "timeline.place", "params": {"item": 7}},
+                {"command": "timeline.move", "params": {"clip": 11}}]
+    results = pmc._fc_run_batch(tmp_path / "fake-cli", tmp_path / "p.fcproj",
+                                commands, save=True)
+    assert results == [{"n": 1}, {"n": 2}]
+    assert len(seen) == 1, "one backend session for the whole phase"
+    argv = seen[0]
+    assert argv[argv.index("run") - 2:argv.index("run")] == [
+        "--project", str(tmp_path / "p.fcproj")]
+    assert argv[-2:] == ["--compact", "--save"]
+    assert "exec" not in argv
+
+
+def test_fc_run_batch_names_the_failing_command(tmp_path, monkeypatch):
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+
+    def fake_run(argv, **kwargs):
+        return _run_result("\n".join([
+            _ok_line("timeline.place", 1, {"clips": [11]}),
+            _fail_line("timeline.move", 2, "no such clip 999"),
+        ]))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    commands = [{"command": "timeline.place", "params": {}},
+                {"command": "timeline.move", "params": {}},
+                {"command": "clip.link", "params": {}}]
+    with pytest.raises(pmc.ProjectModelCliRefused) as exc_info:
+        pmc._fc_run_batch(tmp_path / "fake-cli", tmp_path / "p.fcproj", commands)
+    refused = exc_info.value
+    assert refused.code == "REN_PM_CLI_FILMCRAFT_COMMAND"
+    assert "'timeline.move'" in refused.what
+    assert "line 2 of 3" in refused.what
+    assert "no such clip 999" in refused.why
+
+
+def test_fc_run_batch_refuses_a_short_answer(tmp_path, monkeypatch):
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+
+    def fake_run(argv, **kwargs):
+        # The CLI ended mid-batch with no failure line: the third command
+        # never answered, so nothing may be paired with its receipt.
+        return _run_result(_ok_line("timeline.place", 1, {"clips": [11]}))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    commands = [{"command": "timeline.place", "params": {}},
+                {"command": "timeline.move", "params": {}}]
+    with pytest.raises(pmc.ProjectModelCliRefused) as exc_info:
+        pmc._fc_run_batch(tmp_path / "fake-cli", tmp_path / "p.fcproj", commands)
+    assert "'timeline.move'" in exc_info.value.what
+
+
+def _batch_native():
+    """The adapter surface with two placements and one translated edit."""
+    import types
+
+    projection = {
+        "adapter_version": "test-1",
+        "engine_revision": "test-rev",
+        "timeline_clock": "clock-project",
+        "imports": [{"asset_id": "a1", "uri": "a1.mp4"}],
+        "placements": [
+            {"clip_use_id": "u1"}, {"clip_use_id": "u2"},
+        ],
+        "losses": [],
+    }
+    native = types.SimpleNamespace()
+    native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_ren_edit = lambda *args: [{"kind": "timeline.move"}]
+    native.filmcraft_describe_operation = lambda op: {
+        "command": op["kind"],
+        "params": {"at": op["kind"]},
+        "save": True}
+    native.filmcraft_verify_media = lambda _projection, _media_dir: {"a1": "a1.mp4"}
+    native.filmcraft_import_operation = lambda *args: {"kind": "import"}
+    native.filmcraft_placement_operations = lambda *args: [
+        ("u1", {"kind": "timeline.place"}), ("u2", {"kind": "timeline.place"})]
+    native.filmcraft_reconcile_clip_ids = lambda *args: {"u1": [11], "u2": [12]}
+    return native
+
+
+def _batch_model(tmp_path: Path) -> Path:
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    model["edits"] = [{
+        "id": "e1", "operation": "timeline.move",
+        "target_ids": ["use-ada"], "before": None, "after": {},
+        "intent_id": None, "evidence_ids": [], "author": "test",
+        "parent_revision": None}]
+    path = tmp_path / "batch-model.json"
+    path.write_text(json.dumps(model), encoding="utf-8")
+    return path
+
+
+def _batch_engine(monkeypatch, tmp_path: Path, calls: dict) -> None:
+    """Stub the CLI boundary: batch sessions recorded, single execs live."""
+    import library.tools.project_model_cli as pmc
+
+    def fake_fc_exec(cli, project, command, params, *,
+                     save=False, save_as=None):
+        calls.setdefault("exec", []).append(command)
+        if save_as is not None:
+            Path(save_as).write_bytes(b"fake-project")
+            return {}
+        if command == "import":
+            return {"items": [7], "errors": []}
+        if command == "sequence.inspect":
+            return {}
+        raise AssertionError(f"unexpected single exec: {command}")
+
+    def fake_fc_run_batch(cli, project, commands, *, save=True):
+        calls.setdefault("batches", []).append(
+            [entry["command"] for entry in commands])
+        return [{"clips": [11]}, {"clips": [12]}][:len(commands)]
+
+    monkeypatch.setattr(pmc, "filmcraft_native", _batch_native)
+    monkeypatch.setattr(pmc, "_filmcraft_cli", lambda: tmp_path / "fake-cli")
+    monkeypatch.setattr(pmc, "_check_cli_version",
+                        lambda cli, expect, engine: None)
+    monkeypatch.setattr(pmc, "_fc_exec", fake_fc_exec)
+    monkeypatch.setattr(pmc, "_fc_run_batch", fake_fc_run_batch)
+
+
+def test_execute_batches_placements_and_edits_into_two_sessions(
+        tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    calls: dict = {}
+    _batch_engine(monkeypatch, tmp_path, calls)
+    monkeypatch.delenv("REN_FILMCRAFT_BATCH", raising=False)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(_batch_model(tmp_path)), "--out", str(out),
+                 "--execute"]) == 0
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["executed"] is True
+    assert receipt["clip_ids"] == {"u1": [11], "u2": [12]}
+    assert calls["batches"] == [["timeline.place", "timeline.place"],
+                                ["timeline.move"]], calls
+    assert "timeline.place" not in calls.get("exec", [])
+    assert "timeline.move" not in calls.get("exec", [])
+    assert pmc._batch_enabled() is True
+
+
+def test_execute_hatch_restores_the_per_exec_loop(tmp_path, monkeypatch):
+    calls: dict = {}
+    _batch_engine(monkeypatch, tmp_path, calls)
+    monkeypatch.setenv("REN_FILMCRAFT_BATCH", "0")
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+
+    import library.tools.project_model_cli as pmc
+
+    placed_queue = [[11], [12]]
+
+    def legacy_exec(cli, project, command, params, *,
+                    save=False, save_as=None):
+        calls.setdefault("exec", []).append(command)
+        if save_as is not None:
+            Path(save_as).write_bytes(b"fake-project")
+            return {}
+        if command == "import":
+            return {"items": [7], "errors": []}
+        if command == "timeline.place":
+            return {"clips": placed_queue.pop(0)}
+        if command == "timeline.move":
+            return {}
+        if command == "sequence.inspect":
+            return {}
+        raise AssertionError(f"unexpected single exec: {command}")
+
+    monkeypatch.setattr(pmc, "_fc_exec", legacy_exec)
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(_batch_model(tmp_path)), "--out", str(out),
+                 "--execute"]) == 0
+    assert calls.get("batches") is None, "the hatch runs no batch session"
+    assert calls["exec"].count("timeline.place") == 2
+    assert "timeline.move" in calls["exec"]
+
+
+def test_execute_refuses_an_empty_batch_without_contact(tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    with pytest.raises(pmc.ProjectModelCliRefused):
+        pmc._fc_run_batch(tmp_path / "fake-cli", tmp_path / "p.fcproj", [])
+
+
 def test_execute_refuses_a_malformed_look_before_mutation(tmp_path, monkeypatch):
     """A series_look that cannot be delivered refuses before the
     engine project exists - the export never renders half-treated."""

@@ -331,6 +331,101 @@ def _fc_exec(cli: Path, project: Path | None, command: str,
                       code="REN_PM_CLI_FILMCRAFT_COMMAND") from exc
 
 
+def _batch_enabled() -> bool:
+    """One batched `run` session per phase, or the legacy per-`exec` loop.
+
+    `REN_FILMCRAFT_BATCH=0` restores the legacy loop: the same commands,
+    one process per command. The equivalence proof runs both and diffs the
+    inspected timeline, so the hatch is the before/after switch as well as
+    the emergency fallback.
+    """
+    import os
+
+    return os.environ.get("REN_FILMCRAFT_BATCH", "1") != "0"
+
+
+def _fc_run_batch(cli: Path, project: Path, commands: list[dict],
+                  *, save: bool = True) -> list[Any]:
+    """Run engine commands through one open backend (`filmcraft-cli run`).
+
+    `commands` carries {"command", "params"} dicts in execution order - the
+    same dicts the legacy loop feeds `_fc_exec` one at a time, so the batch
+    sends the same bytes the per-`exec` path sent. Every entry becomes one
+    `{"id", "params"}` line of a batch script; the CLI answers one
+    `{"id", "line", "ok", "result"|"error"}` line per command and stops at
+    the first failure (no `--keep-going`: the legacy loop aborts there
+    too). A failing command is named by its engine id plus its batch line,
+    so per-command error attribution survives the batching.
+
+    Requires a non-empty batch; callers skip empty phases (a model with no
+    edits runs no edit session).
+    """
+    import tempfile
+
+    if not commands:
+        raise _refuse("FilmCraft batch names no commands",
+                      "the caller skipped no empty batch",
+                      "run the batch only for a non-empty phase",
+                      code="REN_PM_CLI_FILMCRAFT_COMMAND")
+    script_lines = [json.dumps({"id": entry["command"], "params": entry["params"]},
+                               ensure_ascii=False)
+                    for entry in commands]
+    with tempfile.TemporaryDirectory(prefix="ren-filmcraft-batch-") as tmp:
+        script = Path(tmp) / "batch.jsonl"
+        script.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
+        argv = [str(cli), "--project", str(project), "run", str(script), "--compact"]
+        if save:
+            argv.append("--save")
+        done = subprocess.run(argv, capture_output=True, text=True,
+                              encoding="utf-8",
+                              timeout=300 + 5 * len(commands), check=False)
+    if done.returncode != 0:
+        raise _refuse("FilmCraft batch run failed",
+                      done.stderr.strip()[-800:] or done.stdout.strip()[-800:],
+                      "inspect the engine output; the model is unchanged",
+                      code="REN_PM_CLI_FILMCRAFT_COMMAND")
+    answers: list[Any] = []
+    for raw in done.stdout.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            answers.append(json.loads(raw))
+        except json.JSONDecodeError as exc:
+            raise _refuse("FilmCraft batch answered non-JSON",
+                          str(exc),
+                          "re-run against the pinned CLI",
+                          code="REN_PM_CLI_FILMCRAFT_COMMAND") from exc
+    # Fail closed: every answered line must pair with its command in order.
+    results: list[Any] = []
+    for index, entry in enumerate(answers):
+        line = index + 1
+        command = commands[index]["command"] if index < len(commands) else None
+        if not isinstance(entry, dict) or entry.get("id") != command \
+                or entry.get("line") != line:
+            raise _refuse(f"FilmCraft batch line {line} answered for "
+                          f"{entry.get('id') if isinstance(entry, dict) else entry!r}, "
+                          f"expected {command!r}",
+                          json.dumps(entry, default=str)[:400],
+                          "re-run against the pinned CLI",
+                          code="REN_PM_CLI_FILMCRAFT_COMMAND")
+        if not entry.get("ok"):
+            raise _refuse(f"FilmCraft command {command!r} failed "
+                          f"(batch line {line} of {len(commands)})",
+                          str(entry.get("error") or "")[:800]
+                          or json.dumps(entry, default=str)[:800],
+                          "inspect the engine output; the model is unchanged",
+                          code="REN_PM_CLI_FILMCRAFT_COMMAND")
+        results.append(entry.get("result"))
+    if len(results) != len(commands):
+        missing = commands[len(results)]["command"]
+        raise _refuse(f"FilmCraft batch stopped after {len(results)} of "
+                      f"{len(commands)} commands; {missing!r} never answered",
+                      done.stderr.strip()[-400:] or "the CLI ended mid-batch",
+                      "inspect the engine output; the model is unchanged",
+                      code="REN_PM_CLI_FILMCRAFT_COMMAND")
+    return results
+
+
 def _describe(native, operation: dict) -> dict:
     """The engine invocation for one adapter operation."""
     try:
@@ -339,6 +434,17 @@ def _describe(native, operation: dict) -> dict:
         raise _refuse_from_adapter("operation describes no engine command", exc) from exc
     return {"command": described["command"], "params": described["params"],
             "save": described["save"]}
+
+
+def _placement_clips(use_id: str, placed: Any) -> list[int]:
+    """The minted clip ids from one place receipt, or refuse like before."""
+    clips = placed.get("clips") or []
+    if not clips:
+        raise _refuse(f"FilmCraft placed no clips for `{use_id}`",
+                      json.dumps(placed)[:400],
+                      "check the engine timeline state",
+                      code="REN_PM_CLI_FILMCRAFT_COMMAND")
+    return list(clips)
 
 
 def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
@@ -416,17 +522,24 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("placement operations refused", exc) from exc
     receipts: list[list[int]] = []
-    for use_id, operation in pairs:
-        described = _describe(native, operation)
-        placed = _fc_exec(cli, project, described["command"],
-                          described["params"], save=described["save"])
-        clips = placed.get("clips") or []
-        if not clips:
-            raise _refuse(f"FilmCraft placed no clips for `{use_id}`",
-                          json.dumps(placed)[:400],
-                          "check the engine timeline state",
-                          code="REN_PM_CLI_FILMCRAFT_COMMAND")
-        receipts.append(list(clips))
+    described_pairs = [(use_id, _describe(native, operation))
+                       for use_id, operation in pairs]
+    if _batch_enabled():
+        # One batched session for every placement: the same commands the
+        # legacy loop sent one process at a time, through one open backend.
+        if described_pairs:
+            placed_answers = _fc_run_batch(
+                cli, project,
+                [{"command": described["command"], "params": described["params"]}
+                 for _, described in described_pairs],
+                save=any(described["save"] for _, described in described_pairs))
+            for (use_id, _), placed in zip(described_pairs, placed_answers):
+                receipts.append(_placement_clips(use_id, placed))
+    else:
+        for use_id, described in described_pairs:
+            placed = _fc_exec(cli, project, described["command"],
+                              described["params"], save=described["save"])
+            receipts.append(_placement_clips(use_id, placed))
     try:
         clip_ids = native.filmcraft_reconcile_clip_ids(projection, receipts)
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
@@ -437,9 +550,17 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         {key: list(value) for key, value in clip_ids.items()},
         project_str, native)
     engine_losses = list(imported.get("errors") or [])
-    for command in real_commands:
-        answer = _fc_exec(cli, project, command["command"], command["params"],
-                          save=command["save"])
+    if _batch_enabled():
+        # One batched session for every translated edit, as for placements.
+        edit_answers = _fc_run_batch(cli, project, real_commands,
+                                     save=any(command["save"]
+                                              for command in real_commands)) \
+            if real_commands else []
+    else:
+        edit_answers = [_fc_exec(cli, project, command["command"],
+                                 command["params"], save=command["save"])
+                        for command in real_commands]
+    for answer in edit_answers:
         if isinstance(answer, dict) and answer.get("errors"):
             engine_losses.extend(answer["errors"])
 
