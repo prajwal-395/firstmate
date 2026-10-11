@@ -327,6 +327,23 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   pass "pr= requires the recorded PR or a ready-signal terminal line, and never a scout"
 }
 
+# A ready-signal line carrying the done-line boundary prose still carries its
+# PR: the fallback scrape accepts trailing `changed ...; left ...` prose, so
+# the boundary rule never costs a delivery its PR pointer.
+test_pr_scrape_accepts_done_line_boundary_prose() {
+  local key
+  make_world pr-boundary; bind_secondmate local
+  write_child "$MATE" bounded 'done: PR https://example.test/owner/repo/pull/66 checks green changed fixed the retry detector; left nothing left'
+  awk '$0 !~ /^pr=/' "$MATE/state/bounded.meta" > "$MATE/state/bounded.meta.tmp"
+  mv "$MATE/state/bounded.meta.tmp" "$MATE/state/bounded.meta"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
+  key=$(reported_outcome_key "$MATE" bounded 'done') || fail "bounded receipt key missing"
+  grep -Fxq "done [key=$key]: child bounded done: PR https://example.test/owner/repo/pull/66 checks green changed fixed the retry detector; left nothing left pr=https://example.test/owner/repo/pull/66 mode=no-mistakes yolo=off" \
+    "$MAIN/state/mate.status" \
+    || fail "a boundary-carrying ready line lost its PR: $(cat "$MAIN/state/mate.status")"
+  pass "PR scrape accepts the done-line boundary prose"
+}
+
 # If a terminal ledger line lands while the authoritative state read is in
 # flight, the ledger path remains the single owner on the next poll.
 test_terminal_line_during_state_read_yields_to_ledger_delivery() {
@@ -946,6 +963,7 @@ test_local_secondmate_delivers_terminal_ledger_line
 test_busy_child_does_not_starve_later_ledger_outcomes
 test_secondmate_ledger_delivery_carries_report_and_failure
 test_pr_field_requires_recorded_pr_or_ready_signal_line
+test_pr_scrape_accepts_done_line_boundary_prose
 test_terminal_line_during_state_read_yields_to_ledger_delivery
 test_terminal_line_after_inactive_delivery_is_not_reported_twice
 test_progress_after_inactive_delivery_starts_a_new_event
