@@ -339,10 +339,10 @@ test_stale_version5_cursor_is_invalidated() {
   [ -z "$incr" ] \
     || fail "stale version-5 cursor was trusted: incremental fold still reports '$incr'"
   new_version=$(head -1 "$cf")
-  [ "$new_version" = "version=$FM_OPEN_DECISIONS_FOLD_VERSION" ] \
+  [ "$new_version" = "version=$FM_OPEN_DECISIONS_FOLD_VERSION:unknown" ] \
     || fail "the cursor was not rewritten with the current version: got '$new_version'"
-  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "8" ] \
-    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 8"
+  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "9" ] \
+    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 9"
   pass "a stale version-5 cursor is invalidated and refolds to resolved"
 }
 

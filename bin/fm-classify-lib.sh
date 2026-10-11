@@ -1209,18 +1209,15 @@ EOF
 # whose leading word is followed by neither whitespace, a colon, nor a bracket
 # tag cannot be a transition, because the fold's own declaration guard rejects it.
 status_key_closing_verb() {  # <status-file> <key>
-  local f=$1 want=$2 line resolve held open='' was verb='' kind event stream
+  local f=$1 want=$2 line resolve held open='' was verb='' kind event candidates
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   [ -n "$want" ] || return 0
   kind=$(_fm_status_kind "$f")
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
-  if [ "$want" = default ]; then
-    stream=$(_fm_decision_candidate_lines < "$f") || return 0
-  else
-    stream=$(grep -F "[key=$want]" "$f" | _fm_decision_candidate_lines) || stream=''
-  fi
-  [ -n "$stream" ] || return 0
+  candidates=$(grep -E \
+    "^[[:space:]]*(needs-decision|blocked|done|failed|$resolve|$held)[[:space:]:[]" \
+    "$f") || [ "$?" -eq 1 ] || candidates=$(cat "$f")
   while IFS= read -r line || [ -n "$line" ]; do
     status_line_verb "$line" event
     case "$event:$kind" in
@@ -1242,7 +1239,7 @@ status_key_closing_verb() {  # <status-file> <key>
       verb=$event
     fi
   done <<EOF
-$stream
+$candidates
 EOF
   if _fm_open_set_has "$open" "$want"; then
     _fm_open_set_verb "$open" "$want"
@@ -1395,7 +1392,7 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # 8: that end position opens but never closes - a closing verb (resolved,
 # captain-held) with a trailing token folds as prose under "default", so a
 # summary merely quoting a key can no longer close a live decision.
-FM_OPEN_DECISIONS_FOLD_VERSION=8
+FM_OPEN_DECISIONS_FOLD_VERSION=9
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity
