@@ -56,9 +56,10 @@
 # go stale: after a rotation the pinned copy diverges and a secondary
 # launch fails its console fetch or falls back to the auth.json key, which
 # bills the main workspace. The account rows are therefore re-copied from
-# a consistent snapshot of the live database (sqlite `.backup`, never a raw
-# dump of the live file under write load) on every pinned launch, then
-# re-pinned; a pin that will not refresh is discarded and rebuilt.
+# the live database inside one read-only read transaction on every pinned
+# launch, then re-pinned; a pin that will not refresh is discarded and
+# rebuilt. Only the two login tables are read: the live database grows to
+# tens of gigabytes, so a whole-file copy is never taken.
 #
 # PROOF. Before a launch rides a pin, OPENCODE_DB=<pin> opencode debug
 # config must resolve the opencode provider name to that launch's own
@@ -413,32 +414,30 @@ fm_opencode_config_name() {  # <db>
 }
 
 # fm_opencode_login_copy <live-db> <dest-db>: copy the console login rows
-# from a consistent snapshot of the live database into <dest-db>.
-# The snapshot rides sqlite `.backup`, so a live database mid-write in WAL
-# mode cannot yield a half-copied pin; the rows are dumped from the snapshot
-# and replayed as INSERT OR REPLACE. An empty dump (a transient lock that
-# yielded nothing) fails rather than publishing a login-less pin. Returns 0
-# with the rows replayed, 1 otherwise; prints nothing, including no id.
+# from the live database into <dest-db>.
+# Only the account and account_state tables are read, read-only and under
+# the single read transaction `.dump` holds, so a live database mid-write in
+# WAL mode cannot yield a half-copied pin and the rest of the live file (it
+# reaches tens of gigabytes) is never copied. The rows are replayed as
+# INSERT OR REPLACE. An empty dump (a transient lock that yielded nothing)
+# fails rather than publishing a login-less pin. Returns 0 with the rows
+# replayed, 1 otherwise; prints nothing, including no id.
 fm_opencode_login_copy() {  # <live-db> <dest-db>
-  local live=${1:-} dest=${2:-} snap dump attempts attempt copied
+  local live=${1:-} dest=${2:-} dump attempts attempt copied
   [ -n "$live" ] && [ -n "$dest" ] || return 1
   [ -f "$live" ] || return 1
   command -v sqlite3 >/dev/null 2>&1 || return 1
-  snap=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-snap.XXXXXX.db" 2>/dev/null) || return 1
-  dump=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-dump.XXXXXX.sql" 2>/dev/null) || { rm -f "$snap" 2>/dev/null; return 1; }
+  dump=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-dump.XXXXXX" 2>/dev/null) || return 1
   attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_COPY_ATTEMPTS:-${FM_OPENCODE_VERIFY_ATTEMPTS:-}}" 3)
   attempt=1; copied=0
   while [ "$attempt" -le "$attempts" ]; do
-    rm -f "$snap" "$dump" 2>/dev/null
-    if sqlite3 "$live" ".backup main '$snap'" 2>/dev/null && [ -f "$snap" ]; then
-      if sqlite3 "$snap" '.dump account account_state' 2>/dev/null \
-        | grep '^INSERT' > "$dump" 2>/dev/null; then
-        if [ -s "$dump" ] \
-          && sed 's/^INSERT INTO /INSERT OR REPLACE INTO /' "$dump" 2>/dev/null \
-            | sqlite3 "$dest" 2>/dev/null; then
-          copied=1
-          break
-        fi
+    if sqlite3 -readonly "$live" '.dump account account_state' 2>/dev/null \
+      | grep '^INSERT' > "$dump" 2>/dev/null; then
+      if [ -s "$dump" ] \
+        && sed 's/^INSERT INTO /INSERT OR REPLACE INTO /' "$dump" 2>/dev/null \
+          | sqlite3 "$dest" 2>/dev/null; then
+        copied=1
+        break
       fi
     fi
     if [ "$attempt" -lt "$attempts" ]; then
@@ -446,7 +445,7 @@ fm_opencode_login_copy() {  # <live-db> <dest-db>
     fi
     attempt=$((attempt + 1))
   done
-  rm -f "$snap" "$dump" 2>/dev/null
+  rm -f "$dump" 2>/dev/null
   [ "$copied" -eq 1 ]
 }
 
@@ -473,11 +472,10 @@ fm_opencode_prepare_db() {  # <db>
 }
 
 # fm_opencode_second_refresh <db> <live-db> <org>: re-copy the console
-# login rows are re-copied from a consistent snapshot of the live database
-# on every pinned launch and a pin that will not refresh is discarded and
-# rebuilt, so the pin cannot carry a stale token. The dump rides the
-# snapshot, never the live file, and an empty dump fails rather than
-# publishing a login-less pin. Plain INSERT would
+# login rows are re-copied from the live database's two login tables, read
+# under one read-only transaction, on every pinned launch and a pin that will
+# not refresh is discarded and rebuilt, so the pin cannot carry a stale
+# token. An empty dump fails rather than publishing a login-less pin. Plain INSERT would
 # collide with the rows already there, so the dump is replayed as
 # INSERT OR REPLACE.
 fm_opencode_second_refresh() {  # <db> <live-db> <org>
@@ -537,9 +535,9 @@ fm_opencode_main_verify() {  # <db>
 # pinned database path, building it first when needed. Building migrates a
 # fresh database through opencode itself (an empty file is migrated on first
 # load; a hand-seeded schema collides with the migrator), then copies only
-# the account rows from a consistent snapshot of the live login and pins the
+# the account rows from the live login, read-only, and pins the
 # active workspace to the given id. An existing pin is never trusted: its
-# login rows are re-copied from the snapshot on every call and a pin that
+# login rows are re-copied from the live login on every call and a pin that
 # will not refresh is discarded and rebuilt, so the pin cannot carry a stale
 # token. Before the path is published the pin must prove its workspace: a
 # launch that cannot prove it never starts, with a proved-wrong workspace

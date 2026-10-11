@@ -844,6 +844,42 @@ test_copy_refuses_an_empty_login() {
   pass "an empty login copy fails rather than publishing a login-less pin"
 }
 
+test_copy_never_backs_up_the_whole_live_database() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "login copy needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local dir real dest
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/fm-opencode-nobackup.XXXXXX") || fail "no scratch directory"
+  real=$(command -v sqlite3)
+  mkdir -p "$dir/shim" "$dir/live"
+  # The live database reaches tens of gigabytes, so a whole-file .backup
+  # cannot complete on a full disk; this shim stands in for that refusal.
+  cat > "$dir/shim/sqlite3" <<SHIM
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in *.backup*) echo "refused: whole-database backup" >&2; exit 1 ;; esac
+done
+exec "$real" "\$@"
+SHIM
+  chmod +x "$dir/shim/sqlite3"
+  fixture_login_db "$dir/live" 'live-access-NOBACKUP' 'wrk_01FIXTUREMAIN'
+  dest="$dir/pin.db"
+  sqlite3 "$dest" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);" \
+    || fail "the fixture pin refused its seed"
+  if ! (PATH="$dir/shim:$PATH" FM_OPENCODE_VERIFY_SLEEP=0 FM_OPENCODE_COPY_ATTEMPTS=1 \
+    fm_opencode_login_copy "$dir/live/opencode.db" "$dest"); then
+    rm -rf "$dir"
+    fail "the login copy must read the two login tables without a whole-database backup"
+  fi
+  [ "$(sqlite3 "$dest" 'SELECT access_token FROM account LIMIT 1;')" = 'live-access-NOBACKUP' ] \
+    || { rm -rf "$dir"; fail "the login rows did not reach the pin"; }
+  rm -rf "$dir"
+  pass "the login copy reads only the login tables, never a whole-database backup"
+}
+
 test_verify_retries_a_transient_fetch() {
   command -v sqlite3 >/dev/null 2>&1 || {
     pass "verify retry needs sqlite3 (absent here; live proof covers the real path)"
@@ -953,6 +989,7 @@ test_refresh_never_touches_the_live_login
 test_pin_path_naming_live_is_refused
 test_same_file_predicate
 test_copy_refuses_an_empty_login
+test_copy_never_backs_up_the_whole_live_database
 test_verify_retries_a_transient_fetch
 test_unreadable_pin_reports_could_not_read
 test_proved_wrong_verify_returns_one
