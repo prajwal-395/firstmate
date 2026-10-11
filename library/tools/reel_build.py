@@ -14186,6 +14186,27 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     final, _derivation,
                     _carried_self_read(final),
                     _recorded_signatures.get(final))
+                # Lane D (cascade engine): the LEAVE_ALONE verdict walks
+                # through the shared walker
+                # (`library/tools/cascade_graph.py`) against the recorded
+                # signature and the reel's derived registry. The gate
+                # only refuses skips - a REBUILD is never turned into a
+                # LEAVE_ALONE here.
+                try:
+                    from library.tools import cascade_graph as _cascade
+                    _cascade_registry = _cascade.read_registry(
+                        os.path.join(project_folder, "pipeline_output",
+                                     "review"), final)
+                except Exception:                           # noqa: BLE001
+                    _cascade_registry = None
+                _gated = _cascade.gate_rebuild_decision(
+                    _decision, fresh_derivation=_derivation,
+                    recorded=_recorded_signatures.get(final),
+                    registry=_cascade_registry)
+                if _gated.action != _decision.action:
+                    print(f"  cascade refuses the skip for {final}: "
+                          f"{_gated.reason}", flush=True)
+                _decision = _gated
                 rebuild_decisions.append(_decision.as_dict())
                 # Derivation facts for the summary, stashed while every
                 # record is in hand: answers per channel with their drops,
@@ -14803,6 +14824,29 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                      footage_binding_hashes=footage_binding_hashes,
                      asset_hashes=asset_hashes,
                      build_signatures=build_signatures)
+    # Lane D (cascade engine): file this build's derivation under the
+    # same reel keys in the per-reel derived registry
+    # (`library/tools/cascade_graph.py`) - the generalised
+    # build_signatures the next build's dirty walk reads. Merged per
+    # reel like every other per-reel map here; the carried half stays
+    # open until promotion closes it, and the staging->final rename
+    # travels with `rename_reel_entries`. Never fails the build: the
+    # signatures above stay authoritative until Lane E.
+    try:
+        from library.tools import cascade_graph as _cascade_reg
+        for _reel_name in built_reel_names:
+            _sig = (build_signatures or {}).get(_reel_name) or {}
+            _cascade_reg.update_registry_from_build(
+                review_dir, _reel_name,
+                derivation=_sig.get("derivation") or None,
+                carried=None,
+                caption_binding=(caption_hashes or {}).get(_reel_name),
+                footage_binding=(footage_binding_hashes or {}).get(
+                    _reel_name))
+    except Exception as _reg_failed:                    # noqa: BLE001
+        print(f"  derived registries not written ({_reg_failed}) - the "
+              f"next build decides from build_signatures alone",
+              file=sys.stderr)
 
     # The plan the verifier grades V4 against, written where the rest of
     # the build record lives. A placement nothing recorded is a placement

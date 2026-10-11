@@ -943,16 +943,25 @@ def render_one_segment(planned: dict, out_dir: str,
                   file=sys.stderr)
 
     def _reuse_hit(names):
-        """A recorded still or animation, paired back - or None."""
+        """A recorded still or animation, paired back - or None.
+
+        Lane D (cascade engine): the key match is the shared walker's
+        dirty test for the `plan -> overlay .mov` edge
+        (`library/tools/cascade_graph.py`), not a second spelling of
+        it. Allowed exactly when both halves are present and equal -
+        the outcome is identical to the compare it replaces.
+        """
         if not reuse:
             return None
+        from library.tools import cascade_graph as _cascade
         for media_type, overlay_path, key_path, key in (
                 ("still", names["still_path"],
                  names["still_key_path"], names["still_key"]),
                 ("video", names["video_path"],
                  names["video_key_path"], names["video_key"])):
-            if (not key or _read_recorded_key(key_path) != key
-                    or not os.path.isfile(overlay_path)):
+            _recorded = _read_recorded_key(key_path)
+            _reuse_ok, _ = _cascade.overlay_reuse_allowed(key, _recorded)
+            if not _reuse_ok or not os.path.isfile(overlay_path):
                 continue
             if planned.get("layer") == "behind_subject":
                 sequence = os.path.join(

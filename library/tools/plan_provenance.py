@@ -635,6 +635,37 @@ def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
                                         str(e.get("id") or "")))
             history_table[new] = merged
         doc[_history.HISTORY_KEY] = history_table
+    # The derived registry (Lane D cascade engine,
+    # `library/tools/cascade_graph.py`) is keyed by the same reel names:
+    # a staging container's registry file follows it to its final name.
+    # Entries for reels outside `mapping` stay exactly as they are.
+    # Fail-soft: the provenance rename above is authoritative, and a
+    # registry that cannot follow never blocks a promotion.
+    try:
+        from library.tools import cascade_graph as _cascade
+        for old, new in mapping.items():
+            if old == new:
+                continue
+            _old_path = Path(_cascade.registry_path(
+                str(review_dir), str(old)))
+            if _old_path.is_file():
+                _new_path = Path(_cascade.registry_path(
+                    str(review_dir), str(new)))
+                _new_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    _old_path.rename(_new_path)
+                except OSError:
+                    pass
+                try:
+                    _doc = json.loads(_new_path.read_text(encoding="utf-8"))
+                    if isinstance(_doc, dict):
+                        _doc["reel"] = str(new)
+                        _new_path.write_text(json.dumps(_doc, indent=2),
+                                             encoding="utf-8")
+                except (OSError, ValueError):
+                    pass
+    except Exception:                                   # noqa: BLE001
+        pass
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
 
@@ -667,6 +698,25 @@ def record_carried_digests(review_dir: str, digests: dict) -> None:
         entries[name] = recorded
     doc["build_signatures"] = entries
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    # Lane D (cascade engine): close the carried half in the derived
+    # registry too, under the same rule - no derivation on record,
+    # no carried-only entry. Fail-soft: the signature close above is
+    # authoritative, and a registry that cannot follow never blocks a
+    # promotion.
+    try:
+        from library.tools import cascade_graph as _cascade
+        for name, digest in digests.items():
+            _registry = _cascade.read_registry(str(review_dir), str(name))
+            if _registry is None:
+                continue
+            _hashes = dict(_registry.get("hashes") or {})
+            if not _hashes.get("reel derivation"):
+                continue
+            if digest:
+                _hashes["timeline as-built"] = digest
+                _cascade.write_registry(str(review_dir), str(name), _hashes)
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def drop_reel_entries(review_dir: str, names) -> None:
@@ -701,6 +751,19 @@ def drop_reel_entries(review_dir: str, names) -> None:
             snapshots_table.pop(name, None)
         doc[SNAPSHOT_PROVENANCE_KEY] = snapshots_table
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    # A refused staging leaves no derived-registry baseline behind
+    # either (Lane D cascade engine) - or a later dirty walk would
+    # read the refused build's hashes as clean. Fail-soft.
+    try:
+        from library.tools import cascade_graph as _cascade
+        for name in drop:
+            try:
+                Path(_cascade.registry_path(
+                    str(review_dir), str(name))).unlink(missing_ok=True)
+            except OSError:
+                pass
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def _snapshot_bytes(path: Path) -> Optional[bytes]:

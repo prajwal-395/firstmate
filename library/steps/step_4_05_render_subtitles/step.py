@@ -1263,7 +1263,16 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             recorded = Path(key_path).read_text(encoding="utf-8").strip()
         except OSError:
             recorded = ""
-        if key and recorded == key and _overlay_on_disk():
+        # Lane D (cascade engine): the skip is the shared walker's
+        # dirty test for the `drawing -> caption .mov` edge
+        # (`library/tools/cascade_graph.py`), not a second spelling
+        # of it. The outcome is identical to the compare it replaces
+        # - allowed exactly when both halves are present and equal -
+        # and a refusal falls through to the render path whose notes
+        # below say why.
+        from library.tools import cascade_graph as _cascade
+        _cascade_ok, _ = _cascade.caption_reuse_allowed(key, recorded)
+        if _cascade_ok and _overlay_on_disk():
             if geometry == "tight":
                 # Placement lives in the box sidecar, not in the
                 # filename: restore it without a probe render. A

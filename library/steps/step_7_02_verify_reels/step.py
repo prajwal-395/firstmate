@@ -533,6 +533,27 @@ def verify_reels(data: dict) -> dict:
     else:
         timelines_verified = list(timelines_built)
 
+    # Lane D (cascade engine): scoped QA from dirty spans is the
+    # DEFAULT verify after any partial rebuild
+    # (`library/tools/cascade_graph.py`). The conformance gate above
+    # already graded every built reel whole; this re-reads only what
+    # the rebuild touched - the located detectors over the dirty spans
+    # plus the hearing drift runs overlapping them - and REPORTS,
+    # never gates. A reel with no dirty spans on record, no export on
+    # disk, or whole-reel dirt defers with the reason said: the full
+    # gate stands as its verify, never silence. Callers that hold
+    # touch receipts pass them as `dirty_by_reel{name: dirty-block}`;
+    # without them every reel defers honestly.
+    try:
+        from library.tools import cascade_graph as _cascade
+        _scoped = _cascade.scoped_verify_partial_build(
+            project_folder, timelines_verified,
+            dirty_by_reel=(data or {}).get("dirty_by_reel") or {})
+    except Exception as _scoped_failed:                 # noqa: BLE001
+        _scoped = {"checked": [], "deferred": [],
+                   "findings": [],
+                   "detail": f"scoped QA unavailable: {_scoped_failed}"}
+
     return {"reel_verification": {
         "passed": True,
         "plan_path": plan_path,
@@ -541,6 +562,7 @@ def verify_reels(data: dict) -> dict:
         "master_timeline_name": master_timeline_name,
         "organised": organised,
         "uncarried_notes": uncarried_report,
+        "cascade_scoped_qa": _scoped,
     }}
 
 
