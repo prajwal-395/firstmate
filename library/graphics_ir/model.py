@@ -318,32 +318,13 @@ class RadialGradient(BaseModel):
     stops: list[PaintStop]
 
 
-class ConicGradient(BaseModel):
-    """A CSS ``conic-gradient``.
-
-    Declared for vocabulary completeness so a future lowering has a
-    target; NOT drawn yet. No lowering emits one, and the FFrames
-    adapter warns and paints ``none`` for it (usvg has no conic
-    primitive and there is no shader path); the browser adapters draw
-    it with CSS ``conic-gradient`` directly. Either wire a renderer
-    path or keep it out of lowered scenes - never silently expect it
-    to draw.
-    """
-
-    kind: Literal["conic"]
-    angle: float
-    stops: list[PaintStop]
-
-
-Paint = Union[str, LinearGradient, RadialGradient, ConicGradient]
+Paint = Union[str, LinearGradient, RadialGradient]
 """A node's fill: a solid colour (``str``) or a gradient.
 
 A plain string is a solid colour, the way every composition states one
 today, so a scene that names no gradient keeps its meaning. Linear and
 radial gradients map 1:1 to CSS ``linear-gradient`` /
 ``radial-gradient`` and to SVG ``linearGradient`` / ``radialGradient``.
-``conic-gradient`` is browser-only until a renderer path exists
-(see ``ConicGradient``) and must not reach a lowered scene.
 """
 
 
@@ -477,7 +458,7 @@ class HTMLContent(BaseModel):
     """A node only the browser draws: an HTML/CSS layer.
 
     ``engine`` is ``"browser"`` - the escape hatch for content FFrames'
-    SVG has no answer for (conic gradients, arbitrary HTML, emoji). The
+    SVG has no answer for (arbitrary HTML, emoji). The
     browser adapters draw it as an HTML layer; FFrames refuses it by name
     rather than approximating it.
     """

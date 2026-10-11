@@ -195,34 +195,6 @@
       "title": "CameraContent",
       "type": "object"
     },
-    "ConicGradient": {
-      "description": "A CSS ``conic-gradient``.\n\nDeclared for vocabulary completeness so a future lowering has a\ntarget; NOT drawn yet. No lowering emits one, and the FFrames\nadapter warns and paints ``none`` for it (usvg has no conic\nprimitive and there is no shader path); the browser adapters draw\nit with CSS ``conic-gradient`` directly. Either wire a renderer\npath or keep it out of lowered scenes - never silently expect it\nto draw.",
-      "properties": {
-        "kind": {
-          "const": "conic",
-          "title": "Kind",
-          "type": "string"
-        },
-        "angle": {
-          "title": "Angle",
-          "type": "number"
-        },
-        "stops": {
-          "items": {
-            "$ref": "#/$defs/PaintStop"
-          },
-          "title": "Stops",
-          "type": "array"
-        }
-      },
-      "required": [
-        "kind",
-        "angle",
-        "stops"
-      ],
-      "title": "ConicGradient",
-      "type": "object"
-    },
     "CubicBezierEasing": {
       "description": "A cubic bezier easing, the CSS ``cubic-bezier()`` function.",
       "properties": {
@@ -259,7 +231,7 @@
       "type": "object"
     },
     "DropShadowFilter": {
-      "description": "A CSS ``drop-shadow()``.\n\n``sigma`` equals the CSS blur radius (measured: 1.0x, not b/2).\nMaps 1:1 to CSS ``filter: drop-shadow()`` and SVG ``feDropShadow``.",
+      "description": "A CSS ``drop-shadow()``.\n\n``sigma`` equals the CSS blur radius (measured: 1.0x, not b/2).\nMaps 1:1 to CSS ``filter: drop-shadow()`` and SVG ``feDropShadow``.\n\n``box-shadow`` is a different source function with a different\nmapping: its blur radius draws like HALF the ``drop-shadow()`` blur\nof the same number (measured on the review card's falloff), so a\nlowering quoting a ``box-shadow`` halves the radius before emitting\nthis filter. The halving lives in the lowering, not here, because\nthis filter's own source function maps 1:1.",
       "properties": {
         "kind": {
           "const": "drop_shadow",
@@ -357,7 +329,7 @@
       "type": "object"
     },
     "HTMLContent": {
-      "description": "A node only the browser draws: an HTML/CSS layer.\n\n``engine`` is ``\"browser\"`` - the escape hatch for content FFrames'\nSVG has no answer for (conic gradients, arbitrary HTML, emoji). The\nbrowser adapters draw it as an HTML layer; FFrames refuses it by name\nrather than approximating it.",
+      "description": "A node only the browser draws: an HTML/CSS layer.\n\n``engine`` is ``\"browser\"`` - the escape hatch for content FFrames'\nSVG has no answer for (arbitrary HTML, emoji). The\nbrowser adapters draw it as an HTML layer; FFrames refuses it by name\nrather than approximating it.",
       "properties": {
         "engine": {
           "default": "browser",
@@ -885,9 +857,6 @@
               "$ref": "#/$defs/RadialGradient"
             },
             {
-              "$ref": "#/$defs/ConicGradient"
-            },
-            {
               "type": "null"
             }
           ],
@@ -948,9 +917,6 @@
             },
             {
               "$ref": "#/$defs/RadialGradient"
-            },
-            {
-              "$ref": "#/$defs/ConicGradient"
             },
             {
               "type": "null"

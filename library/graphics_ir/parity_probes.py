@@ -397,9 +397,9 @@ the pixel half - the brief's pixel list names five, and the twelfth
 probe needs a home; it is artefact-measured, so pixel it is)."""
 
 EXPECTED_FAIL_TODAY = frozenset({
-    "P3", "P5", "P6", "P7", "P8", "P10", "P11", "P12",
+    "P3", "P5", "P6", "P7", "P8", "P10", "P12",
 })
-"""Probes failing today (score 4/12: P1, P2, P4, P9). ``parity_score`` labels
+"""Probes failing today (score 5/12: P1, P2, P4, P9, P11). ``parity_score`` labels
 these expected-fail and the per-probe tests assert each outcome matches
 its label. When a C-item lands, its probe's check passes and the score
 moves - then remove the id here; the probe's test fails until you do,

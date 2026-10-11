@@ -50,7 +50,7 @@ def test_p9_brand_motion_composites_video():
 
 def test_p11_conic_draws_or_is_undeclared():
     status, _ = probe_status("P11")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p12_unknown_content_refuses_loudly():
