@@ -38,7 +38,16 @@ fm_sup_stat_mtime() {
 #   FM_SUP_NEEDED         true/false - in-flight work, an X-mode relay poll, a
 #                         registered event source (a source is a wait on an
 #                         external process, not a task, so it has no metadata),
-#                         or a registered custom check
+#                         a registered custom check, or unread wake-queue rows.
+#                         A queued row is work the home has not handled yet:
+#                         an idle home with no task in flight but a pending
+#                         row still needs its watcher, or the row reaches no
+#                         agent turn (an idle agent has no turn end for the
+#                         auto-arm to fire on). Read by the home itself and by
+#                         cross-home mate observers alike, so a queued row in
+#                         an idle mate home wakes the parent's quiet tick
+#                         within one poll instead of waiting out the slower
+#                         wake-stall threshold.
 #   FM_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   FM_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   FM_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
@@ -92,13 +101,20 @@ fm_supervision_status() {
     fi
   fi
 
+  # Unread wake-queue rows are supervision need even with nothing else
+  # riding on the watcher: without a live watcher an idle home never drains
+  # them, and an idle agent has no turn end left for the auto-arm to fire on.
   # shellcheck disable=SC2034 # Read by callers (fm-guard.sh) after sourcing.
   [ -s "$state/.wake-queue" ] && FM_SUP_QUEUE_PENDING=true
+  if [ "$FM_SUP_QUEUE_PENDING" = true ]; then
+    FM_SUP_NEEDED=true
+  fi
   return 0
 }
 
 # fm_supervision_needed <state-dir> [grace-seconds]
-# Exit 0 (true) exactly when the home needs a watcher.
+# Exit 0 (true) exactly when the home needs a watcher: work-based need
+# or unread wake-queue rows.
 fm_supervision_needed() {
   fm_supervision_status "$@"
   [ "$FM_SUP_NEEDED" = true ]
