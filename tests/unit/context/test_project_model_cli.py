@@ -352,7 +352,14 @@ def _stub_native():
 
 
 def _stub_engine(monkeypatch, tmp_path: Path) -> None:
-    """Stub the pinned CLI; the export renders a tiny mp4 for real."""
+    """Stub the pinned CLI; the export renders a tiny clip for real.
+
+    The stub honours the export path suffix the verb names: a ``.mov``
+    intermediate renders ProRes (the mezzanine a treated run exports),
+    anything else renders H264 (an untreated delivery straight from
+    the engine). The render is copied aside as the engine base the
+    pixel assertions read back.
+    """
     import subprocess
 
     import library.tools.project_model_cli as pmc
@@ -368,16 +375,23 @@ def _stub_engine(monkeypatch, tmp_path: Path) -> None:
             return {}
         if command == "export":
             out = Path(params["path"])
+            if out.suffix == ".mov":
+                args = ["-c:v", "prores_ks", "-profile:v", "3",
+                        "-pix_fmt", "yuv422p10le"]
+                aside = tmp_path / "engine-base.mov"
+            else:
+                args = ["-c:v", "libx264", "-preset", "ultrafast",
+                        "-pix_fmt", "yuv420p"]
+                aside = tmp_path / "engine-base.mp4"
             done = subprocess.run(
                 ["ffmpeg", "-v", "error", "-y",
                  "-f", "lavfi", "-i",
-                 "testsrc=size=64x112:rate=24:duration=0.3333",
-                 "-c:v", "libx264", "-preset", "ultrafast",
-                 "-pix_fmt", "yuv420p", str(out)],
+                 "testsrc=size=64x112:rate=24:duration=0.3333"]
+                + args + [str(out)],
                 capture_output=True, text=True, encoding="utf-8",
                 check=False)
             assert done.returncode == 0, done.stderr[:300]
-            (tmp_path / "engine-base.mp4").write_bytes(out.read_bytes())
+            aside.write_bytes(out.read_bytes())
             return {"exported": str(out)}
         return {}
 
@@ -402,17 +416,100 @@ def test_execute_export_composites_the_declared_grade(tmp_path, monkeypatch):
                  "--media-root", str(FIXTURE_MODEL.parent),
                  "--execute", "--export", str(export)]) == 0
     receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["export"]["engine_format"] == "prores"
+    assert receipt["export"]["intermediate"] == str(
+        tmp_path / "reel.engine-base.mov")
     treatments = receipt["native_treatments"]
     assert treatments["grade_applied"] is True
     assert treatments["bezel_applied"] is False
     assert treatments["grade_name"] == "strong-grade"
     assert treatments["out"] == str(export)
     assert treatments["refused"] == []
+    assert treatments["lossy_encodes"] == 1
+    assert treatments["engine_format"] == "prores"
+    assert treatments["intermediate_removed"] is True
     assert export.is_file()
     assert not list(tmp_path.glob("*.treatments-tmp.mp4"))
-    base = tmp_path / "engine-base.mp4"
+    assert not list(tmp_path.glob("*.engine-base.mov"))
+    base = tmp_path / "engine-base.mov"
     scores = nec.measure_ssim(base, export, frames=8)
     assert scores["Y"] < 0.99  # the export carries the declared grade
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_treated_export_performs_one_lossy_encode(tmp_path, monkeypatch):
+    """A treated H264 delivery goes through exactly one final encode.
+
+    The engine renders a ProRes mezzanine intermediate (never an H264
+    delivery), and the treatments pass encodes the delivery once: one
+    composite call, one libx264 invocation, final bytes probing as
+    H264, intermediate removed.
+    """
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+    from library.tools import native_effects_composite as nec
+
+    _stub_engine(monkeypatch, tmp_path)
+    export_ops: list[dict] = []
+    native = _stub_native()
+    real_op = native.filmcraft_describe_operation
+
+    def recording_describe(op):
+        if op.get("kind") == "export":
+            export_ops.append(dict(op))
+        return real_op(op)
+
+    native.filmcraft_describe_operation = recording_describe
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: native)
+
+    composite_calls: list[dict] = []
+    real_composite = nec.composite_declared_treatments
+
+    def counting_composite(base, out, **kwargs):
+        composite_calls.append({"base": str(base), "out": str(out),
+                                "kwargs": dict(kwargs)})
+        return real_composite(base, out, **kwargs)
+
+    monkeypatch.setattr(nec, "composite_declared_treatments",
+                        counting_composite)
+
+    libx264_runs = 0
+    real_run = subprocess.run
+
+    def counting_run(argv, *args, **kwargs):
+        nonlocal libx264_runs
+        if (isinstance(argv, list) and "libx264" in list(argv)
+                and str(tmp_path) in " ".join(str(a) for a in argv)):
+            libx264_runs += 1
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", counting_run)
+    # The nec module holds its own subprocess reference; count there too.
+    monkeypatch.setattr(nec.subprocess, "run", counting_run)
+
+    root = _look_root(tmp_path)
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 0
+    assert len(export_ops) == 1
+    assert export_ops[0]["format"] == "pro_res", (
+        "engine must render a ProRes mezzanine, got "
+        f"{export_ops[0]!r}")
+    assert len(composite_calls) == 1
+    assert composite_calls[0]["base"].endswith(".engine-base.mov")
+    assert composite_calls[0]["out"] == str(export)
+    assert libx264_runs == 1, (
+        f"exactly one libx264 encode, saw {libx264_runs}")
+    probe = real_run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name", "-of", "json", str(export)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    assert json.loads(probe.stdout)["streams"][0]["codec_name"] == "h264"
+    assert not (tmp_path / "reel.engine-base.mov").exists()
 
 
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
@@ -437,6 +534,10 @@ def test_execute_export_leaves_engine_bytes_alone_without_declarations(
     assert treatments["grade_applied"] is False
     assert treatments["bezel_applied"] is False
     assert treatments["out"] == str(export)
+    assert treatments["lossy_encodes"] == 1
+    assert treatments["intermediate"] is None
+    assert receipt["export"]["intermediate"] is None
+    assert receipt["export"]["engine_format"] == "h264"
     assert export.read_bytes() == (tmp_path / "engine-base.mp4").read_bytes()
 
 
@@ -457,6 +558,7 @@ def test_execute_without_export_composites_nothing(tmp_path, monkeypatch):
                  "--execute"]) == 0
     receipt = json.loads(out.read_text(encoding="utf-8"))
     assert receipt["native_treatments"]["skipped"].startswith("no export")
+    assert receipt["native_treatments"]["lossy_encodes"] == 0
 
 
 # ── Batched FilmCraft sessions (`filmcraft-cli run`) ──────────

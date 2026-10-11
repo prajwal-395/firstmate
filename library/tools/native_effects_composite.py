@@ -80,6 +80,25 @@ MOVE_CLASS_PREFIX = "move."
 #: ``library/tools/project_model_effectcraft.py``.
 FADE_CLASS_IDS = frozenset({"fade.opacity", "transition.fade_to_black"})
 
+#: Final-delivery H264 args for the treatments pass: the ONE lossy
+#: encode of a treated delivery. The engine base is a ProRes mezzanine
+#: (``project_model_cli.execute_filmcraft`` exports ``prores`` when
+#: treatments are declared), so this pass is the only H264 generation.
+#: ``yuv420p`` pins the 8-bit delivery the H264 path always shipped,
+#: even when the mezzanine base decodes at 10 bit.
+FINAL_H264_ARGS = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
+                   "-pix_fmt", "yuv420p"]
+
+#: Final-delivery ProRes args for a treated ``--export-format prores``
+#: run: one ProRes generation in the treatments pass over a ProRes
+#: mezzanine base. Profile 3 is HQ (profile-determined bitrate, so no
+#: bitrate flags ride along).
+FINAL_PRORES_ARGS = ["-c:v", "prores_ks", "-profile:v", "3",
+                     "-pix_fmt", "yuv422p10le"]
+
+#: Video codecs :func:`composite_native` can deliver.
+DELIVERY_VIDEO_CODECS = ("h264", "prores")
+
 
 def _mean(values: Any, what: str) -> float:
     items = list(values)
@@ -329,6 +348,7 @@ def composite_native(
     bezel_scale: float = 1.0,
     bezel_offset_y: int = 0,
     bezel_rotate: Any = None,
+    video_codec: str = "h264",
 ) -> dict[str, Any]:
     """Composite treatments over a FilmCraft base render with ffmpeg.
 
@@ -344,14 +364,26 @@ def composite_native(
       overlays no bezel.
     - Both together apply the grade first, then the bezel over the
       graded picture - the Resolve order (grade on V1, frame on V2).
+    - ``video_codec`` selects the delivery codec: ``"h264"`` (the
+      default, ``FINAL_H264_ARGS``) or ``"prores"``
+      (``FINAL_PRORES_ARGS`` for a ``--export-format prores`` run).
+      The base may be an H264 delivery OR a ProRes mezzanine - the
+      pass encodes the delivery once either way, so a treated run
+      whose engine base is a mezzanine goes through exactly one final
+      lossy encode.
 
-    Returns ``{"out", "filter", "grade_applied", "bezel_applied"}``.
-    Refuses when the base or the bezel asset is absent, and when a
-    bezel scale is outside (0, 1].
+    Returns ``{"out", "filter", "grade_applied", "bezel_applied",
+    "video_codec"}``. Refuses when the base or the bezel asset is
+    absent, when a bezel scale is outside (0, 1], and when the codec
+    names nothing deliverable.
     """
     base = Path(base_mp4)
     if not base.is_file():
         raise FileNotFoundError(f"native base render is absent: {base}")
+    if video_codec not in DELIVERY_VIDEO_CODECS:
+        raise ValueError(
+            f"delivery video codec must be one of {DELIVERY_VIDEO_CODECS}, "
+            f"got {video_codec!r}")
     if bezel_asset is not None:
         asset = Path(bezel_asset)
         if not asset.is_file():
@@ -386,12 +418,14 @@ def composite_native(
     command = ["ffmpeg", "-v", "error", "-y"]
     for path in inputs:
         command += ["-i", path]
-    command += [
-        "-filter_complex", ";".join(filters),
-        "-map", "[out]", "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
-        "-c:a", "aac", str(out),
-    ]
+    video_args = (FINAL_H264_ARGS if video_codec == "h264"
+                  else FINAL_PRORES_ARGS)
+    command += (
+        ["-filter_complex", ";".join(filters),
+         "-map", "[out]", "-map", "0:a?"]
+        + video_args
+        + ["-c:a", "aac", str(out)]
+    )
     completed = subprocess.run(
         command, capture_output=True, text=True, encoding="utf-8", check=False)
     if completed.returncode != 0 or not out.is_file():
@@ -402,6 +436,7 @@ def composite_native(
         "filter": ";".join(filters),
         "grade_applied": grade is not None,
         "bezel_applied": bezel_asset is not None,
+        "video_codec": video_codec,
     }
 
 
@@ -523,6 +558,54 @@ def measure_ssim(
     return scores
 
 
+def measure_psnr(
+    first_mp4: str | Path,
+    second_mp4: str | Path,
+    *,
+    frames: int | None = None,
+) -> dict[str, float]:
+    """Whole-file (or first-``frames``) PSNR between two renders.
+
+    Trims both inputs to the same head range so a short proof never
+    renders the whole reel. Returns the per-channel averages ffmpeg
+    prints (``y/u/v/average``) plus ``max`` when present. Both files
+    must exist; ``frames`` must be positive.
+    """
+    for path in (Path(first_mp4), Path(second_mp4)):
+        if not path.is_file():
+            raise FileNotFoundError(f"PSNR input is absent: {path}")
+    if frames is not None and (not isinstance(frames, int) or frames <= 0):
+        raise ValueError(f"PSNR frame count must be positive, got {frames!r}")
+    head = f"trim=end_frame={frames}," if frames else ""
+    command = [
+        "ffmpeg", "-v", "info",
+        "-i", str(first_mp4), "-i", str(second_mp4),
+        "-filter_complex",
+        (f"[0:v]{head}setpts=PTS-STARTPTS[b];"
+         f"[1:v]{head}setpts=PTS-STARTPTS[c];[b][c]psnr"),
+        "-f", "null", "-",
+    ]
+    completed = subprocess.run(
+        command, capture_output=True, text=True, encoding="utf-8", check=False)
+    combined = (completed.stderr or "") + "\n" + (completed.stdout or "")
+    scores: dict[str, float] = {}
+    for line in combined.splitlines():
+        if "PSNR" not in line:
+            continue
+        for key in ("y", "u", "v", "average", "max"):
+            marker = f"{key}:"
+            if marker in line:
+                tail = line.split(marker, 1)[1].strip().split()[0]
+                try:
+                    scores[key] = float(tail)
+                except ValueError:
+                    continue
+    if "average" not in scores:
+        raise RuntimeError(
+            f"ffmpeg printed no PSNR average score: {combined.strip()[-500:]}")
+    return scores
+
+
 def composite_receipt(
     *,
     project_folder: str | None,
@@ -585,6 +668,7 @@ def composite_declared_treatments(
     project_folder: str | None = None,
     template_style: Any = None,
     planned: dict[str, Any] | None = None,
+    video_codec: str = "h264",
 ) -> dict[str, Any]:
     """Composite the declared treatments over a FilmCraft base render.
 
@@ -601,9 +685,18 @@ def composite_declared_treatments(
     treated render; a caller that wants the treated picture AT the
     base path composites to a temp file and moves it itself.
 
+    ``video_codec`` rides straight to :func:`composite_native`:
+    ``"h264"`` for an H264 delivery, ``"prores"`` for a
+    ``--export-format prores`` one. The base may be a ProRes
+    mezzanine - this pass is the one delivery encode either way.
+
     Returns ``{"out", "grade_name", "grade_applied", "bezel_applied",
-    "refused", "filter"}``.
+    "refused", "filter", "video_codec"}``.
     """
+    if video_codec not in DELIVERY_VIDEO_CODECS:
+        raise ValueError(
+            f"delivery video codec must be one of {DELIVERY_VIDEO_CODECS}, "
+            f"got {video_codec!r}")
     base = Path(base_mp4)
     if not base.is_file():
         raise FileNotFoundError(f"native base render is absent: {base}")
@@ -620,6 +713,7 @@ def composite_declared_treatments(
             "bezel_applied": False,
             "refused": refused,
             "filter": "",
+            "video_codec": video_codec,
         }
     out = Path(out_mp4) if out_mp4 is not None else base.with_name(
         f"{base.stem}.treated{base.suffix}")
@@ -631,6 +725,7 @@ def composite_declared_treatments(
         bezel_scale=float(bezel["scale"]) if bezel is not None else 1.0,
         bezel_offset_y=int(bezel["offset_y"]) if bezel is not None else 0,
         bezel_rotate=(bezel.get("rotate") if bezel is not None else None),
+        video_codec=video_codec,
     )
     composited["grade_name"] = grade["name"] if grade is not None else None
     composited["refused"] = refused

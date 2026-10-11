@@ -581,22 +581,77 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         "executed": True,
     }
     if export_path is not None:
-        try:
-            export_op = _describe(native, {"kind": "export", "project": project_str,
-                                           "path": str(export_path),
-                                           "format": EXPORT_FORMATS[export_format],
-                                           "hardware_encoder": "auto"})
-        except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
-            raise _refuse_from_adapter("export operation refused", exc) from exc
-        exported = _fc_exec(cli, project, export_op["command"],
-                            export_op["params"], save=export_op["save"])
-        receipt["export"] = {"path": str(export_path), "answer": exported}
-        # The export is the native render, so it carries the declared
-        # treatments: grade and bezel composite over the engine base in
-        # place (via a temp file), without a manual step. A project
-        # that declares neither keeps the engine bytes untouched.
-        receipt["native_treatments"] = _composite_export_treatments(
-            export_path, planned=treatments_plan)
+        needs_treatments = (treatments_plan["grade"] is not None
+                            or treatments_plan["bezel"] is not None)
+        if needs_treatments and export_format == "wav":
+            raise _refuse(
+                "video treatments cannot ride an audio-only export",
+                "the run declares a grade or bezel but --export-format wav "
+                "carries no picture",
+                "export with --export-format h264 (or prores) so the "
+                "treatments have a picture to land on, or drop the "
+                "series_look/tv_frame declaration",
+                code="REN_PM_CLI_NATIVE_TREATMENTS")
+        if needs_treatments:
+            # Single-encode delivery: the engine renders a ProRes
+            # mezzanine intermediate and the treatments pass encodes
+            # the delivery exactly once. The old path exported H264
+            # from the engine and re-encoded the whole video with
+            # libx264 in the composite - two full lossy encodes for
+            # one delivery. The mezzanine is the simpler correct fix:
+            # folding the grade/bezel into the engine would need new
+            # engine work (the adapter reports color.grade as
+            # effect_not_projected - its LUT path needs a LUT file,
+            # not grade numbers - and the bezel is a declared PNG the
+            # composite draws), while a ProRes export already exists
+            # in the adapter and the engine.
+            intermediate = export_path.with_name(
+                export_path.stem + ".engine-base.mov")
+            try:
+                export_op = _describe(native, {"kind": "export", "project": project_str,
+                                               "path": str(intermediate),
+                                               "format": EXPORT_FORMATS["prores"],
+                                               "hardware_encoder": "auto"})
+            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+                raise _refuse_from_adapter("export operation refused", exc) from exc
+            exported = _fc_exec(cli, project, export_op["command"],
+                                export_op["params"], save=export_op["save"])
+            receipt["export"] = {"path": str(export_path),
+                                 "intermediate": str(intermediate),
+                                 "engine_format": "prores",
+                                 "answer": exported}
+            receipt["native_treatments"] = _composite_intermediate_to_final(
+                intermediate, export_path, planned=treatments_plan,
+                video_codec=("prores" if export_format == "prores"
+                             else "h264"))
+        else:
+            try:
+                export_op = _describe(native, {"kind": "export", "project": project_str,
+                                               "path": str(export_path),
+                                               "format": EXPORT_FORMATS[export_format],
+                                               "hardware_encoder": "auto"})
+            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+                raise _refuse_from_adapter("export operation refused", exc) from exc
+            exported = _fc_exec(cli, project, export_op["command"],
+                                export_op["params"], save=export_op["save"])
+            receipt["export"] = {"path": str(export_path),
+                                 "intermediate": None,
+                                 "engine_format": export_format,
+                                 "answer": exported}
+            # No declarations means no composite: the engine bytes stay
+            # exactly as exported.
+            receipt["native_treatments"] = {
+                "out": str(export_path),
+                "grade_name": None,
+                "grade_applied": False,
+                "bezel_applied": False,
+                "refused": [],
+                "filter": "",
+                "intermediate": None,
+                "engine_format": export_format,
+                "lossy_encodes": (1 if export_format in ("h264", "prores")
+                                  else 0),
+            }
     else:
         receipt["native_treatments"] = {
             "out": None,
@@ -605,6 +660,9 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
             "bezel_applied": False,
             "refused": [],
             "filter": "",
+            "intermediate": None,
+            "engine_format": None,
+            "lossy_encodes": 0,
             "skipped": "no export was requested, so there is no render to treat",
         }
     return receipt
@@ -623,45 +681,43 @@ def _plan_native_treatments(project_root: Path) -> dict:
                       code="REN_PM_CLI_NATIVE_TREATMENTS") from exc
 
 
-def _composite_export_treatments(export_path: Path, *, planned: dict) -> dict:
-    """Composite the planned treatments over the export, in place.
+def _composite_intermediate_to_final(
+    intermediate: Path, final: Path, *, planned: dict, video_codec: str,
+) -> dict:
+    """Encode the delivery once over the mezzanine intermediate.
 
-    The treated picture lands AT the export path (composited to a temp
-    sibling, then moved over), so the export this verb names is the
-    native render with treatments, not the bare engine base. A plan
-    with no grade and no bezel moves no pixels: the engine bytes stay
-    exactly as exported.
+    The treated picture lands AT the export path: the treatments
+    pass reads the ProRes ``intermediate`` the engine rendered and
+    writes ``final`` in one encode, then removes the intermediate so
+    the worktree holds the delivery and not the mezzanine. A plan
+    with no grade and no bezel never reaches here (the caller
+    exports straight to the delivery path); this helper always
+    encodes exactly one delivery.
     """
     from library.tools import native_effects_composite as nec
 
     try:
-        if planned["grade"] is None and planned["bezel"] is None:
-            return {
-                "out": str(export_path),
-                "grade_name": None,
-                "grade_applied": False,
-                "bezel_applied": False,
-                "refused": [],
-                "filter": "",
-            }
-        tmp = export_path.with_name(export_path.stem + ".treatments-tmp"
-                                    + export_path.suffix)
-        try:
-            composited = nec.composite_declared_treatments(
-                export_path, tmp, planned=planned)
-        except Exception:
-            tmp.unlink(missing_ok=True)
-            raise
-        Path(composited["out"]).replace(export_path)
-        composited["out"] = str(export_path)
-        return composited
+        composited = nec.composite_declared_treatments(
+            intermediate, final, planned=planned, video_codec=video_codec)
     except ProjectModelCliRefused:
         raise
     except Exception as exc:  # noqa: BLE001 - composite errors become refusals
         raise _refuse(f"native treatments failed: {exc}",
-                      "the engine export is on disk; only the grade/bezel composite failed",
-                      "check the declared tv_frame asset reads and ffmpeg runs, then re-export",
+                      "the ProRes intermediate is on disk; only the "
+                      "grade/bezel delivery encode failed",
+                      "check the declared tv_frame asset reads and ffmpeg "
+                      "runs, then re-export (the intermediate at "
+                      f"{intermediate.name} can be removed)",
                       code="REN_PM_CLI_NATIVE_TREATMENTS") from exc
+    try:
+        intermediate.unlink(missing_ok=True)
+    except OSError:
+        pass
+    composited["intermediate"] = str(intermediate)
+    composited["intermediate_removed"] = not intermediate.exists()
+    composited["engine_format"] = "prores"
+    composited["lossy_encodes"] = 1
+    return composited
 
 
 # ── EffectCraft plan + execute ───────────────────────────────

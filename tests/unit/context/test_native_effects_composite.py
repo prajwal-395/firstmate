@@ -396,3 +396,65 @@ def test_bezel_overlay_composites_the_declared_asset(tmp_path):
     assert out.is_file()
     scores = nec.measure_ssim(base, out, frames=8)
     assert scores["Y"] < 0.999  # the opaque bezel draws over the picture
+
+
+def test_composite_refuses_an_unknown_video_codec(tmp_path):
+    base = tmp_path / "base.mp4"
+    base.write_bytes(b"base")
+    with pytest.raises(ValueError):
+        nec.composite_native(base, tmp_path / "out.mp4",
+                             video_codec="vp9")
+
+
+def test_declared_treatments_refuse_an_unknown_video_codec(tmp_path):
+    base = tmp_path / "base.mp4"
+    base.write_bytes(b"base")
+    with pytest.raises(ValueError):
+        nec.composite_declared_treatments(
+            base, None, project_folder=_project(tmp_path, STRONG_LOOK_YAML),
+            video_codec="vp9")
+
+
+def test_psnr_refuses_an_absent_input(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        nec.measure_psnr(tmp_path / "missing.mp4", tmp_path / "missing2.mp4")
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_psnr_scores_identical_renders_as_lossless(tmp_path):
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    scores = nec.measure_psnr(base, base, frames=8)
+    assert scores["average"] == pytest.approx(float("inf"))
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_psnr_drops_when_the_grade_moves_the_picture(tmp_path):
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    out = tmp_path / "graded.mp4"
+    nec.composite_native(base, out, grade={
+        "gain": 1.2, "contrast": 0.3, "brightness": 0.1, "saturation": 1.5})
+    scores = nec.measure_psnr(base, out, frames=8)
+    assert scores["average"] < 60.0
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_prores_delivery_probes_as_prores(tmp_path):
+    import json
+
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    out = tmp_path / "graded.mov"
+    receipt = nec.composite_native(
+        base, out,
+        grade={"gain": 1.2, "contrast": 0.3,
+               "brightness": 0.1, "saturation": 1.5},
+        video_codec="prores")
+    assert receipt["video_codec"] == "prores"
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name", "-of", "json", str(out)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    assert probe.returncode == 0, probe.stderr[:300]
+    assert json.loads(probe.stdout)["streams"][0]["codec_name"] == "prores"
