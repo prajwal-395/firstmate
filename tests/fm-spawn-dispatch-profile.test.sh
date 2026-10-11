@@ -1024,7 +1024,7 @@ SH
     "the recorded pi-signed secondmate argv contains charter text"
   assert_contains "$(cat "$argv")" "Read the brief at $sm/data/charter.md and follow it exactly." \
     "the recorded pi-signed secondmate argv lost the charter pointer"
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --approve -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# evidence begin: persistent secondmate\n%s\n' "$out"
@@ -2044,6 +2044,28 @@ SH
 # config/claude-permission-mode (bin/fm-spawn.sh header): absent and `bypass`
 # must both produce today's launch byte-for-byte, `auto` swaps only the
 # permission flag, and any other token refuses before endpoint or metadata.
+claude_settings_json_arg() {  # <launch>
+  local command=$1
+  while [[ "$command" == export\ *\;* ]]; do
+    command=${command#*; }
+  done
+  eval "set -- $command"
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --settings ]; then
+      shift
+      # Claude Code's --settings takes inline JSON or a file path; a
+      # secondmate launch passes the path form.
+      case "$1" in
+      \{*) printf '%s' "$1" ;;
+      *) cat "$1" ;;
+      esac
+      return 0
+    fi
+    shift
+  done
+  return 1
+}
+
 claude_launch_brief_arg() {  # <launch>
   local command=$1
   while [[ "$command" == export\ *\;* ]]; do
