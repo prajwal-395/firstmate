@@ -132,8 +132,8 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ubuntu-latest
-    # Normal tier (see the timeout policy above).
-    timeout-minutes: 30
+    # Same timeout rationale as portable parallel shard 1 above.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:

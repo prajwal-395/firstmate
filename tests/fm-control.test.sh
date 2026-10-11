@@ -207,7 +207,14 @@ case "${1:-}" in
   display-message)
     for a in "$@"; do
       case "$a" in
-        *cursor_y*) printf '0\n'; exit 0 ;;
+        *cursor_y*)
+          # A modelled Devin screen parks the cursor on its composer row.
+          if [ -f "$D/devin" ]; then
+            devin_screen "$(cat "$D/devin")" | awk '/^❭ /{ print NR - 1; exit }'
+          else
+            printf '1\n'
+          fi
+          exit 0 ;;
         *pane_tty*) printf '/dev/ttys999\n'; exit 0 ;;
         *pane_pid*) printf '100\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;

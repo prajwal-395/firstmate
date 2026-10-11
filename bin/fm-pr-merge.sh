@@ -1451,7 +1451,35 @@ case "$PROVIDER" in
       merge_args=(--squash)
     fi
     FM_PR_GITHUB_CALLER_METHOD=$(caller_merge_method "$@")
-    github_verify_mergeable || exit 1
+    # mergeable reads UNKNOWN for a short while after a push or base-branch
+    # change while GitHub recomputes it; retry a bounded number of times,
+    # re-reading and re-checking every live condition on each attempt, rather
+    # than refusing a pull request that is simply still being computed. The
+    # delay is capped at 0-10 seconds so the wait stays short under the lock.
+    mergeable_retry_delay=${FM_PR_GITHUB_MERGEABLE_RETRY_DELAY:-3}
+    case "$mergeable_retry_delay" in
+      [0-9] | 10) ;;
+      *) mergeable_retry_delay=3 ;;
+    esac
+    mergeable_attempt=1
+    while :; do
+      mergeable_status=0
+      github_verify_mergeable || mergeable_status=$?
+      if [ "$mergeable_status" -eq 0 ]; then
+        break
+      fi
+      if [ "$mergeable_status" -ne 3 ] || [ "$mergeable_attempt" -ge 5 ]; then
+        break
+      fi
+      sleep "$mergeable_retry_delay"
+      mergeable_attempt=$((mergeable_attempt + 1))
+    done
+    if [ "$mergeable_status" -ne 0 ]; then
+      if [ "$mergeable_status" -eq 3 ]; then
+        printf 'error: mergeability for %s is still being computed by GitHub; retry shortly\n' "$URL" >&2
+      fi
+      exit 1
+    fi
     if [ "${RECOVERY:-0}" -eq 1 ]; then
       record_absent_task_recovery || exit 1
     fi

@@ -1090,7 +1090,7 @@ status_open_decisions() {  # <status-file> [<kind>]
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
-    open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
+    open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
   done < <(_fm_decision_candidate_lines < "$f")
   printf '%s' "$open"
 }
@@ -1563,7 +1563,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
     while IFS= read -r line || [ -n "$line" ]; do
-      open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
+      open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
     done < <(_fm_decision_candidate_lines < "$chunk_file")
     rm -f "$chunk_file"
     offset=$size
@@ -2132,8 +2132,10 @@ EOF
 # Fold a status stream from stdin into its silenced replacements (see the block
 # contract above). The single replay every file and snapshot scanner below
 # shares, so open/replacement semantics can never drift between them.
-_fm_decision_replacements_stream() {
-  local line verb key note old resolve held open='' repl=''
+# The optional kind argument feeds the shared fold rule, whose done:/failed:
+# closings are kind-qualified; callers derive it from the task's own file.
+_fm_decision_replacements_stream() {  # [<kind>]
+  local line verb key note old resolve held open='' repl='' kind=${1:-}
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
@@ -2161,7 +2163,7 @@ _fm_decision_replacements_stream() {
         [ -n "$repl" ] && repl="${repl}"$'\n'
         ;;
     esac
-    open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
+    open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
   done
   printf '%s' "$repl"
 }
@@ -2171,9 +2173,10 @@ _fm_decision_replacements_stream() {
 # key that replaced another. Only candidate lines can open or close, so the
 # replay prefilters exactly like the folds above with no change in output.
 status_decision_replacements() {  # <status-file>
-  local f=$1
+  local f=$1 kind
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
-  _fm_decision_candidate_lines < "$f" | _fm_decision_replacements_stream
+  kind=$(_fm_status_kind "$f")
+  _fm_decision_candidate_lines < "$f" | _fm_decision_replacements_stream "$kind"
 }
 
 # Fleet-wide wrapper around status_decision_replacements: scans every task's
@@ -2206,7 +2209,7 @@ EOF
 # cannot be read is skipped: its replacement waits for the next drain rather
 # than blocking this one's presentation.
 scan_decision_replacements_snapshot() {  # <state> <task-and-endpoint-snapshot>
-  local state=$1 snapshot=$2 task endpoint ident f tmp repl line
+  local state=$1 snapshot=$2 task endpoint ident f tmp repl line kind
   while IFS=$(printf '\t') read -r task endpoint ident; do
     [ -n "$task" ] || continue
     f="$state/$task.status"
@@ -2215,7 +2218,8 @@ scan_decision_replacements_snapshot() {  # <state> <task-and-endpoint-snapshot>
     tmp="$f.repl.$$"
     _fm_status_read_span "$f" 0 "$endpoint" > "$tmp" 2>/dev/null \
       || { rm -f "$tmp"; continue; }
-    repl=$(_fm_decision_candidate_lines < "$tmp" | _fm_decision_replacements_stream)
+    kind=$(_fm_status_kind "$f")
+    repl=$(_fm_decision_candidate_lines < "$tmp" | _fm_decision_replacements_stream "$kind")
     rm -f "$tmp"
     [ -n "$repl" ] || continue
     while IFS= read -r line; do
@@ -2694,9 +2698,10 @@ $1
 EOF
 }
 
-_fm_status_open_decision_origins() {  # <status-file>
+_fm_status_open_decision_origins() {  # <status-file> [<kind>]
   local f=$1 line open='' after key verb note number origins='' numbered
-  local resolve held
+  local resolve held kind
+  kind=$(_fm_status_kind "$f" "${2:-}")
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   # grep -n keeps every candidate's true 1-based line number, which the live
@@ -2706,7 +2711,7 @@ _fm_status_open_decision_origins() {  # <status-file>
     number=${numbered%%:*}
     line=${numbered#*:}
     case "$number" in ''|*[!0-9]*) continue ;; esac
-    after=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
+    after=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
     key=$(_fm_decision_key "$line") || { open=$after; continue; }
     verb=$(status_line_verb "$line")
     note=$(status_line_note "$line")
@@ -2980,6 +2985,54 @@ crew_is_provably_working() {  # <id>
 # escalating a possible wedge.
 crew_is_paused() {  # <id>
   [ "$(crew_absorb_class "$1")" = paused ]
+}
+
+# The one spelling of the verdict component that says a parked gate's answer is
+# owed by a HUMAN. bin/fm-crew-state.sh mints it (nm_gate_awaits_human_decision
+# owns the derivation: the findings table's `action` column, read by position);
+# crew_gate_awaits_human_decision below is its only consumer.
+FM_GATE_HUMAN_DECISION='ask-user: authority decision'
+
+# 0 if crew <id>'s authoritative current state is a no-mistakes gate whose answer
+# is owed by a human rather than by the crewmate itself.
+#
+# `parked` alone cannot answer this: the gate's shape (awaiting_approval,
+# fix_review, awaiting_agent) is reported parked in every case and does not by
+# itself say who owes the answer; only a findings row whose `action` column is
+# exactly `ask-user` does. A crewmate that goes quiet before answering its OWN
+# gate is precisely the wedge the escalation ladder exists to catch, so only the
+# minted component above - never the parked verdict, the gate name, or the
+# finding text - admits a lane here.
+#
+# The whole component is compared for equality rather than searched for, so a
+# gate name or a reconciliation note that happens to contain the words cannot
+# mint it downstream either.
+# On success it prints the reported run id, read from the line's whole
+# `run: <id>` component, so the caller can bind the gate to the decision that
+# names that run; a line carrying no run id is not evidence, since nothing could
+# then tie a decision to this gate.
+# Same cost and the same caveat as crew_absorb_class: one fm-crew-state.sh read,
+# which may make a bounded no-mistakes call, so callers take it only where they
+# already accept that cost.
+crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
+  local id=$1 line state src rest part human='' run=''
+  [ -n "$id" ] || return 1
+  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  case "$line" in state:*) ;; *) return 1 ;; esac
+  state=${line#state: }; state=${state%% *}
+  [ "$state" = parked ] || return 1
+  src=${line#*source: }; src=${src%% *}
+  [ "$src" = run-step ] || return 1
+  rest="$line · "
+  while [ -n "$rest" ]; do
+    part=${rest%% · *}
+    rest=${rest#* · }
+    [ "$part" = "$FM_GATE_HUMAN_DECISION" ] && human=1
+    case "$part" in "run: "?*) run=${part#run: } ;; esac
+  done
+  [ -n "$human" ] && [ -n "$run" ] || return 1
+  case "$run" in *[[:space:]]*) return 1 ;; esac
+  printf '%s\n' "$run"
 }
 
 # 0 if crew <id> is intentionally not running: firstmate stopped it through the

@@ -729,14 +729,18 @@ fm_pr_poll_publish_prepared() {
 fm_pr_poll_artifacts_valid() {
   local state=$1 id=$2 template=$3 data_identity check_identity
   fm_pr_poll_artifacts_content_valid "$state" "$id" "$template" || return 1
-  data_identity=$(fm_pr_file_identity "$state/$id.pr-poll") || return 1
-  check_identity=$(fm_pr_file_identity "$state/$id.check.sh") || return 1
+  # Stable inode identities, not device-bound ones: the registration records
+  # inode numbers alone (st_dev is renumbered across an APFS reboot), so the
+  # live files must be compared the same way. fm_pr_identity_matches also
+  # accepts legacy device:inode registrations.
+  data_identity=$(fm_pr_file_stable_identity "$state/$id.pr-poll") || return 1
+  check_identity=$(fm_pr_file_stable_identity "$state/$id.check.sh") || return 1
   # The recorded identities bind the registration to the exact sidecar and
   # check file objects published in its own transaction, so a byte-identical
   # replacement or a torn re-arm pairing one generation's check with another's
   # registration is refused.
-  [ "$FM_PR_REG_DATA_IDENTITY" = "$data_identity" ] || return 1
-  [ "$FM_PR_REG_CHECK_IDENTITY" = "$check_identity" ]
+  fm_pr_identity_matches "$FM_PR_REG_DATA_IDENTITY" "$data_identity" || return 1
+  fm_pr_identity_matches "$FM_PR_REG_CHECK_IDENTITY" "$check_identity"
 }
 
 # Everything fm_pr_poll_artifacts_valid proves except that the registration's

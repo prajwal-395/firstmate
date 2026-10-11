@@ -163,7 +163,7 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' 'Read the brief at $HOME_DIR/data/$id/launch-brief.md and follow it exactly.'"
+  expected=$(claude_expected_launch "$HOME_DIR" "$id" --dangerously-skip-permissions bypassPermissions)
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf 'LAUNCH_EVIDENCE claude=%s\n' "$launch"
@@ -536,7 +536,10 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
-  [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  # A raw launch keeps the captain's own command byte-for-byte downstream,
+  # so it carries the compact-adviser floor and the AI-trailer strip; nothing
+  # else may rewrite the captain's own command.
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "a raw launch command requires and records the explicit override reason"
 }
 
@@ -1590,7 +1593,7 @@ test_claude_long_launch_is_delivered_intact() {
   status=$?
   expect_code 0 "$status" "long Claude launch should succeed"$'\n'"$out"
   launch=$(cat "$LAUNCH_LOG")
-  expected=$(claude_expected_launch "$launch" "$HOME_DIR" "$id" --dangerously-skip-permissions)
+  expected=$(claude_expected_launch "$HOME_DIR" "$id" --dangerously-skip-permissions bypassPermissions)
   [ "${#expected}" -gt 1024 ] \
     || fail "Claude regression fixture is too short to cover the terminal line limit: ${#expected} bytes"
   [ "${#launch}" -gt 1024 ] \
@@ -2039,9 +2042,32 @@ SH
 # config/claude-permission-mode (bin/fm-spawn.sh header): absent and `bypass`
 # must both produce today's launch byte-for-byte, `auto` swaps only the
 # permission flag, and any other token refuses before endpoint or metadata.
+claude_launch_brief_arg() {  # <launch>
+  local command=$1
+  while [[ "$command" == export\ *\;* ]]; do
+    command=${command#*; }
+  done
+  (
+    eval "set -- ${command#*; }"
+    eval "printf '%s' \"\${$#}\""
+  )
+}
+
+# The --add-dir segment every Claude worker launch now carries between the
+# permission flag and --settings, real-path resolved the way the spawn's
+# claude_add_dirs_flag resolves it. Prints a trailing space so callers can
+# drop it straight into an expected command.
+claude_worker_add_dirs() {  # <home> <id>
+  local state_real data_real root_real
+  state_real=$(cd "$1/state" && pwd -P)
+  data_real=$(cd "$1/data" && pwd -P)
+  root_real=$(cd "$ROOT" && pwd -P)
+  printf '%s ' "--add-dir '$state_real/operational-inbox' --add-dir '$state_real/$2.inbox' --add-dir '$data_real/$2' --add-dir '$root_real/.agents/skills'"
+}
+
 claude_expected_launch() {  # <home> <id> <permission-flag> <settings-value>
   local home=$1 id=$2 flag=$3 sval=$4
-  printf '%s' "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$home" "$id")$(ai_trailer_hooks_prefix "$home" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag $(claude_worker_add_dirs "$home" "$id")--settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {

@@ -549,7 +549,7 @@ test_ship_workspace_vs_home_is_explicit() {
     assert_present "$brief" "$mode brief was not scaffolded"
     assert_grep "Verify isolation before anything else" "$brief" \
       "$mode brief lost the worktree-isolation assertion"
-    assert_grep 'blocked: launched in primary checkout, not an isolated worktree' "$brief" \
+    assert_grep 'blocked [at=<epoch>]: launched in primary checkout, not an isolated worktree' "$brief" \
       "$mode brief changed the isolation refusal"
     assert_grep "# Workspace vs firstmate's home" "$brief" \
       "$mode brief did not name the workspace-vs-home contract"
