@@ -489,6 +489,21 @@ fm_opencode_ladder_bare_model() {  # <model>
   esac
 }
 
+# fm_opencode_model_bills_go <model>: 0 when <model> runs on the Go tier and
+# therefore bills a Go workspace. The provider-qualified id and its bare
+# form both count: a bare `--model muse-spark-1.3-contributor` passthrough
+# resolves to the same tier. Anything else - free, Codex Plus, an ungoverned
+# passthrough, empty, `default` - bills no Go workspace, so the workspace
+# pin never applies to it (bin/fm-opencode-second-lib.sh owns the pin).
+fm_opencode_model_bills_go() {  # <model>
+  local model=${1:-} bare go_bare
+  case "$model" in ''|default) return 1 ;; esac
+  [ "$model" = "$FM_OPENCODE_LADDER_GO" ] && return 0
+  bare=$(fm_opencode_ladder_bare_model "$model") || return 1
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO") || return 1
+  [ -n "$bare" ] && [ "$bare" = "$go_bare" ]
+}
+
 # fm_opencode_ladder_free_capped: is the free tier proven exhausted on the
 # CURRENT evidence in <state-dir>? Prints one line and returns 0 when some
 # lane's sidecar classifies quota-scale (`blocked`) through
