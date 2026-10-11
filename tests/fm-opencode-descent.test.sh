@@ -325,6 +325,75 @@ test_capped_plus_lane_descends_to_go() {
   pass "a Codex usage-limit message records its reset and descends across harnesses"
 }
 
+# --- 3a. the human local-time reset form (2026-10-10 incident) ----------------
+# Codex v0.162.1 prints 'try again at Oct 14th, 2026 3:34 AM' (ordinal day,
+# 12-hour clock, local time zone), which the ISO-only preserver never
+# recorded - so the Plus rung kept reading open and lanes relaunched onto it.
+# The exact incident string pins the form through the clock parser with no
+# expiry involved, so it stays green past the incident window; the
+# far-future sentence below proves the same shape descends a lane end to end.
+
+test_codex_human_reset_parses_incident_string() {
+  local epoch back
+  epoch=$(fm_opencode_descent_codex_human_epoch "Oct 14th, 2026 3:34 AM") \
+    || fail "the incident's human reset form must parse"
+  back=$(date -d "@$epoch" '+%Y-%m-%d %H:%M' 2>/dev/null) \
+    || back=$(date -r "$epoch" '+%Y-%m-%d %H:%M' 2>/dev/null) \
+    || fail "the test platform refused to format the parsed epoch"
+  [ "$back" = '2026-10-14 03:34' ] \
+    || fail "the ordinal 12-hour form must read Oct 14 2026 03:34 local, read: ${back:-<empty>} (epoch $epoch)"
+  epoch=$(fm_opencode_descent_codex_human_epoch "October 2nd, 2030 at 1:05 PM") \
+    || fail "the full-month PM variant must parse"
+  back=$(date -d "@$epoch" '+%Y-%m-%d %H:%M' 2>/dev/null) \
+    || back=$(date -r "$epoch" '+%Y-%m-%d %H:%M' 2>/dev/null) \
+    || fail "the test platform refused to format the parsed epoch"
+  [ "$back" = '2030-10-02 13:05' ] \
+    || fail "the full-month PM variant must read Oct 2 2030 13:05 local, read: ${back:-<empty>} (epoch $epoch)"
+  fm_opencode_descent_codex_human_epoch "not a reset clock" >/dev/null 2>&1 \
+    && fail "garbage must not parse as a reset clock"
+  pass "the incident's human reset string parses to its local clock"
+}
+
+test_codex_human_reset_form_descends() {
+  local state out cap horizon
+  state=$(fresh_state plus-human)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 codex "$PLUS" scout
+  printf '%s\n' "You've hit your usage limit. Try again at Oct 14th, 2030 3:34 AM" \
+    > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_tick "$state") || fail "tick must not fail on a Codex human-form cap"
+  case "$out" in relaunched' '*) : ;; *) fail "a human-form Codex cap must descend, said: ${out:-<silent>}" ;; esac
+  case "$(stub_calls)" in *'--harness opencode'*"$GO"*) : ;; *) fail "Codex must relaunch onto OpenCode Go, called: $(stub_calls)" ;; esac
+  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] || fail "the lane record must follow the Go relaunch"
+  cap=$("$RETRY" check-cap "$state" plus) || fail "Codex's human-form reset must persist as the shared rung record"
+  horizon=${cap##*horizon_s=}; horizon=${horizon%% *}
+  case "$horizon" in ''|*[!0-9]*) fail "the human-form reset must carry a numeric horizon, said: $cap" ;; esac
+  [ "$horizon" -gt 86400 ] \
+    || fail "the human-form reset must carry the vendor horizon, not the bounded fallback, said: $cap"
+  pass "a Codex human-form reset records its horizon and descends across harnesses"
+}
+
+test_codex_unparseable_reset_records_bounded_cap() {
+  local state out cap horizon err
+  state=$(fresh_state plus-unparseable)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 codex "$PLUS" scout
+  printf '%s\n' "You've hit your usage limit. Try again soon." \
+    > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  err=$(fm_opencode_descent_codex_limit_cap "$state" lane1 2>&1) \
+    || fail "a limit phrase with no parseable reset must still record the cap"
+  assert_contains "$err" 'conservative' "the bounded fallback must say it is conservative"
+  cap=$("$RETRY" check-cap "$state" plus) || fail "an unparseable Codex reset must still record the plus cap"
+  horizon=${cap##*horizon_s=}; horizon=${horizon%% *}
+  case "$horizon" in ''|*[!0-9]*) fail "the fallback cap must carry a numeric horizon, said: $cap" ;; esac
+  [ "$horizon" -gt 0 ] && [ "$horizon" -le 3600 ] \
+    || fail "the fallback cap must stay bounded, said: $cap"
+  out=$(run_tick "$state") || fail "tick must not fail past an unparseable Codex cap"
+  case "$out" in relaunched' '*) : ;; *) fail "an unparseable Codex cap must still descend, said: ${out:-<silent>}" ;; esac
+  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] || fail "the lane record must follow the Go relaunch"
+  pass "an unparseable Codex reset records a bounded cap and descends instead of reading open"
+}
+
 # --- 3b. the plugin's bare-model vocabulary binds the same rungs -------------
 # PR 129 normalised the dispatch gate for bare sidecar models but left this
 # file's own prefixed-only copies: a bare free cap bound `other` instead of
@@ -637,6 +706,9 @@ test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
 test_descent_uses_configured_codex_plus_effort
 test_capped_plus_lane_descends_to_go
+test_codex_human_reset_parses_incident_string
+test_codex_human_reset_form_descends
+test_codex_unparseable_reset_records_bounded_cap
 test_plugin_vocabulary_free_cap_binds_free
 test_plugin_vocabulary_bare_free_lane_descends
 test_plugin_vocabulary_bare_go_lane_refused

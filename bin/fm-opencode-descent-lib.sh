@@ -380,24 +380,93 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   printf 'unknown %s %s\n' "$bound" "$episode"
 }
 
-# A Codex usage-limit notice can carry an absolute ISO-8601 reset time even
+# FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS: the bounded horizon recorded when a
+# Codex usage-limit notice carries no parseable future reset (see
+# fm_opencode_descent_codex_limit_cap). The limit is proven but its clock is
+# not, so the rung reads capped for this long rather than looking open.
+# Default 3600: long enough to route the next spawn off the rung, short
+# enough never to pose as the vendor's own window.
+FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS=${FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS:-3600}
+
+# fm_opencode_descent_codex_human_epoch: parse one human local-time reset
+# match (Codex v0.162.1: 'Oct 14th, 2026 3:34 AM' - ordinal day, 12-hour
+# clock, local time zone) to epoch seconds. Prints the epoch and returns 0,
+# or returns 1 when the match parses to no clock. GNU date reads the match
+# directly; BSD date needs the ordinal, comma, and `at` normalised away
+# first, across the abbreviated and full month names with and without
+# seconds. One owner for the human form so the cap preserver below never
+# grows a second parser beside it.
+fm_opencode_descent_codex_human_epoch() {  # <match>
+  local match=$1 norm epoch
+  [ -n "$match" ] || return 1
+  norm=$(printf '%s' "$match" | sed -E -e 's/([0-9])[Ss][Tt]/\1/g' -e 's/([0-9])[Nn][Dd]/\1/g' -e 's/([0-9])[Rr][Dd]/\1/g' -e 's/([0-9])[Tt][Hh]/\1/g' -e 's/,//g' -e 's/ [Aa][Tt] / /g' -e 's/  +/ /g')
+  [ -n "$norm" ] || return 1
+  epoch=$(date -d "$norm" +%s 2>/dev/null) \
+    || epoch=$(date -j -f '%b %d %Y %I:%M %p' "$norm" +%s 2>/dev/null) \
+    || epoch=$(date -j -f '%B %d %Y %I:%M %p' "$norm" +%s 2>/dev/null) \
+    || epoch=$(date -j -f '%b %d %Y %I:%M:%S %p' "$norm" +%s 2>/dev/null) \
+    || epoch=$(date -j -f '%B %d %Y %I:%M:%S %p' "$norm" +%s 2>/dev/null) \
+    || return 1
+  case "$epoch" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$epoch"
+}
+
+# A Codex usage-limit notice can carry an absolute reset time even
 # when quota-axi has not yet refreshed its account window. Preserve it in the
-# shared plus-rung record only when both the limit phrase and a future UTC
-# reset timestamp are present in that lane's pane.
+# shared plus-rung record only when both the limit phrase and a future reset
+# timestamp are present in that lane's pane. Two reset forms are recognised:
+# the ISO-8601 UTC instant and the human local-time form Codex v0.162.1
+# prints ('try again at Oct 14th, 2026 3:34 AM' - ordinal day, 12-hour clock,
+# local time zone; full and abbreviated month names, an optional comma, an
+# optional `at`, and optional seconds all parse through
+# fm_opencode_descent_codex_human_epoch). Both are the vendor's own stated
+# reset, so neither guesses a horizon. A limit phrase with no parseable
+# future reset still records the plus cap with the conservative bounded
+# horizon from FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS and says so on stderr,
+# rather than leaving the rung looking open: the limit is proven even when
+# its clock is not, and the notice marks the horizon as a bound rather than
+# a reset. A reset that parses but already passed is expiry, not an
+# unreadable clock, and records nothing.
 fm_opencode_descent_codex_limit_cap() {  # <state-dir> <id>
-  local state_dir=$1 id=$2 cap_file reset reset_s
+  local state_dir=$1 id=$2 cap_file reset reset_s human epoch now_s fallback_s
+  fallback_s=${FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS:-3600}
+  case "$fallback_s" in ''|*[!0-9]*) fallback_s=3600 ;; esac
   cap_file=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || return 1
   if ! grep -Eiq 'usage limit|limit reached|limit exceeded' "$cap_file"; then
     rm -f "$cap_file"
     return 1
   fi
   reset=$(grep -Eo '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$cap_file" | tail -n 1)
+  if [ -n "$reset" ]; then
+    reset_s=$(jq -nr --arg reset "$reset" 'try ($reset | fromdateiso8601) catch empty' 2>/dev/null)
+    case "$reset_s" in
+      ''|*[!0-9]*) : ;;
+      *)
+        if [ "$reset_s" -gt "$(date +%s)" ]; then
+          rm -f "$cap_file"
+          "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$((reset_s * 1000))" >/dev/null 2>&1
+          return $?
+        fi
+        rm -f "$cap_file"
+        return 1 ;;
+    esac
+  fi
+  human=$(grep -Eoi '(Jan(uary)?|Feb(ruary)?|Mar(ch)?|Apr(il)?|May|Jun(e)?|Jul(y)?|Aug(ust)?|Sep(t(ember)?)?|Oct(ober)?|Nov(ember)?|Dec(ember)?) +[0-9]{1,2}(st|nd|rd|th)?,? +[0-9]{4}( +at)? +[0-9]{1,2}:[0-9]{2}(:[0-9]{2})? +[AaPp][Mm]' "$cap_file" | tail -n 1)
+  if [ -n "$human" ]; then
+    if epoch=$(fm_opencode_descent_codex_human_epoch "$human" 2>/dev/null); then
+      if [ "$epoch" -gt "$(date +%s)" ]; then
+        rm -f "$cap_file"
+        "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$((epoch * 1000))" >/dev/null 2>&1
+        return $?
+      fi
+      rm -f "$cap_file"
+      return 1
+    fi
+  fi
   rm -f "$cap_file"
-  [ -n "$reset" ] || return 1
-  reset_s=$(jq -nr --arg reset "$reset" 'try ($reset | fromdateiso8601) catch empty' 2>/dev/null)
-  case "$reset_s" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$reset_s" -gt "$(date +%s)" ] || return 1
-  "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$((reset_s * 1000))" >/dev/null 2>&1
+  now_s=$(date +%s)
+  printf 'notice: opencode ladder: Codex Plus usage limit is showing with no parseable reset; recording a conservative %ss cap instead of leaving the rung open\n' "$fallback_s" >&2
+  "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$(((now_s + fallback_s) * 1000))" >/dev/null 2>&1
 }
 
 # fm_opencode_descent_tick: one evaluation of this home's live opencode lanes.
