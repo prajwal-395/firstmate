@@ -4292,6 +4292,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # session from a seat that is not in it would silently relocate the task
     # onto another herdr server - an identity change, published as a
     # self-consistent but wrong record.
+    echo "relaunch: endpoint $RELAUNCH_TARGET is provably absent (backend: $BACKEND); creating a replacement" >&2
     HERDR_REBIND_SES=${RELAUNCH_TARGET%%:*}
     HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
       fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {

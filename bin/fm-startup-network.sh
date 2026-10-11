@@ -413,6 +413,12 @@ record_announced() {  # <hash> - remember that this report content was announced
 #     already announced (as a now-drained row, or inline by an earlier
 #     harvest) and re-deriving it across a restart is not news. Only a changed
 #     report - a fixed-then-rebroken finding, a new diagnostic - wakes again.
+queue_result_wake() {  # <state>
+  fm_wake_append check startup-network \
+    "check: startup-network: deferred startup network checks finished ($1); read them with $FM_ROOT/bin/fm-startup-network.sh report" \
+    || true
+}
+
 maybe_queue_startup_wake() {  # <state>
   local state=$1 hash announced
   report_requires_wake "$state" || return 0
