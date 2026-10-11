@@ -299,6 +299,15 @@ fm_brief_task_content_valid() {  # <file>
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
 }
 
+# Print the first `## Captain's intent` body line that opens with an operator
+# address spelling; fail when there is none. The body is never rewritten.
+fm_brief_intent_address_line() {  # <file>
+  fm_brief_task_heading_body "$1" "## Captain's intent" | awk '
+    /^[[:space:]]*(Captain('\''s (words|ask|intent))?:|Captain,)/ { print; found = 1; exit }
+    END { exit !found }
+  '
+}
+
 # Count the list items in ## Captain's intent, outside fenced blocks. Bulleted
 # (-, *, +) and numbered (N. / N)) items each count one; a fenced code sample
 # listing commands is illustration, not acceptance criteria, so fenced lines

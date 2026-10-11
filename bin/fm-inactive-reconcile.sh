@@ -445,10 +445,13 @@ notice_parent_report_failed() { # <record> <fingerprint> <payload>
 child_terminal_ledger_line() { # <status>
   local status=$1 snapshot last marker='__FM_LEDGER_SNAPSHOT_END__'
   [ -f "$status" ] && [ ! -L "$status" ] && [ -s "$status" ] || return 1
-  last=$(last_status_line "$status")
-  case "$(status_line_verb "$last")" in done|failed) ;; *) return 1 ;; esac
   snapshot=$(cat "$status"; printf '%s' "$marker") || return 1
-  case "$snapshot" in *$'\n'"$marker") ;; *) return 1 ;; esac
+  # A line still being appended has no trailing newline yet and must wait for
+  # it: callers treat 2 as "not yet", distinct from 1 ("no terminal outcome").
+  case "$snapshot" in
+    *$'\n'"$marker") ;;
+    *) return 2 ;;
+  esac
   snapshot=${snapshot%"$marker"}
   snapshot=$(printf '%s' "$snapshot" | grep -v '^[[:space:]]*$' | grep -v '^blocked: teardown ' || true)
   [ -n "$snapshot" ] || return 1
@@ -457,7 +460,6 @@ child_terminal_ledger_line() { # <status>
     done|failed) printf '%s\n' "$last" ;;
     *) return 1 ;;
   esac
-  printf '%s\n' "$last"
 }
 
 # Claim one already-delivered inactive fallback as the delivery of this ledger

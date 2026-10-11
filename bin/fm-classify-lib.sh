@@ -1040,7 +1040,7 @@ _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb
 # stdin -> stdout: only the status-stream lines that can move the decision
 # fold, optionally with grep -n line numbers (`-n`). _fm_decision_fold_line
 # opens on the needs-decision/blocked verbs and closes on the resolve/held
-# verbs, and status_line_verb only ever trims or drops words - so a parsed verb
+# verbs and on kind-qualified terminal done:/failed: lines, and status_line_verb only ever trims or drops words - so a parsed verb
 # is always a substring of its line, and a line holding none of the four
 # effective verbs folds as a provable no-op. Every whole-stream bash loop below
 # folds only these candidates, which keeps the per-line fork cost proportional
@@ -1058,9 +1058,9 @@ _fm_decision_candidate_lines() {
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   if [ -n "$resolve" ] && [ -n "$held" ]; then
     if [ "$numbered" -eq 1 ]; then
-      grep -a -n -F -e 'needs-decision' -e 'blocked' -e "$resolve" -e "$held" || true
+      grep -a -n -F -e 'needs-decision' -e 'blocked' -e 'done' -e 'failed' -e "$resolve" -e "$held" || true
     else
-      grep -a -F -e 'needs-decision' -e 'blocked' -e "$resolve" -e "$held" || true
+      grep -a -F -e 'needs-decision' -e 'blocked' -e 'done' -e 'failed' -e "$resolve" -e "$held" || true
     fi
   elif [ "$numbered" -eq 1 ]; then
     grep -a -n -F -e '' || true
@@ -1209,7 +1209,7 @@ EOF
 # whose leading word is followed by neither whitespace, a colon, nor a bracket
 # tag cannot be a transition, because the fold's own declaration guard rejects it.
 status_key_closing_verb() {  # <status-file> <key>
-  local f=$1 want=$2 line resolve held open='' was verb='' kind event candidates
+  local f=$1 want=$2 line resolve held open='' was verb='' kind event stream
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   [ -n "$want" ] || return 0
   kind=$(_fm_status_kind "$f")
@@ -1242,7 +1242,7 @@ status_key_closing_verb() {  # <status-file> <key>
       verb=$event
     fi
   done <<EOF
-$candidates
+$stream
 EOF
   if _fm_open_set_has "$open" "$want"; then
     _fm_open_set_verb "$open" "$want"

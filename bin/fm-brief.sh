@@ -1063,7 +1063,7 @@ $RULE1
 2. Stay inside that worktree; the firstmate-home paths below are outside it, not additional places to work.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
 4. Report status by appending one line (that file lives in firstmate's home, outside your worktree):
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
+   `$STATUS_APPEND`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
    Substitute \`<epoch>\` with the current Unix time in seconds - run \`date +%s\` and write the number it printed; a stamp that is not plain digits records no time at all.
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor

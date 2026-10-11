@@ -1044,6 +1044,16 @@ trap 'exit 143' TERM
 WEIGHTS="$TMP_ROOT/weights"
 OUTPUT_DIR="$TMP_ROOT/output"
 mkdir -p "$OUTPUT_DIR"
+
+# The roots log is the retained per-root lifecycle sidecar; beside --telemetry
+# it survives as ${TELEMETRY%.tsv}.roots.tsv even when a run is killed
+# mid-flight.
+if [ -n "$TELEMETRY" ]; then
+  ROOTS_LOG=${TELEMETRY%.tsv}.roots.tsv
+else
+  ROOTS_LOG=$TMP_ROOT/roots.tsv
+fi
+: > "$ROOTS_LOG"
 worker=0
 while [ "$worker" -lt "$SHARD_COUNT" ]; do
   : > "$TMP_ROOT/manifest.$worker"
