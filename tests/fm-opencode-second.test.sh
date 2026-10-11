@@ -129,16 +129,20 @@ test_db_build_refuses_when_unconfigured() {
 
 # --- pinned-database tests (need sqlite3; the live-login build also needs opencode)
 
-# install_fixture_opencode <name> <provider-name>: shadow the real opencode
+# install_fixture_opencode <name> <provider-name> [<leading-provider>]: shadow the real opencode
 # with a fixture that serves a canned console config. `debug paths` points
 # at a scratch data dir holding the fixture live database, recorded in
 # FIXTURE_DATADIR; `debug config` migrates the OPENCODE_DB file the way the
 # real CLI does on first load (an empty file gains the console schema) and
 # then resolves the opencode provider to <provider-name>. Call it bare, not
 # in a command substitution: it exports PATH and records SAVED_PATH for
-# restore_fixture_opencode, and neither survives a subshell.
-install_fixture_opencode() {  # <name> <provider-name>
-  local name=$1 provider=$2 bindir datadir
+# restore_fixture_opencode, and neither survives a subshell. A
+# <leading-provider> is listed before the console provider, the way a local
+# model provider can appear first in the real output.
+install_fixture_opencode() {  # <name> <provider-name> [<leading-provider>]
+  local name=$1 provider=$2 leading=${3:-} bindir datadir lead_json=
+  [ -z "$leading" ] || lead_json="    \"local\": {\n      \"name\": \"$leading\",\n      \"models\": {}\n    },\n"
+
   bindir="$TMP_ROOT/fbin-$name"
   datadir="$TMP_ROOT/fdata-$name"
   rm -rf "$bindir" "$datadir"
@@ -154,7 +158,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
     sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
-  printf '{\n  "provider": {\n    "opencode": {\n      "name": "%s",\n      "models": {}\n    }\n  }\n}\n' "$provider"
+  printf '{\n  "provider": {\n$lead_json    "opencode": {\n      "name": "%s",\n      "models": {}\n    }\n  }\n}\n' "$provider"
   exit 0
 fi
 exit 1
@@ -912,6 +916,20 @@ test_proved_wrong_verify_returns_one() {
   pass "a pin proving another workspace keeps its wrong-workspace verdict"
 }
 
+test_verify_reads_the_console_provider_not_the_first() {
+  local cfg db rc
+  install_fixture_opencode local-first 'main / OpenCode' 'Gemma 4 12B (local)'
+  cfg="$TMP_ROOT/local-first-cfg"
+  mkdir -p "$cfg"
+  db="$cfg/opencode-main.db"
+  : > "$db"
+  FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_workspace_verify "$db" main >/dev/null 2>&1
+  rc=$?
+  restore_fixture_opencode
+  [ "$rc" -eq 0 ] || fail "a local provider listed before the console provider must not decide the workspace; got $rc"
+  pass "workspace verification reads the console provider, not the first provider listed"
+}
+
 test_absent_config_is_unconfigured
 test_org_id_round_trips
 test_malformed_org_is_refused
@@ -938,3 +956,4 @@ test_copy_refuses_an_empty_login
 test_verify_retries_a_transient_fetch
 test_unreadable_pin_reports_could_not_read
 test_proved_wrong_verify_returns_one
+test_verify_reads_the_console_provider_not_the_first
