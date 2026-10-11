@@ -46,9 +46,13 @@
 //!   no repair; transition maps onto its driver command, track gain onto
 //!   `mixer.setValue`, and per-clip `audio.gain` onto `clip.audioGain`
 //!   (mode `set`, first reconciled id - the engine follows clip links).
-//!   Keyframed audio (`audio.fade`, `audio.automation`) and pan refuse by
-//!   name: keyframes ride the volume-automation op once that lane merges,
-//!   and Ren's mix has no measured pan mapping on either path.
+//!   Bed ducking (`audio.ducking` effects) expands into track volume
+//!   automation on the bed's strip: the effect declares the ducked span,
+//!   the full level, the dip depth and the ramp, and the plan drives the
+//!   resulting points through `mixer.writeAutomation`. Keyframed ren edits
+//!   (`audio.fade`, `audio.automation`) and pan still refuse by name:
+//!   edits carry no declared depth or ramp of their own, and Ren's mix
+//!   has no measured pan mapping on either path.
 //!   A stepped `retime.segments` ramp expands through
 //!   [`expand_retime_ramp`] into razor points plus one constant `retime` per
 //!   piece; anything FilmCraft cannot represent exactly
@@ -108,7 +112,7 @@ use super::{
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
 pub const ENGINE_TICKS_PER_SECOND: i64 = 254_016_000_000;
 /// Version of this projection contract. Bump on any planning-rule change.
-pub const ADAPTER_VERSION: u32 = 4;
+pub const ADAPTER_VERSION: u32 = 5;
 
 /// Audio strips on a fresh FilmCraft sequence (`file.newSequence` defaults
 /// to three audio tracks). A1 carries production dialogue (linked audio,
@@ -717,6 +721,13 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
 //   `effects.setParam` per edge; animated crops refuse.
 // - Effects with class `audio.volume` and numeric dB keyframes plan into
 //   `mixer.writeAutomation` on the placement's audio strip (`volume` lane).
+// - Effects with class `audio.ducking` plan the bed's dip under dialogue
+//   into the same lane: the effect targets a `music` stem use and declares
+//   `full_db` (bed level outside the duck), `depth_db` (how far below full
+//   the ducked level sits) and `ramp_ticks` (ramp per edge, on the
+//   effect interval's clock); its interval is the ducked span. The ramp,
+//   depth and full level all arrive declared - this module defines none
+//   of its own (AGENTS.md 10.5: no creative floors).
 //
 // EffectCraft ownership boundary (never duplicated here): `move.*`
 // (camera moves), `blur.gaussian` and `color.saturation` (its verified
@@ -748,6 +759,11 @@ pub const TRANSFORM_CROP_CLASS: &str = "transform.crop";
 pub const OPACITY_CLASS_ID: &str = "opacity.opacity";
 /// Model effect class for track volume automation (`mixer.writeAutomation`).
 pub const VOLUME_CLASS_ID: &str = "audio.volume";
+/// Model effect class for bed ducking under dialogue. Same execution lane
+/// as [`VOLUME_CLASS_ID`] (`mixer.writeAutomation` on the bed's strip);
+/// the ducked curve is DERIVED from the effect's declared `full_db`,
+/// `depth_db` and `ramp_ticks` plus its interval, never from a constant.
+pub const DUCKING_CLASS_ID: &str = "audio.ducking";
 
 /// Returns true for effect classes EffectCraft already projects: camera
 /// moves (`move.*`) plus its verified `blur.gaussian` / `color.saturation`
@@ -770,6 +786,7 @@ pub fn filmcraft_executed(class_id: &str) -> bool {
             | "transform.crop"
             | "opacity.opacity"
             | "audio.volume"
+            | "audio.ducking"
     )
 }
 
@@ -1525,6 +1542,242 @@ pub fn apply_volume_automation_to_model(
     Ok(model.clone())
 }
 
+/// Pure bed-ducking plan over `audio.ducking` effects. Each effect targets a
+/// `music` stem use and declares its own curve: `full_db` (bed level outside
+/// the duck), `depth_db` (how far below full the ducked level sits, a
+/// positive number of dB) and `ramp_ticks` (ramp per edge, on the effect
+/// interval's clock, zero for a hard step); the effect interval is the
+/// ducked span (the dialogue it dips under). The plan derives one
+/// [`VolumePlan`] per effect on the bed's strip and executes through the
+/// same [`volume_operations`] lane as [`VOLUME_CLASS_ID`].
+///
+/// Fail-closed: keyframes refuse (`ducking_keyframes_unsupported` - levels
+/// come from the declared depth and ramp, not keys), unknown parameters
+/// refuse (`ducking_unknown_parameter`), a missing or non-finite full
+/// level, a missing, non-finite or non-positive depth and a missing,
+/// non-integer or negative ramp refuse as invalid model data, a target
+/// without an audio strip refuses (`no_audio_for_ducking`), a non-music
+/// target refuses (`ducking_target_not_music` - SFX ducking policy is out
+/// of scope), and a ducked span outside its bed's timeline span refuses
+/// (`ducking_outside_bed`). Ramp holds clamp into the bed span; the ducked
+/// keys themselves stay exact.
+pub fn plan_bed_ducking(model: &ProjectModel, placements: &[Placement]) -> Result<Vec<VolumePlan>> {
+    let mut effects: Vec<_> = model.effects.iter().collect();
+    effects.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+    let mut plans = Vec::new();
+    for effect in effects {
+        if effect.class_id.as_str() != DUCKING_CLASS_ID {
+            continue;
+        }
+        if !effect.keyframes.is_empty() {
+            return Err(unsupported(
+                "ducking_keyframes_unsupported",
+                format!(
+                    "effect `{}` (audio.ducking) carries keyframes; ducking levels derive from its declared full_db, depth_db and ramp_ticks, not keys",
+                    effect.id.0
+                ),
+            ));
+        }
+        for key in effect.parameters.keys() {
+            if !matches!(key.as_str(), "full_db" | "depth_db" | "ramp_ticks") {
+                return Err(unsupported(
+                    "ducking_unknown_parameter",
+                    format!(
+                        "effect `{}` (audio.ducking) carries unmapped parameter `{key}`; the ducking curve reads full_db, depth_db and ramp_ticks only",
+                        effect.id.0
+                    ),
+                ));
+            }
+        }
+        let full_db = effect
+            .parameters
+            .get("full_db")
+            .and_then(finite_number)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` (audio.ducking) needs `full_db` as a finite dB level for the bed outside the duck",
+                    effect.id.0
+                ))
+            })?;
+        let depth_db = effect
+            .parameters
+            .get("depth_db")
+            .and_then(finite_number)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` (audio.ducking) needs `depth_db` as a finite positive dB dip below its full level",
+                    effect.id.0
+                ))
+            })?;
+        if depth_db <= 0.0 {
+            return Err(invalid(format!(
+                "effect `{}` (audio.ducking) needs `depth_db` positive, got {depth_db}; a zero dip would drive nothing",
+                effect.id.0
+            )));
+        }
+        let ramp_ticks = effect
+            .parameters
+            .get("ramp_ticks")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` (audio.ducking) needs `ramp_ticks` as a non-negative integer ramp per edge on its interval clock",
+                    effect.id.0
+                ))
+            })?;
+        if ramp_ticks < 0 {
+            return Err(invalid(format!(
+                "effect `{}` (audio.ducking) needs `ramp_ticks` non-negative, got {ramp_ticks}",
+                effect.id.0
+            )));
+        }
+        let placement = placements
+            .iter()
+            .find(|p| p.clip_use_id == effect.target_id)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` targets `{}` which has no placement in the projection",
+                    effect.id.0, effect.target_id
+                ))
+            })?;
+        let strip = placement.audio_track.clone().ok_or_else(|| {
+            unsupported(
+                "no_audio_for_ducking",
+                format!(
+                    "effect `{}` ducks `{}` which carries no audio stream; there is no mixer strip to drive",
+                    effect.id.0, effect.target_id
+                ),
+            )
+        })?;
+        let clip_use = model
+            .clip_uses
+            .iter()
+            .find(|u| u.id.0 == effect.target_id)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` targets `{}` which is not a clip use in the model",
+                    effect.id.0, effect.target_id
+                ))
+            })?;
+        if clip_use.role.as_str() != "music" {
+            return Err(unsupported(
+                "ducking_target_not_music",
+                format!(
+                    "effect `{}` ducks `{}` with role `{}`; the native mix ducks the music bed only, SFX ducking policy stays with the Resolve path",
+                    effect.id.0, effect.target_id, clip_use.role
+                ),
+            ));
+        }
+        let bed_clock = model
+            .clocks
+            .iter()
+            .find(|c| c.id.0 == clip_use.timeline_interval.clock_id.0)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "effect `{}` target `{}` names unknown timeline clock `{}`",
+                    effect.id.0, effect.target_id, clip_use.timeline_interval.clock_id.0
+                ))
+            })?;
+        let bed_start = scale_exact(
+            placement.timeline_start,
+            i128::from(ENGINE_TICKS_PER_SECOND),
+            i128::from(bed_clock.ticks_per_second),
+            &format!("effect `{}` bed span start", effect.id.0),
+        )?;
+        let bed_end = scale_exact(
+            placement.timeline_end,
+            i128::from(ENGINE_TICKS_PER_SECOND),
+            i128::from(bed_clock.ticks_per_second),
+            &format!("effect `{}` bed span end", effect.id.0),
+        )?;
+        let duck_start = model_to_engine_ticks(
+            model,
+            &effect.interval.clock_id.0,
+            effect.interval.start,
+            &format!("effect `{}` ducked span start", effect.id.0),
+        )?;
+        let duck_end = model_to_engine_ticks(
+            model,
+            &effect.interval.clock_id.0,
+            effect.interval.end,
+            &format!("effect `{}` ducked span end", effect.id.0),
+        )?;
+        if duck_start < bed_start || duck_end > bed_end {
+            return Err(unsupported(
+                "ducking_outside_bed",
+                format!(
+                    "effect `{}` ducks [{duck_start}, {duck_end}) outside its bed span [{bed_start}, {bed_end}); refusing rather than automating where nothing plays",
+                    effect.id.0
+                ),
+            ));
+        }
+        let ramp = scale_exact(
+            ramp_ticks,
+            i128::from(ENGINE_TICKS_PER_SECOND),
+            i128::from(
+                model
+                    .clocks
+                    .iter()
+                    .find(|c| c.id.0 == effect.interval.clock_id.0)
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "effect `{}` names unknown interval clock `{}`",
+                            effect.id.0, effect.interval.clock_id.0
+                        ))
+                    })?
+                    .ticks_per_second,
+            ),
+            &format!("effect `{}` ramp", effect.id.0),
+        )?;
+        let ducked_db = full_db - depth_db;
+        // Open at full, hold full until the ramp-in starts, land ducked at
+        // the span start, hold ducked to the span end, ramp back to full,
+        // hold full to the bed end. A ducked edge ON the bed edge drops
+        // its hold point (the bed opens/closes ducked); a zero ramp drops
+        // the ramp points (a hard step). Guards keep every tick strictly
+        // increasing, so no tick carries two levels.
+        let mut points = Vec::new();
+        if duck_start > bed_start {
+            points.push((bed_start, full_db));
+        }
+        if ramp > 0 && duck_start - ramp > bed_start {
+            points.push((duck_start - ramp, full_db));
+        }
+        points.push((duck_start, ducked_db));
+        points.push((duck_end, ducked_db));
+        if ramp > 0 && duck_end + ramp < bed_end {
+            points.push((duck_end + ramp, full_db));
+        }
+        if duck_end < bed_end {
+            points.push((bed_end, full_db));
+        }
+        plans.push(VolumePlan {
+            effect_id: effect.id.0.clone(),
+            clip_use_id: effect.target_id.clone(),
+            strip,
+            points,
+        });
+    }
+    Ok(plans)
+}
+
+/// Ren-side equivalence counterpart for bed ducking.
+pub fn apply_bed_ducking_to_model(
+    model: &ProjectModel,
+    placements: &[Placement],
+    expected: &[VolumePlan],
+) -> Result<ProjectModel> {
+    let planned = plan_bed_ducking(model, placements)?;
+    if planned != expected {
+        return Err(invalid(format!(
+            "ducking plan drifted: the model plans {} duck(s), expected {}",
+            planned.len(),
+            expected.len()
+        )));
+    }
+    Ok(model.clone())
+}
+
 /// Partition model effects into executed plans versus explicit losses.
 /// Projectable effects validate here (fail-closed: a malformed projectable
 /// effect refuses the whole projection with its named code).
@@ -1538,7 +1791,8 @@ fn projectable_effect_losses(
     let lut = plan_lut_effects(model, placements)?;
     let keys = plan_effect_keyframes(model, placements)?;
     let volume = plan_volume_automation(model, placements)?;
-    let planned: usize = lut.len() + keys.len() + volume.len();
+    let ducking = plan_bed_ducking(model, placements)?;
+    let planned: usize = lut.len() + keys.len() + volume.len() + ducking.len();
     let mut owned = 0usize;
     let mut unmapped = 0usize;
     for effect in &model.effects {
@@ -6750,6 +7004,197 @@ mod tests {
         let err = plan_volume_automation(&automated, &projection.placements).unwrap_err();
         assert!(
             matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_volume"),
+            "got {err:?}"
+        );
+    }
+
+    /// Dialogue plus a music bed on the same 24tps clocks as
+    /// [`minimal_model`]: the bed plays 0-48 while dialogue plays 12-36.
+    fn ducking_model() -> ProjectModel {
+        let document = serde_json::json!({
+            "id": "adapter-unit-ducking",
+            "schema_version": 1,
+            "timebase_policy": "rational_frames",
+            "clocks": [
+                {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-a", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+            ],
+            "assets": [
+                {"id": "asset-a", "kind": "video", "uri": "media/a.mp4", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]},
+                {"id": "asset-bed", "kind": "audio", "uri": "media/bed.wav", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]}
+            ],
+            "streams": [
+                {"id": "stream-video", "asset_id": "asset-a", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+                {"id": "stream-dialogue", "asset_id": "asset-a", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+                {"id": "stream-bed", "asset_id": "asset-bed", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+            ],
+            "entities": [], "observations": [], "identity_links": [], "masks": [],
+            "object_classes": [], "tracks": [], "relations": [], "intents": [],
+            "clip_uses": [
+                {"id": "use-dialogue", "asset_id": "asset-a",
+                 "source_interval": {"clock_id": "clock-source", "start": 12, "end": 36},
+                 "timeline_interval": {"clock_id": "clock-timeline", "start": 12, "end": 36},
+                 "entity_links": [], "role": "a_roll", "intent_id": null},
+                {"id": "use-bed", "asset_id": "asset-bed",
+                 "source_interval": {"clock_id": "clock-source", "start": 0, "end": 48},
+                 "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 48},
+                 "entity_links": [], "role": "music", "intent_id": null}
+            ],
+            "edits": [], "effects": [], "renders": [], "frame_maps": [],
+            "nle_bindings": [], "receipts": [],
+            "provenance": [{"id": "prov-1", "producer": "unit", "producer_version": null, "source_digest": null, "recorded_at": null}]
+        });
+        decode_project_model(&document.to_string()).expect("ducking model decodes")
+    }
+
+    fn ducking_effect_json(
+        id: &str,
+        target: &str,
+        start: i64,
+        end: i64,
+        params: serde_json::Value,
+        keys: serde_json::Value,
+    ) -> serde_json::Value {
+        serde_json::json!(
+            {"id": id, "class_id": "audio.ducking", "target_id": target,
+             "interval": {"clock_id": "clock-timeline", "start": start, "end": end},
+             "parameters": params, "keyframes": keys}
+        )
+    }
+
+    #[test]
+    fn bed_ducking_derives_ramped_points_from_declared_depth_and_ramp() {
+        let model = ducking_model();
+        let projection = plan_projection(&model).unwrap();
+        // The lone bed deals onto A2; dialogue stays linked on V1/A1.
+        assert_eq!(
+            projection
+                .placements
+                .iter()
+                .find(|p| p.clip_use_id == "use-bed")
+                .unwrap()
+                .track,
+            "A2"
+        );
+        let mut ducked = model.clone();
+        ducked.effects.push(
+            serde_json::from_value(ducking_effect_json(
+                "effect-duck",
+                "use-bed",
+                12,
+                36,
+                serde_json::json!({"full_db": 0.0, "depth_db": 6.0, "ramp_ticks": 6}),
+                serde_json::json!([]),
+            ))
+            .unwrap(),
+        );
+        let reprojected = plan_projection(&ducked).unwrap();
+        assert!(
+            reprojected.losses.is_empty(),
+            "ducking executes, it is never a loss: {:#?}",
+            reprojected.losses
+        );
+        let plans = plan_bed_ducking(&ducked, &reprojected.placements).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].strip, "A2");
+        // One engine tick per 24tps model tick is 10_584_000_000: full at
+        // open, ramp-in over 6 ticks onto -6 dB at 12, hold to 36, ramp-out
+        // to full at 42, hold to the bed end at 48.
+        assert_eq!(
+            plans[0].points,
+            vec![
+                (0, 0.0),
+                (63_504_000_000, 0.0),
+                (127_008_000_000, -6.0),
+                (381_024_000_000, -6.0),
+                (444_528_000_000, 0.0),
+                (508_032_000_000, 0.0),
+            ]
+        );
+        let operations = volume_operations(Path::new("test.fcproj"), &plans);
+        assert_eq!(operations.len(), 1);
+        assert!(matches!(
+            &operations[0],
+            Operation::MixerWriteAutomation { strip, lane, points, .. }
+                if strip == "A2" && lane == "volume" && points.len() == 6
+        ));
+        let applied = apply_bed_ducking_to_model(&ducked, &reprojected.placements, &plans).unwrap();
+        assert_eq!(applied.effects.len(), 1);
+    }
+
+    #[test]
+    fn bed_ducking_refuses_undeclared_or_misplaced_curves_by_name() {
+        let model = ducking_model();
+        let projection = plan_projection(&model).unwrap();
+        let refused = |params: serde_json::Value,
+                       keys: serde_json::Value,
+                       target: &str,
+                       start: i64,
+                       end: i64| {
+            let mut attempted = model.clone();
+            attempted.effects.push(
+                serde_json::from_value(ducking_effect_json(
+                    "effect-duck",
+                    target,
+                    start,
+                    end,
+                    params,
+                    keys,
+                ))
+                .unwrap(),
+            );
+            plan_bed_ducking(&attempted, &projection.placements).unwrap_err()
+        };
+        let full = || serde_json::json!({"full_db": 0.0, "depth_db": 6.0, "ramp_ticks": 6});
+        // Keyframes have no meaning on a derived curve.
+        let err = refused(
+            full(),
+            serde_json::json!([{"tick": 12, "value": -6.0}]),
+            "use-bed",
+            12,
+            36,
+        );
+        assert!(
+            matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "ducking_keyframes_unsupported"),
+            "got {err:?}"
+        );
+        // Only full_db, depth_db and ramp_ticks are read.
+        let mut extra = full();
+        extra["attack_ms"] = serde_json::json!(200);
+        let err = refused(extra, serde_json::json!([]), "use-bed", 12, 36);
+        assert!(
+            matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "ducking_unknown_parameter"),
+            "got {err:?}"
+        );
+        // A zero dip would drive nothing.
+        let err = refused(
+            serde_json::json!({"full_db": 0.0, "depth_db": 0.0, "ramp_ticks": 6}),
+            serde_json::json!([]),
+            "use-bed",
+            12,
+            36,
+        );
+        assert!(format!("{err}").contains("positive"), "got {err:?}");
+        // A negative ramp runs backwards.
+        let err = refused(
+            serde_json::json!({"full_db": 0.0, "depth_db": 6.0, "ramp_ticks": -1}),
+            serde_json::json!([]),
+            "use-bed",
+            12,
+            36,
+        );
+        assert!(format!("{err}").contains("non-negative"), "got {err:?}");
+        // Dialogue and SFX are not ducked on this path.
+        let err = refused(full(), serde_json::json!([]), "use-dialogue", 12, 36);
+        assert!(
+            matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "ducking_target_not_music"),
+            "got {err:?}"
+        );
+        // The ducked span must sit inside the bed it drives.
+        let err = refused(full(), serde_json::json!([]), "use-bed", 0, 72);
+        assert!(
+            matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "ducking_outside_bed"),
             "got {err:?}"
         );
     }

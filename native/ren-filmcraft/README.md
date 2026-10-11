@@ -110,7 +110,7 @@ is available. Driver losses (including both measured defects) pass through
 placement, trim, split, link repair, delete, ripple delete, ripple, retime, ramps, reverse (including a render-level direction proof), transition, audio, render, and unsupported-op
 behavior through the pinned CLI.
 
- Model content FilmCraft executes natively (adapter contract version 4):
+ Model content FilmCraft executes natively (adapter contract version 5):
 
  - captions/titles: `speech`/`caption` observations plan into a caption
    track (`plan_captions` to `captions.newTrack`/`add`/`setText`/`setTimes`,
@@ -142,7 +142,7 @@ behavior through the pinned CLI.
    tick readback is verbatim; off-rate sequences inherit the engine's
    frame floor.
 
-## Native audio mix (`music`/`sfx` stems, per-clip gain)
+## Native audio mix (`music`/`sfx` stems, per-clip gain, bed ducking)
 
 `plan_projection` maps `music` and `sfx` clip-use roles onto audio strips
 from A2 upward: the bed allocates first (a declared crossfade is a real
@@ -154,24 +154,32 @@ past the fresh sequence's own A1-A3 grow the sequence first
 (`AddAudioTracks`, audio only - no stray video track). Per-clip
 `audio.gain` edits plan into `ClipAudioGain`; the model mutation logs the
 span-neutral edit so qualification compares the inspected `gainDb`
-against the log and re-plans each logged edit identically.
+against the log and re-plans each logged edit identically. Bed ducking
+(`audio.ducking` effects on `music` uses) derives a ramped dip under the
+effect's own interval into `mixer.writeAutomation` on the bed's strip;
+the full level, dip depth and ramp all arrive declared on the effect, and
+`adapter_qualification` proves the rendered dip per-channel RMS against
+the declared depth (adapter contract version 5).
 
-Explicitly unwired, never silent: keyframed audio (`audio.fade`,
-`audio.automation`) refuses as `audio_keyframes_require_volume_automation`
-until the volume-automation op lands - this adapter plans static clip
-gain only, not a second keyframe path. `audio.pan` refuses as
-`audio_pan_not_projected`: Ren's mix has no measured pan mapping (the OTIO
-surface is volume only), so a pan would render differently per engine.
-Engine-generated ducking (`essentialSound.generateDucking`) is deliberately
-not driven: it would substitute the engine's own ducking amounts for the
-mix the plan declared, and Ren's ducking curve ships as keyframed volume
-automation from the plan instead. Keyframed ducking itself arrives with
-the volume-automation op; static gains are the whole mix until then.
+Explicitly unwired, never silent: keyframed ren edits (`audio.fade`,
+`audio.automation`) still refuse as
+`audio_keyframes_require_volume_automation` - edits carry no declared
+depth or ramp of their own, so the ducking route stays the declared
+`audio.ducking` effect, not a second keyframe path off edit parameters.
+`audio.pan` refuses as `audio_pan_not_projected`: Ren's mix has no
+measured pan mapping (the OTIO surface is volume only), so a pan would
+render differently per engine. Engine-generated ducking
+(`essentialSound.generateDucking`) is deliberately not driven: it would
+substitute the engine's own ducking amounts for the mix the plan
+declared, and Ren's ducking curve ships as derived volume automation
+from the declared effect instead.
 
-No pipeline producer mints `music`/`sfx` uses yet: the editorial bridge
-(`library/tools/project_model_editorial.py`) covers A-roll/B-roll nodes
-and carries mix nodes as operations only. Minting manifest bed segments
-and SFX buckets into stem uses (plus static `audio.gain` edits from
-`mix_targets`) attaches there, the way toolkit moves attach at
-`post_bridge.py` - stated here so the projector's lack of a live caller
-reads as a gap, not a guess.
+No pipeline producer mints `music`/`sfx` uses or `audio.ducking` effects
+yet: the editorial bridge (`library/tools/project_model_editorial.py`)
+covers A-roll/B-roll nodes and carries mix nodes as operations only.
+Minting manifest bed segments and SFX buckets into stem uses (plus static
+`audio.gain` edits from `mix_targets`, plus `audio.ducking` effects from
+the manifest's `music_ducking_plan` depth/ramp over its dialogue spans)
+attaches there, the way toolkit moves attach at `post_bridge.py` -
+stated here so the projector's lack of a live caller reads as a gap,
+not a guess.

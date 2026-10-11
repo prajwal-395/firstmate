@@ -1,7 +1,8 @@
 //! Unit 6 qualification: the Project Model -> FilmCraft projection drives the
 //! pinned headless CLI end to end. Placement, trim, split, delete, ripple
 //! delete, ripple, retime, transition, audio,
-//! the native audio mix (stems, per-clip gain, rendered LUFS/peak/sync),
+//! the native audio mix (stems, per-clip gain, rendered LUFS/peak/sync,
+//! bed ducking under dialogue with a rendered per-channel RMS dip),
 //! render-asset validation, frame-map exactness, ID reconciliation,
 //! unsupported-operation refusals, CLI-level loss proofs (a
 //! mask/effect/track-carrying model executed end to end reports
@@ -13,14 +14,14 @@
 //! `vep-verify-run.sh`, never bare alongside other heavy lanes.
 
 use ren_filmcraft::adapter::{
-    add_audio_tracks_operation, add_tracks_operation, apply_captions_to_model,
-    apply_effect_keyframes_to_model, apply_lut_to_model, apply_titles_to_model,
-    apply_volume_automation_to_model, asset_path, build_frame_map, caption_operations,
-    effect_key_operations, import_operation, lut_apply_operations, lut_import_operations,
-    plan_captions, plan_edit, plan_effect_keyframes, plan_lut_effects, plan_projection, plan_titles,
-    plan_volume_automation, projection_json, read_effect_keyframes, reconcile_clip_ids, render_span,
-    required_video_tracks, summarize_losses, title_operations, validate_render_asset, verify_media,
-    volume_operations, EditContext,
+    add_audio_tracks_operation, add_tracks_operation, apply_bed_ducking_to_model,
+    apply_captions_to_model, apply_effect_keyframes_to_model, apply_lut_to_model,
+    apply_titles_to_model, apply_volume_automation_to_model, asset_path, build_frame_map,
+    caption_operations, effect_key_operations, import_operation, lut_apply_operations,
+    lut_import_operations, plan_bed_ducking, plan_captions, plan_edit, plan_effect_keyframes,
+    plan_lut_effects, plan_projection, plan_titles, plan_volume_automation, projection_json,
+    read_effect_keyframes, reconcile_clip_ids, render_span, required_video_tracks, summarize_losses,
+    title_operations, validate_render_asset, verify_media, volume_operations, EditContext,
 };
 use ren_filmcraft::{ExportFormat, FilmCraft, GpuRendering, HardwareEncoding, Operation, Request};
 use ren_protocol::project_model::{decode_project_model, EditOperation, ProjectModel};
@@ -3103,5 +3104,235 @@ fn native_audio_mix_renders_declared_levels_and_sync() {
     assert!(
         (mix_seconds - 3.0).abs() < 0.15,
         "full mix must span the 3s timeline, measured {mix_seconds}s"
+    );
+}
+
+// ── Native bed ducking: the bed dips under dialogue, measured ──
+//
+// Ren's declared ducking intent (an `audio.ducking` effect on the bed use
+// naming its own full level, dip depth and ramp, over the dialogue span)
+// renders through the volume-automation op (`mixer.writeAutomation` on the
+// bed's strip). This test measures the RENDERED dip: per-channel RMS inside
+// the ducked span versus outside it, on the soloed bed stem, against the
+// declared 6 dB depth. The ramp, depth and full level all arrive declared
+// on the effect - the adapter defines none of its own. SFX ducking stays
+// out of scope: the single hit of the phase-1 mix is absent here.
+
+/// Dialogue (1s of the A/V fixture, timeline 12-36) under a 2s bed
+/// (timeline 0-48), on the same 24fps clocks as `mix_model`.
+fn ducking_model(av: &Path, bed: &Path) -> ProjectModel {
+    let document = serde_json::json!({
+        "id": "adapter-qualification-ducking",
+        "schema_version": 1,
+        "timebase_policy": "rational_frames",
+        "clocks": [
+            {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-av", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+        ],
+        "assets": [
+            {"id": "asset-av", "kind": "video", "uri": av.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]},
+            {"id": "asset-bed", "kind": "audio", "uri": bed.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]}
+        ],
+        "streams": [
+            {"id": "stream-video", "asset_id": "asset-av", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+            {"id": "stream-dialogue", "asset_id": "asset-av", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+            {"id": "stream-bed", "asset_id": "asset-bed", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+        ],
+        "entities": [], "observations": [], "identity_links": [], "masks": [],
+        "object_classes": [], "tracks": [], "relations": [], "intents": [],
+        "clip_uses": [
+            {"id": "use-dialogue", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 24},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 12, "end": 36},
+             "entity_links": [], "role": "a_roll", "intent_id": null},
+            {"id": "use-bed", "asset_id": "asset-bed",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 48},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 48},
+             "entity_links": [], "role": "music", "intent_id": null}
+        ],
+        "edits": [],
+        "effects": [
+            {"id": "effect-duck", "class_id": "audio.ducking", "target_id": "use-bed",
+             "interval": {"clock_id": "clock-timeline", "start": 12, "end": 36},
+             "parameters": {"full_db": 0.0, "depth_db": 6.0, "ramp_ticks": 6},
+             "keyframes": []}
+        ],
+        "renders": [], "frame_maps": [],
+        "nle_bindings": [], "receipts": [],
+        "provenance": [{"id": "prov-qual", "producer": "adapter-qualification", "producer_version": null, "source_digest": null, "recorded_at": null}]
+    });
+    decode_project_model(&document.to_string()).expect("ducking model decodes")
+}
+
+/// Per-channel RMS levels (dB) over one window of a rendered wav, via
+/// `astats`. ffmpeg is a declared requirement of this file: its absence,
+/// or a render with no measurable channel, fails the proof.
+fn measure_rms_per_channel(wav: &Path, start_seconds: f64, duration_seconds: f64) -> Vec<f64> {
+    let output = std::process::Command::new("ffmpeg")
+        .arg("-hide_banner")
+        .arg("-v")
+        .arg("info")
+        .arg("-ss")
+        .arg(start_seconds.to_string())
+        .arg("-t")
+        .arg(duration_seconds.to_string())
+        .arg("-i")
+        .arg(wav)
+        .args(["-map", "0:a", "-af", "astats", "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg must be on PATH for the ducking proof");
+    assert!(
+        output.status.success(),
+        "astats failed on {}: {}",
+        wav.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut channels: Vec<f64> = Vec::new();
+    for line in stderr.lines() {
+        if line.contains("Channel:") {
+            channels.push(f64::NAN);
+        }
+        if let Some(tail) = line.split("RMS level dB:").nth(1) {
+            let number = tail.split_whitespace().next().unwrap_or("");
+            let level: f64 = number.parse().unwrap_or_else(|_| {
+                panic!("astats RMS level parses as a number, got `{number}` in `{line}`")
+            });
+            assert!(
+                !channels.is_empty(),
+                "astats RMS level must follow a Channel header, got `{line}`"
+            );
+            *channels.last_mut().unwrap() = level;
+        }
+    }
+    assert!(
+        !channels.is_empty(),
+        "astats must report at least one channel on {}",
+        wav.display()
+    );
+    for (index, level) in channels.iter().enumerate() {
+        assert!(
+            level.is_finite(),
+            "channel {index} RMS must measure finite on {} [{start_seconds}s +{duration_seconds}s]",
+            wav.display()
+        );
+    }
+    channels
+}
+
+#[test]
+fn native_bed_ducking_dips_declared_depth_under_dialogue() {
+    let adapter = FilmCraft::new().unwrap();
+    let cli = ren_filmcraft::locate_or_build_cli().unwrap();
+    let model = ducking_model(&linked_av_fixture(), &mix_bed_fixture());
+    let projection = plan_projection(&model).unwrap();
+    assert!(
+        projection.losses.is_empty(),
+        "a ducked stem mix plans no loss: {:#?}",
+        projection.losses
+    );
+    // The bed deals onto A2; dialogue stays linked on V1/A1.
+    let strip_of = |id: &str| {
+        projection
+            .placements
+            .iter()
+            .find(|p| p.clip_use_id == id)
+            .unwrap_or_else(|| panic!("no placement for {id}"))
+            .track
+            .clone()
+    };
+    assert_eq!(strip_of("use-dialogue"), "V1");
+    assert_eq!(strip_of("use-bed"), "A2");
+    let placed = place_through_adapter(&adapter, "adapter-ducking", &model);
+    pin_24fps(&adapter, &placed.project);
+
+    // The declared duck (full 0 dB, 6 dB deep, 6-tick ramps over 12-36)
+    // plans one 6-point automation on A2 and re-plans identically.
+    let plans = plan_bed_ducking(&model, &projection.placements).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].strip, "A2");
+    assert_eq!(
+        plans[0].points,
+        vec![
+            (0, 0.0),
+            (63_504_000_000, 0.0),
+            (127_008_000_000, -6.0),
+            (381_024_000_000, -6.0),
+            (444_528_000_000, 0.0),
+            (508_032_000_000, 0.0),
+        ]
+    );
+    let equivalent = apply_bed_ducking_to_model(&model, &projection.placements, &plans).unwrap();
+    assert_eq!(equivalent.effects.len(), 1);
+    for operation in volume_operations(&placed.project, &plans) {
+        let receipt = adapter.execute(request(operation)).unwrap();
+        assert_eq!(receipt.engine_response["points"].as_u64(), Some(6));
+    }
+    let mixer = adapter
+        .execute(request(Operation::InspectMixer {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let lane = mixer.engine_response["strips"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["ref"].as_str() == Some("A2"))
+        .expect("A2 must be in the mixer readback")["lanes"]["volume"]
+        .clone();
+    assert_eq!(
+        lane,
+        serde_json::json!([
+            [0i64, 0.0],
+            [63_504_000_000i64, 0.0],
+            [127_008_000_000i64, -6.0],
+            [381_024_000_000i64, -6.0],
+            [444_528_000_000i64, 0.0],
+            [508_032_000_000i64, 0.0],
+        ]),
+        "ducking automation must read back tick-exact"
+    );
+
+    // Rendered proof: solo the bed stem (measurement scaffolding, as in
+    // the phase-1 mix proof) and compare per-channel RMS inside the duck
+    // (0.7-1.3s, clear of both ramps) against full level after the
+    // ramp-out lands (1.8-1.95s).
+    let dir = placed._temp.path();
+    set_strip_solo(&cli, &placed.project, "A2", true);
+    let bed_wav = export_mix_wav(&adapter, &placed.project, dir, "stem-bed-ducked.wav");
+    set_strip_solo(&cli, &placed.project, "A2", false);
+    let ducked = measure_rms_per_channel(&bed_wav, 0.7, 0.6);
+    let full = measure_rms_per_channel(&bed_wav, 1.8, 0.15);
+    assert_eq!(
+        ducked.len(),
+        full.len(),
+        "ducked and full windows must measure the same channels"
+    );
+    for (index, (ducked_db, full_db)) in ducked.iter().zip(full.iter()).enumerate() {
+        let dip = full_db - ducked_db;
+        eprintln!("[duck-proof] channel {index}: full {full_db:.2} dBFS, ducked {ducked_db:.2} dBFS (dip {dip:.2} dB)");
+        assert!(
+            (dip - 6.0).abs() < 1.0,
+            "channel {index} must dip the declared 6 dB under dialogue, measured {dip:.2}"
+        );
+    }
+
+    // Dialogue locality: the A1 stem still opens with silence and enters
+    // at frame 12 (0.5s), so the duck drove the bed, not the voice.
+    set_strip_solo(&cli, &placed.project, "A1", true);
+    let dialogue_wav = export_mix_wav(&adapter, &placed.project, dir, "stem-dialogue-duck.wav");
+    set_strip_solo(&cli, &placed.project, "A1", false);
+    let onset = measure_onset(&dialogue_wav);
+    assert!(
+        (onset - 0.5).abs() < 0.2,
+        "dialogue onset must sit at 0.5s, measured {onset}"
+    );
+    let mix_wav = export_mix_wav(&adapter, &placed.project, dir, "duck-full-mix.wav");
+    let mix_seconds = measure_duration(&mix_wav);
+    eprintln!("[duck-proof] full mix {mix_seconds:.3}s");
+    assert!(
+        (mix_seconds - 2.0).abs() < 0.15,
+        "full mix must span the 2s timeline, measured {mix_seconds}s"
     );
 }
