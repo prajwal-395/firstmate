@@ -343,6 +343,24 @@ class Placement:
     source_in_frame: Optional[int] = None
     source_out_frame: Optional[int] = None
 
+    moment_id: str = ""
+    """Lane A2: the `moment-{NN}-{span}` key minted at reel selection.
+
+    Carried from the manifest entry when it names one, empty otherwise
+    - so placements from manifests that predate the key read as
+    unkeyed rather than refusing.  A reel's placements share its
+    proposal moment's key, which is what joins them to the proposal,
+    the build record and the reel name.
+    """
+
+    reel: str = ""
+    """Lane A2: the reel (timeline) name this placement was built for.
+
+    Carried from the manifest entry or the manifest's project name
+    when present, empty otherwise.  Read with `.get`, never indexed:
+    manifests written before the key existed name no reel.
+    """
+
     step: str = ""
     """The DAG node id, or `""` when nothing decided this placement."""
 
@@ -477,6 +495,12 @@ def placements(manifest: dict, project_folder=None) -> list:
             timeline_out_frame=tl_out,
             source_in_frame=src_in,
             source_out_frame=src_out,
+            # Lane A2: the manifest entry carries the moment key and
+            # the reel name when a reel-aware writer filed them; a
+            # manifest that predates the key leaves both empty, and
+            # every reader treats empty as unkeyed, never as missing.
+            moment_id=str(entry.get("moment_id") or ""),
+            reel=str(entry.get("reel") or entry.get("timeline") or ""),
         )
         decision = BY_TRACK.get(track)
         if decision is None:
@@ -513,6 +537,10 @@ def build_ledger(manifest: dict, project_folder=None) -> dict:
     return {
         "format": LEDGER_FORMAT,
         "timeline": project.get("name") or "",
+        # Lane A2: the reel's moment key when the manifest names one
+        # (a reel-aware writer files it); "" on older manifests, which
+        # readers treat as unkeyed.
+        "moment_id": str(manifest.get("moment_id") or ""),
         "frame_rate": float(project.get("frame_rate") or 30.0),
         "built_at": marker_payload.utc_now(),
         "placements": [asdict(p) for p in found if p.stamped],

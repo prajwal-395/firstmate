@@ -1044,7 +1044,25 @@ def spine_for_reel(moment, transcript: dict,
     for position, block in enumerate(blocks):
         block["position"] = position
 
+    # Lane A2 (moment identity): whose reel this spine is, on the
+    # spine itself - so a spine, its caption plan and its rendered
+    # segments join to the proposal moment on one key.  Derived, never
+    # asserted: a moment analog without the key mints it from its own
+    # number and span, the same derivation `from_dict` uses for old
+    # records.  Readers that predate the key read `.get`, never index.
+    try:
+        from library.tools.reel_build import moment_key as _moment_key
+        _moment_id = _moment_key(moment)
+    except Exception:  # noqa: BLE001 - identity never breaks a spine
+        _moment_id = ""
+    try:
+        _reel_name = str(moment.timeline_name)
+    except Exception:  # noqa: BLE001 - identity never breaks a spine
+        _reel_name = ""
+
     return {"structure": blocks,
+            "moment_id": _moment_id,
+            "reel": _reel_name,
             "undetermined_words": undetermined_words,
             "dropped_segments": dropped_no_binding,
             "bleed_blocks_dropped": bled,

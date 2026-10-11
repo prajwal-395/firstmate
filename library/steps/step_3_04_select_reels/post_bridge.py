@@ -224,7 +224,16 @@ def resolve(llm_output: dict, data: dict) -> dict:
         survivors.append((entry, start, end, enriched.slug))
 
     from dataclasses import replace
-    moments = [replace(m, number=idx) for idx, m in enumerate(moments, 1)]
+
+    from library.tools.reel_proposal import mint_moment_id
+    # Final numbers are assigned HERE, after drops - so the moment key
+    # is minted HERE, not in `enrich` above (whose pre-renumber index
+    # can gap when an entry drops).  One mint per moment; every later
+    # record carries it unchanged.
+    moments = [replace(m, number=idx,
+                       moment_id=mint_moment_id(
+                           idx, m.timeline_start, m.timeline_end))
+               for idx, m in enumerate(moments, 1)]
 
     # The captain's recorded closer pins
     # (`library/tools/captain_edits.py`, `redraw_closer`): a shared

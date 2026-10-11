@@ -10464,6 +10464,68 @@ def built_name(moment, name_suffix: str = "") -> str:
     return f"{moment.timeline_name}{name_suffix}"
 
 
+def moment_key(moment) -> str:
+    """The one key this build files this moment's records under.
+
+    The moment's own `moment_id`, minted once at selection
+    (`reel_proposal.mint_moment_id`); a moment from a record that
+    predates the key derives it from its own number and span, so old
+    proposals build without re-selection and still join.  Spelled once,
+    here, so the build record, the span table and the summary facts
+    cannot mint three different keys for one moment.
+    """
+    existing = str(getattr(moment, "moment_id", "") or "")
+    if existing:
+        return existing
+    from library.tools.reel_proposal import mint_moment_id
+    return mint_moment_id(int(moment.number),
+                          float(moment.timeline_start),
+                          float(moment.timeline_end))
+
+
+def moment_span_record(moment, ranges, final: str, staging: str) -> dict:
+    """The spans this build placed for one moment, filed under its key.
+
+    The declared body beside the final ranges - so a reader joins
+    proposal moments to build spans without re-deriving either.  Pure:
+    the build loop files one of these per placed reel, and the cascade
+    test builds one off-Resolve for the same assertion.
+    """
+    return {
+        "reel": str(final),
+        "staging": str(staging),
+        "body": [float(moment.timeline_start),
+                 float(moment.timeline_end)],
+        "ranges": [[float(s), float(e)] for s, e in (ranges or [])],
+    }
+
+
+def promote_moment_records(moment_ids: dict, moment_spans: dict,
+                           promotion_staged_to_final: dict,
+                           final_names) -> tuple:
+    """Move moment records from staging names to final names.
+
+    `moment_ids` (staging -> key) remaps like `caption_hashes`; each
+    `moment_spans` entry is already keyed by the key itself, so only
+    its `reel` name moves to the final.  Pure: the build calls it after
+    promotion, and the cascade test calls it off-Resolve.
+    """
+    remapped_ids = {
+        final: moment_ids[promotion_staged_to_final[final]]
+        for final in (final_names or [])
+        if promotion_staged_to_final.get(final) in moment_ids}
+    final_by_staging = {staging: final
+                        for final, staging
+                        in (promotion_staged_to_final or {}).items()}
+    for span in (moment_spans or {}).values():
+        if not isinstance(span, dict):
+            continue
+        staged = span.get("staging", "")
+        if staged in final_by_staging:
+            span["reel"] = final_by_staging[staged]
+    return remapped_ids, moment_spans
+
+
 def promotion_target_names(timeline_names, moments,
                            name_suffix: str = "") -> dict[str, str]:
     """Map the build's container names to the approved reel names.
@@ -13341,6 +13403,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     built_reel_names = []
     caption_hashes = {}
     footage_binding_hashes = {}
+    # Lane A2 (moment identity): `moment_ids` maps every staging name
+    # this call touched to the moment's one key, and `moment_spans`
+    # files the spans this call actually placed under that same key -
+    # so proposal moments, build spans and reel names join on
+    # `moment-{NN}-{span}` instead of on renumberable numbers.  Both
+    # are remapped staging -> final beside `caption_hashes` below.
+    moment_ids: dict = {}
+    moment_spans: dict = {}
     overlay_records = {}
     track_plans = {}
     reel_placements = {}
@@ -13481,7 +13551,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             summary_facts[name] = {
                 "staging": name, "final": final,
                 "number": _moment_number,
+                "moment_id": moment_key(moment),
             }
+            # Filed before anything can skip, for the same reason as
+            # the summary slot above: a reel this call did NOT place
+            # still names which moment it was.
+            moment_ids[name] = moment_key(moment)
             print(f"Building {name}", flush=True)
             # Where this reel's records START, so a reel the decision
             # below LEAVES ALONE can be rolled back out of them. The
@@ -13765,6 +13840,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                       f"{_row['origin']} window - overlapping "
                       f"{_invaded}", flush=True)
 
+            # The spans THIS build placed, filed under the moment's one
+            # key: the declared body beside the final ranges, so a
+            # reader joins proposal moments to build spans without
+            # re-deriving either.  Filed here, past the audits that can
+            # still skip the reel - a skipped reel places nothing, and
+            # its proposal moment already carries the key.
+            moment_spans[moment_key(moment)] = moment_span_record(
+                moment, ranges, final, name)
 
             # Full-frame elements FIRST, because a head card decides where
             # every other thing on this reel starts. Planned above and
@@ -14986,6 +15069,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final: caption_hashes[promotion_staged_to_final[final]]
             for final in final_names
             if promotion_staged_to_final[final] in caption_hashes}
+        # Lane A2: the moment key follows its reel through promotion,
+        # beside `caption_hashes` above - a staging container's key is
+        # the final timeline's key.  One spelling (`promote_moment_records`)
+        # for the build and the cascade test, so the two cannot disagree
+        # about what promotion does to the key.
+        moment_ids, moment_spans = promote_moment_records(
+            moment_ids, moment_spans, promotion_staged_to_final,
+            final_names)
         footage_binding_hashes = {
             final: footage_binding_hashes[promotion_staged_to_final[final]]
             for final in final_names
@@ -15306,6 +15397,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "staged_timelines": staged_out,
         "staged_timeline_ids": staged_timeline_ids,
         "caption_hashes": caption_hashes,
+        # Lane A2 (moment identity): `moment_ids` joins final reel
+        # names to the one `moment-{NN}-{span}` key minted at
+        # selection, and `moment_spans` files the declared body beside
+        # the ranges this build placed under that same key.  Absent on
+        # records written before the key existed; readers join with
+        # `.get`, never by assuming presence.
+        "moment_ids": moment_ids,
+        "moment_spans": moment_spans,
         # Per-reel closer share + fit, as reported at build time
         # (`library/tools/closer_fit.py`, 2026-09-19 ruling): the live
         # reuse count and shared-with list beside the survey's recorded

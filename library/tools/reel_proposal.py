@@ -254,6 +254,21 @@ class ReelMoment:
     timeline_start: float
     timeline_end: float
 
+    moment_id: str = ""
+    """The one key this moment carries through every later record.
+
+    Minted once at selection (`mint_moment_id`) as
+    `moment-{NN}-{start}-{end}` off the PROPOSED body span, then carried
+    unchanged through the proposal file, the build record, the spine and
+    the placement ledger - so a proposal moment, a select output, build
+    spans and reel names all join on one key instead of on number/slug
+    pairs that renumbering and retitling silently break.  A repair that
+    moves the span (the build-time snap, a captain redraw) never
+    re-mints: the id names the PROPOSAL, not the seconds it plays today.
+    Empty on records written before the key existed; every reader
+    derives it (`ensure_moment_id` / `from_dict`) rather than refusing.
+    """
+
     approval: Approval = Approval.PROPOSED
     approval_note: str = ""
 
@@ -347,6 +362,8 @@ class ReelMoment:
     def as_dict(self) -> dict:
         body = asdict(self)
         body["approval"] = self.approval.value
+        body["moment_id"] = self.moment_id or mint_moment_id(
+            self.number, self.timeline_start, self.timeline_end)
         body["speakers"] = list(self.speakers)
         body["source_spans"] = [dict(s) for s in self.source_spans]
         body["duplicate_takes"] = [dict(d) for d in self.duplicate_takes]
@@ -369,6 +386,9 @@ class ReelMoment:
             reason=str(data.get("reason", "")),
             timeline_start=float(data["timeline_start"]),
             timeline_end=float(data["timeline_end"]),
+            moment_id=str(data.get("moment_id") or mint_moment_id(
+                int(data["number"]), float(data["timeline_start"]),
+                float(data["timeline_end"]))),
             approval=Approval(data.get("approval", "proposed")),
             approval_note=str(data.get("approval_note", "")),
             rejections=tuple(ProposalRejection.from_dict(r) for r in
@@ -403,6 +423,35 @@ def slugify(text: str, limit: int = 40) -> str:
 def reel_timeline_name(number: int, slug: str) -> str:
     """`Reel 01 - topic`. The captain's format, spelled once."""
     return REEL_NAME_FORMAT.format(number=int(number), slug=slugify(slug))
+
+
+def mint_moment_id(number: int, start: float, end: float) -> str:
+    """The one key a proposal moment carries through every later record.
+
+    `moment-{NN}-{start}-{end}` off the PROPOSED body span at two-decimal
+    seconds (e.g. `moment-03-123.45-150.20`).  The number is zero-padded
+    to two places like the reel name; the span is the proposal's own,
+    never a repaired one - a repair that moves the span must CARRY the
+    id, never re-mint it, or the join breaks at exactly the moment the
+    seconds change.  Spelled once, here: `from_dict`, `as_dict`,
+    `enrich` and the select post-bridge all derive through this.
+    """
+    return (f"moment-{int(number):02d}-"
+            f"{float(start):.2f}-{float(end):.2f}")
+
+
+def ensure_moment_id(moment: "ReelMoment") -> "ReelMoment":
+    """Return `moment` carrying its key, minting it iff it has none.
+
+    Pure: moments built before the key existed (or rebuilt by a path
+    that dropped it) gain the id their own number and span mint, and a
+    moment that already carries one passes through untouched - even
+    when its span has since moved, because the id names the proposal.
+    """
+    if str(getattr(moment, "moment_id", "") or ""):
+        return moment
+    return replace(moment, moment_id=mint_moment_id(
+        moment.number, moment.timeline_start, moment.timeline_end))
 
 
 # ── The gate ─────────────────────────────────────────────────────────
@@ -2000,6 +2049,9 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
             })
     preview = " ".join(w for w in words if w)
     return replace(moment, speakers=tuple(speakers),
+                   moment_id=(str(moment.moment_id or "") or mint_moment_id(
+                       moment.number, moment.timeline_start,
+                       moment.timeline_end)),
                    transcript_preview=preview, source_spans=tuple(spans),
                    straddling_within=tuple(straddling_within(
                        moment.timeline_start, moment.timeline_end,
