@@ -196,11 +196,15 @@ def _pytest_paths(paths: list, checkout: str) -> list:
 
 def run(paths: list, checkout: str, log_path: str,
         timeout: int = config.RUN_TIMEOUT_SECONDS,
-        workers: int = 2) -> dict:
+        workers: int = 2, junit_path: str = "") -> dict:
     """Run pytest over paths in checkout, log to log_path. Returns the
     result: {passed, failed, exit, elapsed, timed_out}. Never raises on
     test failure - a red suite is a RESULT, not an exception. Raises
-    HygieneRefused only when the run itself could not start."""
+    HygieneRefused only when the run itself could not start.
+
+    junit_path, when given, adds `--junitxml` so the Tier-1 result cache
+    can attribute per-file verdicts (Tier-2 never passes one: the full
+    gate always executes everything and files no verdict anywhere)."""
     if not hygiene.disk_ok(checkout):
         free = hygiene.disk_free(checkout)
         raise hygiene.HygieneRefused(
@@ -217,9 +221,10 @@ def run(paths: list, checkout: str, log_path: str,
             "next pass on a fresh fetch")
     hygiene.bind_renderer_dependencies(checkout)
     broker_before = hygiene.broker_serving()
-    result = _run_logged(
-        [_pytest_python(), *pytest_argv(paths, workers, checkout)],
-        checkout, log_path, timeout)
+    command = [_pytest_python(), *pytest_argv(paths, workers, checkout)]
+    if junit_path:
+        command += ["--junitxml", junit_path]
+    result = _run_logged(command, checkout, log_path, timeout)
     timed_out = result["timed_out"]
     passed, failed, executed = _read_summary(log_path)
     timeout_diagnostic = _timeout_diagnostic(log_path) if timed_out else ""

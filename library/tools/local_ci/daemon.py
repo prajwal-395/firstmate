@@ -138,7 +138,44 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                            f"pr-{number}-{head[:12]}.log")
         github.post_status(head, "pending",
                            f"ren-ci: running {len(paths)} selections", url)
-        result = runner.run(paths, checkout, log, workers=workers)
+        from library.tools.local_ci import result_cache
+        builder = result_cache.KeyBuilder(checkout)
+        part = result_cache.partition(
+            world.state_dir, checkout, paths, builder=builder,
+            pytest_python=runner._pytest_python())
+        cache_detail = {"reused": len(part["reused"]),
+                        "total": part["total"],
+                        "reused_passed": part["reused_passed"]}
+        if part["total"] == 0:
+            # Nothing cacheable expanded (conftest-only or vanished
+            # selection): the runner's refusal below is the verdict, as
+            # before the cache existed.
+            result = runner.run(paths, checkout, log, workers=workers)
+        elif not part["run"]:
+            # Every selected file reuses a stored PASS on identical
+            # inputs: no pytest to run, and nothing to record.
+            with open(log, "w", encoding="utf-8") as handle:
+                handle.write(
+                    f"ren-ci result cache: reused "
+                    f"{len(part['reused'])}/{part['total']} test files; "
+                    f"inputs unchanged, no pytest executed\n")
+            result = {"passed": part["reused_passed"], "failed": 0,
+                      "ok": True, "exit": 0, "elapsed": 0.0,
+                      "timed_out": False, "timeout_diagnostic": "",
+                      "process_group_leaked": False,
+                      "broker_leaked": False, "reason": "", "log": log}
+        else:
+            junit_path = log + ".junit.xml"
+            raw = runner.run(part["run"], checkout, log, workers=workers,
+                             junit_path=junit_path)
+            result_cache.record_from_junit(
+                world.state_dir, checkout, junit_path, part["run"],
+                head=head, builder=builder,
+                pytest_python=runner._pytest_python())
+            result = dict(raw)
+            # Reused files passed on identical inputs; the run's own
+            # failures still fail the check.
+            result["passed"] = raw["passed"] + part["reused_passed"]
         return {"pr": number, "head": head, "url": url,
                 "ok": result["ok"], "passed": result["passed"],
                 "failed": result["failed"], "elapsed": result["elapsed"],
@@ -146,12 +183,29 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "command": command,
                 "selection_capped": capped["capped"],
                 "selection_detail": capped,
+                "cache_reused": cache_detail["reused"],
+                "cache_total": cache_detail["total"],
                 "broker_leaked": result.get("broker_leaked", False),
                 "timed_out": result.get("timed_out", False),
                 "reason": result.get("reason", ""),
                 "timeout_diagnostic": result.get("timeout_diagnostic", ""),
                 "process_group_leaked": result.get(
                     "process_group_leaked", False)}
+
+
+def _report_line(outcome: dict) -> str:
+    """The greppable report line plus the cache reuse it consulted.
+
+    `reused N/M` names how many of the M expanded test files reused a
+    stored PASS on identical inputs instead of executing.
+    """
+    line = runner.format_report(
+        outcome["url"], outcome["head"], outcome["passed"],
+        outcome["failed"], outcome["command"])
+    if int(outcome.get("cache_total", 0) or 0) > 0:
+        line += (f" [reused {int(outcome.get('cache_reused', 0) or 0)}/"
+                 f"{int(outcome['cache_total'])}]")
+    return line
 
 
 def finish_tier1(world: queue.World, pr: dict, outcome: dict,
@@ -181,10 +235,14 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
                  "timeout_retry_at": done_at + backoff,
                  "status_posted": False, "status_error": ""},
                 world.state_dir)
-            line = runner.format_report(
-                outcome["url"], outcome["head"], outcome["passed"],
-                outcome["failed"], outcome["command"])
+            line = _report_line(outcome)
             record["report"] = line
+            # record_check persisted the entry BEFORE the line existed;
+            # the in-memory assignment above never reaches the file, so
+            # persist it (the manual `ren ci check` path prints it off
+            # the returned record, which is re-read from disk below).
+            state.update_check(outcome["head"], {"report": line},
+                               world.state_dir)
             print(f"{line} [timeout retry {retries}/"
                   f"{config.TIER1_TIMEOUT_MAX_RETRIES} in {backoff:.0f}s]",
                   flush=True)
@@ -201,10 +259,10 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
          "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
          **extra, "status_posted": False, "status_error": ""},
         world.state_dir)
-    line = runner.format_report(
-        outcome["url"], outcome["head"], outcome["passed"],
-        outcome["failed"], outcome["command"])
+    line = _report_line(outcome)
     record["report"] = line
+    # See above: the line must reach the file, not just this dict.
+    state.update_check(outcome["head"], {"report": line}, world.state_dir)
     print(line, flush=True)
     _publish_check_status(record, world.state_dir)
     record = state.read_checks(world.state_dir).get(outcome["head"], record)
@@ -226,6 +284,10 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
     head = record["head"]
     capped_suffix = " [capped, breadth to Tier-2]" if record.get(
         "selection_capped") else ""
+    reuse_suffix = ""
+    if int(record.get("cache_total", 0) or 0) > 0:
+        reuse_suffix = (f", reused {int(record.get('cache_reused', 0) or 0)}/"
+                        f"{int(record['cache_total'])}")
     # The five slow files Tier-1 skips on purpose, by short name: the
     # description truncates at 140 characters, so full paths live on
     # the report line and the slugs live here.
@@ -237,7 +299,7 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
     elif record.get("ok"):
         status = "success"
         description = f"ren-ci: {record.get('passed', 0)} passed"
-        description += capped_suffix + tier2_suffix
+        description += capped_suffix + tier2_suffix + reuse_suffix
     elif record.get("timed_out") and int(
             record.get("timeout_retries", 0) or 0) <= (
                 config.TIER1_TIMEOUT_MAX_RETRIES):
@@ -264,7 +326,7 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
             reason = record["reason"]
         else:
             reason = f"{record.get('failed', 1)} failed"
-        status, description = "failure", f"ren-ci: {reason}"
+        status, description = "failure", f"ren-ci: {reason}{reuse_suffix}"
     target_url = record.get("url")
     try:
         parsed_target = urlsplit(target_url) if isinstance(
