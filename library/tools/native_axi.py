@@ -10,9 +10,11 @@ The verbs come from four measured agent tasks, not from the module surface:
 `model` (what clip uses, edits and renders a model holds), `timeline` (a
 FilmCraft project's clips as id/track/start/duration - the read-back without
 the full inspect dump), `masks` (masks plus effects in two small tables),
-`ops` (a projection file's ops as effectcraft-cli command lines - the mapping
-no other agent surface exposes), and `swap-plan` (a resolve_swapback plan
-from measured trim numbers, writing only the caller-named file).
+`reel-model` (the stored reel-built model per reel: uses, effects,
+identity linkage), `ops` (a projection file's ops as effectcraft-cli
+command lines - the mapping no other agent surface exposes), and
+`swap-plan` (a resolve_swapback plan from measured trim numbers, writing
+only the caller-named file).
 
 Safety shape, stated once:
 
@@ -93,6 +95,8 @@ def cmd_home(_args) -> int:
              "reads": "timeline clips (id, track, start, duration)"},
             {"command": "masks <model.json>",
              "reads": "masks + effects, two small tables"},
+            {"command": "reel-model <project> [--reel N]",
+             "reads": "stored reel models: uses, effects, identity"},
             {"command": "ops <projection.json>",
              "reads": "effectcraft-cli command lines, one per op"},
             {"command": "swap-plan --kept-start N ... --out <plan.json>",
@@ -207,6 +211,38 @@ def cmd_masks(args) -> int:
         axi.table("effects", effects, ["effect", "target"]),
         axi.help_block([f"{TOOL} ops <projection.json>"]),
     ])
+    return 0
+
+
+def cmd_reel_model(args) -> int:
+    from library.tools import resolve_axi as axi
+    try:
+        from library.tools import reel_project_model as rpm
+        payload = rpm.show(args.project, args.reel)
+    except FileNotFoundError as exc:
+        return axi.fail(f"no Project Model stored ({exc})",
+                        f"build the reels first: ren build {args.project}")
+    except ValueError as exc:
+        return axi.fail(str(exc),
+                        f"{TOOL} reel-model {args.project}")
+    reels = [{"reel": row.get("reel"), "uses": row.get("uses"),
+              "a_roll": row.get("a_roll"), "effects": row.get("effects"),
+              "titles": row.get("titles"), "renders": row.get("renders"),
+              "persons": ",".join(row.get("persons") or []),
+              "masks": row.get("masks"), "speech": row.get("speech")}
+             for row in payload.get("reels", [])]
+    parts = [
+        axi.kv_block("reel_model", {
+            "project": args.project,
+            "revision": payload.get("revision", ""),
+            "reels": len(reels)}),
+        axi.table("reels", reels,
+                  ["reel", "uses", "a_roll", "effects", "titles",
+                   "renders", "persons", "masks", "speech"]),
+        axi.help_block([f"{TOOL} model "
+                        f"<{args.project}/project_model/snapshot.json>"]),
+    ]
+    axi.emit(parts)
     return 0
 
 
@@ -391,6 +427,12 @@ def build_parser() -> argparse.ArgumentParser:
     masks = sub.add_parser("masks", help="masks + effects of a model")
     masks.add_argument("path", help="Project Model JSON")
     masks.set_defaults(func=cmd_masks)
+    reel_model = sub.add_parser("reel-model",
+                                help="stored reel Project Model of a project")
+    reel_model.add_argument("project", help="project folder")
+    reel_model.add_argument("--reel", default=None,
+                            help="one reel number or name (default: all)")
+    reel_model.set_defaults(func=cmd_reel_model)
     ops = sub.add_parser("ops",
                          help="projection ops to effectcraft-cli commands")
     ops.add_argument("path", help="projection JSON")

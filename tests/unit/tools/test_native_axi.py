@@ -39,7 +39,7 @@ E2E_MEDIA = ROOT / "tests/fixtures/project_model_e2e/media"
 
 # ── 1. Positional primary args ─────────────────────────────────────────
 
-READ_VERBS = ("model", "timeline", "masks", "ops")
+READ_VERBS = ("model", "timeline", "masks", "ops", "reel-model")
 
 
 @pytest.mark.parametrize("verb", READ_VERBS)
@@ -48,7 +48,9 @@ def test_positional_primary_args(verb):
     parser = build_parser()
     args = parser.parse_args([verb, "dummy-path"])
     assert args.command == verb
-    assert args.path == "dummy-path"
+    # `reel-model` reads a project folder, so its positional is
+    # `project`; every other read verb reads a file as `path`.
+    assert getattr(args, "path", getattr(args, "project", None)) == "dummy-path"
     assert callable(args.func)
 
 
@@ -75,7 +77,7 @@ def test_home_is_content_first(capsys):
     assert err == ""
     assert "bin: " in out
     assert "description: " in out
-    assert "commands[5]{command,reads}:" in out
+    assert "commands[6]{command,reads}:" in out
     assert "help[" in out
 
 
@@ -137,6 +139,62 @@ def test_unknown_command_fails_loud_on_stdout(capsys):
     out, err = capsys.readouterr()
     assert err == ""
     assert "error: " in out
+
+
+def _stored_reel_project(tmp_path):
+    from library.tools import reel_project_model as rpm
+    project = tmp_path / "proj"
+    project.mkdir()
+    out = rpm.maintain_from_build(
+        str(project),
+        {"reel_placements": {"Reel 01": [
+            {"source_file": "/m/a.MXF", "source_in": 10.0,
+             "source_out": 15.0, "record_start": 0.0, "record_frame": 0,
+             "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+             "speaker": "Ada", "master_start": 10.0, "master_end": 15.0}]},
+         "track_plans": {"Reel 01": {
+             "video_tracks": [{"index": 1, "media_type": "video",
+                               "role": "a_roll", "name": "A-Roll",
+                               "occupant": "main"}],
+             "audio_tracks": []}},
+         "reel_fps": 24.0},
+        transcript={"segments": [
+            {"speaker": "Ada", "text": "hello",
+             "timeline_start": 10.0, "timeline_end": 15.0,
+             "source_file": "/m/a.MXF", "source_start": 10.0,
+             "source_end": 15.0}]})
+    assert out["status"] == "committed"
+    return project
+
+
+def test_reel_model_reads_the_store(capsys, tmp_path):
+    project = _stored_reel_project(tmp_path)
+    assert main(["reel-model", str(project)]) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert "reels[1]{reel,uses,a_roll,effects,titles,renders,persons,masks,speech}:" in out
+    assert "reel-01,1,1," in out
+
+
+def test_reel_model_scopes_one_reel(capsys, tmp_path):
+    project = _stored_reel_project(tmp_path)
+    assert main(["reel-model", str(project), "--reel", "1"]) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert "reel-01" in out
+
+
+def test_reel_model_refuses_outside_the_store(capsys, tmp_path):
+    assert main(["reel-model", str(tmp_path / "empty")]) == 1
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert out.startswith("error: ")
+    assert "help: " in out
+    project = _stored_reel_project(tmp_path)
+    assert main(["reel-model", str(project), "--reel", "99"]) == 1
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert "names nothing" in out
 
 
 # ── op_to_commands unit mapping ────────────────────────────────────────

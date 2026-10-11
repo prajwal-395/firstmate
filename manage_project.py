@@ -2617,6 +2617,22 @@ def cmd_deliver_reel(args):
               f"the mechanism fallback and this needs the captain's "
               f"word before it becomes a standard.")
     print(f"  report: {full['report_path']}")
+    # The Project Model records the render with its frame map
+    # (`library/tools/reel_project_model.py`). Fail-soft: the file
+    # is delivered and verified whatever the store says.
+    try:
+        from library.tools import reel_project_model as _rpm
+        recorded = _rpm.note_deliver(
+            project_folder, int(args.reel), full["timeline_name"],
+            full["render"]["output_path"])
+        print(f"  project model: {recorded.get('status')} "
+              f"(revision {recorded.get('revision', '-')})",
+              file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - delivered, unaffected
+        print(f"  project model not updated ({exc!r}) - the deliver "
+              f"stands; re-record with "
+              f"`python3 -m library.tools.reel_project_model maintain "
+              f"{project_folder}`", file=sys.stderr)
 
 
 def cmd_watch_reel(args):

@@ -294,7 +294,7 @@ _PER_REEL_LIST_KEYS = {
 }
 _SCOPED_PROJECT_LIST_KEYS = {"pending_promotions", "reels_requested"}
 _PER_REEL_MAP_KEYS = {
-    "caption_hashes", "closer_fit", "track_plans",
+    "caption_hashes", "closer_fit", "track_plans", "reel_placements",
     "transition_overlays", "staged_timelines", "allow_drops",
     "staged_timeline_ids", "reels", "notes",
 }

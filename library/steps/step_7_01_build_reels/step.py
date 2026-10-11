@@ -150,6 +150,20 @@ def build_reels(data: dict) -> dict:
         # not know.
         placement_mode=str((data or {}).get("placement_mode") or "auto"))
 
+    # The Project Model stays current with the build: one store
+    # revision for what this build placed
+    # (`library/tools/reel_project_model.py`). Fail-soft by design -
+    # the Resolve placement above is unaffected, and a model write
+    # that fails is recorded, never raised.
+    try:
+        from library.tools import reel_project_model as _rpm
+        record["project_model"] = _rpm.maintain_from_build(
+            project_folder, record, transcript=transcript)
+    except Exception as exc:  # noqa: BLE001 - the build already succeeded
+        record["project_model"] = {
+            "status": "refused",
+            "reason": f"project model hook failed: {exc!r}"}
+
     return {"reel_build": record}
 
 

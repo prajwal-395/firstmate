@@ -3854,6 +3854,54 @@ def placements(ranges: Sequence[Tuple[float, float]],
     return out
 
 
+def serializable_placements(placements_list) -> list:
+    """The placed derivation as plain JSON - what the build laid down.
+
+    One row per placed piece: which source span plays over which reel
+    span, on which row, whose speech. `clip` is a `TimelineClip`
+    (frozen dataclass); only its scalar ground truth is carried, never
+    the live `transform` mapping. Seconds throughout; `record_frames`
+    is present only on retimed pieces (`rate` != 1.0).
+
+    Recorded on `build_record["placements"]` so the Project Model
+    writer grades what was built, never a re-derivation - the same
+    reason `track_plans` rides the record.
+    """
+    rows = []
+    for place in placements_list or ():
+        clip = place.get("clip") if isinstance(place, dict) else None
+        master = place.get("master", (0.0, 0.0)) if isinstance(place, dict) else (0.0, 0.0)
+        try:
+            master_start, master_end = float(master[0]), float(master[1])
+        except (TypeError, ValueError, IndexError):
+            master_start, master_end = 0.0, 0.0
+        row = {
+            "source_file": str(getattr(clip, "source_file", "") or ""),
+            "source_in": float(place.get("source_in", 0.0)) if isinstance(place, dict) else 0.0,
+            "source_out": float(place.get("source_out", 0.0)) if isinstance(place, dict) else 0.0,
+            "record_start": float(place.get("record", 0.0)) if isinstance(place, dict) else 0.0,
+            "record_frame": int(place.get("snapped_record", 0)) if isinstance(place, dict) else 0,
+            "track_type": str(getattr(clip, "track_type", "") or ""),
+            "track_index": int(getattr(clip, "track_index", 0) or 0),
+            "track_name": str(getattr(clip, "track_name", "") or ""),
+            "speaker": getattr(clip, "speaker", None),
+            "master_start": master_start,
+            "master_end": master_end,
+        }
+        if isinstance(place, dict) and place.get("rate") not in (None, 1.0):
+            try:
+                row["rate"] = float(place["rate"])
+            except (TypeError, ValueError):
+                pass
+            if place.get("record_frames") is not None:
+                try:
+                    row["record_frames"] = int(place["record_frames"])
+                except (TypeError, ValueError):
+                    pass
+        rows.append(row)
+    return rows
+
+
 def _retimed_span(place: dict, name: str) -> tuple:
     """`(record_start, record_frames)` of a retimed placement, or raise.
 
@@ -10135,6 +10183,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                   if key.endswith("_s")
                   and key not in aggregate_names))
         build_record["placement_profile"] = profile
+    # What this build placed, in serializable form - so the Project Model
+    # writer (`library/tools/reel_project_model.py`) and any future
+    # reader grade what was built, never a re-derivation (the same reason
+    # `track_plans` rides the record). Seconds throughout; the model
+    # converts to ticks on millisecond clocks.
+    build_record["fps"] = float(fps)
+    build_record["placements"] = serializable_placements(placements_list)
     return build_record
 
 
@@ -13288,6 +13343,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     footage_binding_hashes = {}
     overlay_records = {}
     track_plans = {}
+    reel_placements = {}
     skipped_by_exclusion: list = []
     # Reels this call deliberately did NOT build because a final range
     # touches no declared window of its own (`reel_ledger.audit_ranges`
@@ -14367,6 +14423,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # never a re-derivation, and promotion renames it with the
                 # timeline it describes.
                 track_plans[name] = build_result["track_plan"]
+                # What this staging placed, keyed the same way and
+                # remapped to finals below beside `track_plans` - the
+                # Project Model writer's clip-use source.
+                reel_placements[name] = list(
+                    build_result.get("placements") or [])
                 if overlay_intent:
                     # Per-reel intent application, keyed by STAGING name
                     # here and remapped to finals beside `caption_hashes`
@@ -14937,6 +14998,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final: track_plans[promotion_staged_to_final[final]]
             for final in final_names
             if promotion_staged_to_final[final] in track_plans}
+        reel_placements = {
+            final: reel_placements[promotion_staged_to_final[final]]
+            for final in final_names
+            if promotion_staged_to_final[final] in reel_placements}
         intent_applied_by_reel = {
             final: intent_applied_by_reel[
                 promotion_staged_to_final[final]]
@@ -15251,6 +15316,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # once promoted - so a conformance proof grades what was
         # built, never a re-derivation of it.
         "track_plans": track_plans,
+        # What each timeline placed, by final name once promoted - the
+        # Project Model writer's clip-use source (same reason as
+        # `track_plans`). Seconds throughout; `reel_fps` is the master
+        # rate every derivation below was planned on.
+        "reel_placements": reel_placements,
+        "reel_fps": float(fps),
         "plan_path": proposal_path,
         "resolve_project_name": resolve_name,
         "master_timeline_name": master_timeline_name,
