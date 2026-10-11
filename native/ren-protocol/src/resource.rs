@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 /// The machine's resources (`resource_scheduler.RESOURCES`). Complete:
 /// the scheduler admits a job only while every resource stays within its
 /// capacity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceName {
     /// The Resolve instance cursor (capacity 1). The Resolve lease stays

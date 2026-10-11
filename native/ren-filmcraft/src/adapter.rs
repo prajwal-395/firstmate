@@ -342,7 +342,10 @@ fn allocate_stem_strips(uses: &[(String, i64, i64)], stem_base: u32) -> BTreeMap
     let mut assigned = BTreeMap::new();
     for (id, start, end) in ordered {
         let mut strip = stem_base;
-        while strip_end.get(&strip).is_some_and(|occupied_until| *occupied_until > *start) {
+        while strip_end
+            .get(&strip)
+            .is_some_and(|occupied_until| *occupied_until > *start)
+        {
             strip += 1;
         }
         strip_end.insert(strip, *end);
@@ -351,16 +354,12 @@ fn allocate_stem_strips(uses: &[(String, i64, i64)], stem_base: u32) -> BTreeMap
     assigned
 }
 
-
-
 /// Deal every stem use onto its strip: `clip_use_id` to `A{n}`.
 ///
 /// Music deals first from [`MUSIC_POOL_BASE`]; SFX deals next from above
 /// whatever the bed used. The caller passes ALL clip uses; picture roles
 /// are ignored here (the overlap check above already owns them).
-fn deal_stem_strips(
-    ordered: &[&ren_protocol::project_model::ClipUse],
-) -> BTreeMap<String, String> {
+fn deal_stem_strips(ordered: &[&ren_protocol::project_model::ClipUse]) -> BTreeMap<String, String> {
     let spans = |role: &str| {
         ordered
             .iter()
@@ -528,7 +527,9 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
     }
     // Overlays over nothing refuse: compositing overlays add no render time
     // on their own. Stems alone need no spine.
-    if ordered.iter().any(|use_| is_compositing_overlay(&use_.role))
+    if ordered
+        .iter()
+        .any(|use_| is_compositing_overlay(&use_.role))
         && !ordered.iter().any(|use_| is_spine_role(&use_.role))
     {
         return Err(unsupported(
@@ -632,7 +633,7 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
                 // every overlay and card .mov) is never wired to the mix.
                 (matches!(clip_use.role.as_str(), "a_roll" | "b_roll")
                     && has_audio_stream(model, &asset.id.0))
-                    .then(|| "A1".into()),
+                .then(|| "A1".into()),
             )
         };
         placements.push(Placement {
@@ -770,9 +771,7 @@ pub const DUCKING_CLASS_ID: &str = "audio.ducking";
 /// map entries. The FilmCraft adapter reports those as owned elsewhere
 /// and never executes them.
 pub fn effectcraft_owned(class_id: &str) -> bool {
-    class_id == "blur.gaussian"
-        || class_id == "color.saturation"
-        || class_id.starts_with("move.")
+    class_id == "blur.gaussian" || class_id == "color.saturation" || class_id.starts_with("move.")
 }
 
 /// Returns true for effect classes this adapter executes natively.
@@ -943,12 +942,11 @@ pub fn plan_captions(model: &ProjectModel) -> Result<Vec<CaptionCue>> {
     let mut cues = Vec::new();
     let mut ordered: Vec<_> = model.observations.iter().collect();
     ordered.sort_by(|a, b| {
-        (
-            a.interval.start,
-            a.interval.end,
-            &a.id.0,
-        )
-            .cmp(&(b.interval.start, b.interval.end, &b.id.0))
+        (a.interval.start, a.interval.end, &a.id.0).cmp(&(
+            b.interval.start,
+            b.interval.end,
+            &b.id.0,
+        ))
     });
     for observation in ordered {
         if !CAPTION_MODALITIES.contains(&observation.modality.as_str()) {
@@ -1018,18 +1016,14 @@ pub fn apply_captions_to_model(
 /// engine span; a title over no clip refuses (`title_without_clip`).
 /// Fractional-second durations refuse (`title_fractional_seconds`): the
 /// engine places titles on whole-frame spans.
-pub fn plan_titles(
-    model: &ProjectModel,
-    placements: &[Placement],
-) -> Result<Vec<TitlePlan>> {
+pub fn plan_titles(model: &ProjectModel, placements: &[Placement]) -> Result<Vec<TitlePlan>> {
     let mut ordered: Vec<_> = model.observations.iter().collect();
     ordered.sort_by(|a, b| {
-        (
-            a.interval.start,
-            a.interval.end,
-            &a.id.0,
-        )
-            .cmp(&(b.interval.start, b.interval.end, &b.id.0))
+        (a.interval.start, a.interval.end, &a.id.0).cmp(&(
+            b.interval.start,
+            b.interval.end,
+            &b.id.0,
+        ))
     });
     let mut plans = Vec::new();
     for observation in ordered {
@@ -1125,10 +1119,7 @@ pub fn apply_titles_to_model(
 
 /// Pure LUT plan over `color.lut` effects. `parameters` must carry exactly
 /// `lut` as a non-empty string; the target must be a placed clip use.
-pub fn plan_lut_effects(
-    model: &ProjectModel,
-    placements: &[Placement],
-) -> Result<Vec<LutPlan>> {
+pub fn plan_lut_effects(model: &ProjectModel, placements: &[Placement]) -> Result<Vec<LutPlan>> {
     let mut effects: Vec<_> = model.effects.iter().collect();
     effects.sort_by(|a, b| a.id.0.cmp(&b.id.0));
     let mut plans = Vec::new();
@@ -1206,7 +1197,11 @@ fn finite_number(value: &serde_json::Value) -> Option<f64> {
     value.as_f64().filter(|v| v.is_finite())
 }
 
-fn engine_value_for(class_id: &str, value: &serde_json::Value, effect_id: &str) -> Result<serde_json::Value> {
+fn engine_value_for(
+    class_id: &str,
+    value: &serde_json::Value,
+    effect_id: &str,
+) -> Result<serde_json::Value> {
     match class_id {
         TRANSFORM_POSITION_CLASS => {
             let pair = value.as_array().ok_or_else(|| {
@@ -1321,9 +1316,11 @@ pub fn plan_effect_keyframes(
                 })?;
                 static_params.push((edge.to_owned(), serde_json::json!(number)));
             }
-            if let Some(extra) = effect.parameters.keys().find(|k| {
-                !["left", "top", "right", "bottom"].contains(&k.as_str())
-            }) {
+            if let Some(extra) = effect
+                .parameters
+                .keys()
+                .find(|k| !["left", "top", "right", "bottom"].contains(&k.as_str()))
+            {
                 return Err(unsupported(
                     "crop_unknown_parameter",
                     format!(
@@ -1878,10 +1875,7 @@ pub fn title_operations(
 /// LUT import operations for path-based plans: one `ImportLut` per plan
 /// whose `lut` is a filesystem path. Reference plans (`builtin:`/`lib:`)
 /// need no import and produce no operation here.
-pub fn lut_import_operations(
-    project: &Path,
-    plans: &[LutPlan],
-) -> Vec<super::Operation> {
+pub fn lut_import_operations(project: &Path, plans: &[LutPlan]) -> Vec<super::Operation> {
     plans
         .iter()
         .filter(|plan| !plan.is_reference())
@@ -2050,18 +2044,19 @@ pub fn read_effect_keyframes(
                     }
                     let params = effect_entry.get("params").and_then(|v| v.as_object());
                     let Some(params) = params else { continue };
-                    let Some(param_entry) = params.get(param) else { continue };
+                    let Some(param_entry) = params.get(param) else {
+                        continue;
+                    };
                     let mut keys = Vec::new();
-                    if let Some(stored) =
-                        param_entry.get("keyframes").and_then(|v| v.as_array())
-                    {
+                    if let Some(stored) = param_entry.get("keyframes").and_then(|v| v.as_array()) {
                         for key in stored {
                             let time = key.get("time").and_then(|v| v.as_i64()).ok_or_else(|| {
                                 invalid(format!(
                                     "keyframe readback: clip {clip} {effect}/{param} key has no integer time"
                                 ))
                             })?;
-                            let value = key.get("value").cloned().unwrap_or(serde_json::Value::Null);
+                            let value =
+                                key.get("value").cloned().unwrap_or(serde_json::Value::Null);
                             keys.push((time, unwrap_engine_value(&value)));
                         }
                     }
@@ -5747,36 +5742,35 @@ mod tests {
         // One strip past the fresh sequence's own three: the plan grows
         // the sequence before the first placement lands.
         assert_eq!(audio_strips_used(&projection), 4);
-        let growth = add_audio_tracks_operation(
-            std::path::Path::new("x.fcproj"),
-            &projection,
-        )
-        .unwrap()
-        .expect("A4 needs track growth");
+        let growth = add_audio_tracks_operation(std::path::Path::new("x.fcproj"), &projection)
+            .unwrap()
+            .expect("A4 needs track growth");
         assert!(matches!(
             growth,
-            Operation::AddAudioTracks { audio_tracks: 1, .. }
+            Operation::AddAudioTracks {
+                audio_tracks: 1,
+                ..
+            }
         ));
         // A plan that fits A1-A3 grows nothing.
         let fitting = minimal_model();
         let fitting_projection = plan_projection(&fitting).unwrap();
         assert_eq!(audio_strips_used(&fitting_projection), 1);
-        assert!(add_audio_tracks_operation(
-            std::path::Path::new("x.fcproj"),
-            &fitting_projection,
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            add_audio_tracks_operation(std::path::Path::new("x.fcproj"), &fitting_projection,)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn stem_edge_cases_refuse_or_reuse_by_name() {
         // A stem with no audio stream names a silence no file can play.
         let mut silent = stem_model();
+        silent.assets.retain(|asset| asset.id.0 != "asset-sfx");
         silent
-            .assets
-            .retain(|asset| asset.id.0 != "asset-sfx");
-        silent.streams.retain(|stream| stream.asset_id.0 != "asset-sfx");
+            .streams
+            .retain(|stream| stream.asset_id.0 != "asset-sfx");
         silent.assets.push(
             serde_json::from_value(serde_json::json!(
                 {"id": "asset-quiet", "kind": "video", "uri": "media/q.mp4", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]}
@@ -6090,7 +6084,13 @@ mod tests {
         assert_eq!(mutated.edits.len(), model.edits.len() + 1);
         let logged = mutated.edits.last().unwrap();
         assert_eq!(logged.operation, "audio.gain");
-        let replanned = plan_ren_edit(&mutated, &plan_projection(&mutated).unwrap(), logged, &context).unwrap();
+        let replanned = plan_ren_edit(
+            &mutated,
+            &plan_projection(&mutated).unwrap(),
+            logged,
+            &context,
+        )
+        .unwrap();
         assert_eq!(replanned, operations);
         // Gain without an audio stream refuses on both paths (use-b is
         // video-only in the minimal model).
@@ -6346,7 +6346,7 @@ mod tests {
                 "{percent}% must be exact"
             );
         }
-        for percent in [33.333333333333336, 123456789.123456789, 1e300] {
+        for percent in [33.333333333333336, 123_456_789.123_456_79, 1e300] {
             let err = percent_to_rate(percent, "edit-rate").unwrap_err();
             assert!(
                 matches!(err, AdapterError::Unsupported { ref code, .. } if code == "retime_rate_inexact"),
@@ -6819,7 +6819,9 @@ mod tests {
         let codes: Vec<_> = projection.losses.iter().map(|l| l.code.as_str()).collect();
         assert!(codes.contains(&"effect_owned_by_effectcraft"));
         assert!(!codes.contains(&"effect_not_projected"));
-        assert!(plan_effect_keyframes(&model, &projection.placements).unwrap().is_empty());
+        assert!(plan_effect_keyframes(&model, &projection.placements)
+            .unwrap()
+            .is_empty());
         // An unmapped class keeps the explicit loss.
         model.effects.push(
             serde_json::from_value(serde_json::json!(
@@ -6854,7 +6856,10 @@ mod tests {
         assert_eq!(cues[0].speaker.as_deref(), Some("person-ada"));
         // The 24tps source clock scales to engine ticks (24 model ticks
         // are one engine second).
-        assert_eq!((cues[0].start_ticks, cues[0].duration_ticks), (0, 254_016_000_000));
+        assert_eq!(
+            (cues[0].start_ticks, cues[0].duration_ticks),
+            (0, 254_016_000_000)
+        );
         // The apply counterpart anchors the same cues to the model.
         let applied = apply_captions_to_model(&model, &cues).unwrap();
         assert_eq!(applied.clip_uses.len(), model.clip_uses.len());
@@ -6891,9 +6896,14 @@ mod tests {
         assert_eq!(applied.effects.len(), 1);
         // A projectable LUT is executed, never a loss.
         let projection = plan_projection(&model).unwrap();
-        assert!(projection.losses.iter().all(|l| l.code != "effect_not_projected"));
+        assert!(projection
+            .losses
+            .iter()
+            .all(|l| l.code != "effect_not_projected"));
         // Unknown parameters refuse by name.
-        model.effects[0].parameters.insert("strength".into(), serde_json::json!(0.5));
+        model.effects[0]
+            .parameters
+            .insert("strength".into(), serde_json::json!(0.5));
         let err = plan_lut_effects(&model, &projection.placements).unwrap_err();
         assert!(
             matches!(&err, AdapterError::Unsupported { ref code, .. } if code == "lut_unknown_parameter"),
@@ -6920,7 +6930,11 @@ mod tests {
         assert_eq!(plans[0].engine_effect, "motion");
         assert_eq!(plans[0].engine_param.as_deref(), Some("position"));
         assert_eq!(
-            plans[0].keys.iter().map(|k| k.time_ticks).collect::<Vec<_>>(),
+            plans[0]
+                .keys
+                .iter()
+                .map(|k| k.time_ticks)
+                .collect::<Vec<_>>(),
             vec![0, 127_008_000_000]
         );
         let clip_ids = BTreeMap::from([("use-a".to_owned(), vec![7u64])]);
@@ -6928,10 +6942,16 @@ mod tests {
             effect_key_operations(Path::new("test.fcproj"), &clip_ids, &plans).unwrap();
         // One animation toggle plus one timed write per key.
         assert_eq!(operations.len(), 3);
-        assert!(matches!(&operations[0], Operation::ToggleEffectAnimation { clip: 7, .. }));
+        assert!(matches!(
+            &operations[0],
+            Operation::ToggleEffectAnimation { clip: 7, .. }
+        ));
         assert!(matches!(
             &operations[1],
-            Operation::SetEffectParam { time_ticks: Some(0), .. }
+            Operation::SetEffectParam {
+                time_ticks: Some(0),
+                ..
+            }
         ));
         let applied =
             apply_effect_keyframes_to_model(&keyed, &projection.placements, &plans).unwrap();
@@ -7528,8 +7548,8 @@ mod tests {
             ]}),
         );
         let expanded = expand_retime_ramp(&model, &ramp).unwrap();
-        assert!(expanded.pieces[0].reverse == false);
-        assert!(expanded.pieces[1].reverse == true);
+        assert!(!expanded.pieces[0].reverse);
+        assert!(expanded.pieces[1].reverse);
         let retime = expanded
             .edits
             .iter()
@@ -7666,4 +7686,3 @@ mod tests {
         );
     }
 }
-

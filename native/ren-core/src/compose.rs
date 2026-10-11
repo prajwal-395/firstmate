@@ -9,7 +9,7 @@ use ren_protocol::edit::{EditOp, EditPatch};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::algebra::{MergeSemantics, TemporalEffect, algebra, key, meet};
+use crate::algebra::{algebra, key, meet, MergeSemantics, TemporalEffect};
 use crate::conditions::judge_all;
 use crate::patch::validate_patch;
 use crate::snapshot::Snapshot;
@@ -118,20 +118,16 @@ fn compose_nonmeeting_property_pair(
     a_temporal: Option<TemporalEffect>,
 ) -> Option<Composition> {
     let (
-        [
-            EditOp::ClipSetProperty {
-                unique_id: mine_id,
-                key: mine_key,
-                ..
-            },
-        ],
-        [
-            EditOp::ClipSetProperty {
-                unique_id: theirs_id,
-                key: theirs_key,
-                ..
-            },
-        ],
+        [EditOp::ClipSetProperty {
+            unique_id: mine_id,
+            key: mine_key,
+            ..
+        }],
+        [EditOp::ClipSetProperty {
+            unique_id: theirs_id,
+            key: theirs_key,
+            ..
+        }],
     ) = (earlier.operations.as_slice(), later.operations.as_slice())
     else {
         return None;
@@ -150,9 +146,7 @@ fn compose_nonmeeting_property_pair(
         return Some(commute());
     };
     let op = &later.operations[0];
-    let Some(decl) = crate::algebra::declaration(op.op_id()) else {
-        return None;
-    };
+    let decl = crate::algebra::declaration(op.op_id())?;
     let Some(span) = crate::algebra::span(op, base) else {
         return Some(Composition {
             verdict: Verdict::Conflict,

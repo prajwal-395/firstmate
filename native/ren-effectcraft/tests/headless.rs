@@ -82,7 +82,13 @@ fn animated_title_exports_rgba_png_sequence_and_prores_4444_alpha() {
         .output()
         .unwrap();
     assert!(decoded.status.success());
-    let alpha_samples: Vec<_> = decoded.stdout.chunks_exact(4).map(|rgba| rgba[3]).collect();
+    let alpha_samples: Vec<_> = decoded
+        .stdout
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|rgba| rgba[3])
+        .collect();
     assert!(
         alpha_samples.contains(&0),
         "transparent pixels survive ProRes encoding"

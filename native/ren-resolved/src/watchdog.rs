@@ -168,8 +168,14 @@ fn probe(inner: &Arc<Mutex<WatchdogStatus>>, execution_worker: &Arc<Mutex<worker
         }
     };
     if response.ok {
-        let connected = result.get("connected").and_then(|v| v.as_bool()).unwrap_or(false);
-        let responsive = result.get("responsive").and_then(|v| v.as_bool()).unwrap_or(false);
+        let connected = result
+            .get("connected")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let responsive = result
+            .get("responsive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let mut status = inner.lock().unwrap();
         status.connected = connected;
         status.responsive = responsive;
@@ -183,7 +189,10 @@ fn probe(inner: &Arc<Mutex<WatchdogStatus>>, execution_worker: &Arc<Mutex<worker
         return;
     }
     // A probe that could not take the lease is contention, not a hang.
-    let contention = result.get("contention").and_then(|v| v.as_bool()).unwrap_or(false);
+    let contention = result
+        .get("contention")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if contention {
         return;
     }
@@ -211,8 +220,14 @@ pub fn health_reply(execution_worker: &Arc<Mutex<worker::Worker>>) -> crate::pro
         Ok(response) => {
             let result = response.result.unwrap_or(Value::Null);
             crate::protocol::HealthReply {
-                connected: result.get("connected").and_then(|v| v.as_bool()).unwrap_or(false),
-                responsive: result.get("responsive").and_then(|v| v.as_bool()).unwrap_or(false),
+                connected: result
+                    .get("connected")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                responsive: result
+                    .get("responsive")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             }
         }
         Err(_) => crate::protocol::HealthReply {
@@ -232,14 +247,34 @@ pub fn post_restart_check_reply(
             let result = response.result.unwrap_or(Value::Null);
             crate::protocol::PostRestartCheckReply {
                 ok: result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
-                project: result.get("project").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                timeline: result.get("timeline").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                timeline_count: result.get("timeline_count").and_then(|v| v.as_i64()).unwrap_or(0),
-                error: result.get("error").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                project: result
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                timeline: result
+                    .get("timeline")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                timeline_count: result
+                    .get("timeline_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+                error: result
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 timelines_intact: result
                     .get("timelines_intact")
                     .and_then(|v| v.as_array())
-                    .map(|items| items.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 timelines_stale: result
                     .get("timelines_stale")

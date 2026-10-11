@@ -48,7 +48,10 @@ fn main() {
 fn run(argv: &[OsString]) -> i32 {
     // `--version` answers from the package itself: no engine needed, so a
     // machine with nothing installed still names its build.
-    if argv.first().map(|arg| arg == "--version" || arg == "-V").unwrap_or(false)
+    if argv
+        .first()
+        .map(|arg| arg == "--version" || arg == "-V")
+        .unwrap_or(false)
         || argv.first().map(|arg| arg == "version").unwrap_or(false)
     {
         println!("{}", commands::version_line(None));
@@ -88,7 +91,10 @@ fn run(argv: &[OsString]) -> i32 {
     }
 
     if name == "info" || name == "status" || name == "check" {
-        let reference = argv.get(1).map(|arg| arg.to_string_lossy().to_string()).unwrap_or_default();
+        let reference = argv
+            .get(1)
+            .map(|arg| arg.to_string_lossy().to_string())
+            .unwrap_or_default();
         let outcome = match name.as_str() {
             "info" => commands::info(&reference, &engine_root),
             "status" => commands::status(&reference, &engine_root),
@@ -113,7 +119,10 @@ fn resolve_engine() -> Result<PathBuf, String> {
     if let Some(root) = engine::find_engine_root() {
         return Ok(root);
     }
-    if env::var_os(engine::ENGINE_ENV).map(|value| !value.is_empty()).unwrap_or(false) {
+    if env::var_os(engine::ENGINE_ENV)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+    {
         return Err(engine::explicit_root_refusal());
     }
     Err(engine::no_engine_refusal())
@@ -161,7 +170,12 @@ fn interpreter_candidates(root: &Path) -> Vec<PathBuf> {
             candidates.push(engine::expanduser(&PathBuf::from(value)));
         }
     }
-    candidates.push(engine::vep_home().join("venv-py312").join("bin").join("python3"));
+    candidates.push(
+        engine::vep_home()
+            .join("venv-py312")
+            .join("bin")
+            .join("python3"),
+    );
     candidates.push(root.join(".venv").join("bin").join("python3"));
     candidates
 }
@@ -207,9 +221,8 @@ mod tests {
 
     #[test]
     fn the_refusal_carries_the_ladders_own_message() {
-        let message = refusal(
-            "No Python interpreter carrying the ML stack was found.\nTried, in order:",
-        );
+        let message =
+            refusal("No Python interpreter carrying the ML stack was found.\nTried, in order:");
         assert!(message.starts_with("ren: refusing - no interpreter carrying the ML stack.\n"));
         assert!(message.contains("No Python interpreter carrying the ML stack was found."));
     }

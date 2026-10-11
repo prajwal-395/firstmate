@@ -20,10 +20,10 @@ pub mod algebra;
 pub mod cdl;
 pub mod compose;
 pub mod conditions;
+pub mod frame_map;
 pub mod patch;
 pub mod snapshot;
 pub mod verify;
-pub mod frame_map;
 
 #[cfg(feature = "extension-module")]
 pub mod python;

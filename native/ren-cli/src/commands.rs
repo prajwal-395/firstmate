@@ -13,9 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::engine;
 use crate::json::Json;
-use crate::project::{
-    self, Located, ProjectConfig, config_to_dict, project_status,
-};
+use crate::project::{self, config_to_dict, project_status, Located, ProjectConfig};
 
 /// What a native verb did: finished with an exit code, or the project
 /// needs a part only Python has, so the front door must exec Python.
@@ -258,7 +256,12 @@ pub fn usage() -> String {
             group = verb.group;
             lines.push(format!("{group}:"));
         }
-        lines.push(format!("  {}{}  {}", verb.name, " ".repeat(width - verb.name.len()), verb.summary));
+        lines.push(format!(
+            "  {}{}  {}",
+            verb.name,
+            " ".repeat(width - verb.name.len()),
+            verb.summary
+        ));
     }
     lines.push(String::new());
     lines.push(format!("ren {}", version_string()));
@@ -357,11 +360,28 @@ fn print_status(info: &Json) {
     println!("  Status:  {}", project::py_display_pub(&get("status")));
     let client = get("client");
     let client_text = project::py_display_pub(&client);
-    println!("  Client:  {}", if client_text.is_empty() { "(none)".to_string() } else { client_text });
-    println!("  Path:    {}", project::py_display_pub(&get("project_root")));
+    println!(
+        "  Client:  {}",
+        if client_text.is_empty() {
+            "(none)".to_string()
+        } else {
+            client_text
+        }
+    );
+    println!(
+        "  Path:    {}",
+        project::py_display_pub(&get("project_root"))
+    );
     println!();
-    println!("  Raw footage:     {} files", get("raw_footage_count").to_python_json());
-    let pipeline_data = if matches!(get("pipeline_data_exists"), Json::Bool(true)) { "yes" } else { "no" };
+    println!(
+        "  Raw footage:     {} files",
+        get("raw_footage_count").to_python_json()
+    );
+    let pipeline_data = if matches!(get("pipeline_data_exists"), Json::Bool(true)) {
+        "yes"
+    } else {
+        "no"
+    };
     println!("  Pipeline data:   {pipeline_data}");
     let steps = get("steps_completed");
     let steps_text = steps.as_array().map(|a| a.len()).unwrap_or(0);
@@ -375,89 +395,103 @@ fn print_status(info: &Json) {
     let exports_text = exports.as_array().map(|a| a.len()).unwrap_or(0);
     println!("  Exports:         {exports_text} files");
     println!();
-    println!("  Resolve project: {}", project::py_display_pub(&get("resolve_project")));
+    println!(
+        "  Resolve project: {}",
+        project::py_display_pub(&get("resolve_project"))
+    );
     let folder = get("resolve_folder");
     let folder_text = project::py_display_pub(&folder);
-    println!("  Resolve folder:  {}", if folder_text.is_empty() { "(root)".to_string() } else { folder_text });
+    println!(
+        "  Resolve folder:  {}",
+        if folder_text.is_empty() {
+            "(root)".to_string()
+        } else {
+            folder_text
+        }
+    );
 }
 
 /// `ren check` - the project's readiness check.
 pub fn check(reference: &str, engine_root: &Path) -> Outcome {
     run_project_command(reference, engine_root, |config| {
-    let project_dir = config.project_root.clone();
-    println!("Checking project: {} ({})", project::py_display_pub(&config.name), project_dir.display());
+        let project_dir = config.project_root.clone();
+        println!(
+            "Checking project: {} ({})",
+            project::py_display_pub(&config.name),
+            project_dir.display()
+        );
 
-    println!("Checking brand template...");
-    let template = match resolve_template_reference(&config.pipeline.brand_template, &project_dir) {
+        println!("Checking brand template...");
+        let template = match resolve_template_reference(&config.pipeline.brand_template, &project_dir) {
         Ok(template) => template,
         Err(message) => return Err(refusal(&message, "the check cannot verify a template it cannot read", &format!("fix pipeline.brand_template in project.yaml (or clear it for no template), then re-run `ren check {reference}`"))),
     };
 
-    println!("Checking creative_brief...");
-    if !config.pipeline.creative_brief.is_empty() {
-        let cb_path = project_dir.join(&config.pipeline.creative_brief);
-        if !cb_path.exists() {
-            return Err(refusal(
+        println!("Checking creative_brief...");
+        if !config.pipeline.creative_brief.is_empty() {
+            let cb_path = project_dir.join(&config.pipeline.creative_brief);
+            if !cb_path.exists() {
+                return Err(refusal(
                 &format!("declared creative_brief path does not exist: {cb_path:?}"),
                 "the check cannot verify a brief it cannot read",
                 "fix pipeline.creative_brief in project.yaml (or clear it), then re-run `ren check`",
             ));
+            }
         }
-    }
 
-    println!("Checking environment paths...");
-    let sfx = sfx_library(engine_root);
-    if !sfx.exists() {
-        return Err(refusal(
+        println!("Checking environment paths...");
+        let sfx = sfx_library(engine_root);
+        if !sfx.exists() {
+            return Err(refusal(
             &format!("PIPELINE_SFX_LIBRARY does not exist: {sfx:?}"),
             "the check cannot verify a library that is not there",
             "set PIPELINE_SFX_LIBRARY (`ren config --init`, then edit it), then re-run `ren check`",
         ));
-    }
-    let music = music_library(engine_root);
-    if !music.exists() {
-        return Err(refusal(
+        }
+        let music = music_library(engine_root);
+        if !music.exists() {
+            return Err(refusal(
             &format!("PIPELINE_MUSIC_LIBRARY does not exist: {music:?}"),
             "the check cannot verify a library that is not there",
             "set PIPELINE_MUSIC_LIBRARY (`ren config --init`, then edit it), then re-run `ren check`",
         ));
-    }
-    let projects_root = project::projects_root(engine_root);
-    if !projects_root.exists() {
-        return Err(refusal(
-            &format!("PIPELINE_PROJECTS_ROOT does not exist: {projects_root:?}"),
-            "the check cannot verify a projects root that is not there",
-            "create it (`ren init`), then re-run `ren check`",
-        ));
-    }
+        }
+        let projects_root = project::projects_root(engine_root);
+        if !projects_root.exists() {
+            return Err(refusal(
+                &format!("PIPELINE_PROJECTS_ROOT does not exist: {projects_root:?}"),
+                "the check cannot verify a projects root that is not there",
+                "create it (`ren init`), then re-run `ren check`",
+            ));
+        }
 
-    println!("Checking footage files with ffprobe...");
-    let footage = match enumerate_footage(&project_dir) {
+        println!("Checking footage files with ffprobe...");
+        let footage = match enumerate_footage(&project_dir) {
         Ok(files) => files,
         Err(message) => return Err(refusal(&message, "the check cannot verify footage that is not there", &format!("copy raw footage to the project's raw footage dir, then re-run `ren check {reference}`"))),
     };
-    if footage.is_empty() {
-        return Err(refusal(
+        if footage.is_empty() {
+            return Err(refusal(
             "no footage files found in project",
             "the check cannot verify footage that is not there",
             &format!("copy raw footage to the project's raw footage dir, then re-run `ren check {reference}`"),
         ));
-    }
+        }
 
-    let mut fps_counts: Vec<(String, i64)> = vec![];
-    let mut res_counts: Vec<(String, i64)> = vec![];
-    for file in &footage {
-        let path = PathBuf::from(&file.path);
-        match probe_metadata(&path) {
-            Ok(metadata) => {
-                let missing = [
-                    ("width", metadata.width.is_none()),
-                    ("height", metadata.height.is_none()),
-                    ("frame_rate", metadata.frame_rate.is_none()),
-                ];
-                for (field, is_missing) in missing {
-                    if is_missing {
-                        return Err(refusal(
+        let mut fps_counts: Vec<(String, i64)> = vec![];
+        let mut res_counts: Vec<(String, i64)> = vec![];
+        for file in &footage {
+            let path = PathBuf::from(&file.path);
+            match probe_metadata(&path) {
+                Ok(metadata) => {
+                    let missing = [
+                        ("width", metadata.width.is_none()),
+                        ("height", metadata.height.is_none()),
+                        ("frame_rate", metadata.frame_rate.is_none()),
+                    ];
+                    for (field, is_missing) in missing {
+                        if is_missing {
+                            return Err(refusal(
                             &format!(
                                 "missing required field '{field}' in file '{}'",
                                 file.filename
@@ -467,64 +501,88 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
                                 "re-encode the file so ffprobe reports every field, then re-run `ren check {reference}`"
                             ),
                         ));
+                        }
                     }
+                    let fps = metadata
+                        .frame_rate
+                        .map(crate::json::format_float)
+                        .unwrap_or_default();
+                    if !fps.is_empty() {
+                        increment(&mut fps_counts, &fps);
+                    }
+                    let res = format!(
+                        "{}x{}",
+                        metadata.width.unwrap_or(0),
+                        metadata.height.unwrap_or(0)
+                    );
+                    increment(&mut res_counts, &res);
                 }
-                let fps = metadata.frame_rate.map(crate::json::format_float).unwrap_or_default();
-                if !fps.is_empty() {
-                    increment(&mut fps_counts, &fps);
+                Err(message) => {
+                    return Err(refusal(
+                        &format!("ffprobe failed to read {}: {message}", file.path),
+                        "the check cannot verify a file ffprobe cannot read",
+                        &format!("fix or replace the file, then re-run `ren check {reference}`"),
+                    ));
                 }
-                let res = format!("{}x{}", metadata.width.unwrap_or(0), metadata.height.unwrap_or(0));
-                increment(&mut res_counts, &res);
-            }
-            Err(message) => {
-                return Err(refusal(
-                    &format!("ffprobe failed to read {}: {message}", file.path),
-                    "the check cannot verify a file ffprobe cannot read",
-                    &format!("fix or replace the file, then re-run `ren check {reference}`"),
-                ));
             }
         }
-    }
 
-    println!("Checking project assets (bookends, fonts, timed text)...");
-    let content = template.get("content").cloned().unwrap_or(Json::Object(vec![]));
-    if let Err(message) = check_bookends(&content, &project_dir) {
-        eprintln!("ren: refused - {message}");
-        return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
-    }
-    let effect = template.get("effect").cloned().unwrap_or(Json::Object(vec![]));
-    if let Some(overlay) = effect.get("timed_text_overlay") {
-        if let Some(Json::Str(font_file)) = overlay.get("font_file") {
-            let name = font_file.trim().strip_prefix('/').unwrap_or(font_file);
-            if !Path::new(font_file).is_absolute() {
-                let candidate = project_dir.join("brand_assets").join(Path::new(name).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default());
-                if let Err(message) = resolve_project_asset(&candidate, &project_dir) {
-                    eprintln!("ren: refused - {message}");
+        println!("Checking project assets (bookends, fonts, timed text)...");
+        let content = template
+            .get("content")
+            .cloned()
+            .unwrap_or(Json::Object(vec![]));
+        if let Err(message) = check_bookends(&content, &project_dir) {
+            eprintln!("ren: refused - {message}");
+            return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
+        }
+        let effect = template
+            .get("effect")
+            .cloned()
+            .unwrap_or(Json::Object(vec![]));
+        if let Some(overlay) = effect.get("timed_text_overlay") {
+            if let Some(Json::Str(font_file)) = overlay.get("font_file") {
+                let name = font_file.trim().strip_prefix('/').unwrap_or(font_file);
+                if !Path::new(font_file).is_absolute() {
+                    let candidate = project_dir.join("brand_assets").join(
+                        Path::new(name)
+                            .file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                    );
+                    if let Err(message) = resolve_project_asset(&candidate, &project_dir) {
+                        eprintln!("ren: refused - {message}");
+                        return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
+                    }
+                } else if !Path::new(font_file).exists() {
+                    eprintln!("ren: refused - project asset '{font_file}' not found (checked absolute path)");
                     return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
                 }
-            } else if !Path::new(font_file).exists() {
-                eprintln!("ren: refused - project asset '{font_file}' not found (checked absolute path)");
-                return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
             }
         }
-    }
 
-    if fps_counts.len() > 1 {
-        eprintln!("REPORT: Mixed frame rates detected: {}", python_dict(&fps_counts));
-    }
-    if res_counts.len() > 1 {
-        eprintln!("REPORT: Mixed resolutions detected: {}", python_dict(&res_counts));
-    }
+        if fps_counts.len() > 1 {
+            eprintln!(
+                "REPORT: Mixed frame rates detected: {}",
+                python_dict(&fps_counts)
+            );
+        }
+        if res_counts.len() > 1 {
+            eprintln!(
+                "REPORT: Mixed resolutions detected: {}",
+                python_dict(&res_counts)
+            );
+        }
 
-    println!("Checking project folder for standalone scripts...");
-    for script in find_standalone_scripts(&project_dir) {
-        let relpath = pathdiff(Path::new(&script), &project_dir);
-        eprintln!("REPORT: Standalone Python script in project folder: {relpath}");
-    }
+        println!("Checking project folder for standalone scripts...");
+        for script in find_standalone_scripts(&project_dir) {
+            let relpath = pathdiff(Path::new(&script), &project_dir);
+            eprintln!("REPORT: Standalone Python script in project folder: {relpath}");
+        }
 
-    println!();
-    println!("Readiness check PASS.");
-    Ok(Outcome::Exited(0))
+        println!();
+        println!("Readiness check PASS.");
+        Ok(Outcome::Exited(0))
     })
 }
 
@@ -625,8 +683,8 @@ fn no_brand_template() -> Json {
 /// `load_brand_template` - parse a template file into the slots `check`
 /// reads, refusing an unknown slot key the way `Slots(**data)` does.
 fn load_brand_template(path: &Path) -> Result<Json, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let is_yaml = path
         .extension()
         .map(|e| {
@@ -648,31 +706,71 @@ fn load_brand_template(path: &Path) -> Result<Json, String> {
         Json::Object(pairs) => pairs,
         _ => vec![],
     };
-    if let Some(legacy) = style_data.iter().find(|(k, _)| k == "house_look").map(|(_, v)| v.clone()) {
+    if let Some(legacy) = style_data
+        .iter()
+        .find(|(k, _)| k == "house_look")
+        .map(|(_, v)| v.clone())
+    {
         if !style_data.iter().any(|(k, _)| k == "series_look") {
             style_data.push(("series_look".to_string(), legacy));
         }
     }
-    let style_keys = ["color_palette", "series_look", "reference_look_image", "typography", "energy_profile", "framing_intent", "tv_frame"];
+    let style_keys = [
+        "color_palette",
+        "series_look",
+        "reference_look_image",
+        "typography",
+        "energy_profile",
+        "framing_intent",
+        "tv_frame",
+    ];
     validate_slots("StyleSlots", &style_data, &style_keys)?;
     let effect = data.get("effect").cloned().unwrap_or(Json::Object(vec![]));
     let effect_pairs = match effect {
         Json::Object(pairs) => pairs,
         _ => vec![],
     };
-    let effect_keys = ["transition_types", "transition_duration_ms", "vfx_intensity", "subtitle_style", "sfx_density", "caption_case", "caption_words_per_card", "motion_accents", "motion_progress_bar", "timed_text_overlay"];
+    let effect_keys = [
+        "transition_types",
+        "transition_duration_ms",
+        "vfx_intensity",
+        "subtitle_style",
+        "sfx_density",
+        "caption_case",
+        "caption_words_per_card",
+        "motion_accents",
+        "motion_progress_bar",
+        "timed_text_overlay",
+    ];
     validate_slots("EffectSlots", &effect_pairs, &effect_keys)?;
     let content = data.get("content").cloned().unwrap_or(Json::Object(vec![]));
     let content_pairs = match content {
         Json::Object(pairs) => pairs,
         _ => vec![],
     };
-    let content_keys = ["series_title", "channel_name", "bookends", "closing_lockup", "watermark", "music_genre", "target_duration_seconds"];
+    let content_keys = [
+        "series_title",
+        "channel_name",
+        "bookends",
+        "closing_lockup",
+        "watermark",
+        "music_genre",
+        "target_duration_seconds",
+    ];
     validate_slots("ContentSlots", &content_pairs, &content_keys)?;
     let delivery_format = data.get("delivery_format").cloned().unwrap_or(Json::Null);
-    let delivery_format = if truthy(&delivery_format) { delivery_format } else { Json::str("") };
+    let delivery_format = if truthy(&delivery_format) {
+        delivery_format
+    } else {
+        Json::str("")
+    };
     Ok(Json::Object(vec![
-        ("series_id".to_string(), data.get("series_id").cloned().unwrap_or(Json::str("default"))),
+        (
+            "series_id".to_string(),
+            data.get("series_id")
+                .cloned()
+                .unwrap_or(Json::str("default")),
+        ),
         ("delivery_format".to_string(), delivery_format),
         ("style".to_string(), Json::Object(style_data)),
         ("effect".to_string(), Json::Object(effect_pairs)),
@@ -756,7 +854,12 @@ fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
                 ));
             }
         };
-        let get = |key: &str| declaration.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+        let get = |key: &str| {
+            declaration
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        };
         let composition = get("composition");
         let asset = get("asset");
         let source = get("source");
@@ -774,9 +877,8 @@ fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
         }
         if composition_truthy
             && !source.as_ref().map(truthy).unwrap_or(false)
-            && !ENGINE_BOOKEND_COMPOSITIONS.contains(
-                &composition.as_ref().and_then(|v| v.as_str()).unwrap_or(""),
-            )
+            && !ENGINE_BOOKEND_COMPOSITIONS
+                .contains(&composition.as_ref().and_then(|v| v.as_str()).unwrap_or(""))
         {
             return Err(format!(
                 "bookend '{slot}' names composition {composition:?}, which the engine does not register. Either point 'source' at the project's own .tsx file, or name one of {ENGINE_BOOKEND_COMPOSITIONS:?}"
@@ -840,8 +942,14 @@ fn resolve_project_asset_str(declared_path: &str, project_folder: &Path) -> Resu
     if base.is_file() {
         return Ok(base.to_string_lossy().to_string());
     }
-    let stem = base.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let ext = base.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = base
+        .extension()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     let index = base.with_file_name(format!("{stem}/index{ext}"));
     // Python: root, ext = splitext(base_path); if isdir(root): index = root/index{ext}
     let root = base.parent().unwrap_or(&base).to_path_buf();
@@ -854,7 +962,10 @@ fn resolve_project_asset_str(declared_path: &str, project_folder: &Path) -> Resu
     let _ = index;
     Err(format!(
         "project asset '{declared_path}' not found (checked flat file and {}/index{})",
-        Path::new(&stem).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
+        Path::new(&stem)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default(),
         ext
     ))
 }
@@ -890,7 +1001,11 @@ fn enumerate_footage(project_dir: &Path) -> Result<Vec<FootageFile>, String> {
                     .trim()
                     .to_string();
                 if !declared.is_empty() {
-                    let expanded = project::expand_portable_pub(&declared, project_dir, &engine::find_engine_root().unwrap_or_else(|| PathBuf::from(".")));
+                    let expanded = project::expand_portable_pub(
+                        &declared,
+                        project_dir,
+                        &engine::find_engine_root().unwrap_or_else(|| PathBuf::from(".")),
+                    );
                     let path = PathBuf::from(&expanded);
                     if path.is_absolute() {
                         path
@@ -953,8 +1068,9 @@ struct FootageFile {
     filename: String,
 }
 
-const SUPPORTED_VIDEO_EXTENSIONS: &[&str] =
-    &[".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v", ".webm", ".mxf"];
+const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &[
+    ".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v", ".webm", ".mxf",
+];
 
 fn walk(root: &Path) -> Vec<(PathBuf, Vec<String>)> {
     let mut out = vec![];
@@ -988,8 +1104,8 @@ struct Metadata {
 /// reads, and the error paths that make it refuse.
 fn probe_metadata(filepath: &Path) -> Result<Metadata, String> {
     let output = ffprobe(filepath)?;
-    let parsed: serde_json::Value = serde_json::from_str(&output)
-        .map_err(|_| "ffprobe returned invalid JSON".to_string())?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&output).map_err(|_| "ffprobe returned invalid JSON".to_string())?;
     let probe = parsed;
     let mut video_stream: Option<&serde_json::Value> = None;
     let mut has_audio = false;
@@ -1073,7 +1189,11 @@ fn ffprobe(filepath: &Path) -> Result<String, String> {
                 let output = child.wait_with_output().map_err(|e| format!("{e}"))?;
                 if !status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    let message = format!("ffprobe failed (exit {}): {}", status.code().unwrap_or(-1), &stderr[..stderr.len().min(200)]);
+                    let message = format!(
+                        "ffprobe failed (exit {}): {}",
+                        status.code().unwrap_or(-1),
+                        &stderr[..stderr.len().min(200)]
+                    );
                     eprintln!("WARNING: {message} for {}", filepath.display());
                     return Err(message);
                 }
@@ -1161,19 +1281,31 @@ fn pathdiff(path: &Path, base: &Path) -> String {
 /// `library.tools.paths.SFX_LIBRARY`.
 fn sfx_library(engine_root: &Path) -> PathBuf {
     let default = shared_assets(engine_root).join("sfx library");
-    let value = crate::config::get("PIPELINE_SFX_LIBRARY", &default.to_string_lossy(), engine_root);
+    let value = crate::config::get(
+        "PIPELINE_SFX_LIBRARY",
+        &default.to_string_lossy(),
+        engine_root,
+    );
     PathBuf::from(value)
 }
 
 /// `library.tools.paths.MUSIC_LIBRARY`.
 fn music_library(engine_root: &Path) -> PathBuf {
     let default = shared_assets(engine_root).join("music");
-    let value = crate::config::get("PIPELINE_MUSIC_LIBRARY", &default.to_string_lossy(), engine_root);
+    let value = crate::config::get(
+        "PIPELINE_MUSIC_LIBRARY",
+        &default.to_string_lossy(),
+        engine_root,
+    );
     PathBuf::from(value)
 }
 
 fn shared_assets(engine_root: &Path) -> PathBuf {
     let default = engine::home_dir().join("Movies").join("Ren").join("assets");
-    let value = crate::config::get("PIPELINE_SHARED_ASSETS", &default.to_string_lossy(), engine_root);
+    let value = crate::config::get(
+        "PIPELINE_SHARED_ASSETS",
+        &default.to_string_lossy(),
+        engine_root,
+    );
     PathBuf::from(value)
 }

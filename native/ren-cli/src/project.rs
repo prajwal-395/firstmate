@@ -20,8 +20,7 @@ const FORMAT_VERSION_KEY: &str = "project_format_version";
 const PROJECT_FORMAT_VERSION: i64 = 2;
 const MIN_SUPPORTED_FORMAT_VERSION: i64 = 0;
 
-const STATUS_VALUES: &[&str] =
-    &["draft", "in_progress", "review", "complete", "archived"];
+const STATUS_VALUES: &[&str] = &["draft", "in_progress", "review", "complete", "archived"];
 
 const DELIVERY_FORMATS: &[&str] = &[
     "vertical_1080x1920",
@@ -377,7 +376,10 @@ pub fn load_config(yaml_path: &Path, engine_root: &Path) -> Result<ProjectConfig
 
 fn extract_config(data: &Json, project_root: &Path, engine_root: &Path) -> ProjectConfig {
     let source_data = data.get("source").cloned().unwrap_or(Json::Object(vec![]));
-    let pipeline_data = data.get("pipeline").cloned().unwrap_or(Json::Object(vec![]));
+    let pipeline_data = data
+        .get("pipeline")
+        .cloned()
+        .unwrap_or(Json::Object(vec![]));
     let resolve_data = data.get("resolve").cloned().unwrap_or(Json::Object(vec![]));
 
     let source = SourceConfig {
@@ -443,7 +445,9 @@ fn extract_config(data: &Json, project_root: &Path, engine_root: &Path) -> Proje
             "full",
         ),
         graphics_renderer: or_default(
-            pipeline_data.get("graphics_renderer").unwrap_or(&Json::Null),
+            pipeline_data
+                .get("graphics_renderer")
+                .unwrap_or(&Json::Null),
             "remotion",
         ),
         tv_frame: pipeline_data.get("tv_frame").cloned(),
@@ -476,12 +480,8 @@ fn extract_config(data: &Json, project_root: &Path, engine_root: &Path) -> Proje
     };
 
     let resolve = ResolveConfig {
-        project_name: as_string_or_empty(
-            resolve_data.get("project_name").unwrap_or(&Json::Null),
-        ),
-        database: as_string_or_empty(
-            resolve_data.get("database").unwrap_or(&Json::str("local")),
-        ),
+        project_name: as_string_or_empty(resolve_data.get("project_name").unwrap_or(&Json::Null)),
+        database: as_string_or_empty(resolve_data.get("database").unwrap_or(&Json::str("local"))),
         folder: as_string_or_empty(resolve_data.get("folder").unwrap_or(&Json::Null)),
         timeline_name: as_string_or_empty(
             resolve_data
@@ -594,11 +594,13 @@ fn validate(config: &ProjectConfig) -> Vec<String> {
     if let Some(preset) = &config.pipeline.deliver_preset {
         match preset {
             Json::Object(pairs) => {
-                let unknown: Vec<&String> =
-                    pairs.iter().map(|(k, _)| k).filter(|k| !DELIVER_PRESET_KEYS.contains(&k.as_str())).collect();
+                let unknown: Vec<&String> = pairs
+                    .iter()
+                    .map(|(k, _)| k)
+                    .filter(|k| !DELIVER_PRESET_KEYS.contains(&k.as_str()))
+                    .collect();
                 if !unknown.is_empty() {
-                    let mut names: Vec<String> =
-                        unknown.iter().map(|s| s.to_string()).collect();
+                    let mut names: Vec<String> = unknown.iter().map(|s| s.to_string()).collect();
                     names.sort();
                     errors.push(format!(
                         "pipeline.deliver_preset declares {names:?}, which nothing \
@@ -652,8 +654,7 @@ fn validate(config: &ProjectConfig) -> Vec<String> {
                 "pipeline.attach_creative_brief must be true or false, got {}",
                 type_name(attach)
             ));
-        } else if matches!(attach, Json::Bool(true)) && config.pipeline.creative_brief.is_empty()
-        {
+        } else if matches!(attach, Json::Bool(true)) && config.pipeline.creative_brief.is_empty() {
             errors.push(
                 "pipeline.attach_creative_brief is true and no pipeline.creative_brief \
                  path is declared. Declare the path, or set attach_creative_brief to false."
@@ -695,11 +696,13 @@ fn validate(config: &ProjectConfig) -> Vec<String> {
     if let Some(typography) = &config.pipeline.subtitle_typography {
         match typography {
             Json::Object(pairs) => {
-                let unknown: Vec<&String> =
-                    pairs.iter().map(|(k, _)| k).filter(|k| !TYPOGRAPHY_KEYS.contains(&k.as_str())).collect();
+                let unknown: Vec<&String> = pairs
+                    .iter()
+                    .map(|(k, _)| k)
+                    .filter(|k| !TYPOGRAPHY_KEYS.contains(&k.as_str()))
+                    .collect();
                 if !unknown.is_empty() {
-                    let mut names: Vec<String> =
-                        unknown.iter().map(|s| s.to_string()).collect();
+                    let mut names: Vec<String> = unknown.iter().map(|s| s.to_string()).collect();
                     names.sort();
                     errors.push(format!(
                         "pipeline.subtitle_typography declares {names:?}, which nothing \
@@ -723,10 +726,7 @@ fn validate(config: &ProjectConfig) -> Vec<String> {
         for (index, entry) in tasks.iter().enumerate() {
             match entry {
                 Json::Object(pairs) => {
-                    let name = pairs
-                        .iter()
-                        .find(|(k, _)| k == "name")
-                        .map(|(_, v)| v);
+                    let name = pairs.iter().find(|(k, _)| k == "name").map(|(_, v)| v);
                     match name {
                         Some(Json::Str(s)) if !s.is_empty() => {}
                         _ => errors.push(format!(
@@ -863,7 +863,10 @@ fn sorted_list(values: &[&str]) -> String {
 pub fn config_to_dict(config: &ProjectConfig) -> Json {
     let mut source = vec![("fps".to_string(), config.source.fps.clone())];
     if !config.source.footage_root.is_empty() {
-        source.push(("footage_root".to_string(), Json::str(&config.source.footage_root)));
+        source.push((
+            "footage_root".to_string(),
+            Json::str(&config.source.footage_root),
+        ));
     }
     let language_is_en = matches!(&config.source.language, Json::Str(s) if s == "en");
     if !language_is_en {
@@ -873,10 +876,7 @@ pub fn config_to_dict(config: &ProjectConfig) -> Json {
         source.push(("shape".to_string(), Json::str(&config.source.shape)));
     }
     if let Some(speakers) = &config.source.speakers {
-        source.push((
-            "speakers".to_string(),
-            Json::Array(speakers.clone()),
-        ));
+        source.push(("speakers".to_string(), Json::Array(speakers.clone())));
     }
     if let Some(program_stream) = &config.source.program_stream {
         source.push(("program_stream".to_string(), program_stream.clone()));
@@ -889,8 +889,14 @@ pub fn config_to_dict(config: &ProjectConfig) -> Json {
     }
 
     let mut pipeline = vec![
-        ("brand_template".to_string(), Json::str(&config.pipeline.brand_template)),
-        ("delivery_format".to_string(), Json::str(&config.pipeline.delivery_format)),
+        (
+            "brand_template".to_string(),
+            Json::str(&config.pipeline.brand_template),
+        ),
+        (
+            "delivery_format".to_string(),
+            Json::str(&config.pipeline.delivery_format),
+        ),
     ];
     if let Some(preset) = &config.pipeline.deliver_preset {
         if truthy(preset) {
@@ -898,7 +904,10 @@ pub fn config_to_dict(config: &ProjectConfig) -> Json {
         }
     }
     if !config.pipeline.deliver_naming.is_empty() {
-        pipeline.push(("deliver_naming".to_string(), Json::str(&config.pipeline.deliver_naming)));
+        pipeline.push((
+            "deliver_naming".to_string(),
+            Json::str(&config.pipeline.deliver_naming),
+        ));
     }
     if let Some(framing) = &config.pipeline.framing_intent {
         pipeline.push(("framing_intent".to_string(), framing.clone()));
@@ -933,7 +942,10 @@ pub fn config_to_dict(config: &ProjectConfig) -> Json {
     if let Some(safe_zones) = &config.pipeline.safe_zones {
         pipeline.push(("safe_zones".to_string(), safe_zones.clone()));
     }
-    pipeline.push(("creative_brief".to_string(), Json::str(&config.pipeline.creative_brief)));
+    pipeline.push((
+        "creative_brief".to_string(),
+        Json::str(&config.pipeline.creative_brief),
+    ));
     if let Some(attach) = &config.pipeline.attach_creative_brief {
         let attach_bool = matches!(attach, Json::Bool(true));
         pipeline.push(("attach_creative_brief".to_string(), Json::Bool(attach_bool)));
@@ -953,18 +965,33 @@ pub fn config_to_dict(config: &ProjectConfig) -> Json {
             Json::Array(config.pipeline.creative_tasks.clone()),
         ));
     }
-    pipeline.push(("sfx_library".to_string(), Json::str(&config.pipeline.sfx_library)));
-    pipeline.push(("music_library".to_string(), Json::str(&config.pipeline.music_library)));
+    pipeline.push((
+        "sfx_library".to_string(),
+        Json::str(&config.pipeline.sfx_library),
+    ));
+    pipeline.push((
+        "music_library".to_string(),
+        Json::str(&config.pipeline.music_library),
+    ));
 
     let resolve = vec![
-        ("project_name".to_string(), Json::str(&config.resolve.project_name)),
+        (
+            "project_name".to_string(),
+            Json::str(&config.resolve.project_name),
+        ),
         ("database".to_string(), Json::str(&config.resolve.database)),
         ("folder".to_string(), Json::str(&config.resolve.folder)),
-        ("timeline_name".to_string(), Json::str(&config.resolve.timeline_name)),
+        (
+            "timeline_name".to_string(),
+            Json::str(&config.resolve.timeline_name),
+        ),
     ];
 
     let mut top = vec![
-        (FORMAT_VERSION_KEY.to_string(), config.project_format_version.clone()),
+        (
+            FORMAT_VERSION_KEY.to_string(),
+            config.project_format_version.clone(),
+        ),
         ("name".to_string(), config.name.clone()),
         ("slug".to_string(), config.slug.clone()),
         ("client".to_string(), config.client.clone()),
@@ -991,16 +1018,14 @@ fn resolve_paths(config: &mut ProjectConfig, engine_root: &Path) {
         config.pipeline.sfx_library =
             crate::config::get("PIPELINE_SFX_LIBRARY", &default, engine_root);
     } else {
-        config.pipeline.sfx_library =
-            expandvars(&expanduser(&config.pipeline.sfx_library));
+        config.pipeline.sfx_library = expandvars(&expanduser(&config.pipeline.sfx_library));
     }
     if config.pipeline.music_library.is_empty() {
         let default = commands_default_music(engine_root);
         config.pipeline.music_library =
             crate::config::get("PIPELINE_MUSIC_LIBRARY", &default, engine_root);
     } else {
-        config.pipeline.music_library =
-            expandvars(&expanduser(&config.pipeline.music_library));
+        config.pipeline.music_library = expandvars(&expanduser(&config.pipeline.music_library));
     }
 }
 
@@ -1047,7 +1072,10 @@ pub fn load_config_resolved(
 pub fn projects_root(engine_root: &Path) -> PathBuf {
     let value = crate::config::get("PIPELINE_PROJECTS_ROOT", "", engine_root);
     if value.is_empty() {
-        engine::home_dir().join("Movies").join("Ren").join("projects")
+        engine::home_dir()
+            .join("Movies")
+            .join("Ren")
+            .join("projects")
     } else {
         PathBuf::from(value)
     }
@@ -1288,7 +1316,10 @@ pub fn project_status(config: &ProjectConfig) -> Json {
             "project_root".to_string(),
             Json::str(project_dir.to_string_lossy().to_string()),
         ),
-        ("raw_footage_count".to_string(), Json::Int(raw_files.len() as i64)),
+        (
+            "raw_footage_count".to_string(),
+            Json::Int(raw_files.len() as i64),
+        ),
         (
             "pipeline_data_exists".to_string(),
             Json::Bool(pipeline_data_exists),
@@ -1385,7 +1416,10 @@ resolve:
 
     #[test]
     fn a_missing_project_is_not_found() {
-        let error = load_config(Path::new("/tmp/definitely-not-here/project.yaml"), Path::new("/tmp/engine"));
+        let error = load_config(
+            Path::new("/tmp/definitely-not-here/project.yaml"),
+            Path::new("/tmp/engine"),
+        );
         assert!(matches!(error, Err(LoadError::NotFound(_))));
     }
 
@@ -1425,8 +1459,14 @@ resolve:
             expand_portable("$ENGINE/ren/version.py", project, engine),
             "/tmp/engine/ren/version.py"
         );
-        assert_eq!(expand_portable("raw/clip.mp4", project, engine), "raw/clip.mp4");
-        assert_eq!(expand_portable("/abs/clip.mp4", project, engine), "/abs/clip.mp4");
+        assert_eq!(
+            expand_portable("raw/clip.mp4", project, engine),
+            "raw/clip.mp4"
+        );
+        assert_eq!(
+            expand_portable("/abs/clip.mp4", project, engine),
+            "/abs/clip.mp4"
+        );
     }
 
     fn unique_temp(label: &str) -> PathBuf {

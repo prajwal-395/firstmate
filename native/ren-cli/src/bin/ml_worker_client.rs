@@ -22,10 +22,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use ren_protocol::capability::CapabilityId;
 use ren_protocol::ml_worker::{
     MlWorkerError, MlWorkerMessage, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
 };
-use ren_protocol::capability::CapabilityId;
 use serde_json::{json, Value};
 
 const CAPABILITY_ID: &str = "ml.embed";
@@ -173,11 +173,13 @@ fn call_worker(
             detail: e.to_string(),
         })?;
 
-    let request_line = serde_json::to_string(&MlWorkerMessage::Request(request.clone()))
-        .map_err(|e| MlWorkerError {
-            code: "ML_WORKER_SERIALIZE_FAILED".to_string(),
-            what: "cannot serialize the request".to_string(),
-            detail: e.to_string(),
+    let request_line =
+        serde_json::to_string(&MlWorkerMessage::Request(request.clone())).map_err(|e| {
+            MlWorkerError {
+                code: "ML_WORKER_SERIALIZE_FAILED".to_string(),
+                what: "cannot serialize the request".to_string(),
+                detail: e.to_string(),
+            }
         })?;
 
     {
@@ -250,9 +252,7 @@ fn print_response(response: &MlWorkerResponse) {
                 let vectors = payload["vectors"].as_array().map(|v| v.len()).unwrap_or(0);
                 let dimension = payload["dimension"].as_i64().unwrap_or(0);
                 let model = payload["model"].as_str().unwrap_or("unknown");
-                println!(
-                    "ok: {vectors} vectors, dimension {dimension}, model {model}"
-                );
+                println!("ok: {vectors} vectors, dimension {dimension}, model {model}");
             } else {
                 println!("ok: (no payload)");
             }

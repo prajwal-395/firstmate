@@ -92,7 +92,9 @@ impl PartialOrd for OrderedF64 {
 
 impl Ord for OrderedF64 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.partial_cmp(&other.0).unwrap_or(std::cmp::Ordering::Equal)
+        self.0
+            .partial_cmp(&other.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -140,5 +142,3 @@ pub fn next_job(
     }
     None
 }
-
-

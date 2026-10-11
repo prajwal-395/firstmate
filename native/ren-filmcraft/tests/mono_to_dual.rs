@@ -160,12 +160,12 @@ fn channel_rms(render: &Path, ch: u32) -> f64 {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        output.stdout.len() % 2 == 0 && !output.stdout.is_empty(),
+        output.stdout.len().is_multiple_of(2) && !output.stdout.is_empty(),
         "channel {ch} decoded to no audio"
     );
     let mut sum = 0.0;
     let mut count = 0usize;
-    for pair in output.stdout.chunks_exact(2) {
+    for pair in output.stdout.as_chunks::<2>().0 {
         let sample = i16::from_le_bytes([pair[0], pair[1]]) as f64 / 32768.0;
         sum += sample * sample;
         count += 1;

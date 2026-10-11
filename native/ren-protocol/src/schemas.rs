@@ -38,7 +38,11 @@ pub struct NamedSchema {
 }
 
 fn named(name: &'static str, title: &'static str, schema: Schema) -> NamedSchema {
-    NamedSchema { name, title, schema }
+    NamedSchema {
+        name,
+        title,
+        schema,
+    }
 }
 
 /// Every protocol type's schema, in one enumeration. The list IS the
@@ -47,7 +51,11 @@ fn named(name: &'static str, title: &'static str, schema: Schema) -> NamedSchema
 pub fn all_schemas() -> Vec<NamedSchema> {
     vec![
         named("capability-id", "CapabilityId", schema_for!(CapabilityId)),
-        named("capability-spec", "CapabilitySpec", schema_for!(CapabilitySpec)),
+        named(
+            "capability-spec",
+            "CapabilitySpec",
+            schema_for!(CapabilitySpec),
+        ),
         named("executor", "Executor", schema_for!(Executor)),
         named("executor-kind", "ExecutorKind", schema_for!(ExecutorKind)),
         named("legacy-node", "LegacyNode", schema_for!(LegacyNode)),
@@ -55,9 +63,21 @@ pub fn all_schemas() -> Vec<NamedSchema> {
         named("resolve-mode", "ResolveMode", schema_for!(ResolveMode)),
         named("locality", "Locality", schema_for!(Locality)),
         named("freshness", "Freshness", schema_for!(Freshness)),
-        named("execution-phase", "ExecutionPhase", schema_for!(ExecutionPhase)),
-        named("patch-semantics", "PatchSemantics", schema_for!(PatchSemantics)),
-        named("execution-policy", "ExecutionPolicy", schema_for!(ExecutionPolicy)),
+        named(
+            "execution-phase",
+            "ExecutionPhase",
+            schema_for!(ExecutionPhase),
+        ),
+        named(
+            "patch-semantics",
+            "PatchSemantics",
+            schema_for!(PatchSemantics),
+        ),
+        named(
+            "execution-policy",
+            "ExecutionPolicy",
+            schema_for!(ExecutionPolicy),
+        ),
         named("cost-class", "CostClass", schema_for!(CostClass)),
         named("scope", "Scope", schema_for!(Scope)),
         named("region", "Region", schema_for!(Region)),
@@ -71,7 +91,11 @@ pub fn all_schemas() -> Vec<NamedSchema> {
         named("condition", "Condition", schema_for!(Condition)),
         named("edit-patch", "EditPatch", schema_for!(EditPatch)),
         named("receipt", "Receipt", schema_for!(Receipt)),
-        named("receipt-status", "ReceiptStatus", schema_for!(ReceiptStatus)),
+        named(
+            "receipt-status",
+            "ReceiptStatus",
+            schema_for!(ReceiptStatus),
+        ),
         named(
             "judged-operation",
             "JudgedOperation",
@@ -83,9 +107,17 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             schema_for!(StoppedOperation),
         ),
         named("refusal", "Refusal", schema_for!(Refusal)),
-        named("generation-record", "GenerationRecord", schema_for!(GenerationRecord)),
+        named(
+            "generation-record",
+            "GenerationRecord",
+            schema_for!(GenerationRecord),
+        ),
         named("resource-name", "ResourceName", schema_for!(ResourceName)),
-        named("resource-demand", "ResourceDemand", schema_for!(ResourceDemand)),
+        named(
+            "resource-demand",
+            "ResourceDemand",
+            schema_for!(ResourceDemand),
+        ),
         named(
             "verification-finding",
             "VerificationFinding",
@@ -94,17 +126,57 @@ pub fn all_schemas() -> Vec<NamedSchema> {
         named("job-kind", "JobKind", schema_for!(JobKind)),
         named("job-mode", "JobMode", schema_for!(JobMode)),
         named("job-priority", "JobPriority", schema_for!(JobPriority)),
-        named("job-submission", "JobSubmission", schema_for!(JobSubmission)),
+        named(
+            "job-submission",
+            "JobSubmission",
+            schema_for!(JobSubmission),
+        ),
         named("job-shape", "JobShape", schema_for!(JobShape)),
-        named("ml-worker-message", "MlWorkerMessage", schema_for!(MlWorkerMessage)),
-        named("ml-worker-request", "MlWorkerRequest", schema_for!(MlWorkerRequest)),
-        named("ml-worker-response", "MlWorkerResponse", schema_for!(MlWorkerResponse)),
-        named("ml-worker-status", "MlWorkerStatus", schema_for!(MlWorkerStatus)),
-        named("ml-worker-refusal", "MlWorkerRefusal", schema_for!(MlWorkerRefusal)),
-        named("ml-worker-error", "MlWorkerError", schema_for!(MlWorkerError)),
-        named("ml-worker-progress", "MlWorkerProgress", schema_for!(MlWorkerProgress)),
-        named("ml-worker-cancel", "MlWorkerCancel", schema_for!(MlWorkerCancel)),
-        named("ml-worker-health", "MlWorkerHealth", schema_for!(MlWorkerHealth)),
+        named(
+            "ml-worker-message",
+            "MlWorkerMessage",
+            schema_for!(MlWorkerMessage),
+        ),
+        named(
+            "ml-worker-request",
+            "MlWorkerRequest",
+            schema_for!(MlWorkerRequest),
+        ),
+        named(
+            "ml-worker-response",
+            "MlWorkerResponse",
+            schema_for!(MlWorkerResponse),
+        ),
+        named(
+            "ml-worker-status",
+            "MlWorkerStatus",
+            schema_for!(MlWorkerStatus),
+        ),
+        named(
+            "ml-worker-refusal",
+            "MlWorkerRefusal",
+            schema_for!(MlWorkerRefusal),
+        ),
+        named(
+            "ml-worker-error",
+            "MlWorkerError",
+            schema_for!(MlWorkerError),
+        ),
+        named(
+            "ml-worker-progress",
+            "MlWorkerProgress",
+            schema_for!(MlWorkerProgress),
+        ),
+        named(
+            "ml-worker-cancel",
+            "MlWorkerCancel",
+            schema_for!(MlWorkerCancel),
+        ),
+        named(
+            "ml-worker-health",
+            "MlWorkerHealth",
+            schema_for!(MlWorkerHealth),
+        ),
         named(
             "ml-worker-health-report",
             "MlWorkerHealthReport",
@@ -114,28 +186,68 @@ pub fn all_schemas() -> Vec<NamedSchema> {
         named("project-id", "ProjectId", schema_for!(ProjectId)),
         named("project-clock-id", "ClockId", schema_for!(ClockId)),
         named("project-time-domain", "TimeDomain", schema_for!(TimeDomain)),
-        named("project-source-stream", "SourceStream", schema_for!(SourceStream)),
+        named(
+            "project-source-stream",
+            "SourceStream",
+            schema_for!(SourceStream),
+        ),
         named("project-asset", "Asset", schema_for!(Asset)),
         named("project-clock", "Clock", schema_for!(Clock)),
         named("project-interval", "Interval", schema_for!(Interval)),
-        named("project-observation", "Observation", schema_for!(Observation)),
+        named(
+            "project-observation",
+            "Observation",
+            schema_for!(Observation),
+        ),
         named("project-entity", "Entity", schema_for!(Entity)),
-        named("project-identity-link", "IdentityLink", schema_for!(IdentityLink)),
+        named(
+            "project-identity-link",
+            "IdentityLink",
+            schema_for!(IdentityLink),
+        ),
         named("project-mask", "Mask", schema_for!(Mask)),
-        named("project-object-class", "ObjectClass", schema_for!(ObjectClass)),
-        named("project-track-sample", "TrackSample", schema_for!(TrackSample)),
-        named("project-object-track", "ObjectTrack", schema_for!(ObjectTrack)),
+        named(
+            "project-object-class",
+            "ObjectClass",
+            schema_for!(ObjectClass),
+        ),
+        named(
+            "project-track-sample",
+            "TrackSample",
+            schema_for!(TrackSample),
+        ),
+        named(
+            "project-object-track",
+            "ObjectTrack",
+            schema_for!(ObjectTrack),
+        ),
         named("project-relation", "Relation", schema_for!(Relation)),
         named("project-clip-use", "ClipUse", schema_for!(ClipUse)),
-        named("project-editorial-intent", "EditorialIntent", schema_for!(EditorialIntent)),
-        named("project-edit-operation", "EditOperation", schema_for!(EditOperation)),
+        named(
+            "project-editorial-intent",
+            "EditorialIntent",
+            schema_for!(EditorialIntent),
+        ),
+        named(
+            "project-edit-operation",
+            "EditOperation",
+            schema_for!(EditOperation),
+        ),
         named("project-effect", "Effect", schema_for!(Effect)),
         named("project-keyframe", "Keyframe", schema_for!(Keyframe)),
         named("project-render", "Render", schema_for!(Render)),
         named("project-frame-map", "FrameMap", schema_for!(FrameMap)),
-        named("project-frame-map-segment", "FrameMapSegment", schema_for!(FrameMapSegment)),
+        named(
+            "project-frame-map-segment",
+            "FrameMapSegment",
+            schema_for!(FrameMapSegment),
+        ),
         named("project-nle-binding", "NleBinding", schema_for!(NleBinding)),
-        named("project-render-receipt", "RenderReceipt", schema_for!(RenderReceipt)),
+        named(
+            "project-render-receipt",
+            "RenderReceipt",
+            schema_for!(RenderReceipt),
+        ),
         named("project-provenance", "Provenance", schema_for!(Provenance)),
     ]
 }
@@ -145,7 +257,10 @@ pub fn all_schemas() -> Vec<NamedSchema> {
 pub fn schema_map() -> BTreeMap<String, serde_json::Value> {
     let mut out = BTreeMap::new();
     for entry in all_schemas() {
-        out.insert(entry.name.to_string(), serde_json::to_value(&entry.schema).unwrap());
+        out.insert(
+            entry.name.to_string(),
+            serde_json::to_value(&entry.schema).unwrap(),
+        );
     }
     out
 }

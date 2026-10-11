@@ -132,11 +132,11 @@ impl JobStore {
         conn.execute_batch(SCHEMA)?;
         let has_interrupt_policy = {
             let mut statement = conn.prepare("PRAGMA table_info(jobs)")?;
-            let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
-            let has = columns
+            let names: Vec<String> = statement
+                .query_map([], |row| row.get::<_, String>(1))?
                 .filter_map(Result::ok)
-                .any(|name| name == "interrupt_policy");
-            has
+                .collect();
+            names.iter().any(|name| name == "interrupt_policy")
         };
         if !has_interrupt_policy {
             conn.execute(
@@ -163,7 +163,9 @@ impl JobStore {
              WHERE state IN ('queued', 'running')",
             params![now()],
         )?;
-        Ok(JobStore { conn: Mutex::new(conn) })
+        Ok(JobStore {
+            conn: Mutex::new(conn),
+        })
     }
 
     fn insert_job(&self, job: &JobRecord) -> rusqlite::Result<()> {
@@ -256,11 +258,7 @@ impl JobStore {
         Ok(None)
     }
 
-    fn insert_job_with(
-        &self,
-        tx: &rusqlite::Transaction,
-        job: &JobRecord,
-    ) -> rusqlite::Result<()> {
+    fn insert_job_with(&self, tx: &rusqlite::Transaction, job: &JobRecord) -> rusqlite::Result<()> {
         tx.execute(
             "INSERT INTO jobs (id, kind, priority, mode, executed, params, \
              project, timeline, qualification, coalesce_key, interrupt_policy, \
@@ -320,7 +318,9 @@ impl JobStore {
     }
 
     pub fn get(&self, job_id: &str) -> Option<Receipt> {
-        self.conn.lock().unwrap()
+        self.conn
+            .lock()
+            .unwrap()
             .query_row(
                 &format!("SELECT {RECEIPT_COLUMNS} FROM jobs WHERE id=?1"),
                 params![job_id],
@@ -332,20 +332,24 @@ impl JobStore {
     }
 
     pub fn interrupt_policy(&self, job_id: &str) -> Option<String> {
-        self.conn.lock().unwrap().query_row(
-            "SELECT interrupt_policy FROM jobs WHERE id=?1",
-            params![job_id],
-            |row| row.get(0),
-        ).optional().ok().flatten()
+        self.conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT interrupt_policy FROM jobs WHERE id=?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
     }
 
     pub fn recent(&self, limit: i64) -> Vec<Receipt> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = match conn
-            .prepare(&format!(
-                "SELECT {RECEIPT_COLUMNS} FROM jobs ORDER BY submitted DESC LIMIT ?1"
-            ))
-        {
+        let mut stmt = match conn.prepare(&format!(
+            "SELECT {RECEIPT_COLUMNS} FROM jobs ORDER BY submitted DESC LIMIT ?1"
+        )) {
             Ok(stmt) => stmt,
             Err(_) => return Vec::new(),
         };
@@ -396,10 +400,7 @@ fn receipt_from_row(row: &Row) -> rusqlite::Result<Receipt> {
 }
 
 fn conflict(message: String) -> rusqlite::Error {
-    rusqlite::Error::SqliteFailure(
-        rusqlite::ffi::Error::new(19),
-        Some(message),
-    )
+    rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(19), Some(message))
 }
 
 /// A DB-ready value for the store's `update`: the JSON values the broker

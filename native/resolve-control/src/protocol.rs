@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub type Json = serde_json::Value;
 
@@ -70,8 +69,8 @@ pub fn err_code(e: &DriverError) -> &'static str {
         DriverError::ForegroundNotAllowed(_) => "FOREGROUND_NOT_ALLOWED",
         DriverError::TargetNotRunning(_) => "TARGET_NOT_RUNNING",
         DriverError::SkyLightUnavailable(_) => "SKYLIGHT_UNAVAILABLE",
-            DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
-            DriverError::ActivationFailed(_) => "ACTIVATION_FAILED",
+        DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
+        DriverError::ActivationFailed(_) => "ACTIVATION_FAILED",
         DriverError::Internal(_) => "INTERNAL",
     }
 }
@@ -131,37 +130,26 @@ impl DriverError {
 
 pub type DriverResult<T> = Result<T, DriverError>;
 
-pub fn get_param<'a>(params: &'a Json, key: &str) -> Option<&'a Json> {
-    params.get(key)
-}
-
 pub fn get_param_str(params: &Json, key: &str) -> DriverResult<String> {
     params
         .get(key)
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| DriverError::InvalidParams(format!("missing or non-string parameter: {}", key)))
+        .ok_or_else(|| {
+            DriverError::InvalidParams(format!("missing or non-string parameter: {}", key))
+        })
 }
 
 pub fn get_param_f64(params: &Json, key: &str) -> DriverResult<f64> {
-    params
-        .get(key)
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| DriverError::InvalidParams(format!("missing or non-numeric parameter: {}", key)))
+    params.get(key).and_then(|v| v.as_f64()).ok_or_else(|| {
+        DriverError::InvalidParams(format!("missing or non-numeric parameter: {}", key))
+    })
 }
 
 pub fn get_param_u64(params: &Json, key: &str) -> DriverResult<u64> {
-    params
-        .get(key)
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| DriverError::InvalidParams(format!("missing or non-integer parameter: {}", key)))
-}
-
-pub fn get_param_bool(params: &Json, key: &str, default: bool) -> bool {
-    params
-        .get(key)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_u64()).ok_or_else(|| {
+        DriverError::InvalidParams(format!("missing or non-integer parameter: {}", key))
+    })
 }
 
 pub fn frame_to_json(frame: &Frame) -> Json {
@@ -182,10 +170,6 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
-    }
-
     /// Window-relative containment: input coordinates arrive relative
     /// to the window's own origin (the driver adds the frame offset
     /// when posting), so the check runs against (0,0)-(width,height).
@@ -195,10 +179,4 @@ impl Frame {
     pub fn contains_rel(&self, x: f64, y: f64) -> bool {
         x >= 0.0 && x <= self.width && y >= 0.0 && y <= self.height
     }
-
-    pub fn center(&self) -> (f64, f64) {
-        (self.x + self.width / 2.0, self.y + self.height / 2.0)
-    }
 }
-
-pub type RefTable = HashMap<String, ()>;

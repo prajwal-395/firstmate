@@ -28,8 +28,6 @@ pub struct JobView {
     pub executed: bool,
 }
 
-
-
 /// A submission's outcome: the job's id and whether it coalesced.
 pub struct Submission {
     pub id: String,
@@ -113,9 +111,14 @@ impl Broker {
 
     /// Validate and queue one submission. Refuses what `jobs.prepare`
     /// refuses - a non-conforming job is never queued.
-    pub fn submit(&self, kind: &str, params: Value, owner: &str,
-                  qualification: bool, idempotency_key: Option<&str>)
-                  -> Result<Submission, Refusal> {
+    pub fn submit(
+        &self,
+        kind: &str,
+        params: Value,
+        owner: &str,
+        qualification: bool,
+        idempotency_key: Option<&str>,
+    ) -> Result<Submission, Refusal> {
         if let Some(handle) = self.watchdog.lock().unwrap().as_ref() {
             if handle.is_degraded() {
                 let status = handle.status();
@@ -124,8 +127,17 @@ impl Broker {
                         "Resolve is unresponsive: {} (holder: {}, job: {}). \
                          Restart Resolve, then retry.",
                         status.degraded_reason,
-                        if status.holder.is_empty() { "none" } else { &status.holder },
-                        if status.job_id.is_empty() { "none" } else { &status.job_id }),
+                        if status.holder.is_empty() {
+                            "none"
+                        } else {
+                            &status.holder
+                        },
+                        if status.job_id.is_empty() {
+                            "none"
+                        } else {
+                            &status.job_id
+                        }
+                    ),
                 });
             }
         }
@@ -161,7 +173,10 @@ impl Broker {
                 if let Some(joined) = state.coalesce.get(key).cloned() {
                     drop(state);
                     self.store.add_subscriber(&joined).ok();
-                    return Ok(Submission { id: joined, coalesced: true });
+                    return Ok(Submission {
+                        id: joined,
+                        coalesced: true,
+                    });
                 }
             }
         }
@@ -169,17 +184,24 @@ impl Broker {
             let digest = idempotency_digest(kind, &record.params, key);
             match self.store.insert_idempotent(&record, kind, key, &digest) {
                 Ok(Some(previous)) => {
-                    if previous.state != "done" && previous.state != "failed"
+                    if previous.state != "done"
+                        && previous.state != "failed"
                         && previous.state != "rejected"
-                        && previous.state != "cancelled" {
+                        && previous.state != "cancelled"
+                    {
                         drop(state);
                         self.store.add_subscriber(&previous.id).ok();
                     }
-                    return Ok(Submission { id: previous.id, coalesced: true });
+                    return Ok(Submission {
+                        id: previous.id,
+                        coalesced: true,
+                    });
                 }
                 Ok(None) => {}
                 Err(exc) => {
-                    return Err(Refusal { message: exc.to_string() });
+                    return Err(Refusal {
+                        message: exc.to_string(),
+                    });
                 }
             }
         } else {
@@ -187,17 +209,20 @@ impl Broker {
                 message: exc.to_string(),
             })?;
         }
-        state.queued.insert(job_id.clone(), Pending {
-            id: job_id.clone(),
-            priority: shape.priority.clone(),
-            mode: shape.mode.clone(),
-            submitted: now,
-            project: shape.project.clone(),
-            timeline: shape.timeline.clone(),
-            executed: shape.executed,
-            qualification,
-            locality: shape.locality.clone(),
-        });
+        state.queued.insert(
+            job_id.clone(),
+            Pending {
+                id: job_id.clone(),
+                priority: shape.priority.clone(),
+                mode: shape.mode.clone(),
+                submitted: now,
+                project: shape.project.clone(),
+                timeline: shape.timeline.clone(),
+                executed: shape.executed,
+                qualification,
+                locality: shape.locality.clone(),
+            },
+        );
         if let Some(key) = &shape.coalesce_key {
             state.coalesce.insert(key.clone(), job_id.clone());
         }
@@ -205,41 +230,82 @@ impl Broker {
             state.started.insert(job_id.clone(), false);
         }
         cond.notify_all();
-        Ok(Submission { id: job_id, coalesced: false })
+        Ok(Submission {
+            id: job_id,
+            coalesced: false,
+        })
     }
 
     /// Run `jobs.prepare` in the worker: the schedulable shape of one
     /// submission, or its refusal.
-    fn prepare(&self, kind: &str, params: &Value, qualification: bool)
-               -> Result<PreparedShape, Refusal> {
+    fn prepare(
+        &self,
+        kind: &str,
+        params: &Value,
+        qualification: bool,
+    ) -> Result<PreparedShape, Refusal> {
         let request = worker::prepare_request(kind, params, qualification);
-        let response = self.prepare_worker.lock().unwrap().run(&request)
+        let response = self
+            .prepare_worker
+            .lock()
+            .unwrap()
+            .run(&request)
             .map_err(|exc| Refusal { message: exc })?;
         if !response.ok {
-            return Err(Refusal { message: response.error });
+            return Err(Refusal {
+                message: response.error,
+            });
         }
         let result = response.result.unwrap_or(Value::Null);
         Ok(PreparedShape {
-            mode: result.get("mode").and_then(|v| v.as_str())
-                .unwrap_or("shared").to_string(),
-            priority: result.get("priority").and_then(|v| v.as_str())
-                .unwrap_or("read").to_string(),
-            executed: result.get("executed").and_then(|v| v.as_bool())
+            mode: result
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("shared")
+                .to_string(),
+            priority: result
+                .get("priority")
+                .and_then(|v| v.as_str())
+                .unwrap_or("read")
+                .to_string(),
+            executed: result
+                .get("executed")
+                .and_then(|v| v.as_bool())
                 .unwrap_or(false),
-            project: result.get("project").and_then(|v| v.as_str())
-                .unwrap_or("").to_string(),
-            timeline: result.get("timeline").and_then(|v| v.as_str())
-                .unwrap_or("").to_string(),
-            locality: result.get("locality").and_then(|v| v.as_str())
-                .unwrap_or("none").to_string(),
-            coalesce_key: result.get("coalesce_key")
-                .and_then(|v| v.as_str()).map(String::from),
-            interrupt_policy: result.get("interrupt_policy")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            description: result.get("description")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            progress: result.get("progress")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            project: result
+                .get("project")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            timeline: result
+                .get("timeline")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            locality: result
+                .get("locality")
+                .and_then(|v| v.as_str())
+                .unwrap_or("none")
+                .to_string(),
+            coalesce_key: result
+                .get("coalesce_key")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            interrupt_policy: result
+                .get("interrupt_policy")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            description: result
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            progress: result
+                .get("progress")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         })
     }
 
@@ -267,7 +333,10 @@ impl Broker {
                 return false;
             }
             let (next, _) = cond
-                .wait_timeout(state, std::time::Duration::from_secs_f64(remaining.min(1.0)))
+                .wait_timeout(
+                    state,
+                    std::time::Duration::from_secs_f64(remaining.min(1.0)),
+                )
                 .unwrap();
             state = next;
             if state.stopping {
@@ -283,7 +352,12 @@ impl Broker {
         let mut state = lock.lock().unwrap();
         loop {
             let job = self.store.get(job_id);
-            if job.is_none() || job.as_ref().map(|j| TERMINAL.contains(&j.state.as_str())).unwrap_or(false) {
+            if job.is_none()
+                || job
+                    .as_ref()
+                    .map(|j| TERMINAL.contains(&j.state.as_str()))
+                    .unwrap_or(false)
+            {
                 return job;
             }
             let remaining = deadline - crate::store::now();
@@ -291,7 +365,10 @@ impl Broker {
                 return job;
             }
             let (next, _) = cond
-                .wait_timeout(state, std::time::Duration::from_secs_f64(remaining.min(1.0)))
+                .wait_timeout(
+                    state,
+                    std::time::Duration::from_secs_f64(remaining.min(1.0)),
+                )
                 .unwrap();
             state = next;
         }
@@ -304,11 +381,16 @@ impl Broker {
         if state.queued.remove(job_id).is_some() {
             self.forget(&mut state, job_id);
             state.started.remove(job_id);
-            self.store.update(job_id, &[
-                ("state", json!("cancelled")),
-                ("finished", json!(crate::store::now())),
-                ("error", json!(reason)),
-            ]).ok();
+            self.store
+                .update(
+                    job_id,
+                    &[
+                        ("state", json!("cancelled")),
+                        ("finished", json!(crate::store::now())),
+                        ("error", json!(reason)),
+                    ],
+                )
+                .ok();
             cond.notify_all();
         }
         self.store.get(job_id)
@@ -328,13 +410,19 @@ impl Broker {
         }
         let job = self.store.get(job_id);
         let Some(job) = job else { return Ok(None) };
-        if self.store.interrupt_policy(job_id).unwrap_or_default().is_empty() {
+        if self
+            .store
+            .interrupt_policy(job_id)
+            .unwrap_or_default()
+            .is_empty()
+        {
             return Err(format!(
                 "{} has no safe running cancellation path; Resolve remains shielded until it finishes",
                 job.kind));
         }
         let marker = crate::server::lock_dir()
-            .join("ren-resolved-cancel").join(job_id);
+            .join("ren-resolved-cancel")
+            .join(job_id);
         std::fs::create_dir_all(marker.parent().unwrap())
             .map_err(|exc| format!("could not prepare safe Stop request: {exc}"))?;
         std::fs::write(marker, b"requested\n")
@@ -352,28 +440,35 @@ impl Broker {
             return;
         }
         drop(locked);
-        self.cancel(job_id, if error.is_empty() {
-            "the client left before its turn"
-        } else {
-            error
-        });
+        self.cancel(
+            job_id,
+            if error.is_empty() {
+                "the client left before its turn"
+            } else {
+                error
+            },
+        );
     }
 
     /// The running jobs, as the `list` and `acquire` replies report them.
     pub fn running(&self) -> Vec<RunningJob> {
         let (lock, _) = &*self.state;
         let state = lock.lock().unwrap();
-        state.running.values().map(|p| RunningJob {
-            id: p.id.clone(),
-            priority: p.priority.clone(),
-            mode: p.mode.clone(),
-            submitted: p.submitted,
-            project: p.project.clone(),
-            timeline: p.timeline.clone(),
-            executed: p.executed,
-            qualification: p.qualification,
-            locality: p.locality.clone(),
-        }).collect()
+        state
+            .running
+            .values()
+            .map(|p| RunningJob {
+                id: p.id.clone(),
+                priority: p.priority.clone(),
+                mode: p.mode.clone(),
+                submitted: p.submitted,
+                project: p.project.clone(),
+                timeline: p.timeline.clone(),
+                executed: p.executed,
+                qualification: p.qualification,
+                locality: p.locality.clone(),
+            })
+            .collect()
     }
 
     pub fn stop(&self) {
@@ -388,7 +483,12 @@ impl Broker {
     fn forget(&self, state: &mut State, job_id: &str) {
         if let Some(job) = self.store.get(job_id) {
             if let Some(key) = &job.coalesce_key {
-                if state.coalesce.get(key).map(|id| id == job_id).unwrap_or(false) {
+                if state
+                    .coalesce
+                    .get(key)
+                    .map(|id| id == job_id)
+                    .unwrap_or(false)
+                {
                     state.coalesce.remove(key);
                 }
             }
@@ -396,8 +496,14 @@ impl Broker {
     }
 
     /// Move a running job to a terminal state. The caller holds the lock.
-    fn finish(&self, state: &mut State, job_id: &str, job_state: &str,
-              result: Option<Value>, error: &str) {
+    fn finish(
+        &self,
+        state: &mut State,
+        job_id: &str,
+        job_state: &str,
+        result: Option<Value>,
+        error: &str,
+    ) {
         state.running.remove(job_id);
         self.forget(state, job_id);
         // A grant refused before it started wakes its waiter, which then
@@ -445,7 +551,9 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
         let next = match next {
             Some(next) => next,
             None => {
-                let (next, _) = cond.wait_timeout(state, std::time::Duration::from_secs(1)).unwrap();
+                let (next, _) = cond
+                    .wait_timeout(state, std::time::Duration::from_secs(1))
+                    .unwrap();
                 state = next;
                 continue;
             }
@@ -455,10 +563,15 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
         if !next.project.is_empty() {
             state.cursor = (next.project.clone(), next.timeline.clone());
         }
-        store.update(&next.id, &[
-            ("state", json!("running")),
-            ("started", json!(crate::store::now())),
-        ]).ok();
+        store
+            .update(
+                &next.id,
+                &[
+                    ("state", json!("running")),
+                    ("started", json!(crate::store::now())),
+                ],
+            )
+            .ok();
         if next.executed || next.qualification {
             state.executor_queue.push(next.id.clone());
         } else {
@@ -468,8 +581,11 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
     }
 }
 
-fn execute_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>,
-                execution_worker: Arc<Mutex<worker::Worker>>) {
+fn execute_loop(
+    state: Arc<(Mutex<State>, Condvar)>,
+    store: Arc<JobStore>,
+    execution_worker: Arc<Mutex<worker::Worker>>,
+) {
     let (lock, cond) = &*state;
     loop {
         let job_id = {
@@ -482,7 +598,9 @@ fn execute_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>,
                     state.executor_queue.remove(0);
                     break id;
                 }
-                let (next, _) = cond.wait_timeout(state, std::time::Duration::from_secs(1)).unwrap();
+                let (next, _) = cond
+                    .wait_timeout(state, std::time::Duration::from_secs(1))
+                    .unwrap();
                 state = next;
             }
         };
@@ -517,12 +635,23 @@ fn execute_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>,
 }
 
 /// Move a running job to a terminal state. The caller holds the lock.
-fn finish_job(store: &JobStore, state: &mut State, job_id: &str,
-              job_state: &str, result: Option<Value>, error: &str) {
+fn finish_job(
+    store: &JobStore,
+    state: &mut State,
+    job_id: &str,
+    job_state: &str,
+    result: Option<Value>,
+    error: &str,
+) {
     state.running.remove(job_id);
     if let Some(job) = store.get(job_id) {
         if let Some(key) = &job.coalesce_key {
-            if state.coalesce.get(key).map(|id| id == job_id).unwrap_or(false) {
+            if state
+                .coalesce
+                .get(key)
+                .map(|id| id == job_id)
+                .unwrap_or(false)
+            {
                 state.coalesce.remove(key);
             }
         }
@@ -545,8 +674,10 @@ fn finish_job(store: &JobStore, state: &mut State, job_id: &str,
 ///
 /// The worker holds the instance lease for the whole job, connection
 /// included - the daemon is a Rust process and the flock lives in Python.
-fn run_job(view: &JobView, worker: &std::sync::Mutex<worker::Worker>)
-           -> (String, Option<Value>, String) {
+fn run_job(
+    view: &JobView,
+    worker: &std::sync::Mutex<worker::Worker>,
+) -> (String, Option<Value>, String) {
     let request = worker::job_request(view);
     let response = match worker.lock().unwrap().run(&request) {
         Ok(response) => response,
@@ -613,21 +744,20 @@ fn sort_value(value: &Value) -> Value {
 fn sha256(bytes: &[u8]) -> String {
     // A small, dependency-free SHA-256 for the idempotency digest.
     let mut state: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
     ];
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-        0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-        0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
     let mut message = bytes.to_vec();
     let bit_len = (bytes.len() as u64) * 8;
@@ -639,12 +769,20 @@ fn sha256(bytes: &[u8]) -> String {
     for chunk in message.chunks(64) {
         let mut w = [0u32; 64];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let mut a = state[0];
         let mut b = state[1];
@@ -657,7 +795,11 @@ fn sha256(bytes: &[u8]) -> String {
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ ((!e) & g);
-            let temp1 = h.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let temp1 = h
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let temp2 = s0.wrapping_add(maj);
@@ -690,13 +832,14 @@ fn sha256(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::path::PathBuf;
 
     #[test]
     fn running_stop_uses_the_persisted_runner_policy() {
         let scratch = std::env::temp_dir().join(format!(
             "ren-resolved-cancel-test-{}-{}",
-            std::process::id(), crate::store::now().to_bits()));
+            std::process::id(),
+            crate::store::now().to_bits()
+        ));
         std::fs::create_dir_all(&scratch).unwrap();
         std::env::set_var("PIPELINE_RESOLVE_LOCK_DIR", &scratch);
         let db = scratch.join("jobs.sqlite3");
@@ -704,41 +847,74 @@ mod tests {
         let broker = Broker::new(Arc::clone(&store));
 
         for (id, kind, policy) in [
-            ("probe", "resolve.activity_probe",
-             "checkpoint:borrowed-context-restored"),
-            ("edit", "timeline.apply_patch",
-             "commit:verified-editpatch-generation"),
+            (
+                "probe",
+                "resolve.activity_probe",
+                "checkpoint:borrowed-context-restored",
+            ),
+            (
+                "edit",
+                "timeline.apply_patch",
+                "commit:verified-editpatch-generation",
+            ),
             ("unsafe", "resolve.ui_transaction", ""),
         ] {
-            store.insert(&JobRecord {
-                id: id.to_string(), kind: kind.to_string(),
-                priority: "interactive".to_string(), mode: "exclusive".to_string(),
-                executed: true, params: json!({}), project: "Ren Qualification".to_string(),
-                timeline: String::new(), qualification: true,
-                coalesce_key: None, owner: "test".to_string(),
-                interrupt_policy: policy.to_string(),
-                description: "test job".to_string(), progress: String::new(),
-                state: "running".to_string(), subscribers: 1,
-                submitted: crate::store::now(),
-            }).unwrap();
-            broker.state.0.lock().unwrap().running.insert(id.to_string(), Pending {
-                id: id.to_string(), priority: "interactive".to_string(),
-                mode: "exclusive".to_string(), submitted: crate::store::now(),
-                project: "Ren Qualification".to_string(), timeline: String::new(),
-                executed: true, qualification: true, locality: "project".to_string(),
-            });
+            store
+                .insert(&JobRecord {
+                    id: id.to_string(),
+                    kind: kind.to_string(),
+                    priority: "interactive".to_string(),
+                    mode: "exclusive".to_string(),
+                    executed: true,
+                    params: json!({}),
+                    project: "Ren Qualification".to_string(),
+                    timeline: String::new(),
+                    qualification: true,
+                    coalesce_key: None,
+                    owner: "test".to_string(),
+                    interrupt_policy: policy.to_string(),
+                    description: "test job".to_string(),
+                    progress: String::new(),
+                    state: "running".to_string(),
+                    subscribers: 1,
+                    submitted: crate::store::now(),
+                })
+                .unwrap();
+            broker.state.0.lock().unwrap().running.insert(
+                id.to_string(),
+                Pending {
+                    id: id.to_string(),
+                    priority: "interactive".to_string(),
+                    mode: "exclusive".to_string(),
+                    submitted: crate::store::now(),
+                    project: "Ren Qualification".to_string(),
+                    timeline: String::new(),
+                    executed: true,
+                    qualification: true,
+                    locality: "project".to_string(),
+                },
+            );
         }
 
-        assert_eq!(broker.request_cancel("probe").unwrap().unwrap().state, "running");
+        assert_eq!(
+            broker.request_cancel("probe").unwrap().unwrap().state,
+            "running"
+        );
         assert!(scratch.join("ren-resolved-cancel/probe").is_file());
-        assert_eq!(broker.request_cancel("edit").unwrap().unwrap().state, "running");
+        assert_eq!(
+            broker.request_cancel("edit").unwrap().unwrap().state,
+            "running"
+        );
         assert!(scratch.join("ren-resolved-cancel/edit").is_file());
-        assert!(broker.request_cancel("unsafe").unwrap_err().contains("no safe running cancellation"));
+        assert!(broker
+            .request_cancel("unsafe")
+            .unwrap_err()
+            .contains("no safe running cancellation"));
         assert!(!scratch.join("ren-resolved-cancel/unsafe").exists());
 
         drop(broker);
         drop(store);
         std::env::remove_var("PIPELINE_RESOLVE_LOCK_DIR");
-        std::fs::remove_dir_all(PathBuf::from(scratch)).unwrap();
+        std::fs::remove_dir_all(scratch).unwrap();
     }
 }

@@ -35,11 +35,18 @@ fn version_is_served_natively_with_no_python_anywhere() {
     let output = run_ren(
         &["--version"],
         &[
-            ("REN_ENGINE_ROOT".to_string(), engine_root().to_string_lossy().to_string()),
+            (
+                "REN_ENGINE_ROOT".to_string(),
+                engine_root().to_string_lossy().to_string(),
+            ),
             ("PATH".to_string(), "/usr/bin:/bin".to_string()),
         ],
     );
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("ren 0.1.0+"), "stdout: {stdout}");
     assert!(stdout.contains("(engine "), "stdout: {stdout}");
@@ -49,9 +56,16 @@ fn version_is_served_natively_with_no_python_anywhere() {
 fn help_is_served_natively() {
     let output = run_ren(
         &["--help"],
-        &[("REN_ENGINE_ROOT".to_string(), engine_root().to_string_lossy().to_string())],
+        &[(
+            "REN_ENGINE_ROOT".to_string(),
+            engine_root().to_string_lossy().to_string(),
+        )],
     );
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("usage: ren <verb>"));
     assert!(stdout.contains("info"));
@@ -68,7 +82,10 @@ fn the_interpreter_is_resolved_without_a_python_helper() {
     let output = run_ren(
         &["doctor"],
         &[
-            ("REN_ENGINE_ROOT".to_string(), engine_root().to_string_lossy().to_string()),
+            (
+                "REN_ENGINE_ROOT".to_string(),
+                engine_root().to_string_lossy().to_string(),
+            ),
             ("PATH".to_string(), "/usr/bin:/bin".to_string()),
         ],
     );
@@ -87,7 +104,10 @@ fn no_engine_is_refused_with_the_fix() {
     fs::create_dir_all(&root).unwrap();
     let output = run_ren(
         &["--help"],
-        &[("REN_ENGINE_ROOT".to_string(), root.to_string_lossy().to_string())],
+        &[(
+            "REN_ENGINE_ROOT".to_string(),
+            root.to_string_lossy().to_string(),
+        )],
     );
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -99,9 +119,15 @@ fn no_engine_is_refused_with_the_fix() {
 fn an_unknown_verb_is_refused_with_the_usage() {
     let output = run_ren(
         &["bogus"],
-        &[("REN_ENGINE_ROOT".to_string(), engine_root().to_string_lossy().to_string())],
+        &[(
+            "REN_ENGINE_ROOT".to_string(),
+            engine_root().to_string_lossy().to_string(),
+        )],
     );
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("ren: unknown verb 'bogus'"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("ren: unknown verb 'bogus'"),
+        "stderr: {stderr}"
+    );
 }

@@ -2,9 +2,7 @@ use crate::ax::{self, AxElement};
 use crate::capture::{self, CapturedImage};
 use crate::input;
 use crate::ocr;
-use crate::protocol::{
-    self, DriverError, DriverResult, Frame, Json, Request, Response,
-};
+use crate::protocol::{self, DriverError, DriverResult, Frame, Json, Request, Response};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
@@ -17,11 +15,19 @@ const QUALIFICATION_PROJECT: &str = "Ren Qualification";
 /// unless the open project reads back as `QUALIFICATION_PROJECT` at the
 /// moment of the call. A whitelist, so a new action method is gated by default.
 const READ_ONLY_METHODS: &[&str] = &[
-    "activate_resolve", "get_windows", "get_accessibility_tree", "find_element",
+    "activate_resolve",
+    "get_windows",
+    "get_accessibility_tree",
+    "find_element",
     "list_commands",
-    "capture_window", "capture_region", "wait_for", "read_text",
-    "get_pointer_state", "get_frontmost_app",
-    "debug_window_list", "debug_raw_window_list",
+    "capture_window",
+    "capture_region",
+    "wait_for",
+    "read_text",
+    "get_pointer_state",
+    "get_frontmost_app",
+    "debug_window_list",
+    "debug_raw_window_list",
 ];
 
 /// Methods that post CGEvents. By default each goes to Resolve's process
@@ -37,8 +43,15 @@ const FOREGROUND_ONLY_METHODS: &[&str] = &["activate_resolve"];
 /// Methods that need the screen's pixels or deliver input through it; a
 /// locked screen would answer them with blank images or the lock screen.
 const PIXEL_METHODS: &[&str] = &[
-    "capture_window", "capture_region", "read_text", "wait_for",
-    "click", "drag", "scroll", "key", "type_text",
+    "capture_window",
+    "capture_region",
+    "read_text",
+    "wait_for",
+    "click",
+    "drag",
+    "scroll",
+    "key",
+    "type_text",
 ];
 
 /// Refuse a foreground-stealing call the caller did not explicitly allow, and
@@ -53,7 +66,8 @@ fn foreground_gate(
     if FOREGROUND_ONLY_METHODS.contains(&method) && !allow_foreground {
         return Err(DriverError::ForegroundNotAllowed(method.to_string()));
     }
-    if INPUT_EVENT_METHODS.contains(&method) && allow_foreground
+    if INPUT_EVENT_METHODS.contains(&method)
+        && allow_foreground
         && frontmost_pid() != Some(resolve_pid)
     {
         return Err(DriverError::OutsideResolve);
@@ -62,7 +76,10 @@ fn foreground_gate(
 }
 
 fn allows_foreground(params: &Json) -> bool {
-    params.get("allow_foreground").and_then(|v| v.as_bool()).unwrap_or(false)
+    params
+        .get("allow_foreground")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Opt in to the SkyLight channel per call. Like `allow_foreground` it is
@@ -70,7 +87,10 @@ fn allows_foreground(params: &Json) -> bool {
 /// default route - but unlike it, SkyLight never takes the screen, cursor
 /// or keyboard, so no frontmost check applies.
 fn allows_skylight(params: &Json) -> bool {
-    params.get("allow_skylight").and_then(|v| v.as_bool()).unwrap_or(false)
+    params
+        .get("allow_skylight")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Which app an input call drives. Absent means Resolve - every existing
@@ -210,12 +230,15 @@ impl Driver {
             }
             let line = line?;
             let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
 
             let request: Request = match serde_json::from_str(trimmed) {
                 Ok(r) => r,
                 Err(e) => {
-                    let resp = protocol::failure(0, "INVALID_PARAMS", format!("malformed JSON: {}", e));
+                    let resp =
+                        protocol::failure(0, "INVALID_PARAMS", format!("malformed JSON: {}", e));
                     writeln!(stdout_lock, "{}", serde_json::to_string(&resp).unwrap())?;
                     stdout_lock.flush()?;
                     continue;
@@ -251,7 +274,9 @@ impl Driver {
         // the scratch-design policy above the driver (explicit target
         // plus explicit SkyLight opt-in here), never to Ren Qualification.
         if target == TargetKind::Resolve {
-            action_gate(&req.method, press_role.as_deref(), || self.current_project_name())?;
+            action_gate(&req.method, press_role.as_deref(), || {
+                self.current_project_name()
+            })?;
         }
         if PIXEL_METHODS.contains(&req.method.as_str()) && capture::screen_locked() {
             return Err(DriverError::ScreenLocked);
@@ -266,7 +291,12 @@ impl Driver {
                 || FOREGROUND_ONLY_METHODS.contains(&req.method.as_str()))
         {
             let pid = self.ensure_resolve()?;
-            foreground_gate(&req.method, allows_foreground(&req.params), ax::frontmost_pid, pid)?;
+            foreground_gate(
+                &req.method,
+                allows_foreground(&req.params),
+                ax::frontmost_pid,
+                pid,
+            )?;
         }
         match req.method.as_str() {
             "activate_resolve" => self.activate_resolve(),
@@ -293,12 +323,17 @@ impl Driver {
             "get_frontmost_app" => self.get_frontmost_app(),
             "debug_window_list" => self.debug_window_list(),
             "debug_raw_window_list" => self.debug_raw_window_list(),
-            _ => Err(DriverError::InvalidParams(format!("unknown method: {}", req.method))),
+            _ => Err(DriverError::InvalidParams(format!(
+                "unknown method: {}",
+                req.method
+            ))),
         }
     }
 
     fn ensure_resolve(&mut self) -> DriverResult<u32> {
-        if let Some(pid) = self.resolve_pid { return Ok(pid); }
+        if let Some(pid) = self.resolve_pid {
+            return Ok(pid);
+        }
         let pid = ax::find_resolve_pid().ok_or(DriverError::ResolveNotRunning)?;
         self.resolve_pid = Some(pid);
         Ok(pid)
@@ -334,11 +369,19 @@ impl Driver {
             match target_kind(params)? {
                 TargetKind::Chrome => {
                     let (pid, window_id, _, _) = self.target_window(params)?;
-                    Ok(input::Route::SkyLight { pid: pid as i32, window_id, chromium: true })
+                    Ok(input::Route::SkyLight {
+                        pid: pid as i32,
+                        window_id,
+                        chromium: true,
+                    })
                 }
                 TargetKind::Resolve => {
                     let (pid, window_id, _, _) = self.target_window(params)?;
-                    Ok(input::Route::SkyLight { pid: pid as i32, window_id, chromium: false })
+                    Ok(input::Route::SkyLight {
+                        pid: pid as i32,
+                        window_id,
+                        chromium: false,
+                    })
                 }
             }
         } else {
@@ -387,14 +430,18 @@ impl Driver {
         windows
             .into_iter()
             .max_by_key(|(_, _, f, _)| (f.width * f.height) as i64)
-            .ok_or_else(|| DriverError::TargetNotRunning("Chrome is running with no windows".into()))
+            .ok_or_else(|| {
+                DriverError::TargetNotRunning("Chrome is running with no windows".into())
+            })
     }
 
     fn ensure_permissions(&self) -> DriverResult<()> {
         if !ax::ax_process_trusted() {
             return Err(DriverError::PermissionDenied(format!(
                 "Accessibility permission not granted for {}",
-                std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
+                std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
             )));
         }
         Ok(())
@@ -411,14 +458,20 @@ impl Driver {
         if !capture::screen_recording_granted() {
             return Err(DriverError::PermissionDenied(format!(
                 "Screen Recording permission not granted for {}",
-                std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
+                std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
             )));
         }
         Ok(())
     }
 
     fn main_window(&mut self) -> DriverResult<(u32, Frame, f64)> {
-        if let (Some(id), Some(frame), scale) = (self.main_window_id, self.main_window_frame, self.main_window_scale) {
+        if let (Some(id), Some(frame), scale) = (
+            self.main_window_id,
+            self.main_window_frame,
+            self.main_window_scale,
+        ) {
             return Ok((id, frame, scale));
         }
         let _pid = self.ensure_resolve()?;
@@ -497,20 +550,16 @@ impl Driver {
         if !want_chrome {
             self.ensure_resolve()?;
         }
-        let shown: Vec<(u32, u32, String, String, Frame, f64)> =
-            capture::all_windows_with_pids()
-                .into_iter()
-                .filter(|(_, _, owner, _, _, _)| {
-                    if want_chrome {
-                        owner.contains("Chrome")
-                    } else {
-                        owner.contains("Resolve") || owner.contains("DaVinci")
-                    }
-                })
-                .map(|(pid, id, owner, title, frame, scale)| {
-                    (pid, id, owner, title, frame, scale)
-                })
-                .collect();
+        let shown: Vec<(u32, u32, String, String, Frame, f64)> = capture::all_windows_with_pids()
+            .into_iter()
+            .filter(|(_, _, owner, _, _, _)| {
+                if want_chrome {
+                    owner.contains("Chrome")
+                } else {
+                    owner.contains("Resolve") || owner.contains("DaVinci")
+                }
+            })
+            .collect();
         let main_id = shown
             .iter()
             .max_by_key(|(_, _, _, _, f, _)| (f.width * f.height) as i64)
@@ -543,15 +592,33 @@ impl Driver {
 
     fn dump_tree(&self, el: &AxElement, depth: usize, max_depth: usize) -> DriverResult<Json> {
         let mut node = serde_json::json!({});
-        if let Some(role) = el.role() { node["role"] = serde_json::json!(role); }
-        if let Some(title) = el.title() { node["title"] = serde_json::json!(title); }
-        if let Some(desc) = el.description() { node["description"] = serde_json::json!(desc); }
-        if let Some(value) = el.value() { node["value"] = serde_json::json!(value); }
-        if let Some(frame) = el.frame() { node["frame"] = protocol::frame_to_json(&frame); }
+        if let Some(role) = el.role() {
+            node["role"] = serde_json::json!(role);
+        }
+        if let Some(title) = el.title() {
+            node["title"] = serde_json::json!(title);
+        }
+        if let Some(desc) = el.description() {
+            node["description"] = serde_json::json!(desc);
+        }
+        if let Some(value) = el.value() {
+            node["value"] = serde_json::json!(value);
+        }
+        if let Some(frame) = el.frame() {
+            node["frame"] = protocol::frame_to_json(&frame);
+        }
         let actions = el.actions();
-        if !actions.is_empty() { node["actions"] = serde_json::json!(actions); }
-        if let Some(enabled) = el.enabled() { node["enabled"] = serde_json::json!(enabled); }
-        if let Some(focused) = el.focused() { if focused { node["focused"] = serde_json::json!(true); } }
+        if !actions.is_empty() {
+            node["actions"] = serde_json::json!(actions);
+        }
+        if let Some(enabled) = el.enabled() {
+            node["enabled"] = serde_json::json!(enabled);
+        }
+        if let Some(focused) = el.focused() {
+            if focused {
+                node["focused"] = serde_json::json!(true);
+            }
+        }
 
         if depth < max_depth {
             let children = ax_tree_children(el);
@@ -574,12 +641,19 @@ impl Driver {
         let title_contains = params.get("title_contains").and_then(|v| v.as_str());
         let label_filter = params.get("label").and_then(|v| v.as_str());
         let value_filter = params.get("value").and_then(|v| v.as_str());
-        let path_filter: Option<Vec<String>> = params.get("path").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()
-        });
+        let path_filter: Option<Vec<String>> =
+            params.get("path").and_then(|v| v.as_array()).map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect()
+            });
         let filter = Filter {
-            role: role_filter, title: title_filter, title_contains,
-            label: label_filter, value: value_filter, path: path_filter.as_deref(),
+            role: role_filter,
+            title: title_filter,
+            title_contains,
+            label: label_filter,
+            value: value_filter,
+            path: path_filter.as_deref(),
         };
 
         let app = self.app_ax(pid)?;
@@ -611,7 +685,8 @@ impl Driver {
                     "actions": actions,
                     "path": path,
                 });
-                self.element_refs.insert(ref_id, ElementRef { el, menu_chain });
+                self.element_refs
+                    .insert(ref_id, ElementRef { el, menu_chain });
                 entry
             })
             .collect();
@@ -630,7 +705,7 @@ impl Driver {
         ax::collect_commands(&root, &mut path, &mut commands);
         let listed: Vec<Json> = commands
             .iter()
-            .filter(|c| menu.map_or(true, |m| c.path.first().is_some_and(|first| first == m)))
+            .filter(|c| menu.is_none_or(|m| c.path.first().is_some_and(|first| first == m)))
             .map(|c| {
                 serde_json::json!({
                     "path": c.path,
@@ -661,7 +736,10 @@ impl Driver {
     fn press(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
         let element_ref = protocol::get_param_str(params, "element")?;
-        let stored = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
+        let stored = self
+            .element_refs
+            .get(&element_ref)
+            .ok_or(DriverError::ElementStale)?;
         // A menu item is never pressed cold: AXPress on a closed menu's
         // leaf is accepted and dropped (measured live 2026-10-07 -
         // pressed:true, byte-identical captures). Re-walk its recorded
@@ -679,7 +757,10 @@ impl Driver {
                 "menu_close": menu_close.to_json(),
             }));
         }
-        let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
+        let el = self
+            .element_refs
+            .get(&element_ref)
+            .ok_or(DriverError::ElementStale)?;
         el.el.press()?;
         Ok(serde_json::json!({"pressed": true}))
     }
@@ -688,7 +769,10 @@ impl Driver {
         self.ensure_permissions()?;
         let element_ref = protocol::get_param_str(params, "element")?;
         let value = protocol::get_param_str(params, "value")?;
-        let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
+        let el = self
+            .element_refs
+            .get(&element_ref)
+            .ok_or(DriverError::ElementStale)?;
         el.el.set_value(&value)?;
         Ok(serde_json::json!({"set": true}))
     }
@@ -696,7 +780,10 @@ impl Driver {
     fn focus(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
         let element_ref = protocol::get_param_str(params, "element")?;
-        let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
+        let el = self
+            .element_refs
+            .get(&element_ref)
+            .ok_or(DriverError::ElementStale)?;
         el.el.set_focused()?;
         Ok(serde_json::json!({"focused": true}))
     }
@@ -714,7 +801,11 @@ impl Driver {
         let modifiers: Vec<String> = params
             .get("modifiers")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         input::key(self.route(params)?, &key_name, &modifiers)?;
         Ok(serde_json::json!({"sent": true}))
@@ -728,7 +819,9 @@ impl Driver {
         // The containment frame follows the target: Resolve's main
         // window, or the pinned Chrome window a chrome click must land in.
         let (_, _, frame, _) = self.target_window(params)?;
-        if !frame.contains_rel(x, y) { return Err(DriverError::OutsideResolve); }
+        if !frame.contains_rel(x, y) {
+            return Err(DriverError::OutsideResolve);
+        }
         input::click(self.route(params)?, x, y, &frame, clicks as u32)?;
         Ok(serde_json::json!({"clicked": true}))
     }
@@ -780,10 +873,9 @@ impl Driver {
     /// response names by id so the caller can judge it.
     fn skylight_restore(&mut self) -> DriverResult<Json> {
         self.ensure_permissions()?;
-        let (previous_pid, previous_wid, target_pid, target_wid) =
-            self.last_focus_dance.ok_or_else(|| {
-                DriverError::SkyLightUnavailable("no focus dance to restore".into())
-            })?;
+        let (previous_pid, previous_wid, target_pid, target_wid) = self
+            .last_focus_dance
+            .ok_or_else(|| DriverError::SkyLightUnavailable("no focus dance to restore".into()))?;
         let (before, after) = crate::skylight::restore_focus(
             target_pid,
             target_wid,
@@ -808,7 +900,9 @@ impl Driver {
         let ey = protocol::get_param_f64(params, "end_y")?;
         let duration = protocol::get_param_f64(params, "duration").unwrap_or(0.3);
         let (_, frame, _) = self.main_window()?;
-        if !frame.contains_rel(sx, sy) || !frame.contains_rel(ex, ey) { return Err(DriverError::OutsideResolve); }
+        if !frame.contains_rel(sx, sy) || !frame.contains_rel(ex, ey) {
+            return Err(DriverError::OutsideResolve);
+        }
         input::drag(self.route(params)?, sx, sy, ex, ey, &frame, duration)?;
         Ok(serde_json::json!({"dragged": true}))
     }
@@ -820,7 +914,9 @@ impl Driver {
         let dx = protocol::get_param_f64(params, "delta_x").unwrap_or(0.0);
         let dy = protocol::get_param_f64(params, "delta_y").unwrap_or(0.0);
         let (_, frame, _) = self.main_window()?;
-        if !frame.contains_rel(x, y) { return Err(DriverError::OutsideResolve); }
+        if !frame.contains_rel(x, y) {
+            return Err(DriverError::OutsideResolve);
+        }
         input::scroll(self.route(params)?, x, y, &frame, dx, dy)?;
         Ok(serde_json::json!({"scrolled": true}))
     }
@@ -843,9 +939,13 @@ impl Driver {
         let h = protocol::get_param_f64(params, "height")?;
         let source = capture_source(params)?;
         let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
-        let region = Frame { x, y, width: w, height: h };
-        if x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0
-            || x + w > frame.width || y + h > frame.height
+        let region = Frame {
+            x,
+            y,
+            width: w,
+            height: h,
+        };
+        if x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0 || x + w > frame.width || y + h > frame.height
         {
             return Err(DriverError::OutsideResolve);
         }
@@ -857,27 +957,38 @@ impl Driver {
         self.ensure_permissions()?;
         let timeout = protocol::get_param_f64(params, "timeout").unwrap_or(10.0);
         let poll_interval = protocol::get_param_f64(params, "poll_interval").unwrap_or(0.5);
-        let predicate = params.get("predicate").ok_or_else(|| DriverError::InvalidParams("missing predicate".into()))?;
+        let predicate = params
+            .get("predicate")
+            .ok_or_else(|| DriverError::InvalidParams("missing predicate".into()))?;
         let start = Instant::now();
         let timeout_dur = Duration::from_secs_f64(timeout);
         let poll_dur = Duration::from_secs_f64(poll_interval);
         loop {
             if self.check_predicate(predicate, params)? {
-                return Ok(serde_json::json!({"met": true, "elapsed": start.elapsed().as_secs_f64()}));
+                return Ok(
+                    serde_json::json!({"met": true, "elapsed": start.elapsed().as_secs_f64()}),
+                );
             }
             if start.elapsed() >= timeout_dur {
-                return Ok(serde_json::json!({"met": false, "elapsed": start.elapsed().as_secs_f64()}));
+                return Ok(
+                    serde_json::json!({"met": false, "elapsed": start.elapsed().as_secs_f64()}),
+                );
             }
             std::thread::sleep(poll_dur);
         }
     }
 
     fn check_predicate(&mut self, predicate: &Json, params: &Json) -> DriverResult<bool> {
-        let pred_type = predicate.get("type").and_then(|v| v.as_str())
+        let pred_type = predicate
+            .get("type")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| DriverError::InvalidParams("predicate missing type".into()))?;
         match pred_type {
             "seconds" => {
-                let duration = predicate.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let duration = predicate
+                    .get("duration")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 std::thread::sleep(Duration::from_secs_f64(duration));
                 Ok(true)
             }
@@ -892,31 +1003,62 @@ impl Driver {
                 Ok(found)
             }
             "text_visible" => {
-                let text = predicate.get("text").and_then(|v| v.as_str())
-                    .ok_or_else(|| DriverError::InvalidParams("text_visible predicate missing text".into()))?;
+                let text = predicate
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        DriverError::InvalidParams("text_visible predicate missing text".into())
+                    })?;
                 let source = capture_source(predicate)?;
-                let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
+                let (window_id, frame, scale) =
+                    self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
                 let cg_image = capture::window_image(window_id, scale, source)?;
-                let (width, height) = unsafe { (capture::CGImageGetWidth(cg_image), capture::CGImageGetHeight(cg_image)) };
+                let (width, height) = unsafe {
+                    (
+                        capture::CGImageGetWidth(cg_image),
+                        capture::CGImageGetHeight(cg_image),
+                    )
+                };
                 let region = predicate.get("region").and_then(parse_frame);
                 let result = ocr::ocr_image(cg_image, width, height, region.as_ref(), &frame);
                 unsafe { capture::CFRelease(cg_image as *const std::ffi::c_void) };
                 let result = result?;
                 Ok(result.full_text.contains(text))
             }
-            _ => Err(DriverError::InvalidParams(format!("unknown predicate type: {}", pred_type))),
+            _ => Err(DriverError::InvalidParams(format!(
+                "unknown predicate type: {}",
+                pred_type
+            ))),
         }
     }
 
-    fn check_element_visible(&self, el: &AxElement, role: Option<&str>, title: Option<&str>, title_contains: Option<&str>, found: &mut bool) -> DriverResult<()> {
-        if *found { return Ok(()); }
+    fn check_element_visible(
+        &self,
+        el: &AxElement,
+        role: Option<&str>,
+        title: Option<&str>,
+        title_contains: Option<&str>,
+        found: &mut bool,
+    ) -> DriverResult<()> {
+        if *found {
+            return Ok(());
+        }
         let matches = (role.is_none() || el.role().as_deref() == role)
             && (title.is_none() || el.title().as_deref() == title)
-            && (title_contains.is_none() || el.title().map(|t| t.contains(title_contains.unwrap())).unwrap_or(false));
-        if matches { *found = true; return Ok(()); }
+            && (title_contains.is_none()
+                || el
+                    .title()
+                    .map(|t| t.contains(title_contains.unwrap()))
+                    .unwrap_or(false));
+        if matches {
+            *found = true;
+            return Ok(());
+        }
         for child in ax_tree_children(el) {
             self.check_element_visible(&child, role, title, title_contains, found)?;
-            if *found { return Ok(()); }
+            if *found {
+                return Ok(());
+            }
         }
         Ok(())
     }
@@ -928,17 +1070,26 @@ impl Driver {
         let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
         let region = params.get("region").and_then(parse_frame);
         let cg_image = capture::window_image(window_id, scale, source)?;
-        let (width, height) = unsafe { (capture::CGImageGetWidth(cg_image), capture::CGImageGetHeight(cg_image)) };
+        let (width, height) = unsafe {
+            (
+                capture::CGImageGetWidth(cg_image),
+                capture::CGImageGetHeight(cg_image),
+            )
+        };
         let result = ocr::ocr_image(cg_image, width, height, region.as_ref(), &frame);
         unsafe { capture::CFRelease(cg_image as *const std::ffi::c_void) };
         let result = result?;
-        let elements: Vec<Json> = result.elements.iter().map(|e| {
-            serde_json::json!({
-                "text": e.text,
-                "confidence": e.confidence,
-                "frame": protocol::frame_to_json(&e.frame),
+        let elements: Vec<Json> = result
+            .elements
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "text": e.text,
+                    "confidence": e.confidence,
+                    "frame": protocol::frame_to_json(&e.frame),
+                })
             })
-        }).collect();
+            .collect();
         Ok(serde_json::json!({"text": result.full_text, "elements": elements}))
     }
 
@@ -953,7 +1104,7 @@ impl Driver {
         Ok(serde_json::json!({"bundle_id": bid, "name": name}))
     }
 
-    fn debug_window_list(&mut self) -> DriverResult< Json> {
+    fn debug_window_list(&mut self) -> DriverResult<Json> {
         let windows = capture::get_window_list();
         Ok(serde_json::json!({
             "count": windows.len(),
@@ -1078,7 +1229,12 @@ struct MenuCloser {
 
 impl MenuCloser {
     fn new(pid: u32, top: String) -> Self {
-        MenuCloser { pid, top, opened: Vec::new(), closed: None }
+        MenuCloser {
+            pid,
+            top,
+            opened: Vec::new(),
+            closed: None,
+        }
     }
 
     fn finish(&mut self) -> MenuCloseReceipt {
@@ -1162,18 +1318,17 @@ fn pre_clean_stale_menu(pid: u32, top: &str) {
 /// when AXCancel failed and the menu still reads expanded, and is gated
 /// on the target being frontmost (Escape anywhere else would land in
 /// the captain's app).
-fn close_opened_menus(
-    pid: u32,
-    top: &str,
-    opened: &[AxElement],
-) -> MenuCloseReceipt {
+fn close_opened_menus(pid: u32, top: &str, opened: &[AxElement]) -> MenuCloseReceipt {
     let mut cancels_ok = true;
     for el in opened.iter().rev() {
         cancels_ok &= cancel_element(el);
     }
     let expanded = top_expanded(pid, top);
     if expanded != Some(true) || cancels_ok {
-        return MenuCloseReceipt { expanded, cancels_ok };
+        return MenuCloseReceipt {
+            expanded,
+            cancels_ok,
+        };
     }
     if ax::frontmost_pid() == Some(pid) {
         use crate::input::Route;
@@ -1227,15 +1382,20 @@ fn walk_menu_path(pid: u32, path: &[String], closer: &mut MenuCloser) -> DriverR
 }
 
 /// The full menu path `run_command` takes: non-empty titles only.
-fn command_path(params: &Json) -> DriverResult<Vec<String>> {    let path: Vec<String> = params
+fn command_path(params: &Json) -> DriverResult<Vec<String>> {
+    let path: Vec<String> = params
         .get("path")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| DriverError::InvalidParams("run_command needs a path array of menu titles".into()))?
+        .ok_or_else(|| {
+            DriverError::InvalidParams("run_command needs a path array of menu titles".into())
+        })?
         .iter()
         .filter_map(|t| t.as_str().map(str::to_string))
         .collect();
     if path.is_empty() || path.iter().any(|t| t.is_empty()) {
-        return Err(DriverError::InvalidParams("run_command path must be non-empty titles".into()));
+        return Err(DriverError::InvalidParams(
+            "run_command path must be non-empty titles".into(),
+        ));
     }
     Ok(path)
 }
@@ -1255,7 +1415,14 @@ struct Filter<'a> {
 
 impl Filter<'_> {
     fn matches(&self, el: &AxElement, ancestors: &[String]) -> bool {
-        node_matches(el.role().as_deref(), el.title().as_deref(), el.description().as_deref(), el.value().as_deref(), self, ancestors)
+        node_matches(
+            el.role().as_deref(),
+            el.title().as_deref(),
+            el.description().as_deref(),
+            el.value().as_deref(),
+            self,
+            ancestors,
+        )
     }
 }
 
@@ -1271,18 +1438,28 @@ fn node_matches(
 ) -> bool {
     (filter.role.is_none() || role == filter.role)
         && (filter.title.is_none() || title == filter.title)
-        && filter.title_contains.map_or(true, |t| title.is_some_and(|s| s.contains(t)))
+        && filter
+            .title_contains
+            .is_none_or(|t| title.is_some_and(|s| s.contains(t)))
         && (filter.label.is_none() || description == filter.label)
         && (filter.value.is_none() || value == filter.value)
-        && filter.path.map_or(true, |p| p == ancestors)
+        && filter.path.is_none_or(|p| p == ancestors)
 }
 
 /// Depth-first; each match comes with its menu path.
-fn find_in_tree(el: &AxElement, filter: &Filter, ancestors: &mut Vec<String>, results: &mut Vec<(AxElement, Vec<String>)>) {
+fn find_in_tree(
+    el: &AxElement,
+    filter: &Filter,
+    ancestors: &mut Vec<String>,
+    results: &mut Vec<(AxElement, Vec<String>)>,
+) {
     if filter.matches(el, ancestors) {
         results.push((el.owned(), ancestors.clone()));
     }
-    let titled = matches!(el.role().as_deref(), Some("AXMenuBarItem") | Some("AXMenuItem"));
+    let titled = matches!(
+        el.role().as_deref(),
+        Some("AXMenuBarItem") | Some("AXMenuItem")
+    );
     if titled {
         ancestors.push(el.title().unwrap_or_default());
     }
@@ -1319,7 +1496,15 @@ fn captured_to_json(img: &CapturedImage) -> Json {
 mod tests {
     use super::*;
 
-    const ACTIONS: &[&str] = &["set_value", "focus", "type_text", "key", "click", "drag", "scroll"];
+    const ACTIONS: &[&str] = &[
+        "set_value",
+        "focus",
+        "type_text",
+        "key",
+        "click",
+        "drag",
+        "scroll",
+    ];
 
     #[test]
     fn successful_cancel_overrides_stale_expanded_state() {
@@ -1395,29 +1580,50 @@ mod tests {
         let captains = || Ok("Podcast (field test)".to_string());
         assert!(action_gate("press", Some("AXMenuItem"), captains).is_err());
         assert!(action_gate("press", None, captains).is_err());
-        assert!(action_gate("press", Some("AXMenuBarItem"), || panic!("read back for a read")).is_ok());
+        assert!(action_gate("press", Some("AXMenuBarItem"), || panic!(
+            "read back for a read"
+        ))
+        .is_ok());
     }
 
     #[test]
     fn actions_run_in_the_qualification_project() {
         for method in ACTIONS.iter().chain(&["press"]) {
-            assert!(action_gate(method, Some("AXMenuItem"), || Ok(QUALIFICATION_PROJECT.to_string())).is_ok());
+            assert!(action_gate(method, Some("AXMenuItem"), || Ok(
+                QUALIFICATION_PROJECT.to_string()
+            ))
+            .is_ok());
         }
     }
 
     #[test]
     fn foreground_input_refuses_unless_resolve_is_frontmost() {
         for method in ["click", "drag", "scroll", "key", "type_text"] {
-            assert!(matches!(foreground_gate(method, true, || Some(1234), 571), Err(DriverError::OutsideResolve)), "{method}");
-            assert!(foreground_gate(method, true, || None, 571).is_err(), "{method}");
-            assert!(foreground_gate(method, true, || Some(571), 571).is_ok(), "{method}");
+            assert!(
+                matches!(
+                    foreground_gate(method, true, || Some(1234), 571),
+                    Err(DriverError::OutsideResolve)
+                ),
+                "{method}"
+            );
+            assert!(
+                foreground_gate(method, true, || None, 571).is_err(),
+                "{method}"
+            );
+            assert!(
+                foreground_gate(method, true, || Some(571), 571).is_ok(),
+                "{method}"
+            );
         }
     }
 
     #[test]
     fn background_input_runs_while_the_captain_is_in_another_app() {
         for method in ["click", "drag", "scroll", "key", "type_text"] {
-            assert!(foreground_gate(method, false, || Some(1234), 571).is_ok(), "{method}");
+            assert!(
+                foreground_gate(method, false, || Some(1234), 571).is_ok(),
+                "{method}"
+            );
         }
     }
 
@@ -1425,8 +1631,14 @@ mod tests {
     fn target_defaults_to_resolve_and_chrome_is_named() {
         use serde_json::json;
         assert_eq!(target_kind(&json!({})).unwrap(), TargetKind::Resolve);
-        assert_eq!(target_kind(&json!({"target": "resolve"})).unwrap(), TargetKind::Resolve);
-        assert_eq!(target_kind(&json!({"target": "chrome"})).unwrap(), TargetKind::Chrome);
+        assert_eq!(
+            target_kind(&json!({"target": "resolve"})).unwrap(),
+            TargetKind::Resolve
+        );
+        assert_eq!(
+            target_kind(&json!({"target": "chrome"})).unwrap(),
+            TargetKind::Chrome
+        );
     }
 
     #[test]
@@ -1469,7 +1681,12 @@ mod tests {
         // A Chrome window at x=400: the window-relative point (351,29)
         // is inside it. The old screen-space check refused it - the
         // first SkyLight Chrome click died here, not in WindowServer.
-        let frame = Frame { x: 400.0, y: 200.0, width: 1000.0, height: 700.0 };
+        let frame = Frame {
+            x: 400.0,
+            y: 200.0,
+            width: 1000.0,
+            height: 700.0,
+        };
         assert!(frame.contains_rel(351.0, 29.0));
         assert!(!frame.contains_rel(1001.0, 29.0));
         assert!(!frame.contains_rel(351.0, 701.0));
@@ -1498,7 +1715,12 @@ mod tests {
         let read = || Ok("Podcast (field test)".to_string());
         assert!(action_gate("list_commands", None, read).is_ok());
         assert!(action_gate("run_command", None, read).is_err());
-        assert!(action_gate("run_command", None, || Ok(QUALIFICATION_PROJECT.to_string())).is_ok());
+        assert!(action_gate(
+            "run_command",
+            None,
+            || Ok(QUALIFICATION_PROJECT.to_string())
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1515,7 +1737,8 @@ mod tests {
             );
         }
         assert_eq!(
-            command_path(&serde_json::json!({"path": ["Workspace", "Switch to Page", "Media"]})).unwrap(),
+            command_path(&serde_json::json!({"path": ["Workspace", "Switch to Page", "Media"]}))
+                .unwrap(),
             vec!["Workspace", "Switch to Page", "Media"]
         );
     }
@@ -1532,11 +1755,32 @@ mod tests {
             path: Some(&ws_switch),
         };
         let media = |ancestors: &[String]| {
-            node_matches(Some("AXMenuItem"), Some("Media"), None, None, &filter, ancestors)
+            node_matches(
+                Some("AXMenuItem"),
+                Some("Media"),
+                None,
+                None,
+                &filter,
+                ancestors,
+            )
         };
         assert!(media(&ws_switch));
         assert!(!media(&["View".to_string()]));
-        assert!(!node_matches(Some("AXMenuItem"), Some("Color"), None, None, &filter, &ws_switch));
-        assert!(!node_matches(Some("AXButton"), Some("Media"), None, None, &filter, &ws_switch));
+        assert!(!node_matches(
+            Some("AXMenuItem"),
+            Some("Color"),
+            None,
+            None,
+            &filter,
+            &ws_switch
+        ));
+        assert!(!node_matches(
+            Some("AXButton"),
+            Some("Media"),
+            None,
+            None,
+            &filter,
+            &ws_switch
+        ));
     }
 }

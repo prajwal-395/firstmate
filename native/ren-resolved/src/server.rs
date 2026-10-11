@@ -100,9 +100,20 @@ impl Daemon {
                     lease,
                 })
             }
-            Request::Submit { kind, params, owner, qualification, idempotency_key } => {
-                match self.broker.submit(kind, params.clone(), owner, *qualification,
-                                        idempotency_key.as_deref()) {
+            Request::Submit {
+                kind,
+                params,
+                owner,
+                qualification,
+                idempotency_key,
+            } => {
+                match self.broker.submit(
+                    kind,
+                    params.clone(),
+                    owner,
+                    *qualification,
+                    idempotency_key.as_deref(),
+                ) {
                     Ok(submission) => protocol::wire(&SubmitReply {
                         id: submission.id,
                         coalesced: submission.coalesced,
@@ -121,20 +132,21 @@ impl Daemon {
                 let job = self.broker.result(id, *wait);
                 protocol::wire(&JobReply { job })
             }
-            Request::Cancel { id } => {
-                match self.broker.request_cancel(id) {
-                    Ok(job) => protocol::wire(&JobReply { job }),
-                    Err(error) => protocol::wire(&ErrorReply { error }),
-                }
-            }
+            Request::Cancel { id } => match self.broker.request_cancel(id) {
+                Ok(job) => protocol::wire(&JobReply { job }),
+                Err(error) => protocol::wire(&ErrorReply { error }),
+            },
             Request::List { limit } => {
                 let jobs = self.broker.store.recent(*limit);
                 let running = self.broker.running();
                 protocol::wire(&ListReply { jobs, running })
             }
-            Request::Acquire { params, owner, qualification, wait } => {
-                self.acquire(params.clone(), owner, *qualification, *wait, grant)
-            }
+            Request::Acquire {
+                params,
+                owner,
+                qualification,
+                wait,
+            } => self.acquire(params.clone(), owner, *qualification, *wait, grant),
             Request::Release => {
                 let held = grant.take();
                 match held {
@@ -174,9 +186,18 @@ impl Daemon {
     }
 
     /// The `acquire` op: submit a lease job and wait for it to start.
-    fn acquire(&self, params: Value, owner: &str, qualification: bool,
-               wait: f64, grant: &mut Option<String>) -> String {
-        let submission = match self.broker.submit("lease", params, owner, qualification, None) {
+    fn acquire(
+        &self,
+        params: Value,
+        owner: &str,
+        qualification: bool,
+        wait: f64,
+        grant: &mut Option<String>,
+    ) -> String {
+        let submission = match self
+            .broker
+            .submit("lease", params, owner, qualification, None)
+        {
             Ok(submission) => submission,
             Err(refusal) => {
                 return protocol::wire(&RefusedReply {
@@ -191,7 +212,8 @@ impl Daemon {
         let job = match job {
             Some(job) => job,
             None => {
-                self.broker.release(&job_id, "done", "the client's wait ran out");
+                self.broker
+                    .release(&job_id, "done", "the client's wait ran out");
                 return protocol::wire(&BusyReply {
                     error: "timed out waiting for Resolve".to_string(),
                     busy: true,
@@ -200,7 +222,8 @@ impl Daemon {
             }
         };
         if !started {
-            self.broker.release(&job_id, "done", "the client's wait ran out");
+            self.broker
+                .release(&job_id, "done", "the client's wait ran out");
             return protocol::wire(&BusyReply {
                 error: "timed out waiting for Resolve".to_string(),
                 busy: true,
@@ -209,7 +232,9 @@ impl Daemon {
         }
         if job.state == "running" {
             *grant = Some(job_id);
-            return protocol::wire(&GrantedReply { granted: grant.clone().unwrap() });
+            return protocol::wire(&GrantedReply {
+                granted: grant.clone().unwrap(),
+            });
         }
         if job.state == "rejected" {
             return protocol::wire(&RefusedReply {
@@ -217,7 +242,8 @@ impl Daemon {
                 refused: true,
             });
         }
-        self.broker.release(&job_id, "done", "the client's wait ran out");
+        self.broker
+            .release(&job_id, "done", "the client's wait ran out");
         protocol::wire(&BusyReply {
             error: "timed out waiting for Resolve".to_string(),
             busy: true,
@@ -266,20 +292,15 @@ pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     daemon.start_shadow_watcher();
-    loop {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                if daemon.shutdown.load(std::sync::atomic::Ordering::Acquire) {
-                    break;
-                }
-                let daemon = Arc::clone(&daemon);
-                let wake_path = path.to_path_buf();
-                std::thread::spawn(move || {
-                    handle_connection(stream, &daemon, &wake_path);
-                });
-            }
-            Err(_) => break,
+    while let Ok((stream, _)) = listener.accept() {
+        if daemon.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            break;
         }
+        let daemon = Arc::clone(&daemon);
+        let wake_path = path.to_path_buf();
+        std::thread::spawn(move || {
+            handle_connection(stream, &daemon, &wake_path);
+        });
     }
     Ok(())
 }
@@ -298,8 +319,17 @@ fn parse_request(line: &str) -> Result<Request, String> {
     };
     let op = value.get("op").and_then(|v| v.as_str()).unwrap_or("");
     const KNOWN: [&str; 12] = [
-        "ping", "submit", "status", "result", "cancel", "list", "acquire",
-        "release", "health", "post_restart_check", "watchdog_status",
+        "ping",
+        "submit",
+        "status",
+        "result",
+        "cancel",
+        "list",
+        "acquire",
+        "release",
+        "health",
+        "post_restart_check",
+        "watchdog_status",
         "shutdown",
     ];
     if !KNOWN.contains(&op) {
@@ -359,6 +389,8 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
     // A client that dies mid-section releases its grant by closing the
     // socket, so the queue never wedges on a dead holder.
     if let Some(job_id) = grant.take() {
-        daemon.broker.release(&job_id, "done", "the client disconnected while holding");
+        daemon
+            .broker
+            .release(&job_id, "done", "the client disconnected while holding");
     }
 }

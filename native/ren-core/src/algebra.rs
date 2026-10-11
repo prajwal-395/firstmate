@@ -1135,15 +1135,30 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         ],
 
         // ── power windows ──────────────────────────────────────
-        EditOp::WindowCreate { unique_id, node_index, .. }
-        | EditOp::WindowDelete { unique_id, node_index } => vec![
+        EditOp::WindowCreate {
+            unique_id,
+            node_index,
+            ..
+        }
+        | EditOp::WindowDelete {
+            unique_id,
+            node_index,
+        } => vec![
             KeyPart::Text("clip".to_string()),
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("window".to_string()),
             KeyPart::Num(*node_index),
         ],
-        EditOp::WindowModify { unique_id, node_index, .. }
-        | EditOp::WindowTrack { unique_id, node_index, .. } => vec![
+        EditOp::WindowModify {
+            unique_id,
+            node_index,
+            ..
+        }
+        | EditOp::WindowTrack {
+            unique_id,
+            node_index,
+            ..
+        } => vec![
             KeyPart::Text("clip".to_string()),
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("window".to_string()),
@@ -1151,8 +1166,16 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         ],
 
         // ── qualifiers ─────────────────────────────────────────
-        EditOp::QualifierSample { unique_id, node_index, .. }
-        | EditOp::QualifierAdjust { unique_id, node_index, .. } => vec![
+        EditOp::QualifierSample {
+            unique_id,
+            node_index,
+            ..
+        }
+        | EditOp::QualifierAdjust {
+            unique_id,
+            node_index,
+            ..
+        } => vec![
             KeyPart::Text("clip".to_string()),
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("qualifier".to_string()),
@@ -1162,8 +1185,12 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         // ── mask ────────────────────────────────────────────────
         EditOp::MaskCreate { unique_id, matte }
         | EditOp::MaskDelete { unique_id, matte }
-        | EditOp::MaskEdit { unique_id, matte, .. }
-        | EditOp::MaskTrack { unique_id, matte, .. } => vec![
+        | EditOp::MaskEdit {
+            unique_id, matte, ..
+        }
+        | EditOp::MaskTrack {
+            unique_id, matte, ..
+        } => vec![
             KeyPart::Text("clip".to_string()),
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("mask".to_string()),

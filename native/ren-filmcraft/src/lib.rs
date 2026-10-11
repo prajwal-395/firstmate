@@ -1084,13 +1084,7 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             if let Some(track) = track {
                 p["track"] = json!(track);
             }
-            (
-                Some(project),
-                "list_captions",
-                "captions.list",
-                p,
-                false,
-            )
+            (Some(project), "list_captions", "captions.list", p, false)
         }
         Operation::GraphicsNewText {
             project,
@@ -1111,7 +1105,9 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             }
             if let Some(seconds) = duration_seconds {
                 if !seconds.is_finite() || seconds <= 0.0 {
-                    return Err(Error::Schema("title duration must be positive seconds".into()));
+                    return Err(Error::Schema(
+                        "title duration must be positive seconds".into(),
+                    ));
                 }
                 p["seconds"] = json!(seconds);
             }
@@ -1189,7 +1185,9 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             time_ticks,
         } => {
             if time_ticks.is_some_and(|t| t < 0) {
-                return Err(Error::Schema("effect keyframe time must be at or after zero".into()));
+                return Err(Error::Schema(
+                    "effect keyframe time must be at or after zero".into(),
+                ));
             }
             let mut p = json!({"clip": clip, "effect": effect, "param": param, "value": value});
             if let Some(t) = time_ticks {
@@ -1211,7 +1209,9 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             time_ticks,
         } => {
             if time_ticks < 0 {
-                return Err(Error::Schema("effect keyframe time must be at or after zero".into()));
+                return Err(Error::Schema(
+                    "effect keyframe time must be at or after zero".into(),
+                ));
             }
             (
                 Some(project),
@@ -1229,7 +1229,9 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             value,
         } => {
             if time_ticks < 0 {
-                return Err(Error::Schema("mixer keyframe time must be at or after zero".into()));
+                return Err(Error::Schema(
+                    "mixer keyframe time must be at or after zero".into(),
+                ));
             }
             if !value.is_finite() {
                 return Err(Error::Schema("mixer keyframe value must be finite".into()));
@@ -1253,10 +1255,14 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             }
             for (ticks, value) in &points {
                 if *ticks < 0 {
-                    return Err(Error::Schema("automation point time must be at or after zero".into()));
+                    return Err(Error::Schema(
+                        "automation point time must be at or after zero".into(),
+                    ));
                 }
                 if !value.is_finite() {
-                    return Err(Error::Schema("automation point value must be finite".into()));
+                    return Err(Error::Schema(
+                        "automation point value must be finite".into(),
+                    ));
                 }
             }
             let pairs: Vec<Value> = points
@@ -1271,15 +1277,13 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
                 true,
             )
         }
-        Operation::InspectMixer { project } => {
-            (
-                Some(project),
-                "inspect_mixer",
-                "mixer.inspect",
-                json!({}),
-                false,
-            )
-        }
+        Operation::InspectMixer { project } => (
+            Some(project),
+            "inspect_mixer",
+            "mixer.inspect",
+            json!({}),
+            false,
+        ),
         Operation::SequenceSettings { project, fps } => {
             if !fps.is_finite() || fps <= 0.0 {
                 return Err(Error::Schema("sequence fps must be a positive rate".into()));
@@ -1361,7 +1365,7 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
         ),
         Operation::OpenProject { path } => (
             Some(path),
-            "open_project".into(),
+            "open_project",
             "project.inspect",
             json!({}),
             false,
@@ -1499,10 +1503,12 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
                 detail: "expected `mode` \"set\"".into(),
             });
         }
-        let landed = value["gainDb"].as_array().ok_or_else(|| Error::UnknownResponse {
-            command: command.into(),
-            detail: "missing `gainDb` array".into(),
-        })?;
+        let landed = value["gainDb"]
+            .as_array()
+            .ok_or_else(|| Error::UnknownResponse {
+                command: command.into(),
+                detail: "missing `gainDb` array".into(),
+            })?;
         if landed.iter().any(|entry| {
             entry.get("clip").and_then(Value::as_u64).is_none()
                 || entry.get("gainDb").and_then(Value::as_f64).is_none()
@@ -1820,12 +1826,12 @@ fn detect_move_loss(response: &Value) -> Result<Vec<LossReport>> {
         .iter()
         .filter_map(|v| v.as_u64())
         .collect();
-    let overwritten = response["overwritten"].as_array().ok_or_else(|| {
-        Error::UnknownResponse {
+    let overwritten = response["overwritten"]
+        .as_array()
+        .ok_or_else(|| Error::UnknownResponse {
             command: "timeline.move".into(),
             detail: "missing `overwritten` array".into(),
-        }
-    })?;
+        })?;
     let foreign: Vec<_> = overwritten
         .iter()
         .filter(|entry| {
@@ -1845,6 +1851,42 @@ fn detect_move_loss(response: &Value) -> Result<Vec<LossReport>> {
             foreign.len()
         ),
     }])
+}
+
+pub fn check_project_schema(path: &Path) -> Result<()> {
+    let bytes = std::fs::read(path)?;
+    let doc: Value = serde_json::from_slice(&bytes)?;
+    if doc["format"].as_str() != Some(FILMCRAFT_PROJECT_FORMAT) {
+        return Err(Error::Schema(
+            "missing or unknown `format` identifier".into(),
+        ));
+    }
+    let version = doc["schema_version"]
+        .as_u64()
+        .ok_or_else(|| Error::Schema("missing integer `schema_version`".into()))?;
+    if version != u64::from(FILMCRAFT_PROJECT_SCHEMA) {
+        return Err(Error::Schema(format!(
+            "schema {version}; adapter supports exactly {FILMCRAFT_PROJECT_SCHEMA}"
+        )));
+    }
+    Ok(())
+}
+
+fn verify_cli_version(cli: &Path) -> Result<()> {
+    let output = Command::new(cli).arg("--version").output()?;
+    if !output.status.success() {
+        return Err(Error::Cli(format!(
+            "pinned CLI --version exited {}",
+            output.status
+        )));
+    }
+    let version = std::str::from_utf8(&output.stdout)
+        .map_err(|e| Error::Cli(e.to_string()))?
+        .trim();
+    if version != format!("filmcraft-cli {FILMCRAFT_CLI_VERSION}") {
+        return Err(Error::Cli(format!("CLI version `{version}`; expected FilmCraft {FILMCRAFT_CLI_VERSION} from revision {FILMCRAFT_REVISION}")));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1950,9 +1992,7 @@ mod tests {
             assert!(validate_response_contract(command, &json!({})).is_err());
         }
         // `effects.setParam` echoes its post-write keyframe count.
-        assert!(
-            validate_response_contract("effects.setParam", &json!({"keyframes": 2})).is_ok()
-        );
+        assert!(validate_response_contract("effects.setParam", &json!({"keyframes": 2})).is_ok());
         assert!(validate_response_contract("effects.setParam", &Value::Null).is_err());
         // The echo-answering commands accept their measured shapes.
         assert!(validate_response_contract("captions.newTrack", &json!({"track": 8})).is_ok());
@@ -1960,42 +2000,39 @@ mod tests {
         assert!(
             validate_response_contract("captions.setTimes", &json!({"start": 0, "end": 1})).is_ok()
         );
-        assert!(
-            validate_response_contract("captions.list", &json!({"selection": [], "tracks": []}))
-                .is_ok()
-        );
+        assert!(validate_response_contract(
+            "captions.list",
+            &json!({"selection": [], "tracks": []})
+        )
+        .is_ok());
         assert!(
             validate_response_contract("graphics.newText", &json!({"clip": 13, "layer": 0}))
                 .is_ok()
         );
-        assert!(
-            validate_response_contract("lut.import", &json!({"id": "lut12", "lut": {}, "name": "x", "ref": "lib:lut12"}))
-                .is_ok()
-        );
+        assert!(validate_response_contract(
+            "lut.import",
+            &json!({"id": "lut12", "lut": {}, "name": "x", "ref": "lib:lut12"})
+        )
+        .is_ok());
         assert!(
             validate_response_contract("lut.list", &json!({"builtin": [], "library": []})).is_ok()
         );
-        assert!(
-            validate_response_contract(
-                "lumetri.setInputLut",
-                &json!({"clip": 10, "lut": "builtin:x", "name": "X"})
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_response_contract("mixer.setKeyframe", &json!({"time": 0, "value": -3.0}))
-                .is_ok()
-        );
-        assert!(
-            validate_response_contract(
-                "mixer.writeAutomation",
-                &json!({"keyframes": 2, "points": 2})
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_response_contract("mixer.inspect", &json!({"strips": []})).is_ok()
-        );
+        assert!(validate_response_contract(
+            "lumetri.setInputLut",
+            &json!({"clip": 10, "lut": "builtin:x", "name": "X"})
+        )
+        .is_ok());
+        assert!(validate_response_contract(
+            "mixer.setKeyframe",
+            &json!({"time": 0, "value": -3.0})
+        )
+        .is_ok());
+        assert!(validate_response_contract(
+            "mixer.writeAutomation",
+            &json!({"keyframes": 2, "points": 2})
+        )
+        .is_ok());
+        assert!(validate_response_contract("mixer.inspect", &json!({"strips": []})).is_ok());
         assert!(
             validate_response_contract("sequence.settings", &json!({"scaledClips": 0})).is_ok()
         );
@@ -2009,8 +2046,7 @@ mod tests {
         // is clean; trimming an occupant outside the moved set is a loss.
         let clean = json!({"moved": [7], "overwritten": []});
         assert!(detect_move_loss(&clean).unwrap().is_empty());
-        let normalized =
-            json!({"moved": [10, 11], "overwritten": [{"clip": 10, "was": 762810048000u64, "now": 762048000000u64}]});
+        let normalized = json!({"moved": [10, 11], "overwritten": [{"clip": 10, "was": 762810048000u64, "now": 762048000000u64}]});
         assert!(detect_move_loss(&normalized).unwrap().is_empty());
         let dirty = json!({"moved": [13, 14], "overwritten": [{"clip": 10}]});
         let losses = detect_move_loss(&dirty).unwrap();
@@ -2524,40 +2560,4 @@ mod tests {
         )
         .is_err());
     }
-}
-
-pub fn check_project_schema(path: &Path) -> Result<()> {
-    let bytes = std::fs::read(path)?;
-    let doc: Value = serde_json::from_slice(&bytes)?;
-    if doc["format"].as_str() != Some(FILMCRAFT_PROJECT_FORMAT) {
-        return Err(Error::Schema(
-            "missing or unknown `format` identifier".into(),
-        ));
-    }
-    let version = doc["schema_version"]
-        .as_u64()
-        .ok_or_else(|| Error::Schema("missing integer `schema_version`".into()))?;
-    if version != u64::from(FILMCRAFT_PROJECT_SCHEMA) {
-        return Err(Error::Schema(format!(
-            "schema {version}; adapter supports exactly {FILMCRAFT_PROJECT_SCHEMA}"
-        )));
-    }
-    Ok(())
-}
-
-fn verify_cli_version(cli: &Path) -> Result<()> {
-    let output = Command::new(cli).arg("--version").output()?;
-    if !output.status.success() {
-        return Err(Error::Cli(format!(
-            "pinned CLI --version exited {}",
-            output.status
-        )));
-    }
-    let version = std::str::from_utf8(&output.stdout)
-        .map_err(|e| Error::Cli(e.to_string()))?
-        .trim();
-    if version != format!("filmcraft-cli {FILMCRAFT_CLI_VERSION}") {
-        return Err(Error::Cli(format!("CLI version `{version}`; expected FilmCraft {FILMCRAFT_CLI_VERSION} from revision {FILMCRAFT_REVISION}")));
-    }
-    Ok(())
 }

@@ -4,33 +4,33 @@ use std::ffi::c_void;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct CGPoint { pub x: f64, pub y: f64 }
+pub struct CGPoint {
+    pub x: f64,
+    pub y: f64,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum CGEventType {
     LeftMouseDown = 1,
     LeftMouseUp = 2,
-    RightMouseDown = 3,
-    RightMouseUp = 4,
     MouseMoved = 5,
     LeftMouseDragged = 6,
-    RightMouseDragged = 7,
     ScrollWheel = 22,
-    KeyDown = 10,
-    KeyUp = 11,
-    FlagsChanged = 12,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-pub enum CGMouseButton { Left = 0, Right = 1, Center = 2 }
+pub enum CGMouseButton {
+    Left = 0,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct CGEventFlags(pub u64);
 impl CGEventFlags {
-    pub const fn empty() -> Self { CGEventFlags(0) }
-    pub const fn contains(&self, other: Self) -> bool { self.0 & other.0 != 0 }
+    pub const fn empty() -> Self {
+        CGEventFlags(0)
+    }
     pub const COMMAND: CGEventFlags = CGEventFlags(0x0010);
     pub const SHIFT: CGEventFlags = CGEventFlags(0x0002);
     pub const ALTERNATE: CGEventFlags = CGEventFlags(0x0008);
@@ -39,12 +39,18 @@ impl CGEventFlags {
 }
 impl std::ops::BitOr for CGEventFlags {
     type Output = Self;
-    fn bitor(self, rhs: Self) -> Self { CGEventFlags(self.0 | rhs.0) }
+    fn bitor(self, rhs: Self) -> Self {
+        CGEventFlags(self.0 | rhs.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
-pub enum CGEventTapLocation { HID = 0, Session = 1, AnnotatedSession = 2 }
+pub enum CGEventTapLocation {
+    // Apple's tap location is HID (Human Interface Device); Hid would misread.
+    #[allow(clippy::upper_case_acronyms)]
+    HID = 0,
+}
 
 extern "C" {
     pub fn CGEventCreateMouseEvent(
@@ -63,6 +69,8 @@ extern "C" {
     pub fn CGEventKeyboardSetUnicodeString(event: *mut c_void, length: u64, string: *const u16);
     pub fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
     pub fn CGEventSetFlags(event: *mut c_void, flags: u64);
+    // Read only by the HID-source tests; the binary posts events without reading flags back.
+    #[allow(dead_code)]
     pub fn CGEventGetFlags(event: *mut c_void) -> u64;
     pub fn CGEventGetLocation(event: *mut c_void) -> CGPoint;
     pub fn CGEventCreate(source: *const c_void) -> *mut c_void;
@@ -81,7 +89,18 @@ extern "C" {
 /// does not move, but Qt-drawn controls may accept what they filter on the
 /// `CGEventPostToPid` path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Route { Background { pid: i32, window_id: u32 }, Foreground, SkyLight { pid: i32, window_id: u32, chromium: bool } }
+pub enum Route {
+    Background {
+        pid: i32,
+        window_id: u32,
+    },
+    Foreground,
+    SkyLight {
+        pid: i32,
+        window_id: u32,
+        chromium: bool,
+    },
+}
 
 /// kCGMouseEventWindowUnderMousePointer and ...ThatCanHandleThisEvent: a
 /// background mouse event names the window it is for, since the window server
@@ -109,7 +128,11 @@ unsafe fn post(route: Route, event: *mut c_void) -> DriverResult<()> {
 /// `Background` stamps the window fields onto the event; the other two
 /// post it as built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostTarget { HidTap, Pid(i32), SkyLightPid(i32) }
+pub enum PostTarget {
+    HidTap,
+    Pid(i32),
+    SkyLightPid(i32),
+}
 
 pub fn post_target(route: Route) -> PostTarget {
     match route {
@@ -120,9 +143,12 @@ pub fn post_target(route: Route) -> PostTarget {
 }
 
 // CGEventField constants
+// CGEventField names keep their k-prefix; renaming would diverge from the Quartz headers.
+#[allow(non_upper_case_globals)]
 const kCGMouseEventClickState: u32 = 1;
+// CGEventField names keep their k-prefix; renaming would diverge from the Quartz headers.
+#[allow(non_upper_case_globals)]
 const kCGMouseEventButtonNumber: u32 = 3;
-const kCGKeyboardEventKeycode: u32 = 9;
 const KEY_EVENT_GAP_MS: u64 = 8;
 
 // Foreground click gaps: the moved primer settles cursor-tracking
@@ -173,10 +199,15 @@ fn skylight_click(
             DriverError::SkyLightUnavailable("no HIDSystemState event source".into())
         })?;
         let moved = CGEventCreateMouseEvent(
-            source, CGEventType::MouseMoved, CGPoint { x: sx, y: sy }, CGMouseButton::Left,
+            source,
+            CGEventType::MouseMoved,
+            CGPoint { x: sx, y: sy },
+            CGMouseButton::Left,
         );
         if moved.is_null() {
-            return Err(DriverError::Internal("failed to create skylight move".into()));
+            return Err(DriverError::Internal(
+                "failed to create skylight move".into(),
+            ));
         }
         skylight::stamp_event(moved, pid, window_id, win_x, win_y, 0, 0, 3, group_id, None)?;
         skylight::post_to_pid(pid, moved)?;
@@ -188,16 +219,52 @@ fn skylight_click(
         // (-1,-1) point hits no window; without it, activation-gated
         // controls swallow the click silently.
         if chromium {
-            let prime_down = CGEventCreateMouseEvent(source, CGEventType::LeftMouseDown, CGPoint { x: -1.0, y: -1.0 }, CGMouseButton::Left);
-            if prime_down.is_null() { return Err(DriverError::Internal("failed to create primer down".into())); }
-            skylight::stamp_event(prime_down, pid, window_id, -1.0, -1.0, 1, 0, 3, group_id, chromium.then_some(1))?;
+            let prime_down = CGEventCreateMouseEvent(
+                source,
+                CGEventType::LeftMouseDown,
+                CGPoint { x: -1.0, y: -1.0 },
+                CGMouseButton::Left,
+            );
+            if prime_down.is_null() {
+                return Err(DriverError::Internal("failed to create primer down".into()));
+            }
+            skylight::stamp_event(
+                prime_down,
+                pid,
+                window_id,
+                -1.0,
+                -1.0,
+                1,
+                0,
+                3,
+                group_id,
+                chromium.then_some(1),
+            )?;
             skylight::post_to_pid(pid, prime_down)?;
             CFRelease(prime_down as *const c_void);
             std::thread::sleep(std::time::Duration::from_millis(1));
 
-            let prime_up = CGEventCreateMouseEvent(source, CGEventType::LeftMouseUp, CGPoint { x: -1.0, y: -1.0 }, CGMouseButton::Left);
-            if prime_up.is_null() { return Err(DriverError::Internal("failed to create primer up".into())); }
-            skylight::stamp_event(prime_up, pid, window_id, -1.0, -1.0, 1, 0, 3, group_id, chromium.then_some(2))?;
+            let prime_up = CGEventCreateMouseEvent(
+                source,
+                CGEventType::LeftMouseUp,
+                CGPoint { x: -1.0, y: -1.0 },
+                CGMouseButton::Left,
+            );
+            if prime_up.is_null() {
+                return Err(DriverError::Internal("failed to create primer up".into()));
+            }
+            skylight::stamp_event(
+                prime_up,
+                pid,
+                window_id,
+                -1.0,
+                -1.0,
+                1,
+                0,
+                3,
+                group_id,
+                chromium.then_some(2),
+            )?;
             skylight::post_to_pid(pid, prime_up)?;
             CFRelease(prime_up as *const c_void);
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -206,16 +273,36 @@ fn skylight_click(
         for click_num in 0..clicks {
             let state = click_num as i64 + 1;
             let phase: Option<i64> = chromium.then_some(3);
-            let down = CGEventCreateMouseEvent(source, CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
-            if down.is_null() { return Err(DriverError::Internal("failed to create skylight down".into())); }
-            skylight::stamp_event(down, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase)?;
+            let down = CGEventCreateMouseEvent(
+                source,
+                CGEventType::LeftMouseDown,
+                CGPoint { x: sx, y: sy },
+                CGMouseButton::Left,
+            );
+            if down.is_null() {
+                return Err(DriverError::Internal(
+                    "failed to create skylight down".into(),
+                ));
+            }
+            skylight::stamp_event(
+                down, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase,
+            )?;
             skylight::post_to_pid(pid, down)?;
             CFRelease(down as *const c_void);
             std::thread::sleep(std::time::Duration::from_millis(down_ms));
 
-            let up = CGEventCreateMouseEvent(source, CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
-            if up.is_null() { return Err(DriverError::Internal("failed to create skylight up".into())); }
-            skylight::stamp_event(up, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase)?;
+            let up = CGEventCreateMouseEvent(
+                source,
+                CGEventType::LeftMouseUp,
+                CGPoint { x: sx, y: sy },
+                CGMouseButton::Left,
+            );
+            if up.is_null() {
+                return Err(DriverError::Internal("failed to create skylight up".into()));
+            }
+            skylight::stamp_event(
+                up, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase,
+            )?;
             skylight::post_to_pid(pid, up)?;
             CFRelease(up as *const c_void);
         }
@@ -228,11 +315,7 @@ fn skylight_click(
 /// Factored so tests can read the source state back without posting:
 /// a NULL-sourced event and an HID-sourced one must differ here, and
 /// every event this path builds must match the HID reference.
-fn fg_click_event(
-    source: *const c_void,
-    event_type: CGEventType,
-    point: CGPoint,
-) -> *mut c_void {
+fn fg_click_event(source: *const c_void, event_type: CGEventType, point: CGPoint) -> *mut c_void {
     unsafe { CGEventCreateMouseEvent(source, event_type, point, CGMouseButton::Left) }
 }
 
@@ -288,7 +371,9 @@ fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
         CGAssociateMouseAndMouseCursorPosition(1);
         let moved = fg_click_event(source, CGEventType::MouseMoved, point);
         if moved.is_null() {
-            return Err(DriverError::Internal("failed to create foreground move".into()));
+            return Err(DriverError::Internal(
+                "failed to create foreground move".into(),
+            ));
         }
         CGEventPost(CGEventTapLocation::HID, moved);
         CFRelease(moved as *const c_void);
@@ -296,7 +381,9 @@ fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
         for click_num in 0..clicks {
             let down = fg_click_event(source, CGEventType::LeftMouseDown, point);
             if down.is_null() {
-                return Err(DriverError::Internal("failed to create foreground down".into()));
+                return Err(DriverError::Internal(
+                    "failed to create foreground down".into(),
+                ));
             }
             if click_num > 0 {
                 CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
@@ -307,7 +394,9 @@ fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
 
             let up = fg_click_event(source, CGEventType::LeftMouseUp, point);
             if up.is_null() {
-                return Err(DriverError::Internal("failed to create foreground up".into()));
+                return Err(DriverError::Internal(
+                    "failed to create foreground up".into(),
+                ));
             }
             if click_num > 0 {
                 CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
@@ -322,7 +411,12 @@ fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
 }
 
 pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) -> DriverResult<()> {
-    if let Route::SkyLight { pid, window_id, chromium } = route {
+    if let Route::SkyLight {
+        pid,
+        window_id,
+        chromium,
+    } = route
+    {
         return skylight_click(pid, window_id, x, y, window_frame, clicks, chromium);
     }
     let sx = window_frame.x + x;
@@ -332,16 +426,30 @@ pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) ->
     }
     unsafe {
         for click_num in 0..clicks {
-            let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
-            if down.is_null() { return Err(DriverError::Internal("failed to create mouse down".into())); }
+            let down = CGEventCreateMouseEvent(
+                std::ptr::null(),
+                CGEventType::LeftMouseDown,
+                CGPoint { x: sx, y: sy },
+                CGMouseButton::Left,
+            );
+            if down.is_null() {
+                return Err(DriverError::Internal("failed to create mouse down".into()));
+            }
             if click_num > 0 {
                 CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
             }
             post(route, down)?;
             CFRelease(down as *const c_void);
 
-            let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
-            if up.is_null() { return Err(DriverError::Internal("failed to create mouse up".into())); }
+            let up = CGEventCreateMouseEvent(
+                std::ptr::null(),
+                CGEventType::LeftMouseUp,
+                CGPoint { x: sx, y: sy },
+                CGMouseButton::Left,
+            );
+            if up.is_null() {
+                return Err(DriverError::Internal("failed to create mouse up".into()));
+            }
             if click_num > 0 {
                 CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
             }
@@ -352,36 +460,76 @@ pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) ->
     Ok(())
 }
 
-pub fn drag(route: Route, start_x: f64, start_y: f64, end_x: f64, end_y: f64, window_frame: &Frame, _duration: f64) -> DriverResult<()> {
+pub fn drag(
+    route: Route,
+    start_x: f64,
+    start_y: f64,
+    end_x: f64,
+    end_y: f64,
+    window_frame: &Frame,
+    _duration: f64,
+) -> DriverResult<()> {
     let sx = window_frame.x + start_x;
     let sy = window_frame.y + start_y;
     let ex = window_frame.x + end_x;
     let ey = window_frame.y + end_y;
     unsafe {
-        let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
-        if down.is_null() { return Err(DriverError::Internal("failed to create drag down".into())); }
+        let down = CGEventCreateMouseEvent(
+            std::ptr::null(),
+            CGEventType::LeftMouseDown,
+            CGPoint { x: sx, y: sy },
+            CGMouseButton::Left,
+        );
+        if down.is_null() {
+            return Err(DriverError::Internal("failed to create drag down".into()));
+        }
         post(route, down)?;
         CFRelease(down as *const c_void);
 
-        let move_ = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDragged, CGPoint { x: ex, y: ey }, CGMouseButton::Left);
-        if move_.is_null() { return Err(DriverError::Internal("failed to create drag move".into())); }
+        let move_ = CGEventCreateMouseEvent(
+            std::ptr::null(),
+            CGEventType::LeftMouseDragged,
+            CGPoint { x: ex, y: ey },
+            CGMouseButton::Left,
+        );
+        if move_.is_null() {
+            return Err(DriverError::Internal("failed to create drag move".into()));
+        }
         post(route, move_)?;
         CFRelease(move_ as *const c_void);
 
-        let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: ex, y: ey }, CGMouseButton::Left);
-        if up.is_null() { return Err(DriverError::Internal("failed to create drag up".into())); }
+        let up = CGEventCreateMouseEvent(
+            std::ptr::null(),
+            CGEventType::LeftMouseUp,
+            CGPoint { x: ex, y: ey },
+            CGMouseButton::Left,
+        );
+        if up.is_null() {
+            return Err(DriverError::Internal("failed to create drag up".into()));
+        }
         post(route, up)?;
         CFRelease(up as *const c_void);
     }
     Ok(())
 }
 
-pub fn scroll(route: Route, x: f64, y: f64, window_frame: &Frame, delta_x: f64, delta_y: f64) -> DriverResult<()> {
+pub fn scroll(
+    route: Route,
+    x: f64,
+    y: f64,
+    window_frame: &Frame,
+    delta_x: f64,
+    delta_y: f64,
+) -> DriverResult<()> {
     let sx = window_frame.x + x;
     let sy = window_frame.y + y;
     unsafe {
         let scroll = CGEventCreate(std::ptr::null());
-        if scroll.is_null() { return Err(DriverError::Internal("failed to create scroll event".into())); }
+        if scroll.is_null() {
+            return Err(DriverError::Internal(
+                "failed to create scroll event".into(),
+            ));
+        }
         CGEventSetType(scroll, CGEventType::ScrollWheel);
         let loc = CGPoint { x: sx, y: sy };
         CGEventSetLocation(scroll, &loc as *const CGPoint as *const c_void);
@@ -409,7 +557,9 @@ pub fn type_text(route: Route, text: &str) -> DriverResult<usize> {
             let units = ch.encode_utf16(&mut units);
             for key_down in [true, false] {
                 let event = CGEventCreateKeyboardEvent(source, 0, key_down);
-                if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
+                if event.is_null() {
+                    return Err(DriverError::Internal("failed to create key event".into()));
+                }
                 CGEventKeyboardSetUnicodeString(event, units.len() as u64, units.as_ptr());
                 // HIDSystemState can inherit physically held modifiers;
                 // the Unicode string already carries the character.
@@ -433,7 +583,9 @@ pub fn key(route: Route, key_name: &str, modifiers: &[String]) -> DriverResult<(
     with_hid_event_source(|source| unsafe {
         for (index, key_down) in [true, false].into_iter().enumerate() {
             let event = CGEventCreateKeyboardEvent(source, key_code, key_down);
-            if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
+            if event.is_null() {
+                return Err(DriverError::Internal("failed to create key event".into()));
+            }
             CGEventSetFlags(event, flags.0);
             let posted = post(route, event);
             CFRelease(event as *const c_void);
@@ -449,31 +601,91 @@ pub fn key(route: Route, key_name: &str, modifiers: &[String]) -> DriverResult<(
 /// Keep one HIDSystemState source alive for a complete keyboard sequence.
 /// The source is explicit, matching the reference background path; a NULL
 /// source loses that state before the event reaches the target process.
-fn with_hid_event_source<T>(
-    send: impl FnOnce(*mut c_void) -> DriverResult<T>,
-) -> DriverResult<T> {
+fn with_hid_event_source<T>(send: impl FnOnce(*mut c_void) -> DriverResult<T>) -> DriverResult<T> {
     let source = skylight::event_source().ok_or_else(|| {
         DriverError::SkyLightUnavailable("CGEventSourceCreate did not yield a HID source".into())
     })?;
     let result = send(source);
-    unsafe { CFRelease(source as *const c_void); }
+    unsafe {
+        CFRelease(source as *const c_void);
+    }
     result
 }
 
 fn key_code_for(name: &str) -> Option<u16> {
     let code = match name {
-        "return" => 36, "tab" => 48, "escape" => 53, "space" => 49, "delete" => 51,
-        "arrow_up" => 126, "arrow_down" => 125, "arrow_left" => 123, "arrow_right" => 124,
-        "home" => 115, "end" => 119, "page_up" => 116, "page_down" => 121,
-        "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118, "f5" => 96, "f6" => 97,
-        "f7" => 98, "f8" => 100, "f9" => 101, "f10" => 109, "f11" => 103, "f12" => 111,
-        "a" => 0, "s" => 1, "d" => 2, "f" => 3, "h" => 4, "g" => 5, "z" => 6, "x" => 7,
-        "c" => 8, "v" => 9, "b" => 11, "q" => 12, "w" => 13, "e" => 14, "r" => 15,
-        "y" => 16, "t" => 17, "1" => 18, "2" => 19, "3" => 20, "4" => 21, "6" => 22,
-        "5" => 23, "=" => 24, "9" => 25, "7" => 26, "-" => 27, "8" => 28, "0" => 29,
-        "]" => 30, "o" => 31, "u" => 32, "[" => 33, "i" => 34, "p" => 35, "l" => 37,
-        "j" => 38, "'" => 39, "k" => 40, ";" => 41, "\\" => 42, "," => 43, "/" => 44,
-        "n" => 45, "m" => 46, "." => 47, "`" => 50,
+        "return" => 36,
+        "tab" => 48,
+        "escape" => 53,
+        "space" => 49,
+        "delete" => 51,
+        "arrow_up" => 126,
+        "arrow_down" => 125,
+        "arrow_left" => 123,
+        "arrow_right" => 124,
+        "home" => 115,
+        "end" => 119,
+        "page_up" => 116,
+        "page_down" => 121,
+        "f1" => 122,
+        "f2" => 120,
+        "f3" => 99,
+        "f4" => 118,
+        "f5" => 96,
+        "f6" => 97,
+        "f7" => 98,
+        "f8" => 100,
+        "f9" => 101,
+        "f10" => 109,
+        "f11" => 103,
+        "f12" => 111,
+        "a" => 0,
+        "s" => 1,
+        "d" => 2,
+        "f" => 3,
+        "h" => 4,
+        "g" => 5,
+        "z" => 6,
+        "x" => 7,
+        "c" => 8,
+        "v" => 9,
+        "b" => 11,
+        "q" => 12,
+        "w" => 13,
+        "e" => 14,
+        "r" => 15,
+        "y" => 16,
+        "t" => 17,
+        "1" => 18,
+        "2" => 19,
+        "3" => 20,
+        "4" => 21,
+        "6" => 22,
+        "5" => 23,
+        "=" => 24,
+        "9" => 25,
+        "7" => 26,
+        "-" => 27,
+        "8" => 28,
+        "0" => 29,
+        "]" => 30,
+        "o" => 31,
+        "u" => 32,
+        "[" => 33,
+        "i" => 34,
+        "p" => 35,
+        "l" => 37,
+        "j" => 38,
+        "'" => 39,
+        "k" => 40,
+        ";" => 41,
+        "\\" => 42,
+        "," => 43,
+        "/" => 44,
+        "n" => 45,
+        "m" => 46,
+        "." => 47,
+        "`" => 50,
         _ => return None,
     };
     Some(code)
@@ -497,7 +709,9 @@ fn modifier_flags(modifiers: &[String]) -> CGEventFlags {
 pub fn get_pointer_state() -> DriverResult<(f64, f64, String)> {
     unsafe {
         let event = CGEventCreate(std::ptr::null());
-        if event.is_null() { return Err(DriverError::Internal("failed to create event".into())); }
+        if event.is_null() {
+            return Err(DriverError::Internal("failed to create event".into()));
+        }
         let loc = CGEventGetLocation(event);
         let button_state = CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber);
         CFRelease(event as *const c_void);
@@ -525,11 +739,18 @@ mod tests {
     #[test]
     fn routes_resolve_to_their_channels() {
         assert_eq!(
-            post_target(Route::Background { pid: 11, window_id: 22 }),
+            post_target(Route::Background {
+                pid: 11,
+                window_id: 22
+            }),
             PostTarget::Pid(11)
         );
         assert_eq!(
-            post_target(Route::SkyLight { pid: 11, window_id: 22, chromium: true }),
+            post_target(Route::SkyLight {
+                pid: 11,
+                window_id: 22,
+                chromium: true
+            }),
             PostTarget::SkyLightPid(11)
         );
     }
@@ -542,8 +763,7 @@ mod tests {
         const SOURCE_STATE_FIELD: u32 = 45;
         const HID_SYSTEM_STATE: i64 = 1;
         unsafe {
-            let source = skylight::event_source()
-                .expect("HIDSystemState source must exist");
+            let source = skylight::event_source().expect("HIDSystemState source must exist");
             let event = CGEventCreateKeyboardEvent(source, 0, true);
             assert!(!event.is_null());
             CGEventSetFlags(event, 0);
@@ -560,8 +780,10 @@ mod tests {
     fn foreground_click_events_carry_the_hid_source() {
         // From CGEventTypes.h (MacOSX SDK): the field that names an
         // event's source state, and the HID-system value a hand click
-        // carries.
+        // carries. Names keep their k-prefix to match the header.
+        #[allow(non_upper_case_globals)]
         const kCGEventSourceStateID: u32 = 45;
+        #[allow(non_upper_case_globals)]
         const kCGEventSourceStateHIDSystemState: i64 = 1;
         // The defect, measured live: the old path built events with a
         // NULL source, Qt dropped them while reporting clicked:true,
@@ -570,17 +792,22 @@ mod tests {
         // explicit HIDSystemState reference - and not the same as a
         // NULL-sourced one. Builds only; nothing is posted.
         unsafe {
-            let source = skylight::event_source()
-                .expect("HIDSystemState source must exist");
+            let source = skylight::event_source().expect("HIDSystemState source must exist");
             let point = CGPoint { x: 10.0, y: 20.0 };
             let reference = CGEventCreateMouseEvent(
-                source, CGEventType::LeftMouseDown, point, CGMouseButton::Left,
+                source,
+                CGEventType::LeftMouseDown,
+                point,
+                CGMouseButton::Left,
             );
             assert!(!reference.is_null());
             let ours = fg_click_event(source, CGEventType::LeftMouseDown, point);
             assert!(!ours.is_null());
             let nulled = CGEventCreateMouseEvent(
-                std::ptr::null(), CGEventType::LeftMouseDown, point, CGMouseButton::Left,
+                std::ptr::null(),
+                CGEventType::LeftMouseDown,
+                point,
+                CGMouseButton::Left,
             );
             assert!(!nulled.is_null());
             let field = |event| CGEventGetIntegerValueField(event, kCGEventSourceStateID);
@@ -644,7 +871,10 @@ mod tests {
             assert!(!event.is_null());
             skylight::stamp_event(event, 1234, 99, 10.0, 20.0, 2, 0, 3, 777, None)
                 .expect("stamps must apply");
-            assert_eq!(CGEventGetIntegerValueField(event, kCGMouseEventClickState), 2);
+            assert_eq!(
+                CGEventGetIntegerValueField(event, kCGMouseEventClickState),
+                2
+            );
             CFRelease(event as *const c_void);
         }
     }

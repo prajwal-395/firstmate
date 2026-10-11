@@ -91,9 +91,7 @@ impl Worker {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|exc| {
-                format!("could not start the Resolve worker ({interpreter}): {exc}")
-            })?;
+            .map_err(|exc| format!("could not start the Resolve worker ({interpreter}): {exc}"))?;
         self.stdin = child.stdin.take();
         self.stdout = child.stdout.take().map(BufReader::new);
         self.child = Some(child);
@@ -142,11 +140,13 @@ impl Worker {
                 Err("the Resolve worker closed its answer".to_string())
             }
             Ok(_) => {
-                let response: Value = serde_json::from_str(line.trim()).map_err(|exc| {
-                    format!("the worker's answer was not JSON: {exc}")
-                })?;
+                let response: Value = serde_json::from_str(line.trim())
+                    .map_err(|exc| format!("the worker's answer was not JSON: {exc}"))?;
                 Ok(WorkerResponse {
-                    ok: response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+                    ok: response
+                        .get("ok")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                     result: response.get("result").cloned(),
                     error: response
                         .get("error")

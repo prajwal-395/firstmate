@@ -27,21 +27,29 @@ pub struct OcrResult {
 pub fn ocr_image(
     cg_image: *mut c_void,
     width: usize,
-    height: usize,
+    _height: usize,
     region: Option<&Frame>,
     window_frame: &Frame,
 ) -> DriverResult<OcrResult> {
     // Vision answers in image pixels; the protocol speaks window points.
     let scale = pixels_per_point(width, window_frame);
     let (rx, ry, rw, rh, has_region) = match region {
-        Some(r) => (r.x * scale, r.y * scale, r.width * scale, r.height * scale, 1),
+        Some(r) => (
+            r.x * scale,
+            r.y * scale,
+            r.width * scale,
+            r.height * scale,
+            1,
+        ),
         None => (0.0, 0.0, 0.0, 0.0, 0),
     };
 
     unsafe {
         let json_str = vision_ocr_image(cg_image, rx, ry, rw, rh, has_region);
         if json_str.is_null() {
-            return Err(DriverError::OcrFailed("vision_ocr_image returned null".into()));
+            return Err(DriverError::OcrFailed(
+                "vision_ocr_image returned null".into(),
+            ));
         }
         let cstr = std::ffi::CStr::from_ptr(json_str);
         let json_string = cstr.to_string_lossy().into_owned();
@@ -55,27 +63,49 @@ pub fn ocr_image(
 
         if let Some(arr) = json.as_array() {
             for item in arr {
-                let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let confidence = item.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let frame = item.get("frame").and_then(|f| {
-                    Some(Frame {
-                        x: f.get("x")?.as_f64()? / scale,
-                        y: f.get("y")?.as_f64()? / scale,
-                        width: f.get("width")?.as_f64()? / scale,
-                        height: f.get("height")?.as_f64()? / scale,
+                let text = item
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let confidence = item
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let frame = item
+                    .get("frame")
+                    .and_then(|f| {
+                        Some(Frame {
+                            x: f.get("x")?.as_f64()? / scale,
+                            y: f.get("y")?.as_f64()? / scale,
+                            width: f.get("width")?.as_f64()? / scale,
+                            height: f.get("height")?.as_f64()? / scale,
+                        })
                     })
-                }).unwrap_or(Frame { x: 0.0, y: 0.0, width: 0.0, height: 0.0 });
+                    .unwrap_or(Frame {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 0.0,
+                        height: 0.0,
+                    });
 
                 if !full_text.is_empty() {
                     full_text.push('\n');
                 }
                 full_text.push_str(&text);
 
-                elements.push(OcrElement { text, confidence, frame });
+                elements.push(OcrElement {
+                    text,
+                    confidence,
+                    frame,
+                });
             }
         }
 
-        Ok(OcrResult { full_text, elements })
+        Ok(OcrResult {
+            full_text,
+            elements,
+        })
     }
 }
 

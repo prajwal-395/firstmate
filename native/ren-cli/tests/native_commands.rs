@@ -49,19 +49,22 @@ fn assert_identical(args: &[&str], env: &[(String, String)]) {
     let native = run_native(args, env);
     let python = run_python(args, env);
     assert_eq!(
-        native.stdout, python.stdout,
+        native.stdout,
+        python.stdout,
         "stdout differs for `{args:?}`\nnative: {}\npython: {}",
         String::from_utf8_lossy(&native.stdout),
         String::from_utf8_lossy(&python.stdout),
     );
     assert_eq!(
-        native.stderr, python.stderr,
+        native.stderr,
+        python.stderr,
         "stderr differs for `{args:?}`\nnative: {}\npython: {}",
         String::from_utf8_lossy(&native.stderr),
         String::from_utf8_lossy(&python.stderr),
     );
     assert_eq!(
-        native.status, python.status,
+        native.status,
+        python.status,
         "exit code differs for `{args:?}`: native {:?}, python {:?}",
         native.status.code(),
         python.status.code(),
@@ -174,7 +177,11 @@ fn check_matches_python() {
     // ffprobe - a refusal path alone would not exercise it. Encoded once per
     // test run, not per assertion.
     let project = setup_project("check", "demo");
-    let video = project.projects_root.join("demo").join("raw").join("clip.mov");
+    let video = project
+        .projects_root
+        .join("demo")
+        .join("raw")
+        .join("clip.mov");
     let encoded = Command::new("ffmpeg")
         .arg("-v")
         .arg("error")
@@ -197,7 +204,10 @@ fn check_matches_python() {
     fs::create_dir_all(&sfx).unwrap();
     fs::create_dir_all(&music).unwrap();
     let mut env = projects_env(&project);
-    env.push(("PIPELINE_SFX_LIBRARY".to_string(), sfx.to_string_lossy().to_string()));
+    env.push((
+        "PIPELINE_SFX_LIBRARY".to_string(),
+        sfx.to_string_lossy().to_string(),
+    ));
     env.push((
         "PIPELINE_MUSIC_LIBRARY".to_string(),
         music.to_string_lossy().to_string(),

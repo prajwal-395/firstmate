@@ -24,9 +24,8 @@ impl SnapshotHash {
     /// Parse the hex wire form. Accepts exactly 64 hex digits, the
     /// shape `timeline_shadow.snapshot_hash` writes.
     pub fn from_hex(text: &str) -> Result<Self, String> {
-        let bytes = hex_decode(text).ok_or_else(|| {
-            format!("a snapshot hash is 64 hex digits, got {text:?}")
-        })?;
+        let bytes = hex_decode(text)
+            .ok_or_else(|| format!("a snapshot hash is 64 hex digits, got {text:?}"))?;
         let mut out = [0u8; 32];
         out.copy_from_slice(&bytes);
         Ok(SnapshotHash(out))
@@ -97,8 +96,14 @@ macro_rules! string_newtype {
     };
 }
 
-string_newtype!(ClipId, "A Resolve clip's unique id (the edit algebra's `unique_id`).");
-string_newtype!(TimelineId, "The shadow store's timeline identity, not its display name.");
+string_newtype!(
+    ClipId,
+    "A Resolve clip's unique id (the edit algebra's `unique_id`)."
+);
+string_newtype!(
+    TimelineId,
+    "The shadow store's timeline identity, not its display name."
+);
 
 impl Serialize for Generation {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

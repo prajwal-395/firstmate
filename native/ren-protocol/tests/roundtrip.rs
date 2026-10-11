@@ -8,8 +8,8 @@
 
 use ren_protocol::schemas;
 use ren_protocol::{
-    CapabilitySpec, EditPatch, GenerationRecord, JobShape, Refusal, Receipt, ResourceDemand,
-    Scope, VerificationFinding,
+    CapabilitySpec, EditPatch, GenerationRecord, JobShape, Receipt, Refusal, ResourceDemand, Scope,
+    VerificationFinding,
 };
 use serde_json::Value;
 use std::fs;
@@ -21,8 +21,8 @@ fn fixtures_dir() -> PathBuf {
 
 fn read_fixture(name: &str) -> Value {
     let path = fixtures_dir().join(format!("{name}.json"));
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let text =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name}.json is not valid JSON: {e}"))
 }
 
@@ -42,28 +42,48 @@ where
 
 #[test]
 fn edit_patches_round_trip() {
-    for (index, fixture) in read_fixture("edit-patch").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("edit-patch")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<EditPatch>(&format!("edit-patch[{index}]"), fixture);
     }
 }
 
 #[test]
 fn capability_specs_round_trip() {
-    for (index, fixture) in read_fixture("capability-spec").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("capability-spec")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<CapabilitySpec>(&format!("capability-spec[{index}]"), fixture);
     }
 }
 
 #[test]
 fn receipts_round_trip() {
-    for (index, fixture) in read_fixture("receipt").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("receipt")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<Receipt>(&format!("receipt[{index}]"), fixture);
     }
 }
 
 #[test]
 fn generation_records_round_trip() {
-    for (index, fixture) in read_fixture("generation-record").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("generation-record")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<GenerationRecord>(&format!("generation-record[{index}]"), fixture);
     }
 }
@@ -77,21 +97,39 @@ fn scopes_round_trip() {
 
 #[test]
 fn resource_demands_round_trip() {
-    for (index, fixture) in read_fixture("resource-demand").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("resource-demand")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<ResourceDemand>(&format!("resource-demand[{index}]"), fixture);
     }
 }
 
 #[test]
 fn verification_findings_round_trip() {
-    for (index, fixture) in read_fixture("verification-finding").as_array().unwrap().iter().enumerate() {
-        assert_round_trip::<VerificationFinding>(&format!("verification-finding[{index}]"), fixture);
+    for (index, fixture) in read_fixture("verification-finding")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        assert_round_trip::<VerificationFinding>(
+            &format!("verification-finding[{index}]"),
+            fixture,
+        );
     }
 }
 
 #[test]
 fn job_submissions_round_trip() {
-    for (index, fixture) in read_fixture("job-submission").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("job-submission")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         let name = format!("job-submission[{index}]");
         let shape = fixture
             .get("shape")
@@ -109,7 +147,12 @@ fn job_submissions_round_trip() {
 
 #[test]
 fn refusals_round_trip() {
-    for (index, fixture) in read_fixture("refusal").as_array().unwrap().iter().enumerate() {
+    for (index, fixture) in read_fixture("refusal")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         assert_round_trip::<Refusal>(&format!("refusal[{index}]"), fixture);
     }
 }
@@ -150,7 +193,9 @@ fn every_fixture_validates_against_the_generated_schemas() {
 /// `#/$defs/<name>`, and the `format` checks the fixtures meet.
 fn validate_against(instance: &Value, schema: &Value) -> bool {
     if let Some(one_of) = schema.get("oneOf").and_then(|v| v.as_array()) {
-        return one_of.iter().any(|variant| validate_against(instance, variant));
+        return one_of
+            .iter()
+            .any(|variant| validate_against(instance, variant));
     }
     if let Some(reference) = schema.get("$ref").and_then(|v| v.as_str()) {
         let name = reference.strip_prefix("#/$defs/").unwrap_or(reference);
@@ -180,7 +225,12 @@ fn validate_against(instance: &Value, schema: &Value) -> bool {
                 Some(obj) => obj,
                 None => return false,
             };
-            for key in schema.get("required").and_then(|v| v.as_array()).into_iter().flatten() {
+            for key in schema
+                .get("required")
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+            {
                 let key = key.as_str().unwrap_or("");
                 if !obj.contains_key(key) {
                     return false;

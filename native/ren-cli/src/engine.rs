@@ -166,14 +166,21 @@ pub fn no_engine_refusal() -> String {
     ];
     if let Some(exe) = current_exe() {
         if let Some(adjacent) = engine_root_from(&exe) {
-            lines.push(format!("    beside the ren package: {}", adjacent.display()));
+            lines.push(format!(
+                "    beside the ren package: {}",
+                adjacent.display()
+            ));
         }
     }
     let link = vep_home().join("current");
     let target = fs::read_link(&link)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|_| "(no current pointer)".to_string());
-    lines.push(format!("    installed pointer: {} -> {}", link.display(), target));
+    lines.push(format!(
+        "    installed pointer: {} -> {}",
+        link.display(),
+        target
+    ));
     lines.push(
         "Install Ren from a checkout (`pip install -e <checkout>`, README \
          Quickstart), point $REN_ENGINE_ROOT at a built engine tree \
@@ -229,10 +236,6 @@ mod tests {
         env::set_var(ENGINE_ENV, "");
         assert_eq!(explicit_engine_root(), None);
         env::remove_var(ENGINE_ENV);
-    }
-
-    fn unique_temp(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("ren-engine-{label}-{}", std::process::id()))
     }
 
     /// Process environment is shared, so the tests that set a variable run

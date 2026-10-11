@@ -39,11 +39,7 @@ pub struct Region {
 impl Region {
     /// Build a region, refusing the incoherent ones (`Region.__post_init__`):
     /// a negative start, or an end preceding the start.
-    pub fn new(
-        timeline: Option<String>,
-        start: f64,
-        end: f64,
-    ) -> Result<Region, ScopeError> {
+    pub fn new(timeline: Option<String>, start: f64, end: f64) -> Result<Region, ScopeError> {
         if start < 0.0 {
             return Err(ScopeError(format!(
                 "region start {start} is negative. A region is timeline seconds measured from the first frame."
@@ -54,7 +50,11 @@ impl Region {
                 "region end {end} precedes start {start}. An interval is (start, end), both in timeline seconds."
             )));
         }
-        Ok(Region { timeline, start, end })
+        Ok(Region {
+            timeline,
+            start,
+            end,
+        })
     }
 
     /// The region's duration in seconds.
@@ -124,8 +124,7 @@ impl Scope {
                 "a REEL scope must carry its keep ranges; without them it would read as the whole project and redo everything".to_string(),
             ));
         }
-        let timelines: Vec<&Option<String>> =
-            ranges.iter().map(|r| &r.timeline).collect();
+        let timelines: Vec<&Option<String>> = ranges.iter().map(|r| &r.timeline).collect();
         let first = timelines[0];
         if timelines.iter().any(|t| *t != first) {
             return Err(ScopeError(
@@ -137,7 +136,11 @@ impl Scope {
             a.start
                 .partial_cmp(&b.start)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.end.partial_cmp(&b.end).unwrap_or(std::cmp::Ordering::Equal))
+                .then(
+                    a.end
+                        .partial_cmp(&b.end)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
         });
         for pair in ordered.windows(2) {
             if pair[1].start < pair[0].end {
@@ -159,7 +162,10 @@ impl Scope {
     /// (`Scope.timeline`).
     pub fn timeline(&self) -> Option<&str> {
         match self.kind {
-            ScopeKind::Region => self.region_span.as_ref().and_then(|r| r.timeline.as_deref()),
+            ScopeKind::Region => self
+                .region_span
+                .as_ref()
+                .and_then(|r| r.timeline.as_deref()),
             ScopeKind::Reel => self
                 .reel_ranges
                 .as_ref()

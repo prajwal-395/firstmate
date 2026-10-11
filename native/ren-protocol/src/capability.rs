@@ -189,7 +189,11 @@ impl CapabilitySpec {
     /// The machine demand of one phase, with an exclusive Resolve mode
     /// reserving `resolve_cursor` (`resource_scheduler._capability_demand`).
     pub fn phase_demand(&self, phase_name: &str) -> Option<ResourceDemand> {
-        let phase = self.execution.phases.iter().find(|p| p.name == phase_name)?;
+        let phase = self
+            .execution
+            .phases
+            .iter()
+            .find(|p| p.name == phase_name)?;
         let mut entries: Vec<(ResourceName, u64)> = phase.resources.clone();
         if phase.resolve_mode == ResolveMode::Exclusive {
             entries.push((ResourceName::ResolveCursor, 1));

@@ -21,12 +21,12 @@ use ren_protocol::edit::{Condition, EditOp, EditPatch};
 use ren_protocol::{CapabilityId, ClipId, Generation};
 
 use crate::algebra::{
-    MergeSemantics, declaration as algebra_declaration, key_strings, op_ids as algebra_op_ids,
-    patch_op_ids as algebra_patch_op_ids, span as op_span,
+    declaration as algebra_declaration, key_strings, op_ids as algebra_op_ids,
+    patch_op_ids as algebra_patch_op_ids, span as op_span, MergeSemantics,
 };
 use crate::compose::{
-    CarryRow, Semantics, carry as compose_carry, compose as compose_patches,
-    problems as composition_problems, respan as compose_respan,
+    carry as compose_carry, compose as compose_patches, problems as composition_problems,
+    respan as compose_respan, CarryRow, Semantics,
 };
 use crate::conditions::judge_all;
 use crate::patch::{covered as span_covered, validate_patch as validate_patch_dict};
@@ -949,7 +949,9 @@ fn problems(declarations: &Bound<'_, PyAny>, capability_ids: &Bound<'_, PyAny>) 
 // mapping all run here, so a plan the verb prints and the run the
 // driver executes cannot drift apart.
 
-fn filmcraft_decode_model(model: &Bound<'_, PyAny>) -> PyResult<ren_protocol::project_model::ProjectModel> {
+fn filmcraft_decode_model(
+    model: &Bound<'_, PyAny>,
+) -> PyResult<ren_protocol::project_model::ProjectModel> {
     let json = py_to_json(model)?;
     let text =
         serde_json::to_string(&json).map_err(|err| PyValueError::new_err(err.to_string()))?;
@@ -974,8 +976,8 @@ fn filmcraft_plan_projection<'py>(
     let model = filmcraft_decode_model(model)?;
     let projection = ren_filmcraft::adapter::plan_projection(&model)
         .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let value = serde_json::to_value(&projection)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&projection).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 
@@ -994,19 +996,19 @@ fn filmcraft_plan_ren_edit<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let model = filmcraft_decode_model(model)?;
     let projection = filmcraft_decode_projection(projection)?;
-    let edit: ren_protocol::project_model::EditOperation = serde_json::from_value(py_to_json(edit)?)
-        .map_err(|err| PyValueError::new_err(format!("not a model edit: {err}")))?;
+    let edit: ren_protocol::project_model::EditOperation =
+        serde_json::from_value(py_to_json(edit)?)
+            .map_err(|err| PyValueError::new_err(format!("not a model edit: {err}")))?;
     let ids: std::collections::BTreeMap<String, Vec<u64>> = clip_ids.into_iter().collect();
     let project_path = std::path::PathBuf::from(project);
     let context = ren_filmcraft::adapter::EditContext {
         project: &project_path,
         clip_ids: &ids,
     };
-    let operations =
-        ren_filmcraft::adapter::plan_ren_edit(&model, &projection, &edit, &context)
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let value = serde_json::to_value(&operations)
+    let operations = ren_filmcraft::adapter::plan_ren_edit(&model, &projection, &edit, &context)
         .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&operations).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 
@@ -1019,8 +1021,8 @@ fn filmcraft_describe_operation<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let operation: ren_filmcraft::Operation = serde_json::from_value(py_to_json(operation)?)
         .map_err(|err| PyValueError::new_err(format!("not a FilmCraft operation: {err}")))?;
-    let (project, name, command, params, save) = ren_filmcraft::plan(operation)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let (project, name, command, params, save) =
+        ren_filmcraft::plan(operation).map_err(|err| PyValueError::new_err(err.to_string()))?;
     let value = serde_json::json!({
         "project": project,
         "operation": name,
@@ -1043,8 +1045,8 @@ fn filmcraft_reconcile_clip_ids<'py>(
     let projection = filmcraft_decode_projection(projection)?;
     let reconciled = ren_filmcraft::adapter::reconcile_clip_ids(&projection, &receipts)
         .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let value = serde_json::to_value(&reconciled)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&reconciled).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 
@@ -1059,8 +1061,8 @@ fn filmcraft_verify_media<'py>(
     let resolved =
         ren_filmcraft::adapter::verify_media(std::path::Path::new(media_dir), &projection)
             .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let value = serde_json::to_value(&resolved)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&resolved).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 
@@ -1083,8 +1085,8 @@ fn filmcraft_import_operation<'py>(
         &resolved,
         &projection,
     );
-    let value = serde_json::to_value(&operation)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&operation).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 
@@ -1099,16 +1101,15 @@ fn filmcraft_placement_operations<'py>(
     py: Python<'py>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let projection = filmcraft_decode_projection(projection)?;
-    let ordered: std::collections::BTreeMap<String, u64> =
-        items.into_iter().collect();
+    let ordered: std::collections::BTreeMap<String, u64> = items.into_iter().collect();
     let operations = ren_filmcraft::adapter::placement_operations(
         std::path::Path::new(project),
         &ordered,
         &projection,
     )
     .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let value = serde_json::to_value(&operations)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&operations).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
 }
 

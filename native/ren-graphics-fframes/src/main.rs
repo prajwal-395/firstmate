@@ -32,12 +32,14 @@ use std::process::Command;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use fframes::{AudioMap, Color, Duration, FFramesContext, Frame, FrameRenderer, RgbaFrame, Svgr, Video};
-use fframes::{DynamicMediaProvider, RawFontData};
 use fframes::usvgr::svgtree::{
     AId, Attribute, EId, NestedNodeData, NestedNodeKind, NestedSvgDocument, StringStorage,
     SvgAttributeValue,
 };
+use fframes::{
+    AudioMap, Color, Duration, FFramesContext, Frame, FrameRenderer, RgbaFrame, Svgr, Video,
+};
+use fframes::{DynamicMediaProvider, RawFontData};
 use fframes_skia_renderer::metal::SkiaMetalCtx;
 use fframes_skia_renderer::{SkiaBackend, SkiaFrameRenderer};
 use serde::Deserialize;
@@ -57,7 +59,12 @@ struct El {
 
 impl El {
     fn new(tag: &'static str) -> Self {
-        El { tag, attrs: Vec::new(), children: Vec::new(), text: None }
+        El {
+            tag,
+            attrs: Vec::new(),
+            children: Vec::new(),
+            text: None,
+        }
     }
     fn a(mut self, name: &'static str, v: impl ToString) -> Self {
         self.attrs.push((name, AttrVal::S(v.to_string())));
@@ -75,14 +82,12 @@ impl El {
         self
     }
     fn lower(self) -> NestedNodeData<'static> {
-        let tag = EId::from_str(self.tag)
-            .unwrap_or_else(|| panic!("unknown element {}", self.tag));
+        let tag = EId::from_str(self.tag).unwrap_or_else(|| panic!("unknown element {}", self.tag));
         let attrs: Vec<Attribute<'static>> = self
             .attrs
             .into_iter()
             .map(|(name, v)| Attribute {
-                name: AId::from_str(name)
-                    .unwrap_or_else(|| panic!("unknown attribute {name}")),
+                name: AId::from_str(name).unwrap_or_else(|| panic!("unknown attribute {name}")),
                 value: match v {
                     AttrVal::S(s) => SvgAttributeValue::StringStorage(StringStorage::new_owned(s)),
                 },
@@ -225,17 +230,32 @@ enum IREasing {
     #[serde(rename = "linear")]
     Linear,
     #[serde(rename = "ease")]
-    Ease { #[serde(default = "default_power")] power: f64 },
+    Ease {
+        #[serde(default = "default_power")]
+        power: f64,
+    },
     #[serde(rename = "cubic_bezier")]
     CubicBezier { x1: f64, y1: f64, x2: f64, y2: f64 },
     #[serde(rename = "spring")]
-    Spring { stiffness: f64, damping: f64, mass: f64 },
+    Spring {
+        stiffness: f64,
+        damping: f64,
+        mass: f64,
+    },
     #[serde(rename = "steps")]
-    Steps { steps: i32, #[serde(default = "default_step_direction")] direction: String },
+    Steps {
+        steps: i32,
+        #[serde(default = "default_step_direction")]
+        direction: String,
+    },
 }
 
-fn default_power() -> f64 { 2.0 }
-fn default_step_direction() -> String { "end".to_string() }
+fn default_power() -> f64 {
+    2.0
+}
+fn default_step_direction() -> String {
+    "end".to_string()
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)] // the browser-layout hint is not yet consumed
@@ -431,8 +451,15 @@ struct IRHTMLContent {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum IRFilter {
-    Blur { sigma: f32 },
-    DropShadow { dx: f32, dy: f32, sigma: f32, color: String },
+    Blur {
+        sigma: f32,
+    },
+    DropShadow {
+        dx: f32,
+        dy: f32,
+        sigma: f32,
+        color: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -461,9 +488,11 @@ fn apply_easing(easing: &IREasing, t: f64, fps: f64) -> f64 {
             1.0 - (1.0 - clamped).powf(*power)
         }
         IREasing::CubicBezier { x1, y1, x2, y2 } => cubic_bezier(*x1, *y1, *x2, *y2, t),
-        IREasing::Spring { stiffness, damping, mass } => {
-            spring_progress(t, *stiffness, *damping, *mass, fps)
-        }
+        IREasing::Spring {
+            stiffness,
+            damping,
+            mass,
+        } => spring_progress(t, *stiffness, *damping, *mass, fps),
         IREasing::Steps { steps, direction } => {
             let clamped = t.clamp(0.0, 1.0);
             if *steps <= 0 {
@@ -497,31 +526,49 @@ fn track_ease(name: Option<&str>, x: f64) -> f64 {
 
 fn cubic_bezier(x1: f64, y1: f64, x2: f64, y2: f64, t: f64) -> f64 {
     let clamped = t.clamp(0.0, 1.0);
-    if clamped <= 0.0 { return 0.0; }
-    if clamped >= 1.0 { return 1.0; }
+    if clamped <= 0.0 {
+        return 0.0;
+    }
+    if clamped >= 1.0 {
+        return 1.0;
+    }
 
     let bezier = |u: f64, p1: f64, p2: f64| -> f64 {
         3.0 * (1.0 - u).powi(2) * u * p1 + 3.0 * (1.0 - u) * u.powi(2) * p2 + u.powi(3)
     };
     let bezier_derivative = |u: f64, p1: f64, p2: f64| -> f64 {
-        3.0 * (1.0 - u).powi(2) * p1 + 6.0 * (1.0 - u) * u * (p2 - p1) + 3.0 * u.powi(2) * (1.0 - p2)
+        3.0 * (1.0 - u).powi(2) * p1
+            + 6.0 * (1.0 - u) * u * (p2 - p1)
+            + 3.0 * u.powi(2) * (1.0 - p2)
     };
 
     let mut u = clamped;
     for _ in 0..16 {
         let bx = bezier(u, x1, x2);
-        if (bx - clamped).abs() < 1e-7 { break; }
+        if (bx - clamped).abs() < 1e-7 {
+            break;
+        }
         let dx = bezier_derivative(u, x1, x2);
-        if dx.abs() < 1e-7 { break; }
-        u = u - (bx - clamped) / dx;
+        if dx.abs() < 1e-7 {
+            break;
+        }
+        u -= (bx - clamped) / dx;
         u = u.clamp(0.0, 1.0);
     }
     bezier(u, y1, y2)
 }
 
+// A spring integrator's state vector, not a parameter object: eight scalars, one call site.
+#[allow(clippy::too_many_arguments)]
 fn spring_advance(
-    to_value: f64, last_timestamp: f64, current: f64, velocity: f64,
-    now: f64, damping: f64, mass: f64, stiffness: f64,
+    to_value: f64,
+    last_timestamp: f64,
+    current: f64,
+    velocity: f64,
+    now: f64,
+    damping: f64,
+    mass: f64,
+    stiffness: f64,
 ) -> (f64, f64, f64) {
     let delta_time = (now - last_timestamp).min(64.0);
     if damping <= 0.0 {
@@ -540,9 +587,8 @@ fn spring_advance(
     let frag1 = envelope * (sin1 * ((v0 + zeta * omega0 * x0) / omega1) + x0 * cos1);
     let (position, next_velocity) = if zeta < 1.0 {
         let pos = to_value - frag1;
-        let vel = zeta * omega0 * frag1 - envelope * (
-            cos1 * (v0 + zeta * omega0 * x0) - omega1 * x0 * sin1
-        );
+        let vel = zeta * omega0 * frag1
+            - envelope * (cos1 * (v0 + zeta * omega0 * x0) - omega1 * x0 * sin1);
         (pos, vel)
     } else {
         let critically = (-omega0 * t).exp();
@@ -554,7 +600,9 @@ fn spring_advance(
 }
 
 fn spring_progress(t: f64, stiffness: f64, damping: f64, mass: f64, fps: f64) -> f64 {
-    if t <= 0.0 { return 0.0; }
+    if t <= 0.0 {
+        return 0.0;
+    }
     let frame = t * fps;
     let frame_clamped = frame.max(0.0);
     let uneven_rest = frame_clamped % 1.0;
@@ -563,11 +611,17 @@ fn spring_progress(t: f64, stiffness: f64, damping: f64, mass: f64, fps: f64) ->
     let mut f = 0.0_f64;
     while f <= last {
         if f == last {
-            f = f + uneven_rest;
+            f += uneven_rest;
         }
         let (pos, vel, ts) = spring_advance(
-            1.0, last_timestamp, current, velocity, (f / fps) * 1000.0,
-            damping, mass, stiffness,
+            1.0,
+            last_timestamp,
+            current,
+            velocity,
+            (f / fps) * 1000.0,
+            damping,
+            mass,
+            stiffness,
         );
         current = pos;
         velocity = vel;
@@ -593,14 +647,19 @@ fn sample_animation(anim: &IRAnimation, time_seconds: f64, fps: f64) -> IRValue 
 
 fn interpolate(from: &IRValue, to: &IRValue, progress: f64) -> IRValue {
     match (from, to) {
-        (IRValue::Number(f), IRValue::Number(t)) => {
-            IRValue::Number(f + (t - f) * progress)
-        }
-        (IRValue::List(f), IRValue::List(t)) => {
-            IRValue::List(f.iter().zip(t.iter()).map(|(a, b)| a + (b - a) * progress).collect())
-        }
+        (IRValue::Number(f), IRValue::Number(t)) => IRValue::Number(f + (t - f) * progress),
+        (IRValue::List(f), IRValue::List(t)) => IRValue::List(
+            f.iter()
+                .zip(t.iter())
+                .map(|(a, b)| a + (b - a) * progress)
+                .collect(),
+        ),
         (IRValue::Text(f), IRValue::Text(t)) => {
-            if progress >= 0.5 { IRValue::Text(t.clone()) } else { IRValue::Text(f.clone()) }
+            if progress >= 0.5 {
+                IRValue::Text(t.clone())
+            } else {
+                IRValue::Text(f.clone())
+            }
         }
         _ => from.clone(),
     }
@@ -646,10 +705,16 @@ fn sample_node_animations(node: &IRNode, time_seconds: f64, fps: f64) -> Vec<(St
     for (prop, anims) in by_property {
         let mut sorted = anims;
         sorted.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap());
-        let latest = sorted.iter().rev().find(|a| snap(a.start) <= snap(time_seconds));
+        let latest = sorted
+            .iter()
+            .rev()
+            .find(|a| snap(a.start) <= snap(time_seconds));
         let value = match latest {
             Some(anim) => sample_animation(anim, time_seconds, fps),
-            None => sorted.first().map(|a| a.from_value.clone()).unwrap_or(IRValue::Number(0.0)),
+            None => sorted
+                .first()
+                .map(|a| a.from_value.clone())
+                .unwrap_or(IRValue::Number(0.0)),
         };
         result.push((prop, value));
     }
@@ -707,12 +772,11 @@ fn text_metrics(scene: &Scene) -> HashMap<String, FaceMetrics> {
     let mut db = fontdb::Database::new();
     let mut loaded: HashSet<String> = HashSet::new();
     for node in &scene.nodes {
-        if let Some(path) = node.text.as_ref().and_then(|t| t.font_file.as_ref()) {
-            if loaded.insert(path.clone()) {
-                if let Err(e) = db.load_font_file(path) {
-                    eprintln!("WARNING: cannot load font file {}: {}", path, e);
-                }
-            }
+        if let Some(path) = node.text.as_ref().and_then(|t| t.font_file.as_ref())
+            && loaded.insert(path.clone())
+            && let Err(e) = db.load_font_file(path)
+        {
+            eprintln!("WARNING: cannot load font file {}: {}", path, e);
         }
     }
     let mut system_loaded = false;
@@ -734,9 +798,9 @@ fn text_metrics(scene: &Scene) -> HashMap<String, FaceMetrics> {
         };
         let mut id = lookup(&db);
         let exact = id.is_some()
-            && family_name.as_ref().map_or(false, |name| {
+            && family_name.as_ref().is_some_and(|name| {
                 id.and_then(|i| db.face(i))
-                    .map_or(false, |f| f.families.iter().any(|(n, _)| n == name))
+                    .is_some_and(|f| f.families.iter().any(|(n, _)| n == name))
             });
         if !exact && !system_loaded {
             db.load_system_fonts();
@@ -792,16 +856,20 @@ fn load_advances(path: &Path) -> Advances {
     let upem = ttf_parser::Face::parse(&data, 0)
         .map(|f| f.units_per_em())
         .unwrap_or(1000) as f32;
-    Advances { upem, data, cache: HashMap::new() }
+    Advances {
+        upem,
+        data,
+        cache: HashMap::new(),
+    }
 }
 
 impl Advances {
     fn advance(&mut self, ch: char) -> u32 {
         *self.cache.entry(ch).or_insert_with(|| {
-            if let Ok(f) = ttf_parser::Face::parse(&self.data, 0) {
-                if let Some(g) = f.glyph_index(ch) {
-                    return f.glyph_hor_advance(g).unwrap_or(0) as u32;
-                }
+            if let Ok(f) = ttf_parser::Face::parse(&self.data, 0)
+                && let Some(g) = f.glyph_index(ch)
+            {
+                return f.glyph_hor_advance(g).unwrap_or(0) as u32;
             }
             0
         })
@@ -820,11 +888,17 @@ impl Advances {
 fn paint(colour: &str) -> (String, f32) {
     let c = colour.trim();
     let lower = c.to_ascii_lowercase();
-    if let Some(inner) = lower.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = lower
+        .strip_prefix("rgba(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
         if parts.len() == 4 {
             let alpha = parts[3].parse::<f32>().unwrap_or(1.0);
-            return (format!("rgb({},{},{})", parts[0], parts[1], parts[2]), alpha);
+            return (
+                format!("rgb({},{},{})", parts[0], parts[1], parts[2]),
+                alpha,
+            );
         }
     }
     if lower.starts_with('#') && lower.len() == 9 {
@@ -944,7 +1018,10 @@ fn parse_inset(value: &str) -> Option<[f32; 4]> {
 /// Percentages resolve against the node's box, and ``userSpaceOnUse`` puts
 /// the points in the element's user space, so the box origin is added.
 fn css_polygon(value: &str, bx: f32, by: f32, w: f32, h: f32) -> Vec<(f32, f32)> {
-    let inner = value.trim().trim_start_matches("polygon(").trim_end_matches(')');
+    let inner = value
+        .trim()
+        .trim_start_matches("polygon(")
+        .trim_end_matches(')');
     inner
         .split(',')
         .map(|pair| {
@@ -958,7 +1035,10 @@ fn css_polygon(value: &str, bx: f32, by: f32, w: f32, h: f32) -> Vec<(f32, f32)>
 }
 
 fn points_attr(pts: &[(f32, f32)]) -> String {
-    pts.iter().map(|(x, y)| format!("{x:.4},{y:.4}")).collect::<Vec<_>>().join(" ")
+    pts.iter()
+        .map(|(x, y)| format!("{x:.4},{y:.4}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The encoded bytes an image node names: a base64 data URI or a file.
@@ -993,10 +1073,10 @@ fn is_svg_bytes(bytes: &[u8]) -> bool {
 /// mime or the file extension) or the bytes' own leading markup.
 fn is_svg_src(src: &str, bytes: &[u8]) -> bool {
     if let Some(rest) = src.strip_prefix("data:") {
-        if let Some((meta, _)) = rest.split_once(',') {
-            if meta.split(';').next() == Some("image/svg+xml") {
-                return true;
-            }
+        if let Some((meta, _)) = rest.split_once(',')
+            && meta.split(';').next() == Some("image/svg+xml")
+        {
+            return true;
         }
         return is_svg_bytes(bytes);
     }
@@ -1016,7 +1096,7 @@ fn is_svg_src(src: &str, bytes: &[u8]) -> bool {
 /// straight alpha itself, so divide the alpha back out first.
 fn unpremultiply(premultiplied: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(premultiplied.len());
-    for chunk in premultiplied.chunks_exact(4) {
+    for chunk in premultiplied.as_chunks::<4>().0 {
         let (r, g, b, a) = (chunk[0], chunk[1], chunk[2], chunk[3]);
         if a == 0 {
             out.extend_from_slice(&[0, 0, 0, 0]);
@@ -1148,10 +1228,14 @@ fn video_frame_index(t: f64, src_fps: f64, nframes: usize) -> usize {
 fn probe_video(src: &str, what: &str) -> Result<(u32, u32, f64, String), String> {
     let out = Command::new("ffprobe")
         .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,codec_name",
-            "-of", "json",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate,codec_name",
+            "-of",
+            "json",
             src,
         ])
         .output()
@@ -1176,7 +1260,8 @@ fn probe_video(src: &str, what: &str) -> Result<(u32, u32, f64, String), String>
     let height = stream
         .get("height")
         .and_then(|h| h.as_u64())
-        .ok_or_else(|| format!("{what}: ffprobe found no height in {src}"))? as u32;
+        .ok_or_else(|| format!("{what}: ffprobe found no height in {src}"))?
+        as u32;
     let rate = stream
         .get("avg_frame_rate")
         .and_then(|r| r.as_str())
@@ -1184,7 +1269,9 @@ fn probe_video(src: &str, what: &str) -> Result<(u32, u32, f64, String), String>
     let fps = parse_rate(rate)
         .ok_or_else(|| format!("{what}: ffprobe found no usable rate {rate:?} in {src}"))?;
     if width == 0 || height == 0 || fps <= 0.0 {
-        return Err(format!("{what}: ffprobe measured {width}x{height} at {fps}fps in {src}"));
+        return Err(format!(
+            "{what}: ffprobe measured {width}x{height} at {fps}fps in {src}"
+        ));
     }
     let codec = stream
         .get("codec_name")
@@ -1213,7 +1300,13 @@ fn parse_rate(rate: &str) -> Option<f64> {
 /// `brand_motion.ALPHA_DECODERS`). The byte count, not the container's
 /// frame count, is the truth: a count that is not a whole number of
 /// frames is refused rather than drawn short.
-fn decode_video(src: &str, width: u32, height: u32, codec: &str, what: &str) -> Result<Vec<Vec<u8>>, String> {
+fn decode_video(
+    src: &str,
+    width: u32,
+    height: u32,
+    codec: &str,
+    what: &str,
+) -> Result<Vec<Vec<u8>>, String> {
     let mut args: Vec<&str> = vec!["-v", "error"];
     // One instrument per codec, mirroring brand_motion.ALPHA_DECODERS -
     // a second decoder is not a fallback, it is the one that sees alpha.
@@ -1243,7 +1336,11 @@ fn decode_video(src: &str, width: u32, height: u32, codec: &str, what: &str) -> 
             out.stdout.len()
         ));
     }
-    Ok(out.stdout.chunks_exact(frame_size).map(|c| c.to_vec()).collect())
+    Ok(out
+        .stdout
+        .chunks_exact(frame_size)
+        .map(|c| c.to_vec())
+        .collect())
 }
 
 /// Decode one Video node and preload every source frame as its own
@@ -1253,20 +1350,17 @@ fn preload_video(
     node_id: &str,
     src: &str,
     next_name: &mut usize,
-) -> Result<
-    (
-        VideoClip,
-        Vec<(String, fframes::media::ImageData<'static>)>,
-    ),
-    String,
-> {
+) -> Result<(VideoClip, Vec<(String, fframes::media::ImageData<'static>)>), String> {
     let what = format!("video of node {node_id}");
     let (width, height, src_fps, codec) = probe_video(src, &what)?;
     let frames = decode_video(src, width, height, &codec, &what)?;
     if frames.is_empty() {
         return Err(format!("{what}: {src} decoded to no frames"));
     }
-    let mut clip = VideoClip { frames: Vec::with_capacity(frames.len()), src_fps };
+    let mut clip = VideoClip {
+        frames: Vec::with_capacity(frames.len()),
+        src_fps,
+    };
     let mut images = Vec::with_capacity(frames.len());
     for rgba in &frames {
         let name = format!("ren-video-{node_id}-{}", *next_name);
@@ -1467,15 +1561,17 @@ impl Video for SceneVideo {
 
     fn render_frame(&self, frame: Frame, _ctx: &FFramesContext) -> Svgr<'_> {
         let mut held = frame.index;
-        if let Some(hold) = self.scene.hold_frames {
-            if hold > 1 {
-                let hold = hold as usize;
-                held = held / hold * hold;
-            }
+        if let Some(hold) = self.scene.hold_frames
+            && hold > 1
+        {
+            let hold = hold as usize;
+            held = held / hold * hold;
         }
         let t = snap(held as f64 / self.scene.fps);
         let root = self.frame_tree(t);
-        Svgr { svg_tree: NestedSvgDocument::from_nodes(vec![Some(root.lower())]) }
+        Svgr {
+            svg_tree: NestedSvgDocument::from_nodes(vec![Some(root.lower())]),
+        }
     }
 }
 
@@ -1522,15 +1618,16 @@ impl SceneVideo {
     }
 
     fn render_node(&self, ctx: &mut RenderContext, node: &IRNode, t: f64) -> El {
-        if let Some(timing) = &node.timing {
-            if snap(t) < snap(timing.start) {
-                return El::new("g");
-            }
-            if let Some(dur) = timing.duration {
-                if snap(t) >= snap(timing.start + dur) {
-                    return El::new("g");
-                }
-            }
+        if let Some(timing) = &node.timing
+            && snap(t) < snap(timing.start)
+        {
+            return El::new("g");
+        }
+        if let Some(timing) = &node.timing
+            && let Some(dur) = timing.duration
+            && snap(t) >= snap(timing.start + dur)
+        {
+            return El::new("g");
         }
 
         let anims = sample_node_animations(node, t, self.scene.fps);
@@ -1596,11 +1693,14 @@ impl SceneVideo {
             Some(IRValue::Text(c)) => Some(c.clone()),
             _ => None,
         };
-        let clip_string = clip_string.as_deref().or(node.clip.as_deref()).filter(|c| !c.is_empty());
-        if let Some(clip) = clip_string {
-            if let Some(b) = node.bounds {
-                g = self.apply_clip(ctx, g, clip, b);
-            }
+        let clip_string = clip_string
+            .as_deref()
+            .or(node.clip.as_deref())
+            .filter(|c| !c.is_empty());
+        if let Some(clip) = clip_string
+            && let Some(b) = node.bounds
+        {
+            g = self.apply_clip(ctx, g, clip, b);
         }
         if let Some(mask) = node.mask.as_deref().filter(|m| !m.is_empty()) {
             let id = ctx.next("m");
@@ -1609,12 +1709,19 @@ impl SceneVideo {
                 let src_node = src.clone();
                 mask_el = mask_el.c(self.render_node(ctx, &src_node, t));
             } else {
-                eprintln!("WARNING: mask of node {} names unknown node {mask}; nothing masked", node.id);
+                eprintln!(
+                    "WARNING: mask of node {} names unknown node {mask}; nothing masked",
+                    node.id
+                );
             }
             ctx.defs.push(mask_el);
             g = g.a("mask", format!("url(#{id})"));
         }
-        if let Some(blend) = node.blend.as_deref().filter(|b| *b != "normal" && !b.is_empty()) {
+        if let Some(blend) = node
+            .blend
+            .as_deref()
+            .filter(|b| *b != "normal" && !b.is_empty())
+        {
             g = g.a("mix-blend-mode", blend);
         }
 
@@ -1632,15 +1739,28 @@ impl SceneVideo {
             }
             "camera" => {
                 let cam = node.camera.as_ref().cloned().unwrap_or(IRCameraContent {
-                    scale: None, rotate: None, translate: None, focus: None,
+                    scale: None,
+                    rotate: None,
+                    translate: None,
+                    focus: None,
                 });
                 let scale = track("camera.scale").or(cam.scale).unwrap_or(1.0);
                 let roll = track("camera.rotate").or(cam.rotate).unwrap_or(0.0);
                 let ccx = track("camera.translateX")
-                    .or_else(|| cam.translate.as_ref().filter(|v| v.len() >= 2).map(|v| v[0]))
+                    .or_else(|| {
+                        cam.translate
+                            .as_ref()
+                            .filter(|v| v.len() >= 2)
+                            .map(|v| v[0])
+                    })
                     .unwrap_or(0.0);
                 let ccy = track("camera.translateY")
-                    .or_else(|| cam.translate.as_ref().filter(|v| v.len() >= 2).map(|v| v[1]))
+                    .or_else(|| {
+                        cam.translate
+                            .as_ref()
+                            .filter(|v| v.len() >= 2)
+                            .map(|v| v[1])
+                    })
                     .unwrap_or(0.0);
                 let focus = track("camera.focus").or(cam.focus).unwrap_or(0.0);
                 let mut inner = El::new("g");
@@ -1655,13 +1775,20 @@ impl SceneVideo {
                 }
                 let cam_transform = format!(
                     "translate({},{}) scale({}) rotate({}) translate({},{}) translate({},{})",
-                    ctx.width / 2.0, ctx.height / 2.0, scale, roll, -ccx, -ccy,
-                    -ctx.width / 2.0, -ctx.height / 2.0
+                    ctx.width / 2.0,
+                    ctx.height / 2.0,
+                    scale,
+                    roll,
+                    -ccx,
+                    -ccy,
+                    -ctx.width / 2.0,
+                    -ctx.height / 2.0
                 );
                 let mut world = El::new("g").a("transform", cam_transform);
                 if focus > 0.0 {
                     let id = ctx.next("f");
-                    ctx.defs.push(blur_filter(&id, focus, ctx.width, ctx.height));
+                    ctx.defs
+                        .push(blur_filter(&id, focus, ctx.width, ctx.height));
                     world = world.a("filter", format!("url(#{id})"));
                 }
                 g = g.c(world.c(inner));
@@ -1689,7 +1816,10 @@ impl SceneVideo {
                 };
                 if let Some(key) = ctx.images.get(&node.id) {
                     g = g.c(El::new("image")
-                        .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                        .a("x", b.x)
+                        .a("y", b.y)
+                        .a("width", b.width)
+                        .a("height", b.height)
                         .a("preserveAspectRatio", "xMidYMid meet")
                         .a("href", key));
                 }
@@ -1705,30 +1835,41 @@ impl SceneVideo {
                         let idx = video_frame_index(t, clip.src_fps, clip.frames.len());
                         if let Some(key) = clip.frames.get(idx) {
                             g = g.c(El::new("image")
-                                .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                                .a("x", b.x)
+                                .a("y", b.y)
+                                .a("width", b.width)
+                                .a("height", b.height)
                                 .a("preserveAspectRatio", "none")
                                 .a("href", key));
                         }
                     }
                 } else {
-                    eprintln!("WARNING: video node {} has no decoded clip; skipped", node.id);
+                    eprintln!(
+                        "WARNING: video node {} has no decoded clip; skipped",
+                        node.id
+                    );
                 }
             }
             "svg" => g = self.draw_svg_path(g, node),
             "shader" => {
                 eprintln!(
                     "WARNING: shader node {} names program {:?}, which this build does not draw; skipped",
-                    node.id, node.shader.as_ref().and_then(|s| s.program.as_deref())
+                    node.id,
+                    node.shader.as_ref().and_then(|s| s.program.as_deref())
                 );
             }
             "html" => {
                 eprintln!(
                     "ERROR: html node {} names engine {:?}, which FFrames cannot draw; refusing",
-                    node.id, node.html.as_ref().and_then(|h| h.engine.as_deref())
+                    node.id,
+                    node.html.as_ref().and_then(|h| h.engine.as_deref())
                 );
                 std::process::exit(1);
             }
-            other => eprintln!("WARNING: node type {other:?} of node {} is not drawn", node.id),
+            other => eprintln!(
+                "WARNING: node type {other:?} of node {} is not drawn",
+                node.id
+            ),
         }
         g
     }
@@ -1738,13 +1879,19 @@ impl SceneVideo {
             IRFilter::Blur { sigma } => {
                 if *sigma > 0.0 {
                     let id = ctx.next("f");
-                    ctx.defs.push(blur_filter(&id, *sigma, ctx.width, ctx.height));
+                    ctx.defs
+                        .push(blur_filter(&id, *sigma, ctx.width, ctx.height));
                     g.a("filter", format!("url(#{id})"))
                 } else {
                     g
                 }
             }
-            IRFilter::DropShadow { dx, dy, sigma, color } => {
+            IRFilter::DropShadow {
+                dx,
+                dy,
+                sigma,
+                color,
+            } => {
                 let id = ctx.next("ds");
                 let (col, alpha) = paint(color);
                 // CSS drop-shadow draws the original with a shadow behind
@@ -1754,16 +1901,19 @@ impl SceneVideo {
                     El::new("filter")
                         .a("id", &id)
                         .a("filterUnits", "userSpaceOnUse")
-                        .a("x", -ctx.width).a("y", -ctx.height)
-                        .a("width", 3.0 * ctx.width).a("height", 3.0 * ctx.height)
+                        .a("x", -ctx.width)
+                        .a("y", -ctx.height)
+                        .a("width", 3.0 * ctx.width)
+                        .a("height", 3.0 * ctx.height)
                         .c(El::new("feDropShadow")
-                            .a("dx", dx).a("dy", dy)
+                            .a("dx", dx)
+                            .a("dy", dy)
                             .a("stdDeviation", sigma)
                             .a("flood-color", &col)
                             .a("flood-opacity", alpha))
                         .c(El::new("feMerge")
                             .c(El::new("feMergeNode"))
-                            .c(El::new("feMergeNode").a("in", "SourceGraphic")))
+                            .c(El::new("feMergeNode").a("in", "SourceGraphic"))),
                 );
                 g.a("filter", format!("url(#{id})"))
             }
@@ -1778,9 +1928,14 @@ impl SceneVideo {
             let h = b.height * (1.0 - (top + bottom) / 100.0);
             let id = ctx.next("c");
             ctx.defs.push(
-                El::new("clipPath").a("id", &id).a("clipPathUnits", "userSpaceOnUse")
-                    .c(El::new("rect").a("x", x).a("y", y)
-                        .a("width", w.max(0.0)).a("height", h.max(0.0)))
+                El::new("clipPath")
+                    .a("id", &id)
+                    .a("clipPathUnits", "userSpaceOnUse")
+                    .c(El::new("rect")
+                        .a("x", x)
+                        .a("y", y)
+                        .a("width", w.max(0.0))
+                        .a("height", h.max(0.0))),
             );
             return g.a("clip-path", format!("url(#{id})"));
         }
@@ -1788,8 +1943,10 @@ impl SceneVideo {
             let pts = css_polygon(clip, b.x, b.y, b.width, b.height);
             let id = ctx.next("cp");
             ctx.defs.push(
-                El::new("clipPath").a("id", &id).a("clipPathUnits", "userSpaceOnUse")
-                    .c(El::new("polygon").a("points", points_attr(&pts)))
+                El::new("clipPath")
+                    .a("id", &id)
+                    .a("clipPathUnits", "userSpaceOnUse")
+                    .c(El::new("polygon").a("points", points_attr(&pts))),
             );
             return g.a("clip-path", format!("url(#{id})"));
         }
@@ -1802,9 +1959,20 @@ impl SceneVideo {
     /// do to shapes and images. Replacing `g` with a fresh group here
     /// dropped every one of them - which is how the caption entry scale
     /// drew nothing for a year while cameras scaled fine.
-    fn draw_text(&self, ctx: &mut RenderContext, g: El, node: &IRNode, text: &IRTextContent, colour: Option<&str>, t: f64) -> El {
+    fn draw_text(
+        &self,
+        ctx: &mut RenderContext,
+        g: El,
+        node: &IRNode,
+        text: &IRTextContent,
+        colour: Option<&str>,
+        t: f64,
+    ) -> El {
         let Some(b) = node.bounds else {
-            eprintln!("WARNING: text node {} has no bounds; nothing drawn", node.id);
+            eprintln!(
+                "WARNING: text node {} has no bounds; nothing drawn",
+                node.id
+            );
             return g;
         };
         let Some(m) = self.metrics.get(&node.id).copied() else {
@@ -1813,7 +1981,11 @@ impl SceneVideo {
         let mut g = g;
         let shown = apply_text_transform(&text.text, text.text_transform.as_deref());
         let fill = colour.unwrap_or("#000000");
-        let shadows = text.text_shadow.as_deref().map(parse_text_shadow).unwrap_or_default();
+        let shadows = text
+            .text_shadow
+            .as_deref()
+            .map(parse_text_shadow)
+            .unwrap_or_default();
 
         if text.runs.is_empty() {
             // Whole-text: one style, lines split on \n.
@@ -1833,28 +2005,62 @@ impl SceneVideo {
                     continue;
                 }
                 let top = b.y + i as f32 * line_box;
-                let baseline = top + (line_box - (m.ascent + m.descent) * size) / 2.0 + m.ascent * size;
+                let baseline =
+                    top + (line_box - (m.ascent + m.descent) * size) / 2.0 + m.ascent * size;
                 // The tree carries the line literally (see NOTE G1 above):
                 // no escaping between here and the shaper.
                 let content = line.to_string();
                 for shadow in shadows.iter().rev() {
-                    g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
-                        text.font_weight, shadow.colour.as_deref().unwrap_or(fill), anchor, spacing, Some(shadow)));
+                    g = g.c(self.text_el(
+                        ctx,
+                        &content,
+                        x,
+                        baseline,
+                        size,
+                        text.font_family.as_deref(),
+                        text.font_weight,
+                        shadow.colour.as_deref().unwrap_or(fill),
+                        anchor,
+                        spacing,
+                        Some(shadow),
+                    ));
                 }
-                g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
-                    text.font_weight, fill, anchor, spacing, None));
+                g = g.c(self.text_el(
+                    ctx,
+                    &content,
+                    x,
+                    baseline,
+                    size,
+                    text.font_family.as_deref(),
+                    text.font_weight,
+                    fill,
+                    anchor,
+                    spacing,
+                    None,
+                ));
             }
             return g;
         }
 
         // Runs: inline flow sharing baselines.
-        let runs = layout_runs(text, t, &m, &b, &mut ctx.advances);
+        let runs = layout_runs(text, t, &m, &b, ctx.advances);
         for run in &runs {
             if run.opacity <= 0.0 {
                 continue;
             }
-            let mut el = self.text_el(ctx, &run.text, run.x, run.baseline, run.size,
-                run.family.as_deref(), Some(run.weight), &run.colour, "start", run.letter_spacing, None);
+            let mut el = self.text_el(
+                ctx,
+                &run.text,
+                run.x,
+                run.baseline,
+                run.size,
+                run.family.as_deref(),
+                Some(run.weight),
+                &run.colour,
+                "start",
+                run.letter_spacing,
+                None,
+            );
             if run.opacity < 1.0 {
                 el = el.a("opacity", run.opacity);
             }
@@ -1863,11 +2069,25 @@ impl SceneVideo {
         g
     }
 
-    fn text_el(&self, ctx: &mut RenderContext, content: &str, x: f32, y: f32, size: f32,
-               family: Option<&str>, weight: Option<f32>, colour: &str, anchor: &str,
-               letter_spacing: f32, shadow: Option<&Shadow>) -> El {
+    // One text builder over two call sites; a params struct would churn both without changing the drawing.
+    #[allow(clippy::too_many_arguments)]
+    fn text_el(
+        &self,
+        ctx: &mut RenderContext,
+        content: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        family: Option<&str>,
+        weight: Option<f32>,
+        colour: &str,
+        anchor: &str,
+        letter_spacing: f32,
+        shadow: Option<&Shadow>,
+    ) -> El {
         let mut el = El::new("text")
-            .a("x", x).a("y", y)
+            .a("x", x)
+            .a("y", y)
             .a("text-anchor", anchor)
             .a("space", "preserve");
         if let Some(family) = family {
@@ -1889,51 +2109,59 @@ impl SceneVideo {
         if dx != 0.0 || dy != 0.0 {
             el = el.a("transform", format!("translate({dx},{dy})"));
         }
-        if let Some(s) = shadow {
-            if s.blur > 0.0 {
-                // A text shadow's blur is a gaussian with sigma = the CSS
-                // value (measured), painted beneath the text.
-                let id = ctx.next("ts");
-                ctx.defs.push(blur_filter(&id, s.blur / 2.0, ctx.width, ctx.height));
-                el = el.a("filter", format!("url(#{id})"));
-            }
+        if let Some(s) = shadow
+            && s.blur > 0.0
+        {
+            // A text shadow's blur is a gaussian with sigma = the CSS
+            // value (measured), painted beneath the text.
+            let id = ctx.next("ts");
+            ctx.defs
+                .push(blur_filter(&id, s.blur / 2.0, ctx.width, ctx.height));
+            el = el.a("filter", format!("url(#{id})"));
         }
         el = el.a("fill", colour);
         el.t(content)
     }
 
     fn draw_shape(&self, ctx: &mut RenderContext, g: El, node: &IRNode) -> El {
-        let (Some(shape), Some(b)) = (&node.shape, node.bounds) else { return g };
+        let (Some(shape), Some(b)) = (&node.shape, node.bounds) else {
+            return g;
+        };
         let mut g = g;
         // Pattern fill (the ground's grain tile).
-        if let Some(pattern) = &shape.pattern {
-            if let Some(key) = ctx.images.get(&node.id) {
-                let id = ctx.next("pat");
-                let (tw, th) = match (pattern.tile_width, pattern.tile_height) {
-                    (Some(tw), Some(th)) => (tw, th),
-                    _ => (b.width, b.height),
-                };
-                ctx.defs.push(
-                    El::new("pattern")
-                        .a("id", &id)
-                        .a("patternUnits", "userSpaceOnUse")
-                        .a("width", tw).a("height", th)
-                        .c(El::new("image")
-                            .a("width", tw).a("height", th)
-                            .a("preserveAspectRatio", "none")
-                            .a("href", key))
-                );
-                let mut rect = El::new("rect")
-                    .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
-                    .a("fill", format!("url(#{id})"));
-                if let Some(o) = pattern.opacity {
-                    if o < 1.0 {
-                        rect = rect.a("opacity", o);
-                    }
-                }
-                g = g.c(rect);
-                return g;
+        if let Some(pattern) = &shape.pattern
+            && let Some(key) = ctx.images.get(&node.id)
+        {
+            let id = ctx.next("pat");
+            let (tw, th) = match (pattern.tile_width, pattern.tile_height) {
+                (Some(tw), Some(th)) => (tw, th),
+                _ => (b.width, b.height),
+            };
+            ctx.defs.push(
+                El::new("pattern")
+                    .a("id", &id)
+                    .a("patternUnits", "userSpaceOnUse")
+                    .a("width", tw)
+                    .a("height", th)
+                    .c(El::new("image")
+                        .a("width", tw)
+                        .a("height", th)
+                        .a("preserveAspectRatio", "none")
+                        .a("href", key)),
+            );
+            let mut rect = El::new("rect")
+                .a("x", b.x)
+                .a("y", b.y)
+                .a("width", b.width)
+                .a("height", b.height)
+                .a("fill", format!("url(#{id})"));
+            if let Some(o) = pattern.opacity
+                && o < 1.0
+            {
+                rect = rect.a("opacity", o);
             }
+            g = g.c(rect);
+            return g;
         }
         // Gradient or solid fill.
         let fill = match &shape.fill {
@@ -1943,14 +2171,24 @@ impl SceneVideo {
         };
         let mut el = match shape.shape.as_str() {
             "rect" => {
-                let r = shape.corner_radius.unwrap_or(0.0).min(b.width / 2.0).min(b.height / 2.0);
+                let r = shape
+                    .corner_radius
+                    .unwrap_or(0.0)
+                    .min(b.width / 2.0)
+                    .min(b.height / 2.0);
                 El::new("rect")
-                    .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
-                    .a("rx", r).a("ry", r)
+                    .a("x", b.x)
+                    .a("y", b.y)
+                    .a("width", b.width)
+                    .a("height", b.height)
+                    .a("rx", r)
+                    .a("ry", r)
             }
             "circle" | "ellipse" => El::new("ellipse")
-                .a("cx", b.x + b.width / 2.0).a("cy", b.y + b.height / 2.0)
-                .a("rx", b.width / 2.0).a("ry", b.height / 2.0),
+                .a("cx", b.x + b.width / 2.0)
+                .a("cy", b.y + b.height / 2.0)
+                .a("rx", b.width / 2.0)
+                .a("ry", b.height / 2.0),
             "path" => {
                 if let Some(path) = &shape.path {
                     El::new("path").a("d", path)
@@ -1972,17 +2210,21 @@ impl SceneVideo {
     }
 
     fn gradient_fill(&self, ctx: &mut RenderContext, grad: &IRGradient, b: &IRBounds) -> String {
-        let stops: Vec<El> = grad.stops.iter().map(|s| {
-            let mut stop = El::new("stop")
-                .a("offset", s.offset)
-                .a("stop-color", &s.color);
-            if let Some(o) = s.opacity {
-                if o < 1.0 {
+        let stops: Vec<El> = grad
+            .stops
+            .iter()
+            .map(|s| {
+                let mut stop = El::new("stop")
+                    .a("offset", s.offset)
+                    .a("stop-color", &s.color);
+                if let Some(o) = s.opacity
+                    && o < 1.0
+                {
                     stop = stop.a("stop-opacity", o);
                 }
-            }
-            stop
-        }).collect();
+                stop
+            })
+            .collect();
         match grad.kind.as_str() {
             "linear" => {
                 // CSS angle semantics over the box: the line runs through the
@@ -1992,14 +2234,23 @@ impl SceneVideo {
                 let (dx, dy) = (a.sin(), -a.cos());
                 let half = ((b.width * a.sin()).abs() + (b.height * a.cos()).abs()) / 2.0;
                 let (g0, g1) = (
-                    (b.x + b.width / 2.0 - dx * half, b.y + b.height / 2.0 - dy * half),
-                    (b.x + b.width / 2.0 + dx * half, b.y + b.height / 2.0 + dy * half),
+                    (
+                        b.x + b.width / 2.0 - dx * half,
+                        b.y + b.height / 2.0 - dy * half,
+                    ),
+                    (
+                        b.x + b.width / 2.0 + dx * half,
+                        b.y + b.height / 2.0 + dy * half,
+                    ),
                 );
                 let id = ctx.next("lg");
                 let mut lg = El::new("linearGradient")
                     .a("id", &id)
                     .a("gradientUnits", "userSpaceOnUse")
-                    .a("x1", g0.0).a("y1", g0.1).a("x2", g1.0).a("y2", g1.1);
+                    .a("x1", g0.0)
+                    .a("y1", g0.1)
+                    .a("x2", g1.0)
+                    .a("y2", g1.1);
                 for s in stops {
                     lg = lg.c(s);
                 }
@@ -2013,12 +2264,20 @@ impl SceneVideo {
                 let mut rg = El::new("radialGradient")
                     .a("id", &id)
                     .a("gradientUnits", "userSpaceOnUse")
-                    .a("cx", b.x + b.width / 2.0).a("cy", b.y + b.height / 2.0)
+                    .a("cx", b.x + b.width / 2.0)
+                    .a("cy", b.y + b.height / 2.0)
                     .a("r", rx)
-                    .a("gradientTransform", format!(
-                        "translate({},{}) scale(1,{}) translate({},{})",
-                        b.x + b.width / 2.0, b.y + b.height / 2.0, ry / rx.max(1.0),
-                        -(b.x + b.width / 2.0), -(b.y + b.height / 2.0)));
+                    .a(
+                        "gradientTransform",
+                        format!(
+                            "translate({},{}) scale(1,{}) translate({},{})",
+                            b.x + b.width / 2.0,
+                            b.y + b.height / 2.0,
+                            ry / rx.max(1.0),
+                            -(b.x + b.width / 2.0),
+                            -(b.y + b.height / 2.0)
+                        ),
+                    );
                 for s in stops {
                     rg = rg.c(s);
                 }
@@ -2026,20 +2285,25 @@ impl SceneVideo {
                 format!("url(#{id})")
             }
             _ => {
-                eprintln!("WARNING: gradient kind {:?} is not drawn; using none", grad.kind);
+                eprintln!(
+                    "WARNING: gradient kind {:?} is not drawn; using none",
+                    grad.kind
+                );
                 "none".to_string()
             }
         }
     }
 
     fn draw_svg_path(&self, g: El, node: &IRNode) -> El {
-        let (Some(svg), Some(b)) = (&node.svg, node.bounds) else { return g };
+        let (Some(svg), Some(b)) = (&node.svg, node.bounds) else {
+            return g;
+        };
         let Some(path) = &svg.path else { return g };
         let view: Vec<f32> = svg
             .view_box
             .as_deref()
             .unwrap_or("")
-            .split(|c: char| c == ' ' || c == ',')
+            .split([' ', ','])
             .filter_map(|p| p.parse::<f32>().ok())
             .collect();
         let (vx, vy, vw, vh) = if view.len() == 4 && view[2] > 0.0 && view[3] > 0.0 {
@@ -2053,9 +2317,18 @@ impl SceneVideo {
         };
         g.c(El::new("path")
             .a("d", path)
-            .a("transform", format!(
-                "translate({},{}) scale({},{}) translate({},{})",
-                b.x, b.y, b.width / vw, b.height / vh, -vx, -vy))
+            .a(
+                "transform",
+                format!(
+                    "translate({},{}) scale({},{}) translate({},{})",
+                    b.x,
+                    b.y,
+                    b.width / vw,
+                    b.height / vh,
+                    -vx,
+                    -vy
+                ),
+            )
             .a("fill", fill))
     }
 }
@@ -2064,8 +2337,10 @@ fn blur_filter(id: &str, std_dev: f32, w: f32, h: f32) -> El {
     El::new("filter")
         .a("id", id)
         .a("filterUnits", "userSpaceOnUse")
-        .a("x", -w).a("y", -h)
-        .a("width", 3.0 * w).a("height", 3.0 * h)
+        .a("x", -w)
+        .a("y", -h)
+        .a("width", 3.0 * w)
+        .a("height", 3.0 * h)
         .c(El::new("feGaussianBlur").a("stdDeviation", std_dev))
 }
 
@@ -2078,7 +2353,9 @@ fn main() {
         return;
     }
     if args.len() < 3 || args[1] != "render" {
-        eprintln!("Usage: ren-graphics-fframes render <scene.json> [output_dir] [--raw] [--premultiply] [--background #rrggbb]");
+        eprintln!(
+            "Usage: ren-graphics-fframes render <scene.json> [output_dir] [--raw] [--premultiply] [--background #rrggbb]"
+        );
         eprintln!("       ren-graphics-fframes --version");
         std::process::exit(1);
     }
@@ -2095,12 +2372,19 @@ fn main() {
         None => None,
     };
     let scene_path = PathBuf::from(&args[2]);
-    let output_dir = args.get(3).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("frames"));
+    let output_dir = args
+        .get(3)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("frames"));
 
     let scene_json = match fs::read_to_string(&scene_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ERROR: cannot read scene file {}: {}", scene_path.display(), e);
+            eprintln!(
+                "ERROR: cannot read scene file {}: {}",
+                scene_path.display(),
+                e
+            );
             std::process::exit(1);
         }
     };
@@ -2135,7 +2419,16 @@ fn main() {
 /// into straight-alpha RGBA frames, each preloaded under its own name;
 /// the returned clips map is the owning node's id -> its clip. The bytes
 /// live for the whole process, which is one render.
-fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<String, String>, HashMap<String, VideoClip>), String> {
+/// The decoded scene media scene_media hands back: the FFrames media
+/// provider, the owning node id -> preloaded image name map, and the
+/// owning node id -> decoded video clip map.
+type SceneMediaOutput = (
+    DynamicMediaProvider<'static>,
+    HashMap<String, String>,
+    HashMap<String, VideoClip>,
+);
+
+fn scene_media(scene: &Scene) -> Result<SceneMediaOutput, String> {
     let mut fonts: Vec<RawFontData> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
     for node in &scene.nodes {
@@ -2151,8 +2444,8 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
             if !seen.insert(path.clone()) {
                 continue;
             }
-            let data =
-                fs::read(&path).map_err(|e| format!("cannot read font file {}: {}", path.display(), e))?;
+            let data = fs::read(&path)
+                .map_err(|e| format!("cannot read font file {}: {}", path.display(), e))?;
             fonts.push(RawFontData {
                 file_name: path
                     .file_name()
@@ -2177,23 +2470,23 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
             images.insert(name.clone(), data);
             names.insert(node.id.clone(), name);
         }
-        if let Some(shape) = &node.shape {
-            if let Some(pattern) = &shape.pattern {
-                let name = format!("ren-pattern-{}", names.len());
-                // The ground's grain tile: its own tile size, else the box.
-                let size = match (pattern.tile_width, pattern.tile_height) {
-                    (Some(tw), Some(th)) => Some((tw, th)),
-                    _ => node.bounds.map(|b| (b.width, b.height)),
-                };
-                let data = preload_image(
-                    &name,
-                    &pattern.src,
-                    size,
-                    &format!("pattern of node {}", node.id),
-                )?;
-                images.insert(name.clone(), data);
-                names.insert(node.id.clone(), name);
-            }
+        if let Some(shape) = &node.shape
+            && let Some(pattern) = &shape.pattern
+        {
+            let name = format!("ren-pattern-{}", names.len());
+            // The ground's grain tile: its own tile size, else the box.
+            let size = match (pattern.tile_width, pattern.tile_height) {
+                (Some(tw), Some(th)) => Some((tw, th)),
+                _ => node.bounds.map(|b| (b.width, b.height)),
+            };
+            let data = preload_image(
+                &name,
+                &pattern.src,
+                size,
+                &format!("pattern of node {}", node.id),
+            )?;
+            images.insert(name.clone(), data);
+            names.insert(node.id.clone(), name);
         }
     }
     let mut clips = HashMap::new();
@@ -2233,11 +2526,18 @@ struct RenderSetup {
 fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
     // Draw only the roots; a group draws its own children.
     let child_ids: HashSet<&String> = scene.nodes.iter().flat_map(|n| n.children.iter()).collect();
-    let mut roots: Vec<&IRNode> = scene.nodes.iter().filter(|n| !child_ids.contains(&n.id)).collect();
+    let mut roots: Vec<&IRNode> = scene
+        .nodes
+        .iter()
+        .filter(|n| !child_ids.contains(&n.id))
+        .collect();
     roots.sort_by_key(|n| n.z_index.unwrap_or(0));
     let roots: Vec<String> = roots.into_iter().map(|n| n.id.clone()).collect();
-    let node_map: HashMap<String, IRNode> =
-        scene.nodes.iter().map(|n| (n.id.clone(), n.clone())).collect();
+    let node_map: HashMap<String, IRNode> = scene
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.clone()))
+        .collect();
     let metrics = text_metrics(&scene);
 
     // Precompute advance widths for every staged face: the node's plus
@@ -2257,25 +2557,50 @@ fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
     let needs_system = scene
         .nodes
         .iter()
-        .any(|n| n.text.as_ref().map_or(false, |t| t.font_file.is_none()));
+        .any(|n| n.text.as_ref().is_some_and(|t| t.font_file.is_none()));
     let (media, images, videos) = scene_media(&scene)?;
     let (width, height) = (scene.width, scene.height);
     let total_frames = frame_count(&scene);
 
-    let video = SceneVideo { scene, node_map, roots, metrics, images, videos, advances };
+    let video = SceneVideo {
+        scene,
+        node_map,
+        roots,
+        metrics,
+        images,
+        videos,
+        advances,
+    };
 
     let metal_ctx = SkiaMetalCtx::new(width as usize, height as usize)
         .map_err(|e| format!("cannot create Metal context: {}", e))?;
-    Ok(RenderSetup { video, media, metal_ctx, needs_system, width, height, total_frames })
+    Ok(RenderSetup {
+        video,
+        media,
+        metal_ctx,
+        needs_system,
+        width,
+        height,
+        total_frames,
+    })
 }
 
 /// The previewer and renderer over a setup. Both borrow the setup, so they
 /// cannot outlive it; the caller holds them together.
-fn build_renderer<'a>(setup: &'a RenderSetup)
-    -> Result<(fframes::Previewer<'a, 'a, SceneVideo>, SkiaFrameRenderer<'a, SkiaMetalCtx>), String> {
-    let mut options = fframes::RenderOptions::default();
-    options.load_system_fonts = setup.needs_system;
-    options.media = Some(&setup.media);
+fn build_renderer<'a>(
+    setup: &'a RenderSetup,
+) -> Result<
+    (
+        fframes::Previewer<'a, 'a, SceneVideo>,
+        SkiaFrameRenderer<'a, SkiaMetalCtx>,
+    ),
+    String,
+> {
+    let options = fframes::RenderOptions {
+        load_system_fonts: setup.needs_system,
+        media: Some(&setup.media),
+        ..Default::default()
+    };
     let previewer = fframes::Previewer::new(&setup.video, &options)
         .map_err(|e| format!("cannot create previewer: {}", e))?;
     let renderer = SkiaFrameRenderer::new(&setup.metal_ctx);
@@ -2318,10 +2643,16 @@ fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String
         |pixels| {
             let path = output_dir.join(format!("frame_{:06}.png", idx + 1));
             idx += 1;
-            pixels.save_png(&path).map_err(|e| format!("cannot save PNG: {}", e))
+            pixels
+                .save_png(&path)
+                .map_err(|e| format!("cannot save PNG: {}", e))
         },
     )?;
-    println!("Rendered {} frames to {}", setup.total_frames, output_dir.display());
+    println!(
+        "Rendered {} frames to {}",
+        setup.total_frames,
+        output_dir.display()
+    );
     Ok(())
 }
 
@@ -2362,7 +2693,7 @@ fn render_scene_raw(
         |pixels| {
             if premultiply || ground.is_some() {
                 let mut adapted = pixels.pixels.clone();
-                for rgba in adapted.chunks_exact_mut(4) {
+                for rgba in adapted.as_chunks_mut::<4>().0 {
                     let alpha = u32::from(rgba[3]);
                     if let Some(rgb) = ground {
                         for c in 0..3 {
@@ -2373,8 +2704,8 @@ fn render_scene_raw(
                         }
                         rgba[3] = 255;
                     } else if premultiply {
-                        for c in 0..3 {
-                            rgba[c] = ((u32::from(rgba[c]) * alpha + 127) / 255) as u8;
+                        for slot in rgba.iter_mut().take(3) {
+                            *slot = ((u32::from(*slot) * alpha + 127) / 255) as u8;
                         }
                     }
                 }
@@ -2421,7 +2752,11 @@ mod tests {
         let expected = [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14];
         for (i, want) in expected.iter().enumerate() {
             let t = i as f64 / comp_fps;
-            assert_eq!(video_frame_index(t, 30.0, 45), *want, "composition frame {i}");
+            assert_eq!(
+                video_frame_index(t, 30.0, 45),
+                *want,
+                "composition frame {i}"
+            );
         }
     }
 

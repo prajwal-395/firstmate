@@ -91,9 +91,7 @@ macro_rules! cstr {
 
 /// The post path resolves: `SLEventPostToPid` is present.
 pub fn available() -> bool {
-    unsafe {
-        resolve::<PostToPidFn>(cstr!("SLEventPostToPid")).is_some()
-    }
+    unsafe { resolve::<PostToPidFn>(cstr!("SLEventPostToPid")).is_some() }
 }
 
 /// The whole focus chain resolves: front-PSN read, a PSN lookup, and the
@@ -172,10 +170,12 @@ pub fn focus_without_raise(
     }
     let before = frontmost_pid();
     unsafe {
-        let post: PostRecordFn = resolve(cstr!("SLPSPostEventRecordTo"))
-            .ok_or_else(|| DriverError::SkyLightUnavailable("SLPSPostEventRecordTo vanished".into()))?;
-        let front_fn: GetFrontPsnFn = resolve(cstr!("_SLPSGetFrontProcess"))
-            .ok_or_else(|| DriverError::SkyLightUnavailable("_SLPSGetFrontProcess vanished".into()))?;
+        let post: PostRecordFn = resolve(cstr!("SLPSPostEventRecordTo")).ok_or_else(|| {
+            DriverError::SkyLightUnavailable("SLPSPostEventRecordTo vanished".into())
+        })?;
+        let front_fn: GetFrontPsnFn = resolve(cstr!("_SLPSGetFrontProcess")).ok_or_else(|| {
+            DriverError::SkyLightUnavailable("_SLPSGetFrontProcess vanished".into())
+        })?;
         let mut front = Psn::default();
         if front_fn(&mut front) != 0 {
             return Err(DriverError::SkyLightUnavailable(
@@ -221,8 +221,9 @@ pub fn restore_focus(
     }
     let before = frontmost_pid();
     unsafe {
-        let post: PostRecordFn = resolve(cstr!("SLPSPostEventRecordTo"))
-            .ok_or_else(|| DriverError::SkyLightUnavailable("SLPSPostEventRecordTo vanished".into()))?;
+        let post: PostRecordFn = resolve(cstr!("SLPSPostEventRecordTo")).ok_or_else(|| {
+            DriverError::SkyLightUnavailable("SLPSPostEventRecordTo vanished".into())
+        })?;
         let target = target_psn(target_pid, target_wid)?;
         let previous = target_psn(previous_pid, previous_wid)?;
         let defocus = focus_record(target_wid, false);
@@ -267,6 +268,8 @@ pub fn event_source() -> Option<*mut c_void> {
 /// Whether the raw-field stamp path resolves (`SLEventSetIntegerValueField`
 /// for the private indexes plus `CGEventSetWindowLocation`). The public
 /// `CGEventSetIntegerValueField` cannot reach f40/f51/f58/f91/f92.
+// Probed only by the symbol-resolution test; the binary resolves per call.
+#[allow(dead_code)]
 pub fn stamps_available() -> bool {
     unsafe {
         resolve::<SetIntFieldFn>(cstr!("SLEventSetIntegerValueField")).is_some()
@@ -284,6 +287,8 @@ pub fn stamps_available() -> bool {
 /// routing stamps (no window to route to); the pid filter always stamps.
 /// Missing stamp symbols are refused rather than half-stamped: a
 /// half-stamped event is a new unknown, not the measured recipe.
+// One measured stamp recipe: ten positional fields mirror the event record, not a parameter object.
+#[allow(clippy::too_many_arguments)]
 pub fn stamp_event(
     event: *mut c_void,
     pid: i32,
@@ -303,11 +308,9 @@ pub fn stamp_event(
                     "SLEventSetIntegerValueField does not resolve".into(),
                 )
             })?;
-        let set_location: SetWindowLocationFn =
-            resolve(cstr!("CGEventSetWindowLocation")).ok_or_else(|| {
-                DriverError::SkyLightUnavailable(
-                    "CGEventSetWindowLocation does not resolve".into(),
-                )
+        let set_location: SetWindowLocationFn = resolve(cstr!("CGEventSetWindowLocation"))
+            .ok_or_else(|| {
+                DriverError::SkyLightUnavailable("CGEventSetWindowLocation does not resolve".into())
             })?;
         set(event, 1, click_state);
         set(event, 3, button);
@@ -340,9 +343,10 @@ mod tests {
         assert_eq!(focus[0x8a], 0x01);
         assert_eq!(&focus[0x3c..0x40], &[0x78, 0x56, 0x34, 0x12]);
         // A focus signal carries no location: every other byte is blank.
-        assert!(focus.iter().enumerate().all(|(i, b)| {
-            matches!(i, 0x04 | 0x08 | 0x8a | 0x3c..=0x3f) || *b == 0
-        }));
+        assert!(focus
+            .iter()
+            .enumerate()
+            .all(|(i, b)| { matches!(i, 0x04 | 0x08 | 0x8a | 0x3c..=0x3f) || *b == 0 }));
         let defocus = focus_record(1, false);
         assert_eq!(defocus[0x8a], 0x02);
         assert_eq!(&defocus[0x3c..0x40], &[1, 0, 0, 0]);

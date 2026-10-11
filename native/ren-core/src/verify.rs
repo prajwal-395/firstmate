@@ -570,7 +570,9 @@ fn matte_value_failure(label: &str, got: Option<&Value>, want: &Value) -> Option
     if let Value::Object(axes) = want {
         for (axis, axis_want) in axes {
             let axis_got = got.and_then(|g| g.as_object()).and_then(|g| g.get(axis));
-            if let Some(failure) = matte_value_failure(&format!("{label}.{axis}"), axis_got, axis_want) {
+            if let Some(failure) =
+                matte_value_failure(&format!("{label}.{axis}"), axis_got, axis_want)
+            {
                 return Some(failure);
             }
         }
@@ -586,7 +588,12 @@ fn matte_value_failure(label: &str, got: Option<&Value>, want: &Value) -> Option
     }
 }
 
-fn geometry_failure(matte: &str, state: &Value, geometry: &Value, skip: &[String]) -> Option<String> {
+fn geometry_failure(
+    matte: &str,
+    state: &Value,
+    geometry: &Value,
+    skip: &[String],
+) -> Option<String> {
     let declared = geometry.as_object()?;
     for (key, want) in declared {
         if skip.iter().any(|s| s == key) {
@@ -612,15 +619,28 @@ fn verify_mask(op: &EditOp, after: &Snapshot) -> Option<String> {
                 return Some(format!("clip {:?} is not on the timeline", unique_id.0));
             };
             if clip.fusion.comp_names.iter().any(|n| n == matte) {
-                return Some(format!("clip {:?} still carries matte {matte:?}", unique_id.0));
+                return Some(format!(
+                    "clip {:?} still carries matte {matte:?}",
+                    unique_id.0
+                ));
             }
             None
         }
-        EditOp::MaskEdit { unique_id, matte, geometry } => match matte_read(after, &unique_id.0, matte) {
+        EditOp::MaskEdit {
+            unique_id,
+            matte,
+            geometry,
+        } => match matte_read(after, &unique_id.0, matte) {
             Err(failure) => Some(failure),
             Ok(state) => geometry_failure(matte, state, geometry, &[]),
         },
-        EditOp::MaskTrack { unique_id, matte, track, geometry, .. } => {
+        EditOp::MaskTrack {
+            unique_id,
+            matte,
+            track,
+            geometry,
+            ..
+        } => {
             let state = match matte_read(after, &unique_id.0, matte) {
                 Err(failure) => return Some(failure),
                 Ok(state) => state,
@@ -636,7 +656,11 @@ fn verify_mask(op: &EditOp, after: &Snapshot) -> Option<String> {
                 .map(|keys| keys.iter().collect())
                 .unwrap_or_default();
             let declared_frames: Vec<f64> = declared.iter().filter_map(|k| frame_of(k)).collect();
-            if got.iter().filter_map(|k| frame_of(k)).any(|f| !declared_frames.contains(&f)) {
+            if got
+                .iter()
+                .filter_map(|k| frame_of(k))
+                .any(|f| !declared_frames.contains(&f))
+            {
                 return Some(format!("matte {matte:?} is keyed at undeclared frames"));
             }
             for keyframe in &declared {
@@ -658,7 +682,9 @@ fn verify_mask(op: &EditOp, after: &Snapshot) -> Option<String> {
                 .filter_map(|k| k.as_object())
                 .flat_map(|k| k.keys().filter(|key| *key != "frame").cloned())
                 .collect();
-            geometry.as_ref().and_then(|g| geometry_failure(matte, state, g, &keyed))
+            geometry
+                .as_ref()
+                .and_then(|g| geometry_failure(matte, state, g, &keyed))
         }
         _ => None,
     }

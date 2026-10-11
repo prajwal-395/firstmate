@@ -122,16 +122,10 @@ pub enum EditOp {
     },
     /// Move the clip, rolling its neighbours to close the gaps.
     #[serde(rename = "clip.slide")]
-    ClipSlide {
-        unique_id: ClipId,
-        to_frame: i64,
-    },
+    ClipSlide { unique_id: ClipId, to_frame: i64 },
     /// An item to a different record position on the same row.
     #[serde(rename = "clip.move")]
-    ClipMove {
-        unique_id: ClipId,
-        to_frame: i64,
-    },
+    ClipMove { unique_id: ClipId, to_frame: i64 },
     /// A clip's source for another pool clip at the same span.
     #[serde(rename = "clip.replace")]
     ClipReplace {
@@ -139,10 +133,7 @@ pub enum EditOp {
         source_file: String,
     },
     #[serde(rename = "clip.set_enabled")]
-    ClipSetEnabled {
-        unique_id: ClipId,
-        enabled: bool,
-    },
+    ClipSetEnabled { unique_id: ClipId, enabled: bool },
     /// Link clips so later edits move them together.
     #[serde(rename = "clip.link")]
     ClipLink {
@@ -180,10 +171,7 @@ pub enum EditOp {
     },
     /// Stepped constant-speed segments; the measured form of a speed ramp.
     #[serde(rename = "retime.segments")]
-    RetimeSegments {
-        unique_id: ClipId,
-        segments: Value,
-    },
+    RetimeSegments { unique_id: ClipId, segments: Value },
 
     // ── picture keyframes (domain: picture_transform) ───────────────
     /// A keyframed picture parameter, written through the transform
@@ -202,17 +190,11 @@ pub enum EditOp {
     /// Per-clip gain in dB. No live-Resolve apply; the OTIO mix path
     /// writes it.
     #[serde(rename = "audio.gain")]
-    AudioGain {
-        unique_id: ClipId,
-        db: f64,
-    },
+    AudioGain { unique_id: ClipId, db: f64 },
     /// Refuses by name: Resolve's OTIO carries no measured audio-pan
     /// parameter.
     #[serde(rename = "audio.pan")]
-    AudioPan {
-        unique_id: ClipId,
-        pan: f64,
-    },
+    AudioPan { unique_id: ClipId, pan: f64 },
     /// Fade in/out with curve. No live-Resolve apply.
     #[serde(rename = "audio.fade")]
     AudioFade {
@@ -231,28 +213,16 @@ pub enum EditOp {
     // ── grade (domain: color) ────────────────────────────────────
     /// A node LUT on anchored clips, replayed by the build.
     #[serde(rename = "clip_lut")]
-    ClipLut {
-        unique_id: ClipId,
-        lut: Value,
-    },
+    ClipLut { unique_id: ClipId, lut: Value },
     /// A declared LUT/PowerGrade, replayed by the build.
     #[serde(rename = "grade")]
-    Grade {
-        unique_id: ClipId,
-        grade: Value,
-    },
+    Grade { unique_id: ClipId, grade: Value },
     /// Declared, NOT executable: the Graph API has no AddNode.
     #[serde(rename = "grade.node_add")]
-    GradeNodeAdd {
-        unique_id: ClipId,
-        node_index: i64,
-    },
+    GradeNodeAdd { unique_id: ClipId, node_index: i64 },
     /// Declared, NOT executable: the Graph API has no RemoveNode.
     #[serde(rename = "grade.node_remove")]
-    GradeNodeRemove {
-        unique_id: ClipId,
-        node_index: i64,
-    },
+    GradeNodeRemove { unique_id: ClipId, node_index: i64 },
     /// Declared, NOT executable: the Graph API has no ReorderNode.
     #[serde(rename = "grade.node_reorder")]
     GradeNodeReorder {
@@ -280,10 +250,7 @@ pub enum EditOp {
     },
     /// Declared, NOT executable: removing a window is the same GUI route.
     #[serde(rename = "color.window.delete")]
-    WindowDelete {
-        unique_id: ClipId,
-        node_index: i64,
-    },
+    WindowDelete { unique_id: ClipId, node_index: i64 },
     /// Declared, NOT executable: reshaping a window is the same GUI
     /// route as creating one.
     #[serde(rename = "color.window.modify")]
@@ -319,16 +286,10 @@ pub enum EditOp {
     // ── mask (domain: fusion) ──────────────────────────────────────
     /// Place a matte; the Fusion comp list verifies.
     #[serde(rename = "mask.create")]
-    MaskCreate {
-        unique_id: ClipId,
-        matte: String,
-    },
+    MaskCreate { unique_id: ClipId, matte: String },
     /// Remove a matte comp: the inverse of `mask.create`.
     #[serde(rename = "mask.delete")]
-    MaskDelete {
-        unique_id: ClipId,
-        matte: String,
-    },
+    MaskDelete { unique_id: ClipId, matte: String },
     /// Set a matte's static geometry; inputs it does not name keep their keys.
     #[serde(rename = "mask.edit")]
     MaskEdit {
@@ -352,10 +313,7 @@ pub enum EditOp {
     // ── multicam (domain: picture_transform) ────────────────────────
     /// A multicam angle change; the angle list re-read verifies.
     #[serde(rename = "multicam.angle")]
-    MulticamAngle {
-        unique_id: ClipId,
-        angle_index: i64,
-    },
+    MulticamAngle { unique_id: ClipId, angle_index: i64 },
 
     // ── compound (domain: timeline_structure) ────────────────────────
     /// Nest clips into one compound item; flatten restores them.
@@ -370,10 +328,7 @@ pub enum EditOp {
     // ── tracks (domain: timeline_structure) ──────────────────────────
     /// A new named row; the touch-up's `add_row` views here.
     #[serde(rename = "track.add")]
-    TrackAdd {
-        track_type: String,
-        name: String,
-    },
+    TrackAdd { track_type: String, name: String },
     #[serde(rename = "track.delete")]
     TrackDelete {
         track_type: String,
@@ -408,10 +363,7 @@ pub enum EditOp {
     OverlayRemove { unique_id: ClipId },
     /// An overlay's pixels for a re-rendered file.
     #[serde(rename = "overlay.swap_pixels")]
-    OverlaySwapPixels {
-        unique_id: ClipId,
-        file: String,
-    },
+    OverlaySwapPixels { unique_id: ClipId, file: String },
     #[serde(rename = "overlay.resize")]
     OverlayResize {
         unique_id: ClipId,
@@ -419,10 +371,7 @@ pub enum EditOp {
         height: i64,
     },
     #[serde(rename = "overlay.entry_motion")]
-    OverlayEntryMotion {
-        unique_id: ClipId,
-        frames: i64,
-    },
+    OverlayEntryMotion { unique_id: ClipId, frames: i64 },
 
     // ── projected captain edits (domain: picture_transform) ─────────
     /// Hold one Edit-page transform property.
@@ -433,25 +382,16 @@ pub enum EditOp {
         value: Value,
     },
     #[serde(rename = "span_retime")]
-    SpanRetime {
-        unique_id: ClipId,
-        percent: f64,
-    },
+    SpanRetime { unique_id: ClipId, percent: f64 },
     /// Remove the speech (and so the picture) that says it.
     #[serde(rename = "drop_fragment")]
     DropFragment { unique_id: ClipId },
     /// Rewrite caption text.
     #[serde(rename = "caption_fix")]
-    CaptionFix {
-        unique_id: ClipId,
-        text: String,
-    },
+    CaptionFix { unique_id: ClipId, text: String },
     /// Move a shared closer's start to the anchor's words.
     #[serde(rename = "redraw_closer")]
-    RedrawCloser {
-        unique_id: ClipId,
-        start: f64,
-    },
+    RedrawCloser { unique_id: ClipId, start: f64 },
 
     // ── plan-level ops (delivered to planning nodes) ────────────────
     //
@@ -463,15 +403,9 @@ pub enum EditOp {
     AnglePlan { plan: Value },
     /// A plan-level change delivered to its owning step.
     #[serde(rename = "plan_change")]
-    PlanChange {
-        node: String,
-        note: String,
-    },
+    PlanChange { node: String, note: String },
     #[serde(rename = "transition")]
-    Transition {
-        carrier: Value,
-        transition: Value,
-    },
+    Transition { carrier: Value, transition: Value },
     #[serde(rename = "shot_selection")]
     ShotSelection { plan: Value },
     #[serde(rename = "speech_selection")]

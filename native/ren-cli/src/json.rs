@@ -34,9 +34,7 @@ impl Json {
 
     pub fn get(&self, key: &str) -> Option<&Json> {
         match self {
-            Json::Object(pairs) => {
-                pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-            }
+            Json::Object(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
@@ -198,7 +196,10 @@ mod tests {
     fn nested_structures_indent_by_two() {
         let value = Json::Object(vec![(
             "source".to_string(),
-            Json::Object(vec![("tags".to_string(), Json::Array(vec![Json::str("a"), Json::str("b")]))]),
+            Json::Object(vec![(
+                "tags".to_string(),
+                Json::Array(vec![Json::str("a"), Json::str("b")]),
+            )]),
         )]);
         assert_eq!(
             value.to_python_json(),

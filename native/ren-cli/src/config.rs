@@ -99,7 +99,11 @@ mod tests {
 
     #[test]
     fn a_missing_config_file_yields_the_default() {
-        let value = get("PIPELINE_DEFINITELY_NOT_SET", "fallback", Path::new("/tmp/engine"));
+        let value = get(
+            "PIPELINE_DEFINITELY_NOT_SET",
+            "fallback",
+            Path::new("/tmp/engine"),
+        );
         assert_eq!(value, "fallback");
     }
 

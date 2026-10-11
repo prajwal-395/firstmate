@@ -10,7 +10,7 @@ use driver::Driver;
 use std::io;
 
 extern "C" {
-    fn signal(signum: i32, handler: usize) -> usize;
+    fn signal(signum: i32, handler: unsafe extern "C" fn(i32)) -> usize;
     fn _exit(status: i32) -> !;
 }
 
@@ -29,8 +29,8 @@ extern "C" fn on_kill(signum: i32) {
 
 fn main() -> io::Result<()> {
     unsafe {
-        signal(SIGINT, on_kill as usize);
-        signal(SIGTERM, on_kill as usize);
+        signal(SIGINT, on_kill);
+        signal(SIGTERM, on_kill);
     }
     let mut driver = Driver::new();
     driver.run()

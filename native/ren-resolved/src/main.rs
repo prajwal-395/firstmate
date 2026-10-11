@@ -44,7 +44,10 @@ fn main() {
         eprintln!("ren-resolved: unknown verb {verb:?} (only 'serve' is served)");
         std::process::exit(2);
     }
-    let socket_path = argv.get(1).map(PathBuf::from).unwrap_or_else(server::socket_path);
+    let socket_path = argv
+        .get(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(server::socket_path);
     let db_path = socket_path
         .parent()
         .map(|dir| dir.join(server::DB_NAME))

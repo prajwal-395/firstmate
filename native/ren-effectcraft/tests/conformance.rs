@@ -76,29 +76,27 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         .operations
         .iter()
         .filter_map(|op| match op {
-            Operation::Keyframe { path, time, value, .. }
-                if path == "transform/scale" =>
-            {
-                Some((*time, value[0].as_f64().unwrap()))
-            }
+            Operation::Keyframe {
+                path, time, value, ..
+            } if path == "transform/scale" => Some((*time, value[0].as_f64().unwrap())),
             _ => None,
         })
         .collect();
     assert_eq!(scales.len(), 5);
     assert!((scales[0].1 - 100.0).abs() < 1e-9);
     assert!((scales[4].1 - 104.0).abs() < 1e-9);
-    assert!(drift.operations.iter().all(|op| !matches!(
-        op,
-        Operation::ApplyEffect { .. }
-    )));
+    assert!(
+        drift
+            .operations
+            .iter()
+            .all(|op| !matches!(op, Operation::ApplyEffect { .. }))
+    );
     let punch = read_request("request-move-punch.json");
     let peaks: Vec<f64> = punch
         .operations
         .iter()
         .filter_map(|op| match op {
-            Operation::Keyframe { path, value, .. }
-                if path == "transform/scale" =>
-            {
+            Operation::Keyframe { path, value, .. } if path == "transform/scale" => {
                 Some(value[0].as_f64().unwrap())
             }
             _ => None,
@@ -130,9 +128,7 @@ fn projected_requests_parse_as_versioned_driver_requests() {
         .operations
         .iter()
         .filter_map(|op| match op {
-            Operation::Keyframe { path, value, .. }
-                if path == "transform/scale" =>
-            {
+            Operation::Keyframe { path, value, .. } if path == "transform/scale" => {
                 Some(value[0].as_f64().unwrap())
             }
             _ => None,

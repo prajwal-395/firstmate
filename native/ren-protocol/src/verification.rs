@@ -44,9 +44,7 @@ impl VerificationFinding {
         if !self.passed {
             return FAILING;
         }
-        if report_only_metrics.contains(&self.metric.as_str())
-            && self.severity != "info"
-        {
+        if report_only_metrics.contains(&self.metric.as_str()) && self.severity != "info" {
             return ADVISORY;
         }
         CLEAN
