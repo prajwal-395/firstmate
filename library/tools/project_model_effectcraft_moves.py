@@ -206,36 +206,41 @@ def _center_to_position(center: tuple[float, float], width: int,
 
 
 def move_comp_frames(interval: dict[str, Any], ticks_per_second: int,
-                     frame_rate: float, effect_id: str) -> tuple[int, int]:
+                     frame_rate: float, effect_id: str, *,
+                     error: type[ValueError] = UnprojectableMove
+                     ) -> tuple[int, int]:
     """Comp frames a move interval touches, first..last inclusive.
 
     Frame ``i`` plays ``[i / fps, (i + 1) / fps)``; the move covers
     every frame its half-open tick interval touches - the same touch
     rule the matte rasterizer uses, so a move and a mask on one
-    interval agree on which frames they own.
+    interval agree on which frames they own. The fade projector shares
+    this touch rule; ``error`` names the refusal it raises (moves keep
+    the default).
     """
+    refused = error
     if not math.isfinite(frame_rate) or frame_rate <= 0:
-        raise UnprojectableMove(
-            f"move {effect_id!r} needs a positive comp frame rate, "
+        raise refused(
+            f"effect {effect_id!r} needs a positive comp frame rate, "
             f"got {frame_rate!r}")
     if ticks_per_second <= 0:
-        raise UnprojectableMove(
-            f"move {effect_id!r} clock has no positive tick rate")
+        raise refused(
+            f"effect {effect_id!r} clock has no positive tick rate")
     try:
         start, end = int(interval["start"]), int(interval["end"])
     except (TypeError, ValueError, KeyError) as exc:
-        raise UnprojectableMove(
-            f"move {effect_id!r} interval has no integer start/end") from exc
+        raise refused(
+            f"effect {effect_id!r} interval has no integer start/end") from exc
     if end <= start:
-        raise UnprojectableMove(
-            f"move {effect_id!r} interval is empty; nothing to bake")
+        raise refused(
+            f"effect {effect_id!r} interval is empty; nothing to bake")
     from fractions import Fraction
     fps = Fraction(frame_rate)
     first = math.floor(Fraction(start) * fps / ticks_per_second)
     last = math.ceil(Fraction(end) * fps / ticks_per_second) - 1
     if last < first:
-        raise UnprojectableMove(
-            f"move {effect_id!r} covers no comp frame at "
+        raise refused(
+            f"effect {effect_id!r} covers no comp frame at "
             f"{frame_rate}fps")
     return first, last
 

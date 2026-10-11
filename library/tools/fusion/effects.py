@@ -405,6 +405,78 @@ def sample_held_linear(held: dict[int, float], first: int,
     return dense
 
 
+def sample_smooth_bezier(keyframes, first: int,
+                          last: int) -> dict[int, float]:
+    """Every frame's value under smooth-Bezier interpolation.
+
+    The companion to `sample_held_linear` for splines Resolve renders
+    SMOOTH (hand-set handles, no `linearize`): each segment is the
+    cubic through P0, C0 (P0's right handle, or P0), C1 (P1's left
+    handle, or P1), P1, solved for the parameter whose x is the frame.
+    Handles are ABSOLUTE (frame, value) points, the convention
+    `linearize` documents. Frames outside the key span hold the
+    nearest key. A segment whose x is not strictly increasing raises:
+    a loop in frame order has no single value, so it is refused
+    rather than sampled.
+    """
+    keys = sorted(keyframes, key=lambda k: k.frame)
+    if not keys:
+        raise ValueError("cannot sample a spline with no keyframes")
+    values = {}
+    for frame in range(first, last + 1):
+        if frame <= keys[0].frame:
+            values[frame] = keys[0].value
+            continue
+        if frame >= keys[-1].frame:
+            values[frame] = keys[-1].value
+            continue
+        lower = max((k for k in keys if k.frame <= frame),
+                      key=lambda k: k.frame)
+        upper = min((k for k in keys if k.frame > frame),
+                    key=lambda k: k.frame)
+        values[frame] = _cubic_at(lower, upper, frame)
+    return values
+
+
+def _cubic_at(k0, k1, frame: int) -> float:
+    """The smooth-Bezier value at one frame between two keys."""
+    f0, v0 = float(k0.frame), float(k0.value)
+    f1, v1 = float(k1.frame), float(k1.value)
+    if f1 <= f0:
+        raise ValueError(
+            f"bezier segment runs {f0:g} -> {f1:g}: no single value")
+    c0 = k0.rh if k0.rh is not None else (f0, v0)
+    c1 = k1.lh if k1.lh is not None else (f1, v1)
+    x0, y0 = float(c0[0]), float(c0[1])
+    x1, y1 = float(c1[0]), float(c1[1])
+    if not (f0 <= x0 <= f1 and f0 <= x1 <= f1):
+        raise ValueError(
+            f"bezier handles ({x0:g}, {x1:g}) leave the segment "
+            f"[{f0:g}, {f1:g}]: no single value")
+    t = (frame - f0) / (f1 - f0)
+    for _ in range(12):
+        mt = 1.0 - t
+        x = (mt ** 3 * f0 + 3 * mt * mt * t * x0
+             + 3 * mt * t * t * x1 + t ** 3 * f1)
+        dx = (3 * mt * mt * (x0 - f0) + 6 * mt * t * (x1 - x0)
+              + 3 * t * t * (f1 - x1))
+        if dx <= 0:
+            raise ValueError(
+                f"bezier segment [{f0:g}, {f1:g}] is not increasing "
+                "in frame order: no single value")
+        step = (x - frame) / dx
+        t -= step
+        if abs(step) < 1e-9:
+            break
+    else:
+        raise ValueError(
+            f"bezier solve did not converge at frame {frame}")
+    t = min(1.0, max(0.0, t))
+    mt = 1.0 - t
+    return (mt ** 3 * v0 + 3 * mt * mt * t * y0
+            + 3 * mt * t * t * y1 + t ** 3 * v1)
+
+
 def shake_center_curve(clip_dur: int, x_amount: float,
                        y_amount: float,
                        decay_frames=None) -> list[tuple[float, float]]:
@@ -697,6 +769,49 @@ def _tv_power(clip_dur: int, *, direction: str,
         input_key="Background",
         output_name=bc_name,
     )
+
+
+def fade_blend_spline(
+    first: int,
+    last: int,
+    fade_in: int,
+    fade_out: int,
+    *,
+    name: str = "FadeBlend",
+) -> BezierSpline:
+    """The Merge Blend curve `fx.fade` would key, without building nodes.
+
+    ONE source of truth for the fade ramp: `fx.fade` builds its spline
+    from this, and the EffectCraft fade projector bakes its per-frame
+    `transform/opacity` keys by sampling this, so the two engines
+    cannot drift apart into two implementations of one fade.
+
+    `first`/`last` are the played comp frames; `fade_in`/`fade_out`
+    the ramp lengths (0 = no ramp that side, holding 1.0). The
+    in-ramp and out-ramp carry DIFFERENT handle values (0.5/1.0 vs
+    1.0/0.5) - the ramps are not mirrors, so a projector must sample
+    this curve rather than assume symmetry. Every frame outside the
+    ramps holds 1.0 (fully on).
+    """
+    spline = BezierSpline(name, color=(194, 171, 49))
+    if fade_in > 0:
+        spline.add_key(first, 0.0, rh=(first + fade_in // 2, 0.5))
+        spline.add_key(first + fade_in, 1.0,
+                       lh=(first + fade_in // 2, 1.0))
+    else:
+        spline.add_key(first, 1.0)
+
+    if fade_out > 0:
+        fade_start = last - fade_out
+        spline.add_key(
+            fade_start, 1.0,
+            rh=(fade_start + fade_out // 2, 1.0),
+        )
+        spline.add_key(
+            last, 0.0,
+            lh=(last - fade_out // 2, 0.5),
+        )
+    return spline
 
 
 # ─── Composable Effect Functions ─────────────────────────────
@@ -1138,24 +1253,11 @@ class fx:
         mg_name = _next_name("Merge")
         sp_name = f"{mg_name}Blend"
 
-        # Build keyframes within the played window
-        spline = BezierSpline(sp_name, color=(194, 171, 49))
-        if fade_in > 0:
-            spline.add_key(first, 0.0, rh=(first + fade_in // 2, 0.5))
-            spline.add_key(first + fade_in, 1.0, lh=(first + fade_in // 2, 1.0))
-        else:
-            spline.add_key(first, 1.0)
-
-        if fade_out > 0:
-            fade_start = last - fade_out
-            spline.add_key(
-                fade_start, 1.0,
-                rh=(fade_start + fade_out // 2, 1.0),
-            )
-            spline.add_key(
-                last, 0.0,
-                lh=(last - fade_out // 2, 0.5),
-            )
+        # The blend curve, shared with the EffectCraft fade projector
+        # (`fade_blend_spline`): one source of truth, so the two engines
+        # cannot drift into two implementations of one fade.
+        spline = fade_blend_spline(
+            first, last, fade_in, fade_out, name=sp_name)
 
         # GlobalOut covers the full source so the Background exists for
         # the entire comp frame range.

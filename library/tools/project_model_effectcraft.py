@@ -15,9 +15,10 @@ reimplements it and never reaches the EffectCraft UI.
 
 Fail-closed rules:
 
-- A Ren effect whose ``class_id`` is not in ``VERIFIED_EFFECT_MAP`` is
-  refused with :class:`UnknownEffect`. A parameter the mapped EffectCraft
-  effect does not declare is refused with :class:`UnknownParameter`; a
+- A Ren effect whose ``class_id`` is not in ``VERIFIED_EFFECT_MAP``
+  and not a ``move.*``/fade transform class is refused with
+  :class:`UnknownEffect`. A parameter the mapped EffectCraft effect
+  does not declare is refused with :class:`UnknownParameter`; a
   value of the wrong JSON kind with :class:`ParameterType`. Nothing
   unknown is passed through to the engine.
 - A mask that cannot be bound to exactly one footage layer is refused
@@ -42,10 +43,12 @@ the returned request/projection/model dicts and this module's own CLI
 ``--out`` paths. Proven on fixtures, never by rewriting a live project.
 
 Effect map policy: ``VERIFIED_EFFECT_MAP`` carries ONLY Ren effect
-classes measured against the pinned EffectCraft registry. A new mapping
-lands only with a registry measurement and a test that pins it; the
-driver's live ``list_effects`` registry remains the authority at run
-time and anything it does not declare is refused there as well.
+classes measured against the pinned EffectCraft registry AND against
+Ren's own Fusion renders. A new mapping lands only with a registry
+measurement, a two-engine pixel measurement under a declared
+tolerance, and a test that pins it; the driver's live
+``list_effects`` registry remains the authority at run time and
+anything it does not declare is refused there as well.
 """
 
 from __future__ import annotations
@@ -74,6 +77,11 @@ try:
         move_comp_frames,
         project_move,
     )
+    from library.tools.fusion.effects import (
+        fade_blend_spline,
+        sample_held_linear,
+        sample_smooth_bezier,
+    )
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools.project_model import SCHEMA_VERSION, validate_project_model
     from tools.project_model_effectcraft_moves import (
@@ -81,6 +89,11 @@ except ImportError:  # imported as ``tools.*`` from inside library/
         UnprojectableMove,
         move_comp_frames,
         project_move,
+    )
+    from tools.fusion.effects import (
+        fade_blend_spline,
+        sample_held_linear,
+        sample_smooth_bezier,
     )
 
 ADAPTER_VERSION = 1
@@ -97,39 +110,85 @@ REQUEST_VERSION = 1
 RECEIPT_VERSION = 1
 """Driver request/receipt versions this adapter speaks."""
 
+GRADE_PSNR_FLOOR_DB = 24.0
+"""A projected grade must render within this PSNR of Ren's Fusion grade.
+
+Measured 2026-10-10 on the EC Coverage stills (pinned CLI, 1920x1080):
+single-axis laws render bit-identical to 1 LSB (gain 2.0 inf,
+contrast -0.5 inf, brightness 0.67 inf, saturation 1.5 inf,
+pastel combined inf); the floor binds only the gain-boosted-primaries
+desaturation corner (26.7 dB, max 71 LSB in pure-primary bars), where
+Fusion's BrightnessContrast and ``ec.color.ociocdl`` gamut-map
+differently. Typical content scores 35 dB and up.
+"""
+
+SAT_PSNR_FLOOR_DB = 30.0
+"""A projected saturation must render within this PSNR of Ren's.
+
+Measured: desaturation 0.5 renders 35.1 dB (1 LSB everywhere but the
+pure-primary bars, max 16 LSB there), boost 1.5 bit-identical, pastel
+boost 1.83 at 41.3 dB.
+"""
+
+FADE_FLAT_MAX_ABS = 2.0
+"""A projected fade flattened over black must match Ren's Merge blend
+within this many LSBs. Measured at most 1.25 (alpha-quantization dust)
+across blends 0.25/0.5/0.75, the real-ramp endpoint bit-identical, and
+the real ``fade_to_black`` mid-ramp at 1.25.
+"""
+
 VERIFIED_EFFECT_MAP: dict[str, dict[str, Any]] = {
     "blur.gaussian": {
         "effect": "ec.blur.gaussian",
         "params": {"blurriness": "blurriness"},
     },
     "color.saturation": {
-        "effect": "ec.color.huesaturation",
+        "effect": "ec.color.ociocdl",
         "params": {"saturation": "saturation"},
-        # Ren saturation is multiplicative with 1.0 neutral
-        # (``library/tools/color_correction.py`` composes saturations by
-        # multiplication); EffectCraft Master Saturation is 0-neutral
-        # percent. The affine is the scale conversion, not taste:
-        # ec = ren * 100 - 100, so the fixture's 0.8 renders as -20.
-        "affine": {"saturation": (100.0, -100.0)},
+        # Ren saturation is multiplicative with 1.0 neutral, and so is
+        # the OCIO CDL saturation the pinned effect applies: the
+        # identity is the scale conversion, not taste. Measured
+        # strictly more exact than the previous huesaturation affine
+        # (desaturation 35.1 dB vs 26 dB, boost exact where the affine
+        # under-boosted by the wrong scale), so the affine is retired.
+    },
+    "color.grade": {
+        "effect": "ec.color.ociocdl",
+        # One Ren BrightnessContrast node is one CDL-style machine:
+        # gain multiplies (slope), brightness adds (offset), contrast
+        # pivots about mid grey (slope plus offset), saturation scales
+        # chroma. The slope COMBINES gain and contrast, so no per-param
+        # rename expresses it: ``project`` builds all seven engine
+        # params from the whole parameter dict at once.
+        "readable": ("gain", "contrast", "brightness", "saturation"),
+        "project": "grade",
     },
 }
 """Ren effect class to pinned EffectCraft effect mapping.
 
-Each entry is measured against the pinned registry (see
-``native/ren-effectcraft/tests/headless.rs``: the masked-footage test
-applies gaussian blur, the saturation test renders a measured chroma
-shift through ``ec.color.huesaturation``, and the refusal test reads
-parameter identifiers from the live registry). No other Ren class is
-mapped: inventing an upstream effect id or parameter name would be a
-guess about a young, fast-moving engine, so anything else raises
-:class:`UnknownEffect`.
+Each entry is measured against the pinned registry AND against Ren's
+own Fusion renders (see ``tests/qualification/
+test_effectcraft_coverage_proof.py``: every law below renders the same
+chart still through both engines and compares pixels). No other Ren
+class is mapped: anything without a measured law raises
+:class:`UnknownEffect`, with the measured miss attached where the
+sweep ran (see :data:`REFUSED_EFFECT_COVERAGE`).
 
-Surveyed and deliberately unmapped: the motion-graphics roster states
-dimensions, never values; built-in Fusion clip effects are Resolve-side.
-Graphics IR's blur and drop-shadow filters share concepts with
-``ec.blur.gaussian`` but are a different vocabulary (Graphics IR filter
-nodes, not model effects) and are not minted as model effects by any
-producer, so no mapping claims them.
+Surveyed and deliberately unmapped: every Fusion effect family Ren's
+pipeline draws that missed the mapping floor is named in
+:data:`REFUSED_EFFECT_COVERAGE` with its measured numbers (glow tops
+out at 19.9 dB, grain has no consistent intensity law, defocus blurs
+at 21.0 dB, vignette breaks at full strength, flash diverges on
+saturated primaries, zoom_blur's streak never approaches; tv_power and
+the subject backdrop have no counterpart at all). Beyond the Fusion
+families: the motion-graphics roster states dimensions, never values;
+built-in Fusion clip effects and the CDL / subject-gated grades are
+Resolve-side; native speed effects and stabilization travel other
+routes; overlays, captions, timed text and bookends are layers and
+text, not effects. Graphics IR's blur and drop-shadow filters share
+concepts with ``ec.blur.gaussian`` but are a different vocabulary
+(Graphics IR filter nodes, not model effects) and are not minted as
+model effects by any producer, so no mapping claims them.
 
 The plan_vfx toolkit (``slow_zoom_in/out``, ``zoom_emphasis``,
 ``screen_shake``, ``cut_in``) is NOT in this map either, but it is not
@@ -140,10 +199,98 @@ Fusion-transform vocabulary, and EffectCraft carries them as transform
 animation, not as engine effects. Anything in that module that cannot
 meet the declared tolerance keeps refusing with
 :class:`UnprojectableMove <library.tools.project_model_effectcraft_moves.UnprojectableMove>`.
+
+Fades are the same shape: ``fade.opacity`` and
+``transition.fade_to_black`` project through :func:`_project_fade_effect`
+onto keyframed ``transform/opacity`` layer keys (opacity = blend * 100,
+sampled off the exact Fusion blend splines), refusing with
+:class:`UnprojectableFade` where no exact ramp exists.
+"""
+
+REFUSED_EFFECT_COVERAGE: dict[str, str] = {
+    "glow.soft": (
+        "measured 2026-10-10: the closest fit (intensity 5, threshold "
+        "20, radius 150 on ec.stylize.glow) reaches only 19.9 dB PSNR "
+        "against Ren's SoftGlow(5, 0.3, 50) - different bloom "
+        "algorithms, below the 35 dB mapping floor"
+    ),
+    "grain.film": (
+        "measured 2026-10-10: no consistent intensity law - matching "
+        "Ren's grain std needs EC intensity 1.84x power at power 0.25 "
+        "but 3.67x at power 1.0 (Ren is sublinear from clipping, EC "
+        "linear), and Ren adds light (mean +2.6/+13.7) where EC grain "
+        "is zero-mean"
+    ),
+    "defocus.lens": (
+        "measured 2026-10-10: the pinned registry declares no defocus "
+        "effect, and the closest blurs top out at 21.0 dB PSNR "
+        "(gaussian blurriness 8) against Ren's Defocus 3.0 - different "
+        "kernels, below the 35 dB mapping floor"
+    ),
+    "vignette.ellipse": (
+        "measured 2026-10-10: amount = 100 * blend fits one point at "
+        "37.5 dB but full strength reaches only 25.5 dB, and the soft "
+        "axis has no consistent law (best angleOfView drifts 40/60/80 "
+        "across soft 0.15/0.35/0.6) - different falloff geometry"
+    ),
+    "transition.zoom_blur": (
+        "measured 2026-10-10: the composite tops out at 10.5 dB PSNR "
+        "and the blur leg alone at 10.1 dB (Ren's DirectionalBlur "
+        "0.75 smears hundreds of pixels; the EC streak profile never "
+        "approaches it), though the zoom leg alone is exact at "
+        "50-67 dB - the recipe's Size and Length animate together, so "
+        "the family refuses as one"
+    ),
+    "transition.defocus": (
+        "measured 2026-10-10: same tool gap as defocus.lens (best "
+        "21.0 dB); the ramp has no exact blur to ride on"
+    ),
+    "transition.flash": (
+        "measured 2026-10-10: the best composite (one ec.color.ociocdl "
+        "with offset = 0.67 * blend, saturation = 1 + 0.83 * blend) "
+        "reaches 35.4 dB at half ramp but only 22.8 dB at full - "
+        "saturated primaries gamut-map differently (red bar renders "
+        "(255, 108, 108) vs (255, 156, 156))"
+    ),
+    "tv_power": (
+        "Ren's old-TV switch is a PowerBand/PowerDot/PowerDecay "
+        "composite with no counterpart in the pinned registry (no "
+        "effect id matches)"
+    ),
+    "backdrop.subject": (
+        "the subject backdrop is a branching Transform+Blur+Merge "
+        "composite with a fixed Blur size - structure, not one effect, "
+        "so projecting only its blur step would not be the picture; "
+        "no single pinned effect carries it"
+    ),
+}
+"""Ren effect classes surveyed and deliberately left unmapped.
+
+Every family Ren's pipeline actually draws that is not natively
+projected (``VERIFIED_EFFECT_MAP``, ``move.*`` transforms, fade
+opacity keys) is named here with its MEASURED reason: each entry
+cites the pinned-CLI sweep numbers that missed the mapping floor, or
+the registry absence where no counterpart exists at all.
+:func:`project_to_request` raises :class:`UnknownEffect` for these
+with the reason attached, exactly as for an unknown class - the
+catalog names the refusal, it never authorizes a projection. A new
+Ren effect family lands either here (with its measured reason) or in
+the native projection (with its conversion proof).
 """
 
 MASK_SHAPES = ("ellipse", "rect")
 """Mask representation kinds passed through to ``layer.addMask``."""
+
+
+def refusal_reason(class_id: str) -> str | None:
+    """The surveyed reason a Ren effect class refuses, if it has one.
+
+    Returns the :data:`REFUSED_EFFECT_COVERAGE` entry for a surveyed
+    but unmapped class, else None for a class the survey never met
+    (which refuses with the generic unknown-effect message).
+    """
+    return REFUSED_EFFECT_COVERAGE.get(class_id)
+
 
 JSON_KINDS = ("null", "boolean", "number", "string", "array", "object")
 """JSON value-kind vocabulary shared with the driver's registry check."""
@@ -317,7 +464,12 @@ def fixture_catalog() -> dict[str, dict[str, str]]:
     """
     return {
         "ec.blur.gaussian": {"blurriness": "number"},
-        "ec.color.huesaturation": {"saturation": "number"},
+        "ec.color.ociocdl": {
+            "slopeRed": "number", "slopeGreen": "number",
+            "slopeBlue": "number", "offsetRed": "number",
+            "offsetGreen": "number", "offsetBlue": "number",
+            "saturation": "number",
+        },
     }
 
 
@@ -339,10 +491,9 @@ def _convert_param(entry: dict[str, Any], ren_param: str, value: Any,
                    effect_id: str) -> Any:
     """Apply a mapping's scale conversion, if it declares one.
 
-    Most params pass through untouched; ``color.saturation`` carries an
-    affine because Ren and EffectCraft neutralize on different scales.
-    A non-numeric or non-finite value under a conversion is refused,
-    never scaled into a NaN the engine would read as zero.
+    Most params pass through untouched. A non-numeric or non-finite
+    value under a conversion is refused, never scaled into a NaN the
+    engine would read as zero.
     """
     affine = entry.get("affine", {})
     if ren_param not in affine:
@@ -361,6 +512,290 @@ def _convert_param(entry: dict[str, Any], ren_param: str, value: Any,
             f"{effect_id!r}: {value!r} scales off the finite range"
         )
     return converted
+
+
+GRADE_READABLE = ("gain", "contrast", "brightness", "saturation")
+"""Parameter names a ``color.grade`` effect is drawn from.
+
+Absent axes read neutral (1.0/0.0/0.0/1.0), the same reading the
+subject-gated grade gives an absent key: neutrality draws nothing,
+so there is nothing to substitute. An effect carrying no axis at all
+is refused - a grade that moves nothing is a producer bug, not a
+projection.
+"""
+
+GRADE_NEUTRAL = {"gain": 1.0, "contrast": 0.0, "brightness": 0.0,
+                 "saturation": 1.0}
+"""Neutral per grade axis: what an absent axis reads."""
+
+
+def _project_grade_params(parameters: Any, effect_id: str
+                          ) -> dict[str, Any]:
+    """One Ren BrightnessContrast node as one OCIO CDL parameter set.
+
+    Laws (measured 2026-10-10 on the EC Coverage stills, pinned CLI):
+    gain multiplies (slope = gain), brightness adds
+    (offset = brightness), contrast pivots about mid grey
+    (slope factor 1 + contrast, offset -0.5 * contrast), saturation
+    scales chroma identically on both sides. The slope combines gain
+    AND contrast, and the offset combines brightness AND contrast, so
+    the law reads the whole dict at once: slope = gain * (1 + contrast)
+    and offset = brightness - 0.5 * contrast, per channel. Proven
+    within :data:`GRADE_PSNR_FLOOR_DB` (single-axis laws bit-identical
+    to 1 LSB; the combined law exact on in-gamut content).
+    """
+    if not isinstance(parameters, dict) or not parameters:
+        raise EffectCraftAdapterError(
+            f"effect {effect_id!r} (color.grade) carries no parameters: "
+            "a grade that moves nothing is refused, never projected "
+            "neutral by default"
+        )
+    for name in parameters:
+        if name not in GRADE_READABLE:
+            raise UnknownParameter(
+                f"unknown parameter {name!r} for Ren effect class "
+                f"'color.grade' (effect {effect_id!r})"
+            )
+    values: dict[str, float] = {}
+    for name in GRADE_READABLE:
+        raw = parameters.get(name, GRADE_NEUTRAL[name])
+        if (isinstance(raw, bool) or not isinstance(raw, (int, float))
+                or not math.isfinite(float(raw))):
+            raise ParameterType(
+                f"invalid value type for {name!r} on Ren effect "
+                f"{effect_id!r}: a grade axis needs a finite number, "
+                f"got {_json_kind(raw)}"
+            )
+        values[name] = float(raw)
+    slope = round(values["gain"] * (1.0 + values["contrast"]), 6)
+    offset = round(values["brightness"] - 0.5 * values["contrast"], 6)
+    if not math.isfinite(slope) or not math.isfinite(offset):
+        raise ParameterType(
+            f"invalid value for color.grade on Ren effect "
+            f"{effect_id!r}: the slope/offset compose off the finite "
+            "range"
+        )
+    return {
+        "slopeRed": slope, "slopeGreen": slope, "slopeBlue": slope,
+        "offsetRed": offset, "offsetGreen": offset, "offsetBlue": offset,
+        "saturation": values["saturation"],
+    }
+
+
+FADE_CLASS_IDS = ("fade.opacity", "transition.fade_to_black")
+"""Model effect classes carried as opacity keyframes, not engine effects.
+
+A fade is a Merge-blend animation over black, and EffectCraft carries
+it as ``transform/opacity`` keys: opacity = blend * 100, flattened
+over black within :data:`FADE_FLAT_MAX_ABS` (measured). Like moves,
+fades take no effect slot and need no registry entry.
+"""
+
+
+class UnprojectableFade(ValueError):
+    """A fade with no exact opacity-keyframe projection.
+
+    The message names the reason (mask target, carried keyframes, an
+    empty fade that draws nothing, a ramp longer than its span, bad
+    params). Nothing unmappable is approximated.
+    """
+
+
+def _require_fade_frames(value: Any, effect_id: str, class_id: str,
+                         name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) param {name!r} is not a "
+            f"whole frame count: {value!r}")
+    if value < 0:
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) param {name!r} is "
+            f"{value}: a negative ramp has no length")
+    return value
+
+
+def _fade_blend_dense(class_id: str, effect_id: str,
+                      parameters: dict[str, Any],
+                      first_frame: int, last_frame: int) -> dict[int, float]:
+    """Blend per comp frame in [first_frame, last_frame], 0..1.
+
+    ``fade.opacity`` samples :func:`fade_blend_spline` - the exact
+    spline ``fx.fade`` keys - through :func:`sample_smooth_bezier`,
+    because the in-ramp and out-ramp carry different handles and no
+    assumed symmetry reproduces them. ``transition.fade_to_black``
+    samples its recipe's linearized two-key ramp piecewise-linearly,
+    which is what ``linearize`` forces Resolve to render; the
+    endpoints (1.0 to 0.0 tail, 0.0 to 1.0 head) are the recipe's own,
+    pinned by a test that reads them off the built block.
+    """
+    span = last_frame - first_frame + 1
+    if class_id == "fade.opacity":
+        for name in parameters:
+            if name not in ("fade_in_frames", "fade_out_frames"):
+                raise UnprojectableFade(
+                    f"fade {effect_id!r} ({class_id}) param {name!r} is "
+                    "read by nothing; a fade is drawn from "
+                    "fade_in_frames and fade_out_frames")
+        if "fade_in_frames" not in parameters \
+                and "fade_out_frames" not in parameters:
+            raise UnprojectableFade(
+                f"fade {effect_id!r} ({class_id}) names neither "
+                "fade_in_frames nor fade_out_frames: which end ramps "
+                "is the fade's decision and has no default")
+        fade_in = _require_fade_frames(
+            parameters.get("fade_in_frames", 0), effect_id, class_id,
+            "fade_in_frames")
+        fade_out = _require_fade_frames(
+            parameters.get("fade_out_frames", 0), effect_id, class_id,
+            "fade_out_frames")
+        if fade_in <= 0 and fade_out <= 0:
+            raise UnprojectableFade(
+                f"fade {effect_id!r} ({class_id}) ramps nowhere: "
+                "fx.fade builds an empty block for it, so there is "
+                "nothing to project")
+        if fade_in > span or fade_out > span:
+            raise UnprojectableFade(
+                f"fade {effect_id!r} ({class_id}) ramp "
+                f"({max(fade_in, fade_out)} frames) is longer than its "
+                f"{span}-frame span: it never reaches neutral")
+        spline = fade_blend_spline(first_frame, last_frame,
+                                   fade_in, fade_out)
+        try:
+            dense = sample_smooth_bezier(spline.keyframes, first_frame,
+                                         last_frame)
+        except ValueError as exc:
+            raise UnprojectableFade(
+                f"fade {effect_id!r} ({class_id}) curve refused: "
+                f"{exc}") from exc
+        return {frame: round(value, 6) for frame, value in dense.items()}
+
+    for name in parameters:
+        if name not in ("duration_frames", "direction"):
+            raise UnprojectableFade(
+                f"fade {effect_id!r} ({class_id}) param {name!r} is "
+                "read by nothing; a transition fade is drawn from "
+                "duration_frames and direction")
+    if "duration_frames" not in parameters:
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) has no "
+            "params.duration_frames: the ramp length is the fade's "
+            "decision and has no default")
+    duration = parameters["duration_frames"]
+    if isinstance(duration, bool) or not isinstance(duration, int):
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) param 'duration_frames' "
+            f"is not a whole frame count: {duration!r}")
+    direction = parameters.get("direction", "tail")
+    if direction not in ("head", "tail"):
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) direction "
+            f"{direction!r} is not 'head' or 'tail'")
+    if duration < 1:
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) duration {duration} "
+            "ramps nowhere")
+    if duration > span:
+        raise UnprojectableFade(
+            f"fade {effect_id!r} ({class_id}) duration {duration} is "
+            f"longer than its {span}-frame span: it never reaches "
+            "neutral")
+    if direction == "tail":
+        held = {last_frame - duration: 1.0, last_frame: 0.0}
+    else:
+        held = {first_frame: 0.0, first_frame + duration: 1.0}
+    return sample_held_linear(held, first_frame, last_frame)
+
+
+def _project_fade_effect(effect: dict[str, Any],
+                         layers: dict[str, dict[str, str]],
+                         mask_layers: dict[str, str],
+                         model: dict[str, Any], comp: CompSpec,
+                         operations: list[dict[str, Any]],
+                         effect_layers: dict[str, dict[str, Any]]) -> None:
+    """Project one fade effect into opacity keyframe operations.
+
+    Fades are per-clip opacity animation, not engine effects: the
+    target must be a projected clip use (a mask has no picture of its
+    own to fade), and the effect must carry no model keyframes (the
+    ramp is baked from its params; keyframes would double-drive it).
+    Frames outside the ramps hold 100 (fully on), mirroring the Merge
+    holds, so a fade on one span never dims the rest of the comp.
+    """
+    target = effect["target_id"]
+    layer = None
+    for use in model["clip_uses"]:
+        if use["id"] == target:
+            layer = next(
+                (name for name, bound in layers.items()
+                 if bound["clip_use"] == target),
+                None,
+            )
+    if layer is None:
+        if target in mask_layers:
+            raise UnprojectableFade(
+                f"fade {effect['id']!r} ({effect['class_id']}) targets "
+                f"mask {target!r}: fades are per-clip opacity, and "
+                f"a mask has no picture of its own to fade"
+            )
+        raise UnprojectableEffectTarget(
+            f"effect {effect['id']!r} target {target!r} is no projected "
+            "clip use or mask"
+        )
+    if effect.get("keyframes"):
+        raise UnprojectableFade(
+            f"fade {effect['id']!r} carries model keyframes with no "
+            f"parameter for them to animate: the ramp is baked from "
+            f"its params, so keyframes are refused rather than "
+            f"double-driven"
+        )
+    if not isinstance(effect.get("parameters"), dict):
+        raise UnprojectableFade(
+            f"fade {effect['id']!r} ({effect['class_id']}) parameters "
+            f"are not a mapping: {effect.get('parameters')!r}")
+    interval = effect["interval"]
+    ticks = _ticks_per_second(model, interval["clock_id"])
+    # The touch rule is shared with moves (the same frame owns the same
+    # picture); only the refusal names the fade.
+    first, last = move_comp_frames(interval, ticks, comp.frame_rate,
+                                   effect["id"], error=UnprojectableFade)
+    if first < 0 or last >= comp.expected_frames():
+        raise UnprojectableFade(
+            f"fade {effect['id']!r} frames [{first}, {last}] do not fit "
+            f"comp frames [0, {comp.expected_frames() - 1}]")
+    dense = _fade_blend_dense(effect["class_id"], effect["id"],
+                              effect["parameters"], first, last)
+    ops: list[dict[str, Any]] = []
+    if first > 0:
+        ops.append({"op": "keyframe", "layer": layer,
+                    "path": "transform/opacity",
+                    "time": 0.0, "value": 100.0})
+        if first - 1 > 0:
+            ops.append({"op": "keyframe", "layer": layer,
+                        "path": "transform/opacity",
+                        "time": (first - 1) / comp.frame_rate,
+                        "value": 100.0})
+    for frame in range(first, last + 1):
+        ops.append({"op": "keyframe", "layer": layer,
+                    "path": "transform/opacity",
+                    "time": frame / comp.frame_rate,
+                    "value": round(dense[frame], 6) * 100.0})
+    if last < comp.expected_frames() - 1:
+        if last + 1 < comp.expected_frames() - 1:
+            ops.append({"op": "keyframe", "layer": layer,
+                        "path": "transform/opacity",
+                        "time": (last + 1) / comp.frame_rate,
+                        "value": 100.0})
+        ops.append({"op": "keyframe", "layer": layer,
+                    "path": "transform/opacity",
+                    "time": (comp.expected_frames() - 1) / comp.frame_rate,
+                    "value": 100.0})
+    operations.extend(sorted(ops, key=lambda op: op["time"]))
+    effect_layers[effect["id"]] = {
+        "layer": layer,
+        "fade": effect["class_id"],
+        "paths": ["transform/opacity"],
+        "frames": [first, last],
+    }
 
 
 def _clocks(model: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -971,13 +1406,25 @@ def project_to_request(
             _project_move_effect(effect, layers, mask_layers, model,
                                  comp, operations, effect_layers)
             continue
+        if effect["class_id"] in FADE_CLASS_IDS:
+            # A fade is opacity animation, not an engine effect: the
+            # driver's keyframe path carries it on transform/opacity.
+            # Anything it cannot express exactly refuses with
+            # UnprojectableFade.
+            _project_fade_effect(effect, layers, mask_layers, model,
+                                 comp, operations, effect_layers)
+            continue
         entry = mapping.get(effect["class_id"])
         if entry is None:
-            raise UnknownEffect(
+            message = (
                 f"Ren effect class {effect['class_id']!r} (effect "
                 f"{effect['id']!r}) has no verified EffectCraft mapping; "
                 "refusing rather than passing it through"
             )
+            surveyed = refusal_reason(effect["class_id"])
+            if surveyed is not None:
+                message += f". Surveyed and deliberately unmapped: {surveyed}"
+            raise UnknownEffect(message)
         effectcraft_id = entry["effect"]
         spec = registry.get(effectcraft_id)
         if spec is None:
@@ -1001,29 +1448,52 @@ def project_to_request(
                 f"effect {effect['id']!r} target {target!r} is no projected "
                 "clip use or mask"
             )
-        param_map = entry.get("params", {})
         engine_params: dict[str, Any] = {}
-        for ren_param, value in effect["parameters"].items():
-            if ren_param not in param_map:
-                raise UnknownParameter(
-                    f"unknown parameter {ren_param!r} for Ren effect class "
-                    f"{effect['class_id']!r} (effect {effect['id']!r})"
-                )
-            engine_param = param_map[ren_param]
-            if engine_param not in spec:
-                raise UnknownParameter(
-                    f"unknown parameter {engine_param!r} for EffectCraft "
-                    f"effect {effectcraft_id!r} (effect {effect['id']!r})"
-                )
-            actual, expected = _json_kind(value), spec[engine_param]
-            if actual != expected:
-                raise ParameterType(
-                    f"invalid value type for {engine_param!r} on EffectCraft "
-                    f"effect {effectcraft_id!r}: expected {expected}, got "
-                    f"{actual} (effect {effect['id']!r})"
-                )
-            engine_params[engine_param] = _convert_param(
-                entry, ren_param, value, effect["id"])
+        if entry.get("project") == "grade":
+            # The slope combines gain AND contrast and the offset
+            # combines brightness AND contrast, so the law reads the
+            # whole parameter dict at once rather than renaming
+            # param-by-param. Unknown and empty params already refuse
+            # inside the projector; only the JSON kinds are checked
+            # here, against the live snapshot like every other entry.
+            engine_params = _project_grade_params(
+                effect["parameters"], effect["id"])
+            for engine_param, value in engine_params.items():
+                if engine_param not in spec:
+                    raise UnknownParameter(
+                        f"unknown parameter {engine_param!r} for EffectCraft "
+                        f"effect {effectcraft_id!r} (effect {effect['id']!r})"
+                    )
+                actual, expected = _json_kind(value), spec[engine_param]
+                if actual != expected:
+                    raise ParameterType(
+                        f"invalid value type for {engine_param!r} on "
+                        f"EffectCraft effect {effectcraft_id!r}: expected "
+                        f"{expected}, got {actual} (effect {effect['id']!r})"
+                    )
+        else:
+            param_map = entry.get("params", {})
+            for ren_param, value in effect["parameters"].items():
+                if ren_param not in param_map:
+                    raise UnknownParameter(
+                        f"unknown parameter {ren_param!r} for Ren effect class "
+                        f"{effect['class_id']!r} (effect {effect['id']!r})"
+                    )
+                engine_param = param_map[ren_param]
+                if engine_param not in spec:
+                    raise UnknownParameter(
+                        f"unknown parameter {engine_param!r} for EffectCraft "
+                        f"effect {effectcraft_id!r} (effect {effect['id']!r})"
+                    )
+                actual, expected = _json_kind(value), spec[engine_param]
+                if actual != expected:
+                    raise ParameterType(
+                        f"invalid value type for {engine_param!r} on EffectCraft "
+                        f"effect {effectcraft_id!r}: expected {expected}, got "
+                        f"{actual} (effect {effect['id']!r})"
+                    )
+                engine_params[engine_param] = _convert_param(
+                    entry, ren_param, value, effect["id"])
         effect_index_per_layer[layer] = effect_index_per_layer.get(layer, 0) + 1
         index = effect_index_per_layer[layer]
         operations.append({

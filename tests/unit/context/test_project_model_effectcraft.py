@@ -267,7 +267,7 @@ def test_conformance_fixtures_agree_across_both_renderers():
         "rect": [4.0, 4.0, 24.0, 24.0]}
 
 
-def test_saturation_maps_ren_multiplier_to_ec_percent():
+def test_saturation_maps_onto_ociosaturation_identity():
     model = _fixture("model-effect.json")
     model["effects"][0]["class_id"] = "color.saturation"
     model["effects"][0]["parameters"] = {"saturation": 0.8}
@@ -276,14 +276,69 @@ def test_saturation_maps_ren_multiplier_to_ec_percent():
     projection = ec.project_to_request(model, _comp(), _renders())
     apply = next(op for op in projection.request["operations"]
                  if op["op"] == "apply_effect")
-    assert apply["effect_id"] == "ec.color.huesaturation"
-    assert apply["params"]["saturation"] == pytest.approx(-20.0)
+    assert apply["effect_id"] == "ec.color.ociocdl"
+    assert apply["params"] == {"saturation": 0.8}
     keys = [op for op in projection.request["operations"]
             if op["op"] == "keyframe"]
     assert [k["path"] for k in keys] == [
         "effects/#1/saturation", "effects/#1/saturation"]
-    assert [k["value"] for k in keys] == [
-        pytest.approx(-20.0), pytest.approx(-20.0)]
+    assert [k["value"] for k in keys] == [0.8, 0.8]
+
+
+def test_grade_projects_slope_offset_and_saturation():
+    model = _fixture("model-effect.json")
+    model["effects"][0]["class_id"] = "color.grade"
+    model["effects"][0]["parameters"] = {
+        "gain": 1.5, "contrast": 0.3, "saturation": 0.7}
+    model["effects"][0]["keyframes"] = []
+    projection = ec.project_to_request(model, _comp(), _renders())
+    apply = next(op for op in projection.request["operations"]
+                 if op["op"] == "apply_effect")
+    assert apply["effect_id"] == "ec.color.ociocdl"
+    assert apply["params"] == {
+        "slopeRed": 1.95, "slopeGreen": 1.95, "slopeBlue": 1.95,
+        "offsetRed": -0.15, "offsetGreen": -0.15, "offsetBlue": -0.15,
+        "saturation": 0.7,
+    }
+    assert projection.identity_map["effects"]["effect-blur"] == {
+        "layer": "checker.bmp", "effect_index": 1,
+        "effectcraft_id": "ec.color.ociocdl"}
+
+
+def test_grade_defaults_absent_axes_to_neutral():
+    model = _fixture("model-effect.json")
+    model["effects"][0]["class_id"] = "color.grade"
+    model["effects"][0]["parameters"] = {"gain": 2.0}
+    model["effects"][0]["keyframes"] = []
+    projection = ec.project_to_request(model, _comp(), _renders())
+    apply = next(op for op in projection.request["operations"]
+                 if op["op"] == "apply_effect")
+    assert apply["params"]["slopeRed"] == pytest.approx(2.0)
+    assert apply["params"]["offsetRed"] == pytest.approx(0.0)
+    assert apply["params"]["saturation"] == pytest.approx(1.0)
+
+
+def test_grade_refusals_name_the_axis():
+    model = _fixture("model-effect.json")
+    model["effects"][0]["class_id"] = "color.grade"
+    model["effects"][0]["keyframes"] = []
+    empty = copy.deepcopy(model)
+    empty["effects"][0]["parameters"] = {}
+    with pytest.raises(ec.EffectCraftAdapterError, match="no parameters"):
+        ec.project_to_request(empty, _comp(), _renders())
+    named = copy.deepcopy(model)
+    named["effects"][0]["parameters"] = {"gain": 1.0, "glow": 5.0}
+    with pytest.raises(ec.UnknownParameter, match="glow"):
+        ec.project_to_request(named, _comp(), _renders())
+    typed = copy.deepcopy(model)
+    typed["effects"][0]["parameters"] = {"gain": "loud"}
+    with pytest.raises(ec.ParameterType, match="gain"):
+        ec.project_to_request(typed, _comp(), _renders())
+    keyed = copy.deepcopy(model)
+    keyed["effects"][0]["parameters"] = {"gain": 1.5}
+    keyed["effects"][0]["keyframes"] = [{"tick": 0, "value": 1.5}]
+    with pytest.raises(ec.EffectCraftAdapterError, match="ambiguous"):
+        ec.project_to_request(keyed, _comp(), _renders())
 
 
 def _read_matte_alpha(path):
@@ -499,3 +554,202 @@ def test_cli_projects_and_ingests_off_fixtures(tmp_path):
     assert rc == 0
     project_model.validate_project_model(
         json.loads(out_path.read_text(encoding="utf-8")))
+
+
+# ── Effect coverage: every Ren family is native or refused with a reason ──
+
+def _effect_model(class_id):
+    model = _fixture("model-effect.json")
+    model["effects"][0]["class_id"] = class_id
+    model["effects"][0]["parameters"] = {"probe": 1.0}
+    model["effects"][0]["keyframes"] = []
+    return model
+
+
+@pytest.mark.parametrize("class_id", sorted(ec.REFUSED_EFFECT_COVERAGE))
+def test_surveyed_but_unmapped_classes_refuse_with_their_reason(class_id):
+    with pytest.raises(ec.UnknownEffect) as caught:
+        ec.project_to_request(_effect_model(class_id), _comp(), _renders())
+    assert class_id in str(caught.value)
+    assert "Surveyed and deliberately unmapped" in str(caught.value)
+    assert ec.refusal_reason(class_id) in str(caught.value)
+
+
+def test_unsurveyed_class_refuses_without_a_survey_reason():
+    with pytest.raises(ec.UnknownEffect) as caught:
+        ec.project_to_request(_effect_model("neon.dreams"), _comp(),
+                              _renders())
+    assert "neon.dreams" in str(caught.value)
+    assert "Surveyed and deliberately unmapped" not in str(caught.value)
+    assert ec.refusal_reason("neon.dreams") is None
+
+
+def test_refused_catalog_entries_cite_measurements_or_absence():
+    # Every refusal carries its evidence: a dB/LSB/ratio number from
+    # the pinned-CLI sweep that missed the mapping floor, or the
+    # registry absence where no counterpart exists. The catalog has
+    # no count pin: a legitimate addition extends the parametrized
+    # refusal test above without touching this one.
+    for class_id, reason in ec.REFUSED_EFFECT_COVERAGE.items():
+        assert isinstance(reason, str) and len(reason) >= 100, class_id
+        assert ("dB" in reason or "PSNR" in reason or "no counterpart"
+                in reason or "no defocus effect" in reason
+                or "no single pinned effect" in reason
+                or "zero-mean" in reason), class_id
+
+
+def test_plan_vfx_toolkit_all_projects_as_moves():
+    from library.steps.step_4_03_plan_vfx.post_bridge import (
+        TOOLKIT_PARAMETERS,
+    )
+    from library.tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+    )
+    # The toolkit is drift/punch/shake/reframe vocabulary, never engine
+    # effects: a toolkit name added without a move projection fails here
+    # until the moves module or the refusal catalog takes it.
+    assert set(TOOLKIT_PARAMETERS) == {
+        "slow_zoom_in", "slow_zoom_out", "zoom_emphasis", "screen_shake",
+        "cut_in",
+    }
+    toolkit_to_move = {
+        "slow_zoom_in": "move.slow_zoom_in",
+        "slow_zoom_out": "move.slow_zoom_out",
+        "zoom_emphasis": "move.zoom_emphasis",
+        "screen_shake": "move.screen_shake",
+        "cut_in": "move.cut_in",
+    }
+    for toolkit_name, move in toolkit_to_move.items():
+        assert move in MOVE_CLASS_IDS, toolkit_name
+
+
+def test_series_look_vocabulary_is_surveyed():
+    from library.tools.series_look import LOOK_ELEMENTS
+    # A look element added without a disposition fails here. Fusion-
+    # delivered emits must resolve to a mapped or catalogued family;
+    # CDL-delivered terms stay Resolve-side and are prose, not effects.
+    assert {e.key for e in LOOK_ELEMENTS} == {
+        "cdl", "contrast", "glow", "grain", "vignette",
+        "exposure_reference",
+    }
+    fusion_emits_to_family = {
+        "grade_contrast": "color.grade",
+        "glow_gain": "glow.soft",
+        "film_grain": "grain.film",
+        "vignette": "vignette.ellipse",
+    }
+    by_key = {e.key: e for e in LOOK_ELEMENTS}
+    for element in LOOK_ELEMENTS:
+        if element.delivered_by != "fusion":
+            continue
+        for emit in element.emits:
+            if emit in fusion_emits_to_family:
+                family = fusion_emits_to_family[emit]
+                assert (family in ec.REFUSED_EFFECT_COVERAGE
+                        or family in ec.VERIFIED_EFFECT_MAP), emit
+    assert by_key["contrast"].emits == ("grade_contrast",)
+    assert set(by_key["glow"].required) == {"gain", "threshold", "size"}
+    assert set(by_key["grain"].required) == {"power", "size"}
+
+
+# ── Fade projection: opacity keys off the exact Fusion splines ──
+
+def _fade_model(class_id, parameters, end=120):
+    model = _fixture("model-effect.json")
+    model["effects"][0]["class_id"] = class_id
+    model["effects"][0]["parameters"] = parameters
+    model["effects"][0]["keyframes"] = []
+    model["effects"][0]["interval"] = {"clock_id": "clock-project",
+                                       "start": 0, "end": end}
+    return model
+
+
+def _fade_keys(projection):
+    return [(op["time"], op["value"])
+            for op in projection.request["operations"]
+            if op.get("op") == "keyframe"]
+
+
+def test_fade_out_bakes_the_smooth_spline():
+    # fx.fade's out-ramp holds near 1.0 through its midpoint handle
+    # (1.0, not 0.5): frame 113 of a 12-frame tail is 0.6875, and no
+    # assumed symmetry reproduces that - only sampling the spline.
+    projection = ec.project_to_request(
+        _fade_model("fade.opacity", {"fade_out_frames": 12}),
+        ec.CompSpec(name="Main", width=32, height=32, frame_rate=10.0,
+                    duration_seconds=12.0),
+        _renders())
+    keys = _fade_keys(projection)
+    assert len(keys) == 120
+    by_time = dict(keys)
+    assert by_time[0.0] == pytest.approx(100.0)
+    assert by_time[11.3] == pytest.approx(68.75)
+    assert by_time[11.9] == pytest.approx(0.0)
+    assert projection.identity_map["effects"]["effect-blur"] == {
+        "layer": "checker.bmp", "fade": "fade.opacity",
+        "paths": ["transform/opacity"], "frames": [0, 119]}
+
+
+def test_fade_matches_the_builder_spline_key_for_key():
+    # The projector samples fade_blend_spline, the exact function
+    # fx.fade keys from: same keys in, same curve out.
+    from library.tools.fusion.effects import fade_blend_spline
+    spline = fade_blend_spline(0, 119, 8, 12)
+    assert [(k.frame, k.value) for k in spline.keyframes] == [
+        (0, 0.0), (8, 1.0), (107, 1.0), (119, 0.0)]
+
+
+def test_transition_fade_to_black_bakes_the_linear_recipe():
+    # The recipe's own endpoints (1.0 to 0.0 tail), read off the built
+    # block, then baked linear - which is what linearize forces
+    # Resolve to render.
+    from library.tools.fusion.effects import _reset_counters, fx
+    _reset_counters()
+    block = fx.transition_tail(120, "fade_to_black", 12, res=(32, 32),
+                               source_in=None, source_out=None)
+    splines = [n for n in block.nodes
+               if type(n).__name__ == "BezierSpline"]
+    assert [(k.frame, k.value) for s in splines for k in s.keyframes] == [
+        (107, 1.0), (119, 0.0)]
+    projection = ec.project_to_request(
+        _fade_model("transition.fade_to_black",
+                    {"duration_frames": 12, "direction": "tail"}),
+        ec.CompSpec(name="Main", width=32, height=32, frame_rate=10.0,
+                    duration_seconds=12.0),
+        _renders())
+    keys = _fade_keys(projection)
+    by_time = dict(keys)
+    assert by_time[10.7] == pytest.approx(100.0)
+    assert by_time[11.3] == pytest.approx(50.0)
+    assert by_time[11.9] == pytest.approx(0.0)
+
+
+def test_fade_refusals_name_the_ramp():
+    bad_target = _fade_model("fade.opacity", {"fade_out_frames": 4})
+    bad_target["effects"][0]["target_id"] = "mask-checker"
+    with pytest.raises(ec.UnprojectableFade, match="no picture"):
+        ec.project_to_request(bad_target, _comp(), _renders())
+    keyed = _fade_model("fade.opacity", {"fade_out_frames": 4})
+    keyed["effects"][0]["keyframes"] = [{"tick": 0, "value": 1.0}]
+    with pytest.raises(ec.UnprojectableFade, match="double-driven"):
+        ec.project_to_request(keyed, _comp(), _renders())
+    empty = _fade_model("fade.opacity",
+                        {"fade_in_frames": 0, "fade_out_frames": 0},
+                        end=2)
+    with pytest.raises(ec.UnprojectableFade, match="ramps nowhere"):
+        ec.project_to_request(empty, _comp(), _renders())
+    named = _fade_model("fade.opacity", {"fade_out_frames": 1,
+                                         "strength": "lots"},
+                        end=2)
+    with pytest.raises(ec.UnprojectableFade, match="strength"):
+        ec.project_to_request(named, _comp(), _renders())
+    longs = _fade_model("transition.fade_to_black",
+                        {"duration_frames": 99, "direction": "tail"},
+                        end=2)
+    with pytest.raises(ec.UnprojectableFade, match="never reaches"):
+        ec.project_to_request(longs, _comp(), _renders())
+    headed = _fade_model("transition.fade_to_black",
+                         {"duration_frames": 1, "direction": "up"},
+                         end=2)
+    with pytest.raises(ec.UnprojectableFade, match="direction"):
+        ec.project_to_request(headed, _comp(), _renders())
