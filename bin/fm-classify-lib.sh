@@ -2709,6 +2709,7 @@ _fm_status_open_decision_origins() {  # <status-file> [<kind>]
     line=${numbered#*:}
     case "$number" in ''|*[!0-9]*) continue ;; esac
     after=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
+    [ -n "$after" ] || origins=''
     key=$(_fm_decision_key "$line") || { open=$after; continue; }
     verb=$(status_line_verb "$line")
     note=$(status_line_note "$line")
