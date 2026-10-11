@@ -539,13 +539,24 @@ class Tier1Scheduler:
             return {"slot": slot, "outcome": outcome}
 
     def collect(self, done: dict) -> None:
-        """Record completed worker results on this caller thread."""
+        """Record completed worker results on this caller thread.
+
+        Once a shutdown was requested, completed runs are discarded, not
+        recorded: a run the shutdown killed judged nothing, and a
+        failure verdict for it would be a verdict about the restart,
+        not the PR. The head stays due for the replacement daemon.
+        """
         with self._lock:
             completed = [(future, *self._futures[future])
                          for future in self._futures if future.done()]
         from library.tools.local_ci import github
         for future, pr, seen_at in completed:
             try:
+                if _shutdown_requested:
+                    done["refused"].append(
+                        f"PR #{pr['number']}: daemon shutting down - "
+                        "re-testing on restart")
+                    continue
                 try:
                     result = future.result()
                 except Exception as exc:  # noqa: BLE001 - fail pending
@@ -639,7 +650,18 @@ class Tier1Scheduler:
         entries = state.read_queue(self.world.state_dir)
         running_jobs = hygiene.running_jobs(self.world.state_dir)
         gate_running = hygiene.gate_running()
-        if (not self._futures and not running_jobs and not gate_running):
+        from library.tools.local_ci import gate_cleanup
+        orphaned = gate_cleanup.find_own_orphaned_gate_pgids(
+            self.world.state_dir)
+        if orphaned:
+            # A dead daemon's gate still runs: do not start a second
+            # batch beside it and do not recover its testing entries.
+            # Startup recovery reaps it; until then Tier-1 also yields.
+            done["refused"].append(
+                f"orphaned gate group(s) {orphaned} still running - "
+                "awaiting reap")
+        if (not self._futures and not running_jobs and not gate_running
+                and not orphaned):
             recovered = state.recover_interrupted_queue(self.world.state_dir)
             if recovered:
                 print(f"ren-ci recovered {recovered} interrupted Tier-2 "
@@ -652,7 +674,8 @@ class Tier1Scheduler:
                         for entry in entries)
                 and not any(entry.get("status") == state.ENTRY_TESTING
                             for entry in entries)
-                and not gate_running):
+                and not gate_running
+                and not orphaned):
             done["queue"] = queue.process_once(
                 self.world, window=plan["window"])
         return done
@@ -670,6 +693,84 @@ def check_pr(world: queue.World, pr: dict, slot: int,
     return finish_tier1(world, pr, outcome, seen_at, slot)
 
 
+# Set by the SIGTERM/SIGINT handler: a launchd restart must terminate
+# the gate process groups this daemon started, never leave them running
+# old code beside the replacement daemon (2026-10-10). Collect skips
+# verdicts once set - a killed run judged nothing - and the serve loop
+# exits, leaving testing entries for startup recovery.
+_shutdown_requested = False
+
+
+def shutdown_requested() -> bool:
+    """Whether a termination signal asked this daemon to exit."""
+    return _shutdown_requested
+
+
+def install_shutdown_handlers() -> None:
+    """Terminate tracked run groups on SIGTERM/SIGINT, then exit cleanly.
+
+    The handler only records the signal and terminates the exact pgids
+    runner._run_logged registered - never a name or pattern. It never
+    raises: raising inside the admitting transaction could strand the
+    machine grant. The serve loop sees the flag and exits without
+    recording verdicts for killed runs.
+    """
+    import signal as _signal
+
+    def _handle(signum, _frame) -> None:
+        global _shutdown_requested
+        _shutdown_requested = True
+        try:
+            from library.tools.local_ci import runner
+            killed = runner.terminate_active_runs()
+            if killed:
+                print(f"ren-ci shutdown (signal {signum}): terminated "
+                      f"run groups {sorted(killed)}", flush=True)
+            else:
+                print(f"ren-ci shutdown (signal {signum}): no runs active",
+                      flush=True)
+        except Exception as exc:  # noqa: BLE001 - shutdown must not crash
+            print(f"ren-ci shutdown cleanup failed: {exc}", flush=True)
+
+    for sig in (_signal.SIGTERM, _signal.SIGINT):
+        try:
+            _signal.signal(sig, _handle)
+        except (OSError, ValueError):
+            pass
+
+
+def recover_orphaned_gates_on_startup(state_dir: str) -> dict:
+    """Reap gates a dead daemon left behind, then recover their queue.
+
+    Startup layer beside the shutdown handler (which covers SIGTERM):
+    a SIGKILLed daemon never runs its handler, so its gate survives
+    reparented to pid 1. Reap those exact pgids first - while one still
+    runs its queue entries belong to it - then requeue testing entries
+    whose gate is gone. Returns what was done.
+    """
+    from library.tools.local_ci import gate_cleanup
+
+    summary: dict = {"reaped": {}, "recovered": 0}
+    try:
+        summary["reaped"] = gate_cleanup.reap_orphaned_gates(state_dir)
+    except Exception as exc:  # noqa: BLE001 - startup must continue
+        print(f"ren-ci orphan reap failed: {exc}", flush=True)
+        summary["reaped"] = {}
+    if summary["reaped"]:
+        print(f"ren-ci reaped orphaned gate group(s) "
+              f"{sorted(summary['reaped'])}", flush=True)
+    try:
+        summary["recovered"] = (
+            gate_cleanup.recover_testing_entries_if_gate_gone(state_dir))
+    except Exception as exc:  # noqa: BLE001 - startup must continue
+        print(f"ren-ci testing recovery failed: {exc}", flush=True)
+        summary["recovered"] = 0
+    if summary["recovered"]:
+        print(f"ren-ci recovered {summary['recovered']} interrupted Tier-2 "
+              "queue member(s); re-testing", flush=True)
+    return summary
+
+
 def serve(state_dir: str = "", poll: int = config.POLL_SECONDS,
           repo: str = "") -> int:
     """Keep polling while Tier-1 checks run; return 0 only on clean exit.
@@ -683,8 +784,11 @@ def serve(state_dir: str = "", poll: int = config.POLL_SECONDS,
 
     from library.tools.local_ci import upstream
     repo = repo or str(Path(__file__).resolve().parents[3])
-    upstream.recover_weekly(state_dir or config.state_dir())
-    world = queue.World(state_dir=state_dir or config.state_dir())
+    resolved_state = state_dir or config.state_dir()
+    install_shutdown_handlers()
+    recover_orphaned_gates_on_startup(resolved_state)
+    upstream.recover_weekly(resolved_state)
+    world = queue.World(state_dir=resolved_state)
     os.makedirs(os.path.join(world.state_dir, "logs"), exist_ok=True)
     running_sha = self_update.served_commit(repo)
     print(f"ren-ci serving {config.OWNER}/{config.REPO} "
@@ -695,6 +799,15 @@ def serve(state_dir: str = "", poll: int = config.POLL_SECONDS,
     scheduler = Tier1Scheduler(world)
     next_poll = 0.0
     while True:
+        if _shutdown_requested:
+            # A termination signal already killed the tracked run
+            # groups; exit without recording verdicts for them. Testing
+            # entries stay testing on disk for the replacement daemon's
+            # startup recovery - a killed run judged nothing.
+            print("ren-ci shutting down on signal; runs terminated",
+                  flush=True)
+            scheduler.shutdown(wait=False)
+            return 128 + 15
         now = time.monotonic()
         if now >= next_poll or scheduler.has_completed():
             running_sha = self_update.check_and_reload(

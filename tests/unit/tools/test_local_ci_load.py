@@ -11,10 +11,11 @@ from library.tools.local_ci import load
 
 
 def _snap(load1=0.0, cpus=10, mem=16.0, heavy=(), blind=False,
-          swap=0.0, cpu_busy=None):
+          swap=0.0, cpu_busy=None, pageout=0.0, swapout=0.0):
     snap = {"load1": load1, "cpus": cpus, "mem_free_gb": mem,
             "heavy": list(heavy), "blind": blind,
-            "disk_free_gb": 100.0, "swap_used_gb": swap}
+            "disk_free_gb": 100.0, "swap_used_gb": swap,
+            "pageout_per_sec": pageout, "swapout_per_sec": swapout}
     if cpu_busy is not None:
         snap["cpu_busy"] = cpu_busy
     return snap
@@ -88,11 +89,40 @@ def test_a_busy_cpu_still_serialises():
     assert plan["window"] == load.WINDOW_MAX
 
 
-def test_swap_pressure_caps_then_floors():
-    assert load.targets(_snap(cpu_busy=1.0, swap=1.5))["tier1_jobs"] <= 2
-    capped = load.targets(_snap(cpu_busy=1.0, swap=3.0))
+def test_paging_pressure_caps_then_floors():
+    assert load.targets(
+        _snap(cpu_busy=1.0, swapout=50.0))["tier1_jobs"] <= 2
+    assert load.targets(
+        _snap(cpu_busy=1.0, pageout=800.0))["tier1_jobs"] <= 2
+    capped = load.targets(_snap(cpu_busy=1.0, swapout=300.0))
     assert capped["tier1_jobs"] == 1
     assert capped["window"] == load.WINDOW_MAX
+    capped = load.targets(_snap(cpu_busy=1.0, pageout=5000.0))
+    assert capped["tier1_jobs"] == 1
+    assert capped["window"] == load.WINDOW_MAX
+
+
+def test_stale_swap_used_never_gates_dispatch():
+    # 2026-10-10: macOS keeps swap used high (~12 GB) long after
+    # pressure clears (~6 GB free, no paging). Swap used is
+    # observability only: a quiet machine with stale swap still fans out.
+    plan = load.targets(_snap(cpu_busy=1.0, swap=12.0))
+    assert plan["tier1_jobs"] == load.TIER1_MAX
+    assert plan["window"] == load.WINDOW_MIN
+
+
+def test_paging_rates_between_samples_are_bounded():
+    assert load._rates_between(None, 10.0, 100, 100) == (0.0, 0.0)
+    assert load._rates_between((0.0, 100, 100), 10.0, 200, 150) == (
+        10.0, 5.0)
+    # Backwards counters, stale intervals and missing counters are not
+    # pressure - they are clock or sample artefacts.
+    assert load._rates_between((10.0, 200, 150), 5.0, 300, 200) == (
+        0.0, 0.0)
+    assert load._rates_between((0.0, 100, 100), 500.0, 10**9, 10**9) == (
+        0.0, 0.0)
+    assert load._rates_between((0.0, 300, 200), 10.0, 100, 100) == (
+        0.0, 0.0)
 
 
 def test_load_average_survives_as_a_fallback():

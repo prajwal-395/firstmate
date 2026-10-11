@@ -20,6 +20,7 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 
 from library.tools.local_ci import config, history, hygiene
@@ -76,6 +77,81 @@ def _process_group_exists(pgid: int) -> bool:
     return True
 
 
+# Process groups this process started and has not yet reaped, by pgid
+# (which equals the direct child's pid: every run uses
+# start_new_session=True). Tier-1 workers share this set across threads,
+# and the daemon's SIGTERM handler drains it, so a launchd restart
+# cannot leave a gate running under the old code beside the new
+# daemon's batch (2026-10-10: an hour of old-code Tier-2 under
+# heavy_work_lock while queue entries stayed testing). Only exact pgids
+# from this registry are ever signalled - never a name or pattern.
+_ACTIVE_GROUPS: set[int] = set()
+_ACTIVE_GROUPS_LOCK = threading.Lock()
+
+
+def _register_active_pgid(pgid: int) -> None:
+    with _ACTIVE_GROUPS_LOCK:
+        _ACTIVE_GROUPS.add(int(pgid))
+
+
+def _unregister_active_pgid(pgid: int) -> None:
+    with _ACTIVE_GROUPS_LOCK:
+        _ACTIVE_GROUPS.discard(int(pgid))
+
+
+def active_run_pgids() -> list[int]:
+    """Exact process-group ids this process started and still owns."""
+    with _ACTIVE_GROUPS_LOCK:
+        return sorted(_ACTIVE_GROUPS)
+
+
+def terminate_process_group_by_pgid(pgid: int,
+                                    grace_seconds: float = 5.0) -> bool:
+    """Stop one tracked process group by its exact pgid, boundedly.
+
+    SIGTERM first, then SIGKILL past the grace. Returns whether the
+    group is gone. Never matches by name: the caller names the exact
+    pgid this runner started.
+    """
+    pgid = int(pgid)
+    if not _process_group_exists(pgid):
+        return True
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    deadline = time.monotonic() + grace_seconds
+    while _process_group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if _process_group_exists(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+    deadline = time.monotonic() + grace_seconds
+    while _process_group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return not _process_group_exists(pgid)
+
+
+def terminate_active_runs(grace_seconds: float = 5.0) -> dict[int, bool]:
+    """Stop every process group this process started. Returns pgid->gone.
+
+    The daemon's shutdown path: a SIGTERM or launchd restart must not
+    leave a gate process group running under the old code beside the
+    replacement daemon's batch.
+    """
+    results: dict[int, bool] = {}
+    for pgid in active_run_pgids():
+        results[pgid] = terminate_process_group_by_pgid(
+            pgid, grace_seconds=grace_seconds)
+    return results
+
+
 def _terminate_process_group(process: subprocess.Popen,
                              grace_seconds: float = 5.0) -> bool:
     """Stop the pytest process and every child it spawned, boundedly.
@@ -129,7 +205,9 @@ def _run_logged(command: list, cwd: str, log_path: str,
 
     A timed-out pytest must end in a failure result, not leave xdist
     workers holding a slot or turn the status back into pending. The
-    separate session gives cleanup an exact process-group id.
+    separate session gives cleanup an exact process-group id. The
+    group is registered while it runs so the daemon's shutdown handler
+    can terminate exactly the groups it started on SIGTERM.
     """
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
     started = time.monotonic()
@@ -145,17 +223,21 @@ def _run_logged(command: list, cwd: str, log_path: str,
                         "group_clean": True,
                         "elapsed": time.monotonic() - started}
 
+            _register_active_pgid(process.pid)
             try:
-                exit_code = process.wait(timeout=timeout)
-                timed_out = False
-                group_clean = _terminate_process_group(process)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                group_clean = _terminate_process_group(process)
-                exit_code = process.returncode
-                log.write(
-                    f"\nREN-CI TIMEOUT after {timeout}s; "
-                    f"process_group_clean={group_clean}\n")
+                try:
+                    exit_code = process.wait(timeout=timeout)
+                    timed_out = False
+                    group_clean = _terminate_process_group(process)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    group_clean = _terminate_process_group(process)
+                    exit_code = process.returncode
+                    log.write(
+                        f"\nREN-CI TIMEOUT after {timeout}s; "
+                        f"process_group_clean={group_clean}\n")
+            finally:
+                _unregister_active_pgid(process.pid)
     except OSError as exc:
         return {"exit": 127, "timed_out": False, "group_clean": True,
                 "elapsed": time.monotonic() - started,

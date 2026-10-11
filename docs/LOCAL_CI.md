@@ -80,12 +80,15 @@ revision in place. Only engines with pending candidates are built.
 ## Load policy (why it speeds up and slows down)
 
 Before each dispatch the daemon measures busy CPU cores (summed %CPU -
-idle agent lanes cost nothing), free memory, swap used, free disk, and
+idle agent lanes cost nothing), free memory, current paging activity
+(the recent pageout/swapout rate from vm_stat deltas), free disk, and
 heavy foreground processes (Resolve, renders, a batch gate). Quiet: up
 to 3 Tier-1 jobs at pytest `-n 1` with a 90s window (small clusters,
 low latency). Loaded: 1 job at `-n 2` with a 600s window (bigger
-clusters, fewer full-gate runs). Swap pressure caps fan-out (1GB) then
-serialises (2GB); the 1-minute load average survives only as a fallback
+clusters, fewer full-gate runs). Paging pressure caps fan-out then
+serialises; swap USED never gates (it stays high long after pressure
+clears - ~12 GB used beside ~6 GB free on 2026-10-10 - so it is
+observability only). The 1-minute load average survives only as a fallback
 when the CPU sample is unavailable. Tier-1 keeps running while a
 ready cluster is ripe or testing, so every ready PR gets checked and
 enters the queue: a ripe batch waits for running Tier-1 jobs to drain
