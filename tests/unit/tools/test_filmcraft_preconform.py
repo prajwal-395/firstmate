@@ -21,6 +21,8 @@ beside the pinned CLI. These tests need only ffmpeg/ffprobe on PATH and
 the committed A/V fixture, read-only (AGENTS.md 8).
 """
 
+import json
+import os
 import shutil
 from pathlib import Path
 
@@ -213,6 +215,104 @@ def test_preconform_transcodes_once_then_hits_cache(tmp_path):
     )
     assert second.cache_hit is True
     assert second.path == first.path
+
+
+# ── Cheap revalidation: stat plus sampled content, exact check on doubt ──
+#
+# A warm hit must not redecode the proxy (tens of seconds on a reel
+# range). The sidecar anchors size, mtime, inode and sampled windows;
+# anything those reject meets the exact ffprobe count instead.
+
+
+def _transcode(tmp_path, **overrides):
+    kwargs = {
+        "asset_id": "asset-av",
+        "source_fps_num": 24,
+        "source_fps_den": 1,
+        "use_start_frame": 0,
+        "use_end_frame": SOURCE_FRAMES,
+        "total_frames": SOURCE_FRAMES,
+        "spec": spec(handle_frames=0),
+        "cache_dir": tmp_path / "preconform",
+    }
+    kwargs.update(overrides)
+    return preconform_source(FIXTURE, **kwargs)
+
+
+def test_preconform_warm_hit_skips_the_frame_decode(tmp_path, monkeypatch):
+    """The second call for an untouched entry never runs ffprobe."""
+    needs_ffmpeg()
+    import library.tools.filmcraft_preconform as fcp
+
+    first = _transcode(tmp_path)
+    assert first.cache_hit is False
+    monkeypatch.setattr(
+        fcp, "_ffprobe_frames",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("a warm hit decodes nothing")))
+    second = _transcode(tmp_path)
+    assert second.cache_hit is True
+    assert second.path == first.path
+
+
+def test_preconform_truncated_entry_retranscodes(tmp_path):
+    """A short file fails the stat gate, then the exact count, and is
+    rebuilt rather than mapped."""
+    needs_ffmpeg()
+    first = _transcode(tmp_path)
+    proxy = Path(first.path)
+    whole = proxy.stat().st_size
+    proxy.write_bytes(proxy.read_bytes()[: whole // 2])
+    second = _transcode(tmp_path)
+    assert second.cache_hit is False
+    assert Path(second.path).stat().st_size == whole
+    restored = _transcode(tmp_path)
+    assert restored.cache_hit is True
+
+
+def test_preconform_same_size_tamper_meets_the_exact_check(tmp_path, monkeypatch):
+    """A byte flipped inside a sampled window with the mtime restored
+    declines the fast gate: the exact check (here boomed) engages."""
+    needs_ffmpeg()
+    import library.tools.filmcraft_preconform as fcp
+
+    first = _transcode(tmp_path)
+    proxy = Path(first.path)
+    before = proxy.stat()
+    data = bytearray(proxy.read_bytes())
+    data[10] ^= 0xFF
+    proxy.write_bytes(bytes(data))
+    os.utime(proxy, ns=(before.st_atime_ns, before.st_mtime_ns))
+    monkeypatch.setattr(
+        fcp, "_ffprobe_frames",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("the exact check engaged")))
+    with pytest.raises(AssertionError, match="the exact check engaged"):
+        _transcode(tmp_path)
+
+
+def test_preconform_old_sidecar_upgrades_to_the_fast_gate(tmp_path, monkeypatch):
+    """Entries written before the revalidation identity pay one last
+    exact check, which upgrades the sidecar; the run after is fast."""
+    needs_ffmpeg()
+    import library.tools.filmcraft_preconform as fcp
+
+    first = _transcode(tmp_path)
+    sidecar = Path(first.path).with_suffix(".json")
+    legacy = json.loads(sidecar.read_text(encoding="utf-8"))
+    for key in ("size_bytes", "mtime_ns", "dev", "ino", "sample_digest"):
+        legacy.pop(key, None)
+    sidecar.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
+    second = _transcode(tmp_path)
+    assert second.cache_hit is True
+    upgraded = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert "sample_digest" in upgraded
+    monkeypatch.setattr(
+        fcp, "_ffprobe_frames",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("an upgraded entry decodes nothing")))
+    third = _transcode(tmp_path)
+    assert third.cache_hit is True
 
 
 def test_preconform_cache_path_is_deterministic(tmp_path):

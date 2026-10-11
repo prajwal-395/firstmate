@@ -818,3 +818,284 @@ def test_execute_refuses_a_malformed_look_before_mutation(tmp_path, monkeypatch)
     assert not list(tmp_path.glob("*.fcproj"))
     assert not export.exists()
     assert not out.exists()
+
+
+# ── Pre-conform (opt-in, default off) ────────────────────
+#
+# `--preconform` wires library/tools/filmcraft_preconform.py into
+# execute_filmcraft: used a_roll/b_roll spans transcode once to the
+# project's scratch cache and the engine places the proxies. Fidelity
+# is the captain's priority, so the flag defaults OFF: off means
+# untouched (no transcode call, no cache dir) while on means
+# content-addressed reuse (the second run is all cache hits).
+
+LINKED_AV = REPO / "native/ren-filmcraft/tests/fixtures/linked-av.mp4"
+ENGINE_TPS = 254016000000
+
+
+def _stub_rich_engine(monkeypatch, tmp_path: Path) -> None:
+    """Stub CLI that pairs with NON-empty projections: one item per
+    import path, one clip per place, a tiny mp4 per export.
+
+    Placements run through one batched `run` session per phase (PR
+    2316), not one `exec` process per command, so the batch boundary is
+    stubbed too: each batched entry answers exactly what the single
+    `exec` path answers for the same command, in order."""
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+
+    def _answer(command: str, params: dict):
+        if command == "file.import":
+            paths = params.get("paths") or []
+            return {"items": list(range(101, 101 + len(paths))),
+                    "errors": []}
+        if command == "timeline.place":
+            return {"clips": [201]}
+        if command == "sequence.inspect":
+            return {}
+        return {}
+
+    def fake_fc_exec(cli, project, command, params, *,
+                     save=False, save_as=None):
+        if save_as is not None:
+            Path(save_as).write_bytes(b"fake-project")
+            return {}
+        if command == "file.exportMedia":
+            out = Path(params["path"])
+            done = subprocess.run(
+                ["ffmpeg", "-v", "error", "-y",
+                 "-f", "lavfi", "-i",
+                 "testsrc=size=64x112:rate=24:duration=0.3333",
+                 "-c:v", "libx264", "-preset", "ultrafast",
+                 "-pix_fmt", "yuv420p", str(out)],
+                capture_output=True, text=True, encoding="utf-8",
+                check=False)
+            assert done.returncode == 0, done.stderr[:300]
+            return {"exported": str(out)}
+        return _answer(command, params)
+
+    def fake_fc_run_batch(cli, project, commands, *, save=True):
+        return [_answer(entry["command"], entry["params"])
+                for entry in commands]
+
+    monkeypatch.setattr(pmc, "_filmcraft_cli",
+                        lambda: tmp_path / "fake-cli")
+    monkeypatch.setattr(pmc, "_check_cli_version",
+                        lambda cli, expect, engine: None)
+    monkeypatch.setattr(pmc, "_fc_exec", fake_fc_exec)
+    monkeypatch.setattr(pmc, "_fc_run_batch", fake_fc_run_batch)
+
+
+def _mini_model():
+    """One a_roll use (source 30..60 of the 72-frame linked fixture)
+    plus one overlay use: the first proxies, the second stays direct."""
+    clock = {"ticks_per_second": 24, "frame_rate": {"numerator": 24,
+                                                   "denominator": 1}}
+    return {
+        "clocks": [
+            {"id": "clock-av", "domain": {"kind": "source", "asset_id": "asset-av"},
+             **clock},
+            {"id": "clock-project", "domain": {"kind": "project"}, **clock},
+        ],
+        "clip_uses": [
+            {"id": "use-av", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-av", "start": 30, "end": 60},
+             "timeline_interval": {"clock_id": "clock-project", "start": 0, "end": 30},
+             "entity_links": [], "role": "a_roll", "intent_id": None},
+            {"id": "use-cap", "asset_id": "asset-cap",
+             "source_interval": {"clock_id": "clock-av", "start": 0, "end": 30},
+             "timeline_interval": {"clock_id": "clock-project", "start": 0, "end": 30},
+             "entity_links": [], "role": "subtitle_overlay", "intent_id": None},
+        ],
+    }
+
+
+def _mini_projection():
+    source_in = 30 * ENGINE_TPS // 24
+    duration = 30 * ENGINE_TPS // 24
+    return {
+        "adapter_version": "test-1",
+        "engine_revision": "test-rev",
+        "timeline_clock": "clock-project",
+        "imports": [{"asset_id": "asset-av", "uri": "media/av.mp4"},
+                    {"asset_id": "asset-cap", "uri": "media/cap.mov"}],
+        "placements": [
+            {"clip_use_id": "use-av", "asset_id": "asset-av", "role": "a_roll",
+             "track": "V1", "audio_track": "A1", "frame": 0,
+             "source_in_ticks": source_in, "duration_ticks": duration,
+             "timeline_start": 0, "timeline_end": 30},
+            {"clip_use_id": "use-cap", "asset_id": "asset-cap",
+             "role": "subtitle_overlay", "track": "V3", "audio_track": None,
+             "frame": 0, "source_in_ticks": 0, "duration_ticks": duration,
+             "timeline_start": 0, "timeline_end": 30},
+        ],
+        "losses": [],
+    }
+
+
+def test_execute_without_preconform_never_preconforms(tmp_path, monkeypatch):
+    """Default off means untouched: no transcode call, no cache dir,
+    and the receipt says so."""
+    import library.tools.filmcraft_preconform as fcp
+
+    def boom(*args, **kwargs):
+        raise AssertionError("pre-conform ran with the option off")
+
+    monkeypatch.setattr(fcp, "preconform_source", boom)
+    _stub_engine(monkeypatch, tmp_path)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 0
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["preconform"] == {"enabled": False}
+    assert not (root / "pipeline_output").exists()
+    assert export.is_file()
+
+
+def test_preconform_size_refusals_fire_before_mutation(tmp_path, monkeypatch):
+    """`--preconform` without a size, and a size without the flag,
+    both refuse with no engine project."""
+    import library.tools.project_model_cli as pmc
+
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: _stub_native())
+    monkeypatch.setattr(
+        pmc, "_filmcraft_cli",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("no engine contact on refusal")))
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--preconform"]) == 4
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--preconform-size", "1080x1920"]) == 4
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--preconform", "--preconform-size", "wide"]) == 4
+    assert not list(tmp_path.glob("*.fcproj"))
+    assert not out.exists()
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_preconform_plan_marks_spine_ready_and_overlays_direct(tmp_path):
+    """The a_roll span plans to a proxy (handles clamped to the 72-frame
+    source); the overlay keeps its original with the reason named."""
+    import library.tools.project_model_cli as pmc
+
+    model = _mini_model()
+    projection = _mini_projection()
+    spec = pmc._preconform_spec(model, projection, 160, 90)
+    planned = pmc.plan_preconform(
+        model, projection,
+        {"asset-av": LINKED_AV, "asset-cap": Path("/media/cap.mov")},
+        spec=spec)
+    ready = planned["assets"]["asset-av"]
+    assert ready["status"] == "ready"
+    assert (ready["use_start_frame"], ready["use_end_frame"]) == (30, 60)
+    assert (ready["proxy_start_frame"], ready["proxy_end_frame"]) == (6, 72)
+    assert ready["proxy_start_ticks"] == 6 * ENGINE_TPS // 24
+    direct = planned["assets"]["asset-cap"]
+    assert direct["status"] == "direct"
+    assert "subtitle_overlay" in direct["reason"]
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_preconform_execute_swaps_rebases_and_reuses_cache(tmp_path):
+    """The proxy imports in place of the camera original, placements
+    rebase onto its origin, and the second run is a cache hit."""
+    import library.tools.project_model_cli as pmc
+
+    model = _mini_model()
+    projection = _mini_projection()
+    spec = pmc._preconform_spec(model, projection, 160, 90)
+    resolved = {"asset-av": LINKED_AV, "asset-cap": Path("/media/cap.mov")}
+    planned = pmc.plan_preconform(model, projection, resolved, spec=spec)
+    cache = tmp_path / "preconform"
+    swapped, rebased, report = pmc.execute_preconform(
+        planned, resolved, projection["placements"],
+        spec=spec, cache_dir=cache)
+    assert report["enabled"] is True
+    assert report["cache_dir"] == str(cache)
+    av = report["assets"]["asset-av"]
+    assert av["status"] == "preconformed"
+    assert av["cache_hit"] is False
+    assert av["source_range_frames"] == [6, 72]
+    assert Path(av["path"]).is_file()
+    assert swapped["asset-av"] == Path(av["path"])
+    assert swapped["asset-cap"] == Path("/media/cap.mov")
+    placed = {p["clip_use_id"]: p for p in rebased}
+    assert placed["use-av"]["source_in_ticks"] == (
+        30 * ENGINE_TPS // 24 - 6 * ENGINE_TPS // 24)
+    assert placed["use-cap"]["source_in_ticks"] == 0
+    entry = report["swapback"]["preconformed"]["asset-av"]
+    assert entry["original_path"] == str(LINKED_AV)
+    assert entry["original_range_frames"] == [6, 72]
+    _, _, second = pmc.execute_preconform(
+        planned, resolved, projection["placements"],
+        spec=spec, cache_dir=cache)
+    rerun = second["assets"]["asset-av"]
+    assert rerun["status"] == "preconformed"
+    assert rerun["cache_hit"] is True
+    assert rerun["path"] == av["path"]
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_execute_preconform_end_to_end_uses_cache_on_second_run(
+        tmp_path, monkeypatch):
+    """`--execute --preconform` through the verb: the first run
+    transcodes, the second reuses every entry, and the swap-back still
+    names the camera originals."""
+    _native_or_skip()
+    _stub_rich_engine(monkeypatch, tmp_path)
+    root = _project(tmp_path)
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    model["edits"] = []
+    model_path = tmp_path / "model-notrim.json"
+    model_path.write_text(json.dumps(model), encoding="utf-8")
+    first = tmp_path / "first.json"
+    export_one = tmp_path / "one.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(model_path), "--out", str(first),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export_one),
+                 "--preconform", "--preconform-size", "320x180"]) == 0
+    receipt = json.loads(first.read_text(encoding="utf-8"))
+    report = receipt["preconform"]
+    assert report["enabled"] is True
+    assert report["cache_dir"] == str(
+        root / "pipeline_output" / "scratch" / "preconform")
+    assert {a for a, e in report["assets"].items()
+            if e["status"] == "preconformed"} == {
+        "asset-ada", "asset-ben", "asset-broll"}
+    assert all(e["cache_hit"] is False
+               for e in report["assets"].values())
+    for entry in report["swapback"]["preconformed"].values():
+        assert entry["original_path"].endswith(".mp4")
+        assert "preconform" not in entry["original_path"]
+    assert export_one.is_file()
+    cached = sorted((root / "pipeline_output" / "scratch"
+                     / "preconform").glob("preconform-*.mov"))
+    assert len(cached) == 3
+
+    second = tmp_path / "second.json"
+    export_two = tmp_path / "two.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(model_path), "--out", str(second),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export_two),
+                 "--preconform", "--preconform-size", "320x180"]) == 0
+    rerun = json.loads(second.read_text(encoding="utf-8"))["preconform"]
+    assert all(e["cache_hit"] is True
+               for e in rerun["assets"].values())
+    assert [e["path"] for e in rerun["assets"].values()] == [
+        e["path"] for e in report["assets"].values()]
+    assert export_two.is_file()

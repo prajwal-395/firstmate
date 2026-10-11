@@ -27,8 +27,11 @@ What this stage does, and does not do:
 
 Failure shape: anything inexact refuses with ``PreconformError`` naming
 the range - a short source, a frame-count mismatch after transcode, a
-missing binary. A cache entry is valid only when the file exists and
-ffprobe reads back exactly the expected frame count.
+missing binary. A cache entry is valid when its sidecar identity still
+matches (size, mtime, inode plus sampled content windows, all recorded
+at transcode time); anything else meets the exact ffprobe frame-count
+check, which stays the arbiter. ``_fast_validate`` states exactly what
+would have to slip past both.
 """
 
 from __future__ import annotations
@@ -55,6 +58,14 @@ _FINGERPRINT_SAMPLE_BYTES = 8 * 1024 * 1024
 #: resample, measured 2026-10-11). Part of the cache key: if a pin move
 #: re-measures the policy, bump this so stale pixels never pass as valid.
 CONFORM_POLICY_VERSION = 1
+
+#: Cheap revalidation of a cache entry: size, identity and a digest of
+#: sampled content windows, all recorded in the `.json` sidecar at
+#: transcode time. A fast hit skips the full ffprobe frame-count decode
+#: (tens of seconds on a reel proxy); any mismatch falls back to that
+#: exact check, which stays the arbiter.
+_SIDECAR_SAMPLE_BYTES = 64 * 1024
+_SIDECAR_SAMPLE_WINDOWS = 3
 
 _SSIM_ALL_RE = re.compile(r"All:\s*([0-9.]+)")
 _PSNR_AVERAGE_RE = re.compile(r"average:([0-9.inf]+)")
@@ -235,6 +246,90 @@ def cache_path(
     )
 
 
+def _sample_digest(path: Path, size: int) -> str:
+    """Content digest of fixed windows: the whole file when small, else
+    head, middle and tail windows. Deterministic given the size, which
+    is compared alongside, so there is no small/large ambiguity."""
+    digest = hashlib.sha256()
+    span = _SIDECAR_SAMPLE_BYTES * _SIDECAR_SAMPLE_WINDOWS
+    with path.open("rb") as stream:
+        if size <= span:
+            digest.update(stream.read())
+            return digest.hexdigest()
+        offsets = (0, size // 2, size - _SIDECAR_SAMPLE_BYTES)
+        for offset in offsets:
+            stream.seek(offset)
+            digest.update(stream.read(_SIDECAR_SAMPLE_BYTES))
+    return digest.hexdigest()
+
+
+def _write_sidecar(target: Path, record: PreconformRecord) -> None:
+    """The audit sidecar plus the revalidation identity: stat and
+    sampled content digest taken after the file is closed."""
+    stat = target.stat()
+    size = stat.st_size
+    target.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "asset_id": record.asset_id,
+                "source_path": record.source_path,
+                "fingerprint": record.fingerprint,
+                "source_range_frames": [record.source_start_frame, record.source_end_frame],
+                "source_fps": [record.source_fps_num, record.source_fps_den],
+                "spec_key": record.spec_key,
+                "frames": record.frames,
+                "audio": record.audio,
+                "size_bytes": size,
+                "mtime_ns": stat.st_mtime_ns,
+                "dev": stat.st_dev,
+                "ino": stat.st_ino,
+                "sample_digest": _sample_digest(target, size),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _fast_validate(target: Path, *, fingerprint: str, start_frame: int,
+                   end_frame: int, spec_key: str, frames: int) -> bool:
+    """Whether the cache file is unchanged since its sidecar was
+    written, without decoding it.
+
+    Every check must pass: the sidecar names this exact fingerprinted
+    range under this spec with this frame count, and the file's size,
+    mtime, device/inode and sampled content still match what the
+    transcode recorded. Anything missing or different - including a
+    sidecar from before this identity existed - answers False, and the
+    caller falls back to the exact ffprobe frame-count check.
+
+    What would slip past: only a deliberate same-size modification that
+    preserves the mtime and leaves the three sampled windows
+    byte-identical while changing the frame count or the bytes
+    elsewhere. Truncation, replacement, growth and any edit touching a
+    sampled window all fail here and meet the exact check instead.
+    """
+    try:
+        sidecar = json.loads(target.with_suffix(".json").read_text(encoding="utf-8"))
+        if not isinstance(sidecar, dict):
+            return False
+        if (sidecar.get("fingerprint") != fingerprint
+                or sidecar.get("source_range_frames") != [start_frame, end_frame]
+                or sidecar.get("spec_key") != spec_key
+                or sidecar.get("frames") != frames):
+            return False
+        stat = target.stat()
+        if (sidecar.get("size_bytes") != stat.st_size
+                or sidecar.get("mtime_ns") != stat.st_mtime_ns
+                or sidecar.get("dev") != stat.st_dev
+                or sidecar.get("ino") != stat.st_ino):
+            return False
+        return sidecar.get("sample_digest") == _sample_digest(target, stat.st_size)
+    except (OSError, ValueError):
+        return False
+
+
 def _ffprobe_frames(path: Path, ffprobe: str = "ffprobe") -> int:
     done = subprocess.run(
         [
@@ -397,28 +492,37 @@ def preconform_source(
                 f"conform to {spec.fps_num}/{spec.fps_den} in whole frames ({scaled})"
             )
         frames = int(scaled)
+    def _hit() -> PreconformRecord:
+        return PreconformRecord(
+            asset_id=asset_id,
+            source_path=str(source),
+            fingerprint=fingerprint,
+            source_fps_num=source_fps_num,
+            source_fps_den=source_fps_den,
+            source_start_frame=start,
+            source_end_frame=end,
+            spec_key=spec.key(),
+            spec_fps_num=spec.fps_num,
+            spec_fps_den=spec.fps_den,
+            path=str(target),
+            frames=frames,
+            audio=spec.with_audio and _source_has_audio(source, ffprobe),
+            cache_hit=True,
+        )
+
     if target.is_file():
+        if _fast_validate(target, fingerprint=fingerprint, start_frame=start,
+                          end_frame=end, spec_key=spec.key(), frames=frames):
+            return _hit()
         try:
             cached_frames = _ffprobe_frames(target, ffprobe)
         except PreconformError:
             cached_frames = -1
         if cached_frames == frames:
-            return PreconformRecord(
-                asset_id=asset_id,
-                source_path=str(source),
-                fingerprint=fingerprint,
-                source_fps_num=source_fps_num,
-                source_fps_den=source_fps_den,
-                source_start_frame=start,
-                source_end_frame=end,
-                spec_key=spec.key(),
-                spec_fps_num=spec.fps_num,
-                spec_fps_den=spec.fps_den,
-                path=str(target),
-                frames=frames,
-                audio=spec.with_audio and _source_has_audio(source, ffprobe),
-                cache_hit=True,
-            )
+            # A sidecar from before the revalidation identity existed:
+            # the frames check out, so upgrade it and the next run is fast.
+            _write_sidecar(target, _hit())
+            return _hit()
         target.unlink()
     cache_dir.mkdir(parents=True, exist_ok=True)
     start_seconds = start * source_fps_den / source_fps_num
@@ -485,24 +589,7 @@ def preconform_source(
         audio=audio,
         cache_hit=False,
     )
-    sidecar = target.with_suffix(".json")
-    sidecar.write_text(
-        json.dumps(
-            {
-                "asset_id": record.asset_id,
-                "source_path": record.source_path,
-                "fingerprint": record.fingerprint,
-                "source_range_frames": [record.source_start_frame, record.source_end_frame],
-                "source_fps": [record.source_fps_num, record.source_fps_den],
-                "spec_key": record.spec_key,
-                "frames": record.frames,
-                "audio": record.audio,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    _write_sidecar(target, record)
     return record
 
 

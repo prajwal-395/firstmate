@@ -38,6 +38,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from library.tools import filmcraft_preconform as fcp
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 FILMCRAFT_REVISION = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1"
@@ -247,6 +248,302 @@ def translate_filmcraft_edits(model: dict, projection: dict, clip_ids: dict[str,
     return commands
 
 
+# ── Pre-conform (opt-in, default off) ────────────────────
+#
+# The native FilmCraft path ingests camera originals slowly (a fixed
+# ~150-400 s open/scan per 4K MXF plus ~0.1-0.3 s per frame, ~43x below
+# ffmpeg on the same bytes; measured 2026-10-11, PR 2302). Pre-conform
+# transcodes each used a_roll/b_roll span (plus handles) once to
+# edit-resolution ProRes under the project's scratch, cached by source
+# content fingerprint, and the engine places the proxies instead.
+#
+# Lossy by construction (a ProRes generation under the engine's
+# center-crop conform), so this stays OFF unless `--preconform` is
+# passed: fidelity is the captain's priority and the default export
+# must stay pixel-identical to today's. Anything inexact falls back to
+# the camera original for that asset - never a guessed proxy - and the
+# receipt records which assets proxied and which stayed direct.
+
+
+#: Roles whose sources may pre-conform. Overlays and cards carry alpha
+#: the ProRes 422 proxy cannot hold, and stems are sound the engine
+#: ingests without the picture penalty - so only base picture proxies.
+PRECONFORM_SPINE_ROLES = ("a_roll", "b_roll")
+
+#: The engine tick grid placements address (ENGINE_TICKS_PER_SECOND in
+#: native/ren-filmcraft/src/adapter.rs - duplicated, not derived, because
+#: the adapter exposes no tick constant to Python).
+ENGINE_TICKS_PER_SECOND = 254016000000
+
+#: Cache identity lives here: under the project, never under the
+#: captain's media folders (the module never picks its own directory).
+PRECONFORM_CACHE_SUBDIR = Path("pipeline_output") / "scratch" / "preconform"
+
+
+def _parse_preconform_size(text: str) -> tuple[int, int]:
+    """The proxy frame as (width, height), which must equal the engine sequence frame."""
+    parts = (text or "").strip().lower().split("x")
+    if len(parts) != 2:
+        raise _refuse(f"`--preconform-size` reads WIDTHxHEIGHT, got {text!r}",
+                      "the proxy frame must equal the engine sequence frame, and the model carries no canvas",
+                      "pass e.g. --preconform-size 1080x1920 for a vertical sequence "
+                      "(a fresh FilmCraft sequence defaults to 1920x1080)",
+                      code="REN_PM_CLI_PRECONFORM")
+    try:
+        width, height = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise _refuse(f"`--preconform-size` reads WIDTHxHEIGHT, got {text!r}",
+                      "neither dimension parsed as an integer",
+                      "pass e.g. --preconform-size 1080x1920",
+                      code="REN_PM_CLI_PRECONFORM") from None
+    if width <= 0 or height <= 0:
+        raise _refuse(f"`--preconform-size` must be positive, got {width}x{height}",
+                      "a proxy frame with no pixels conforms nothing",
+                      "pass e.g. --preconform-size 1080x1920",
+                      code="REN_PM_CLI_PRECONFORM")
+    return width, height
+
+
+def _preconform_spec(model: dict, projection: dict, width: int, height: int) -> fcp.PreconformSpec:
+    """The proxy frame: the stated size at the timeline rate.
+
+    The size is an operator statement because the model carries no
+    canvas and `create_project` sends no dimensions - there is nothing
+    to derive it from. The rate comes from the timeline clock instead:
+    the proxy must play 1:1 on the sequence, so any other rate would
+    resample behind the placement math.
+    """
+    clock_id = projection.get("timeline_clock")
+    clock = next((c for c in model.get("clocks", []) if c.get("id") == clock_id), None)
+    if clock is None:
+        raise _refuse(f"the model names no timeline clock `{clock_id}`",
+                      "the proxy rate follows the timeline clock, which is absent",
+                      "project a model whose timeline clock carries a frame rate",
+                      code="REN_PM_CLI_PRECONFORM")
+    rate = clock.get("frame_rate") or {}
+    try:
+        fps_num, fps_den = int(rate["numerator"]), int(rate["denominator"])
+    except (KeyError, TypeError, ValueError):
+        raise _refuse(f"timeline clock `{clock_id}` names no frame rate",
+                      "the proxy rate follows the timeline clock, which carries none",
+                      "project a model whose timeline clock carries a frame rate",
+                      code="REN_PM_CLI_PRECONFORM") from None
+    if fps_num <= 0 or fps_den <= 0:
+        raise _refuse(f"timeline clock `{clock_id}` rate must be positive, got {fps_num}/{fps_den}",
+                      "a proxy at a non-positive rate plays nothing",
+                      "project a model whose timeline clock carries a frame rate",
+                      code="REN_PM_CLI_PRECONFORM")
+    spec = fcp.PreconformSpec(width=width, height=height,
+                              fps_num=fps_num, fps_den=fps_den)
+    try:
+        spec.validate()
+    except fcp.PreconformError as exc:
+        raise _refuse(f"pre-conform spec refused: {exc}",
+                      "the stated proxy frame cannot be built",
+                      "pass a positive WIDTHxHEIGHT for --preconform-size",
+                      code="REN_PM_CLI_PRECONFORM") from exc
+    return spec
+
+
+def _probe_source_total_frames(source: Path, fps_num: int, fps_den: int) -> int | None:
+    """Source length in frames from ffprobe duration, or None when unprobed.
+
+    Duration, not frame count: counting frames decodes the whole file,
+    which is the cost pre-conform exists to avoid. A tail wobble of a
+    frame is absorbed downstream - the transcode verifies its own frame
+    count and the rebase refuses out-of-window placements.
+    """
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=duration:format=duration",
+         "-of", "json", str(source)],
+        capture_output=True, text=True, encoding="utf-8",
+        timeout=120, check=False)
+    if done.returncode != 0:
+        return None
+    try:
+        doc = json.loads(done.stdout)
+        streams = doc.get("streams") or []
+        duration_text = (streams[0].get("duration")
+                         if streams else None) or (doc.get("format") or {}).get("duration")
+        total = int(float(duration_text) * fps_num / fps_den)
+    except (ValueError, TypeError, KeyError, IndexError):
+        return None
+    return total if total > 0 else None
+
+
+def _plan_preconform_asset(clocks: dict, uses: list[dict], placements: list[dict],
+                           source_path: Path | None, *, spec: fcp.PreconformSpec) -> dict:
+    """One asset's proxy span, or raise PreconformError for direct import.
+
+    Raising here never refuses the run: the caller records the reason
+    and imports the camera original, which is today's behavior.
+    """
+    if source_path is None:
+        raise fcp.PreconformError("no resolved media path for this asset")
+    if not uses:
+        raise fcp.PreconformError("no clip use names this asset")
+    exotic = sorted({use.get("role") for use in uses} - set(PRECONFORM_SPINE_ROLES))
+    if exotic:
+        raise fcp.PreconformError(
+            f"role(s) {exotic} are not base picture; overlays, cards and stems keep their originals")
+    clock_ids = {use["source_interval"]["clock_id"] for use in uses}
+    if len(clock_ids) != 1:
+        raise fcp.PreconformError(
+            f"uses span {len(clock_ids)} source clocks; one proxy covers one clock")
+    clock = clocks.get(next(iter(clock_ids)))
+    if clock is None:
+        raise fcp.PreconformError("the source clock is not in the model")
+    try:
+        tps = int(clock["ticks_per_second"])
+        fps_num = int(clock["frame_rate"]["numerator"])
+        fps_den = int(clock["frame_rate"]["denominator"])
+    except (KeyError, TypeError, ValueError):
+        raise fcp.PreconformError("the source clock names no frame rate") from None
+    if tps <= 0 or fps_num <= 0 or fps_den <= 0:
+        raise fcp.PreconformError(
+            f"the source clock rate must be positive, got tps={tps} fps={fps_num}/{fps_den}")
+    grid = tps * fps_den
+    starts = [(use["source_interval"]["start"] * fps_num) // grid for use in uses]
+    ends = [-((-use["source_interval"]["end"] * fps_num) // grid) for use in uses]
+    span_min, span_max = min(starts), max(ends)
+    if span_max <= span_min:
+        raise fcp.PreconformError(f"used span {span_min}..{span_max} is empty")
+    total = _probe_source_total_frames(source_path, fps_num, fps_den)
+    if total is None:
+        raise fcp.PreconformError(f"ffprobe gave no duration for {source_path}")
+    if span_max > total:
+        raise fcp.PreconformError(
+            f"used span {span_min}..{span_max} lies outside a {total}-frame source")
+    proxy_start = max(0, span_min - spec.handle_frames)
+    proxy_end = min(total, span_max + spec.handle_frames)
+    start_ticks = proxy_start * ENGINE_TICKS_PER_SECOND * fps_den
+    end_ticks = proxy_end * ENGINE_TICKS_PER_SECOND * fps_den
+    if start_ticks % fps_num or end_ticks % fps_num:
+        raise fcp.PreconformError(
+            f"proxy span {proxy_start}..{proxy_end} lands between engine ticks; refusing a rounded rebase")
+    start_ticks //= fps_num
+    end_ticks //= fps_num
+    for placement in placements:
+        begin = placement["source_in_ticks"]
+        if begin < start_ticks or begin + placement["duration_ticks"] > end_ticks:
+            raise fcp.PreconformError(
+                f"placement `{placement.get('clip_use_id')}` reaches outside "
+                f"the proxy span {proxy_start}..{proxy_end}")
+    return {"status": "ready",
+            "source_path": str(source_path),
+            "source_fps_num": fps_num, "source_fps_den": fps_den,
+            "use_start_frame": span_min, "use_end_frame": span_max,
+            "total_frames": total,
+            "proxy_start_frame": proxy_start, "proxy_end_frame": proxy_end,
+            "proxy_start_ticks": start_ticks}
+
+
+def plan_preconform(model: dict, projection: dict, resolved: dict[str, Path],
+                    *, spec: fcp.PreconformSpec) -> dict:
+    """Which assets proxy and which stay direct, with validated ranges.
+
+    Read-only apart from ffprobe duration reads: no transcode runs here,
+    so a downstream refusal still leaves no proxy files behind. Every
+    projection import lands in exactly one status: `ready` (span plus
+    engine-tick offsets validated) or `direct` (the camera original
+    imports, with the reason named).
+    """
+    clocks = {clock.get("id"): clock for clock in model.get("clocks", [])}
+    uses_by_asset: dict[str, list[dict]] = {}
+    for use in model.get("clip_uses", []):
+        uses_by_asset.setdefault(use.get("asset_id"), []).append(use)
+    placements_by_asset: dict[str, list[dict]] = {}
+    for placement in projection.get("placements", []):
+        placements_by_asset.setdefault(placement.get("asset_id"), []).append(placement)
+    assets: dict[str, dict] = {}
+    for entry in projection.get("imports", []):
+        asset_id = entry.get("asset_id")
+        try:
+            assets[asset_id] = _plan_preconform_asset(
+                clocks, uses_by_asset.get(asset_id, []),
+                placements_by_asset.get(asset_id, []),
+                resolved.get(asset_id), spec=spec)
+        except (fcp.PreconformError, OSError, ValueError,
+                subprocess.TimeoutExpired) as exc:
+            assets[asset_id] = {"status": "direct",
+                                "reason": f"pre-conform planning refused ({exc}); "
+                                          "the camera original imports"}
+    return {"assets": assets}
+
+
+def execute_preconform(planned: dict, resolved: dict[str, Path],
+                       placements: list[dict],
+                       *, spec: fcp.PreconformSpec, cache_dir: Path
+                       ) -> tuple[dict[str, Path], list[dict], dict]:
+    """Transcode every ready asset (cached by identity) and rebase placements.
+
+    Returns the import media map (proxies swapped in), the placements to
+    execute (source ticks rebased onto proxy-relative origins), and the
+    receipt report. A transcode that refuses falls back to the camera
+    original for that asset - today's behavior - with the reason
+    recorded beside it.
+    """
+    import time
+
+    media_map = dict(resolved)
+    offsets: dict[str, int] = {}
+    records: list[fcp.PreconformRecord] = []
+    report_assets: dict[str, dict] = {}
+    for asset_id, entry in planned["assets"].items():
+        if entry["status"] != "ready":
+            report_assets[asset_id] = {"status": "direct", "reason": entry["reason"],
+                                       "path": str(resolved[asset_id])}
+            continue
+        started = time.monotonic()
+        try:
+            record = fcp.preconform_source(
+                Path(entry["source_path"]),
+                asset_id=asset_id,
+                source_fps_num=entry["source_fps_num"],
+                source_fps_den=entry["source_fps_den"],
+                use_start_frame=entry["use_start_frame"],
+                use_end_frame=entry["use_end_frame"],
+                total_frames=entry["total_frames"],
+                spec=spec, cache_dir=cache_dir)
+        except (fcp.PreconformError, OSError, ValueError,
+                subprocess.TimeoutExpired) as exc:
+            report_assets[asset_id] = {
+                "status": "direct",
+                "reason": f"pre-conform transcode refused ({exc}); the camera original imports",
+                "path": str(resolved[asset_id])}
+            continue
+        records.append(record)
+        offsets[asset_id] = entry["proxy_start_ticks"]
+        report_assets[asset_id] = {
+            "status": "preconformed", "path": record.path,
+            "cache_hit": record.cache_hit,
+            "source_range_frames": [record.source_start_frame, record.source_end_frame],
+            "transcode_seconds": round(time.monotonic() - started, 2)}
+    swapped, swapback = fcp.apply_to_media_map(media_map, records)
+    rebased = []
+    for placement in placements:
+        offset = offsets.get(placement.get("asset_id"))
+        if offset is None:
+            rebased.append(dict(placement))
+            continue
+        source_in = placement["source_in_ticks"] - offset
+        if source_in < 0:  # plan_preconform validated the window; this is a bug alarm
+            raise _refuse(f"placement `{placement.get('clip_use_id')}` rebases before its proxy origin",
+                          "the planned proxy window passed but the built one moved",
+                          "re-run without --preconform and report the receipt's preconform section",
+                          code="REN_PM_CLI_PRECONFORM")
+        rebased.append(dict(placement, source_in_ticks=source_in))
+    report = {"enabled": True,
+              "cache_dir": str(cache_dir),
+              "spec": {"width": spec.width, "height": spec.height,
+                       "fps": [spec.fps_num, spec.fps_den],
+                       "prores_profile": spec.prores_profile},
+              "assets": report_assets,
+              "swapback": swapback}
+    return swapped, rebased, report
+
+
 # ── Engine CLIs ──────────────────────────────────────────────
 
 
@@ -451,8 +748,17 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       out: Path, media_root: Path | None,
                       filmcraft_project: Path | None,
                       export_path: Path | None,
-                      export_format: str, native) -> dict:
-    """Build the adapter-planned timeline on the pinned FilmCraft CLI."""
+                      export_format: str, native,
+                      preconform: bool = False,
+                      preconform_size: str | None = None) -> dict:
+    """Build the adapter-planned timeline on the pinned FilmCraft CLI.
+
+    `preconform` stays off unless the operator passes `--preconform`:
+    the proxy path is lossy and the default export must match today's
+    pixels. When on, `--preconform-size` names the proxy frame and each
+    used a_roll/b_roll span transcodes once to the project scratch
+    cache; anything inexact imports the camera original instead.
+    """
     projection = {key: plan[key] for key in
                   ("adapter_version", "engine_revision", "timeline_clock",
                    "imports", "placements", "losses")}
@@ -468,6 +774,11 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       "an execute run never overwrites an engine project",
                       "remove the file or pass --filmcraft-project at a fresh path",
                       code="REN_PM_CLI_PROJECT_EXISTS")
+    if preconform_size is not None and not preconform:
+        raise _refuse("`--preconform-size` without `--preconform`",
+                      "a proxy frame with no pre-conform run sizes nothing",
+                      "drop --preconform-size, or pass --preconform to use it",
+                      code="REN_PM_CLI_PRECONFORM")
 
     # Fail closed before any mutation: the create description, the media
     # check and every edit translate now, with placeholder ids; the run
@@ -483,6 +794,27 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         resolved = native.filmcraft_verify_media(projection, media_dir)
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("media verification refused", exc) from exc
+    media_map = {key: Path(value) for key, value in resolved.items()}
+    preconform_report: dict[str, Any] = {"enabled": False}
+    if preconform:
+        if preconform_size is None:
+            raise _refuse("`--preconform` needs `--preconform-size WIDTHxHEIGHT`",
+                          "the proxy frame must equal the engine sequence frame, "
+                          "and the model carries no canvas",
+                          "pass e.g. --preconform-size 1080x1920 for a vertical sequence "
+                          "(a fresh FilmCraft sequence defaults to 1920x1080)",
+                          code="REN_PM_CLI_PRECONFORM")
+        width, height = _parse_preconform_size(preconform_size)
+        spec = _preconform_spec(model, projection, width, height)
+        planned = plan_preconform(model, projection, media_map, spec=spec)
+        media_map, rebased, preconform_report = execute_preconform(
+            planned, media_map, projection["placements"],
+            spec=spec, cache_dir=project_root / PRECONFORM_CACHE_SUBDIR)
+        projection = dict(projection, placements=rebased)
+        proxied = sum(1 for asset in preconform_report["assets"].values()
+                      if asset["status"] == "preconformed")
+        print(f"pre-conform: {proxied}/{len(preconform_report['assets'])} asset(s) proxied "
+              f"(cache {preconform_report['cache_dir']})", file=sys.stderr)
     dummy_ids = {placement["clip_use_id"]: [0] for placement in projection["placements"]}
     translate_filmcraft_edits(model, projection, dummy_ids, project_str, native)
     treatments_plan = _plan_native_treatments(project_root)
@@ -499,7 +831,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       code="REN_PM_CLI_FILMCRAFT_COMMAND")
     try:
         import_operation = native.filmcraft_import_operation(
-            projection, {key: str(value) for key, value in resolved.items()},
+            projection, {key: str(value) for key, value in media_map.items()},
             project_str)
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("import operation refused", exc) from exc
@@ -578,6 +910,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         "inspected": inspected,
         "losses": projection["losses"] + [{"code": "engine_note", "detail": str(note)[:300]}
                                            for note in engine_losses],
+        "preconform": preconform_report,
         "executed": True,
     }
     if export_path is not None:
@@ -948,6 +1281,12 @@ def build_parser() -> argparse.ArgumentParser:
                          help="with --execute on filmcraft, also export the built timeline here")
     project.add_argument("--export-format", default="h264",
                          choices=tuple(sorted(EXPORT_FORMATS)))
+    project.add_argument("--preconform", action="store_true",
+                         help="with --execute on filmcraft, transcode used a_roll/b_roll "
+                              "spans once to edit ProRes and place those (lossy; default off)")
+    project.add_argument("--preconform-size", default=None,
+                         help="proxy frame as WIDTHxHEIGHT (e.g. 1080x1920); required with "
+                              "--preconform and must equal the engine sequence frame")
     return parser
 
 
@@ -1032,7 +1371,8 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
             model, plan, project_root=root, out=args.out,
             media_root=media_root, filmcraft_project=args.filmcraft_project,
             export_path=args.export, export_format=args.export_format,
-            native=native)
+            native=native, preconform=args.preconform,
+            preconform_size=args.preconform_size)
         args.out.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8")
         print(json.dumps({k: v for k, v in receipt.items() if k != "inspected"},
