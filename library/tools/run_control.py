@@ -19,6 +19,8 @@ Four files live at the root of a project directory:
     pipeline_run.json   the runner's own account of itself: mode, current
                         step, last completed step, and how it ended.
                         Nothing else may write it.
+                        Carries this run's `run_id` (library/tools/run_id.py)
+                        and a bounded `run_history` of its predecessors.
                         Per-step wall clock lives here too, under
                         `step_timings` (see `record_step_timing`).
     restart_cause.json  the restart-cause sidecar: the last step, the last
@@ -279,6 +281,7 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      state: Optional[Dict[str, Any]] = None,
                      carry_run_group: bool = False,
                      sidecar: Optional[dict] = None,
+                     run_id: Optional[str] = None,
                      ) -> Dict[str, Any]:
     """Replace the run status wholesale at the start of a run.
 
@@ -301,6 +304,12 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
     run's cause reaches the restart record, and cleared once consumed:
     a cause left on disk would be attributed to a run that never saw
     the crash.
+
+    `run_id` is this invocation's unified id (library/tools/run_id.py),
+    minted once by the runner and exported as REN_RUN_ID. It is recorded
+    on this account and on each `run_history` entry, so the status file
+    joins to the provenance runs and the perf rows, which record the
+    same value.
     """
     from library.tools import run_restart
 
@@ -325,6 +334,17 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
     # not record - `prior_wall_s` is a lower bound, said as one.
     run_group = _carry_or_mint_run_group(previous, carry_run_group)
 
+    # This invocation's own id (library/tools/run_id.py): one minted id
+    # per runner start, exported as REN_RUN_ID, recorded here, in the
+    # provenance runs and in the perf rows alike. An explicit argument
+    # wins; the exported environment is the fallback so a runner that
+    # minted before calling still lands its id without threading it
+    # through every call. Absent on old-shaped calls, which keep reading
+    # exactly as before.
+    if run_id is None:
+        from library.tools import run_id as run_identity
+        run_id = run_identity.current()
+
     # Edit-step input digests (library/tools/edit_input_digest.py): one
     # stamp per step from the run that just ended becomes the baseline
     # this run compares against. Carried forward the way run_history is -
@@ -335,6 +355,7 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
 
     record = {
         "pid": os.getpid(),
+        "run_id": run_id or "",
         "mode": mode,
         "argv": list(argv or []),
         "profile": {

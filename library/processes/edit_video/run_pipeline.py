@@ -79,6 +79,7 @@ from library.tools import footage_identity, code_identity, step_ledger
 from library.tools import capability_outputs, stable_json
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import event_log, perf_ledger, provenance
+from library.tools import run_id as run_identity
 from library.tools import external_inputs, run_scope
 from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
@@ -2837,6 +2838,14 @@ def run_pipeline(
     # The restart-cause sidecar the previous run left behind: read BEFORE
     # the status is replaced, so an interrupted run's cause reaches the
     # restart record.  Consumed (and cleared) by `begin_run_status`.
+    # This run's identity, minted ONCE here and exported for every child:
+    # `pipeline_run.json`, the provenance runs and the perf rows all
+    # record this same value, which is what joins them (Lane A1, R1 -
+    # see library/tools/run_id.py). Minted BEFORE `begin_run_status` so
+    # the status file carries it from its first write, and exported
+    # BEFORE any step subprocess spawns so the whole tree inherits it.
+    _run_id = run_identity.mint_run_id()
+    os.environ[run_identity.ENV_VAR] = _run_id
     _sidecar = run_control.read_restart_cause(project_dir)
     _restart = run_restart.classify(_previous_status, state, sidecar=_sidecar)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
@@ -2845,7 +2854,8 @@ def run_pipeline(
                                  breakpoints=gates.as_record(steps_to_run),
                                  state=state,
                                  carry_run_group=bool(resume_mode),
-                                 sidecar=_sidecar)
+                                 sidecar=_sidecar,
+                                 run_id=_run_id)
     print(f"  Mode: {run_mode}", file=sys.stderr)
     for _line in run_restart.summary_lines(_restart):
         print(_line, file=sys.stderr)
@@ -2853,11 +2863,11 @@ def run_pipeline(
         run_restart.append_to_state(state, _restart)
         save_pipeline_state(project_dir, state)
 
-    # This run's identity, and the ledger every artifact it writes is
-    # recorded against. `run_control` owns the handbrake protocol and
-    # says whether a run is UP; this says which run a FILE came from,
-    # which outlives the run by a lot. See library/tools/provenance.py.
-    _run_id = provenance.new_run_id()
+    # The ledger every artifact this run writes is recorded against.
+    # `run_control` owns the handbrake protocol and says whether a run
+    # is UP; this says which run a FILE came from, which outlives the
+    # run by a lot. See library/tools/provenance.py. The id is the one
+    # minted above - one runner start, one id in every store.
     # From here every structured log line carries the run that wrote it.
     get_logger(project_dir, run_id=_run_id)
     semantic_stream_expected = (

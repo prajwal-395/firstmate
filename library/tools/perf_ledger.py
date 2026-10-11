@@ -8,7 +8,9 @@ say what share of a RUN went where. This module is the one place those
 answers land, and `ren profile` reads it back.
 
 Two kinds of row, appended to `pipeline_output/logs/perf_ledger.jsonl`
-(append-only, every run, keyed by the provenance `run_id`):
+(append-only, every run, keyed by the unified `run_id`
+- `library/tools/run_id.py`, exported as `REN_RUN_ID` - which is the
+same value `pipeline_run.json` and the provenance runs record):
 
     capability  written by the FRONT DOOR that executes a capability: the
                 runner's step loop and `provenance.observing_operation`.
@@ -243,7 +245,18 @@ def begin(project_folder, capability_id: str, run_id: str,
           node: str | None = None,
           ledger_path_override: Path | None = None, *, required: bool | None = None
           ) -> OpenCapability | None:
-    """Start timing a capability; None (and nothing timed) on any error."""
+    """Start timing a capability; None (and nothing timed) on any error.
+
+    An empty `run_id` falls back to the exported `REN_RUN_ID`
+    (library/tools/run_id.py), so a front door running under a minted
+    run records the run's id without threading it through every call.
+    """
+    if not run_id:
+        try:
+            from library.tools import run_id as run_identity
+            run_id = run_identity.current() or ""
+        except Exception:  # noqa: BLE001 - the ledger never takes down a run
+            run_id = ""
     if required is None:
         required = _required_persistence()
     try:

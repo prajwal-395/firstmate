@@ -268,9 +268,12 @@ def observing_operation(project_folder, operation_id: str,
     capability calls, which would attribute one file to both.
     """
     from library.tools import dag_adapter, operations, perf_ledger
+    from library.tools import run_id as run_identity
     ledger = ProvenanceLedger(project_folder, step_ids=dag_adapter.node_ids(),
                               operation_ids=operations.names())
-    run_id = run_id or new_run_id()
+    # Inside a minted run this operation joins that run's id; standalone
+    # it mints its own. Either way there is exactly one id per run.
+    run_id = run_id or run_identity.current() or new_run_id()
     before = ledger.snapshot()
     # The same receipt, priced: `ren profile` reads this row.
     perf = perf_ledger.begin(
@@ -294,12 +297,16 @@ def observing_operation(project_folder, operation_id: str,
 def new_run_id(now=None, pid=None) -> str:
     """An id for one invocation of the runner.
 
-    Time plus pid: two runs cannot share a second AND a pid, and the id
-    sorts chronologically, which is what a reader wants when several
-    runs touched the same file.
+    One scheme (library/tools/run_id.py): `run-<UTC>-<rand6>`. The
+    `now`/`pid` parameters are kept so older callers still call, but
+    neither feeds the id any more - the timestamp is always UTC and the
+    random suffix is what keeps same-second invocations apart. Rows
+    minted under the previous `YYYYMMDDTHHMMSS-pid` shape still read
+    everywhere; only new rows converge.
     """
-    stamp = time.strftime("%Y%m%dT%H%M%S", time.localtime(now))
-    return f"{stamp}-{pid if pid is not None else os.getpid()}"
+    from library.tools import run_id as run_identity
+
+    return run_identity.mint_run_id(now=now)
 
 
 def _area_of(layout: ProjectLayout, rel: str) -> Area | None:

@@ -235,6 +235,7 @@ def as_record(restart: Restart) -> dict:
 def history_entry(previous: dict, restart: Restart) -> dict:
     """The one-line account of the previous run kept in the status file."""
     return {
+        "run_id": previous.get("run_id") or "",
         "mode": restart.previous_mode,
         "started_at": restart.previous_started_at,
         "finished_at": restart.previous_finished_at,

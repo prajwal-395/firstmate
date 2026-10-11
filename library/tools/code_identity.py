@@ -470,6 +470,13 @@ EXEMPT_IMPORTS = {
     # Performance instrumentation records execution costs but cannot change
     # the measurement or cached value a preflight step produces.
     "library/tools/perf_ledger.py",
+    # Run identity: the one id the runner mints, exports and records
+    # across the status file, the provenance runs and the perf rows
+    # (Lane A1, R1). Run metadata only, on the same terms as the two
+    # entries above - minting and recording an id cannot change a
+    # measured footage value, so a fix here must not invalidate a
+    # preflight analysis cache.
+    "library/tools/run_id.py",
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
     # Project-format migration bookkeeping and refusal rendering. The
