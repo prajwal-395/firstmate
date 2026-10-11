@@ -374,17 +374,19 @@ fm_opencode_retry_sleep() {  # <attempt-index>
   sleep "$n" 2>/dev/null || true
 }
 
-# fm_opencode_config_name_once <db>: print the opencode provider name once.
+# fm_opencode_config_name_once <db>: print the console provider name once,
+# the one entry named "<workspace> / OpenCode". Other providers (a local model,
+# for example) can be listed first and are never the workspace verdict.
 # Fails when the file is absent, the CLI is missing, the command fails, or
-# the output carries no provider name: all of those are unreadable, never a
-# workspace verdict.
+# the output carries no console provider name: all of those are unreadable,
+# never a workspace verdict.
 fm_opencode_config_name_once() {  # <db>
   local db=${1:-} out name
   [ -n "$db" ] && [ -f "$db" ] || return 1
   command -v opencode >/dev/null 2>&1 || return 1
   out=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
-  name=$(printf '%s' "$out" | grep -m1 '"name": "' 2>/dev/null \
+  name=$(printf '%s' "$out" | grep -m1 '"name": "[^"]* / OpenCode"' 2>/dev/null \
     | sed 's/.*"name": "\([^"]*\)".*/\1/' 2>/dev/null) || return 1
   [ -n "$name" ] || return 1
   printf '%s\n' "$name"
