@@ -901,6 +901,114 @@ def resolve_vfx(
     return resolved
 
 
+def _raw_params_for(entry, raw_creative):
+    """The plan's own params for a resolved entry, for easing recovery.
+
+    Matches by block and pre-alias type (``push_in`` plans the punch,
+    ``ken_burns`` plans a drift); zero or several matches mean the
+    easing stays defaulted rather than guessed.
+    """
+    block = str(entry.get("target_block_position"))
+    effect_type = entry.get("effect_type")
+    candidates = []
+    for raw in raw_creative or []:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("target_block_position",
+                       raw.get("segment_id"))) != block:
+            continue
+        raw_type = raw.get("effect_type")
+        if (raw_type == effect_type
+                or EFFECT_ALIASES.get(raw_type) == effect_type
+                or (raw_type == KEN_BURNS
+                    and effect_type in DRIFT_EFFECTS)):
+            candidates.append(raw)
+    if len(candidates) != 1:
+        return None
+    params = candidates[0].get("params")
+    return params if isinstance(params, dict) else None
+
+
+def mint_step_moves(resolved, raw_creative, assignments, timeline_tps):
+    """Mint ``move.*`` model effects for accepted toolkit entries.
+
+    Additive: every surviving plan_vfx toolkit entry mints exactly one
+    model effect (target and interval off the step's own assignments,
+    migrated through the Unit-4 functions so the ids ARE post-migration
+    stable ids); anything else on the resolved list travels its own
+    route and is ignored here, never refused. An entry that cannot mint
+    (no single V1 picture for its block, or a projector refusal such as
+    an off-midpoint punch) is recorded in the returned skips with its
+    reason - the step resolves unchanged, and nothing vanishes
+    silently. Returns ``(move_effects, skipped)`` in resolved order.
+    """
+    from library.tools.project_model_editorial import (
+        clip_uses_from_assignments,
+    )
+    from library.tools.project_model_effectcraft import (
+        UnprojectableEffectTarget,
+    )
+    from library.tools.project_model_effectcraft_moves import (
+        PLAN_EFFECT_TO_MOVE_CLASS,
+        UnprojectableMove,
+        mint_move_effect,
+    )
+    adapted = clip_uses_from_assignments(assignments,
+                                         timeline_tps=timeline_tps)
+    uses = adapted["uses_by_block"]
+    ids = {block: use["id"] for block, use in uses.items()}
+    all_ids = set(ids.values())
+    block_skips = {}
+    global_skips = []
+    for skip in adapted["skipped"]:
+        if skip.get("spine_block_position") is None:
+            global_skips.append(skip["reason"])
+        else:
+            block_skips[str(skip["spine_block_position"])] = (
+                skip["reason"])
+    minted: list = []
+    skipped: list = []
+
+    def _skip(vfx_id, effect_type, position, reason):
+        skipped.append({
+            "vfx_id": vfx_id,
+            "effect_type": effect_type,
+            "target_block_position": position,
+            "reason": reason,
+        })
+
+    for entry in resolved or []:
+        effect_type = entry.get("effect_type")
+        if effect_type not in PLAN_EFFECT_TO_MOVE_CLASS:
+            continue
+        vfx_id = entry.get("vfx_id")
+        block = str(entry.get("target_block_position"))
+        if block not in uses:
+            _skip(vfx_id, effect_type,
+                  entry.get("target_block_position"),
+                  block_skips.get(block)
+                  or (global_skips[0] if global_skips else
+                      f"no a-roll assignment names block {block!r}: a "
+                      f"move needs exactly one V1 picture to transform"))
+            continue
+        try:
+            minted.append(mint_move_effect(
+                effect_type=effect_type,
+                params=entry.get("params", {}),
+                target_clip_use=ids[block],
+                timeline_interval=uses[block]["timeline_interval"],
+                effect_id=f"move-{vfx_id}",
+                clip_use_ids=all_ids,
+                mask_ids=set(),
+                raw_params=_raw_params_for(entry, raw_creative),
+                keyframes=entry.get("keyframes", ()),
+            ))
+        except (UnprojectableMove, UnprojectableEffectTarget) as exc:
+            _skip(vfx_id, effect_type,
+                  entry.get("target_block_position"), str(exc))
+    return minted, skipped
+
+
 def _assert_vfx_distinct(resolved: list) -> None:
     """Fail when several VFX cover the identical timeline range.
 
@@ -1007,12 +1115,68 @@ def resolve_generator_overlays(
 
 # ── Region-scoped re-plan, and putting it back ──────────────────────
 
+def _splice_region_moves(fresh, raw_creative, stored_spec, positions,
+                         frame_rate, a_roll_assignments):
+    """Merge minted moves across a region re-plan.
+
+    Fresh region entries mint fresh moves (their raw answer is here);
+    stored moves on untouched blocks come back byte-identical;
+    stored moves on touched blocks are dropped as stale, said aloud in
+    the returned report. Without assignments no freshness judgement is
+    possible, so stored moves refuse naming what to supply. Returns
+    ``(moves, skipped, report)``.
+    """
+    from library.tools.plan_splice import SpliceRefused
+    from library.tools.project_model_editorial import (
+        clip_uses_from_assignments,
+    )
+    stored_moves = stored_spec.get("move_effects", []) or []
+    stored_skipped = stored_spec.get("move_effects_skipped", []) or []
+    touched = {str(position) for position in positions}
+    if a_roll_assignments is None:
+        if stored_moves or stored_skipped:
+            raise SpliceRefused(
+                "stored move_effects exist but no a_roll_assignments "
+                "were supplied, so region freshness cannot be judged",
+                "a minted move describes the effect it was minted from, "
+                "and the region replaced those effects",
+                "supply a_roll_assignments or re-run the full resolve")
+        return [], [], {"kept": [], "minted": [], "dropped_stale": []}
+    adapted = clip_uses_from_assignments(a_roll_assignments,
+                                         timeline_tps=frame_rate)
+    block_for_use = {use["id"]: block
+                     for block, use in adapted["uses_by_block"].items()}
+    kept = [effect for effect in stored_moves
+            if block_for_use.get(effect.get("target_id")) not in touched]
+    dropped = [effect["id"] for effect in stored_moves
+               if block_for_use.get(effect.get("target_id")) in touched]
+    fresh_moves, fresh_skipped = mint_step_moves(
+        fresh, raw_creative, a_roll_assignments, frame_rate)
+    # Fresh mints arrive in resolved (timeline) order; kept moves stay
+    # in stored order. Ids embed their block, so a kept move and a
+    # fresh mint cannot collide - checked, not assumed.
+    kept_skipped = [skip for skip in stored_skipped
+                    if str(skip.get("target_block_position")) not in touched
+                    or skip.get("target_block_position") is None]
+    merged = kept + fresh_moves
+    if len({effect["id"] for effect in merged}) != len(merged):
+        raise SpliceRefused(
+            "merged move_effects name one id twice",
+            "a stored move and a fresh mint collided",
+            "re-run the full resolve")
+    return (merged, kept_skipped + fresh_skipped,
+            {"kept": [effect["id"] for effect in kept],
+             "minted": [effect["id"] for effect in fresh_moves],
+             "dropped_stale": dropped})
+
+
 def splice_region_vfx(vfx_creative: list, timed_spine: dict,
                       stored_spec: dict, scope,
                       frame_rate: float = 30.0,
                       music_analysis: dict | None = None,
                       music_selection: dict | None = None,
-                      temporal_event_indices=None) -> dict:
+                      temporal_event_indices=None,
+                      a_roll_assignments=None) -> dict:
     """Resolve a REGION's fresh effect plan and splice it into `stored_spec`.
 
     "Redo the effects in 45-72s" re-plans those blocks and nothing else.
@@ -1028,11 +1192,20 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
     plan, and with block-local ids (`plan_splice.number_within_block`)
     it gets the same ids too.
 
+    Minted moves travel with the plan they were minted from: the
+    region's fresh entries mint fresh moves (the caller's raw answer is
+    right here), stored moves on untouched blocks come back
+    byte-identical, and stored moves on touched blocks are dropped as
+    stale - they describe effects the re-plan replaced. Without
+    `a_roll_assignments` no freshness judgement is possible, so stored
+    moves refuse the splice naming what to supply.
+
     Refuses rather than doing something surprising:
 
     - a region touching no block, so a typo redoes nothing quietly;
     - a fresh entry on a block outside the region (`plan_splice`);
-    - a merged plan with two effects on one span (`_assert_vfx_distinct`).
+    - a merged plan with two effects on one span (`_assert_vfx_distinct`);
+    - stored moves with no assignments to judge them against.
 
     `planning_basis` stays the stored WHOLE-plan basis; the region's own
     basis travels in the report, because a region's proposed/dropped
@@ -1082,6 +1255,9 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
     overlays = splice_entries(stored_overlays, fresh_overlays, positions,
                               key, "overlay_id")
     _assert_vfx_distinct(effects)
+    moves, move_skipped, move_report = _splice_region_moves(
+        fresh, creative, stored_spec, positions, frame_rate,
+        a_roll_assignments)
 
     spec = dict(stored_spec)
     spec["visual_effects"] = effects
@@ -1089,6 +1265,8 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
         spec["generator_overlays"] = overlays
     else:
         spec.pop("generator_overlays", None)
+    spec["move_effects"] = moves
+    spec["move_effects_skipped"] = move_skipped
 
     report = splice_report(stored_effects, effects, positions, key)
     overlay_report = splice_report(stored_overlays, overlays, positions, key)
@@ -1096,6 +1274,7 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
     report["outside_unchanged"] = (report["outside_unchanged"]
                                    and overlay_report["outside_unchanged"])
     report["region"] = span.as_address()
+    report["move_effects"] = move_report
     report["region_planning_basis"] = PlanBasis(
         proposed=len(creative),
         resolved=len(fresh) + len(fresh_overlays),
@@ -1208,10 +1387,19 @@ def main():
     # The DAG edge plan_vfx -> compile_manifest maps enhancement_spec.
     stabilization_authorizations = authorizations_from_timeline_notes(
         data.get("timeline_notes"), data.get("clip_catalog"))
+    # Moves reach the model beside the comps: every accepted toolkit
+    # entry mints one move.* model effect (targets off the step's own
+    # assignments, so the ids are post-migration stable ids), recorded
+    # beside the plan it was minted from. Unmintable entries are
+    # recorded with their reason; the Fusion resolve above is unchanged.
+    move_effects, move_skipped = mint_step_moves(
+        result, creative, data.get("a_roll_assignments", []), fps)
     output = {"enhancement_spec": {
         "visual_effects": result,
         "planning_basis": basis,
         "stabilization_authorizations": stabilization_authorizations,
+        "move_effects": move_effects,
+        "move_effects_skipped": move_skipped,
     }}
     if gen_overlays:
         output["enhancement_spec"]["generator_overlays"] = gen_overlays

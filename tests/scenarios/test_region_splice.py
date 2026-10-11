@@ -538,3 +538,96 @@ def test_a_fresh_effect_outside_the_region_is_refused(stored_spec_2):
 def test_a_region_touching_no_block_is_refused_4(stored_spec_2):
     with pytest.raises(SpliceRefused, match="touches no spine block"):
         pb_2.splice_region_vfx([], SPINE_3, stored_spec_2, _region(60.0, 70.0))
+
+
+# --------------------------------------------------------------------------
+# Minted moves travel with the plan they were minted from.
+#
+# A region re-plan replaces the region's effects, so the moves minted
+# from those effects go stale: fresh entries mint fresh moves, stored
+# moves on untouched blocks come back byte-identical, and stored moves
+# on touched blocks are dropped said aloud in the report.
+
+def _assignments_3(fps=30.0):
+    return [{"spine_block_position": position,
+             "timeline_start": float(position * 2),
+             "timeline_end": float(position * 2 + 2),
+             "video_segments": [{
+                 "clip_id": f"c{position}",
+                 "source_file": f"/x/c{position}.mov",
+                 "source_start": 0.0, "source_end": 2.0,
+                 "frame_rate": fps}]}
+            for position in (0, 1, 2)]
+
+
+@pytest.fixture
+def stored_spec_moves():
+    plan = [_shake(0), _shake(1), _shake(2)]
+    visual = pb_2.resolve_vfx(plan, SPINE_3)
+    moves, skipped = pb_2.mint_step_moves(
+        visual, plan, _assignments_3(), 30.0)
+    assert [effect["class_id"] for effect in moves] == (
+        ["move.screen_shake"] * 3)
+    assert skipped == []
+    return {"visual_effects": visual,
+            "planning_basis": {"proposed": 3},
+            "move_effects": moves,
+            "move_effects_skipped": skipped}
+
+
+def test_a_region_redo_keeps_untouched_moves_and_mints_fresh(
+        stored_spec_moves):
+    """Block 1's shake becomes a drift; its move is replaced too while
+    blocks 0 and 2 keep their minted moves byte-identical."""
+    before = json.loads(json.dumps(stored_spec_moves))
+    stored_ids = {effect["id"] for effect in before["move_effects"]}
+    stale_ids = {"move-" + entry["vfx_id"]
+                 for entry in before["visual_effects"]
+                 if entry["target_block_position"] == 1}
+
+    out = pb_2.splice_region_vfx([_drift(1)], SPINE_3, stored_spec_moves,
+                                 _region(2.0, 4.0),
+                                 a_roll_assignments=_assignments_3())
+
+    moves = out["enhancement_spec"]["move_effects"]
+    by_id = {effect["id"]: effect for effect in moves}
+    assert [by_id[effect_id] for effect_id in sorted(
+        stored_ids - stale_ids)] == [
+        effect for effect in before["move_effects"]
+        if effect["id"] in stored_ids - stale_ids]
+    # Block 1's move is the fresh drift under the same block-local id
+    # the stale shake carried - ids are per block, like the visual
+    # entries themselves.
+    assert [by_id[effect_id]["class_id"] for effect_id in sorted(
+        stale_ids)] == ["move.slow_zoom_in"]
+    assert out["enhancement_spec"]["move_effects_skipped"] == []
+    report = out["splice"]["move_effects"]
+    assert sorted(report["kept"]) == sorted(stored_ids - stale_ids)
+    assert sorted(report["minted"]) == sorted(stale_ids)
+    assert sorted(report["dropped_stale"]) == sorted(stale_ids)
+    assert stored_spec_moves == before
+
+
+def test_an_empty_region_plan_drops_touched_moves(stored_spec_moves):
+    """Stillness removes the effect and the move minted from it; the
+    other blocks' moves survive the splice untouched."""
+    out = pb_2.splice_region_vfx([], SPINE_3, stored_spec_moves,
+                                 _region(2.0, 4.0),
+                                 a_roll_assignments=_assignments_3())
+    moves = out["enhancement_spec"]["move_effects"]
+    assert len(moves) == 2
+    assert [effect["id"] for effect in moves] == [
+        effect["id"] for effect in stored_spec_moves["move_effects"]
+        if effect["id"] not in out["splice"]["move_effects"][
+            "dropped_stale"]]
+    assert len(out["splice"]["move_effects"]["dropped_stale"]) == 1
+
+
+def test_stored_moves_without_assignments_refuse_the_splice(
+        stored_spec_moves):
+    """Without assignments no freshness judgement is possible, so the
+    splice refuses naming what to supply rather than keeping stale
+    moves or dropping them quietly."""
+    with pytest.raises(SpliceRefused, match="a_roll_assignments"):
+        pb_2.splice_region_vfx([_drift(1)], SPINE_3, stored_spec_moves,
+                               _region(2.0, 4.0))

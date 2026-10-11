@@ -175,6 +175,51 @@ def test_animated_mask_rasterizes_and_takes_the_matte_path(tmp_path):
     assert projection.losses == []
 
 
+# ── Moves stage (FREE: mint + project + keyframe-op asserts, no CLI) ──
+
+def test_moves_stage_mints_one_effect_per_class_with_keyframe_ops():
+    """The pm-e2e moves stage's mint+project path, without the CLI.
+
+    Shares ``mint_and_project_moves`` with the live stage: one minted
+    ``move.*`` effect per plan_vfx toolkit class, each carrying its
+    clip use's timeline interval and keying its expected transform
+    path. The live run additionally renders each record.
+    """
+    from library.tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+    )
+    records = pm9.mint_and_project_moves(_model(), media_root="/tmp")
+    assert ([record["effect"]["class_id"] for record in records]
+            == list(MOVE_CLASS_IDS))
+    for record in records:
+        effect = record["effect"]
+        assert effect["id"] == f"move-{record['entry']['vfx_id']}"
+        assert effect["target_id"] in {
+            use["id"] for use in _model()["clip_uses"]}
+        use = next(use for use in _model()["clip_uses"]
+                   if use["id"] == effect["target_id"])
+        assert effect["interval"] == use["timeline_interval"]
+        assert effect["keyframes"] == []
+        assert record["keyed"], effect["class_id"]
+        want = ("transform/position"
+                if effect["class_id"] == "move.screen_shake"
+                else "transform/scale")
+        assert want in {op["path"] for op in record["keyed"]}
+    # The drift recovered the easing the bridge strips for Fusion.
+    drift = next(record for record in records
+                 if record["effect"]["class_id"] == "move.slow_zoom_in")
+    assert drift["effect"]["parameters"]["zoom_easing"] == "Sine"
+    # The punch kept the bridge's derived frame counts, not the plan's
+    # seconds.
+    punch = next(record for record in records
+                 if record["effect"]["class_id"] == "move.zoom_emphasis")
+    assert punch["effect"]["parameters"] == {
+        "zoom_start": 1.0, "zoom_mid": 1.08, "zoom_end": 1.0,
+        "zoom_in_duration_frames": 3,
+        "zoom_release_offset_frames": 6,
+        "zoom_out_duration_frames": 3}
+
+
 # ── Swap-back plan stage (FREE) ─────────────────────────────────────
 
 def test_swapback_plan_remaps_keys_inside_the_trimmed_render(tmp_path):

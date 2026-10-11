@@ -735,6 +735,169 @@ def migrate_edit_graph(
     return {"edits": edits, "clip_uses": clip_uses, "skipped_clip_uses": skipped}
 
 
+TIMELINE_CLOCK_ID = "clock-project"
+"""Timeline clock id for pipeline-minted clip uses.
+
+The migration takes clock ids as caller parameters so it never names
+them; the pipeline side that mints move effects MUST name them (a
+model interval names its clock), so the names live here, once: the
+timeline clock is always this, a source clock is always
+``clock-src-<clip_id>`` and an asset is always ``asset-<clip_id>``
+(see :func:`clip_uses_from_assignments`). Any future migration caller
+passes these same names, which keeps minted target ids equal to
+migrated clip-use ids by construction - the same functions hash the
+same inputs.
+"""
+
+
+def asset_id_for_clip(clip_id: str) -> str:
+    """The model asset id for a pipeline clip id (namespaced, never hashed)."""
+    return f"asset-{clip_id}"
+
+
+def source_clock_for_clip(clip_id: str) -> str:
+    """The source clock id for a pipeline clip id."""
+    return f"clock-src-{clip_id}"
+
+
+def clip_uses_from_assignments(
+    assignments: Any,
+    *,
+    timeline_tps: Any,
+) -> dict[str, Any]:
+    """Migrate A-roll assignments to clip uses for move minting.
+
+    Step 4.03 accepts plan_vfx toolkit entries against spine blocks,
+    but the move producer mints against clip uses - so the bridge
+    migrates the step's own assignment inputs through
+    :func:`aroll_node_to_clip_use` (the same function Unit 4 runs, with
+    the :data:`TIMELINE_CLOCK_ID` names above) and mints against the
+    result. Minted target ids therefore ARE post-migration stable
+    clip-use ids, not a second id scheme.
+
+    ``timeline_tps`` is the run frame rate in ticks per second (the
+    bridge derives punch frames on that same grid, so mint intervals
+    tick on it too); each clip's source ticks run at its own measured
+    ``frame_rate``. B-roll covers are deliberately NOT migrated: moves
+    are per-clip Transforms of the V1 picture, and the V1 picture is
+    the A-roll assignment.
+
+    Returns ``{"uses_by_block": {str(spine_block_position): clip_use},
+    "skipped": [{"spine_block_position", "reason"}],
+    "clocks": [{"id", "ticks_per_second"}]}``. A block with no single
+    video segment, non-numeric spans or no measured clip frame rate is
+    skipped by name - the bridge records the skip beside the unminted
+    entry and the Fusion path resolves unchanged. ``clocks`` carries
+    every clock id the uses name so a reader can assemble a model
+    without re-deriving the grid.
+    """
+    skipped: list[dict[str, Any]] = []
+    if not _is_number(timeline_tps) or float(timeline_tps) <= 0:
+        raise EditorialMigrationError(
+            f"pipeline clip uses need a positive timeline frame rate, "
+            f"got {timeline_tps!r}")
+    if int(timeline_tps) != timeline_tps:
+        # A fractional run rate (29.97) has no exact integer tick grid,
+        # so nothing mints - and the step resolves unchanged. Recorded,
+        # never silent.
+        return {"uses_by_block": {}, "skipped": [{
+            "spine_block_position": None,
+            "reason": f"timeline rate {timeline_tps!r} has no integer "
+                      f"tick grid; move intervals cannot tick it",
+        }], "clocks": []}
+    tps = int(timeline_tps)
+    if not isinstance(assignments, list):
+        return {"uses_by_block": {}, "skipped": [{
+            "spine_block_position": None,
+            "reason": "a_roll_assignments is not a list; no block maps "
+                      "to a clip use",
+        }], "clocks": [{"id": TIMELINE_CLOCK_ID,
+                         "ticks_per_second": tps}]}
+    uses_by_block: dict[str, dict[str, Any]] = {}
+    clocks: dict[str, int] = {TIMELINE_CLOCK_ID: tps}
+    dupes: set[str] = set()
+
+    def _skip(position: Any, reason: str) -> None:
+        skipped.append({"spine_block_position": position,
+                        "reason": reason})
+
+    for assignment in assignments:
+        if not isinstance(assignment, Mapping):
+            _skip(None, "an a-roll assignment must be an object")
+            continue
+        position = assignment.get("spine_block_position")
+        segments = assignment.get("video_segments")
+        if not isinstance(segments, list) or not segments:
+            _skip(position,
+                  f"block {position!r} has no video segment: a move "
+                  f"needs exactly one V1 picture to transform")
+            continue
+        if len(segments) != 1:
+            _skip(position,
+                  f"block {position!r} has {len(segments)} video "
+                  f"segments: a move needs exactly one V1 picture, "
+                  f"and picking one would be a guess")
+            continue
+        segment = segments[0]
+        if not isinstance(segment, Mapping):
+            _skip(position,
+                  f"block {position!r} video segment must be an object")
+            continue
+        clip_id = segment.get("clip_id")
+        if not isinstance(clip_id, str) or not clip_id:
+            _skip(position,
+                  f"block {position!r} video segment names no clip")
+            continue
+        clip_fps = segment.get("frame_rate")
+        if not _is_number(clip_fps) or float(clip_fps) <= 0:
+            _skip(position,
+                  f"clip {clip_id!r} has no measured frame rate: "
+                  f"source ticks cannot be derived without one")
+            continue
+        if int(clip_fps) != clip_fps:
+            _skip(position,
+                  f"clip {clip_id!r} frame rate {clip_fps!r} has no "
+                  f"integer tick grid; its block mints nothing")
+            continue
+        asset_id = asset_id_for_clip(clip_id)
+        source_clock = source_clock_for_clip(clip_id)
+        node = {"node_id": f"aroll:{position}", "payload": {
+            "clip_id": clip_id,
+            "source_start": segment.get("source_start"),
+            "source_end": segment.get("source_end"),
+            "timeline_start": assignment.get("timeline_start"),
+            "timeline_end": assignment.get("timeline_end"),
+        }}
+        use, reason = aroll_node_to_clip_use(
+            node,
+            asset_by_clip={clip_id: asset_id},
+            source_clock_by_asset={asset_id: source_clock},
+            source_tps_by_asset={asset_id: int(clip_fps)},
+            timeline_clock=TIMELINE_CLOCK_ID,
+            timeline_tps=tps,
+        )
+        if use is None:
+            _skip(position, str(reason))
+            continue
+        key = str(position)
+        if key in uses_by_block:
+            dupes.add(key)
+            _skip(position,
+                  f"block {position!r} names two a-roll assignments: "
+                  f"a move needs exactly one V1 picture")
+            continue
+        uses_by_block[key] = use
+        clocks[source_clock] = int(clip_fps)
+    for key in dupes:
+        uses_by_block.pop(key, None)
+    return {
+        "uses_by_block": uses_by_block,
+        "skipped": skipped,
+        "clocks": [{"id": clock_id, "ticks_per_second": rate}
+                   for clock_id, rate in sorted(clocks.items())],
+    }
+
+
 def migrate_ledger(rows: Any) -> dict[str, Any]:
     """Rebuild supported user edits (ledger rows) through the adapter."""
     if not isinstance(rows, list):

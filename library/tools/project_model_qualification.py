@@ -8,7 +8,9 @@ masks, effects and A-roll to them, edits through BOTH engine adapters
 kept as render 0..36, so every bound Fusion key moves - and an
 EffectCraft masked effect, both over the static fixture masks and over
 a run-local animated person mask through the track-matte path, with
-rendered alpha checked against the matte pixels), renders with frame
+rendered alpha checked against the matte pixels), plus one minted
+``move.*`` model effect per class (slow zoom in/out, punch, shake,
+cut-in) projected to transform keyframe ops and rendered, renders with frame
 maps, swaps one result into a scratch Resolve timeline in
 ``Ren Qualification``, remaps and reads back the Fusion/grade state,
 and emits provenance/QC receipts.
@@ -709,6 +711,7 @@ def stage_effectcraft(work: Path) -> dict:
     animated = _stage_effectcraft_animated(
         cli, ec_dir, work, model, write_matte_sequence, project_to_request,
         CompSpec, RenderSpec)
+    moves = _stage_effectcraft_moves(cli, ec_dir, work, model)
     return {"cli_version": EFFECTCRAFT_VERSION,
             "upstream_revision": EFFECTCRAFT_REVISION,
             "adapter_version": ADAPTER_VERSION,
@@ -717,7 +720,7 @@ def stage_effectcraft(work: Path) -> dict:
             "losses": projection.losses, "frames": len(static["frames"]),
             "pix_fmt": static["pix_fmt"], "render_id": "render-pm9-ec",
             "frame_map_id": static["frame_map_id"],
-            "animated_mask": animated}
+            "animated_mask": animated, "moves": moves}
 
 
 def _stage_effectcraft_animated(cli: Path, ec_dir: Path, work: Path,
@@ -821,6 +824,156 @@ def _stage_effectcraft_animated(cli: Path, ec_dir: Path, work: Path,
             "frames": len(ran["frames"]), "worst_alpha_diff": round(worst, 3),
             "weakest_center_alpha": min(center_opaque),
             "frame_map_id": ran["frame_map_id"]}
+
+
+def moves_stage_entries() -> tuple[list[dict], dict[str, str],
+                                    dict[str, dict]]:
+    """One accepted plan_vfx toolkit entry per move class.
+
+    Returns ``(resolved_entries, targets, raw_params_by_vfx)`` for
+    :func:`mint_move_effects <library.tools.project_model_effectcraft_moves.mint_move_effects>`:
+    resolved-style entries as the plan_vfx post-bridge accepts them
+    (alias-resolved types, readable params, derived punch frame
+    counts), block-to-clip-use targets onto the fixture uses, and the
+    raw plan params - carrying ``zoom_easing`` for the drift, which
+    the bridge strips for Fusion and the mint recovers. Punch counts
+    fit the b-roll use's 12 comp frames (peak 3, release 6, out 9 of
+    frames 0..11).
+    """
+    resolved = [
+        {"vfx_id": "vfx_001", "target_block_position": "1",
+         "timeline_start": 0.0, "timeline_end": 1.5,
+         "effect_type": "slow_zoom_in",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.04}},
+        {"vfx_id": "vfx_002", "target_block_position": "2",
+         "timeline_start": 1.5, "timeline_end": 3.5,
+         "effect_type": "slow_zoom_out",
+         "params": {"zoom_start": 1.04, "zoom_end": 1.0}},
+        {"vfx_id": "vfx_003", "target_block_position": "3",
+         "timeline_start": 3.5, "timeline_end": 4.5,
+         "effect_type": "zoom_emphasis",
+         "params": {"zoom_start": 1.0, "zoom_mid": 1.08,
+                    "zoom_end": 1.0,
+                    "zoom_in_duration_frames": 3,
+                    "zoom_release_offset_frames": 6,
+                    "zoom_out_duration_frames": 3}},
+        {"vfx_id": "vfx_004", "target_block_position": "4",
+         "timeline_start": 0.0, "timeline_end": 1.5,
+         "effect_type": "screen_shake",
+         "params": {"shake_x": 0.02, "shake_y": 0.01,
+                    "shake_decay_frames": 3}},
+        {"vfx_id": "vfx_005", "target_block_position": "5",
+         "timeline_start": 1.5, "timeline_end": 3.5,
+         "effect_type": "cut_in",
+         "params": {"zoom_start": 1.06, "zoom_mid": 1.06,
+                    "zoom_end": 1.06}},
+    ]
+    targets = {"1": "use-ada", "2": "use-ben", "3": "use-broll",
+               "4": "use-ada", "5": "use-ben"}
+    raw = {"vfx_001": {"zoom_start": 1.0, "zoom_end": 1.04,
+                       "zoom_easing": "Sine"}}
+    return resolved, targets, raw
+
+
+def mint_and_project_moves(model: dict, *,
+                             media_root: str) -> list[dict]:
+    """Mint one move per class and project each to keyframe ops.
+
+    Pure (no CLI): the shared mint+project path behind both the live
+    moves stage and its FREE unit test. Returns one record per class
+    with the plan entry, the minted effect, its single-use model, the
+    comp and duration covering its interval, the projection and the
+    keyframe ops. Each move must key its expected transform path
+    (``transform/position`` for the shake, ``transform/scale`` for
+    the rest), else the record refuses as ``REN_PM9_MOVES_KEYS``.
+    """
+    from library.tools.project_model_effectcraft import (
+        CompSpec,
+        RenderSpec,
+        project_to_request,
+    )
+    from library.tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+        mint_move_effects,
+    )
+
+    entries, targets, raw = moves_stage_entries()
+    minted = mint_move_effects(resolved_entries=entries, model=model,
+                               targets=targets,
+                               raw_params_by_vfx=raw)
+    if [effect["class_id"] for effect in minted] != list(MOVE_CLASS_IDS):
+        raise Pm9Refused(
+            what="moves stage minted the wrong classes",
+            why=json.dumps([effect["class_id"] for effect in minted]),
+            fix="mint one model effect per surviving toolkit entry",
+            code="REN_PM9_MOVES_MINT", recovery_class="blocked")
+    uses = {use["id"]: use for use in model["clip_uses"]}
+    records = []
+    for entry, effect in zip(entries, minted):
+        use = uses[effect["target_id"]]
+        interval = effect["interval"]
+        ticks = next(clock["ticks_per_second"] for clock in
+                     model["clocks"]
+                     if clock["id"] == interval["clock_id"])
+        duration = interval["end"] / ticks
+        comp = CompSpec(name="PM9Moves", width=160, height=90,
+                        frame_rate=12.0, duration_seconds=duration)
+        solo = copy.deepcopy(model)
+        solo["clip_uses"] = [use]
+        solo["masks"] = []
+        solo["effects"] = [effect]
+        projection = project_to_request(
+            solo, comp, [RenderSpec(format="rgba_png_sequence",
+                                    output="pm9moves_#####.png")],
+            media_root=media_root,
+            project_id=f"pm9-effectcraft-move-{effect['class_id']}")
+        keyed = [op for op in projection.request["operations"]
+                 if op.get("op") == "keyframe"]
+        want = ("transform/position"
+                if effect["class_id"] == "move.screen_shake"
+                else "transform/scale")
+        if not any(op["path"] == want for op in keyed):
+            raise Pm9Refused(
+                what=f"minted {effect['class_id']} keyed no {want}",
+                why=json.dumps(sorted({op["path"] for op in keyed})),
+                fix="the move must bake onto its expected transform path",
+                code="REN_PM9_MOVES_KEYS", recovery_class="blocked")
+        records.append({"entry": entry, "effect": effect,
+                        "model": solo, "comp": comp,
+                        "duration": duration,
+                        "projection": projection, "keyed": keyed})
+    return records
+
+
+def _stage_effectcraft_moves(cli: Path, ec_dir: Path, work: Path,
+                             model: dict) -> dict:
+    """Mint one move per class, project, render and assert keyframes.
+
+    The committed fixture carries no moves, so the run mints five
+    ``move.*`` effects from accepted plan_vfx toolkit entries through
+    the producer (one per class, onto the fixture uses' own timeline
+    intervals) in run-local single-use model copies: each must project
+    to keyframe ops on its expected path and render on the pinned CLI.
+    """
+    records = mint_and_project_moves(model, media_root=str(work))
+    evidence: dict[str, dict] = {}
+    for record in records:
+        effect = record["effect"]
+        slug = effect["class_id"].split(".", 1)[1]
+        ran = _ec_execute(cli, ec_dir, f"pm9moves-{slug}",
+                          record["projection"], record["comp"],
+                          record["duration"],
+                          input_revision=f"rev-pm9-moves-{slug}",
+                          render_id=f"render-pm9-moves-{slug}",
+                          model=record["model"])
+        keyed = record["keyed"]
+        evidence[effect["class_id"]] = {
+            "effect_id": effect["id"], "target": effect["target_id"],
+            "keyframe_ops": len(keyed),
+            "paths": sorted({op["path"] for op in keyed}),
+            "frames": len(ran["frames"]), "pix_fmt": ran["pix_fmt"],
+            "frame_map_id": ran["frame_map_id"]}
+    return evidence
 
 
 # ── Stage 5: swap-back plan (FREE) ──────────────────────────────────

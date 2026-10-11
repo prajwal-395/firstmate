@@ -358,3 +358,101 @@ def test_e2e_fixture_editorial_content_rebuilds_idempotently():
 
     assert rebuilt == manifest
     validate_project_model(rebuilt)
+
+
+# ── Pipeline assignments to clip uses (move minting) ──
+
+def _assignment(position=1, clip="clip_001", source=(10.0, 14.0),
+                timeline=(48.0, 52.0), fps=24.0, segments=None):
+    segment = {"clip_id": clip, "source_file": f"/footage/{clip}.mov",
+               "source_start": source[0], "source_end": source[1],
+               "frame_rate": fps}
+    return {"spine_block_position": position,
+            "timeline_start": timeline[0], "timeline_end": timeline[1],
+            "video_segments": [segment] if segments is None else segments}
+
+
+def test_assignments_migrate_through_the_unit_4_functions():
+    """The adapter is the migration, not a second id scheme.
+
+    Migrating one assignment by hand through `aroll_node_to_clip_use`
+    with the adapter's own names must name the same clip use the
+    adapter returns - minted target ids are post-migration stable ids
+    by construction, not by matching strings.
+    """
+    assignment = _assignment()
+    adapted = editorial.clip_uses_from_assignments([assignment],
+                                                   timeline_tps=24)
+    assert adapted["skipped"] == []
+    (use,) = adapted["uses_by_block"].values()
+    node = {"node_id": "aroll:1", "payload": {
+        "clip_id": "clip_001", "source_start": 10.0, "source_end": 14.0,
+        "timeline_start": 48.0, "timeline_end": 52.0}}
+    direct, reason = editorial.aroll_node_to_clip_use(
+        node,
+        asset_by_clip={"clip_001": editorial.asset_id_for_clip("clip_001")},
+        source_clock_by_asset={
+            "asset-clip_001": editorial.source_clock_for_clip("clip_001")},
+        source_tps_by_asset={"asset-clip_001": 24},
+        timeline_clock=editorial.TIMELINE_CLOCK_ID,
+        timeline_tps=24)
+    assert reason is None
+    assert use == direct
+    assert use["timeline_interval"] == {"clock_id": "clock-project",
+                                       "start": 1152, "end": 1248}
+    assert adapted["clocks"] == [
+        {"id": "clock-project", "ticks_per_second": 24},
+        {"id": "clock-src-clip_001", "ticks_per_second": 24}]
+
+
+def test_assignment_skips_name_the_block_and_the_reason():
+    adapted = editorial.clip_uses_from_assignments([
+        _assignment(position=1),
+        dict(_assignment(position=2),
+             video_segments=[_assignment()["video_segments"][0],
+                             _assignment()["video_segments"][0]]),
+        dict(_assignment(position=3), video_segments=[]),
+        {"spine_block_position": 4, "timeline_start": 0.0,
+         "timeline_end": 1.0,
+         "video_segments": [{"clip_id": "clip_004",
+                             "source_start": 0.0, "source_end": 1.0}]},
+        {"spine_block_position": 5, "timeline_start": 0.0,
+         "timeline_end": 1.0,
+         "video_segments": [{"clip_id": "", "source_start": 0.0,
+                             "source_end": 1.0, "frame_rate": 24.0}]},
+    ], timeline_tps=24)
+    assert list(adapted["uses_by_block"]) == ["1"]
+    reasons = {skip["spine_block_position"]: skip["reason"]
+               for skip in adapted["skipped"]}
+    assert "2 video segments" in reasons[2]
+    assert "no video segment" in reasons[3]
+    assert "no measured frame rate" in reasons[4]
+    assert "names no clip" in reasons[5]
+
+
+def test_duplicate_blocks_skip_every_claimant():
+    adapted = editorial.clip_uses_from_assignments(
+        [_assignment(position=1), _assignment(position=1)],
+        timeline_tps=24)
+    assert adapted["uses_by_block"] == {}
+    assert len(adapted["skipped"]) == 1
+    assert "two a-roll assignments" in adapted["skipped"][0]["reason"]
+
+
+def test_fractional_timeline_rate_mints_nothing_but_resolves():
+    """29.97 has no integer tick grid: no uses, one recorded reason,
+    and the step that called the adapter resolves unchanged."""
+    adapted = editorial.clip_uses_from_assignments([_assignment()],
+                                                   timeline_tps=29.97)
+    assert adapted["uses_by_block"] == {}
+    assert len(adapted["skipped"]) == 1
+    assert "no integer tick grid" in adapted["skipped"][0]["reason"]
+
+
+def test_garbage_timeline_rate_raises():
+    with pytest.raises(editorial.EditorialMigrationError):
+        editorial.clip_uses_from_assignments([_assignment()],
+                                             timeline_tps="fast")
+    with pytest.raises(editorial.EditorialMigrationError):
+        editorial.clip_uses_from_assignments([_assignment()],
+                                             timeline_tps=0)

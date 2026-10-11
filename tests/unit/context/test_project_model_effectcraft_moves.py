@@ -340,3 +340,365 @@ def test_non_dict_parameters_are_refused_at_the_model_boundary():
 
 def test_missing_zoom_end_is_refused():
     _refused(_drift_model(parameters={"zoom_start": 1.0}))
+
+
+# ── Producer: plan_vfx toolkit entries to ``move.*`` model effects ──
+
+def _mint_entry(vfx_id="vfx_001", block="1", effect_type="slow_zoom_in",
+                params=None):
+    return {"vfx_id": vfx_id, "target_block_position": block,
+            "timeline_start": 0.0, "timeline_end": 0.5,
+            "effect_type": effect_type, "params": dict(params or {})}
+
+
+def _mint_single(entry, *, model=None, targets=None, raw=None,
+                 keyframes=()):
+    model = model if model is not None else _model_fixture("drift")
+    if keyframes:
+        entry = dict(entry, keyframes=list(keyframes))
+    return mv.mint_move_effects(
+        resolved_entries=[entry], model=model,
+        targets={"1": "use-checker"} if targets is None else targets,
+        raw_params_by_vfx=(
+            {entry["vfx_id"]: raw} if raw is not None else None))
+
+
+def _wide_model():
+    """Drift fixture with the checker use spanning the whole comp."""
+    model = _model_fixture("drift")
+    for use in model["clip_uses"]:
+        if use["id"] == "use-checker":
+            use["timeline_interval"] = {"clock_id": "clock-project",
+                                        "start": 0, "end": 5}
+    return model
+
+
+def _project_single(minted, model):
+    solo = model
+    solo["effects"] = [minted]
+    return ec.project_to_request(
+        solo, _comp(), _renders("drift"),
+        project_id=f"ec-move-minted-{minted['id']}")
+
+
+def _mint_value_for(name):
+    if name.endswith("_frames"):
+        return 3
+    if name == "pan_end":
+        return [0.45, 0.5]
+    if name in ("shake_x", "shake_y"):
+        return 0.004
+    return 1.03
+
+
+def test_every_toolkit_entry_mints_or_refuses_by_name():
+    """Each toolkit spelling reaches the mint as a mint or a refusal.
+
+    Iterates TOOLKIT_PARAMETERS rather than a hardcoded list: an entry
+    the mint maps must carry the mapped class, and one it cannot map
+    must raise UnprojectableMove - a toolkit entry may never fall
+    through silently. This pins routing, not the set: a new toolkit
+    effect extends the iteration instead of breaking a count.
+    """
+    from library.steps.step_4_03_plan_vfx.post_bridge import (
+        TOOLKIT_PARAMETERS,
+    )
+    for effect_type, names in TOOLKIT_PARAMETERS.items():
+        params = {name: _mint_value_for(name) for name in names}
+        try:
+            minted = mv.mint_move_effect(
+                effect_type=effect_type, params=params,
+                target_clip_use="use-x",
+                timeline_interval={"clock_id": "c", "start": 0,
+                                   "end": 5},
+                effect_id="move-test", clip_use_ids={"use-x"},
+                mask_ids=set())
+        except mv.UnprojectableMove:
+            continue
+        assert effect_type in mv.PLAN_EFFECT_TO_MOVE_CLASS
+        assert (minted["class_id"]
+                == mv.PLAN_EFFECT_TO_MOVE_CLASS[effect_type])
+
+
+def _wanted_path(fixture):
+    return ("transform/position" if fixture == "shake"
+            else "transform/scale")
+
+
+@pytest.mark.parametrize(("plan_type", "params", "fixture", "move"), [
+    ("slow_zoom_in", {"zoom_start": 1.0, "zoom_end": 1.04},
+     "drift", "move.slow_zoom_in"),
+    ("zoom_emphasis",
+     {"zoom_start": 1.0, "zoom_mid": 1.08, "zoom_end": 1.0,
+      "zoom_in_duration_frames": 1,
+      "zoom_release_offset_frames": 2,
+      "zoom_out_duration_frames": 1,
+      # The bridge carries the plan's seconds beside its derivation;
+      # the mint keeps the derivation, not the words.
+      "zoom_in_seconds": 0.1, "zoom_out_seconds": 0.1},
+     "punch", "move.zoom_emphasis"),
+    ("screen_shake",
+     {"shake_x": 0.02, "shake_y": 0.01, "shake_decay_frames": 3},
+     "shake", "move.screen_shake"),
+    ("cut_in",
+     {"zoom_start": 1.06, "zoom_mid": 1.06, "zoom_end": 1.06},
+     "cut", "move.cut_in"),
+])
+def test_mint_matches_the_proven_fixture_effect(plan_type, params,
+                                                fixture, move):
+    """Minted effects are the hand-proven conformance effects.
+
+    The fixtures in ``effectcraft_fframes_conformance`` render through
+    the pinned CLI; a minted effect carrying the same class, target,
+    interval and parameters projects to the same request.
+    """
+    wanted = _model_fixture(fixture)["effects"][0]
+    (minted,) = _mint_single(_mint_entry(effect_type=plan_type,
+                                         params=params),
+                             model=_wide_model())
+    assert minted["class_id"] == wanted["class_id"] == move
+    assert minted["target_id"] == wanted["target_id"] == "use-checker"
+    assert minted["interval"] == {"clock_id": "clock-project",
+                                  "start": 0, "end": 5}
+    assert minted["parameters"] == wanted["parameters"]
+    assert minted["keyframes"] == []
+    projection = _project_single(minted, _wide_model())
+    paths = {op["path"] for op in projection.request["operations"]
+             if op.get("op") == "keyframe"}
+    assert paths == {_wanted_path(fixture)}
+    assert (projection.identity_map["effects"][minted["id"]]["move"]
+            == move)
+
+
+def test_mint_zoom_out_projects_a_descending_scale():
+    (minted,) = _mint_single(_mint_entry(
+        effect_type="slow_zoom_out",
+        params={"zoom_start": 1.04, "zoom_end": 1.0}))
+    assert minted["class_id"] == "move.slow_zoom_out"
+    projection = _project_single(minted, _wide_model())
+    scales = [op["value"][0] for op in
+              projection.request["operations"]
+              if op.get("op") == "keyframe"
+              and op.get("path") == "transform/scale"]
+    assert scales[0] == pytest.approx(104.0)
+    assert scales[-1] == pytest.approx(100.0)
+    assert scales == sorted(scales, reverse=True)
+
+
+def test_mint_recovers_zoom_easing_from_the_raw_plan():
+    """The bridge strips ``zoom_easing`` for Fusion; the mint recovers it.
+
+    The drift curve reads the easing (``DRIFT_EASING`` only when the
+    plan states nothing), so dropping it would bake a different move
+    than the plan chose.
+    """
+    raw = {"zoom_start": 1.0, "zoom_end": 1.04,
+           "zoom_easing": "Sine"}
+    (minted,) = _mint_single(
+        _mint_entry(params={"zoom_start": 1.0, "zoom_end": 1.04}),
+        raw=raw)
+    assert minted["parameters"]["zoom_easing"] == "Sine"
+
+
+def test_mint_refuses_a_mask_target():
+    model = _model_fixture("drift")
+    model["masks"] = [{"id": "mask-x"}]
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(), model=model,
+                     targets={"1": "mask-x"})
+
+
+def test_mint_refuses_carried_keyframes():
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(), keyframes=[{"tick": 0,
+                                                "value": 1.0}])
+
+
+def test_mint_refuses_an_off_midpoint_punch():
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(
+            effect_type="cut_in",
+            params={"zoom_start": 1.0, "zoom_mid": 1.08,
+                    "zoom_end": 1.0}))
+
+
+def test_mint_refuses_a_zero_shake():
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(
+            effect_type="screen_shake",
+            params={"shake_x": 0.0, "shake_y": 0.0}))
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(
+            effect_type="screen_shake",
+            params={"shake_decay_frames": 3}))
+
+
+@pytest.mark.parametrize("effect_type", ["push_in", "ken_burns",
+                                        "freeze_frame", "stabilize",
+                                        "tractor_beam"])
+def test_mint_refuses_what_the_bridge_must_resolve(effect_type):
+    """Aliases resolve at the bridge; other routes are not moves."""
+    with pytest.raises(mv.UnprojectableMove):
+        _mint_single(_mint_entry(effect_type=effect_type, params={}))
+
+
+def test_mint_refuses_an_unknown_clip_use():
+    from library.tools.project_model_effectcraft import (
+        UnprojectableEffectTarget,
+    )
+    with pytest.raises(UnprojectableEffectTarget):
+        _mint_single(_mint_entry(), targets={"1": "use-ghost"})
+
+
+def test_mint_refuses_a_block_with_no_clip_use():
+    from library.tools.project_model_effectcraft import (
+        UnprojectableEffectTarget,
+    )
+    with pytest.raises(UnprojectableEffectTarget):
+        _mint_single(_mint_entry(), targets={})
+
+
+def test_mint_pins_the_post_migration_clip_use_id():
+    """G2: migrate legacy rows, then mint against the migrated model."""
+    from library.tools.project_model_editorial import (
+        aroll_node_to_clip_use,
+    )
+    node = {"node_id": "aroll:7",
+            "payload": {"clip_id": "clip-checker",
+                        "source_start": 0.0, "source_end": 0.5,
+                        "timeline_start": 0.0, "timeline_end": 0.5}}
+    kwargs = {"asset_by_clip": {"clip-checker": "asset-checker"},
+              "source_clock_by_asset": {"asset-checker": "clock-src"},
+              "source_tps_by_asset": {"asset-checker": 10},
+              "timeline_clock": "clock-project", "timeline_tps": 10}
+    use, reason = aroll_node_to_clip_use(node, **kwargs)
+    assert reason is None
+    # Stable ids: migrating twice names the same clip use.
+    use_again, _ = aroll_node_to_clip_use(node, **kwargs)
+    assert use_again["id"] == use["id"]
+    assert use["timeline_interval"] == {"clock_id": "clock-project",
+                                       "start": 0, "end": 5}
+    model = _model_fixture("drift")
+    model["clip_uses"] = [use]
+    (minted,) = _mint_single(
+        _mint_entry(params={"zoom_start": 1.0, "zoom_end": 1.04}),
+        model=model, targets={"1": use["id"]})
+    assert minted["target_id"] == use["id"]
+    assert minted["interval"] == use["timeline_interval"]
+    projection = _project_single(minted, model)
+    scales = [op["value"][0] for op in
+              projection.request["operations"]
+              if op.get("op") == "keyframe"
+              and op.get("path") == "transform/scale"]
+    assert scales[0] == pytest.approx(100.0)
+    assert scales[-1] == pytest.approx(104.0)
+
+
+def _bridge_spine(count):
+    return {"structure": [
+        {"position": i + 1, "block_type": "speech",
+         "timeline_start": float(i * 5), "timeline_end": float(i * 5 + 5)}
+        for i in range(count)
+    ]}
+
+
+def test_accepted_bridge_entries_mint_and_project():
+    """The bridge's accepted output is the mint's input, end to end.
+
+    Seven plan entries - the five toolkit effects plus the ``push_in``
+    alias and the ``ken_burns`` spelling - resolve through the real
+    post-bridge, mint one model effect each, and every minted effect
+    projects to keyframe ops on its own clip use.
+    """
+    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
+    reason = "a locked hold that goes dead under the point"
+    plan = [
+        {"target_block_position": 1, "effect_type": "slow_zoom_in",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+         "rationale": reason},
+        {"target_block_position": 2, "effect_type": "slow_zoom_out",
+         "params": {"zoom_start": 1.03, "zoom_end": 1.0},
+         "rationale": reason},
+        {"target_block_position": 3, "effect_type": "zoom_emphasis",
+         "params": {"zoom_start": 1.0, "zoom_mid": 1.08,
+                    "zoom_end": 1.0, "zoom_in_seconds": 1.0,
+                    "zoom_out_seconds": 1.0},
+         "anchor": {"frame": 360}, "anchor_end": {"frame": 390},
+         "rationale": "a landing to punch"},
+        {"target_block_position": 4, "effect_type": "screen_shake",
+         "params": {"shake_x": 0.02, "shake_y": 0.01},
+         "rationale": "an impact to sell"},
+        {"target_block_position": 5, "effect_type": "cut_in",
+         "params": {"zoom_start": 1.06, "zoom_mid": 1.06,
+                    "zoom_end": 1.06},
+         "rationale": "a face to hold closer"},
+        {"target_block_position": 6, "effect_type": "push_in",
+         "params": {"zoom_start": 1.0, "zoom_mid": 1.08,
+                    "zoom_end": 1.0, "zoom_in_seconds": 1.0,
+                    "zoom_out_seconds": 1.0},
+         "anchor": {"frame": 810}, "anchor_end": {"frame": 840},
+         "rationale": "a second landing to punch"},
+        {"target_block_position": 7, "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.02},
+         "rationale": reason},
+    ]
+    resolved = resolve_vfx(plan, _bridge_spine(7), frame_rate=30.0)
+    assert [entry["effect_type"] for entry in resolved] == [
+        "slow_zoom_in", "slow_zoom_out", "zoom_emphasis",
+        "screen_shake", "cut_in", "zoom_emphasis", "slow_zoom_in"]
+    punch = next(entry for entry in resolved
+                 if entry["target_block_position"] == 3)
+    assert punch["params"]["zoom_in_duration_frames"] == 30
+    assert punch["params"]["zoom_release_offset_frames"] == 60
+    assert punch["params"]["zoom_out_duration_frames"] == 30
+    model = _model_fixture("drift")
+    punch_interval = {"clock_id": "clock-project", "start": 0,
+                      "end": 91}
+    small_interval = {"clock_id": "clock-project", "start": 0,
+                      "end": 5}
+    model["clip_uses"] = [{
+        "id": f"use-{i + 1}", "asset_id": "asset-checker",
+        "source_interval": {"clock_id": "clock-src", "start": 0,
+                            "end": 2},
+        "timeline_interval": (punch_interval
+                              if (i + 1) in (3, 6)
+                              else small_interval),
+        "entity_links": [], "role": "a_roll", "intent_id": None,
+    } for i in range(7)]
+    targets = {str(i + 1): f"use-{i + 1}" for i in range(7)}
+    minted = mv.mint_move_effects(
+        resolved_entries=resolved, model=model, targets=targets,
+        raw_params_by_vfx={entry["vfx_id"]: entry["params"]
+                           for entry in resolved})
+    assert [effect["class_id"] for effect in minted] == [
+        "move.slow_zoom_in", "move.slow_zoom_out",
+        "move.zoom_emphasis", "move.screen_shake", "move.cut_in",
+        "move.zoom_emphasis", "move.slow_zoom_in"]
+    for effect in minted:
+        assert effect["interval"] == next(
+            use["timeline_interval"] for use in model["clip_uses"]
+            if use["id"] == effect["target_id"])
+        assert effect["keyframes"] == []
+    small_comp = ec.CompSpec(name="Main", width=96, height=64,
+                             frame_rate=10.0, duration_seconds=0.5)
+    punch_comp = ec.CompSpec(name="Main", width=96, height=64,
+                             frame_rate=10.0, duration_seconds=9.1)
+    for effect in minted:
+        solo = _model_fixture("drift")
+        solo["clip_uses"] = [use for use in model["clip_uses"]
+                             if use["id"] == effect["target_id"]]
+        solo["effects"] = [effect]
+        comp = (punch_comp
+                if effect["class_id"] == "move.zoom_emphasis"
+                else small_comp)
+        projection = ec.project_to_request(
+            solo, comp, _renders("drift"),
+            project_id=f"ec-move-bridge-{effect['id']}")
+        keyed = [op["path"] for op in
+                 projection.request["operations"]
+                 if op.get("op") == "keyframe"]
+        assert keyed, effect["id"]
+        want = ("transform/position"
+                if effect["class_id"] == "move.screen_shake"
+                else "transform/scale")
+        assert want in set(keyed), effect["id"]
