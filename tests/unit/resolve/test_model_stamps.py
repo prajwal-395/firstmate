@@ -306,8 +306,11 @@ def test_a_store_from_before_this_lane_migrates(tmp_path):
             verified_at REAL NOT NULL,
             PRIMARY KEY (project, timeline_id, generation));
     """)
-    db.execute("INSERT INTO snapshots VALUES ('h', '{\"a\":1}')")
-    db.execute("INSERT INTO generations VALUES "
+    db.execute("INSERT INTO snapshots (hash, body)"
+               " VALUES ('h', '{\"a\":1}')")
+    db.execute("INSERT INTO generations (project, timeline_id, generation,"
+               " timeline_name, hash, source, patch, receipt, recorded_at,"
+               " verified_at) VALUES "
                "('P', 't', 1, 'T', 'h', 'observed', NULL, NULL, 1.0, 2.0)")
     db.commit()
     db.close()

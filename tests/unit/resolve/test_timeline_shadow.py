@@ -15,6 +15,7 @@ from tests.resolve_double import (
 )
 import json
 import os
+import sqlite3
 import tempfile
 import time
 from unittest.mock import MagicMock
@@ -87,13 +88,19 @@ def test_two_writers_cannot_number_two_states_the_same(tmp_path):
 def test_shadow_kpi_counts_are_bounded_to_a_benchmark_window(tmp_path):
     store = shadow.ShadowStore(tmp_path / "shadow.db")
     with store._connect() as db:
-        db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+        db.execute("INSERT INTO answers (answered_at, command, project,"
+                   " timeline_id) VALUES (?, ?, ?, ?)",
                    (10.0, "clips", "Podcast", "timeline:1"))
-        db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+        db.execute("INSERT INTO answers (answered_at, command, project,"
+                   " timeline_id) VALUES (?, ?, ?, ?)",
                    (20.0, "markers", "Podcast", "timeline:1"))
-        db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+        db.execute("INSERT INTO read_requests (requested_at, command,"
+                   " project, timeline_id, outcome)"
+                   " VALUES (?, ?, ?, ?, ?)",
                    (10.0, "clips", "Podcast", "timeline:1", "shadow_hit"))
-        db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+        db.execute("INSERT INTO read_requests (requested_at, command,"
+                   " project, timeline_id, outcome)"
+                   " VALUES (?, ?, ?, ?, ?)",
                    (20.0, "markers", "Podcast", "timeline:1", "miss"))
 
     assert store.answers_since(0, until=15) == 1
@@ -581,3 +588,118 @@ def test_a_divergent_generation_is_reported_and_the_local_one_kept(
     # The local observation is kept, not overwritten by the mirror.
     assert store_b.get("Podcast", timeline_id, 1).hash == \
         shadow.snapshot_hash({"diverged": True})
+
+
+# ── 2026-10-10: named INSERTs, and sessions that do not migrate ────────
+#
+# An unmerged lane's live proof ALTERed the shared shadow DB, and main's
+# positional `INSERT INTO generations VALUES (10 ...)` then broke every
+# lane with "12 columns but 10 values". Every INSERT here names its
+# columns, and a borrowed session refuses to migrate the shared store.
+
+
+def _old_schema_db(path):
+    """A pre-Lane-A3 store file: 10-column generations, no model linkage."""
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE snapshots (hash TEXT PRIMARY KEY, body TEXT NOT NULL);
+        CREATE TABLE generations (
+            project TEXT NOT NULL, timeline_id TEXT NOT NULL,
+            generation INTEGER NOT NULL, timeline_name TEXT NOT NULL,
+            hash TEXT NOT NULL, source TEXT NOT NULL, patch TEXT,
+            receipt TEXT, recorded_at REAL NOT NULL,
+            verified_at REAL NOT NULL,
+            PRIMARY KEY (project, timeline_id, generation));
+    """)
+    db.execute("INSERT INTO snapshots (hash, body)"
+               " VALUES ('h', '{\"a\":1}')")
+    db.execute("INSERT INTO generations (project, timeline_id, generation,"
+               " timeline_name, hash, source, patch, receipt, recorded_at,"
+               " verified_at) VALUES "
+               "('P', 't', 1, 'T', 'h', 'observed', NULL, NULL, 1.0, 2.0)")
+    db.commit()
+    db.close()
+
+
+def test_writers_survive_columns_they_do_not_know(tmp_path):
+    """The incident replay: the table is wider than the writer, and every
+    row still lands - because every INSERT names its columns."""
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    with store._connect() as db:
+        db.execute("ALTER TABLE answers ADD COLUMN extra TEXT")
+        db.execute("ALTER TABLE read_requests ADD COLUMN extra TEXT")
+        db.execute("ALTER TABLE snapshots ADD COLUMN extra TEXT")
+        db.execute("ALTER TABLE generations ADD COLUMN extra TEXT")
+    store.record(project="P", timeline_id="t", timeline_name="T",
+                 snapshot={"a": 1}, source=shadow.OBSERVED, expected_head=0,
+                 model_revision=3, nle_binding_ids=["nle:x"])
+    store.answered("clips", "P", "t")
+    store.record_read_request("clips", "P", "t", "shadow_hit")
+    assert store.get("P", "t", 1).model_revision == 3
+    assert store.answers_since(0) == 1
+    assert store.read_requests_since(0)["shadow_hits"] == 1
+
+    document = store.export_document("P")
+    wider = shadow.ShadowStore(tmp_path / "wider.db")
+    with wider._connect() as db:
+        db.execute("ALTER TABLE snapshots ADD COLUMN extra TEXT")
+        db.execute("ALTER TABLE generations ADD COLUMN extra TEXT")
+    report = wider.merge_document(document)
+    assert report == {"generations": 1, "snapshots": 1, "conflicts": []}
+    assert wider.get("P", "t", 1).model_revision == 3
+
+
+def test_a_session_refuses_to_migrate_the_shared_store(tmp_path,
+                                                       monkeypatch):
+    """Inside a borrowed session the DEFAULT store refuses the ALTER -
+    naming the copied-DB remedy - and the file stays unmigrated."""
+    from library.tools import qualification_project as qp
+    from library.tools import resolve_lock
+
+    shared = tmp_path / "shared.sqlite3"
+    _old_schema_db(shared)
+    monkeypatch.setattr(shadow, "default_db_path", lambda: shared)
+    monkeypatch.delenv(shadow.DB_ENV, raising=False)
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(tmp_path / "locks"))
+    qp.begin_qualification_session("Ren Qualification")
+    try:
+        with pytest.raises(shadow.SharedMigrationRefused,
+                           match="REN_SHADOW_DB"):
+            shadow.ShadowStore()
+    finally:
+        qp.end_qualification_session()
+    names = [row[1] for row in sqlite3.connect(shared).execute(
+        "PRAGMA table_info(generations)")]
+    assert "model_revision" not in names
+
+
+def test_a_session_may_migrate_a_store_it_names(tmp_path, monkeypatch):
+    """The remedy the refusal names: a proof that carries a migration
+    runs it against its own copy."""
+    from library.tools import qualification_project as qp
+    from library.tools import resolve_lock
+
+    copy = tmp_path / "copy.sqlite3"
+    _old_schema_db(copy)
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(tmp_path / "locks"))
+    qp.begin_qualification_session("Ren Qualification")
+    try:
+        store = shadow.ShadowStore(copy)
+        joined = store.attach_model_link(
+            project="P", timeline_id="t", generation=1, model_revision=3,
+            nle_binding_ids=["nle:x"])
+    finally:
+        qp.end_qualification_session()
+    assert (joined.model_revision, joined.nle_binding_ids) == (3, ("nle:x",))
+
+
+def test_the_default_store_migrates_outside_a_session(tmp_path,
+                                                     monkeypatch):
+    """No session, no refusal: the ordinary first run after an upgrade
+    still migrates the shared store in place."""
+    shared = tmp_path / "shared.sqlite3"
+    _old_schema_db(shared)
+    monkeypatch.setattr(shadow, "default_db_path", lambda: shared)
+    monkeypatch.delenv(shadow.DB_ENV, raising=False)
+    store = shadow.ShadowStore()
+    assert store.get("P", "t", 1).model_revision is None

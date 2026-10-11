@@ -159,12 +159,53 @@ _GENERATION_MODEL_COLUMNS = (
 )
 
 
-def _migrate_generations(db) -> None:
+class SharedMigrationRefused(RuntimeError):
+    """A qualification session refused to ALTER the shared shadow DB.
+
+    On 2026-10-10 an unmerged lane's live proof ALTERed the shared
+    store, and main's positional INSERT then broke every lane until
+    the lane merged. A session whose code carries a migration that is
+    not on main must run against a copied DB, never the shared one -
+    so the ALTER is refused here, with the remedy, instead of landing
+    in shared state.
+    """
+
+
+def _missing_generation_columns(db) -> list:
     columns = {row["name"] for row in
                db.execute("PRAGMA table_info(generations)").fetchall()}
-    for name, kind in _GENERATION_MODEL_COLUMNS:
-        if name not in columns:
-            db.execute(f"ALTER TABLE generations ADD COLUMN {name} {kind}")
+    return [(name, kind) for name, kind in _GENERATION_MODEL_COLUMNS
+            if name not in columns]
+
+
+def _migrate_generations(db) -> None:
+    for name, kind in _missing_generation_columns(db):
+        db.execute(f"ALTER TABLE generations ADD COLUMN {name} {kind}")
+
+
+def _refuse_shared_migration(path: Path, missing: list) -> None:
+    """Refuse an ALTER the shared DB would take from a qualification run.
+
+    The shared store is the DEFAULT path - no explicit path given and
+    no `REN_SHADOW_DB` override. Anything else (an explicit file, the
+    qualification harness's own scratch DB) is the caller's own to
+    migrate. Only called when columns are actually missing and only
+    refuses while a borrowed session is open, so ordinary runs -
+    including sessions on an already-migrated store - never see it.
+    """
+    from library.tools import qualification_project
+
+    session = qualification_project.qualification_session_active()
+    if session is None:
+        return
+    names = ", ".join(name for name, _ in missing)
+    raise SharedMigrationRefused(
+        f"refusing to ALTER the shared shadow DB at {path} (missing "
+        f"columns: {names}) from inside a qualification session "
+        f"(pid {session['pid']}, borrowed from {session['project']!r}): "
+        "this code carries a migration that is not on main. Copy the "
+        "shared DB to scratch, set REN_SHADOW_DB to the copy, and "
+        "re-run the proof against that.")
 
 
 def default_db_path() -> Path:
@@ -387,11 +428,19 @@ class ShadowStore:
     """Every recorded generation of every timeline, on this machine."""
 
     def __init__(self, path: Path | None = None) -> None:
+        #: The shared store is the default path - no explicit file and
+        #: no `REN_SHADOW_DB` override. Only that store gets the
+        #: qualification-session migration guard below; a caller that
+        #: names its DB (a test, a scratch copy) owns its migrations.
+        explicit = path is not None or DB_ENV in os.environ
         self.path = Path(path) if path is not None else default_db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
+            missing = _missing_generation_columns(db)
+            if missing and not explicit:
+                _refuse_shared_migration(self.path, missing)
             _migrate_generations(db)
 
     @contextmanager
@@ -547,7 +596,11 @@ class ShadowStore:
     def answered(self, command: str, project: str, timeline_id: str) -> None:
         """Count one question this store answered in place of Resolve."""
         with self._connect() as db:
-            db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+            # Named columns, like every INSERT here: a schema that gains
+            # a column must not break this writer (2026-10-10: a shared
+            # store's new columns broke a positional INSERT on main).
+            db.execute("INSERT INTO answers (answered_at, command, project,"
+                       " timeline_id) VALUES (?, ?, ?, ?)",
                        (time.time(), command, project, timeline_id))
 
     def record_read_request(self, command: str, project: str,
@@ -556,7 +609,9 @@ class ShadowStore:
         if outcome not in {"shadow_hit", "live_refresh", "miss"}:
             raise ValueError(f"unknown read outcome {outcome!r}")
         with self._connect() as db:
-            db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+            db.execute("INSERT INTO read_requests (requested_at, command,"
+                       " project, timeline_id, outcome)"
+                       " VALUES (?, ?, ?, ?, ?)",
                        (time.time(), command, project, timeline_id, outcome))
 
     def answers_since(self, since: float,
@@ -788,7 +843,8 @@ class ShadowStore:
                         (digest,)).fetchone()
                     if known is None:
                         db.execute(
-                            "INSERT INTO snapshots VALUES (?, ?)",
+                            "INSERT INTO snapshots (hash, body)"
+                            " VALUES (?, ?)",
                             (digest, canonical(body)))
                         report["snapshots"] += 1
                 for entry in (document.get("generations") or []):

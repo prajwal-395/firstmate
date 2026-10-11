@@ -114,7 +114,37 @@ def test_every_capture_that_did_not_happen_raises_by_name(tmp_path):
             _grab(tmp_path=folder, **shape)
 
 
-# ── The ffmpeg helpers: zero bytes is failure, not a still ────────
+# ── The gallery is put back, verified by read-back ───────────────────
+
+
+class _StickyAlbum(_Album):
+    """An album whose delete never lands: the still count reads back high."""
+
+    def __init__(self):
+        super().__init__(exported=True, write_png=True)
+        self._reads = 0
+
+    def GetStills(self):
+        self._reads += 1
+        # The first read is the `before` count; every later read still
+        # holds the grabbed still, because the delete below never lands.
+        return [] if self._reads == 1 else [_SOME_STILL]
+
+    def DeleteStills(self, stills):
+        return False
+
+
+def test_a_still_left_in_the_gallery_raises_by_name(tmp_path):
+    """A grab whose still survives `DeleteStills` raises `StillCaptureError`
+    instead of leaving the captain a gallery to tidy (2026-10-10: five
+    discard-stills left in Ren Qualification)."""
+    album = _StickyAlbum()
+    destination = tmp_path / "still.png"
+    with pytest.raises(StillCaptureError, match="was not deleted"):
+        grab_still(_Timeline(_SOME_STILL), _Project(album), destination)
+    # The PNG still exported - the failure is the gallery left behind,
+    # not a capture that never happened.
+    assert destination.stat().st_size > 0
 
 
 def _run_writing_zero_bytes(cmd, **kwargs):

@@ -68,5 +68,11 @@ def test_an_eyedropper_sample_moves_pixels(resolve_session, tmp_path):
         mid = start + dur // 2
         timeline.SetCurrentTimecode(
             f"00:00:{(mid // 24) % 60:02d}:{mid % 24:02d}")
+        # The grab must put the gallery back: read the album count back,
+        # or repeated runs leave the captain a gallery to tidy.
+        album = project.GetGallery().GetCurrentStillAlbum()
+        stills_before = len(album.GetStills() or [])
         grab(timeline, project, Path(str(shot)))
         assert shot.stat().st_size > 0
+        assert len(album.GetStills() or []) == stills_before, (
+            "the sampled still left a still in the gallery")

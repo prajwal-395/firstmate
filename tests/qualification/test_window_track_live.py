@@ -76,6 +76,11 @@ def test_a_tracked_window_stays_covered_on_sampled_stills(
             f"qual_b holds {count} node(s) - no window node. Run "
             f"`script --recipe window-create` on qual_b first, then retry")
         node = count
+        # The five grabs below must put the gallery back: read the
+        # album count back, or repeated runs leave the captain a
+        # gallery to tidy (2026-10-10: five discard-stills).
+        album = project.GetGallery().GetCurrentStillAlbum()
+        stills_before = len(album.GetStills() or [])
         try:
             project.SetCurrentTimeline(timeline)
             start = int(qual_b.GetStart())
@@ -110,3 +115,6 @@ def test_a_tracked_window_stays_covered_on_sampled_stills(
                 f"window vanished mid-track: {verdict['counts']}")
         finally:
             qual_b.SetCDL(dict(NEUTRAL, NodeIndex=str(node)))
+            assert len(album.GetStills() or []) == stills_before, (
+                "the sampled stills left stills in the gallery - "
+                "repeated runs would leave the captain a gallery to tidy")

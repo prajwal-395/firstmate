@@ -33,13 +33,14 @@ The Resolve behaviours each rule rests on were measured on Resolve Studio
   its real name, and the scratch directory is removed.
 * A CAPTURE THAT DID NOT HAPPEN RAISES BY NAME.  `grab_still` raises
   `StillCaptureError` (a `CaptureError`) when `GrabStill` declines,
-  `ExportStills` returns False, no PNG is on disk, or the PNG is empty.
-  A True return is not evidence; the file on disk is.  A caller never
-  receives a value it can average from a capture that failed.
+  `ExportStills` returns False, no PNG is on disk, the PNG is empty, or
+  the grabbed still is still in the gallery on read-back.  A True return
+  is not evidence; the file on disk is.  A caller never receives a value
+  it can average from a capture that failed.
 * `GrabStill` leaves the still in the current album and Resolve saves the
-  project, so the button deletes it again and reports the before/after
-  album count, and it never runs unattended on a project a rebuild is
-  using.
+  project, so the button deletes it again and reads the album count back:
+  a count that moved raises instead of leaving the captain a still to
+  tidy, and it never runs unattended on a project a rebuild is using.
 * A marker key is relative to the timeline's start:
   `frames(current) - frames(GetStartTimecode())`, with the timeline's own
   rate and drop-frame rule.  `SetCurrentTimecode` accepts and reads back
@@ -93,7 +94,8 @@ of it.
 - **`GrabStill` returns the GRADED, CONFORMED frame** regardless of the active Resolve page.
 - **The still goes to `<project>/marker_feedback/stills/`** (`Kind.CAPTURED`). A timeline whose footage sits under no project is REFUSED.
 - **The gallery is put back.** `GrabStill` leaves the still in the current album and Resolve saves
-  it; the button deletes it again and reports the before/after count.
+  it; the button deletes it again and reads the album count back, raising when the still is
+  still there.
 - **A marker that is already there is UPDATED, never replaced** - `AddMarker` refuses an occupied
   frame anyway, and the captain's `name` and `note` are what must survive. The playhead inside a
   marker with a duration resolves to that marker's start frame.
@@ -398,6 +400,15 @@ def grab_still(timeline, project, destination: Path) -> StillResult:
                     break
         after = len(album.GetStills() or [])
 
+    # Verified by read-back, not by the return: a still that survives
+    # its delete would otherwise accumulate one gallery entry per grab
+    # (2026-10-10: five discard-stills left in Ren Qualification), so a
+    # grab that did not put the gallery back raises by name.
+    if after != before:
+        raise StillCaptureError(
+            f"the grabbed still was not deleted from gallery album "
+            f"{album_name!r}: {before} still(s) before, {after} after - "
+            f"repeated grabs would leave the captain a gallery to tidy")
     if destination.stat().st_size <= 0:
         raise StillCaptureError(f"The exported still {destination} is empty.")
     result = StillResult(
@@ -589,13 +600,9 @@ def capture(timeline, project, project_folder=None) -> CaptureResult:
         note = existing.get("note") or ""
         created = False
 
+    # `grab_still` raises when the gallery count moved, so reaching
+    # here means the album read back as found - the note stays empty.
     gallery_note = ""
-    if still.stills_after != still.stills_before:
-        gallery_note = (
-            f"gallery album {still.gallery_album!r} went from "
-            f"{still.stills_before} to {still.stills_after} stills - the "
-            f"grabbed still was not removed"
-        )
     return CaptureResult(
         project_folder=layout.root, timeline_name=timeline.GetName(),
         playhead=playhead, still=still, still_relpath=relpath,
