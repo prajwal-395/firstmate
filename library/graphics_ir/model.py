@@ -72,9 +72,12 @@ class LinearEasing(BaseModel):
 class EaseEasing(BaseModel):
     """Power ease-out: ``1 - (1 - t) ** power``.
 
-    ``power=1`` is linear. ``power=2`` is the quadratic out the subtitle
-    entry scale draws (GSAP ``power1.out``). ``power=3`` is the cubic out
-    the word-cue rise draws (GSAP ``power2.out``).
+    ``power=1`` is linear. ``power=3`` is the cubic out
+    the word-cue rise draws (GSAP ``power2.out``). The subtitle entry
+    scale does NOT use this kind: the template draws Remotion
+    ``Easing.out(Easing.ease)``, which the lowering carries as a
+    ``CubicBezierEasing`` (``cubic-bezier(0, 0, 0.58, 1)``) - a power
+    ease-out sits ~0.06 off mid-ramp.
     """
 
     kind: Literal[EasingKind.EASE] = EasingKind.EASE

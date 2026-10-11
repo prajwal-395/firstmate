@@ -111,10 +111,10 @@ impl El {
 #[derive(Debug, Deserialize, Clone)]
 struct Scene {
     version: u32,
-    fps: f32,
+    fps: f64,
     width: u32,
     height: u32,
-    duration: f32,
+    duration: f64,
     #[serde(default)]
     hold_frames: Option<u32>,
     nodes: Vec<IRNode>,
@@ -193,9 +193,9 @@ struct IRBounds {
 #[derive(Debug, Deserialize, Clone)]
 struct IRTiming {
     #[serde(default)]
-    start: f32,
+    start: f64,
     #[serde(default)]
-    duration: Option<f32>,
+    duration: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -203,16 +203,16 @@ struct IRAnimation {
     property: String,
     from_value: IRValue,
     to_value: IRValue,
-    start: f32,
-    duration: f32,
+    start: f64,
+    duration: f64,
     easing: IREasing,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 enum IRValue {
-    Number(f32),
-    List(Vec<f32>),
+    Number(f64),
+    List(Vec<f64>),
     Text(String),
 }
 
@@ -222,16 +222,16 @@ enum IREasing {
     #[serde(rename = "linear")]
     Linear,
     #[serde(rename = "ease")]
-    Ease { #[serde(default = "default_power")] power: f32 },
+    Ease { #[serde(default = "default_power")] power: f64 },
     #[serde(rename = "cubic_bezier")]
-    CubicBezier { x1: f32, y1: f32, x2: f32, y2: f32 },
+    CubicBezier { x1: f64, y1: f64, x2: f64, y2: f64 },
     #[serde(rename = "spring")]
-    Spring { stiffness: f32, damping: f32, mass: f32 },
+    Spring { stiffness: f64, damping: f64, mass: f64 },
     #[serde(rename = "steps")]
     Steps { steps: i32, #[serde(default = "default_step_direction")] direction: String },
 }
 
-fn default_power() -> f32 { 2.0 }
+fn default_power() -> f64 { 2.0 }
 fn default_step_direction() -> String { "end".to_string() }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -263,7 +263,7 @@ struct IRTextContent {
     #[serde(default)]
     layout: Option<String>,
     #[serde(default)]
-    reveal_ramp: Option<f32>,
+    reveal_ramp: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -278,7 +278,7 @@ struct IRTextRun {
     #[serde(default)]
     letter_spacing: Option<f32>,
     #[serde(default)]
-    reveal_at: Option<f32>,
+    reveal_at: Option<f64>,
     #[serde(default)]
     new_line: bool,
     #[serde(default)]
@@ -432,7 +432,7 @@ struct IRTrack {
 
 #[derive(Debug, Deserialize, Clone)]
 struct IRKeyframe {
-    at: f32,
+    at: f64,
     value: f32,
     #[serde(default)]
     ease: Option<String>,
@@ -440,7 +440,7 @@ struct IRKeyframe {
 
 // ── Easing evaluation (matches library/graphics_ir/easing.py) ──────
 
-fn apply_easing(easing: &IREasing, t: f32, fps: f32) -> f32 {
+fn apply_easing(easing: &IREasing, t: f64, fps: f64) -> f64 {
     match easing {
         IREasing::Linear => t.clamp(0.0, 1.0),
         IREasing::Ease { power } => {
@@ -457,9 +457,9 @@ fn apply_easing(easing: &IREasing, t: f32, fps: f32) -> f32 {
                 return clamped;
             }
             if direction == "end" {
-                (clamped * *steps as f32).floor() / *steps as f32
+                (clamped * *steps as f64).floor() / *steps as f64
             } else {
-                (clamped * *steps as f32).ceil() / *steps as f32
+                (clamped * *steps as f64).ceil() / *steps as f64
             }
         }
     }
@@ -467,7 +467,7 @@ fn apply_easing(easing: &IREasing, t: f32, fps: f32) -> f32 {
 
 /// StagedScene's ease names, for keyframe tracks. Cubic, the way
 /// `valueAt` draws them in the Remotion and HyperFrames compositions.
-fn track_ease(name: Option<&str>, x: f32) -> f32 {
+fn track_ease(name: Option<&str>, x: f64) -> f64 {
     match name.unwrap_or("linear") {
         "in" => x * x * x,
         "out" => 1.0 - (1.0 - x).powi(3),
@@ -482,15 +482,15 @@ fn track_ease(name: Option<&str>, x: f32) -> f32 {
     }
 }
 
-fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+fn cubic_bezier(x1: f64, y1: f64, x2: f64, y2: f64, t: f64) -> f64 {
     let clamped = t.clamp(0.0, 1.0);
     if clamped <= 0.0 { return 0.0; }
     if clamped >= 1.0 { return 1.0; }
 
-    let bezier = |u: f32, p1: f32, p2: f32| -> f32 {
+    let bezier = |u: f64, p1: f64, p2: f64| -> f64 {
         3.0 * (1.0 - u).powi(2) * u * p1 + 3.0 * (1.0 - u) * u.powi(2) * p2 + u.powi(3)
     };
-    let bezier_derivative = |u: f32, p1: f32, p2: f32| -> f32 {
+    let bezier_derivative = |u: f64, p1: f64, p2: f64| -> f64 {
         3.0 * (1.0 - u).powi(2) * p1 + 6.0 * (1.0 - u) * u * (p2 - p1) + 3.0 * u.powi(2) * (1.0 - p2)
     };
 
@@ -507,9 +507,9 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
 }
 
 fn spring_advance(
-    to_value: f32, last_timestamp: f32, current: f32, velocity: f32,
-    now: f32, damping: f32, mass: f32, stiffness: f32,
-) -> (f32, f32, f32) {
+    to_value: f64, last_timestamp: f64, current: f64, velocity: f64,
+    now: f64, damping: f64, mass: f64, stiffness: f64,
+) -> (f64, f64, f64) {
     let delta_time = (now - last_timestamp).min(64.0);
     if damping <= 0.0 {
         return (current, velocity, now);
@@ -540,14 +540,14 @@ fn spring_advance(
     (position, next_velocity, now)
 }
 
-fn spring_progress(t: f32, stiffness: f32, damping: f32, mass: f32, fps: f32) -> f32 {
+fn spring_progress(t: f64, stiffness: f64, damping: f64, mass: f64, fps: f64) -> f64 {
     if t <= 0.0 { return 0.0; }
     let frame = t * fps;
     let frame_clamped = frame.max(0.0);
     let uneven_rest = frame_clamped % 1.0;
     let last = frame_clamped.floor();
-    let (mut current, mut velocity, mut last_timestamp) = (0.0_f32, 0.0_f32, 0.0_f32);
-    let mut f = 0.0_f32;
+    let (mut current, mut velocity, mut last_timestamp) = (0.0_f64, 0.0_f64, 0.0_f64);
+    let mut f = 0.0_f64;
     while f <= last {
         if f == last {
             f = f + uneven_rest;
@@ -566,11 +566,11 @@ fn spring_progress(t: f32, stiffness: f32, damping: f32, mass: f32, fps: f32) ->
 
 // ── Animation and track sampling (matches library/graphics_ir/evaluator.py) ──
 
-fn sample_animation(anim: &IRAnimation, time_seconds: f32, fps: f32) -> IRValue {
-    if time_seconds < anim.start {
+fn sample_animation(anim: &IRAnimation, time_seconds: f64, fps: f64) -> IRValue {
+    if snap(time_seconds) < snap(anim.start) {
         return anim.from_value.clone();
     }
-    if time_seconds >= anim.start + anim.duration {
+    if snap(time_seconds) >= snap(anim.start + anim.duration) {
         return anim.to_value.clone();
     }
     let local_time = time_seconds - anim.start;
@@ -578,7 +578,7 @@ fn sample_animation(anim: &IRAnimation, time_seconds: f32, fps: f32) -> IRValue 
     interpolate(&anim.from_value, &anim.to_value, progress)
 }
 
-fn interpolate(from: &IRValue, to: &IRValue, progress: f32) -> IRValue {
+fn interpolate(from: &IRValue, to: &IRValue, progress: f64) -> IRValue {
     match (from, to) {
         (IRValue::Number(f), IRValue::Number(t)) => {
             IRValue::Number(f + (t - f) * progress)
@@ -595,32 +595,32 @@ fn interpolate(from: &IRValue, to: &IRValue, progress: f32) -> IRValue {
 
 /// A track's value at time ``t``: held flat outside the keys, eased by the
 /// arriving key (StagedScene's `valueAt` semantics).
-fn track_value(keys: &[IRKeyframe], t: f32, neutral: f32) -> f32 {
+fn track_value(keys: &[IRKeyframe], t: f64, neutral: f32) -> f32 {
     if keys.is_empty() {
         return neutral;
     }
-    if t <= keys[0].at {
+    if snap(t) <= snap(keys[0].at) {
         return keys[0].value;
     }
     let last = &keys[keys.len() - 1];
-    if t >= last.at {
+    if snap(t) >= snap(last.at) {
         return last.value;
     }
     for i in 1..keys.len() {
         let a = &keys[i - 1];
         let b = &keys[i];
-        if t <= b.at {
-            if b.at == a.at {
+        if snap(t) <= snap(b.at) {
+            if snap(b.at) == snap(a.at) {
                 return b.value;
             }
             let x = ((t - a.at) / (b.at - a.at)).clamp(0.0, 1.0);
-            return a.value + (b.value - a.value) * track_ease(b.ease.as_deref(), x);
+            return a.value + (b.value - a.value) * track_ease(b.ease.as_deref(), x) as f32;
         }
     }
     last.value
 }
 
-fn sample_node_animations(node: &IRNode, time_seconds: f32, fps: f32) -> Vec<(String, IRValue)> {
+fn sample_node_animations(node: &IRNode, time_seconds: f64, fps: f64) -> Vec<(String, IRValue)> {
     let mut by_property: Vec<(String, Vec<&IRAnimation>)> = Vec::new();
     for anim in &node.animations {
         if let Some(entry) = by_property.iter_mut().find(|(p, _)| p == &anim.property) {
@@ -633,7 +633,7 @@ fn sample_node_animations(node: &IRNode, time_seconds: f32, fps: f32) -> Vec<(St
     for (prop, anims) in by_property {
         let mut sorted = anims;
         sorted.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap());
-        let latest = sorted.iter().rev().find(|a| a.start <= time_seconds);
+        let latest = sorted.iter().rev().find(|a| snap(a.start) <= snap(time_seconds));
         let value = match latest {
             Some(anim) => sample_animation(anim, time_seconds, fps),
             None => sorted.first().map(|a| a.from_value.clone()).unwrap_or(IRValue::Number(0.0)),
@@ -644,11 +644,36 @@ fn sample_node_animations(node: &IRNode, time_seconds: f32, fps: f32) -> Vec<(St
 }
 
 /// The sampled value of one of a node's tracks at time ``t``.
-fn sample_node_tracks(node: &IRNode, t: f32) -> Vec<(String, f32)> {
+fn sample_node_tracks(node: &IRNode, t: f64) -> Vec<(String, f32)> {
     node.tracks
         .iter()
         .map(|track| (track.property.clone(), track_value(&track.keys, t, 0.0)))
         .collect()
+}
+
+/// Times on the scene clock snap to a 1ns grid before any comparison.
+///
+/// Card windows, animation edges and keyframe times are all authored as
+/// frame multiples (`k / fps`), but reach the binary through DIFFERENT
+/// arithmetic - one division (`32 / fps`) versus a division plus an
+/// addition (`12 / fps + 20 / fps`) - which disagree by 1 ulp (~2e-16 s).
+/// Remotion compares integer frames, so the reference never sees that
+/// disagreement; an unsnapped `t >= start + duration` held Reel 01's
+/// second card open on frame 49 while the third card's own window had
+/// already opened, and blanked the frame where the two met (measured
+/// 2026-10-10: frame 32 empty, frame 49 double-drawn). 1ns is
+/// 1/40,000,000 of a frame at 24fps: every real edge (frame steps,
+/// the 1ms EPS colour steps) is milliseconds away, so the grid only
+/// ever fuses values that already meant the same instant.
+///
+/// The rule is every comparison's BOTH sides, snapped AFTER all
+/// arithmetic from the raw values: snapping the summands (`start` and
+/// `duration` separately) re-opens a ±1ns gap at the addition, which is
+/// exactly the failure this removes. `snap` is a pure function, so one
+/// division's `32 / fps` and the frame time `32 / fps` still agree
+/// bit-for-bit after it.
+fn snap(t: f64) -> f64 {
+    (t * 1e9).round() / 1e9
 }
 
 // ── Faces and their vertical metrics ───────────────────────────────
@@ -1100,18 +1125,18 @@ impl RenderContext<'_> {
 }
 
 /// How visible a run is at time `t`: the ramp ENDS on `reveal_at`.
-fn run_opacity(t: f32, reveal_at: Option<f32>, ramp: f32) -> f32 {
+fn run_opacity(t: f64, reveal_at: Option<f64>, ramp: f64) -> f32 {
     let Some(r) = reveal_at else { return 1.0 };
     if ramp <= 0.0 {
-        return if t >= r { 1.0 } else { 0.0 };
+        return if snap(t) >= snap(r) { 1.0 } else { 0.0 };
     }
-    if t >= r {
+    if snap(t) >= snap(r) {
         return 1.0;
     }
-    if t <= r - ramp {
+    if snap(t) <= snap(r - ramp) {
         return 0.0;
     }
-    (t - (r - ramp)) / ramp
+    ((t - (r - ramp)) / ramp) as f32
 }
 
 /// The block's strut: Chrome's default serif at 16 px, measured with
@@ -1148,7 +1173,7 @@ struct RunLayout {
 /// browser does for StagedScene's text body.
 fn layout_runs(
     text: &IRTextContent,
-    t: f32,
+    t: f64,
     m: &FaceMetrics,
     bounds: &IRBounds,
     advances: &mut HashMap<String, Advances>,
@@ -1248,7 +1273,7 @@ impl Video for SceneVideo {
                 held = held / hold * hold;
             }
         }
-        let t = held as f32 / self.scene.fps;
+        let t = snap(held as f64 / self.scene.fps);
         let root = self.frame_tree(t);
         Svgr { svg_tree: NestedSvgDocument::from_nodes(vec![Some(root.lower())]) }
     }
@@ -1260,21 +1285,21 @@ fn frame_count(scene: &Scene) -> usize {
 
 fn number(value: Option<&IRValue>) -> Option<f32> {
     match value {
-        Some(IRValue::Number(n)) => Some(*n),
+        Some(IRValue::Number(n)) => Some(*n as f32),
         _ => None,
     }
 }
 
 fn pair(value: Option<&IRValue>) -> Option<(f32, f32)> {
     match value {
-        Some(IRValue::List(v)) if v.len() >= 2 => Some((v[0], v[1])),
-        Some(IRValue::Number(n)) => Some((*n, *n)),
+        Some(IRValue::List(v)) if v.len() >= 2 => Some((v[0] as f32, v[1] as f32)),
+        Some(IRValue::Number(n)) => Some((*n as f32, *n as f32)),
         _ => None,
     }
 }
 
 impl SceneVideo {
-    fn frame_tree(&self, t: f32) -> El {
+    fn frame_tree(&self, t: f64) -> El {
         let (w, h) = (self.scene.width as f32, self.scene.height as f32);
         let mut ctx = RenderContext {
             defs: El::new("defs"),
@@ -1296,13 +1321,13 @@ impl SceneVideo {
         root.c(ctx.defs)
     }
 
-    fn render_node(&self, ctx: &mut RenderContext, node: &IRNode, t: f32) -> El {
+    fn render_node(&self, ctx: &mut RenderContext, node: &IRNode, t: f64) -> El {
         if let Some(timing) = &node.timing {
-            if t < timing.start {
+            if snap(t) < snap(timing.start) {
                 return El::new("g");
             }
             if let Some(dur) = timing.duration {
-                if t >= timing.start + dur {
+                if snap(t) >= snap(timing.start + dur) {
                     return El::new("g");
                 }
             }
@@ -1447,7 +1472,7 @@ impl SceneVideo {
                         Some(IRValue::Text(c)) => Some(c.clone()),
                         _ => text.color.clone(),
                     };
-                    g = self.draw_text(ctx, node, text, colour.as_deref(), t);
+                    g = self.draw_text(ctx, g, node, text, colour.as_deref(), t);
                 }
             }
             "shape" => g = self.draw_shape(ctx, g, node),
@@ -1548,15 +1573,21 @@ impl SceneVideo {
         g
     }
 
-    fn draw_text(&self, ctx: &mut RenderContext, node: &IRNode, text: &IRTextContent, colour: Option<&str>, t: f32) -> El {
+    /// A text node's glyphs draw INSIDE the caller-built `g`, so the node's
+    /// own transform (translate/rotate/scale about the box centre), opacity,
+    /// filters, clip, mask and blend all apply to its text exactly as they
+    /// do to shapes and images. Replacing `g` with a fresh group here
+    /// dropped every one of them - which is how the caption entry scale
+    /// drew nothing for a year while cameras scaled fine.
+    fn draw_text(&self, ctx: &mut RenderContext, g: El, node: &IRNode, text: &IRTextContent, colour: Option<&str>, t: f64) -> El {
         let Some(b) = node.bounds else {
             eprintln!("WARNING: text node {} has no bounds; nothing drawn", node.id);
-            return El::new("g");
+            return g;
         };
         let Some(m) = self.metrics.get(&node.id).copied() else {
-            return El::new("g");
+            return g;
         };
-        let mut g = El::new("g");
+        let mut g = g;
         let shown = apply_text_transform(&text.text, text.text_transform.as_deref());
         let fill = colour.unwrap_or("#000000");
         let shadows = text.text_shadow.as_deref().map(parse_text_shadow).unwrap_or_default();

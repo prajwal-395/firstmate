@@ -37,6 +37,7 @@ from .model import (
     BlurFilter,
     Bounds,
     CameraContent,
+    CubicBezierEasing,
     DropShadowFilter,
     EaseEasing,
     ImageContent,
@@ -155,7 +156,8 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
     Each subtitle block becomes a Group windowed to its span. Each word
     with timing becomes a Text node carrying the accent sweep (two
     stepped colour tweens) and the entry scale (0.95 to 1 over 4 frames,
-    power1.out). Words flow the way the template's flex-wrap box flows
+    the template's `Easing.out(Easing.ease)` as `cubic-bezier(0,0,0.58,1)`).
+    Words flow the way the template's flex-wrap box flows
     them: each word an inline-block with a 0.24em trailing margin, rows
     centred on the card, the box's bottom on the safe area.
     """
@@ -251,7 +253,17 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
                     animations.append(Animation(
                         target=word_id, property="transform.scale",
                         from_value=[0.95, 0.95], to_value=[1.0, 1.0],
-                        start=ws, duration=4.0 / fps, easing=EaseEasing(power=2),
+                        start=ws, duration=4.0 / fps,
+                        # The template's entry ramp: Remotion
+                        # `Easing.out(Easing.ease)` where `ease` is
+                        # `bezier(0.42, 0, 1, 1)`. Reversing a cubic
+                        # bezier (1-x2, 1-y2, 1-x1, 1-y1) is its
+                        # `out()` form, so `cubic-bezier(0, 0, 0.58, 1)`
+                        # draws the template's curve to float precision
+                        # (max deviation ~6e-17, measured 2026-10-10).
+                        # A power ease-out (power=2) reads close but sits
+                        # ~0.06 low at mid-ramp - visibly smaller ink.
+                        easing=CubicBezierEasing(x1=0.0, y1=0.0, x2=0.58, y2=1.0),
                     ))
                 else:
                     animations.append(Animation(

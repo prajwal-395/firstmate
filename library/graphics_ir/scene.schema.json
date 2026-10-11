@@ -294,7 +294,7 @@
       "type": "object"
     },
     "EaseEasing": {
-      "description": "Power ease-out: ``1 - (1 - t) ** power``.\n\n``power=1`` is linear. ``power=2`` is the quadratic out the subtitle\nentry scale draws (GSAP ``power1.out``). ``power=3`` is the cubic out\nthe word-cue rise draws (GSAP ``power2.out``).",
+      "description": "Power ease-out: ``1 - (1 - t) ** power``.\n\n``power=1`` is linear. ``power=3`` is the cubic out\nthe word-cue rise draws (GSAP ``power2.out``). The subtitle entry\nscale does NOT use this kind: the template draws Remotion\n``Easing.out(Easing.ease)``, which the lowering carries as a\n``CubicBezierEasing`` (``cubic-bezier(0, 0, 0.58, 1)``) - a power\nease-out sits ~0.06 off mid-ramp.",
       "properties": {
         "kind": {
           "const": "ease",
