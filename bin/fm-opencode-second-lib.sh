@@ -56,13 +56,16 @@
 # go stale: after a rotation the pinned copy diverges and a secondary
 # launch fails its console fetch or falls back to the auth.json key, which
 # bills the main workspace. The account rows are therefore re-copied from
-# the live database on every pinned launch, then re-pinned; a pin that
-# will not refresh is discarded and rebuilt.
+# a consistent snapshot of the live database (sqlite `.backup`, never a raw
+# dump of the live file under write load) on every pinned launch, then
+# re-pinned; a pin that will not refresh is discarded and rebuilt.
 #
 # PROOF. Before a launch rides a pin, OPENCODE_DB=<pin> opencode debug
 # config must resolve the opencode provider name to that launch's own
-# workspace. Anything else refuses the launch, so a mis-pinned session
-# can never bill the wrong workspace.
+# workspace. A pin that proves another workspace refuses the launch, so a
+# mis-pinned session can never bill the wrong workspace. A pin whose
+# workspace cannot be read after a bounded retry refuses with a plain
+# could-not-read report instead of a wrong-workspace refusal.
 #
 # THE PIN IS A COPY, NEVER THE LOGIN. Refresh and rebuild write only the pin
 # database; a pin path that names the live console database is refused before
@@ -216,15 +219,30 @@ fm_opencode_main_configured() {  # [config-dir]
 # ambiguous rows refuse rather than guess. The list arrives on stderr on
 # opencode 1.18.35 (stdout on older versions), so both streams are read;
 # row parsing below only matches valid workspace rows, so a failing
-# command's own error text can never parse as an id. Reasons go to stderr,
+# command's own error text can never parse as an id. A failing list command
+# retries with a bounded backoff; a list that parses but names no main row
+# is definitive and refuses without retry. Reasons go to stderr,
 # and no id is ever printed there.
 fm_opencode_main_org_discover() {
-  local out stripped candidates id found count
+  local out stripped candidates id found count attempt attempts listed
   command -v opencode >/dev/null 2>&1 || {
     echo "error: main OpenCode workspace discovery needs the opencode CLI on PATH" >&2
     return 1
   }
-  out=$(opencode console orgs 2>&1) || {
+  attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_VERIFY_ATTEMPTS:-}" 3)
+  out=; listed=0; attempt=1
+  while [ "$attempt" -le "$attempts" ]; do
+    if out=$(opencode console orgs 2>&1); then
+      listed=1
+      break
+    fi
+    out=
+    if [ "$attempt" -lt "$attempts" ]; then
+      fm_opencode_retry_sleep "$attempt"
+    fi
+    attempt=$((attempt + 1))
+  done
+  [ "$listed" -eq 1 ] || {
     echo "error: main OpenCode workspace discovery could not list the console workspaces" >&2
     return 1
   }
@@ -335,11 +353,129 @@ fm_opencode_second_live_db() {
   printf '%s\n' "$line"
 }
 
+# fm_opencode_attempt_count [override] [default]: the bounded retry count.
+# Non-numeric and empty overrides read as the default, so a bad env value
+# cannot disable the bound or spin.
+fm_opencode_attempt_count() {  # [override] [default]
+  local raw=${1:-} def=${2:-3}
+  case "$def" in ''|*[!0-9]*) def=3 ;; esac
+  case "$raw" in ''|*[!0-9]*) printf '%s\n' "$def"; return 0 ;; esac
+  [ "$raw" -ge 1 ] 2>/dev/null || { printf '%s\n' "$def"; return 0; }
+  printf '%s\n' "$raw"
+}
+
+# fm_opencode_retry_sleep <attempt-index>: back off between retries.
+# FM_OPENCODE_VERIFY_SLEEP=0 (also no/off/skip) skips sleeping for tests.
+fm_opencode_retry_sleep() {  # <attempt-index>
+  local n=${1:-1}
+  case "${FM_OPENCODE_VERIFY_SLEEP:-}" in 0|no|off|skip) return 0 ;; esac
+  case "$n" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$n" -ge 1 ] 2>/dev/null || return 0
+  sleep "$n" 2>/dev/null || true
+}
+
+# fm_opencode_config_name_once <db>: print the opencode provider name once.
+# Fails when the file is absent, the CLI is missing, the command fails, or
+# the output carries no provider name: all of those are unreadable, never a
+# workspace verdict.
+fm_opencode_config_name_once() {  # <db>
+  local db=${1:-} out name
+  [ -n "$db" ] && [ -f "$db" ] || return 1
+  command -v opencode >/dev/null 2>&1 || return 1
+  out=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null) || return 1
+  [ -n "$out" ] || return 1
+  name=$(printf '%s' "$out" | grep -m1 '"name": "' 2>/dev/null \
+    | sed 's/.*"name": "\([^"]*\)".*/\1/' 2>/dev/null) || return 1
+  [ -n "$name" ] || return 1
+  printf '%s\n' "$name"
+}
+
+# fm_opencode_config_name <db>: print the provider name with bounded retry.
+# A transient console fetch that fails under load reads here as unreadable
+# and is retried; only a name that arrives is a verdict.
+fm_opencode_config_name() {  # <db>
+  local db=${1:-} attempts attempt name
+  attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_VERIFY_ATTEMPTS:-}" 3)
+  attempt=1
+  while [ "$attempt" -le "$attempts" ]; do
+    if name=$(fm_opencode_config_name_once "$db" 2>/dev/null); then
+      printf '%s\n' "$name"
+      return 0
+    fi
+    if [ "$attempt" -lt "$attempts" ]; then
+      fm_opencode_retry_sleep "$attempt"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+# fm_opencode_login_copy <live-db> <dest-db>: copy the console login rows
+# from a consistent snapshot of the live database into <dest-db>.
+# The snapshot rides sqlite `.backup`, so a live database mid-write in WAL
+# mode cannot yield a half-copied pin; the rows are dumped from the snapshot
+# and replayed as INSERT OR REPLACE. An empty dump (a transient lock that
+# yielded nothing) fails rather than publishing a login-less pin. Returns 0
+# with the rows replayed, 1 otherwise; prints nothing, including no id.
+fm_opencode_login_copy() {  # <live-db> <dest-db>
+  local live=${1:-} dest=${2:-} snap dump attempts attempt copied
+  [ -n "$live" ] && [ -n "$dest" ] || return 1
+  [ -f "$live" ] || return 1
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  snap=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-snap.XXXXXX.db" 2>/dev/null) || return 1
+  dump=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-dump.XXXXXX.sql" 2>/dev/null) || { rm -f "$snap" 2>/dev/null; return 1; }
+  attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_COPY_ATTEMPTS:-${FM_OPENCODE_VERIFY_ATTEMPTS:-}}" 3)
+  attempt=1; copied=0
+  while [ "$attempt" -le "$attempts" ]; do
+    rm -f "$snap" "$dump" 2>/dev/null
+    if sqlite3 "$live" ".backup main '$snap'" 2>/dev/null && [ -f "$snap" ]; then
+      if sqlite3 "$snap" '.dump account account_state' 2>/dev/null \
+        | grep '^INSERT' > "$dump" 2>/dev/null; then
+        if [ -s "$dump" ] \
+          && sed 's/^INSERT INTO /INSERT OR REPLACE INTO /' "$dump" 2>/dev/null \
+            | sqlite3 "$dest" 2>/dev/null; then
+          copied=1
+          break
+        fi
+      fi
+    fi
+    if [ "$attempt" -lt "$attempts" ]; then
+      fm_opencode_retry_sleep "$attempt"
+    fi
+    attempt=$((attempt + 1))
+  done
+  rm -f "$snap" "$dump" 2>/dev/null
+  [ "$copied" -eq 1 ]
+}
+
+# fm_opencode_prepare_db <db>: migrate a fresh pin database through opencode
+# itself with bounded retry. An empty file is migrated on first load; a
+# transient console fetch during migration retries rather than failing the
+# build on one bad read.
+fm_opencode_prepare_db() {  # <db>
+  local db=${1:-} attempts attempt
+  [ -n "$db" ] || return 1
+  command -v opencode >/dev/null 2>&1 || return 1
+  attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_VERIFY_ATTEMPTS:-}" 3)
+  attempt=1
+  while [ "$attempt" -le "$attempts" ]; do
+    if OPENCODE_DB="$db" opencode debug config >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$attempts" ]; then
+      fm_opencode_retry_sleep "$attempt"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
 # fm_opencode_second_refresh <db> <live-db> <org>: re-copy the console
-# login rows from the live database into the pinned database and re-pin
-# the active workspace to <org>. Returns 0 with the pin and the copied
-# token verified against the live database, 1 otherwise; the caller
-# discards and rebuilds a pin that will not refresh. Plain INSERT would
+# login rows are re-copied from a consistent snapshot of the live database
+# on every pinned launch and a pin that will not refresh is discarded and
+# rebuilt, so the pin cannot carry a stale token. The dump rides the
+# snapshot, never the live file, and an empty dump fails rather than
+# publishing a login-less pin. Plain INSERT would
 # collide with the rows already there, so the dump is replayed as
 # INSERT OR REPLACE.
 fm_opencode_second_refresh() {  # <db> <live-db> <org>
@@ -350,10 +486,7 @@ fm_opencode_second_refresh() {  # <db> <live-db> <org>
   # machine-wide active workspace behind every lane, so it is refused quiet
   # here while the database builder below refuses it loudly.
   fm_opencode_same_file "$db" "$live" && return 1
-  sqlite3 "$live" '.dump account account_state' 2>/dev/null \
-    | grep '^INSERT' 2>/dev/null \
-    | sed 's/^INSERT INTO /INSERT OR REPLACE INTO /' 2>/dev/null \
-    | sqlite3 "$db" 2>/dev/null || return 1
+  fm_opencode_login_copy "$live" "$db" || return 1
   sqlite3 "$db" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" 2>/dev/null || return 1
   [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ] || return 1
   [ "$(sqlite3 "$db" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" = "$(sqlite3 "$live" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" ] || return 1
@@ -363,19 +496,23 @@ fm_opencode_second_refresh() {  # <db> <live-db> <org>
 # fm_opencode_workspace_verify <db> <workspace>: prove the pinned database
 # resolves <workspace> before a launch rides it. Returns 0 only when
 # OPENCODE_DB=<db> opencode debug config resolves the opencode provider name
-# to "<workspace> / OpenCode". Anything else - a drifted pin, a stale token
-# falling back past the console config - is refused by the caller rather
-# than launched.
+# to "<workspace> / OpenCode" across a bounded retry, 1 when it proves
+# another workspace, and 2 when the workspace cannot be read at all: a
+# drifted pin, a stale token falling back past the console config, or a
+# console fetch that keeps failing under load. Callers refuse on 1 and 2
+# alike but report them differently: proved-wrong names the workspace, while
+# could-not-read never claims one.
 fm_opencode_workspace_verify() {  # <db> <workspace>
-  local db=$1 workspace=${2:-} out
-  [ -n "$db" ] && [ -f "$db" ] || return 1
+  local db=$1 workspace=${2:-} name expected
+  [ -n "$db" ] && [ -f "$db" ] || return 2
   case "$workspace" in
     "$FM_OPENCODE_WORKSPACE_MAIN"|"$FM_OPENCODE_WORKSPACE_SECOND") ;;
-    *) return 1 ;;
+    *) return 2 ;;
   esac
-  command -v opencode >/dev/null 2>&1 || return 1
-  out=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null) || return 1
-  printf '%s' "$out" | grep -q "\"name\": \"$workspace / OpenCode\"" 2>/dev/null
+  expected="$workspace / OpenCode"
+  name=$(fm_opencode_config_name "$db" 2>/dev/null) || return 2
+  [ "$name" = "$expected" ] || return 1
+  return 0
 }
 
 # fm_opencode_second_verify <db> [workspace-name]: prove the pinned
@@ -398,15 +535,17 @@ fm_opencode_main_verify() {  # <db>
 # pinned database path, building it first when needed. Building migrates a
 # fresh database through opencode itself (an empty file is migrated on first
 # load; a hand-seeded schema collides with the migrator), then copies only
-# the account rows from the live login and pins the active workspace to the
-# given id. An existing pin is never trusted: its login rows are re-copied
-# from the live database on every call and a pin that will not refresh is
-# discarded and rebuilt, so the pin cannot carry a stale token. Before the
-# path is published the pin must prove its workspace: a launch that cannot
-# prove it never starts. Fails closed with the reason on stderr.
+# the account rows from a consistent snapshot of the live login and pins the
+# active workspace to the given id. An existing pin is never trusted: its
+# login rows are re-copied from the snapshot on every call and a pin that
+# will not refresh is discarded and rebuilt, so the pin cannot carry a stale
+# token. Before the path is published the pin must prove its workspace: a
+# launch that cannot prove it never starts, with a proved-wrong workspace
+# refused as one and an unreadable workspace reported plainly as the other.
+# Fails closed with the reason on stderr, never printing a workspace id.
 fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
   local workspace=${1:-} org=${2:-} config_dir=${3:-}
-  local db live tmp old_umask got_name label infix
+  local db live tmp old_umask got_name label infix verify_rc
   label=$(fm_opencode_workspace_label "$workspace") || return 1
   infix=$(fm_opencode_workspace_infix "$workspace") || return 1
   [ -n "$org" ] || {
@@ -450,13 +589,13 @@ fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
     umask 077
     tmp="$db.tmp.$$"
     rm -f "$tmp"
-    if ! OPENCODE_DB="$tmp" opencode debug config >/dev/null 2>&1; then
+    if ! fm_opencode_prepare_db "$tmp"; then
       rm -f "$tmp"
       umask "$old_umask"
       echo "error: $label OpenCode workspace could not prepare its pinned database" >&2
       return 1
     fi
-    if ! sqlite3 "$live" '.dump account account_state' 2>/dev/null | grep '^INSERT' | sqlite3 "$tmp" 2>/dev/null; then
+    if ! fm_opencode_login_copy "$live" "$tmp"; then
       rm -f "$tmp"
       umask "$old_umask"
       echo "error: $label OpenCode workspace could not copy the console login into its pinned database" >&2
@@ -478,12 +617,20 @@ fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
     fi
     umask "$old_umask"
   fi
-  if ! fm_opencode_workspace_verify "$db" "$workspace"; then
-    got_name=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null | grep -m1 '/ OpenCode"' | sed 's/^ *//' 2>/dev/null)
+  fm_opencode_workspace_verify "$db" "$workspace"
+  verify_rc=$?
+  if [ "$verify_rc" -eq 0 ]; then
+    printf '%s\n' "$db"
+    return 0
+  fi
+  if [ "$verify_rc" -eq 1 ]; then
+    got_name=$(fm_opencode_config_name_once "$db" 2>/dev/null \
+      | sed 's/^ *//' 2>/dev/null)
     echo "error: $label OpenCode workspace pin resolves ${got_name:-an unknown workspace}, not '$workspace / OpenCode'; refusing the launch" >&2
     return 1
   fi
-  printf '%s\n' "$db"
+  echo "error: $label OpenCode workspace pin could not be verified: the workspace could not be read; refusing the launch" >&2
+  return 1
 }
 
 # fm_opencode_second_db [config-dir]: print the pinned database path,
