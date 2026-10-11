@@ -794,7 +794,7 @@ fn inspect_speeds(inspection: &serde_json::Value) -> Vec<(i64, i64, f64)> {
             ));
         }
     }
-    spans.sort_by(|a, b| a.0.cmp(&b.0));
+    spans.sort_by_key(|a| a.0);
     spans
 }
 

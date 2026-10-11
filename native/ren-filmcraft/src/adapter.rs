@@ -80,6 +80,12 @@
 //!   A reversed retime negates the numerator (-1/1): the sign is the
 //!   direction, and ren-core's tick math refuses negative rates loudly
 //!   rather than mapping them forwards.
+//! - Discrete-mono sources are dual-mono mapped, never left-only: a source
+//!   whose model audio streams all declare one channel imports stereo-paired
+//!   by the engine, so [`plan_dual_mono_mapping`] regroups its first channel
+//!   onto both outputs before placement; true-stereo and unknown-channel
+//!   sources keep engine behavior untouched, and anything unexpected about
+//!   the queried mapping refuses rather than guessing a channel index.
 //! - Resolve remains the finishing destination: `.fcproj` files are disposable
 //!   engine working artifacts, never Ren's database.
 
@@ -92,8 +98,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    BitrateMode, ExportFormat, HardwareEncoding, LossReport, Operation, TrimEdge, TrimMode,
-    FILMCRAFT_REVISION,
+    AudioChannelFormat, BitrateMode, ExportFormat, HardwareEncoding, LossReport, Operation,
+    TrimEdge, TrimMode, FILMCRAFT_REVISION,
 };
 
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
@@ -1805,6 +1811,128 @@ pub fn placement_operations(
         ));
     }
     Ok(operations)
+}
+
+/// Dual-mono channel mapping for discrete-mono sources.
+///
+/// Measured at the pinned revision: a source whose audio streams are discrete
+/// mono (the reel's 4x-mono MXF: dialogue, silence, ambience, ambience)
+/// imports grouped into stereo pairs (`[[0,1],[2,3]]`), and `timeline.place`
+/// carries the first pair onto the stereo master verbatim - dialogue left,
+/// digital silence right - while Resolve renders the same source dual-mono
+/// (dialogue on both channels). The engine expresses the Resolve presentation
+/// through `clip.audioChannels`: `stereo [[c,c]]` maps mono channel `c` to
+/// both outputs (measured: per-channel mean volumes match to 0.1 dB), and the
+/// placement keeps its two-clip video-plus-audio shape.
+///
+/// Pure: `current_mapping` is the `engine_response` of an [`Operation::AudioChannels`]
+/// query over the imported items. Returns `Some` exactly when every audio
+/// stream the model names for `asset_id` declares `metadata.channels == 1`
+/// (discrete mono, so no stereo image exists to preserve) and the engine's
+/// current mapping is not already that dual-mono single group; the remap keeps
+/// the first channel the placement would carry and duplicates it. Returns
+/// `None` for video-only assets, true-stereo or unknown-channel sources (the
+/// engine behavior stands - nothing is guessed), and sources the engine
+/// already maps dual-mono. A mapping document that names no entry for `item`
+/// or no channel groups refuses rather than guessing a channel index.
+///
+/// Call it between import and placement: query, plan, execute the returned
+/// operation when present, then place as usual.
+pub fn plan_dual_mono_mapping(
+    model: &ProjectModel,
+    asset_id: &str,
+    item: u64,
+    project: &Path,
+    current_mapping: &serde_json::Value,
+) -> Result<Option<Operation>> {
+    let audio: Vec<_> = model
+        .streams
+        .iter()
+        .filter(|s| {
+            s.asset_id.0 == asset_id
+                && s.metadata.get("codec_type").and_then(|v| v.as_str()) == Some("audio")
+        })
+        .collect();
+    if audio.is_empty() {
+        return Ok(None);
+    }
+    if audio
+        .iter()
+        .any(|s| s.metadata.get("channels").and_then(|v| v.as_u64()) != Some(1))
+    {
+        return Ok(None);
+    }
+    let entries = current_mapping
+        .get("items")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            invalid(format!(
+                "channel-mapping query for asset `{asset_id}` answers no `items` array; pass the `AudioChannels` query receipt straight through"
+            ))
+        })?;
+    let entry = entries
+        .iter()
+        .find(|e| e.get("item").and_then(|v| v.as_u64()) == Some(item))
+        .ok_or_else(|| {
+            invalid(format!(
+                "channel-mapping query names no entry for imported item {item} (asset `{asset_id}`); refusing to guess its channels"
+            ))
+        })?;
+    let groups: Vec<Vec<u64>> = entry
+        .get("clips")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            invalid(format!(
+                "channel-mapping entry for item {item} (asset `{asset_id}`) names no `clips` groups"
+            ))
+        })?
+        .iter()
+        .map(|g| {
+            g.as_array()
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "channel-mapping entry for item {item} (asset `{asset_id}`) carries a non-array channel group"
+                    ))
+                })?
+                .iter()
+                .map(|c| {
+                    c.as_u64().ok_or_else(|| {
+                        invalid(format!(
+                            "channel-mapping entry for item {item} (asset `{asset_id}`) carries a non-integer channel"
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<u64>>>()
+        })
+        .collect::<Result<Vec<Vec<u64>>>>()?;
+    let format = entry.get("format").and_then(|v| v.as_str()).unwrap_or("");
+    if groups.len() == 1
+        && groups[0].len() == 2
+        && groups[0][0] == groups[0][1]
+        && format.eq_ignore_ascii_case("stereo")
+    {
+        return Ok(None);
+    }
+    let channel = groups
+        .first()
+        .and_then(|g| g.first())
+        .copied()
+        .ok_or_else(|| {
+            invalid(format!(
+                "channel-mapping entry for item {item} (asset `{asset_id}`) names no channels to duplicate"
+            ))
+        })?;
+    let channel = u32::try_from(channel).map_err(|_| {
+        invalid(format!(
+            "channel-mapping entry for item {item} (asset `{asset_id}`) names channel {channel}, out of range"
+        ))
+    })?;
+    Ok(Some(Operation::AudioChannels {
+        project: project.into(),
+        items: vec![item],
+        format: Some(AudioChannelFormat::Stereo),
+        clips: Some(vec![vec![channel, channel]]),
+    }))
 }
 
 /// Reconcile engine-minted clip ids back onto stable Ren clip-use ids.
@@ -4206,6 +4334,117 @@ mod tests {
         assert!(
             matches!(err, AdapterError::Unsupported { ref code, .. } if code == "unsupported_role")
         );
+    }
+
+    fn model_with_audio_channels(channels: &[Option<u64>]) -> ProjectModel {
+        let mut model = minimal_model();
+        model
+            .streams
+            .retain(|s| s.metadata.get("codec_type").and_then(|v| v.as_str()) != Some("audio"));
+        for (index, channel_count) in channels.iter().enumerate() {
+            let mut metadata =
+                BTreeMap::from([("codec_type".to_owned(), serde_json::Value::from("audio"))]);
+            if let Some(count) = channel_count {
+                metadata.insert("channels".to_owned(), serde_json::Value::from(*count));
+            }
+            model
+                .streams
+                .push(ren_protocol::project_model::SourceStream {
+                    id: ren_protocol::project_model::StreamId(format!("stream-audio-{index}")),
+                    asset_id: ren_protocol::project_model::AssetId("asset-a".into()),
+                    stream_index: index as u32 + 1,
+                    clock_id: ren_protocol::project_model::ClockId("clock-source".into()),
+                    metadata,
+                });
+        }
+        model
+    }
+
+    fn mapping_of(item: u64, format: &str, clips: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"items": [{"item": item, "format": format, "clips": clips}]})
+    }
+
+    #[test]
+    fn dual_mono_mapping_fires_only_for_discrete_mono() {
+        let project = Path::new("test.fcproj");
+        // The reel shape: discrete-mono streams the engine stereo-paired.
+        let model = model_with_audio_channels(&[Some(1), Some(1), Some(1), Some(1)]);
+        let mapping = mapping_of(8, "Stereo", serde_json::json!([[0, 1], [2, 3]]));
+        let planned = plan_dual_mono_mapping(&model, "asset-a", 8, project, &mapping)
+            .unwrap()
+            .expect("discrete mono in a stereo pair must plan a remap");
+        assert_eq!(
+            planned,
+            Operation::AudioChannels {
+                project: project.into(),
+                items: vec![8],
+                format: Some(AudioChannelFormat::Stereo),
+                clips: Some(vec![vec![0, 0]]),
+            }
+        );
+        // Mono-regrouped discrete mono still collapses to the first channel.
+        let mapping = mapping_of(8, "Mono", serde_json::json!([[0], [1], [2], [3]]));
+        let planned = plan_dual_mono_mapping(&model, "asset-a", 8, project, &mapping)
+            .unwrap()
+            .expect("discrete mono in mono groups must plan a remap");
+        assert!(matches!(
+            planned,
+            Operation::AudioChannels {
+                format: Some(AudioChannelFormat::Stereo),
+                clips: Some(_),
+                ..
+            }
+        ));
+        // Already dual-mono is untouched.
+        let mapping = mapping_of(8, "Stereo", serde_json::json!([[0, 0]]));
+        assert!(
+            plan_dual_mono_mapping(&model, "asset-a", 8, project, &mapping)
+                .unwrap()
+                .is_none()
+        );
+        // True stereo keeps the engine behavior: no stereo image is collapsed.
+        let stereo = model_with_audio_channels(&[Some(2)]);
+        let mapping = mapping_of(8, "Stereo", serde_json::json!([[0, 1]]));
+        assert!(
+            plan_dual_mono_mapping(&stereo, "asset-a", 8, project, &mapping)
+                .unwrap()
+                .is_none()
+        );
+        // Unknown channel counts keep the engine behavior: nothing is guessed.
+        let unknown = model_with_audio_channels(&[None]);
+        assert!(
+            plan_dual_mono_mapping(&unknown, "asset-a", 8, project, &mapping)
+                .unwrap()
+                .is_none()
+        );
+        // Mixed mono-plus-stereo is not discrete mono: untouched.
+        let mixed = model_with_audio_channels(&[Some(1), Some(2)]);
+        assert!(
+            plan_dual_mono_mapping(&mixed, "asset-a", 8, project, &mapping)
+                .unwrap()
+                .is_none()
+        );
+        // Video-only assets name no audio to map.
+        let mut silent = model_with_audio_channels(&[]);
+        silent.streams.clear();
+        assert!(
+            plan_dual_mono_mapping(&silent, "asset-a", 8, project, &mapping)
+                .unwrap()
+                .is_none()
+        );
+        // A mapping document that cannot answer the channel question refuses.
+        for bad in [
+            serde_json::json!({"items": []}),
+            serde_json::json!({"items": [{"item": 9, "format": "Stereo", "clips": [[0, 1]]}]}),
+            serde_json::json!({"items": [{"item": 8, "format": "Stereo"}]}),
+            serde_json::json!({"items": [{"item": 8, "format": "Stereo", "clips": []}]}),
+            serde_json::json!({"items": [{"item": 8, "format": "Stereo", "clips": [[]]}]}),
+        ] {
+            assert!(
+                plan_dual_mono_mapping(&model, "asset-a", 8, project, &bad).is_err(),
+                "must refuse, got {bad}"
+            );
+        }
     }
 
     #[test]

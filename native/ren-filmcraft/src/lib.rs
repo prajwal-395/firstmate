@@ -220,6 +220,19 @@ pub enum Operation {
         track: String,
         gain_db: f64,
     },
+    /// Source channel mapping (`clip.audioChannels`). `items` are engine
+    /// source-item ids minted by the import receipt. With `format`/`clips`
+    /// omitted this is a read-only query answering the current mapping as
+    /// `{"items": [{"item": _, "format": _, "clips": _}]}`; with them set it regroups
+    /// the source channels (measured: a 4x-mono MXF imports as stereo pairs
+    /// `[[0,1],[2,3]]`, and `stereo [[0,0]]` maps the dialogue channel to
+    /// both outputs for a dual-mono export matching Resolve).
+    AudioChannels {
+        project: PathBuf,
+        items: Vec<u64>,
+        format: Option<AudioChannelFormat>,
+        clips: Option<Vec<Vec<u32>>>,
+    },
     /// Per-clip gain in dB (`clip.audioGain`, mode `set`). The engine
     /// follows clip links (measured: gaining a video item writes the
     /// linked audio item's `gainDb`), so addressing the use's first
@@ -432,6 +445,20 @@ pub enum ExportFormat {
 pub enum HardwareEncoding {
     Off,
     Auto,
+}
+
+/// Source channel grouping for `clip.audioChannels`, using the engine's own
+/// spellings (`commands --json` on the pinned revision).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AudioChannelFormat {
+    #[serde(rename = "mono")]
+    Mono,
+    #[serde(rename = "stereo")]
+    Stereo,
+    #[serde(rename = "5.1")]
+    Surround51,
+    #[serde(rename = "adaptive")]
+    Adaptive,
 }
 
 /// H264 rate control, spelled exactly as the pinned engine's
@@ -831,6 +858,50 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
                 "mixer.setValue",
                 json!({"strip":track,"lane":"volume","value":gain_db}),
                 true,
+            )
+        }
+        Operation::AudioChannels {
+            project,
+            items,
+            format,
+            clips,
+        } => {
+            if items.is_empty() {
+                return Err(Error::Schema(
+                    "audio channel mapping names no source items".into(),
+                ));
+            }
+            if let Some(groups) = clips.as_ref() {
+                if groups.is_empty() || groups.iter().any(Vec::is_empty) {
+                    return Err(Error::Schema(
+                        "audio channel mapping needs at least one group naming at least one channel (for example `[[0,0]]` for dual-mono)".into(),
+                    ));
+                }
+            }
+            let mut p = json!({"items": items});
+            if let Some(format) = format {
+                let name = match format {
+                    AudioChannelFormat::Mono => "mono",
+                    AudioChannelFormat::Stereo => "stereo",
+                    AudioChannelFormat::Surround51 => "5.1",
+                    AudioChannelFormat::Adaptive => "adaptive",
+                };
+                p["format"] = json!(name);
+            }
+            // The query form saves nothing: persisting a pure channel query
+            // changes what a later `timeline.place` mints (measured: 3 clips
+            // instead of 2 for a stereo-paired source), so only the regrouping
+            // set form saves, like every other mutating operation.
+            let saving = p.get("format").is_some() || clips.is_some();
+            if let Some(groups) = clips {
+                p["clips"] = json!(groups);
+            }
+            (
+                Some(project),
+                "audio_channels",
+                "clip.audioChannels",
+                p,
+                saving,
             )
         }
         Operation::ClipAudioGain {
@@ -1396,6 +1467,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
+        "clip.audioChannels" => &["items"],
         "captions.newTrack" => &["track"],
         "captions.add" => &["caption"],
         "captions.setTimes" => &["start", "end"],
@@ -1470,6 +1542,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => &["linked"],
         "sequence.applyVideoTransition" => &["transition"],
         "mixer.setValue" => &["value"],
+        "clip.audioChannels" => &["items"],
         "captions.newTrack" => &["track"],
         "captions.add" => &["caption"],
         "captions.setTimes" => &["start", "end"],
@@ -1509,6 +1582,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "clip.link" => value["linked"].is_boolean(),
         "sequence.applyVideoTransition" => value["transition"].is_u64(),
         "mixer.setValue" => value["value"].is_number(),
+        "clip.audioChannels" => value["items"].is_array(),
         "captions.newTrack" => value["track"].is_u64(),
         "captions.add" => value["caption"].is_u64(),
         "captions.setTimes" => value["start"].is_i64() && value["end"].is_i64(),
@@ -2198,6 +2272,80 @@ mod tests {
             effect: Some("cross_dissolve".into()),
         };
         assert!(plan(operation).is_ok());
+    }
+
+    #[test]
+    fn audio_channels_operations_validate_before_the_engine() {
+        // Empty item lists and empty channel groups refuse without a CLI call.
+        for operation in [
+            Operation::AudioChannels {
+                project: "x.fcproj".into(),
+                items: vec![],
+                format: Some(AudioChannelFormat::Stereo),
+                clips: Some(vec![vec![0, 0]]),
+            },
+            Operation::AudioChannels {
+                project: "x.fcproj".into(),
+                items: vec![8],
+                format: Some(AudioChannelFormat::Stereo),
+                clips: Some(vec![]),
+            },
+            Operation::AudioChannels {
+                project: "x.fcproj".into(),
+                items: vec![8],
+                format: Some(AudioChannelFormat::Mono),
+                clips: Some(vec![vec![]]),
+            },
+        ] {
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
+        // The query form (no format, no clips) plans: it reads the current
+        // mapping back rather than regrouping channels.
+        let (_, operation, command, params, saving) = plan(Operation::AudioChannels {
+            project: "x.fcproj".into(),
+            items: vec![8],
+            format: None,
+            clips: None,
+        })
+        .unwrap();
+        assert_eq!(operation, "audio_channels");
+        assert_eq!(command, "clip.audioChannels");
+        assert_eq!(params, json!({"items": [8]}));
+        assert!(!saving);
+        // The dual-mono set form carries the engine's own spellings,
+        // including `5.1` for surround.
+        let (_, _, _, params, saving) = plan(Operation::AudioChannels {
+            project: "x.fcproj".into(),
+            items: vec![8],
+            format: Some(AudioChannelFormat::Stereo),
+            clips: Some(vec![vec![0, 0]]),
+        })
+        .unwrap();
+        assert_eq!(
+            params,
+            json!({"items": [8], "format": "stereo", "clips": [[0, 0]]})
+        );
+        assert!(saving);
+        let (_, _, _, params, _) = plan(Operation::AudioChannels {
+            project: "x.fcproj".into(),
+            items: vec![8],
+            format: Some(AudioChannelFormat::Surround51),
+            clips: None,
+        })
+        .unwrap();
+        assert_eq!(params, json!({"items": [8], "format": "5.1"}));
+        // The query/set answers carry exactly `{"items": [...]}`.
+        assert!(validate_response_contract(
+            "clip.audioChannels",
+            &json!({"items": [{"item": 8, "format": "Stereo", "clips": [[0, 1], [2, 3]]}]}),
+        )
+        .is_ok());
+        assert!(validate_response_contract("clip.audioChannels", &json!({})).is_err());
+        assert!(validate_response_contract(
+            "clip.audioChannels",
+            &json!({"items": [], "extra": 1})
+        )
+        .is_err());
     }
 }
 
