@@ -1777,6 +1777,11 @@ def ingest_receipt(
                     "height": r["height"],
                     "frames": r["frames"],
                     "has_alpha": r["has_alpha"],
+                    # Recorded by native/ren-effectcraft from the engine's
+                    # own render.backend status; absent on older receipts.
+                    "backend": r.get("backend"),
+                    "adapter": r.get("adapter"),
+                    "backend_note": r.get("backend_note"),
                 }
                 for r in receipt["renders"]
             ],

@@ -19,3 +19,16 @@ ProRes 4444 renders use the RGBA channel request and are checked with `ffprobe` 
 format before a receipt is returned. Fixture coverage runs the real pinned CLI against a short
 animated alpha title, a committed checkerboard image, a per-frame track-matte sequence, and the
 Project Model E2E fixture's person mask against its own A-roll.
+
+GPU execution: each render carries a `gpu` preference (`cpu` by default, `auto` opt-in).
+`auto` passes `--gpu` to the pinned CLI and falls back to the CPU with the reason recorded when
+no GPU adapter is usable; `gpu` requires the GPU and refuses rather than rendering silently on
+the CPU. Every render receipt records the compositor the engine itself reports (`render.backend`'s
+`active`: `backend`, plus `adapter` and `backend_note`) - the request flag alone proves nothing,
+because a headless session without `--gpu` renders on the CPU even when the project reads Mercury
+GPU Acceleration. The CPU is the default on speed, not fidelity: on 1080x1920x48 of coast-broll
+footage under a grade (`ec.color.ociocdl`) plus the heaviest mapped family, `blur.gaussian`, the
+GPU agrees within 1 LSB (max channel delta 1 across all 48 frames, SSIM Y 1.000000, PSNR 102.7 dB
+average with worst frame 100.5 dB) but runs 4.1x slower (1.1 s CPU vs 4.5 s auto wall on Apple M5
+Metal, upload/readback dominating); see `tests/headless.rs::gpu_and_cpu_agree_on_treatment_pixels`
+for the small-range gate that keeps `auto` honest.

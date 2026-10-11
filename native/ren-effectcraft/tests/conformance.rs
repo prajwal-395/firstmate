@@ -139,6 +139,32 @@ fn projected_requests_parse_as_versioned_driver_requests() {
 }
 
 #[test]
+fn checked_in_requests_default_to_cpu() {
+    // The adapter never sent `--gpu` before the GPU wiring, so the engine
+    // default (CPU) always applied; the new preference parses as `Cpu` on
+    // old projections, preserving that behavior, with `Auto` opt-in.
+    for name in [
+        "request-masked.json",
+        "request-effect.json",
+        "request-title.json",
+        "request-matte.json",
+        "request-move-drift.json",
+        "request-move-punch.json",
+        "request-move-shake.json",
+        "request-move-cut.json",
+    ] {
+        let request = read_request(name);
+        for render in &request.renders {
+            assert_eq!(
+                render.gpu,
+                ren_effectcraft::GpuPreference::Cpu,
+                "{name} renders without a GPU preference parse as Cpu"
+            );
+        }
+    }
+}
+
+#[test]
 fn projected_operations_validate_against_the_pinned_registry() {
     let driver = Driver::resolve().expect("the pinned EffectCraft CLI is buildable");
     for name in [

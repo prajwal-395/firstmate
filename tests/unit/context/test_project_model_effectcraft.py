@@ -200,6 +200,32 @@ def test_ingest_records_render_frame_map_identity_and_receipt():
     assert asset["kind"] == "render"
 
 
+def test_ingest_passes_through_the_render_backend_recording():
+    model = _fixture("model-masked.json")
+    projection = ec.project_to_request(
+        model, _comp(), _renders(), project_id="ec-conformance-masked")
+    receipt = _receipt(projection)
+    receipt["renders"][0].update({
+        "backend": "gpu",
+        "adapter": "Apple M5 (Metal)",
+        "backend_note": None,
+    })
+    updated = ec.ingest_receipt(model, projection, receipt,
+                                input_revision="rev-1")
+    stored = next(r for r in updated["receipts"] if r["id"] == "receipt-ec-main")
+    assert stored["details"]["renders"][0]["backend"] == "gpu"
+    assert stored["details"]["renders"][0]["adapter"] == "Apple M5 (Metal)"
+    assert stored["details"]["renders"][0]["backend_note"] is None
+    # Receipts written before the backend recording stay ingestible and
+    # record nothing rather than a guess.
+    plain = ec.ingest_receipt(model, projection, _receipt(projection),
+                              input_revision="rev-1")
+    stored_plain = next(r for r in plain["receipts"] if r["id"] == "receipt-ec-main")
+    assert stored_plain["details"]["renders"][0]["backend"] is None
+    assert stored_plain["details"]["renders"][0]["adapter"] is None
+    assert stored_plain["details"]["renders"][0]["backend_note"] is None
+
+
 def test_ingest_refuses_mismatched_receipts_without_touching_the_model():
     model = _fixture("model-masked.json")
     projection = ec.project_to_request(

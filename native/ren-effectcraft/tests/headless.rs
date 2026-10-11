@@ -1,4 +1,6 @@
-use ren_effectcraft::{Driver, Operation, RenderFormat, RenderRequest, Request, TrackMatteKind};
+use ren_effectcraft::{
+    Driver, GpuPreference, Operation, RenderFormat, RenderRequest, Request, TrackMatteKind,
+};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -53,6 +55,7 @@ fn animated_title_exports_rgba_png_sequence_and_prores_4444_alpha() {
             output: temp.path().join("title_#####.png"),
             start_seconds: Some(0.0),
             end_seconds: Some(0.5),
+            gpu: GpuPreference::Cpu,
         },
         RenderRequest {
             format: RenderFormat::Prores4444Alpha,
@@ -60,6 +63,7 @@ fn animated_title_exports_rgba_png_sequence_and_prores_4444_alpha() {
             output: temp.path().join("title.mov"),
             start_seconds: Some(0.0),
             end_seconds: Some(0.5),
+            gpu: GpuPreference::Cpu,
         },
     ];
     let receipt = driver.execute(&request, temp.path()).unwrap();
@@ -150,6 +154,7 @@ fn imported_footage_accepts_mask_and_blur() {
         output: temp.path().join("masked_#####.png"),
         start_seconds: Some(0.0),
         end_seconds: Some(0.2),
+        gpu: GpuPreference::Cpu,
     });
     let receipt = driver.execute(&request, temp.path()).unwrap();
     assert!(receipt.project_file.is_file());
@@ -226,6 +231,7 @@ fn track_matte_sequence_masks_footage_per_frame() {
         output: temp.path().join("matted_#####.png"),
         start_seconds: Some(0.0),
         end_seconds: Some(0.2),
+        gpu: GpuPreference::Cpu,
     });
     let receipt = driver.execute(&request, temp.path()).unwrap();
     assert_eq!(receipt.renders[0].frames, Some(2));
@@ -284,6 +290,7 @@ fn huesaturation_renders_a_measured_saturation_shift() {
             output: temp.path().join(format!("{project}_#####.png")),
             start_seconds: Some(0.0),
             end_seconds: Some(0.1),
+            gpu: GpuPreference::Cpu,
         });
         driver.execute(&request, temp.path()).unwrap();
         image::open(temp.path().join(format!("{project}_00000.png")))
@@ -427,6 +434,7 @@ fn person_mask_matte_renders_source_exact_alpha() {
         output: temp.path().join("proof_#####.png"),
         start_seconds: Some(0.0),
         end_seconds: Some(frames as f64 / fps),
+        gpu: GpuPreference::Cpu,
     });
     let receipt = driver.execute(&request, temp.path()).unwrap();
     assert_eq!(receipt.renders[0].frames, Some(frames as u64));
@@ -497,4 +505,171 @@ fn unknown_effect_and_parameter_are_refused_before_engine_execution() {
         driver.validate_operation(&wrong_type),
         Err(ren_effectcraft::Error::ParameterType { .. })
     ));
+}
+
+/// An explicit CPU render records the CPU compositor with the engine's own
+/// reason - the receipt names what rendered, not what was asked for.
+#[test]
+fn explicit_cpu_render_records_cpu_with_engine_reason() {
+    let driver = driver();
+    let temp = tempfile::tempdir().unwrap();
+    let mut request = title_request("cpu-receipt-proof");
+    request.renders = vec![RenderRequest {
+        format: RenderFormat::RgbaPngSequence,
+        comp: "Main".into(),
+        output: temp.path().join("cpu_#####.png"),
+        start_seconds: Some(0.0),
+        end_seconds: Some(0.5),
+        gpu: GpuPreference::Cpu,
+    }];
+    let receipt = driver.execute(&request, temp.path()).unwrap();
+    assert_eq!(
+        receipt.renders[0].backend,
+        ren_effectcraft::RenderBackend::Cpu
+    );
+    assert_eq!(receipt.renders[0].adapter, None);
+    let note = receipt.renders[0]
+        .backend_note
+        .as_deref()
+        .expect("a CPU render records why");
+    assert!(
+        note.contains("renders on the CPU"),
+        "the note carries the engine's own reason, got: {note}"
+    );
+}
+
+/// The default (`Auto`) render records whichever compositor is active with
+/// the matching evidence: a GPU render names its adapter and carries no
+/// note, a CPU fallback names no adapter and carries the reason. Portable
+/// across GPU-less machines, where `Auto` falls back to the CPU.
+#[test]
+fn auto_render_records_whichever_compositor_is_active() {
+    let driver = driver();
+    let temp = tempfile::tempdir().unwrap();
+    let mut request = title_request("auto-receipt-proof");
+    request.renders = vec![RenderRequest {
+        format: RenderFormat::RgbaPngSequence,
+        comp: "Main".into(),
+        output: temp.path().join("auto_#####.png"),
+        start_seconds: Some(0.0),
+        end_seconds: Some(0.5),
+        gpu: GpuPreference::Auto,
+    }];
+    let receipt = driver.execute(&request, temp.path()).unwrap();
+    match receipt.renders[0].backend {
+        ren_effectcraft::RenderBackend::Gpu => {
+            assert!(
+                receipt.renders[0]
+                    .adapter
+                    .as_deref()
+                    .is_some_and(|a| !a.is_empty()),
+                "a GPU render names its adapter"
+            );
+            assert_eq!(receipt.renders[0].backend_note, None);
+        }
+        ren_effectcraft::RenderBackend::Cpu => {
+            assert_eq!(receipt.renders[0].adapter, None);
+            assert!(
+                receipt.renders[0].backend_note.is_some(),
+                "a CPU fallback records why"
+            );
+        }
+    }
+}
+
+/// Fidelity proof for opting into the GPU: the same short treatment range
+/// (footage under a blur plus a saturation shift) renders within one LSB on
+/// both compositors, so `Auto` changes no visible pixel. The bound is the
+/// engine's own agreement threshold: `bench --gpu`
+/// counts pixels differing by more than 1/255. Measured 2026-10-11 on Apple
+/// M5 (Metal): max channel diff 1 across 36 of 49,152 channel values, SSIM Y
+/// 0.999999, PSNR 83.0 dB average with worst frame 78.2 dB - inside the
+/// captain's GPU bar (SSIM >= 0.995, worst-frame PSNR >= 45 dB, the size of
+/// one accepted H.264 encode); wall 136 ms CPU vs 760 ms GPU for this
+/// tiny range, where upload/readback dominate (the engine's `AutoPick`
+/// exists for exactly this reason).
+#[test]
+fn gpu_and_cpu_agree_on_treatment_pixels() {
+    use std::time::Instant;
+    let driver = driver();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checker.bmp");
+    let render = |tag: &str, gpu: GpuPreference| {
+        let temp = tempfile::tempdir().unwrap();
+        let mut request = Request::new(format!("treatment-fidelity-{tag}"));
+        request.operations = vec![
+            Operation::NewComp {
+                name: "Main".into(),
+                width: 64,
+                height: 64,
+                frame_rate: 10.0,
+                duration: 0.3,
+            },
+            Operation::ImportFootage {
+                path: fixture.clone(),
+            },
+            Operation::AddFootageLayer {
+                footage: "checker.bmp".into(),
+                start_time: None,
+            },
+            Operation::ApplyEffect {
+                layer: "checker.bmp".into(),
+                effect_id: "ec.blur.gaussian".into(),
+                params: BTreeMap::from([("blurriness".into(), json!(6.0))]),
+            },
+            Operation::ApplyEffect {
+                layer: "checker.bmp".into(),
+                effect_id: "ec.color.huesaturation".into(),
+                params: BTreeMap::from([("saturation".into(), json!(-100.0))]),
+            },
+        ];
+        request.renders.push(RenderRequest {
+            format: RenderFormat::RgbaPngSequence,
+            comp: "Main".into(),
+            output: temp.path().join(format!("{tag}_#####.png")),
+            start_seconds: Some(0.0),
+            end_seconds: Some(0.3),
+            gpu,
+        });
+        let started = Instant::now();
+        let receipt = driver.execute(&request, temp.path()).unwrap();
+        let wall_ms = started.elapsed().as_secs_f64() * 1e3;
+        let frames: Vec<image::RgbaImage> = (0..3)
+            .map(|f| {
+                image::open(temp.path().join(format!("{tag}_{f:05}.png")))
+                    .unwrap()
+                    .to_rgba8()
+            })
+            .collect();
+        (receipt, frames, wall_ms, temp)
+    };
+    let (cpu_receipt, cpu_frames, cpu_ms, _cpu_dir) = render("cpu", GpuPreference::Cpu);
+    let (gpu_receipt, gpu_frames, gpu_ms, _gpu_dir) = render("gpu", GpuPreference::Auto);
+    eprintln!("treatment range wall time: cpu {cpu_ms:.0} ms, gpu {gpu_ms:.0} ms");
+    assert_eq!(cpu_receipt.renders[0].frames, Some(3));
+    assert_eq!(gpu_receipt.renders[0].frames, Some(3));
+    assert_eq!(
+        cpu_receipt.renders[0].backend,
+        ren_effectcraft::RenderBackend::Cpu
+    );
+    let mut max_diff = 0u8;
+    let mut differing = 0u64;
+    for (cpu, gpu) in cpu_frames.iter().zip(gpu_frames.iter()) {
+        for (p, q) in cpu.pixels().zip(gpu.pixels()) {
+            for c in 0..4 {
+                let d = p[c].abs_diff(q[c]);
+                max_diff = max_diff.max(d);
+                if d != 0 {
+                    differing += 1;
+                }
+            }
+        }
+    }
+    eprintln!(
+        "treatment range pixel agreement: max channel diff {max_diff}, {differing} differing channel values"
+    );
+    assert!(
+        max_diff <= 1,
+        "the GPU compositor must reproduce the CPU reference pixels within 1 LSB on the treatment range, got max diff {max_diff}"
+    );
+    let _ = gpu_receipt;
 }

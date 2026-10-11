@@ -153,6 +153,39 @@ pub struct RenderRequest {
     pub output: PathBuf,
     pub start_seconds: Option<f64>,
     pub end_seconds: Option<f64>,
+    /// Which compositor may render this output. `Cpu` (the default) renders
+    /// on the CPU reference compositor; `Auto` asks the pinned CLI for GPU
+    /// execution (`--gpu`) and falls back to the CPU with the engine's
+    /// reason when no GPU adapter exists; `Gpu` requires the GPU and refuses
+    /// rather than rendering silently on the CPU. Requests written before
+    /// this wiring parse as `Cpu`, preserving the previous behavior (the
+    /// adapter never sent `--gpu`, so the engine default always applied).
+    /// The CPU is the default because GPU execution is slower at delivery
+    /// size on current hardware (measured 4.1x on 1080x1920x48, see
+    /// README); `Auto` stays one flag away for callers whose range favors
+    /// it. Fidelity is not the reason: the GPU agrees within 1 LSB.
+    #[serde(default)]
+    pub gpu: GpuPreference,
+}
+
+/// Which compositor a render may use.
+///
+/// EffectCraft's headless session renders on the CPU unless started with
+/// `--gpu`, even when the project's renderer reads Mercury GPU
+/// Acceleration (the default): the label alone proves nothing, so the
+/// adapter reads `render.backend`'s `active` back after every render and
+/// records it on the receipt.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuPreference {
+    /// Render on the CPU reference compositor.
+    #[default]
+    Cpu,
+    /// Ask for GPU execution; fall back to CPU with the reason recorded
+    /// when no GPU adapter is usable.
+    Auto,
+    /// Require GPU execution; refuse rather than render on the CPU.
+    Gpu,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -206,6 +239,41 @@ pub struct RenderReceipt {
     pub height: u32,
     pub frames: Option<u64>,
     pub has_alpha: bool,
+    /// The compositor that actually rendered, read back from the pinned
+    /// engine's own `render.backend` status (`active`) after the render -
+    /// never inferred from the request flag. Defaults to `Cpu` so receipts
+    /// written before this wiring never claim a GPU render.
+    #[serde(default)]
+    pub backend: RenderBackend,
+    /// The GPU adapter the engine named (e.g. "Apple M5 (Metal)"); `None`
+    /// on CPU renders.
+    #[serde(default)]
+    pub adapter: Option<String>,
+    /// Why a CPU render ran on the CPU, in the engine's own words
+    /// (`render.backend`'s `why`), prefixed with the CLI's unavailability
+    /// reason when `Auto` fell back; `None` on GPU renders.
+    #[serde(default)]
+    pub backend_note: Option<String>,
+}
+
+/// The compositor EffectCraft reports it actually rendered on.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderBackend {
+    #[default]
+    Cpu,
+    Gpu,
+}
+
+/// What the pinned engine's `render.backend` status reports: which
+/// compositor is active, on which adapter, and why it is the CPU when it is.
+/// The `renderer` label is deliberately not kept: it reads Mercury GPU
+/// Acceleration by default even while frames render on the CPU.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BackendStatus {
+    active_is_gpu: bool,
+    adapter: Option<String>,
+    why: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -527,10 +595,41 @@ impl Driver {
             args.extend(["--end".into(), e.to_string()]);
         }
         args.extend(extra);
+        // Ask for GPU execution unless the render pins the CPU. A bare
+        // `--gpu` proves nothing on its own - the session can still render
+        // on the CPU - so the receipt below records `render.backend`'s own
+        // `active` verdict, not this flag.
+        let want_gpu = !matches!(request.gpu, GpuPreference::Cpu);
+        let mut gpu_args = args.clone();
+        gpu_args.insert(1, "--gpu".into());
+        gpu_args.push("--json".into());
         args.push("--json".into());
-        let out = invoke(&self.cli, &args)?;
-        if !out.status.success() {
-            return Err(Error::Cli(json_error(&out)));
+        let mut fallback_note: Option<String> = None;
+        let used_gpu;
+        if want_gpu {
+            let out = invoke(&self.cli, &gpu_args)?;
+            if out.status.success() {
+                used_gpu = true;
+            } else if matches!(request.gpu, GpuPreference::Auto)
+                && is_gpu_unavailable(&json_error(&out))
+            {
+                // No usable adapter: the GPU was never attempted, so the
+                // CPU render below is a clean fallback, not a mixed render.
+                fallback_note = Some(json_error(&out));
+                let out = invoke(&self.cli, &args)?;
+                if !out.status.success() {
+                    return Err(Error::Cli(json_error(&out)));
+                }
+                used_gpu = false;
+            } else {
+                return Err(Error::Cli(json_error(&out)));
+            }
+        } else {
+            let out = invoke(&self.cli, &args)?;
+            if !out.status.success() {
+                return Err(Error::Cli(json_error(&out)));
+            }
+            used_gpu = false;
         }
         let (probe_path, png) = match request.format {
             RenderFormat::RgbaPngSequence => (first_sequence_frame(&request.output), true),
@@ -550,6 +649,9 @@ impl Driver {
                 probe_path.display()
             )));
         }
+        let status = self.probe_backend(project, used_gpu)?;
+        let (backend, adapter, backend_note) =
+            interpret_backend(request.gpu, &status, fallback_note.as_deref())?;
         Ok(RenderReceipt {
             format: request.format.clone(),
             path: request.output.clone(),
@@ -557,8 +659,78 @@ impl Driver {
             height,
             frames,
             has_alpha,
+            backend,
+            adapter,
+            backend_note,
         })
     }
+
+    /// Read back which compositor the pinned engine has active for this
+    /// project: `exec render.backend` with `--gpu` exactly when the render
+    /// used it, so the verdict describes the render's own session.
+    fn probe_backend(&self, project: &Path, use_gpu: bool) -> Result<BackendStatus, Error> {
+        let mut args = vec![
+            "exec".into(),
+            "render.backend".into(),
+            "{}".into(),
+            "--project".into(),
+            project.to_string_lossy().into_owned(),
+        ];
+        if use_gpu {
+            args.push("--gpu".into());
+        }
+        args.push("--json".into());
+        let out = invoke(&self.cli, &args)?;
+        if !out.status.success() {
+            return Err(Error::Cli(json_error(&out)));
+        }
+        let value: Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| Error::Protocol(format!("render.backend returned invalid JSON: {e}")))?;
+        let active = value["active"].as_str().ok_or_else(|| {
+            Error::Protocol("render.backend omitted which compositor is active".into())
+        })?;
+        Ok(BackendStatus {
+            active_is_gpu: active == "gpu",
+            adapter: value["adapter"].as_str().map(str::to_owned),
+            why: value["why"].as_str().map(str::to_owned),
+        })
+    }
+}
+
+/// The pinned CLI reports a missing GPU adapter as
+/// `--gpu: no usable GPU adapter (...)`, from both the render session and
+/// the benchmark path. Only that pre-render refusal falls back to the CPU;
+/// any other GPU failure is a real render error and stays loud.
+fn is_gpu_unavailable(message: &str) -> bool {
+    message.contains("no usable GPU adapter")
+}
+
+/// Record what the engine says actually rendered. `Gpu` (strict) refuses a
+/// CPU verdict instead of writing a receipt that claims a GPU render;
+/// `Auto` records the fallback reason together with the engine's own `why`.
+fn interpret_backend(
+    preference: GpuPreference,
+    status: &BackendStatus,
+    fallback: Option<&str>,
+) -> Result<(RenderBackend, Option<String>, Option<String>), Error> {
+    if status.active_is_gpu {
+        return Ok((RenderBackend::Gpu, status.adapter.clone(), None));
+    }
+    if matches!(preference, GpuPreference::Gpu) {
+        return Err(Error::Cli(format!(
+            "requested GPU execution but EffectCraft reports this render ran on the CPU ({}); refusing a silent CPU render",
+            status.why.as_deref().unwrap_or("no reason given"),
+        )));
+    }
+    let why = status
+        .why
+        .clone()
+        .unwrap_or_else(|| "the engine reports the CPU compositor is active".into());
+    let note = match fallback {
+        Some(reason) => format!("{reason}; rendered on CPU ({why})"),
+        None => why,
+    };
+    Ok((RenderBackend::Cpu, None, Some(note)))
 }
 
 fn safe_name(s: &str) -> String {
@@ -978,4 +1150,113 @@ fn locate_or_build_cli_locked() -> Result<PathBuf, Error> {
         ));
     }
     Ok(binary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requests_without_a_gpu_preference_parse_as_cpu() {
+        let request: Request = serde_json::from_str(
+            r#"{"version":1,"project_id":"p","operations":[],"renders":[{"format":"rgba_png_sequence","comp":"Main","output":"f_#####.png","start_seconds":0.0,"end_seconds":0.1}]}"#,
+        )
+        .expect("requests written before the GPU wiring still parse");
+        assert_eq!(request.renders.len(), 1);
+        assert_eq!(request.renders[0].gpu, GpuPreference::Cpu);
+    }
+
+    #[test]
+    fn receipts_without_backend_fields_parse_as_cpu_without_claims() {
+        let receipt: Receipt = serde_json::from_str(
+            r#"{"version":1,"project_id":"p","upstream_revision":"r","engine_version":"0.7.0","project_file":"p.ecproj","renders":[{"format":"rgba_png_sequence","path":"f_00000.png","width":32,"height":32,"frames":1,"has_alpha":true}]}"#,
+        )
+        .expect("receipts written before the GPU wiring still parse");
+        assert_eq!(receipt.renders[0].backend, RenderBackend::Cpu);
+        assert_eq!(receipt.renders[0].adapter, None);
+        assert_eq!(receipt.renders[0].backend_note, None);
+    }
+
+    #[test]
+    fn only_the_missing_adapter_refusal_falls_back() {
+        assert!(is_gpu_unavailable(
+            "--gpu: no usable GPU adapter (no adapters found)"
+        ));
+        assert!(!is_gpu_unavailable("renderQueue.render: out of memory"));
+        assert!(!is_gpu_unavailable(""));
+        assert!(!is_gpu_unavailable(
+            "effect.apply: unknown effect `ec.blur.gaussian`"
+        ));
+    }
+
+    fn gpu_status() -> BackendStatus {
+        BackendStatus {
+            active_is_gpu: true,
+            adapter: Some("Apple M5 (Metal)".into()),
+            why: None,
+        }
+    }
+
+    fn cpu_status() -> BackendStatus {
+        BackendStatus {
+            active_is_gpu: false,
+            adapter: None,
+            why: Some("headless: renders on the CPU unless started with --gpu".into()),
+        }
+    }
+
+    #[test]
+    fn gpu_verdict_records_the_adapter_without_a_note() {
+        for preference in [GpuPreference::Auto, GpuPreference::Cpu, GpuPreference::Gpu] {
+            let (backend, adapter, note) =
+                interpret_backend(preference, &gpu_status(), None).unwrap();
+            assert_eq!(backend, RenderBackend::Gpu);
+            assert_eq!(adapter.as_deref(), Some("Apple M5 (Metal)"));
+            assert_eq!(note, None);
+        }
+    }
+
+    #[test]
+    fn cpu_verdict_records_the_engine_reason() {
+        let (backend, adapter, note) =
+            interpret_backend(GpuPreference::Cpu, &cpu_status(), None).unwrap();
+        assert_eq!(backend, RenderBackend::Cpu);
+        assert_eq!(adapter, None);
+        assert_eq!(
+            note.as_deref(),
+            Some("headless: renders on the CPU unless started with --gpu")
+        );
+    }
+
+    #[test]
+    fn auto_fallback_combines_the_refusal_with_the_engine_reason() {
+        let (backend, adapter, note) = interpret_backend(
+            GpuPreference::Auto,
+            &cpu_status(),
+            Some("--gpu: no usable GPU adapter (no adapters found)"),
+        )
+        .unwrap();
+        assert_eq!(backend, RenderBackend::Cpu);
+        assert_eq!(adapter, None);
+        let note = note.expect("a fallback records why");
+        assert!(note.contains("no usable GPU adapter"), "{note}");
+        assert!(note.contains("renders on the CPU"), "{note}");
+    }
+
+    #[test]
+    fn strict_gpu_refuses_a_silent_cpu_render() {
+        let err = interpret_backend(GpuPreference::Gpu, &cpu_status(), None).unwrap_err();
+        assert!(
+            err.to_string().contains("ran on the CPU"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn cpu_verdict_without_a_reason_still_says_something() {
+        let mut status = cpu_status();
+        status.why = None;
+        let (_, _, note) = interpret_backend(GpuPreference::Auto, &status, None).unwrap();
+        assert!(note.is_some());
+    }
 }
