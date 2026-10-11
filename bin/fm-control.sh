@@ -721,12 +721,38 @@ do_exit() {
       ;;
     alive) ;;
     missing)
-      # The endpoint is authoritatively gone. When called as part of a relaunch,
-      # this is a valid outcome: the agent is definitely not running. When
-      # called standalone (exit verb), the verb maps this back to the refusal
-      # below - there is nothing to stop.
-      printf 'already-stopped-missing'
-      return 0
+      # `missing` on its own is not a finding about the endpoint: it conflates
+      # "destroyed" with "unreachable from this seat". Route it through the
+      # control plane's one absence proof - the same one the relaunch gate uses
+      # - and report what that proof actually established, never more.
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      case "${absence%%$'\t'*}" in
+        gone)
+          # Proven gone, so the agent that lived in it went with it: exit's
+          # postcondition already holds and there is nothing to send. Its own
+          # outcome rather than `already-stopped`, because the endpoint this
+          # verb normally preserves did not survive. The worktree and every
+          # uncommitted change are untouched, and `relaunch` re-creates the
+          # endpoint from here.
+          printf 'endpoint-gone'
+          return 0
+          ;;
+        dead)
+          # The endpoint was only unreachable and is there after all, holding
+          # no agent - a herdr pane whose session server was merely stopped is
+          # the common case. Nothing is gone, so this is the ordinary
+          # already-stopped outcome.
+          printf 'already-stopped'
+          return 0
+          ;;
+        alive)
+          # The agent came back with its endpoint. Fall through to the ordinary
+          # alive path: interrupt if busy, then the harness's exit command.
+          ;;
+        *)
+          die "task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one"
+          ;;
+      esac
       ;;
     *)
       die_endpoint_evidence "$state" "stopping it"
@@ -1438,11 +1464,6 @@ case "$VERB" in
     ;;
   exit)
     result=$(do_exit)
-    case "$result" in
-      already-stopped-missing)
-        die "task $ID's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action"
-        ;;
-    esac
     # The stop is verified; declare the endpoint agent-free BY DESIGN so
     # supervision has something to read other than an empty endpoint, which is
     # byte-identical to the one a worker that died on its own leaves behind.
