@@ -422,6 +422,15 @@ map_log_state() {  # <line>
 }
 
 LOG_LINE=$(status_current_line "$LOG" "$KIND")
+# A log predating this incarnation's publication is not this crew's: after a
+# relaunch the log still ends with the previous incarnation's last line until
+# the replacement appends its own, and reading it would misattribute the old
+# verdict to the new worker. Open decisions included: none of a stale file is
+# current. log_last_line owns that freshness proof (spawned_at= content, else
+# the record file's own mtime).
+if ! log_last_line >/dev/null 2>&1; then
+  LOG_LINE=
+fi
 LOG_VERB=$(status_line_verb "$LOG_LINE")
 
 # --- remote secondmate: the true source is the remote endpoint ---------------
