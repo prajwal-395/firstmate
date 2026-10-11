@@ -995,6 +995,12 @@ version_parts_at_least() {  # <major minor patch> <min-version>
   [ "$patch" -ge "$min_patch" ]
 }
 
+tool_version_at_least() {  # <tool> <min-version>
+  local parts
+  parts=$(tool_version_parts "$1") || return 1
+  version_parts_at_least "$parts" "$2"
+}
+
 # Extract the installed major.minor.patch version string from a tool's --version
 # output using the same parse rules as tool_version_at_least. Prints the version
 # on stdout and returns 0 when a valid triple is found, or prints nothing and

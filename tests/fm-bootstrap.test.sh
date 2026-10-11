@@ -310,10 +310,10 @@ treehouse --lease support is accepted silently^1^0.2.6^1^manual^empty^^
 treehouse without --lease reports an upgrade, gh auth is fine^0^0.2.6^1^-^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^NEEDS_GH_AUTH
 compatible tasks-axi is silent by default^1^0.2.6^1^-^empty^^
 missing tasks-axi is required by default^1^-^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-incompatible tasks-axi reports an upgrade^1^0.1.0^1^-^exact^UPGRADE: tasks-axi (installed: 0.1.0, required: 0.2.4, upgrade: npm install -g tasks-axi)^
-tasks-axi without archive-body reports an upgrade^1^0.2.4:noarchive^1^-^exact^UPGRADE: tasks-axi (installed: 0.2.4, required: 0.2.4, upgrade: npm install -g tasks-axi)^
-tasks-axi without multi-id mv reports an upgrade^1^0.2.4:nomulti^1^-^exact^UPGRADE: tasks-axi (installed: 0.2.4, required: 0.2.4, upgrade: npm install -g tasks-axi)^
-missing quota-axi is required by default^1^0.2.4^0^manual^exact^MISSING: quota-axi (install: npm install -g quota-axi)^
+incompatible tasks-axi reports an upgrade^1^0.1.0^1^-^exact^UPGRADE: tasks-axi (installed: 0.1.0, required: 0.2.6, upgrade: npm install -g tasks-axi)^
+tasks-axi without archive-body reports an upgrade^1^0.2.6:noarchive^1^-^exact^UPGRADE: tasks-axi (installed: 0.2.6, required: 0.2.6, upgrade: npm install -g tasks-axi)^
+tasks-axi without multi-id mv reports an upgrade^1^0.2.6:nomulti^1^-^exact^UPGRADE: tasks-axi (installed: 0.2.6, required: 0.2.6, upgrade: npm install -g tasks-axi)^
+missing quota-axi is required by default^1^0.2.6^0^manual^exact^MISSING: quota-axi (install: npm install -g quota-axi)^
 manual backlog backend still requires missing tasks-axi^1^-^1^manual^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
 manual backlog backend suppresses tasks-axi availability^1^0.2.6^1^manual^empty^^
 ROWS
@@ -452,19 +452,19 @@ test_tasks_axi_min_version() {
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
       upgrade)
-        upgrade="UPGRADE: tasks-axi (installed: $expected_ver, required: 0.2.4, upgrade: npm install -g tasks-axi)"
+        upgrade="UPGRADE: tasks-axi (installed: $expected_ver, required: 0.2.6, upgrade: npm install -g tasks-axi)"
         [ "$out" = "$upgrade" ] || fail "$label: expected '$upgrade', got: $out" ;;
     esac
   done <<'ROWS'
-minimum tasks-axi version is accepted^0.2.4^^empty
-newer tasks-axi patch is accepted^0.2.5^^empty
+minimum tasks-axi version is accepted^0.2.6^^empty
+newer tasks-axi patch is accepted^0.2.7^^empty
 newer tasks-axi minor is accepted^0.3.0^^empty
 newer tasks-axi major is accepted^1.0.0^^empty
 older tasks-axi with features reports an upgrade^0.1.1^0.1.1^upgrade
-the patch just below the floor reports an upgrade^0.2.3^0.2.3^upgrade
+the patch just below the floor reports an upgrade^0.2.5^0.2.5^upgrade
 unparseable tasks-axi version reports an upgrade^tasks-axi development build^unknown^upgrade
-tasks-axi at floor without archive-body reports an upgrade^0.2.4:noarchive^0.2.4^upgrade
-tasks-axi at floor without multi-id reports an upgrade^0.2.4:nomulti^0.2.4^upgrade
+tasks-axi at floor without archive-body reports an upgrade^0.2.6:noarchive^0.2.6^upgrade
+tasks-axi at floor without multi-id reports an upgrade^0.2.6:nomulti^0.2.6^upgrade
 ROWS
   pass "bootstrap enforces tasks-axi minimum version"
 }
