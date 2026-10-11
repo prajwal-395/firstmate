@@ -270,8 +270,12 @@ test_unpushed_ci_ready_done_is_not_published() {
   git -C "$MATE/projects/child" commit -q --allow-empty -m 'only in the copy'
   grep -v '^pr=\|^pr_head=' "$MATE/state/child.meta" > "$MATE/state/child.meta.tmp"
   mv "$MATE/state/child.meta.tmp" "$MATE/state/child.meta"
+  # write_child pre-seeds the prior-escalation line the gate needs; the
+  # unpushed done: must add no outcome line past it.
+  before=$(cat "$MAIN/state/mate.status" 2>/dev/null || true)
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
-  [ ! -s "$MAIN/state/mate.status" ] || fail "unpushed CI-ready done: was published upstream"
+  [ "$(cat "$MAIN/state/mate.status" 2>/dev/null || true)" = "$before" ] \
+    || fail "unpushed CI-ready done: was published upstream"
   [ "$(outcome_count "$MATE" reported)" = 0 ] || fail "unpushed CI-ready done: left a delivery receipt"
   pass "unpushed CI-ready ship done: is not published upstream"
 }
@@ -353,7 +357,9 @@ SH
       sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" \
         | grep -Fq "$terminal [key=$key]: child child $terminal: validation finished" \
         || fail "$terminal with trailing prose arriving $timing state read was lost: $(cat "$MAIN/state/mate.status" 2>/dev/null)"
-      [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 1 ] \
+      # write_child pre-seeds the prior-escalation line the gate needs; the
+      # outcome itself must appear exactly once past it.
+      [ "$(sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -c "$terminal \[key=$key\]:" || true)" = 1 ] \
         || fail "$terminal with trailing prose arriving $timing state read was delivered twice"
       [ "$(outcome_count "$MATE" reported)" = 1 ] \
         || fail "multiline $terminal outcome did not retain exactly one receipt"
@@ -377,7 +383,9 @@ test_secondmate_unterminated_prose_reports_run_outcome() {
   [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "the fallback report did not retain its receipt"
   age "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 1 ] \
+  # write_child pre-seeds the prior-escalation line the gate needs; the
+  # fallback outcome itself must appear exactly once past it.
+  [ "$(grep -c 'inactive-outcome-mate-child-failed' "$MAIN/state/mate.status" 2>/dev/null || true)" = 1 ] \
     || fail "the proven failure was reported twice"
   pass "an unterminated continuation line does not withhold a proven child outcome"
 }
@@ -398,7 +406,7 @@ test_inactive_receipt_ignores_later_status_prose() {
   printf 'working: still tidying\n' >> "$MATE/state/child.status"
   age "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 1 ] \
+  [ "$(grep -c 'inactive-outcome-mate-child-failed' "$MAIN/state/mate.status" 2>/dev/null || true)" = 1 ] \
     || fail "changed status prose minted a duplicate parent event: $(cat "$MAIN/state/mate.status")"
   [ "$(outcome_count "$MATE" reported)" = 1 ] \
     || fail "changed status prose created a second terminal receipt"
@@ -545,6 +553,9 @@ test_terminal_line_after_inactive_delivery_is_not_reported_twice() {
 
   printf 'done: completion landed after reconciliation\n' >> "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE"
+  # write_child pre-seeds one prior-escalation line: seed + the single
+  # fallback rendering (the ledger claim suppresses a second publication of
+  # the same completion).
   [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 2 ] \
     || fail "one completion was published by both inactive and ledger paths: $(cat "$MAIN/state/mate.status")"
   [ "$(outcome_count "$MATE" reported)" = 2 ] \
@@ -552,6 +563,7 @@ test_terminal_line_after_inactive_delivery_is_not_reported_twice() {
 
   printf 'working: retrying after completion\ndone: completed again\n' >> "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE"
+  # Seed line plus the fallback and the new ledger delivery.
   [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 3 ] \
     || fail "the inactive claim suppressed a later same-state terminal event: $(cat "$MAIN/state/mate.status")"
   grep -Fq 'child child done: completed again' "$MAIN/state/mate.status" \
@@ -599,7 +611,9 @@ test_secondmate_partial_ledger_line_waits_for_newline() {
   printf 'done: half writ' >> "$MATE/state/child.status"
   age "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  [ ! -s "$MAIN/state/mate.status" ] \
+  # write_child pre-seeds the prior-escalation line the gate needs; the
+  # unterminated line must add no outcome past it.
+  [ "$(grep -c 'child-outcome-' "$MAIN/state/mate.status" 2>/dev/null || true)" = 0 ] \
     || fail "an unterminated ledger line was delivered: $(cat "$MAIN/state/mate.status")"
   printf 'ten\n' >> "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
@@ -607,7 +621,7 @@ test_secondmate_partial_ledger_line_waits_for_newline() {
   sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fq "done [key=$key]: child child done: half written" \
     || fail "the completed line was not delivered once its newline landed"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  [ "$(wc -l < "$MAIN/state/mate.status" | tr -d ' ')" = 1 ] \
+  [ "$(grep -c 'child-outcome-' "$MAIN/state/mate.status" 2>/dev/null || true)" = 1 ] \
     || fail "completing the partial line delivered the outcome twice"
   pass "a ledger line still being appended waits for its newline"
 }
@@ -681,7 +695,7 @@ test_report_ignores_teardown_bookkeeping_tail() {
     >> "$MATE/state/child.status"
   run_report "$MATE" child || fail "report refused a deliverable ledger line past teardown bookkeeping"
   key=$(reported_outcome_key "$MATE" child 'done') || fail "report receipt key missing"
-  grep -Fq "done [key=$key]: child child done: final word" "$MAIN/state/mate.status" \
+  sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fq "done [key=$key]: child child done: final word" \
     || fail "report did not deliver the child's final line past teardown bookkeeping"
   run_report "$MATE" child || fail "report did not treat the delivered line as owed nothing"
   [ "$(grep -c 'child-outcome-child-done' "$MAIN/state/mate.status")" = 1 ] \

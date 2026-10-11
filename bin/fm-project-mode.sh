@@ -111,52 +111,85 @@ if [ ! -f "$REG" ]; then
   exit 0
 fi
 
-# awk emits "<mode> <yolo>" (one line) or "NOT_FOUND: name1 name2 ..." if the project is absent.
+# awk emits "posture <mode> <yolo> <forge> <branch>" and any "near <token>"
+# warnings (one line each), or nothing if the project is absent.
 parsed=$(awk -v n="$NAME" '
-  BEGIN { found=0; total_names=0 }
-  /^-[ \t]/ && ($3 ~ /^\[/ || $0 ~ /\(added [0-9]{4}-[0-9]{2}-[0-9]{2}\)/) {
-    num = split($2, names, ",");
-    for (i=1; i<=num; i++) {
-      all_names[++total_names] = names[i]
-      if (names[i] == n && !found) {
-        found=1;
-        mode="no-mistakes"; yolo="off";
-        if ($3 ~ /^\[/) {
-          s="";
-          for (j=3; j<=NF; j++) { s = s (s==""?"":" ") $j; if ($j ~ /\]$/) break }
-          gsub(/^\[|\]$/, "", s);           # strip the surrounding brackets
-          k = split(s, a, " ");
-          if (a[1] != "" && a[1] != "+yolo") mode = a[1];
-          for (l=1; l<=k; l++) if (a[l]=="+yolo") yolo="on";
-        }
-      }
+  function dist(x, y,   i, j, lx, ly, d, c, v) {
+    lx = length(x); ly = length(y);
+    for (i=0; i<=lx; i++) d[i,0] = i;
+    for (j=0; j<=ly; j++) d[0,j] = j;
+    for (i=1; i<=lx; i++) for (j=1; j<=ly; j++) {
+      c = (substr(x,i,1) == substr(y,j,1)) ? 0 : 1;
+      v = d[i-1,j] + 1;
+      if (d[i,j-1] + 1 < v) v = d[i,j-1] + 1;
+      if (d[i-1,j-1] + c < v) v = d[i-1,j-1] + c;
+      d[i,j] = v;
     }
+    return d[lx,ly];
   }
-  END {
-    if (found) {
-      print mode, yolo;
-    } else {
-      printf "NOT_FOUND:";
-      for (i=1; i<=total_names; i++) {
-        printf " %s", all_names[i];
+  {
+    # Whole-name match on the raw line text (never a regex, so a name
+    # containing dots or brackets is compared literally): the line must start
+    # with "- " followed by n as one comma-separated element of the row
+    # name list ("- a,b [mode]" answers for both a and b), and the text right
+    # after the name list must be empty, or start with " [" or " - ", so a
+    # name that is a leading prefix of a longer registered name does not
+    # match that longer row.
+    if (substr($0, 1, 2) != "- ") next
+    restline = substr($0, 3)
+    nl_end = length(restline) + 1
+    i1 = index(restline, " ["); if (i1 > 0 && i1 < nl_end) nl_end = i1
+    i2 = index(restline, " - "); if (i2 > 0 && i2 < nl_end) nl_end = i2
+    names = substr(restline, 1, nl_end - 1)
+    after = substr(restline, nl_end)
+    matched = 0
+    nn = split(names, narr, ",")
+    for (i = 1; i <= nn; i++) if (narr[i] == n) matched = 1
+    if (!matched) next
+    mode="no-mistakes"; yolo="off"; branch="fm/"; forge="none";
+    if (substr(after, 1, 2) == " [") {
+      s="";
+      nk = split(after, rest, " ");
+      for (i=1; i<=nk; i++) { s = s (s==""?"":" ") rest[i]; if (rest[i] ~ /\]$/) break }
+      gsub(/^\[|\]$/, "", s);           # strip the surrounding brackets
+      k = split(s, a, " ");
+      # Tokens are order-independent: +yolo, branch=<prefix>, and forge=<value>
+      # are recognized by their own shape wherever they appear, keyed tokens
+      # that are neither are ignored (with a near-miss warning for the forge
+      # spelling), and the first token left over is the mode.
+      mode_set = 0
+      for (j=1; j<=k; j++) {
+        if (a[j]=="+yolo") { yolo="on"; continue }
+        if (a[j] ~ /^branch=/) { branch = substr(a[j], 8); continue }
+        if (a[j] ~ /^forge=/) { forge = a[j]; continue }
+        if (a[j] ~ /^[^=]+=/) {
+          key = substr(a[j], 1, index(a[j], "=") - 1);
+          e = dist(key, "forge");
+          if (e >= 1 && e <= 2) print "near", a[j];
+          if (mode_set == 0) { mode = a[j]; mode_set = 1 }
+          continue
+        }
+        if (a[j] != "" && mode_set == 0) { mode = a[j]; mode_set = 1 }
       }
-      printf "\n";
     }
+    # branch is printed LAST: an empty branch= override must survive as an
+    # empty final field, which only holds when nothing follows it.
+    print "posture", mode, yolo, forge, branch; exit
   }
 ' "$REG")
 
-if [[ "$parsed" == NOT_FOUND:* ]]; then
-  registered_names="${parsed#NOT_FOUND: }"
+if [ -z "$parsed" ]; then
   echo "warn: project \"$NAME\" not in registry; defaulting to no-mistakes off" >&2
+  registered_names=$(awk '
+    BEGIN { out = "" }
+    /^-[ \t]/ && ($3 ~ /^\[/ || $0 ~ /\(added [0-9]{4}-[0-9]{2}-[0-9]{2}\)/) {
+      n = split($2, names, ",")
+      for (i = 1; i <= n; i++) out = out (out == "" ? "" : " ") names[i]
+    }
+    END { printf "%s", out }' "$REG")
   if [ -n "$registered_names" ]; then
     echo "warn: registered names are: $registered_names" >&2
   fi
-  echo "no-mistakes off"
-  exit 0
-fi
-
-if [ -z "$parsed" ]; then
-  echo "warn: project \"$NAME\" not in registry; defaulting to no-mistakes off" >&2
   if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then
     echo "fm/"
   elif [ "$WANT_FORGE" -eq 1 ]; then echo none; else echo "no-mistakes off"; fi

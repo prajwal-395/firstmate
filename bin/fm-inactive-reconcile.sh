@@ -401,7 +401,7 @@ pr_for_task() { # <meta> [preferred-line]
   value=$(meta_field "$meta" pr)
   if [ -z "$value" ] && [ -n "$preferred" ]; then
     value=$(printf '%s\n' "$preferred" \
-      | sed -nE 's#^done: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks (complete|green))?( tests [^[:space:]]+ lint [^[:space:]]+ sha [0-9a-fA-F]+)?$#\1#p' \
+      | sed -nE 's#^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks (complete|green))?( tests [^[:space:]]+ lint [^[:space:]]+ sha [0-9a-fA-F]+)?$#\2#p' \
       | head -1 || true)
   fi
   clean_field "$value"
@@ -445,21 +445,18 @@ notice_parent_report_failed() { # <record> <fingerprint> <payload>
 child_terminal_ledger_line() { # <status>
   local status=$1 snapshot last marker='__FM_LEDGER_SNAPSHOT_END__'
   [ -f "$status" ] && [ ! -L "$status" ] && [ -s "$status" ] || return 1
+  # Teardown bookkeeping lines (`blocked: teardown ...`,
+  # bin/fm-teardown.sh's failure record) are supervisor signals about cleanup,
+  # not the worker's outcome statement, so they are transparent to the event
+  # scan: a stranded record's own done/failed line stays deliverable past them.
+  last=$(grep -v '^blocked: teardown ' "$status" 2>/dev/null | _fm_status_event_scan | tail -1)
+  case "$(status_line_verb "$last")" in done|failed) ;; *) return 1 ;; esac
   snapshot=$(cat "$status"; printf '%s' "$marker") || return 1
-  # A line still being appended has no trailing newline yet and must wait for
-  # it: callers treat 2 as "not yet", distinct from 1 ("no terminal outcome").
   case "$snapshot" in
     *$'\n'"$marker") ;;
-    *) return 2 ;;
+    "$last$marker"|*$'\n'"$last$marker") return 2 ;;
   esac
-  snapshot=${snapshot%"$marker"}
-  snapshot=$(printf '%s' "$snapshot" | grep -v '^[[:space:]]*$' | grep -v '^blocked: teardown ' || true)
-  [ -n "$snapshot" ] || return 1
-  last=$(printf '%s\n' "$snapshot" | tail -1)
-  case "$(status_line_verb "$last")" in
-    done|failed) printf '%s\n' "$last" ;;
-    *) return 1 ;;
-  esac
+  printf '%s\n' "$last"
 }
 
 # Claim one already-delivered inactive fallback as the delivery of this ledger
@@ -500,6 +497,15 @@ report_child_ledger_locked() { # <id> <meta>
   pr=$(pr_for_task "$meta" "$last")
   incarnation=$(meta_incarnation "$meta")
   fingerprint=$(sha256_text "$incarnation|$id|$state|ledger|$last")
+  # A ship done: is published only when the named head is accepted: an
+  # unpushed copy is not reported upstream as ready.
+  if [ "$state" = "done" ] && [ ! -f "$(record_path "$fingerprint" reported)" ] \
+    && [ ! -f "$(record_path "$fingerprint" pending)" ] \
+    && ! fm_dod_accept_ship_done "$(meta_field "$meta" kind)" "$(meta_field "$meta" mode)" \
+      "$(meta_field "$meta" worktree)" "$(meta_field "$meta" project)" "$last" \
+      "$STATE" "$id" "$meta" >/dev/null; then
+    return 0
+  fi
   # The predecessor head binds the ledger state before this event so a later
   # terminal line reads as a new event; teardown bookkeeping lines are
   # transparent here exactly as in child_terminal_ledger_line, so the binding
