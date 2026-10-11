@@ -404,8 +404,19 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
+  local mode=$1 id=$2 forge=${4:-none} base=${5:-}
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_push_guard='' base_q
+  fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
+  fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
+  if [ -n "$base" ]; then
+    printf -v base_q '%q' "$base"
+    pr_base=", against the base branch \`$base\` (\`--base $base_q\`), not the repository default"
+    nm_base="This task's base branch is \`$base\`, not the repository default: pass \`--base-branch $base_q\` on every \`no-mistakes axi run\` that starts a run, so the pipeline rebases onto, opens its PR against, and watches CI for that branch.
+"
+    base_push_guard="Never push to the base branch \`$base\` or the default branch, only your ship branch.
+"
+  fi
   case "$mode" in
     direct-PR)
       cat <<EOF
@@ -413,13 +424,13 @@ fm_dod_block() {  # <mode> <task-id>
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then look at the PR's check rollup before reporting done.
-When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
+When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft$pr_base, then look at the PR's check rollup before reporting done.
+${base_push_guard}When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
-When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done: PR {url} checks complete changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
+When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done [at=<epoch>]: PR {url} checks complete changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
 When the repo runs no checks for the PR (no workflow in \`.github/workflows\` fires on pull requests for this branch), there is no verdict to wait for.
 Run the affected test suites and lint yourself before reporting.
-Then append \`done: PR {url} tests <passed>/<total> lint <clean|failed> sha <sha> changed {what changed}; left {what of the brief was left undone, or nothing left}\` with the counts you saw and the commit sha you ran them against, and stop.
+Then append \`done [at=<epoch>]: PR {url} tests <passed>/<total> lint <clean|failed> sha <sha> changed {what changed}; left {what of the brief was left undone, or nothing left}\` with the counts you saw and the commit sha you ran them against, and stop.
 Never wait on checks that do not exist.
 Every done line names what was changed and what of the brief was left undone, or says nothing left: a done line that states only an observable fact without that boundary reads partial work as complete.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
@@ -430,20 +441,34 @@ EOF
 # Definition of done
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
+The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done: ready in branch fm/$id changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
+When it is implemented and committed, append \`done [at=<epoch>]: ready in branch $branch changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
       ;;
     no-mistakes)
+      # config/wait-no-turns selects the foreground drive. Absent, the text matches
+      # the backgrounded drive a home had before that flag.
+      _fm_dod_wait_cfg=${CONFIG:-${FM_CONFIG_OVERRIDE:-${FM_HOME:-}/config}}
+      if [ -e "$_fm_dod_wait_cfg/wait-no-turns" ]; then
+        _fm_dod_drive_block="Drive the run with ONE foreground \`no-mistakes axi run\` and let it block.
+It bounds its own hold for you: \`--wait\` (default 8m) exists precisely so a harness with a ten-minute command cap gets a structured return instead of being killed mid-hold.
+Declare that wait using the brief's status-reporting rule before the foreground drive call.
+Never background a wait, and never arm a timer to stand in for one: a backgrounded call returns in milliseconds, so it does not wait at all, and every timer left behind fires later as a paid wake for nothing.
+Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - that is not a failure: reattach at once by re-running \`no-mistakes axi run\` without flags, and issue the same foreground call again, one at a time, until a gate or outcome comes back; if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
+      else
+        _fm_dod_drive_block="One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
+So background the drive call and poll \`no-mistakes axi status\` from a separate call instead of sitting in one blocking hold your harness will kill.
+Where a harness's own command limit is not established, assume it bounds commands and use that same background-and-poll shape."
+      fi
       cat <<EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
+When you believe it is complete, append \`done [at=<epoch>]: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
-
+${nm_base}
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
@@ -456,9 +481,7 @@ When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3
 This replaces the no-mistakes skill's advice to enrich \`--intent\` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
-One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
-So background the drive call and poll \`no-mistakes axi status\` from a separate call instead of sitting in one blocking hold your harness will kill.
-Where a harness's own command limit is not established, assume it bounds commands and use that same background-and-poll shape.
+$_fm_dod_drive_block
 A killed or timed-out call is never evidence the daemon died: the daemon accepts your response immediately and runs the round in the background, so the call was only ever waiting for a read while the run kept working.
 Reattach and keep going rather than reporting the pipeline blocked; rule 7 owns the checks that decide when a pipeline block is real.
 
@@ -469,8 +492,8 @@ Two firstmate-specific rules layer on top of that guidance:
 - NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
-After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop. You are finished.
-When this task works on the firstmate repo, that PR must target the fork \`prajwal-395/firstmate\`, never upstream \`kunchenguid/firstmate\`: read the returned URL back before reporting it, and if it names the upstream repo, append \`blocked: PR targets upstream, not the fork\` instead of done.
+After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done [at=<epoch>]: PR {url} checks green changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop. You are finished.
+When this task works on the firstmate repo, that PR must target the fork \`prajwal-395/firstmate\`, never upstream \`kunchenguid/firstmate\`: read the returned URL back before reporting it, and if it names the upstream repo, append \`blocked [at=<epoch>]: PR targets upstream, not the fork\` instead of done.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 EOF
       ;;

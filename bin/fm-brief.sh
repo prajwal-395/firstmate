@@ -837,9 +837,9 @@ A marked request requires one correlated answer after the work; it does not requ
 Never append \`working:\` merely to acknowledge receipt or announce that a marked request has started.
 When a routed-work phase has a supervisor-actionable material change worth reporting under the rule above, give that reported phase a stable key.
 If its first reportable event is \`working [key=<work-slug>]: {material phase}\`, use the same key in the same position on its later \`$PAUSED_VERB\`, \`done\`, \`failed\`, \`needs-decision\`, or \`blocked\` event so the earlier working phase is superseded.
-When a keyed phase ends without another reportable state, append \`resolved [key=<work-slug>]: {why it is no longer active}\`.
+  When a keyed phase ends without another reportable state, append \`resolved [key=<work-slug>] [at=<epoch>]: {why it is no longer active}\`.
 \`resolved\` separately closes an escalated decision or blocker, and only a \`resolved\` line carrying that decision's exact key closes it: a later \`done\` or \`working\` event never does, even when the answer is what started that work.
-The main firstmate's answer normally writes that closing line at answer time; when a blocker or wait clears WITHOUT an answer from the main firstmate, append \`resolved [key=<slug>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as your domain resumes.
+The main firstmate's answer normally writes that closing line at answer time; when a blocker or wait clears WITHOUT an answer from the main firstmate, append \`resolved [key=<slug>] [at=<epoch>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as your domain resumes.
 Routine internal supervision, heartbeats, retries, and crewmate churn stay inside your own home and must not touch that status file.
 
 # Definition of done
@@ -952,7 +952,7 @@ $TASK_SECTION
 $HERDR_SECTION
 
 # Setup
-You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
+$SETUP_BASE
 The spawn path already refreshed this worktree to the tracked upstream and asserted the base, so HEAD should be current.
 This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
@@ -976,21 +976,10 @@ Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f
 $CREWMATE_PAUSE_INSTRUCTIONS
 5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why}\` and stop; firstmate will help.
 6. If a decision belongs to a human (product choices, destructive actions),
-   append \`needs-decision [key=<slug>]: {summary of options}\` and stop. Firstmate will reply with the decision.
+   append \`needs-decision [key=<slug>] [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs; only firstmate
-   manages the daemon.
-   Before you append \`blocked:\` about the pipeline, run \`no-mistakes daemon status\` and
-   \`no-mistakes axi status\`. If the daemon socket refuses connections or is missing, append
-   \`blocked: {the daemon error}\` and stop even when the local run record still says running or
-   fixing, because that record can be stale after the daemon exits. A run record failed with a
-   daemon error is also a real block.
-   Only after ruling out socket refusal, if the run is still running or fixing, reattach and keep
-   going. A drive-call error, timeout, slow read, or generic unreachability is NOT a daemon error:
-   the daemon accepts \`respond\` immediately and runs the round in the background, so a killed or
-   timed-out call was only waiting for a read while the run kept working.
+   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>] [at=<epoch>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as you resume.
+$SHARED_INFRA_RULE
 
 $WAIT_BLOCK$INBOX_SECTION
 
@@ -1005,6 +994,7 @@ Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-li
 When the report is complete, append \`done [at=<epoch>]: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
+append_brief_include
 if [ "$RENDERED" -eq 1 ]; then
   fm_brief_apply_render || exit 1
   echo "scaffolded: $BRIEF (scout; Task sections rendered from record $RECORD_ID)"
@@ -1043,7 +1033,7 @@ $TASK_SECTION
 $HERDR_SECTION
 
 # Setup
-You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
+$SETUP_BASE
 The spawn path already refreshed this worktree to the tracked upstream and asserted the base, so HEAD should be current.
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from.
@@ -1078,22 +1068,12 @@ $RULE1
 $CREWMATE_PAUSE_INSTRUCTIONS
 5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions),
-   append \`needs-decision [key=<slug>]: {summary of options}\` and stop. Firstmate will reply with the decision.
+   append \`needs-decision [key=<slug>] [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
 $ASK_USER_BLOCK
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs; only firstmate
-   manages the daemon.
-   Before you append \`blocked:\` about the pipeline, run \`no-mistakes daemon status\` and
-   \`no-mistakes axi status\`. If the daemon socket refuses connections or is missing, append
-   \`blocked: {the daemon error}\` and stop even when the local run record still says running or
-   fixing, because that record can be stale after the daemon exits. A run record failed with a
-   daemon error is also a real block.
-   Only after ruling out socket refusal, if the run is still running or fixing, reattach and keep
-   going. A drive-call error, timeout, slow read, or generic unreachability is NOT a daemon error:
-   the daemon accepts \`respond\` immediately and runs the round in the background, so a killed or
-   timed-out call was only waiting for a read while the run kept working.
+   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>] [at=<epoch>]: {how it cleared}\` yourself (the token sits between the verb and the colon, as when you opened it) as you resume.
+$SHARED_INFRA_RULE
+
 8. Before you report done, leave the worktree holding nothing but committed work: keep scratch outside the worktree, or remove it, because cleanup cannot distinguish debris from unlanded work and refuses rather than guess.
 9. A screenshot proves a browser was pointed somewhere, not that a page rendered: when you claim visual verification, first capture the port from the server's own output rather than assuming one, because another process may already hold the conventional port; then poll the URL and confirm it answers before opening a browser at it, because a screenshot of a refused connection is still a screenshot; then confirm the image IS the page by asserting something only the real page contains (an expected element or a known string) and by LOOKING at the image rather than counting files, because only that proves the page rendered. Reporting a screenshot as verification without these checks is reporting an unverified claim.
 10. When you are finished but must hold for a batch gate (firstmate calls one gate for the batch, not a per-lane gate): report \`$PAUSED_VERB: {why}\` per the rule 4 definition above and STAY ALIVE - do not go silent and do not stop, because a worker that holds by going quiet gets escalated, and a worker that gets stopped leaves a parked window that cleanup cannot remove until its work merges.
@@ -1113,6 +1093,7 @@ Size the run before you start it: a changed-file selection can be WIDER than a s
 
 $DOD
 EOF
+append_brief_include
 if [ "$RENDERED" -eq 1 ]; then
   fm_brief_apply_render || exit 1
   echo "scaffolded: $BRIEF (ship, mode=$MODE; Task sections rendered from record $RECORD_ID)"
