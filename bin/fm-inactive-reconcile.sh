@@ -382,7 +382,8 @@ meta_incarnation() { # <meta>
 
 # The task's delivered PR. Recorded meta pr= is the only authoritative source;
 # the fallback scrape accepts only a preferred terminal line in a mode's
-# ready-signal shape (bin/fm-dod-lib.sh owns the exact contract), so a
+# ready-signal shape (bin/fm-dod-lib.sh owns the exact contract, including its
+# trailing `changed ...; left ...` boundary prose), so a
 # PR a worker merely mentioned in prose is never claimed as the delivery.
 # A scout never delivers a PR, so it never carries one.
 pr_for_task() { # <meta> [preferred-line]
@@ -391,7 +392,7 @@ pr_for_task() { # <meta> [preferred-line]
   value=$(meta_field "$meta" pr)
   if [ -z "$value" ] && [ -n "$preferred" ]; then
     value=$(printf '%s\n' "$preferred" \
-      | sed -nE 's#^done: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks (complete|green))?( tests [^[:space:]]+ lint [^[:space:]]+ sha [0-9a-fA-F]+)?$#\1#p' \
+      | sed -nE 's#^done: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks (complete|green))?( tests [^[:space:]]+ lint [^[:space:]]+ sha [0-9a-fA-F]+)?( changed .*)?$#\1#p' \
       | head -1 || true)
   fi
   clean_field "$value"

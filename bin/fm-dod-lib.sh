@@ -39,6 +39,13 @@
 # if you have a problem escalate it to me"): narrow the brief to the ask, and
 # carry the wider scope as follow-up work or escalate it, rather than widening
 # the ask here.
+# This file is also the one owner of the done-line boundary rule: every done
+# line the blocks below teach names what was changed and what of the brief was
+# left undone, or says `nothing left`, because a done line that states only an
+# observable fact (tests pass, PR open) reads partial work as complete.
+# The machine-readable prefix stays stable so status parsers keep working; the
+# boundary rides as trailing prose. bin/fm-inactive-reconcile.sh accepts that
+# trailing prose when it scrapes a preferred terminal line for the PR.
 # This file is also the one owner of the never-upstream PR-target rule: the
 # PR-creating modes carry the fork target automatically, so every ship brief and
 # every promoted scout receives it from the scaffold rather than from whoever
@@ -313,11 +320,12 @@ The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then look at the PR's check rollup before reporting done.
 When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
-When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done: PR {url} checks complete\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
+When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done: PR {url} checks complete changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
 When the repo runs no checks for the PR (no workflow in \`.github/workflows\` fires on pull requests for this branch), there is no verdict to wait for.
 Run the affected test suites and lint yourself before reporting.
-Then append \`done: PR {url} tests <passed>/<total> lint <clean|failed> sha <sha>\` with the counts you saw and the commit sha you ran them against, and stop.
+Then append \`done: PR {url} tests <passed>/<total> lint <clean|failed> sha <sha> changed {what changed}; left {what of the brief was left undone, or nothing left}\` with the counts you saw and the commit sha you ran them against, and stop.
 Never wait on checks that do not exist.
+Every done line names what was changed and what of the brief was left undone, or says nothing left: a done line that states only an observable fact without that boundary reads partial work as complete.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
@@ -328,7 +336,7 @@ Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
+When it is implemented and committed, append \`done: ready in branch fm/$id changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
       ;;
@@ -337,7 +345,7 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+When you believe it is complete, append \`done: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
@@ -363,7 +371,7 @@ Two firstmate-specific rules layer on top of that guidance:
 - NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
-After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
+After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop. You are finished.
 When this task works on the firstmate repo, that PR must target the fork \`prajwal-395/firstmate\`, never upstream \`kunchenguid/firstmate\`: read the returned URL back before reporting it, and if it names the upstream repo, append \`blocked: PR targets upstream, not the fork\` instead of done.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 EOF

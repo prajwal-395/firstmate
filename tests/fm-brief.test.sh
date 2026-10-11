@@ -1534,6 +1534,45 @@ test_direct_pr_no_checks_requires_local_evidence() {
   pass "fm-brief.sh: direct-PR no-checks branch requires local evidence with counts and sha"
 }
 
+# Every ship done line must name its boundary: what was changed and what of
+# the brief was left undone, or nothing left. A queued 2026-09-23 defect showed
+# a worker's done line stating an observable fact (tests pass, PR open) instead
+# of that boundary, so partial work reported as complete. The machine-readable
+# prefix stays stable and the boundary rides as trailing prose.
+test_done_line_names_its_boundary() {
+  local home id brief
+  home="$TMP_ROOT/done-boundary-home"
+  mkdir -p "$home/data"
+  id="brief-done-boundary-direct"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "direct-PR scaffold failed"
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "direct-PR brief was not scaffolded"
+  assert_grep 'checks complete changed {what changed}; left {what of the brief was left undone, or nothing left}' "$brief" \
+    "direct-PR checks branch lost the done-line boundary"
+  assert_grep 'sha <sha> changed {what changed}; left {what of the brief was left undone, or nothing left}' "$brief" \
+    "direct-PR no-checks branch lost the done-line boundary"
+  assert_grep 'Every done line names what was changed and what of the brief was left undone, or says nothing left' "$brief" \
+    "direct-PR brief lost the boundary rationale"
+  id="brief-done-boundary-local"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only >/dev/null 2>&1 \
+    || fail "local-only scaffold failed"
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "local-only brief was not scaffolded"
+  assert_grep 'changed {what changed}; left {what of the brief was left undone, or nothing left}' "$brief" \
+    "local-only ready line lost the done-line boundary"
+  id="brief-done-boundary-nm"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "no-mistakes scaffold failed"
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "no-mistakes brief was not scaffolded"
+  assert_grep 'checks green changed {what changed}; left {what of the brief was left undone, or nothing left}' "$brief" \
+    "no-mistakes terminal line lost the done-line boundary"
+  assert_grep 'done: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}' "$brief" \
+    "no-mistakes interim line lost the done-line boundary"
+  pass "fm-brief.sh: every ship done line names what changed and what was left undone"
+}
+
 test_check_takes_only_a_task_id() {
   local home out status
   home="$TMP_ROOT/check-args-home"
@@ -1570,6 +1609,7 @@ test_scope_check_documents_its_blind_spot
 test_scope_check_legacy_brief_warns_and_passes
 test_check_takes_only_a_task_id
 test_direct_pr_no_checks_requires_local_evidence
+test_done_line_names_its_boundary
 test_decision_key_position_is_taught
 test_script_parses
 test_no_heredoc_in_command_substitution
