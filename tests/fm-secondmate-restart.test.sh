@@ -494,7 +494,8 @@ case "${rargs[1]:-}" in
     esac
     # Model the host-local control plane's own readiness attestation: the real
     # relaunch line carries harness= and ready=, and the primary reports
-    # restarted only on ready=confirmed.
+    # restarted only on ready=confirmed. The route block after it is what the
+    # parent's relaunch wrapper reads back to republish its own route record.
     case "${FM_FAKE_SSH_MODE:-ok}" in
       starting-relaunch)
         printf 'relaunched %s harness=%s ready=starting\n' "${rargs[2]}" "${rargs[3]}"
@@ -503,6 +504,13 @@ case "${rargs[1]:-}" in
         printf 'relaunched %s harness=%s ready=confirmed\n' "${rargs[2]}" "${rargs[3]}"
         ;;
     esac
+    printf 'schema=fm-remote-secondmate-control.v1\n'
+    printf 'backend=herdr\n'
+    printf 'target=fm-remote:2ndmate-%s\n' "${rargs[2]}"
+    printf 'herdr_session=fm-remote\n'
+    printf 'harness=%s\n' "${rargs[3]}"
+    printf 'model=%s\n' "${rargs[4]}"
+    printf 'effort=%s\n' "${rargs[5]}"
     ;;
 esac
 exit 0
