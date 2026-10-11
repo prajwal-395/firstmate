@@ -16,10 +16,13 @@ ren-core parity harness does.
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+
+FFMPEG = shutil.which("ffmpeg")
 
 REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
@@ -287,3 +290,196 @@ def test_execute_needs_the_pinned_cli(tmp_path, monkeypatch):
                  "--media-root", str(FIXTURE_MODEL.parent),
                  "--execute"]) == 4
     assert not list(tmp_path.glob("*.fcproj"))
+
+
+# ── Native treatments on the export path ────────────────────
+#
+# The PR 2310 composite, wired into the verb: --execute --export
+# names the native render, so the treated picture lands AT the
+# export path without a manual step. The engine is stubbed (its
+# CLI never builds here); the composite runs for real on tiny
+# ffmpeg renders, so the pixel assertions are behavioural.
+
+STRONG_LOOK_YAML = """\
+name: "Test Show"
+slug: show
+status: draft
+source:
+  language: en
+style:
+  series_look:
+    name: strong-grade
+    cdl:
+      slope: [1.2, 1.2, 1.2]
+      offset: [0.1, 0.1, 0.1]
+      power: [1.0, 1.0, 1.0]
+      saturation: 1.5
+    contrast: 0.3
+"""
+
+
+def _look_root(tmp_path: Path) -> Path:
+    root = tmp_path / "show"
+    root.mkdir()
+    (root / "project.yaml").write_text(STRONG_LOOK_YAML, encoding="utf-8")
+    return root
+
+
+def _stub_native():
+    """The FilmCraft adapter surface execute_filmcraft drives."""
+    import types
+
+    projection = {
+        "adapter_version": "test-1",
+        "engine_revision": "test-rev",
+        "timeline_clock": "clock-project",
+        "imports": [],
+        "placements": [],
+        "losses": [],
+    }
+    native = types.SimpleNamespace()
+    native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_ren_edit = lambda *args: []
+    native.filmcraft_describe_operation = lambda op: {
+        "command": op["kind"],
+        "params": ({"path": op["path"]} if op.get("path") else {}),
+        "save": False}
+    native.filmcraft_verify_media = lambda _projection, _media_dir: {}
+    native.filmcraft_import_operation = lambda *args: {"kind": "import"}
+    native.filmcraft_placement_operations = lambda *args: []
+    native.filmcraft_reconcile_clip_ids = lambda *args: {}
+    return native
+
+
+def _stub_engine(monkeypatch, tmp_path: Path) -> None:
+    """Stub the pinned CLI; the export renders a tiny mp4 for real."""
+    import subprocess
+
+    import library.tools.project_model_cli as pmc
+
+    def fake_fc_exec(cli, project, command, params, *,
+                     save=False, save_as=None):
+        if save_as is not None:
+            Path(save_as).write_bytes(b"fake-project")
+            return {}
+        if command == "import":
+            return {"items": [], "errors": []}
+        if command == "sequence.inspect":
+            return {}
+        if command == "export":
+            out = Path(params["path"])
+            done = subprocess.run(
+                ["ffmpeg", "-v", "error", "-y",
+                 "-f", "lavfi", "-i",
+                 "testsrc=size=64x112:rate=24:duration=0.3333",
+                 "-c:v", "libx264", "-preset", "ultrafast",
+                 "-pix_fmt", "yuv420p", str(out)],
+                capture_output=True, text=True, encoding="utf-8",
+                check=False)
+            assert done.returncode == 0, done.stderr[:300]
+            (tmp_path / "engine-base.mp4").write_bytes(out.read_bytes())
+            return {"exported": str(out)}
+        return {}
+
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: _stub_native())
+    monkeypatch.setattr(pmc, "_filmcraft_cli",
+                        lambda: tmp_path / "fake-cli")
+    monkeypatch.setattr(pmc, "_check_cli_version",
+                        lambda cli, expect, engine: None)
+    monkeypatch.setattr(pmc, "_fc_exec", fake_fc_exec)
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_execute_export_composites_the_declared_grade(tmp_path, monkeypatch):
+    from library.tools import native_effects_composite as nec
+
+    _stub_engine(monkeypatch, tmp_path)
+    root = _look_root(tmp_path)
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 0
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    treatments = receipt["native_treatments"]
+    assert treatments["grade_applied"] is True
+    assert treatments["bezel_applied"] is False
+    assert treatments["grade_name"] == "strong-grade"
+    assert treatments["out"] == str(export)
+    assert treatments["refused"] == []
+    assert export.is_file()
+    assert not list(tmp_path.glob("*.treatments-tmp.mp4"))
+    base = tmp_path / "engine-base.mp4"
+    scores = nec.measure_ssim(base, export, frames=8)
+    assert scores["Y"] < 0.99  # the export carries the declared grade
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_execute_export_leaves_engine_bytes_alone_without_declarations(
+        tmp_path, monkeypatch):
+    from library.tools import native_effects_composite as nec
+
+    _stub_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        nec, "composite_declared_treatments",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("no declarations means no composite call")))
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 0
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    treatments = receipt["native_treatments"]
+    assert treatments["grade_applied"] is False
+    assert treatments["bezel_applied"] is False
+    assert treatments["out"] == str(export)
+    assert export.read_bytes() == (tmp_path / "engine-base.mp4").read_bytes()
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_execute_without_export_composites_nothing(tmp_path, monkeypatch):
+    from library.tools import native_effects_composite as nec
+
+    _stub_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        nec, "composite_declared_treatments",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("no export means no composite call")))
+    root = _look_root(tmp_path)
+    out = tmp_path / "receipt.json"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute"]) == 0
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["native_treatments"]["skipped"].startswith("no export")
+
+
+def test_execute_refuses_a_malformed_look_before_mutation(tmp_path, monkeypatch):
+    """A series_look that cannot be delivered refuses before the
+    engine project exists - the export never renders half-treated."""
+    import library.tools.project_model_cli as pmc
+
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: _stub_native())
+    monkeypatch.setattr(
+        pmc, "_filmcraft_cli",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("no engine contact on refusal")))
+    root = tmp_path / "show"
+    root.mkdir()
+    (root / "project.yaml").write_text(
+        STRONG_LOOK_YAML.replace("      saturation: 1.5\n", ""),
+        encoding="utf-8")
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 4
+    assert not list(tmp_path.glob("*.fcproj"))
+    assert not export.exists()
+    assert not out.exists()

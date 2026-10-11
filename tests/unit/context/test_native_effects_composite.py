@@ -43,6 +43,70 @@ style:
 FFMPEG = shutil.which("ffmpeg")
 
 
+STRONG_LOOK_YAML = """\
+name: demo
+slug: demo
+status: draft
+source:
+  language: en
+style:
+  series_look:
+    name: strong-grade
+    cdl:
+      slope: [1.2, 1.2, 1.2]
+      offset: [0.1, 0.1, 0.1]
+      power: [1.0, 1.0, 1.0]
+      saturation: 1.5
+    contrast: 0.3
+"""
+
+
+def _bezel_png(path):
+    command = [
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "color=black:size=112x64",
+        "-frames:v", "1", str(path),
+    ]
+    completed = subprocess.run(
+        command, capture_output=True, text=True, encoding="utf-8", check=False)
+    assert completed.returncode == 0, completed.stderr[:300]
+
+
+# ── Declared-treatments wiring (both call paths share this) ──
+
+
+def test_plan_names_the_declared_grade_and_no_bezel(tmp_path):
+    planned = nec.plan_declared_treatments(_project(tmp_path, STRONG_LOOK_YAML))
+    assert planned["grade"]["name"] == "strong-grade"
+    assert planned["bezel"] is None
+
+
+def test_plan_with_no_declarations_is_empty(tmp_path):
+    planned = nec.plan_declared_treatments(_project(
+        tmp_path,
+        "name: demo\nslug: demo\nstatus: draft\nsource:\n  language: en\n"))
+    assert planned == {"grade": None, "bezel": None}
+
+
+def test_no_declarations_runs_no_ffmpeg_and_leaves_the_base(tmp_path, monkeypatch):
+    base = tmp_path / "base.mp4"
+    base.write_bytes(b"not a real render, and none is needed")
+    monkeypatch.setattr(
+        nec.subprocess, "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("pass-through must not run a subprocess")))
+    treated = nec.composite_declared_treatments(
+        base, None, project_folder=_project(
+            tmp_path,
+            "name: demo\nslug: demo\nstatus: draft\nsource:\n  language: en\n"))
+    assert treated["out"] == str(base)
+    assert treated["grade_applied"] is False
+    assert treated["bezel_applied"] is False
+    assert treated["refused"] == []
+    assert base.read_bytes() == b"not a real render, and none is needed"
+    assert not (tmp_path / "base.treated.mp4").exists()
+
+
 def _project(tmp_path, yaml_text=LOOK_YAML):
     (tmp_path / "project.yaml").write_text(yaml_text, encoding="utf-8")
     return str(tmp_path)
@@ -245,6 +309,69 @@ def test_declared_grade_moves_the_picture(tmp_path):
         "gain": 1.2, "contrast": 0.3, "brightness": 0.1, "saturation": 1.5})
     scores = nec.measure_ssim(base, out, frames=8)
     assert scores["Y"] < 0.99
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_declared_grade_composites_beside_the_base(tmp_path):
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    folder = _project(tmp_path, STRONG_LOOK_YAML)
+    treated = nec.composite_declared_treatments(base, None, project_folder=folder)
+    assert treated["grade_applied"] and not treated["bezel_applied"]
+    assert treated["grade_name"] == "strong-grade"
+    assert treated["out"] == str(tmp_path / "base.treated.mp4")
+    assert Path(treated["out"]).is_file()
+    scores = nec.measure_ssim(base, treated["out"], frames=8)
+    assert scores["Y"] < 0.99  # the declared grade moves the picture
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_declared_treatments_reuse_a_pre_mutation_plan(tmp_path):
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    folder = _project(tmp_path, STRONG_LOOK_YAML)
+    planned = nec.plan_declared_treatments(folder)
+    out = tmp_path / "planned.mp4"
+    treated = nec.composite_declared_treatments(
+        base, out, planned=planned, project_folder=folder)
+    assert treated["out"] == str(out)
+    assert treated["grade_applied"]
+    scores = nec.measure_ssim(base, out, frames=8)
+    assert scores["Y"] < 0.99
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_declared_bezel_composites_the_declared_asset(tmp_path):
+    base = tmp_path / "base.mp4"
+    _render_base(base)
+    _bezel_png(tmp_path / "frame.png")
+    folder = _project(tmp_path, (
+        "name: demo\nslug: demo\nstatus: draft\n"
+        "source:\n  language: en\n"
+        "pipeline:\n  brand_template: demo\n"
+        "  tv_frame:\n    asset: frame.png\n    punch_in: 2.30\n"
+        "    scale: 0.927\n"))
+    treated = nec.composite_declared_treatments(base, None, project_folder=folder)
+    assert treated["bezel_applied"] and not treated["grade_applied"]
+    assert Path(treated["out"]).is_file()
+    scores = nec.measure_ssim(base, treated["out"], frames=8)
+    assert scores["Y"] < 0.999
+
+
+def test_declared_treatments_refuse_an_absent_base(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        nec.composite_declared_treatments(
+            tmp_path / "missing.mp4", None,
+            project_folder=_project(tmp_path, STRONG_LOOK_YAML))
+
+
+def test_declared_treatments_raise_a_malformed_look(tmp_path):
+    base = tmp_path / "base.mp4"
+    base.write_bytes(b"base")
+    text = LOOK_YAML.replace("      saturation: 1.12\n", "")
+    with pytest.raises(LookDeclarationError):
+        nec.composite_declared_treatments(
+            base, None, project_folder=_project(tmp_path, text))
 
 
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")

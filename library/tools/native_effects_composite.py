@@ -551,3 +551,87 @@ def composite_receipt(
 def receipt_json(receipt: dict[str, Any]) -> str:
     """Canonical JSON encoding of a composite receipt."""
     return json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+
+
+def plan_declared_treatments(
+    project_folder: str | None,
+    template_style: Any = None,
+) -> dict[str, Any]:
+    """What this run composites, resolved before anything renders.
+
+    The pre-mutation half of the wiring: both call paths (``ren
+    project-model ... --execute --export`` and the pm-e2e qualification
+    stage) resolve here BEFORE touching an engine, so a malformed
+    declaration refuses with nothing half-built and a run with no
+    declarations records the skip rather than rendering. Returns
+    ``{"grade", "bezel"}`` where each is the resolver's answer or None.
+
+    Raises whatever the resolvers raise on a malformed declaration
+    (``LookDeclarationError``, ``ValueError``, ``TypeError``,
+    ``FileNotFoundError`` for a named-but-absent bezel asset): callers
+    name that refusal, this module never swallows it.
+    """
+    folder = str(project_folder) if project_folder is not None else None
+    return {
+        "grade": resolve_native_grade(folder, template_style),
+        "bezel": resolve_native_bezel(folder, template_style),
+    }
+
+
+def composite_declared_treatments(
+    base_mp4: str | Path,
+    out_mp4: str | Path | None,
+    *,
+    project_folder: str | None = None,
+    template_style: Any = None,
+    planned: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Composite the declared treatments over a FilmCraft base render.
+
+    The call-path half of the wiring: resolves (or reuses ``planned``
+    from :func:`plan_declared_treatments` - a caller that already
+    resolved pre-mutation passes it so one declaration cannot read two
+    ways) and composites with :func:`composite_native`. A run whose
+    declarations resolve to no grade and no bezel runs NO ffmpeg and
+    leaves the base untouched: ``out`` reads back as the base path
+    with both applied flags False.
+
+    ``out_mp4`` defaults to a ``<stem>.treated<suffix>`` sibling of
+    the base, so the engine's own output stays readable beside the
+    treated render; a caller that wants the treated picture AT the
+    base path composites to a temp file and moves it itself.
+
+    Returns ``{"out", "grade_name", "grade_applied", "bezel_applied",
+    "refused", "filter"}``.
+    """
+    base = Path(base_mp4)
+    if not base.is_file():
+        raise FileNotFoundError(f"native base render is absent: {base}")
+    resolved = planned if planned is not None else plan_declared_treatments(
+        project_folder, template_style)
+    grade = resolved["grade"]
+    bezel = resolved["bezel"]
+    refused: list[dict[str, str]] = list((grade or {}).get("refused", []))
+    if grade is None and bezel is None:
+        return {
+            "out": str(base),
+            "grade_name": None,
+            "grade_applied": False,
+            "bezel_applied": False,
+            "refused": refused,
+            "filter": "",
+        }
+    out = Path(out_mp4) if out_mp4 is not None else base.with_name(
+        f"{base.stem}.treated{base.suffix}")
+    composited = composite_native(
+        base,
+        out,
+        grade=dict(grade["grade"]) if grade is not None else None,
+        bezel_asset=bezel["asset"] if bezel is not None else None,
+        bezel_scale=float(bezel["scale"]) if bezel is not None else 1.0,
+        bezel_offset_y=int(bezel["offset_y"]) if bezel is not None else 0,
+        bezel_rotate=(bezel.get("rotate") if bezel is not None else None),
+    )
+    composited["grade_name"] = grade["name"] if grade is not None else None
+    composited["refused"] = refused
+    return composited

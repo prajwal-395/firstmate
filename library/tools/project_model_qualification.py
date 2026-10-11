@@ -509,6 +509,69 @@ def stage_filmcraft(work: Path) -> dict:
             "losses": [loss] if loss else []}
 
 
+# ── Stage 3b: native treatments (FREE over the FilmCraft render) ──
+
+def stage_native_treatments(work: Path, filmcraft: dict,
+                            *, project_folder: str | None = None) -> dict:
+    """Composite the declared treatments over the trimmed render.
+
+    The PR 2310 composite, wired into the qualification path: the
+    trimmed FilmCraft render is the base, the treated sibling beside
+    it is the native render with grade and bezel - no manual step.
+    Declarations resolve from ``project_folder`` (a directory holding
+    ``project.yaml``); the qualification run passes none, because it
+    reads no real project, so a full run records the pass-through and
+    the behavioural tests drive both branches with run-local
+    declarations under tmp_path.
+
+    A run that declares no look gets no grade and no bezel: the stage
+    reports the base path back with both applied flags False and runs
+    no ffmpeg. A malformed declaration refuses as
+    ``REN_PM9_NATIVE_TREATMENTS``; a base render the FilmCraft stage
+    did not write refuses as ``REN_PM9_RENDER_UNREADABLE``.
+    """
+    from library.tools import native_effects_composite as nec
+
+    try:
+        base = Path(filmcraft["render"]["path"])
+    except (KeyError, TypeError) as exc:
+        raise Pm9Refused(what="native treatments need the FilmCraft render",
+                         why=f"filmcraft evidence names no render path: {exc}",
+                         fix="re-run the FilmCraft stage before treating its render",
+                         code="REN_PM9_NATIVE_TREATMENTS",
+                         recovery_class="blocked") from exc
+    if not base.is_file():
+        raise Pm9Refused(what=f"FilmCraft render is absent: {base.name}",
+                         why="the treatments composite over the trimmed export",
+                         fix="re-render the stage output",
+                         code="REN_PM9_RENDER_UNREADABLE",
+                         recovery_class="blocked")
+    out = base.parent / f"{base.stem}.treated{base.suffix}"
+    try:
+        treated = nec.composite_declared_treatments(
+            base, out, project_folder=project_folder)
+    except Pm9Refused:
+        raise
+    except Exception as exc:  # noqa: BLE001 - declaration/composite errors refuse by name
+        raise Pm9Refused(what=f"native treatments refused: {exc}",
+                         why="the series_look/tv_frame declaration cannot be "
+                             "delivered as written, or the composite failed",
+                         fix="fix the declaration, or re-render the stage output",
+                         code="REN_PM9_NATIVE_TREATMENTS",
+                         recovery_class="blocked") from exc
+    evidence = {
+        "base_render": str(base),
+        "out": treated["out"],
+        "grade_name": treated["grade_name"],
+        "grade_applied": treated["grade_applied"],
+        "bezel_applied": treated["bezel_applied"],
+        "refused": treated["refused"],
+        "filter": treated["filter"],
+    }
+    _write_json(work / "native-treatments.json", evidence)
+    return evidence
+
+
 # ── Stage 4: EffectCraft (masked effect + render + receipt ingest) ──
 
 def _ec_op_to_command(op: dict, projection: Any) -> list[tuple[str, dict]]:
@@ -1898,6 +1961,10 @@ def run(out_dir: str | Path, *, with_resolve: bool = True) -> dict:
         stage("ingest", lambda: stage_ingest(work))
         stage("identity", lambda: stage_identity(work))
         filmcraft = stage("filmcraft", lambda: stage_filmcraft(work))
+        # The run reads no real project, so no look is declared and the
+        # stage records the pass-through in the report.
+        stage("native_treatments",
+              lambda: stage_native_treatments(work, filmcraft))
         stage("effectcraft", lambda: stage_effectcraft(work))
         stage("swapback_plan",
               lambda: stage_swapback_plan(work, filmcraft))

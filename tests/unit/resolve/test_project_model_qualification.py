@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,44 @@ from library.tools import project_model_qualification as pm9
 
 ROOT = Path(__file__).resolve().parents[3]
 E2E_MODEL = ROOT / "tests/fixtures/project_model_e2e/expected-project-model.json"
+
+FFMPEG = shutil.which("ffmpeg")
+
+STRONG_LOOK_YAML = """\
+name: pm9-decl
+slug: pm9-decl
+status: draft
+source:
+  language: en
+style:
+  series_look:
+    name: strong-grade
+    cdl:
+      slope: [1.2, 1.2, 1.2]
+      offset: [0.1, 0.1, 0.1]
+      power: [1.0, 1.0, 1.0]
+      saturation: 1.5
+    contrast: 0.3
+"""
+
+
+def _tiny_mp4(path: Path, frames: int = 8) -> Path:
+    done = subprocess.run(
+        ["ffmpeg", "-v", "error", "-y",
+         "-f", "lavfi", "-i",
+         f"testsrc=size=64x112:rate=24:duration={frames / 24}",
+         "-c:v", "libx264", "-preset", "ultrafast",
+         "-pix_fmt", "yuv420p", str(path)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    assert done.returncode == 0, done.stderr[:300]
+    return path
+
+
+def _declarations(tmp_path: Path, yaml_text: str = STRONG_LOOK_YAML) -> str:
+    decl = tmp_path / "decl"
+    decl.mkdir(exist_ok=True)
+    (decl / "project.yaml").write_text(yaml_text, encoding="utf-8")
+    return str(decl)
 
 
 def _model() -> dict:
@@ -355,3 +395,91 @@ def test_run_report_schema_keys_are_stable():
     assert len(pm9.FILMCRAFT_REVISION) == 40
     assert len(pm9.EFFECTCRAFT_REVISION) == 40
     assert copy.deepcopy(report)["schema"].startswith("ren-pm9-")
+
+
+# ── Native treatments stage (FREE: tiny renders under tmp_path) ───
+
+def _filmcraft_evidence(base: Path) -> dict:
+    return {"render": {"path": str(base), "frames": 8}}
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_native_treatments_pass_through_without_declarations(tmp_path):
+    work = tmp_path / "pm9"
+    work.mkdir()
+    base = _tiny_mp4(work / "pm9-ada-trimmed.mp4")
+    evidence = pm9.stage_native_treatments(work, _filmcraft_evidence(base))
+    assert evidence["out"] == str(base)
+    assert evidence["grade_applied"] is False
+    assert evidence["bezel_applied"] is False
+    assert evidence["refused"] == []
+    assert not (work / "pm9-ada-trimmed.treated.mp4").exists()
+    assert json.loads((work / "native-treatments.json").read_text(
+        encoding="utf-8"))["out"] == str(base)
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_native_treatments_composite_the_declared_grade(tmp_path):
+    from library.tools import native_effects_composite as nec
+
+    work = tmp_path / "pm9"
+    work.mkdir()
+    base = _tiny_mp4(work / "pm9-ada-trimmed.mp4")
+    evidence = pm9.stage_native_treatments(
+        work, _filmcraft_evidence(base),
+        project_folder=_declarations(tmp_path))
+    assert evidence["grade_applied"] is True
+    assert evidence["grade_name"] == "strong-grade"
+    assert evidence["bezel_applied"] is False
+    assert Path(evidence["out"]).is_file()
+    scores = nec.measure_ssim(base, evidence["out"], frames=8)
+    assert scores["Y"] < 0.99  # the treated render carries the grade
+
+
+def test_native_treatments_refuse_an_absent_base(tmp_path):
+    work = tmp_path / "pm9"
+    work.mkdir()
+    missing = work / "pm9-ada-trimmed.mp4"
+    with pytest.raises(pm9.Pm9Refused) as caught:
+        pm9.stage_native_treatments(work, _filmcraft_evidence(missing))
+    assert caught.value.code == "REN_PM9_RENDER_UNREADABLE"
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_native_treatments_refuse_a_malformed_look(tmp_path):
+    work = tmp_path / "pm9"
+    work.mkdir()
+    base = _tiny_mp4(work / "pm9-ada-trimmed.mp4")
+    broken = STRONG_LOOK_YAML.replace("      saturation: 1.5\n", "")
+    with pytest.raises(pm9.Pm9Refused) as caught:
+        pm9.stage_native_treatments(
+            work, _filmcraft_evidence(base),
+            project_folder=_declarations(tmp_path, broken))
+    assert caught.value.code == "REN_PM9_NATIVE_TREATMENTS"
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
+def test_run_records_the_native_treatments_stage(tmp_path, monkeypatch):
+    """run() itself reaches the stage: every heavy stage is stubbed,
+    the treatments stage runs for real over a tiny render, and the
+    report carries its pass-through evidence."""
+    work_base = tmp_path / "pm9"
+    work_base.mkdir()
+    base = _tiny_mp4(work_base / "pm9-ada-trimmed.mp4")
+
+    monkeypatch.setattr(pm9, "stage_ingest", lambda work: {"stub": True})
+    monkeypatch.setattr(pm9, "stage_identity", lambda work: {"stub": True})
+    monkeypatch.setattr(
+        pm9, "stage_filmcraft", lambda work: _filmcraft_evidence(base))
+    monkeypatch.setattr(pm9, "stage_effectcraft", lambda work: {"stub": True})
+    monkeypatch.setattr(
+        pm9, "stage_swapback_plan", lambda work, filmcraft: {"stub": True})
+    monkeypatch.setattr(
+        pm9, "stage_failure_injection", lambda work: {"stub": True})
+
+    report = pm9.run(tmp_path / "out", with_resolve=False)
+    assert report["passed"] is True
+    stage = report["stages"]["native_treatments"]
+    assert stage["status"] == "passed"
+    assert stage["evidence"]["grade_applied"] is False
+    assert stage["evidence"]["out"] == str(base)

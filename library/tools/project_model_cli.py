@@ -366,6 +366,10 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     # Fail closed before any mutation: the create description, the media
     # check and every edit translate now, with placeholder ids; the run
     # below only substitutes reconciled clip ids for the same commands.
+    # The native treatments resolve here too, for the same reason: a
+    # malformed series_look/tv_frame declaration refuses before an
+    # engine project exists, and the post-export composite reuses this
+    # plan so one declaration cannot read two ways.
     create = _describe(native, {"kind": "create_project",
                                 "path": project_str, "name": project.stem})
     media_dir = str(media_root or project_root)
@@ -375,6 +379,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         raise _refuse_from_adapter("media verification refused", exc) from exc
     dummy_ids = {placement["clip_use_id"]: [0] for placement in projection["placements"]}
     translate_filmcraft_edits(model, projection, dummy_ids, project_str, native)
+    treatments_plan = _plan_native_treatments(project_root)
 
     cli = _filmcraft_cli()
     _check_cli_version(cli, FILMCRAFT_VERSION, "FilmCraft")
@@ -465,7 +470,77 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         exported = _fc_exec(cli, project, export_op["command"],
                             export_op["params"], save=export_op["save"])
         receipt["export"] = {"path": str(export_path), "answer": exported}
+        # The export is the native render, so it carries the declared
+        # treatments: grade and bezel composite over the engine base in
+        # place (via a temp file), without a manual step. A project
+        # that declares neither keeps the engine bytes untouched.
+        receipt["native_treatments"] = _composite_export_treatments(
+            export_path, planned=treatments_plan)
+    else:
+        receipt["native_treatments"] = {
+            "out": None,
+            "grade_name": None,
+            "grade_applied": False,
+            "bezel_applied": False,
+            "refused": [],
+            "filter": "",
+            "skipped": "no export was requested, so there is no render to treat",
+        }
     return receipt
+
+
+def _plan_native_treatments(project_root: Path) -> dict:
+    """The declared grade/bezel plan, or refuse before any mutation."""
+    from library.tools import native_effects_composite as nec
+
+    try:
+        return nec.plan_declared_treatments(str(project_root))
+    except Exception as exc:  # noqa: BLE001 - declaration errors become refusals
+        raise _refuse(f"native treatments refused: {exc}",
+                      "the project's series_look/tv_frame declaration cannot be delivered as written",
+                      "fix the declaration in project.yaml (or the named brand template) and retry",
+                      code="REN_PM_CLI_NATIVE_TREATMENTS") from exc
+
+
+def _composite_export_treatments(export_path: Path, *, planned: dict) -> dict:
+    """Composite the planned treatments over the export, in place.
+
+    The treated picture lands AT the export path (composited to a temp
+    sibling, then moved over), so the export this verb names is the
+    native render with treatments, not the bare engine base. A plan
+    with no grade and no bezel moves no pixels: the engine bytes stay
+    exactly as exported.
+    """
+    from library.tools import native_effects_composite as nec
+
+    try:
+        if planned["grade"] is None and planned["bezel"] is None:
+            return {
+                "out": str(export_path),
+                "grade_name": None,
+                "grade_applied": False,
+                "bezel_applied": False,
+                "refused": [],
+                "filter": "",
+            }
+        tmp = export_path.with_name(export_path.stem + ".treatments-tmp"
+                                    + export_path.suffix)
+        try:
+            composited = nec.composite_declared_treatments(
+                export_path, tmp, planned=planned)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+        Path(composited["out"]).replace(export_path)
+        composited["out"] = str(export_path)
+        return composited
+    except ProjectModelCliRefused:
+        raise
+    except Exception as exc:  # noqa: BLE001 - composite errors become refusals
+        raise _refuse(f"native treatments failed: {exc}",
+                      "the engine export is on disk; only the grade/bezel composite failed",
+                      "check the declared tv_frame asset reads and ffmpeg runs, then re-export",
+                      code="REN_PM_CLI_NATIVE_TREATMENTS") from exc
 
 
 # ── EffectCraft plan + execute ───────────────────────────────
