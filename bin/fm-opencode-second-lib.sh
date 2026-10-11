@@ -18,14 +18,18 @@
 # lane runs on is recorded per task as `opencode_workspace=secondary` in its
 # meta, absent meaning the main workspace exactly as today.
 #
-# BOTH WORKSPACES ARE PINNED. A main-workspace launch that rides no pin
+# BOTH WORKSPACES ARE PINNED. A main-workspace Go launch that rides no pin
 # inherits the machine-wide active workspace, so the moment that active
 # workspace is the secondary plan a `main` lane bills and caps the secondary
 # plan while its record still reads main. Every Go launch in a home with a
 # configured second workspace therefore rides its own pin, main and secondary
-# alike, and a launch that cannot prove its pin is refused rather than run
-# unpinned. A home with no second workspace runs the main workspace exactly
-# as today.
+# alike, and a Go launch that cannot prove its pin is refused rather than run
+# unpinned. The pin applies only to launches that actually bill a Go
+# workspace (bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
+# that test): the free model and every other non-Go model launch exactly as
+# before, pinned to nothing, so discovering or requiring a workspace never
+# blocks them. A home with no second workspace runs the main workspace
+# exactly as today.
 #
 # Verified 2026-10-06 on opencode 1.18.34: a main-pinned launch resolves the
 # main console config (`main / OpenCode`) while the machine-wide active
@@ -209,15 +213,18 @@ fm_opencode_main_configured() {  # [config-dir]
 # fm_opencode_main_org_discover: print the main workspace id read from the
 # machine's own console login (`opencode console orgs`), nothing when it
 # cannot be determined. The row whose workspace name is `main` wins; zero or
-# ambiguous rows refuse rather than guess. Reasons go to stderr, and no id is
-# ever printed there.
+# ambiguous rows refuse rather than guess. The list arrives on stderr on
+# opencode 1.18.35 (stdout on older versions), so both streams are read;
+# row parsing below only matches valid workspace rows, so a failing
+# command's own error text can never parse as an id. Reasons go to stderr,
+# and no id is ever printed there.
 fm_opencode_main_org_discover() {
   local out stripped candidates id found count
   command -v opencode >/dev/null 2>&1 || {
     echo "error: main OpenCode workspace discovery needs the opencode CLI on PATH" >&2
     return 1
   }
-  out=$(opencode console orgs 2>/dev/null) || {
+  out=$(opencode console orgs 2>&1) || {
     echo "error: main OpenCode workspace discovery could not list the console workspaces" >&2
     return 1
   }

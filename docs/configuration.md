@@ -538,7 +538,8 @@ On the first launch that needs it, firstmate builds the gitignored pin database 
 On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
 The pin is a copy, never the login itself: a pin path that names the live console database is refused before anything reads or writes either file.
 Before a launch rides its pin, the pinned config must resolve the `opencode` provider to that launch's own workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
-Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no launch ever inherits the machine-wide active workspace; a launch whose pin cannot be proven is refused rather than run unpinned.
+Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no Go launch ever inherits the machine-wide active workspace; a Go launch whose pin cannot be proven is refused rather than run unpinned.
+The pin applies only to launches that actually bill a Go workspace: the free model and every other non-Go model launch exactly as before, pinned to nothing, so a host with no console login still launches them.
 A home with no second workspace runs the main workspace exactly as before.
 Each launch carries `OPENCODE_DB` at its pinned database, so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
 The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a secondary lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.

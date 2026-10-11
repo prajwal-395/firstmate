@@ -1678,6 +1678,72 @@ test_opencode_main_launch_refuses_when_pin_unprovable() {
   pass "a main launch that cannot prove its pin is refused rather than run unpinned"
 }
 
+# make_nologin_workspace_fixture <case-dir> <fakebin>: a host with no console
+# login (the kimi-klaw shape): `console orgs` fails and `debug paths` points
+# at a datadir with no login database, so no workspace pin is provable while
+# a free-tier launch needs nothing from either.
+make_nologin_workspace_fixture() {  # <case-dir> <fakebin>
+  local dir=$1 fakebin=$2 datadir
+  datadir="$dir/opencode-data"
+  mkdir -p "$datadir"
+  cat > "$fakebin/opencode" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = debug ] && [ "${2:-}" = paths ]; then
+  printf 'data %s\n' "${FM_FAKE_OPENCODE_DATA:-/nonexistent}"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$fakebin/opencode"
+  printf '%s\n' "$datadir"
+}
+
+test_opencode_free_launch_ignores_an_inherited_second_workspace() {
+  local rec id out status launch datadir
+  id=profile-free-nologin-z35
+  rec=$(make_spawn_case profile-free-nologin opencode "$id")
+  read_case_record "$rec"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  datadir=$(make_nologin_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the no-login fixture could not be built"
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "a free launch on a host with no console login must succeed: $out"
+  assert_grep 'model=opencode/muse-spark-1.3-contributor-free' "$HOME_DIR/state/$id.meta" "the free model was not recorded"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a free launch must record no workspace marker"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "--model 'opencode/muse-spark-1.3-contributor-free'" \
+    "the launch did not carry the free model id"
+  assert_not_contains "$launch" "OPENCODE_DB=" "a free launch must ride no workspace pin"
+  pass "a free launch with an inherited second workspace and no login runs unpinned"
+}
+
+test_opencode_free_launch_ignores_an_inherited_main_org() {
+  local rec id out status launch datadir
+  id=profile-free-mainorg-z36
+  rec=$(make_spawn_case profile-free-mainorg opencode "$id")
+  read_case_record "$rec"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  printf '%s' "$DUAL_MAIN_ORG_ID" > "$HOME_DIR/config/opencode-main-org"
+  datadir=$(make_nologin_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the no-login fixture could not be built"
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "a free launch must not touch an inherited main id without a login: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" "OPENCODE_DB=" "a free launch must ride no workspace pin"
+  [ ! -e "$HOME_DIR/config/opencode-main.db" ] \
+    || fail "a free launch must not build a main pin database"
+  pass "a free launch with an inherited main id and no login runs unpinned"
+}
+
 test_opencode_workspace_flag_refuses_fresh_spawn() {
   local rec id out status
   id=profile-workspace-flag-z32
@@ -1699,6 +1765,8 @@ test_opencode_second_workspace_pins_launch
 test_opencode_main_workspace_launch_is_unpinned_without_second
 test_opencode_main_workspace_pins_launch_when_second_configured
 test_opencode_main_launch_refuses_when_pin_unprovable
+test_opencode_free_launch_ignores_an_inherited_second_workspace
+test_opencode_free_launch_ignores_an_inherited_main_org
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths

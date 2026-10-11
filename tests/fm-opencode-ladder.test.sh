@@ -1110,6 +1110,26 @@ JSON
   pass "an unstarted window on an idle plan never counts as resetting soonest"
 }
 
+test_bills_go_names_only_the_go_tier() {
+  fm_opencode_model_bills_go "$GO" \
+    || fail "the Go model id must bill the Go workspace"
+  fm_opencode_model_bills_go "$GO_BARE" \
+    || fail "the bare Go model id must bill the Go workspace"
+  fm_opencode_model_bills_go "$FREE" \
+    && fail "the free model must bill no Go workspace"
+  fm_opencode_model_bills_go "$FREE_BARE" \
+    && fail "the bare free model must bill no Go workspace"
+  fm_opencode_model_bills_go "$FM_OPENCODE_LADDER_PLUS_MODEL" \
+    && fail "the Codex Plus model must bill no Go workspace"
+  fm_opencode_model_bills_go "anthropic/claude-opus-4-5" \
+    && fail "an ungoverned passthrough model must bill no Go workspace"
+  fm_opencode_model_bills_go "" \
+    && fail "an empty model must bill no Go workspace"
+  fm_opencode_model_bills_go "default" \
+    && fail "the default model must bill no Go workspace"
+  pass "only the Go tier bills a Go workspace, in either id form"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
@@ -1155,3 +1175,4 @@ test_5h_cap_falls_back_and_returns
 test_weekly_cap_falls_back_and_returns
 test_longcat_unreachable_while_second_plan_live
 test_unstarted_window_never_prioritizes_idle_plan
+test_bills_go_names_only_the_go_tier

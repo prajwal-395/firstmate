@@ -439,6 +439,63 @@ test_main_org_discover_reads_the_console_login() {
   pass "main discovery reads the console login's main row"
 }
 
+# install_stderr_mapping_fixture_opencode <name>: like the mapping fixture,
+# but `console orgs` prints its table on stderr the way opencode 1.18.35
+# does, with nothing on stdout. Discovery must read the stream the CLI
+# actually writes, not the one the older version used.
+install_stderr_mapping_fixture_opencode() {  # <name>
+  local name=$1 bindir datadir
+  bindir="$TMP_ROOT/fbin-$name"
+  datadir="$TMP_ROOT/fdata-$name"
+  rm -rf "$bindir" "$datadir"
+  mkdir -p "$bindir" "$datadir"
+  cat > "$bindir/opencode" <<FIXTURE_EOF
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "$datadir"
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+  fi
+  active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
+  if [ "\$active" = "$MAIN_ORG_ID" ]; then
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "main / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  elif [ "\$active" = "$ORG_ID" ]; then
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "secondary / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  else
+    printf '{\n  "provider": {\n    "opencode": {\n      "name": "unknown / OpenCode",\n      "models": {}\n    }\n  }\n}\n'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = console ] && [ "\${2:-}" = orgs ]; then
+  printf '\033[0m\n  \033[92m\xe2\x97\x8f\033[0m \033[96m\033[1mmain\033[0m  \033[90mfixture@example.invalid\033[0m  \033[90mhttps://opencode.ai/console\033[0m  \033[90m%s\033[0m\n    secondary  \033[90mfixture@example.invalid\033[0m  \033[90mhttps://opencode.ai/console\033[0m  \033[90m%s\033[0m\n' "$MAIN_ORG_ID" "$ORG_ID" >&2
+  exit 0
+fi
+exit 1
+FIXTURE_EOF
+  chmod +x "$bindir/opencode"
+  SAVED_PATH=$PATH
+  PATH="$bindir:$PATH"
+  export PATH
+  FIXTURE_DATADIR=$datadir
+  export FIXTURE_DATADIR
+}
+
+test_main_org_discover_reads_a_stderr_console_list() {
+  local got
+  install_stderr_mapping_fixture_opencode discover-stderr
+  got=$(fm_opencode_main_org_discover) || {
+    restore_fixture_opencode
+    fail "discovery must read the console list from the stream opencode actually writes"
+  }
+  restore_fixture_opencode
+  [ "$got" = "$MAIN_ORG_ID" ] || fail "discovery mismatch: got '$got'"
+  pass "main discovery reads the console list opencode prints on stderr"
+}
+
 test_main_org_discover_refuses_without_a_main_row() {
   local err
   install_mainless_fixture_opencode discover-mainless
@@ -670,6 +727,7 @@ test_db_builds_from_scratch
 test_main_org_id_round_trips
 test_main_org_malformed_is_refused
 test_main_org_discover_reads_the_console_login
+test_main_org_discover_reads_a_stderr_console_list
 test_main_org_discover_refuses_without_a_main_row
 test_main_org_ensure_records_the_discovery
 test_main_db_builds_from_scratch_and_proves_main
