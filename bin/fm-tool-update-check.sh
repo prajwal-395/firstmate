@@ -43,9 +43,14 @@
 #
 # Probing costs real time, so `check` runs its probes at most once per
 # FM_TOOL_UPDATE_INTERVAL (default 900, 0 disables the gate, otherwise 60..86400)
-# and stays silent in between. Each local probe is bounded by
+# and stays silent in between. Each local git probe is bounded by
 # FM_TOOL_UPDATE_PROBE_SECS (default 5, valid 1..30) and a whole sweep by
-# FM_TOOL_UPDATE_BUDGET_SECS (default 20, valid 1..120). The two network probes
+# FM_TOOL_UPDATE_BUDGET_SECS (default 25, valid 1..120). The command version
+# probes (which spawn runtimes such as node, whose startup already straddles
+# the local bound on an ordinary host and stalls further under machine load)
+# are bounded by FM_TOOL_UPDATE_VERSION_PROBE_SECS (default 15, valid 1..30)
+# instead, because a timed-out version read reports a healthy tool as broken
+# and trains the reader to ignore the check. The two network probes
 # (`git ls-remote`, which reads the remote over the network rather than the
 # local clone) are bounded by FM_TOOL_UPDATE_GIT_PROBE_SECS (default 15, valid
 # 1..30) instead, because ordinary GitHub latency already straddles the local
@@ -139,6 +144,18 @@ if [ "$PROBE_SECS" -gt 30 ]; then
   exit 2
 fi
 
+VERSION_PROBE_SECS=${FM_TOOL_UPDATE_VERSION_PROBE_SECS:-15}
+case "$VERSION_PROBE_SECS" in
+  ''|*[!0-9]*|0)
+    printf 'fm-tool-update-check: FM_TOOL_UPDATE_VERSION_PROBE_SECS must be a whole number from 1 to 30\n' >&2
+    exit 2
+    ;;
+esac
+if [ "$VERSION_PROBE_SECS" -gt 30 ]; then
+  printf 'fm-tool-update-check: FM_TOOL_UPDATE_VERSION_PROBE_SECS must be a whole number from 1 to 30\n' >&2
+  exit 2
+fi
+
 GIT_PROBE_SECS=${FM_TOOL_UPDATE_GIT_PROBE_SECS:-15}
 case "$GIT_PROBE_SECS" in
   ''|*[!0-9]*|0)
@@ -151,7 +168,7 @@ if [ "$GIT_PROBE_SECS" -gt 30 ]; then
   exit 2
 fi
 
-BUDGET_SECS=${FM_TOOL_UPDATE_BUDGET_SECS:-20}
+BUDGET_SECS=${FM_TOOL_UPDATE_BUDGET_SECS:-25}
 case "$BUDGET_SECS" in
   ''|*[!0-9]*|0)
     printf 'fm-tool-update-check: FM_TOOL_UPDATE_BUDGET_SECS must be a whole number from 1 to 120\n' >&2
@@ -243,8 +260,9 @@ budget_allows() {
 # The bound for one probe: the probe bound for its kind, cut down to whatever
 # the sweep budget has left, so no probe can run past the end of the sweep.
 # Never below PROBE_MIN_SECS, because fm_run_timed treats a non-positive bound
-# as no bound. The optional ceiling defaults to the local probe bound; network
-# probes pass the git bound instead.
+# as no bound. The optional ceiling defaults to the local probe bound; command
+# version probes pass the version bound and network probes pass the git bound
+# instead.
 probe_bound() {
   local max=${1:-$PROBE_SECS} left
   left=$((DEADLINE - $(real_epoch)))
@@ -413,11 +431,15 @@ path_hits() {
 }
 
 # Ask one copy for its own version. Combined output, because tools answer on
-# either stream, and no-mistakes announces its update on stderr.
+# either stream, and no-mistakes announces its update on stderr. Version probes
+# carry the version bound rather than the local probe bound, because runtime
+# startup already straddles the local bound on an ordinary host and stalls
+# further under machine load, and a timed-out version read reports a healthy
+# tool as broken either way.
 probe_output() {
   local path=$1
   shift
-  fm_run_timed "$(probe_bound)" "$path" "$@" 2>&1
+  fm_run_timed "$(probe_bound "$VERSION_PROBE_SECS")" "$path" "$@" 2>&1
 }
 
 command_findings() {
