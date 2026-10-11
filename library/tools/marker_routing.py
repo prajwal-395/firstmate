@@ -656,6 +656,15 @@ class RoutedNote:
     by the id a rebuild cannot move.  Empty for a note that predated the
     id."""
 
+    clip_use_id: str = ""
+    """Cascade Lane C3: the model clip use playing the note's anchor,
+    resolved through the current frame map at pull time.  Empty with the
+    reason in `clip_use_reason` when the model is absent, the map names
+    no reel, or the anchor sits on no mapped segment."""
+
+    clip_use_reason: str = ""
+    """Why `clip_use_id` is what it is - the match basis, or the refusal."""
+
     timeline_start_frame: int = 0
     """Where the timeline's own frame numbering starts, off the pull
     file. Resolve's default is 01:00:00:00, which is frame 108000 at
@@ -914,13 +923,18 @@ def stamped_decision(target: dict, custom_data=None, ledger=None) -> dict:
 def route_note(raw: dict, timeline: str = "", pull_file: str = "",
                ledger=None, timeline_fps: float = 0.0,
                timeline_start_frame: int = 0, edit_rows=None,
-               pending_edit_spec=None) -> RoutedNote:
+               pending_edit_spec=None, model=None) -> RoutedNote:
     """Route ONE collected note.  Never raises on the note's content.
 
     `timeline_fps` and `timeline_start_frame` are the PULL FILE's own
     record of the timeline the note was typed on. They are what turn the
     note's frames into the timeline seconds a region is measured in; both
     default to a reading that produces no span rather than a wrong one.
+
+    `model` is the current Project Model (or None). Cascade Lane C3
+    resolves the note's anchor to a `clip_use_id` through the reel's
+    current frame map at pull time; without a model the note carries an
+    empty id with the reason, and routing is otherwise unchanged.
     """
     text = raw.get("text") or "\n\n".join(
         p for p in (raw.get("name") or "", raw.get("note") or "") if p)
@@ -953,6 +967,27 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
             timeline_decisions.placements_at_frame(
                 ledger or {}, raw.get("frame"))
         ]
+
+    # Cascade Lane C3: resolve the anchor to a clip use through the
+    # current frame map. Fail-closed with the reason on the note; a
+    # note that cannot be placed, or a pull with no model, carries an
+    # empty id and routing is otherwise unchanged.
+    try:
+        from library.tools import reel_layer_links as _links
+        _span = note_span_seconds(routed)
+        if _span is None:
+            routed.clip_use_id = ""
+            routed.clip_use_reason = ("the note has no placed span, so no "
+                                      "frame-map segment can cover it")
+        else:
+            _slug = _links.slug_for_timeline(timeline)
+            _use_id, _why = _links.resolve_clip_use_at_seconds(
+                model, _slug, _span[0])
+            routed.clip_use_id = _use_id or ""
+            routed.clip_use_reason = _why
+    except Exception as exc:  # noqa: BLE001 - the link never fails a route
+        routed.clip_use_id = ""
+        routed.clip_use_reason = f"clip-use resolution skipped ({exc!r})"
 
     if pending_edit_spec:
         if pending_edit_spec.get("state") == "superseded":
@@ -1134,6 +1169,18 @@ def route_project(project_folder, timelines=None) -> list:
     # Read once for the whole project: the ledger is one file and every
     # note is looked up in the same one.
     ledger = timeline_decisions.read_ledger(project_folder)
+    # Cascade Lane C3: the current Project Model, read once for the
+    # whole project so every note resolves its anchor against the same
+    # frame maps. Fail-soft: without a model each note carries the
+    # reason instead of an id, and routing is otherwise unchanged.
+    model = None
+    try:
+        from pathlib import Path as _Path
+        from library.tools import project_model_store as _pm_store
+        _revision, model = _pm_store.load_project_model(
+            _Path(project_folder))
+    except Exception:  # noqa: BLE001 - routing never depends on the model
+        model = None
     edit_rows = edit_ledger.load_rows(project_folder)
     # Keep `ren notes` useful as a routing diagnostic: it shows the old
     # vocabulary guess for an untranslated note, but the run guard refuses
@@ -1159,7 +1206,8 @@ def route_project(project_folder, timelines=None) -> list:
                 edit_rows=edit_rows,
                 pending_edit_spec=pending_specs.get(
                     edit_link_id(raw, payload.get("timeline", ""),
-                                 str(path))))
+                                 str(path))),
+                model=model)
             if identity not in seen:
                 order.append(identity)
             seen[identity] = routed

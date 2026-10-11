@@ -1635,6 +1635,7 @@ def ingest_receipt(
     render_id: str | None = None,
     output_digest: str | None = None,
     recorded_at: str | None = None,
+    qa: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Ingest a driver receipt back into a copy of the model.
 
@@ -1642,6 +1643,11 @@ def ingest_receipt(
     to render clock), render entry and receipt (with identity mapping,
     alpha, dimensions and losses). Refuses mismatched receipts without
     touching the model.
+
+    `qa` is Cascade Lane C2: caller-measured QA fields (e.g. the reel
+    hearing verdicts) stored under the receipt's `details.qa`. Absent by
+    default, and the ingest is byte-identical without it; a non-mapping
+    `qa` refuses the ingest rather than recording a guess.
     """
     validate_project_model(model)
     _require(receipt.get("version") == RECEIPT_VERSION,
@@ -1656,6 +1662,10 @@ def ingest_receipt(
              "receipt carries no renders")
     _require(len(receipt["renders"]) == len(projection.renders),
              "receipt render count does not match its projection")
+    if qa is not None and not isinstance(qa, dict):
+        raise ReceiptMismatch(
+            f"ingest qa must be a mapping, got {type(qa).__name__}: "
+            f"refusing, not guessing")
 
     comp = projection.comp
     expected_frames = comp.expected_frames()
@@ -1772,6 +1782,7 @@ def ingest_receipt(
             ],
             "identity_map": projection.identity_map,
             "losses": projection.losses,
+            **({"qa": dict(qa)} if qa is not None else {}),
         },
     })
     updated["provenance"].append({

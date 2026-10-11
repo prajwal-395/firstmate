@@ -856,12 +856,19 @@ def note_deliver(project_folder: str, reel: int, timeline_name: str,
                  output_path: str, expected_frames: int | None = None,
                  fps: float | None = None,
                  store_root: str | Path | None = None,
-                 author: str = "deliver-reel") -> dict[str, Any]:
+                 author: str = "deliver-reel",
+                 hearing: dict | None = None) -> dict[str, Any]:
     """Append a delivered render, its receipt and reel-to-render map.
 
     The build wrote the source-to-reel map; delivery appends what the
     render produced. Frames are probed off the delivered file itself;
     an unmeasurable file is reported, never guessed. Never raises.
+
+    `hearing` is Cascade Lane C2: the reel's hearing record (the plain
+    dict ``reel_hearing.write_record`` wrote beside the render), stored
+    as the receipt's QA fields. An unreadable hearing is reported on
+    the return and the deliver still commits - the render happened;
+    only its QA note is missing.
     """
     from library.tools import project_model_store as store
     project_folder = str(project_folder)
@@ -869,7 +876,7 @@ def note_deliver(project_folder: str, reel: int, timeline_name: str,
     try:
         return _note_deliver(store_at, project_folder, int(reel),
                              str(timeline_name), str(output_path),
-                             expected_frames, fps, author)
+                             expected_frames, fps, author, hearing)
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
         return {"status": "refused",
                 "reason": f"deliver not recorded: {exc!r}"}
@@ -911,7 +918,7 @@ def _probe_frames(path: str) -> tuple[int | None, float | None]:
 def _note_deliver(store_at: Path, project_folder: str, reel: int,
                   timeline_name: str, output_path: str,
                   expected_frames: int | None, fps: float | None,
-                  author: str) -> dict[str, Any]:
+                  author: str, hearing: dict | None = None) -> dict[str, Any]:
     from library.tools import project_model_store as store
     if not output_path or not Path(output_path).is_file():
         return {"status": "refused",
@@ -1041,6 +1048,11 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
         "frame_map_id": map_id,
         "settings": {"expected_frames": frames, "frame_rate": rate},
     })
+    hearing_note: dict[str, Any] = {"attached": False, "reason": "no hearing given"}
+    if hearing is not None:
+        from library.tools import reel_layer_links as _links
+        model, hearing_note = _links.attach_hearing_qa(
+            model, reel_slug, hearing)
     validate_project_model(model)
     try:
         revision = store.commit_project_model(
@@ -1048,8 +1060,11 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
             author=author, reason=f"deliver-reel: {timeline_name}")
     except RuntimeError as exc:
         return {"status": "refused", "reason": f"store contention: {exc!r}"}
-    return {"status": "committed", "revision": revision,
-            "render": render_id, "frames": frames}
+    result: dict[str, Any] = {"status": "committed", "revision": revision,
+                              "render": render_id, "frames": frames}
+    if hearing is not None:
+        result["hearing_qa"] = hearing_note
+    return result
 
 
 # ── Read path ─────────────────────────────────────────────────────

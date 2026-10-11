@@ -2622,9 +2622,23 @@ def cmd_deliver_reel(args):
     # is delivered and verified whatever the store says.
     try:
         from library.tools import reel_project_model as _rpm
+        # Cascade Lane C2: the hearing record beside the render becomes
+        # the receipt's QA fields. Absent hearing means a deliver with
+        # no QA note, never a failed record - the render stands.
+        _hearing: dict | None = None
+        try:
+            from library.tools import reel_hearing as _hearing_mod
+            import json as _json
+            _hearing_path = _hearing_mod.record_path(
+                full["render"]["output_path"])
+            with open(_hearing_path, encoding="utf-8") as _handle:
+                _loaded = _json.load(_handle)
+            _hearing = _loaded if isinstance(_loaded, dict) else None
+        except (OSError, ValueError):
+            _hearing = None
         recorded = _rpm.note_deliver(
             project_folder, int(args.reel), full["timeline_name"],
-            full["render"]["output_path"])
+            full["render"]["output_path"], hearing=_hearing)
         print(f"  project model: {recorded.get('status')} "
               f"(revision {recorded.get('revision', '-')})",
               file=sys.stderr)

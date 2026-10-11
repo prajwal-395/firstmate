@@ -123,6 +123,7 @@ def queue_note(
     text: str,
     anchor: dict[str, Any] | None,
     origin: str = ORIGIN_CAPTAIN,
+    note_id: str = "",
 ) -> dict[str, Any]:
     """Queue one anchored note. It is not visible to an agent until sent.
 
@@ -130,6 +131,13 @@ def queue_note(
     is who every caller before the hook layer was. An unknown origin
     raises rather than being stored: a note whose author cannot be read
     is exactly the thing the field exists to prevent.
+
+    `note_id` is Cascade Lane C3: the stable marker note id (the
+    `marker_payload` envelope id assigned at pull time) this channel
+    note answers, so the channel, the pull, the ledger and the stamp
+    share one id. Empty when the note answers no marker - a hook or
+    hearing note, which has no Resolve anchor - and stored verbatim,
+    never minted here.
     """
     body = str(text or "").strip()
     if not body:
@@ -138,9 +146,12 @@ def queue_note(
         raise ValueError(
             f"unknown note origin {origin!r}. Known: {', '.join(NOTE_ORIGINS)}"
         )
+    if note_id is not None and not isinstance(note_id, str):
+        raise ValueError(f"a note_id must be a string, not {note_id!r}")
 
     note = {
         "id": f"note_{uuid.uuid4().hex[:12]}",
+        "note_id": note_id or "",
         "text": body[:MAX_NOTE_CHARS],
         "anchor": normalise_anchor(anchor),
         "origin": origin,

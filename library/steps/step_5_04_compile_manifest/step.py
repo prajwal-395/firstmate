@@ -3969,6 +3969,27 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     if errors:
         raise ValueError(f"Manifest validation failed with {len(errors)} errors:\n" + "\n".join(errors))
 
+    # Cascade Lane C1 (library/tools/reel_layer_links.py): stamp model
+    # link columns onto the manifest rows. Fail-soft by lane contract:
+    # the manifest is the renderer contract with or without links, so
+    # an absent or unreadable model links every row to nothing and says
+    # so in `_model_links` rather than failing the compile.
+    try:
+        from library.tools import project_model_store as _pm_store
+        from library.tools import reel_layer_links as _links
+        from pathlib import Path as _Path
+        try:
+            _revision, _model = _pm_store.load_project_model(
+                _Path(_project_root))
+            manifest, _link_report = _links.link_manifest(manifest, _model)
+        except (FileNotFoundError, ValueError, OSError):
+            manifest, _link_report = _links.link_manifest(manifest, None)
+        print(f"  Model links: {_link_report.get('linked', 0)} rows linked, "
+              f"{len(_link_report.get('skipped', []))} unlinked "
+              f"(see manifest _model_links)", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - links never fail a compile
+        print(f"  Model links skipped ({exc!r})", file=sys.stderr)
+
     return manifest
 
 
