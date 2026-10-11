@@ -3730,7 +3730,8 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-agy-turnend"
   fi
-  [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
+  [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null \
+    || { endpoint_close_refusal "$ID" "$BACKEND" "$T" 0; exit 1; }
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID" || {
     echo "error: Orca worktree removal failed for $ID; retaining every durable task record" >&2
     exit 1
