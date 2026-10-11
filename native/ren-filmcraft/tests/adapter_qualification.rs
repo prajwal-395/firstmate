@@ -1,6 +1,7 @@
 //! Unit 6 qualification: the Project Model -> FilmCraft projection drives the
 //! pinned headless CLI end to end. Placement, trim, split, delete, ripple
 //! delete, ripple, retime, transition, audio,
+//! the native audio mix (stems, per-clip gain, rendered LUFS/peak/sync),
 //! render-asset validation, frame-map exactness, ID reconciliation,
 //! unsupported-operation refusals, CLI-level loss proofs (a
 //! mask/effect/track-carrying model executed end to end reports
@@ -12,9 +13,9 @@
 //! `vep-verify-run.sh`, never bare alongside other heavy lanes.
 
 use ren_filmcraft::adapter::{
-    asset_path, build_frame_map, import_operation, plan_edit, plan_projection, projection_json,
-    reconcile_clip_ids, render_span, summarize_losses, validate_render_asset, verify_media,
-    EditContext,
+    add_audio_tracks_operation, asset_path, build_frame_map, import_operation, plan_edit,
+    plan_projection, projection_json, reconcile_clip_ids, render_span, summarize_losses,
+    validate_render_asset, verify_media, EditContext,
 };
 use ren_filmcraft::{ExportFormat, FilmCraft, HardwareEncoding, Operation, Request};
 use ren_protocol::project_model::{decode_project_model, EditOperation, ProjectModel};
@@ -112,10 +113,12 @@ fn place_through_adapter(adapter: &FilmCraft, name: &str, model: &ProjectModel) 
     );
     let media = verify_media(Path::new("/"), &projection).unwrap();
     for (asset, path) in &media {
-        assert_eq!(
-            &asset_path(Path::new("/"), &projection.imports[0].uri),
-            path
-        );
+        let import = projection
+            .imports
+            .iter()
+            .find(|import| &import.asset_id == asset)
+            .unwrap_or_else(|| panic!("no import for asset {asset}"));
+        assert_eq!(&asset_path(Path::new("/"), &import.uri), path);
         assert!(path.is_file(), "missing media for {asset}");
     }
     let project = temp.path().join(format!("{name}.fcproj"));
@@ -140,6 +143,16 @@ fn place_through_adapter(adapter: &FilmCraft, name: &str, model: &ProjectModel) 
         "import must be error-free: {}",
         imported.engine_response
     );
+    // Stem plans addressing strips past the fresh sequence's own A1-A3
+    // grow the sequence before the first placement lands; plans that fit
+    // run no growth op at all.
+    if let Some(growth) = add_audio_tracks_operation(&project, &projection).unwrap() {
+        let grown = adapter.execute(request(growth)).unwrap();
+        assert!(
+            grown.engine_response["audio"].is_array(),
+            "track growth must report its minted audio tracks"
+        );
+    }
     let engine_items: Vec<u64> = imported.engine_response["items"]
         .as_array()
         .unwrap()
@@ -708,7 +721,14 @@ fn ren_trim_move_transition_gain_match_model_frame_exact() {
     );
     for operation in plan_ren_edit(&model, &projection, &gain, &context).unwrap() {
         let receipt = adapter.execute(request(operation)).unwrap();
-        assert_eq!(receipt.engine_response["value"].as_f64(), Some(-3.0));
+        // Per-clip gain lands on the use's audio item and reports it.
+        let landed = receipt.engine_response["gainDb"]
+            .as_array()
+            .expect("clip.audioGain reports its landed levels");
+        assert!(
+            landed.iter().any(|entry| entry["gainDb"].as_f64() == Some(-3.0)),
+            "receipt must land -3 dB: {landed:?}"
+        );
     }
 }
 
@@ -1825,4 +1845,392 @@ fn concurrent_render_probe_reports_wall_and_rss_without_gating() {
             serial_wall * *slots as f64 / wall,
         );
     }
+}
+
+// ── Native audio mix: per-clip gain + bed/SFX stems, measured ──
+//
+// Ren's declared mix intent (per-clip dB, bed/SFX stems on their own
+// strips, after `library/tools/otio_mix.py` and `music_bed.py`) renders
+// through FilmCraft: the bed pair overlaps like a declared crossfade
+// (A2+A3), the SFX hit starts above the bed (A4, via track growth), and
+// each clip carries a static gain. This test measures the RENDERED mix -
+// LUFS per soloed stem, true peak, sync - against that intent, and proves
+// the model equivalence (logged edits re-plan identically, inspected
+// `gainDb` equals the log). Keyframed ducking is out of scope until the
+// volume-automation op lands; the static bed plays unducked here.
+
+fn mix_bed_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mix-bed.wav")
+}
+
+fn mix_sfx_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mix-sfx.wav")
+}
+
+/// Dialogue (3s A/V) plus a crossfaded bed pair plus one SFX hit, on the
+/// same 24fps clocks as `test_model` (one tick per frame).
+fn mix_model(av: &Path, bed: &Path, sfx: &Path) -> ProjectModel {
+    let document = serde_json::json!({
+        "id": "adapter-qualification-mix",
+        "schema_version": 1,
+        "timebase_policy": "rational_frames",
+        "clocks": [
+            {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-av", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+            {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+        ],
+        "assets": [
+            {"id": "asset-av", "kind": "video", "uri": av.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]},
+            {"id": "asset-bed", "kind": "audio", "uri": bed.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]},
+            {"id": "asset-sfx", "kind": "audio", "uri": sfx.to_str().unwrap(), "content_digest": null, "metadata": {}, "provenance": ["prov-qual"]}
+        ],
+        "streams": [
+            {"id": "stream-video", "asset_id": "asset-av", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+            {"id": "stream-dialogue", "asset_id": "asset-av", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+            {"id": "stream-bed", "asset_id": "asset-bed", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+            {"id": "stream-sfx", "asset_id": "asset-sfx", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+        ],
+        "entities": [], "observations": [], "identity_links": [], "masks": [],
+        "object_classes": [], "tracks": [], "relations": [], "intents": [],
+        "clip_uses": [
+            {"id": "use-dialogue", "asset_id": "asset-av",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 72},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 72},
+             "entity_links": [], "role": "a_roll", "intent_id": null},
+            {"id": "use-bed-a", "asset_id": "asset-bed",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 48},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 48},
+             "entity_links": [], "role": "music", "intent_id": null},
+            {"id": "use-bed-b", "asset_id": "asset-bed",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 48},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 24, "end": 72},
+             "entity_links": [], "role": "music", "intent_id": null},
+            {"id": "use-hit", "asset_id": "asset-sfx",
+             "source_interval": {"clock_id": "clock-source", "start": 0, "end": 24},
+             "timeline_interval": {"clock_id": "clock-timeline", "start": 48, "end": 72},
+             "entity_links": [], "role": "sfx", "intent_id": null}
+        ],
+        "edits": [], "effects": [], "renders": [], "frame_maps": [],
+        "nle_bindings": [], "receipts": [],
+        "provenance": [{"id": "prov-qual", "producer": "adapter-qualification", "producer_version": null, "source_digest": null, "recorded_at": null}]
+    });
+    decode_project_model(&document.to_string()).expect("mix model decodes")
+}
+
+/// Engine clip id to its inspected `gainDb`, over every audio item.
+fn inspect_gains(inspection: &serde_json::Value) -> BTreeMap<u64, f64> {
+    let mut gains = BTreeMap::new();
+    for track in inspection["audio"].as_array().unwrap() {
+        for item in track["items"].as_array().unwrap() {
+            gains.insert(
+                item["clip"].as_u64().unwrap(),
+                item["gainDb"].as_f64().unwrap(),
+            );
+        }
+    }
+    gains
+}
+
+/// Solo one mixer strip headlessly. Measurement scaffolding only: stem
+/// isolation for the LUFS proof below, not part of the mix contract (the
+/// mix itself runs entirely through driver operations).
+fn set_strip_solo(cli: &Path, project: &Path, strip: &str, solo: bool) {
+    let output = std::process::Command::new(cli)
+        .arg("--project")
+        .arg(project)
+        .args(["exec", "mixer.setStrip"])
+        .arg(serde_json::json!({"strip": strip, "solo": solo}).to_string())
+        .arg("--compact")
+        .arg("--save")
+        .output()
+        .expect("pinned CLI must run mixer.setStrip");
+    assert!(
+        output.status.success(),
+        "mixer.setStrip {strip} solo={solo} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("setStrip answers JSON");
+    assert_eq!(
+        response["solo"], serde_json::json!(solo),
+        "strip {strip} must report solo={solo}"
+    );
+}
+
+fn export_mix_wav(adapter: &FilmCraft, project: &Path, dir: &Path, name: &str) -> PathBuf {
+    let out = dir.join(name);
+    let receipt = adapter
+        .execute(request(Operation::Export {
+            project: project.into(),
+            path: out.clone(),
+            format: ExportFormat::Wav,
+            hardware_encoder: HardwareEncoding::Off,
+        }))
+        .unwrap();
+    assert!(receipt.engine_response["job"].is_u64());
+    validate_render_asset(&out).unwrap();
+    out
+}
+
+/// (integrated LUFS, true-peak dBTP) off a rendered wav, via loudnorm.
+/// ffmpeg is a declared requirement of this file: its absence fails.
+fn measure_loudness(wav: &Path) -> (f64, f64) {
+    let output = std::process::Command::new("ffmpeg")
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(wav)
+        .args(["-map", "0:a", "-filter:a", "loudnorm=print_format=json", "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg must be on PATH for the mix proof");
+    assert!(
+        output.status.success(),
+        "loudnorm failed on {}: {}",
+        wav.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let start = stderr.find('{').expect("loudnorm prints a JSON block");
+    let end = stderr.rfind('}').expect("loudnorm JSON block closes");
+    let summary: serde_json::Value =
+        serde_json::from_str(&stderr[start..=end]).expect("loudnorm JSON parses");
+    let lufs: f64 = summary["input_i"]
+        .as_str()
+        .expect("loudnorm reports input_i")
+        .parse()
+        .expect("input_i parses as a number");
+    let peak: f64 = summary["input_tp"]
+        .as_str()
+        .expect("loudnorm reports input_tp")
+        .parse()
+        .expect("input_tp parses as a number");
+    (lufs, peak)
+}
+
+/// Rendered duration in seconds, via ffprobe.
+fn measure_duration(wav: &Path) -> f64 {
+    let output = std::process::Command::new("ffprobe")
+        .arg("-hide_banner")
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("csv=p=0")
+        .arg(wav)
+        .output()
+        .expect("ffprobe must be on PATH for the mix proof");
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .expect("ffprobe duration parses as seconds")
+}
+
+/// First sound onset in seconds: the end of the leading silence on a stem
+/// whose head is silent (the SFX hit enters at frame 48 of 24fps = 2.0s).
+fn measure_onset(wav: &Path) -> f64 {
+    let output = std::process::Command::new("ffmpeg")
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(wav)
+        .args(["-af", "silencedetect=noise=-40dB:d=0.2", "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg must be on PATH for the mix proof");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    stderr
+        .lines()
+        .find_map(|line| {
+            line.split("silence_end: ")
+                .nth(1)
+                .and_then(|tail| tail.split_whitespace().next())
+                .and_then(|seconds| seconds.parse::<f64>().ok())
+        })
+        .expect("the hit stem must open with a measurable silence")
+}
+
+#[test]
+fn native_audio_mix_renders_declared_levels_and_sync() {
+    let adapter = FilmCraft::new().unwrap();
+    let cli = ren_filmcraft::locate_or_build_cli().unwrap();
+    let model = mix_model(&linked_av_fixture(), &mix_bed_fixture(), &mix_sfx_fixture());
+    let projection = plan_projection(&model).unwrap();
+    assert!(
+        projection.losses.is_empty(),
+        "a pure stem mix plans no loss: {:#?}",
+        projection.losses
+    );
+    // The crossfaded bed pair takes A2+A3; the hit starts above the bed.
+    let strip_of = |id: &str| {
+        projection
+            .placements
+            .iter()
+            .find(|p| p.clip_use_id == id)
+            .unwrap_or_else(|| panic!("no placement for {id}"))
+            .track
+            .clone()
+    };
+    assert_eq!(strip_of("use-dialogue"), "V1");
+    assert_eq!(strip_of("use-bed-a"), "A2");
+    assert_eq!(strip_of("use-bed-b"), "A3");
+    assert_eq!(strip_of("use-hit"), "A4");
+    let placed = place_through_adapter(&adapter, "adapter-mix", &model);
+
+    // Declared intent, in dB: bed pieces at -6, hit at -3, dialogue unity.
+    let context = EditContext {
+        project: &placed.project,
+        clip_ids: &placed.clip_ids,
+    };
+    let intents = [
+        ("edit-gain-bed-a", "use-bed-a", -6.0),
+        ("edit-gain-bed-b", "use-bed-b", -6.0),
+        ("edit-gain-hit", "use-hit", -3.0),
+    ];
+    let mut mutated = model.clone();
+    for (id, target, db) in intents {
+        let edit = ren_edit_for(id, "audio.gain", target, serde_json::json!({"db": db}));
+        let operations =
+            ren_filmcraft::adapter::plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        assert_eq!(operations.len(), 1);
+        let operation = operations.into_iter().next().unwrap();
+        let engine_audio: u64 = placed.clip_ids[target][0];
+        assert!(
+            matches!(&operation, Operation::ClipAudioGain { clips, gain_db, .. }
+                if clips == &vec![engine_audio] && (*gain_db - db).abs() < f64::EPSILON),
+            "gain on {target} must address its reconciled audio at {db} dB, got {operation:?}"
+        );
+        let receipt = adapter.execute(request(operation)).unwrap();
+        let landed = receipt.engine_response["gainDb"]
+            .as_array()
+            .expect("clip.audioGain reports its landed levels");
+        assert!(
+            landed.iter().any(|entry| (entry["gainDb"].as_f64().unwrap() - db).abs() < 0.001),
+            "receipt must land {db} dB for {target}: {landed:?}"
+        );
+        // Model equivalence: the span-neutral edit logs, and the logged
+        // edit re-plans to the identical operation.
+        mutated =
+            ren_filmcraft::adapter::apply_ren_edit_to_model(&mutated, &edit).unwrap();
+        let replanned = ren_filmcraft::adapter::plan_ren_edit(
+            &mutated,
+            &plan_projection(&mutated).unwrap(),
+            mutated.edits.last().unwrap(),
+            &context,
+        )
+        .unwrap();
+        assert_eq!(replanned.len(), 1);
+        assert!(
+            matches!(&replanned[0], Operation::ClipAudioGain { clips, gain_db, .. }
+                if clips == &vec![engine_audio] && (*gain_db - db).abs() < f64::EPSILON),
+            "logged gain on {target} must re-plan identically"
+        );
+    }
+    assert_eq!(mutated.edits.len(), 3);
+
+    // Frame-exact stems plus exact landed gains, read back off inspect.
+    let inspection = adapter
+        .execute(request(Operation::Inspect {
+            project: placed.project.clone(),
+        }))
+        .unwrap();
+    let mut audio_spans = inspect_spans(&inspection.engine_response, "audio");
+    audio_spans.sort();
+    assert_eq!(
+        audio_spans,
+        vec![(0, 48), (0, 72), (24, 48), (48, 24)],
+        "dialogue, both bed pieces and the hit must sit frame-exact"
+    );
+    let gains = inspect_gains(&inspection.engine_response);
+    // A linked use reconciles to video-plus-audio ids; the gain lands on
+    // the audio item, so read through every reconciled id.
+    let gain_of = |target: &str| {
+        placed.clip_ids[target]
+            .iter()
+            .find_map(|id| gains.get(id))
+            .copied()
+            .unwrap_or_else(|| panic!("no inspected gain for {target}"))
+    };
+    assert_eq!(gain_of("use-dialogue"), 0.0);
+    assert_eq!(gain_of("use-bed-a"), -6.0);
+    assert_eq!(gain_of("use-bed-b"), -6.0);
+    assert_eq!(gain_of("use-hit"), -3.0);
+
+    // LUFS per stem: solo each stem's strips, export, measure. The bed
+    // is two crossfaded pieces on A2+A3, so its stem solos both. The
+    // solo toggles are measurement scaffolding (direct CLI); the mix ran
+    // on driver ops.
+    let dir = placed._temp.path();
+    let stem = |strips: &[&str], name: &str| {
+        for strip in strips {
+            set_strip_solo(&cli, &placed.project, strip, true);
+        }
+        let wav = export_mix_wav(&adapter, &placed.project, dir, name);
+        for strip in strips {
+            set_strip_solo(&cli, &placed.project, strip, false);
+        }
+        wav
+    };
+    let dialogue_wav = stem(&["A1"], "stem-dialogue.wav");
+    let bed_wav = stem(&["A2", "A3"], "stem-bed.wav");
+    let hit_wav = stem(&["A4"], "stem-hit.wav");
+    let (dialogue_lufs, _) = measure_loudness(&dialogue_wav);
+    let (bed_lufs_before, bed_peak) = measure_loudness(&bed_wav);
+    eprintln!("[mix-proof] dialogue {dialogue_lufs:.2} LUFS, bed {bed_lufs_before:.2} LUFS peak {bed_peak:.2} dBTP");
+    assert!(
+        bed_peak <= -1.0,
+        "bed stem true peak must sit under the -1 dBTP hygiene ceiling, got {bed_peak}"
+    );
+    // Sync: the hit enters at frame 48 of 24fps; every stem renders the
+    // whole 3s timeline.
+    let onset = measure_onset(&hit_wav);
+    assert!(
+        (onset - 2.0).abs() < 0.2,
+        "hit onset must sit at 2.0s, measured {onset}"
+    );
+    for wav in [&dialogue_wav, &bed_wav, &hit_wav] {
+        let seconds = measure_duration(wav);
+        assert!(
+            (seconds - 3.0).abs() < 0.15,
+            "{} must render the 3s timeline, measured {seconds}s",
+            wav.display()
+        );
+    }
+
+    // The rendered mix follows the declared intent: -6 dB more gain on
+    // both bed pieces reads as 6 dB more bed LUFS, and dialogue does not
+    // move (per-clip locality - a strip-level change would move with it).
+    for (id, target) in [("edit-regain-bed-a", "use-bed-a"), ("edit-regain-bed-b", "use-bed-b")] {
+        let edit = ren_edit_for(id, "audio.gain", target, serde_json::json!({"db": 0.0}));
+        let operations =
+            ren_filmcraft::adapter::plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        adapter.execute(request(operations.into_iter().next().unwrap())).unwrap();
+    }
+    let bed_up_wav = stem(&["A2", "A3"], "stem-bed-up.wav");
+    let (bed_lufs_after, _) = measure_loudness(&bed_up_wav);
+    let dialogue_again_wav = stem(&["A1"], "stem-dialogue-again.wav");
+    let (dialogue_lufs_after, _) = measure_loudness(&dialogue_again_wav);
+    let delta = bed_lufs_after - bed_lufs_before;
+    eprintln!("[mix-proof] bed {bed_lufs_before:.2} -> {bed_lufs_after:.2} LUFS (delta {delta:.2})");
+    assert!(
+        (delta - 6.0).abs() < 1.0,
+        "raising both bed pieces 6 dB must raise bed LUFS ~6 dB, measured {delta:.2}"
+    );
+    assert!(
+        (dialogue_lufs_after - dialogue_lufs).abs() < 0.5,
+        "dialogue must not move with the bed gain, measured {}",
+        dialogue_lufs_after - dialogue_lufs
+    );
+
+    // Full mix: renders, peaks under the ceiling, spans the timeline.
+    let mix_wav = export_mix_wav(&adapter, &placed.project, dir, "full-mix.wav");
+    let (mix_lufs, mix_peak) = measure_loudness(&mix_wav);
+    let mix_seconds = measure_duration(&mix_wav);
+    eprintln!("[mix-proof] full mix {mix_lufs:.2} LUFS peak {mix_peak:.2} dBTP {mix_seconds:.3}s");
+    assert!(
+        mix_peak <= -1.0,
+        "full-mix true peak must sit under -1 dBTP, got {mix_peak}"
+    );
+    assert!(
+        (mix_seconds - 3.0).abs() < 0.15,
+        "full mix must span the 3s timeline, measured {mix_seconds}s"
+    );
 }

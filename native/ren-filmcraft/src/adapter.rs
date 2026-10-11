@@ -2,7 +2,9 @@
 //! the pinned FilmCraft driver in `super`.
 //!
 //! Ren's model stays canonical. This adapter serializes only the bounded subset
-//! FilmCraft can represent (asset imports plus ordered clip placements on V1/V2)
+//! FilmCraft can represent (asset imports, ordered clip placements on V1/V2,
+//! music/SFX stems dealt across the audio pool from A2 upward, per-clip gain
+//! via `clip.audioGain`, track gain via `mixer.setValue`)
 //! into driver [`super::Operation`]s, keeps the bidirectional Ren/engine ID map,
 //! builds the exact timeline-to-render [`FrameMap`](ren_protocol::project_model::FrameMap),
 //! validates the exported render asset, and carries every loss explicitly.
@@ -30,8 +32,13 @@
 //!   clips - a razor severs the A/V link on later pieces and a retime over
 //!   severed ids ripples once per id, so the ramp expansion re-links each
 //!   severed piece first (clear-then-link) while the intact first piece needs
-//!   no repair; transition and audio gain map onto
-//!   their driver commands. A stepped `retime.segments` ramp expands through
+//!   no repair; transition maps onto its driver command, track gain onto
+//!   `mixer.setValue`, and per-clip `audio.gain` onto `clip.audioGain`
+//!   (mode `set`, first reconciled id - the engine follows clip links).
+//!   Keyframed audio (`audio.fade`, `audio.automation`) and pan refuse by
+//!   name: keyframes ride the volume-automation op once that lane merges,
+//!   and Ren's mix has no measured pan mapping on either path.
+//!   A stepped `retime.segments` ramp expands through
 //!   [`expand_retime_ramp`] into razor points plus one constant `retime` per
 //!   piece; anything FilmCraft cannot represent exactly
 //!   (unexpanded ramps, whole-ramp reversal, inexact rates or fractional-frame
@@ -83,7 +90,21 @@ use super::{
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
 pub const ENGINE_TICKS_PER_SECOND: i64 = 254_016_000_000;
 /// Version of this projection contract. Bump on any planning-rule change.
-pub const ADAPTER_VERSION: u32 = 3;
+pub const ADAPTER_VERSION: u32 = 4;
+
+/// Audio strips on a fresh FilmCraft sequence (`file.newSequence` defaults
+/// to three audio tracks). A1 carries production dialogue (linked audio,
+/// played at unity), A2 opens the music pool, A3 opens the SFX pool - the
+/// same division `library/tools/otio_mix.py::track_role` owns on the
+/// Resolve path, so a stem renamed on one path cannot mean something else
+/// on the other.
+pub const FRESH_SEQUENCE_AUDIO_TRACKS: u32 = 3;
+/// First strip of the music pool (the bed allocates from here upward).
+pub const MUSIC_POOL_BASE: u32 = 2;
+/// First strip of the SFX pool when the bed uses nothing. With a bed, the
+/// SFX pool starts above whatever the bed used, mirroring the OTIO
+/// allocator's bed-then-SFX order.
+pub const SFX_POOL_BASE: u32 = 3;
 
 #[derive(Debug)]
 pub enum AdapterError {
@@ -224,16 +245,125 @@ fn has_audio_stream(model: &ProjectModel, asset_id: &str) -> bool {
     })
 }
 
-/// Deterministic video track per role. Anything else has no mapping.
+/// Deterministic video track per picture role. Audio stems (`music`,
+/// `sfx`) never reach this function: they allocate across the audio pool
+/// in [`allocate_stem_strips`], because two overlapping bed pieces cannot
+/// share one strip. Anything else has no mapping.
 fn track_for_role(role: &str, clip_use_id: &str) -> Result<String> {
     match role {
         "a_roll" => Ok("V1".into()),
         "b_roll" => Ok("V2".into()),
         _ => Err(unsupported(
             "unsupported_role",
-            format!("clip use `{clip_use_id}` has role `{role}`; projection maps only `a_roll` and `b_roll`"),
+            format!("clip use `{clip_use_id}` has role `{role}`; projection maps `a_roll`/`b_roll` to picture and `music`/`sfx` to audio stems"),
         )),
     }
+}
+
+/// True for the roles that place sound onto audio strips rather than
+/// picture onto video tracks.
+fn is_stem_role(role: &str) -> bool {
+    matches!(role, "music" | "sfx")
+}
+
+/// Spread stem uses across audio strips, bed then SFX.
+///
+/// Each use is `(clip_use_id, timeline_start, timeline_end)` in model
+/// ticks. Music allocates first from [`MUSIC_POOL_BASE`] upward (a
+/// declared crossfade is a real overlap, so the two pieces take two
+/// strips); SFX allocates next from above whatever the bed used
+/// (`max(SFX_POOL_BASE, bed_max + 1)`), which is the order the OTIO
+/// allocator (`library/tools/otio_mix.py`, `music_bed.py`) renders in.
+/// Within each pool, a use takes the lowest strip whose last occupant
+/// ends at or before its start; anything else takes a fresh strip. Input
+/// order decides nothing: uses sort by `(start, clip_use_id)`, so the
+/// same model always deals the same strips.
+fn allocate_stem_strips(uses: &[(String, i64, i64)], stem_base: u32) -> BTreeMap<String, String> {
+    let mut ordered: Vec<_> = uses.iter().collect();
+    ordered.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
+    let mut strip_end: BTreeMap<u32, i64> = BTreeMap::new();
+    let mut assigned = BTreeMap::new();
+    for (id, start, end) in ordered {
+        let mut strip = stem_base;
+        while strip_end.get(&strip).is_some_and(|occupied_until| *occupied_until > *start) {
+            strip += 1;
+        }
+        strip_end.insert(strip, *end);
+        assigned.insert((*id).clone(), format!("A{strip}"));
+    }
+    assigned
+}
+
+
+
+/// Deal every stem use onto its strip: `clip_use_id` to `A{n}`.
+///
+/// Music deals first from [`MUSIC_POOL_BASE`]; SFX deals next from above
+/// whatever the bed used. The caller passes ALL clip uses; picture roles
+/// are ignored here (the overlap check above already owns them).
+fn deal_stem_strips(
+    ordered: &[&ren_protocol::project_model::ClipUse],
+) -> BTreeMap<String, String> {
+    let spans = |role: &str| {
+        ordered
+            .iter()
+            .filter(|u| u.role == role)
+            .map(|u| {
+                (
+                    u.id.0.clone(),
+                    u.timeline_interval.start,
+                    u.timeline_interval.end,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut dealt = allocate_stem_strips(&spans("music"), MUSIC_POOL_BASE);
+    let bed_max = dealt
+        .values()
+        .filter_map(|strip| strip.strip_prefix('A').and_then(|n| n.parse::<u32>().ok()))
+        .max()
+        .unwrap_or(0);
+    dealt.extend(allocate_stem_strips(
+        &spans("sfx"),
+        SFX_POOL_BASE.max(bed_max + 1),
+    ));
+    dealt
+}
+
+/// Highest audio strip number the projection addresses, over placed
+/// tracks and linked-audio strips alike. Fresh sequences carry
+/// [`FRESH_SEQUENCE_AUDIO_TRACKS`]; anything above needs
+/// [`Operation::AddAudioTracks`] before the first placement lands.
+pub fn audio_strips_used(projection: &Projection) -> u32 {
+    projection
+        .placements
+        .iter()
+        .flat_map(|placement| {
+            [&placement.track]
+                .into_iter()
+                .chain(placement.audio_track.as_ref())
+        })
+        .filter_map(|strip| strip.strip_prefix('A'))
+        .filter_map(|number| number.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0)
+}
+
+/// The track-growth operation a stem plan needs, if any: `None` when the
+/// plan fits the fresh sequence's own A1-A3. Callers run this after
+/// `CreateProject` and before the first `Place`.
+pub fn add_audio_tracks_operation(
+    project: &Path,
+    projection: &Projection,
+) -> Result<Option<Operation>> {
+    let highest = audio_strips_used(projection);
+    if highest <= FRESH_SEQUENCE_AUDIO_TRACKS {
+        return Ok(None);
+    }
+    Ok(Some(Operation::AddAudioTracks {
+        project: project.into(),
+        audio_tracks: highest - FRESH_SEQUENCE_AUDIO_TRACKS,
+    }))
 }
 
 /// Pure, deterministic plan over `model`. No I/O, no CLI: the same model
@@ -266,15 +396,37 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
     ordered.sort_by(|a, b| {
         (a.timeline_interval.start, &a.id.0).cmp(&(b.timeline_interval.start, &b.id.0))
     });
-    if ordered.windows(2).any(|pair| {
+    // Unknown roles refuse before any geometric check can mislabel
+    // them: a `title` overlapping dialogue is an unmapped role, not a
+    // picture overlap.
+    for clip_use in &ordered {
+        if !matches!(clip_use.role.as_str(), "a_roll" | "b_roll" | "music" | "sfx") {
+            return Err(unsupported(
+                "unsupported_role",
+                format!(
+                    "clip use `{}` has role `{}`; projection maps `a_roll`/`b_roll` to picture and `music`/`sfx` to audio stems",
+                    clip_use.id.0, clip_use.role
+                ),
+            ));
+        }
+    }
+    // Picture overlaps refuse: V1/V2 place one layer each, so stacking
+    // would be a guess. Stem overlaps never reach this check: the bed's
+    // declared crossfades ARE overlaps, and the strip allocator below
+    // spreads them across tracks instead of refusing.
+    let picture: Vec<_> = ordered.iter().filter(|u| !is_stem_role(&u.role)).collect();
+    if picture.windows(2).any(|pair| {
         let (first, second) = (&pair[0].timeline_interval, &pair[1].timeline_interval);
         first.end > second.start
     }) {
         return Err(unsupported(
             "timeline_overlap",
-            "two clip uses claim overlapping timeline ranges; the projection places one track layer without guessing stacking".into(),
+            "two picture uses claim overlapping timeline ranges; the projection places one video layer without guessing stacking".into(),
         ));
     }
+    // Deal the audio strips before placing anything: music first from the
+    // pool base, then SFX above whatever the bed used.
+    let stem_strips = deal_stem_strips(&ordered);
 
     let mut imports = BTreeMap::new();
     let mut placements = Vec::new();
@@ -334,11 +486,41 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
             timeline,
             &format!("clip use `{}` timeline duration", clip_use.id.0),
         )?;
+        let (track, audio_track) = if is_stem_role(&clip_use.role) {
+            // A stem with no audio stream names a silence no file can
+            // play; the bed and SFX pools place sound, never picture.
+            if !has_audio_stream(model, &asset.id.0) {
+                return Err(unsupported(
+                    "no_audio_for_stem",
+                    format!(
+                        "clip use `{}` has stem role `{}` but asset `{}` carries no audio stream; there is no sound to place",
+                        clip_use.id.0, clip_use.role, asset.id.0
+                    ),
+                ));
+            }
+            let strip = stem_strips.get(&clip_use.id.0).ok_or_else(|| {
+                invalid(format!(
+                    "stem use `{}` dealt no strip; the allocator covers every stem role",
+                    clip_use.id.0
+                ))
+            })?;
+            // The strip IS the track for a sound-only placement, and it
+            // stays on the placement as `audio_track` so volume automation
+            // (the `audio.volume` plan) finds the strip to drive. The
+            // driver sends the track once: the engine refuses `track` plus
+            // `audioTrack` naming the same strip.
+            (strip.clone(), Some(strip.clone()))
+        } else {
+            (
+                track_for_role(&clip_use.role, &clip_use.id.0)?,
+                has_audio_stream(model, &asset.id.0).then(|| "A1".into()),
+            )
+        };
         placements.push(Placement {
             clip_use_id: clip_use.id.0.clone(),
             asset_id: asset.id.0.clone(),
-            track: track_for_role(&clip_use.role, &clip_use.id.0)?,
-            audio_track: has_audio_stream(model, &asset.id.0).then(|| "A1".into()),
+            track,
+            audio_track,
             frame,
             source_in_ticks,
             duration_ticks,
@@ -1109,11 +1291,14 @@ pub fn plan_ren_edit(
         "audio.gain" => {
             let (target_id, _) = ren_edit_target(edit, context)?;
             let placement = placement_by_id(projection, target_id, edit)?;
-            let audio_track = placement.audio_track.clone().ok_or_else(|| {
+            // Gain needs a strip behind the use: the placement carries it
+            // (`A1` for linked dialogue, the dealt stem strip for bed/SFX),
+            // and a use with no audio stream has nothing to gain.
+            placement.audio_track.clone().ok_or_else(|| {
                 unsupported(
                     "no_audio_for_gain",
                     format!(
-                        "edit `{}` gains `{target_id}`, which carries no audio stream; there is no mixer strip to drive",
+                        "edit `{}` gains `{target_id}`, which carries no audio stream; there is no clip gain to drive",
                         edit.id.0
                     ),
                 )
@@ -1135,16 +1320,59 @@ pub fn plan_ren_edit(
                     edit.id.0
                 )));
             }
-            let track = after
-                .get("track")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-                .unwrap_or(audio_track);
-            Ok(vec![Operation::AudioGain {
+            // One id: the engine follows clip links (measured: gaining a
+            // linked video item writes its audio item's `gainDb`), so the
+            // use's first reconciled id lands the level on the sound
+            // whether the use is linked dialogue or a stem placement.
+            let clips = context.clip_ids.get(target_id).cloned().ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` targets `{target_id}` which lost its reconciled engine clip ids",
+                    edit.id.0
+                ))
+            })?;
+            let clip = *clips.first().ok_or_else(|| {
+                invalid(format!(
+                    "edit `{}` targets `{target_id}` which reconciled to no engine clips",
+                    edit.id.0
+                ))
+            })?;
+            Ok(vec![Operation::ClipAudioGain {
                 project,
-                track,
+                clips: vec![clip],
                 gain_db,
             }])
+        }
+        "audio.pan" => {
+            let (target_id, _) = ren_edit_target(edit, context)?;
+            Err(unsupported(
+                "audio_pan_not_projected",
+                format!(
+                    "edit `{}` pans `{target_id}`; Ren's mix has no measured pan mapping - Resolve's OTIO audio surface is volume only (`library/tools/otio_mix.py`), so a pan would render differently per engine; refusing rather than splitting the mix",
+                    edit.id.0
+                ),
+            ))
+        }
+        "audio.fade" | "audio.automation" => {
+            let (target_id, _) = ren_edit_target(edit, context)?;
+            let after = after_object(edit)?;
+            // The one parameter the keyframed lane will ever drive is
+            // volume; anything else has no spelling on either path
+            // (mirrors the OTIO volume-only rule).
+            if let Some(param) = after.get("param").and_then(|v| v.as_str()) {
+                if param != "volume" {
+                    return Err(invalid(format!(
+                        "edit `{}` automates parameter `{param}` on `{target_id}`; the audio surface is volume only",
+                        edit.id.0
+                    )));
+                }
+            }
+            Err(unsupported(
+                "audio_keyframes_require_volume_automation",
+                format!(
+                    "edit `{}` times keyframes on `{target_id}`; keyframed strip volume lands with the volume-automation op (audio.volume effects over `mixer.setKeyframe`), which this adapter plans once that lane merges - static `audio.gain` is the only keyframe-free level until then",
+                    edit.id.0
+                ),
+            ))
         }
         "timeline.patch" => {
             let after = after_object(edit)?;
@@ -1621,10 +1849,57 @@ pub fn apply_ren_edit_to_model(model: &ProjectModel, edit: &EditOperation) -> Re
                 edit.id.0
             ),
         )),
+        // The equivalence counterpart of the `audio.gain` plan: gain is
+        // span-neutral, so the mutation records the edit in the model's
+        // log (the retime pattern) rather than moving a use. Qualification
+        // compares the engine's inspected `gainDb` against these logged
+        // levels, and re-planning the logged edit over the mutated model
+        // must plan the identical `ClipAudioGain`.
+        "audio.gain" => {
+            let [target] = edit.target_ids.as_slice() else {
+                return Err(invalid(format!(
+                    "edit `{}` must target exactly one clip use; it targets {}",
+                    edit.id.0,
+                    edit.target_ids.len()
+                )));
+            };
+            let clip_use = clip_use_by_id(model, target, edit)?;
+            if !has_audio_stream(model, clip_use.asset_id.0.as_str()) {
+                return Err(unsupported(
+                    "no_audio_for_gain",
+                    format!(
+                        "edit `{}` gains `{target}`, which carries no audio stream; there is no clip gain to record",
+                        edit.id.0
+                    ),
+                ));
+            }
+            let after = after_object(edit)?;
+            let gain_db = after
+                .get("gain_db")
+                .or_else(|| after.get("db"))
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "edit `{}` needs `after.db` (or `after.gain_db`) as a number of dB",
+                        edit.id.0
+                    ))
+                })?;
+            if !gain_db.is_finite() {
+                return Err(invalid(format!(
+                    "edit `{}` names a non-finite gain of {gain_db} dB",
+                    edit.id.0
+                )));
+            }
+            let mut updated = model.clone();
+            updated.edits.push(edit.clone());
+            validate_project_model(&updated)
+                .map_err(|detail| invalid(format!("gain model rejected: {detail}")))?;
+            Ok(updated)
+        }
         other => Err(unsupported(
             "unsupported_edit_operation",
             format!(
-                "edit `{}` names operation `{other}`; the model mutation maps split, trim, move, delete, ripple, link and constant retime",
+                "edit `{}` names operation `{other}`; the model mutation maps split, trim, move, delete, ripple, link, constant retime and clip gain",
                 edit.id.0
             ),
         )),
@@ -2965,6 +3240,186 @@ mod tests {
         }
     }
 
+    fn stem_model() -> ProjectModel {
+        // Dialogue plus a crossfaded bed pair (40-48 overlap) plus one
+        // SFX hit: every source window covers its timeline span exactly.
+        let json = serde_json::json!({
+            "id": "adapter-unit-stems",
+            "schema_version": 1,
+            "timebase_policy": "rational_frames",
+            "clocks": [
+                {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-av", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+            ],
+            "assets": [
+                {"id": "asset-av", "kind": "video", "uri": "media/av.mp4", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]},
+                {"id": "asset-bed", "kind": "audio", "uri": "media/bed.wav", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]},
+                {"id": "asset-sfx", "kind": "audio", "uri": "media/sfx.wav", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]}
+            ],
+            "streams": [
+                {"id": "stream-video", "asset_id": "asset-av", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+                {"id": "stream-dialogue", "asset_id": "asset-av", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+                {"id": "stream-bed", "asset_id": "asset-bed", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}},
+                {"id": "stream-sfx", "asset_id": "asset-sfx", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+            ],
+            "entities": [], "observations": [], "identity_links": [], "masks": [],
+            "object_classes": [], "tracks": [], "relations": [], "intents": [],
+            "clip_uses": [
+                {"id": "use-dialogue", "asset_id": "asset-av", "source_interval": {"clock_id": "clock-source", "start": 0, "end": 96}, "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 96}, "entity_links": [], "role": "a_roll", "intent_id": null},
+                {"id": "use-bed-a", "asset_id": "asset-bed", "source_interval": {"clock_id": "clock-source", "start": 0, "end": 48}, "timeline_interval": {"clock_id": "clock-timeline", "start": 0, "end": 48}, "entity_links": [], "role": "music", "intent_id": null},
+                {"id": "use-bed-b", "asset_id": "asset-bed", "source_interval": {"clock_id": "clock-source", "start": 0, "end": 56}, "timeline_interval": {"clock_id": "clock-timeline", "start": 40, "end": 96}, "entity_links": [], "role": "music", "intent_id": null},
+                {"id": "use-hit", "asset_id": "asset-sfx", "source_interval": {"clock_id": "clock-source", "start": 0, "end": 24}, "timeline_interval": {"clock_id": "clock-timeline", "start": 48, "end": 72}, "entity_links": [], "role": "sfx", "intent_id": null}
+            ],
+            "edits": [], "effects": [], "renders": [], "frame_maps": [],
+            "nle_bindings": [], "receipts": [],
+            "provenance": [{"id": "prov-1", "producer": "unit", "producer_version": null, "source_digest": null, "recorded_at": null}]
+        });
+        decode_project_model(&json.to_string()).expect("stem model decodes")
+    }
+
+    #[test]
+    fn stem_roles_deal_across_strips_bed_then_sfx() {
+        let model = stem_model();
+        let projection = plan_projection(&model).unwrap();
+        let strip_of = |id: &str| {
+            projection
+                .placements
+                .iter()
+                .find(|p| p.clip_use_id == id)
+                .unwrap_or_else(|| panic!("no placement for {id}"))
+        };
+        // Dialogue stays linked on V1/A1.
+        assert_eq!(strip_of("use-dialogue").track, "V1");
+        assert_eq!(strip_of("use-dialogue").audio_track.as_deref(), Some("A1"));
+        // The crossfaded bed pair overlaps, so it takes two strips; the
+        // SFX hit starts above whatever the bed used.
+        assert_eq!(strip_of("use-bed-a").track, "A2");
+        assert_eq!(strip_of("use-bed-b").track, "A3");
+        assert_eq!(strip_of("use-hit").track, "A4");
+        for id in ["use-bed-a", "use-bed-b", "use-hit"] {
+            let placement = strip_of(id);
+            assert_eq!(
+                placement.audio_track.as_deref(),
+                Some(placement.track.as_str()),
+                "{id} must carry its strip for volume automation"
+            );
+        }
+        // One strip past the fresh sequence's own three: the plan grows
+        // the sequence before the first placement lands.
+        assert_eq!(audio_strips_used(&projection), 4);
+        let growth = add_audio_tracks_operation(
+            std::path::Path::new("x.fcproj"),
+            &projection,
+        )
+        .unwrap()
+        .expect("A4 needs track growth");
+        assert!(matches!(
+            growth,
+            Operation::AddAudioTracks { audio_tracks: 1, .. }
+        ));
+        // A plan that fits A1-A3 grows nothing.
+        let fitting = minimal_model();
+        let fitting_projection = plan_projection(&fitting).unwrap();
+        assert_eq!(audio_strips_used(&fitting_projection), 1);
+        assert!(add_audio_tracks_operation(
+            std::path::Path::new("x.fcproj"),
+            &fitting_projection,
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn stem_edge_cases_refuse_or_reuse_by_name() {
+        // A stem with no audio stream names a silence no file can play.
+        let mut silent = stem_model();
+        silent
+            .assets
+            .retain(|asset| asset.id.0 != "asset-sfx");
+        silent.streams.retain(|stream| stream.asset_id.0 != "asset-sfx");
+        silent.assets.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "asset-quiet", "kind": "video", "uri": "media/q.mp4", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]}
+            ))
+            .unwrap(),
+        );
+        silent.streams.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "stream-quiet", "asset_id": "asset-quiet", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}}
+            ))
+            .unwrap(),
+        );
+        for use_ in &mut silent.clip_uses {
+            if use_.id.0 == "use-hit" {
+                use_.asset_id.0 = "asset-quiet".into();
+            }
+        }
+        let err = plan_projection(&silent).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_stem"),
+            "stem without audio must refuse by name, got {err:?}"
+        );
+        // A non-overlapping second SFX reuses its pool's first strip.
+        let mut reuse = stem_model();
+        for use_ in &mut reuse.clip_uses {
+            if use_.id.0 == "use-bed-b" {
+                // End the second bed piece where the first ends: no
+                // overlap, one strip for the whole bed.
+                use_.timeline_interval.start = 48;
+                use_.source_interval.end = 48;
+            }
+        }
+        let projection = plan_projection(&reuse).unwrap();
+        let strip_of = |id: &str| {
+            projection
+                .placements
+                .iter()
+                .find(|p| p.clip_use_id == id)
+                .unwrap()
+                .track
+                .clone()
+        };
+        assert_eq!(strip_of("use-bed-a"), "A2");
+        assert_eq!(strip_of("use-bed-b"), "A2");
+        assert_eq!(strip_of("use-hit"), "A3");
+        assert_eq!(audio_strips_used(&projection), 3);
+        // Picture overlaps still refuse with stems on the timeline, and
+        // unknown roles still refuse.
+        let mut stacked = stem_model();
+        for use_ in &mut stacked.clip_uses {
+            if use_.id.0 == "use-dialogue" {
+                use_.timeline_interval.end = 200;
+                use_.source_interval.end = 200;
+            }
+        }
+        // use-dialogue 0-200 now overlaps use-bed-a 0-48 in time, but
+        // stems stack legally - refusal needs a second PICTURE use.
+        assert!(plan_projection(&stacked).is_ok());
+        stacked.clip_uses.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "use-second-picture", "asset_id": "asset-av", "source_interval": {"clock_id": "clock-source", "start": 0, "end": 96}, "timeline_interval": {"clock_id": "clock-timeline", "start": 10, "end": 50}, "entity_links": [], "role": "b_roll", "intent_id": null}
+            ))
+            .unwrap(),
+        );
+        let err = plan_projection(&stacked).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "timeline_overlap"),
+            "picture overlap must refuse by name, got {err:?}"
+        );
+        stacked.clip_uses.pop();
+        for use_ in &mut stacked.clip_uses {
+            if use_.id.0 == "use-hit" {
+                use_.role = "title".into();
+            }
+        }
+        let err = plan_projection(&stacked).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "unsupported_role"),
+            "unknown role must refuse by name, got {err:?}"
+        );
+    }
+
     fn ren_edit(
         id: &str,
         operation: &str,
@@ -3183,10 +3638,80 @@ mod tests {
             serde_json::json!({"db": -3.0}),
         );
         let operations = plan_ren_edit(&model, &projection, &edit, &context).unwrap();
+        // Per-clip gain addresses the use's first reconciled id; the
+        // engine follows the link onto the audio item itself.
         assert!(matches!(
             &operations[0],
-            Operation::AudioGain { track, gain_db, .. }
-            if track == "A1" && *gain_db == -3.0
+            Operation::ClipAudioGain { clips, gain_db, .. }
+            if clips == &vec![7u64] && *gain_db == -3.0
+        ));
+        // The model counterpart logs the span-neutral edit; re-planning
+        // the logged edit over the mutated model plans the identical op.
+        let mutated = apply_ren_edit_to_model(&model, &edit).unwrap();
+        assert_eq!(mutated.edits.len(), model.edits.len() + 1);
+        let logged = mutated.edits.last().unwrap();
+        assert_eq!(logged.operation, "audio.gain");
+        let replanned = plan_ren_edit(&mutated, &plan_projection(&mutated).unwrap(), logged, &context).unwrap();
+        assert_eq!(replanned, operations);
+        // Gain without an audio stream refuses on both paths (use-b is
+        // video-only in the minimal model).
+        let silent_ids = BTreeMap::from([
+            ("use-a".to_owned(), vec![7u64]),
+            ("use-b".to_owned(), vec![9u64]),
+        ]);
+        let silent_context = ren_edit_context(&silent_ids);
+        let silent_edit = ren_edit(
+            "edit-ren-gain-silent",
+            "audio.gain",
+            "use-b",
+            serde_json::json!({"db": -3.0}),
+        );
+        let err = plan_ren_edit(&model, &projection, &silent_edit, &silent_context).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_gain"),
+            "gain without audio must refuse by name, got {err:?}"
+        );
+        let err = apply_ren_edit_to_model(&model, &silent_edit).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_audio_for_gain"),
+            "gain mutation without audio must refuse by name, got {err:?}"
+        );
+        // Keyframed audio and pan refuse by name: keyframes ride the
+        // volume-automation op once that lane merges.
+        for (operation, after, want) in [
+            (
+                "audio.fade",
+                serde_json::json!({"fade_in": 12, "fade_out": 12}),
+                "audio_keyframes_require_volume_automation",
+            ),
+            (
+                "audio.automation",
+                serde_json::json!({"param": "volume", "keyframes": {"0": -6.0}}),
+                "audio_keyframes_require_volume_automation",
+            ),
+            (
+                "audio.pan",
+                serde_json::json!({"pan": 0.5}),
+                "audio_pan_not_projected",
+            ),
+        ] {
+            let edit = ren_edit("edit-ren-keyed", operation, "use-a", after);
+            let err = plan_ren_edit(&model, &projection, &edit, &context).unwrap_err();
+            assert!(
+                matches!(err, AdapterError::Unsupported { ref code, .. } if code == want),
+                "{operation} must refuse as {want}, got {err:?}"
+            );
+        }
+        // A non-volume automation parameter is invalid on either path.
+        let edit = ren_edit(
+            "edit-ren-pan-param",
+            "audio.automation",
+            "use-a",
+            serde_json::json!({"param": "pan", "keyframes": {"0": 0.5}}),
+        );
+        assert!(matches!(
+            plan_ren_edit(&model, &projection, &edit, &context),
+            Err(AdapterError::InvalidModel(_))
         ));
     }
 
