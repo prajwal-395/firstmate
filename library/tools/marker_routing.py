@@ -1705,6 +1705,18 @@ def render_report(project_folder, routed_notes=None, timelines=None) -> str:
             f"- **Collected**: {note.collected_at} off timeline "
             f"`{note.timeline}`",
         ]
+        # Lane E4 (R7): the Project Model link survives into the
+        # generated doc. The stable id (one note, every rebuild) and
+        # the clip-use anchor (this note, this picture) are rendered
+        # only when recorded - a note that predates the linkage shows
+        # nothing here, and the routing record keeps the full account.
+        _model_links = []
+        if note.stable_note_id:
+            _model_links.append(f"stable `{note.stable_note_id}`")
+        if note.clip_use_id:
+            _model_links.append(f"clip use `{note.clip_use_id}`")
+        if _model_links:
+            lines.append("- **Model link**: " + "; ".join(_model_links))
         if note.outcome == OUTCOME_ROUTED:
             decisions = [BY_NODE_ID[step] for step in note.steps]
             lines += [

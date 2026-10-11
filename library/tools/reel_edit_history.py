@@ -1155,9 +1155,9 @@ def backfill(review_dir: str, final: str,
         versions = []
     plan_version = None
     try:
-        from library.tools.plan_provenance import read_provenance
+        from library.tools.plan_provenance import provenance_with_registry
 
-        provenance = read_provenance(review_dir) or {}
+        provenance = provenance_with_registry(review_dir) or {}
         built_at = (provenance.get("built_at_reels") or {}).get(final)
         built_with = (provenance.get("built_with") or {}).get(final)
         caption = (provenance.get("caption_hashes") or {}).get(final)

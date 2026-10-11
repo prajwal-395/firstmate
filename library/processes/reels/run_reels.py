@@ -294,6 +294,9 @@ _PER_REEL_LIST_KEYS = {
 }
 _SCOPED_PROJECT_LIST_KEYS = {"pending_promotions", "reels_requested"}
 _PER_REEL_MAP_KEYS = {
+    # `caption_hashes` is retired from new build records (Lane E3,
+    # R2/R9) but stays here so `only_reels` runs still scope records
+    # written before the retirement.
     "caption_hashes", "closer_fit", "track_plans", "reel_placements",
     "transition_overlays", "staged_timelines", "allow_drops",
     "staged_timeline_ids", "reels", "notes",

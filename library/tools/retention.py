@@ -192,8 +192,10 @@ JOURNAL_FAMILIES = (
 A journal is `<prefix>_<YYYYMMDDTHHMMSSZ>[_N]<tail>` (`journal_naming`),
 and a journal and its `_manifest.md` share a stamp, so they are kept or
 removed together. Declared, never discovered: an unknown stamped name
-is left alone. `touchup_*` is absent on purpose - a touch-up's record is
-the undo lane's to retire, not this module's."""
+is left alone. `touchup_*` is absent on purpose - a touch-up's account
+lives on its undo journal entry since cascade Lane E2 (R6), and the
+pre-lane `touchup_*.json` files are ignored history, not this
+module's to thin."""
 
 KEEP_NEWEST_JOURNALS = 1
 """The newest act of each family is the one an undo would read."""

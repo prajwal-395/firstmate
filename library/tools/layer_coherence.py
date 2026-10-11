@@ -11,8 +11,9 @@ What is checked, per class
 - `wording`: every active `transcript_spelling` correction's `heard`
   form is scanned for across the source transcript (a hit there is
   the guarantee half failing - the loudest row) and across every
-  display the pipeline regenerates (subtitle plans and overlays,
-  motion-graphic payloads, reel proposals, pipeline step outputs).
+  display the pipeline regenerates (subtitle plans,
+  motion-graphic payloads, reel proposals, pipeline step outputs; the
+  retired `subtitle_overlays/` legacy is ignored - Lane E1, R5).
   The correction record itself, prompt echoes (`llm_requests/`,
   `llm_responses/`) and history (`backups/`) are not divergence -
   they are the machinery and the audit trail, and scanning them
@@ -109,8 +110,15 @@ _HISTORY_RE = re.compile(r"_20\d{6}T\d+Z\.json$")
 #: The display roots `check_wording` walks. `pipeline_data.json` at
 #: the project root is scanned as one more file beside these, because
 #: regenerated step outputs are a display like any other.
+#:
+#: `subtitle_overlays/` (the captain's standalone-script renders) is
+#: RETIRED and absent on purpose (cascade Lane E1, R5): the pipeline's
+#: own caption authority is the step-area segments plus the render
+#: ledger under `pipeline_output`, already scanned here. A legacy-only
+#: file is ignored, never flagged - flagging hand-made displays no
+#: rebuild regenerates is a divergence nobody can fix.
 SCAN_SUBDIRS = ("pipeline_output", Area.SUBTITLE_PLANS.value,
-                Area.SUBTITLE_OVERLAYS.value, "transcripts", "external",
+                "transcripts", "external",
                 "compositions")
 
 #: Where a reels build files this module's full report. A reels build

@@ -45,7 +45,7 @@ def build_inputs(review_dir: str, proposal_path: str,
     "new": no record of proof is not proof.
     """
     from library.tools.plan_provenance import (
-        plan_content_hash, read_provenance)
+        plan_content_hash, provenance_with_registry)
 
     finals = list(finals or ())
     try:
@@ -55,7 +55,9 @@ def build_inputs(review_dir: str, proposal_path: str,
                 "reels_without_prior_proof": list(finals),
                 "reason": "the plan cannot be hashed"}
     try:
-        existing = read_provenance(review_dir) or {}
+        # Lane E3: the caption baseline lives in the derived
+        # registry now; the merged view keeps this reader's shape.
+        existing = provenance_with_registry(review_dir) or {}
     except (OSError, ValueError):
         existing = {}
     if existing.get("plan_content_hash") != content_hash:

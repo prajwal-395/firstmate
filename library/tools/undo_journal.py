@@ -62,6 +62,9 @@ Written BEFORE the touch changes anything (`open_entry`), under
                     before the replaced generation is deleted
       version       the reel version the touch produced
       undo          the undo's receipt, once reversed
+      receipt       the touch's own account of itself (Lane E2, R6 -
+                    folded in from the retired standalone
+                    `touchup_*.json` file)
 
 No live copy is kept
 --------------------
@@ -1587,6 +1590,24 @@ def fail_entry(project_folder, entry: dict, why: str) -> None:
     entry["status"] = STATUS_FAILED
     entry["failed"] = why
     write_entry(project_folder, entry)
+
+
+def attach_receipt(project_folder, entry_id: str, receipt: Mapping) -> str:
+    """File a touch's account of itself onto its journal entry (Lane E2).
+
+    The standalone `touchup_*.json` / `master_touchup_*.json` receipt
+    files are RETIRED (R6): the request already rides the entry's
+    `spec`, and the account now rides its `receipt` - one record per
+    act, read back through `read_entry` like everything else the
+    journal holds. Old receipt files on disk stay where they are,
+    ignored and never deleted. Returns the entry path, so callers
+    keep reporting a `receipt_path` that names a file which exists.
+    """
+    entry = read_entry(project_folder, entry_id)
+    entry["receipt"] = json.loads(json.dumps(dict(receipt or {}),
+                                             default=str))
+    entry["receipt_attached_at"] = _now()
+    return write_entry(project_folder, entry)
 
 
 # ── The projection, and what differs ─────────────────────────────

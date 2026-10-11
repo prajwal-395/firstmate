@@ -352,7 +352,17 @@ def write_provenance(
     asset_hashes: Optional[dict] = None,
     build_signatures: Optional[dict] = None,
 ) -> str:
-    """Serialize concurrent per-reel provenance merges for this project."""
+    """Serialize concurrent per-reel provenance merges for this project.
+
+    Lane E3 (R2/R9): `caption_hashes`, `footage_binding_hashes` and
+    `build_signatures` are LEGACY - no production caller files them
+    any more (the build writes the derived registry and, from
+    deliver on, the model's render receipt instead). They stay in the
+    signature so explicitly-passed maps still merge - old callers,
+    backfills and the tests that pin the merge - while `None` (what
+    every current caller passes) records nothing new. Maps already on
+    disk stay readable through `read_provenance`, and readers that
+    need the live baseline take `provenance_with_registry`."""
     from library.tools.project_file_lock import lock_project_file
 
     path = Path(review_dir) / PROVENANCE_FILENAME
@@ -1116,6 +1126,136 @@ def read_provenance(review_dir: str) -> Optional[dict]:
     if not p.is_file():
         return None
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+#: Derived-registry edge names (Lane D cascade engine,
+#: `library/tools/cascade_graph.py`) onto the legacy per-reel
+#: provenance keys they converge (Lane E3, R2/R9). The registry is
+#: written at build time from the same values the build used to file
+#: under `plan_provenance.json`; the receipt (`details.build` on the
+#: model's `RenderReceipt`, stamped at deliver) is the durable third
+#: copy. Readers take the registry first and the legacy maps only
+#: for reels that predate it.
+_REGISTRY_EDGE_TO_LEGACY = (
+    ("reel derivation", "build_signatures", "derivation"),
+    ("timeline as-built", "build_signatures", "carried"),
+    ("words+pixels+renderer -> caption binding", "caption_hashes", None),
+    ("picture-under-words", "footage_binding_hashes", None),
+)
+
+
+def provenance_with_registry(review_dir: str) -> Optional[dict]:
+    """The provenance sidecar with the derived registry overlaid.
+
+    Cascade Lane E3 (R2/R9): the per-reel content hashes the build
+    used to accumulate here (`build_signatures`, `caption_hashes`,
+    `footage_binding_hashes`) now live per reel in the derived
+    registry, written at build time from the same values. This is a
+    READ-ONLY view - never written back: the registry wins per key,
+    the legacy maps answer only for reels (and halves) the registry
+    does not name, and every other key passes through untouched.
+    Callers that graded against the sidecar keep their shape; what
+    changed is which store answers.
+    """
+    doc = read_provenance(review_dir)
+    if not doc:
+        return doc
+    try:
+        from library.tools import cascade_graph as _cascade
+    except Exception:                               # noqa: BLE001
+        return doc
+    try:
+        names = sorted(os.listdir(_cascade.registry_dir(review_dir)))
+    except OSError:
+        return doc
+    merged = dict(doc)
+    for filename in names:
+        if not filename.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(
+                    _cascade.registry_dir(review_dir), filename),
+                    encoding="utf-8") as handle:
+                registry = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(registry, dict):
+            continue
+        if registry.get("format") != _cascade.REGISTRY_FORMAT:
+            continue
+        reel = str(registry.get("reel") or "")
+        hashes = registry.get("hashes") or {}
+        if not reel or not isinstance(hashes, dict):
+            continue
+        for edge, legacy_key, sub_key in _REGISTRY_EDGE_TO_LEGACY:
+            value = hashes.get(edge)
+            if not value:
+                continue
+            table = dict(merged.get(legacy_key) or {})
+            if sub_key is None:
+                table[reel] = value
+            else:
+                entry = dict(table.get(reel) or {})
+                entry[sub_key] = value
+                table[reel] = entry
+            merged[legacy_key] = table
+    return merged
+
+
+def reel_content_hashes(review_dir: str, reel: str) -> dict:
+    """One reel's content hashes, registry first, legacy maps as fallback.
+
+    Returns `{"derivation", "carried", "caption_binding",
+    "footage_binding", "source"}` where `source` names which store
+    answered (`"registry"`, `"provenance"`, or `"absent"` - the last
+    when neither store names the reel, which refuses downstream
+    rather than guessing). Missing halves read `""`, exactly as an
+    unclosed legacy signature did.
+    """
+    name = str(reel or "")
+    try:
+        from library.tools import cascade_graph as _cascade
+        registry = _cascade.read_registry(str(review_dir), name)
+    except Exception:                               # noqa: BLE001
+        registry = None
+    hashes = (dict(registry.get("hashes") or {})
+              if isinstance(registry, dict) else {})
+    out = {
+        "derivation": hashes.get("reel derivation") or "",
+        "carried": hashes.get("timeline as-built") or "",
+        "caption_binding": hashes.get(
+            "words+pixels+renderer -> caption binding") or "",
+        "footage_binding": hashes.get("picture-under-words") or "",
+        "source": "registry" if any(hashes.get(edge) for edge, _, _
+                                    in _REGISTRY_EDGE_TO_LEGACY) else "",
+    }
+    if all([out["derivation"], out["carried"], out["caption_binding"],
+            out["footage_binding"]]):
+        out["source"] = "registry"
+        return out
+    try:
+        doc = read_provenance(review_dir) or {}
+    except (OSError, ValueError):
+        doc = {}
+    signatures = dict(doc.get("build_signatures") or {})
+    recorded = dict(signatures.get(name) or {})
+    captions = dict(doc.get("caption_hashes") or {})
+    bindings = dict(doc.get("footage_binding_hashes") or {})
+    if not out["derivation"]:
+        out["derivation"] = str(recorded.get("derivation") or "")
+    if not out["carried"]:
+        out["carried"] = str(recorded.get("carried") or "")
+    if not out["caption_binding"]:
+        out["caption_binding"] = str(captions.get(name) or "")
+    if not out["footage_binding"]:
+        out["footage_binding"] = str(bindings.get(name) or "")
+    if any([out["derivation"], out["carried"], out["caption_binding"],
+            out["footage_binding"]]):
+        if not out["source"]:
+            out["source"] = "provenance"
+    else:
+        out["source"] = "absent"
+    return out
 
 
 def _mutate_preservation(review_dir: str, mutation) -> None:

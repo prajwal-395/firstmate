@@ -78,11 +78,10 @@
       {
         "name": "reel_build",
         "type": "object",
-        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote. Also carries what the build was ASKED for - `reels_requested` and `name_suffix` - so a record of one reel built into a new container does not read as a full rebuild that placed one timeline. `rebuild_need` carries the per-reel decision and its reason, and `reels_left_alone` names the reels that needed no Resolve pass - which is not the same list as `skipped_by_exclusion`.",
+        "description": "What was PLACED: the timelines built, the plan they were built from, and the Resolve names built into. Per-reel content hashes are NOT carried here (cascade Lane E3, R2/R9 retired the `caption_hashes` copy): the build-time baseline lives per reel in the derived registry (`library/tools/cascade_graph.py`) and, from deliver on, on the model's render receipt (`details.build`). Carried by the edge to verify_reels so the verifier grades the same answer the build wrote. Also carries what the build was ASKED for - `reels_requested` and `name_suffix` - so a record of one reel built into a new container does not read as a full rebuild that placed one timeline. `rebuild_need` carries the per-reel decision and its reason, and `reels_left_alone` names the reels that needed no Resolve pass - which is not the same list as `skipped_by_exclusion`.",
         "expected_schema": {
           "timelines_built": "list",
           "plan_path": "str",
-          "caption_hashes": "dict",
           "resolve_project_name": "str",
           "master_timeline_name": "str",
           "name_suffix": "str",

@@ -462,8 +462,11 @@ AREAS: dict[Area, AreaSpec] = {
         "subtitle_overlays", Kind.INPUT,
         "Subtitle overlay renders from the captain's own standalone "
         "scripts - place_subtitles.py and render_subtitle_segments.py. "
-        "Read-only to the pipeline, which renders its own overlays "
-        "under steps/4_05_render_subtitles/."),
+        "RETIRED (cascade Lane E1, R5): the pipeline no longer reads "
+        "this directory - its caption authority is the step-area "
+        "segments plus the render ledger - and old files on disk are "
+        "ignored, never deleted. The row stays so old projects still "
+        "reconcile."),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,

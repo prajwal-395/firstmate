@@ -2509,7 +2509,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             review_dir, inventory_operation, _guard.timeline_inventory(project))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
-    receipt["receipt_path"] = _write_receipt(project_folder, final, receipt)
+    receipt["receipt_path"] = _write_receipt(
+        project_folder, final, receipt, journal["id"])
     return receipt
 
 
@@ -3216,20 +3217,29 @@ def _safe_slug(text: str) -> str:
 
 
 def _write_receipt(project_folder: str, final: str,
-                   receipt: dict) -> str:
-    """The touchup's own account of itself, readable afterwards."""
-    import datetime as _dt
-    import json as _json
+                   receipt: dict, journal_id: str = "") -> str:
+    """The touchup's own account of itself, readable afterwards.
 
-    review_dir = os.path.join(project_folder, "pipeline_output",
-                              "review")
-    os.makedirs(review_dir, exist_ok=True)
-    stamp = _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = os.path.join(review_dir,
-                        f"touchup_{_safe_slug(final)}_{stamp}.json")
-    with open(path, "w", encoding="utf-8") as handle:
-        _json.dump(receipt, handle, indent=2, default=str)
-    return path
+    Filed onto the touch's undo journal entry (cascade Lane E2, R6),
+    never as a standalone `touchup_*.json` file: the entry already
+    carries the request (`spec`) and the before/after that reverse
+    it, so the account joins them under `receipt` and `read_entry`
+    serves the whole act. Files from before this lane stay on disk,
+    ignored. Returns the entry path as the receipt's address.
+    """
+    if not journal_id:
+        journal_id = str((receipt or {}).get("journal") or "")
+    if not journal_id:
+        raise TouchupError(
+            f"the touch-up on {final!r} has no journal entry to file "
+            f"its receipt on - refusing to write a standalone receipt "
+            f"file no reader owns")
+    from library.tools import undo_journal as _journal
+
+    path = _journal._entry_path(project_folder, journal_id)
+    receipt = dict(receipt or {})
+    receipt["receipt_path"] = path
+    return _journal.attach_receipt(project_folder, journal_id, receipt)
 
 
 __all__ = [

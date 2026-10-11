@@ -1053,6 +1053,32 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
         from library.tools import reel_layer_links as _links
         model, hearing_note = _links.attach_hearing_qa(
             model, reel_slug, hearing)
+    # Lane E3 (R2/R9): the receipt carries the reel's content hashes
+    # (`details.build`) - the converged copy the legacy per-reel maps
+    # retire into. Read off the derived registry first, the legacy
+    # provenance maps for reels that predate it, and stamp the plan
+    # hash beside them. Fail-soft like the hearing above: the render
+    # happened; only its hash note may be missing.
+    build_note: dict[str, Any] = {"attached": False,
+                                  "reason": "no baseline on record"}
+    try:
+        from library.tools import reel_layer_links as _links
+        from library.tools.plan_provenance import (
+            read_provenance as _read_prov,
+            reel_content_hashes as _hashes_of,
+        )
+        _review_dir = str(Path(project_folder) / "pipeline_output"
+                          / "review")
+        _hashes = _hashes_of(_review_dir, str(timeline_name))
+        _plan_hash_value = (_read_prov(_review_dir) or {}).get(
+            "plan_content_hash")
+        if _hashes.get("source") != "absent":
+            model, build_note = _links.attach_build_hashes(
+                model, reel_slug, _hashes,
+                plan_hash=_plan_hash_value)
+    except Exception as exc:                             # noqa: BLE001
+        build_note = {"attached": False,
+                      "reason": f"hash baseline unreadable: {exc!r}"}
     validate_project_model(model)
     try:
         revision = store.commit_project_model(
@@ -1061,7 +1087,8 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
     except RuntimeError as exc:
         return {"status": "refused", "reason": f"store contention: {exc!r}"}
     result: dict[str, Any] = {"status": "committed", "revision": revision,
-                              "render": render_id, "frames": frames}
+                              "render": render_id, "frames": frames,
+                              "build_hashes": build_note}
     if hearing is not None:
         result["hearing_qa"] = hearing_note
     return result

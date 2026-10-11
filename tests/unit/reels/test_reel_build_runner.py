@@ -1072,12 +1072,26 @@ def test_the_first_build_places_everything_and_records_its_signature(
 
     signatures = read_provenance(
         str(project / "pipeline_output" / "review"))["build_signatures"]
-    assert sorted(signatures) == sorted(APPROVED)
-    for entry in signatures.values():
-        # BOTH halves - the derivation from the build and the carried
-        # digest closed by the promotion.
-        assert len(entry["derivation"]) == 64
-        assert len(entry["carried"]) == 64
+    assert signatures == {}, (
+        "Lane E3 retired the provenance baselines: a new build files "
+        "nothing under build_signatures")
+    # The same baselines live per reel in the derived registry (the
+    # converged store), with BOTH halves - the derivation from the
+    # build and the carried digest closed by the promotion.
+    from library.tools import cascade_graph as _cascade
+    review = str(project / "pipeline_output" / "review")
+    registries = {name: _cascade.read_registry(review, name)
+                  for name in APPROVED}
+    assert all(registries.values()), (
+        "every placed reel files a derived registry")
+    for registry in registries.values():
+        hashes = registry["hashes"]
+        assert len(hashes["reel derivation"]) == 64
+        assert len(hashes["timeline as-built"]) == 64
+    # And the merged view still answers the retired keys from it.
+    from library.tools.plan_provenance import provenance_with_registry
+    merged = provenance_with_registry(review) or {}
+    assert sorted(merged.get("build_signatures") or ()) == sorted(APPROVED)
 
 
 @pytest.mark.usefixtures("mock_dvr")

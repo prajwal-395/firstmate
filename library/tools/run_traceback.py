@@ -315,13 +315,19 @@ def render_traceback(data: dict) -> str:
         ]
 
     L += ["## Runs", ""]
+    L += ["The `model` column is the Project Model head revision the run "
+          "left behind (Lane E4) - `pre-model` where the run predates the "
+          "model, so the model links survive into this document. An empty "
+          "run list is not a missing model: runs recorded before the "
+          "provenance ledger existed never had a row at all.", ""]
     if runs:
-        L += ["| run | started | ended | mode | status | steps |",
-              "|---|---|---|---|---|---:|"]
+        L += ["| run | started | ended | mode | status | steps | model |",
+              "|---|---|---|---|---|---:|---|"]
         for r in runs:
+            model = getattr(r, "model_revision", "") or "pre-model"
             L.append(f"| `{r.run_id}` | {r.started_at or '-'} | "
-                     f"{r.ended_at or '-'} | {r.mode or '-'} | "
-                     f"{r.status or '-'} | {len(r.steps)} |")
+                      f"{r.ended_at or '-'} | {r.mode or '-'} | "
+                      f"{r.status or '-'} | {len(r.steps)} | {model} |")
     else:
         L.append("No run has been recorded through the provenance ledger yet. "
                  "The ledgers in `pipeline_data.json` still say when each step "
@@ -422,6 +428,11 @@ def render_artifact_index(data: dict) -> str:
     by_area = defaultdict(list)
     for rec in artifacts:
         by_area[rec.area].append(rec)
+    # The model revision each run left behind (Lane E4): a file is of
+    # its run's model era, or of no model era when the run predates
+    # the model. Read off the run rows, never inferred per file.
+    run_model = {r.run_id: (getattr(r, "model_revision", "") or "")
+                 for r in (data.get("runs") or [])}
 
     L = [
         "# Every file the pipeline produced, and where it came from",
@@ -443,6 +454,9 @@ def render_artifact_index(data: dict) -> str:
         "`from` is what the file ITSELF names as its source. It is read out of",
         "the file, never inferred from its name, so a blank means the link is",
         "not recorded rather than that there is none.",
+        "",
+        "`model` is the Project Model head revision the file's run left",
+        "behind (Lane E4) - `pre-model` where the run predates the model.",
         "",
     ]
     if data["archived_file_count"]:
@@ -469,8 +483,8 @@ def render_artifact_index(data: dict) -> str:
             L += ["## Outside every named area", "",
                   "The layout does not name a place for these.", ""]
         L += [f"{len(recs)} file(s).", "",
-              "| file | bytes | step | how | run | from |",
-              "|---|---:|---|---|---|---|"]
+              "| file | bytes | step | how | run | model | from |",
+              "|---|---:|---|---|---|---|---|"]
         for r in recs:
             name = r.path.split("/")[-1]
             sources = ", ".join(f"`{_rel(root, s)}`" for s in r.derived_from)
@@ -481,8 +495,16 @@ def render_artifact_index(data: dict) -> str:
             else:
                 step_cell = "-"
             run_cell = f"`{r.run_id}`" if r.run_id else "-"
+            if not r.run_id:
+                # Declared or unknown files were attributed without a
+                # run, so no run's model era covers them - "-" rather
+                # than a "pre-model" that would read as a run's claim.
+                model_cell = "-"
+            else:
+                model_cell = (run_model.get(r.run_id) or "pre-model")
             L.append(f"| `{name}` | {r.bytes:,} | {step_cell} | "
-                     f"`{r.method}` | {run_cell} | {sources or '-'} |")
+                      f"`{r.method}` | {run_cell} | {model_cell} | "
+                      f"{sources or '-'} |")
         L.append("")
 
     unknown = [r for r in artifacts if r.method == UNKNOWN]

@@ -253,6 +253,14 @@ class RunRecord:
     before this field existed - which is not the same claim, and
     `run_restart.reconstruct_from_ledger` is what answers for those.
     """
+    model_revision: str = ""
+    """The Project Model head revision when this run ended (Lane E4).
+
+    "" on every run recorded before the model existed or before this
+    field did - which reads as "pre-model", never as revision zero.
+    The generated docs (`RUN-TRACEBACK.md`, `ARTIFACTS.md`) render
+    this beside the run, so the model links survive into the docs.
+    """
 
 
 @contextmanager
@@ -552,14 +560,23 @@ class ProvenanceLedger:
         return rec
 
     def end_run(self, run_id: str, status: str, steps: list,
-                operations: list | None = None) -> None:
+                operations: list | None = None,
+                model_revision: str | None = None) -> None:
         """Close a run's record.
 
         `operations` is recorded beside `steps`, never merged into it:
         the run summary decides SUCCESS from DAG completeness, so an
         operation has to be visible in the account without being able to
         make an incomplete DAG read as complete.
+
+        `model_revision` is the Project Model head this run left
+        behind (Lane E4). When the caller passes none, the ledger
+        reads the store head itself - fail-soft, so a project with no
+        model yet records `""` (pre-model) rather than failing the
+        run's close.
         """
+        if model_revision is None:
+            model_revision = self._model_head_revision()
         self._append(RUNS_FILE, {
             "run_id": run_id,
             "started_at": "",
@@ -568,7 +585,25 @@ class ProvenanceLedger:
             "operations": list(operations or ()),
             "ended_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "status": status,
+            "model_revision": str(model_revision or ""),
         })
+
+    def _model_head_revision(self) -> str:
+        """The Project Model store's head revision, or "" (Lane E4).
+
+        Pure read off the store - never a write, never a migration.
+        "" when the project has no model yet, or when the store will
+        not read: absence of a model is a fact about the project, and
+        a close that fails on it would punish exactly the runs that
+        predate the model.
+        """
+        try:
+            from library.tools import project_model_store as _store
+            revision, _model = _store.load_project_model(
+                Path(str(self.root)))
+            return str(revision)
+        except Exception:                               # noqa: BLE001
+            return ""
 
     def runs(self) -> list:
         """Every run, merged from its start and end records, oldest first."""
@@ -581,7 +616,8 @@ class ProvenanceLedger:
                                           "mode": "", "steps": [],
                                           "operations": [],
                                           "ended_at": "", "status": "",
-                                          "restart": None})
+                                          "restart": None,
+                                          "model_revision": ""})
             for k, v in row.items():
                 if v:
                     cur[k] = v

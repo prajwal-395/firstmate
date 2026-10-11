@@ -26,9 +26,10 @@ Lifecycle (explicit, because the alternative blesses hand edits)
   follow-up, not this module.
 
 What is fingerprinted: the displays a rebuild overwrites and a
-human might hand-fix - subtitle plans and overlays, the live reel
+human might hand-fix - subtitle plans, the live reel
 proposal, motion-graphics payloads, assembly manifests, timeline
-interchange (OTIO). Reports (`conformance_report.json`),
+interchange (OTIO). The retired `subtitle_overlays/` legacy is
+ignored, never fingerprinted (cascade Lane E1, R5). Reports (`conformance_report.json`),
 prompt echoes (`llm_requests/`, `llm_responses/`), history
 (`backups/`, timestamped snapshots) and timeline measurements
 (`timeline_captures/`) are never fingerprinted: reports and echoes
@@ -84,9 +85,14 @@ _TRANSCRIPT_DISPLAY = (
 #: Captain-side subtitle directories are named by their owner
 #: (`project_layout.Area`), never spelled here
 #: (tests/unit/context/test_project_layout.py).
+#:
+#: `subtitle_overlays/` (the captain's standalone-script renders) is
+#: RETIRED and absent on purpose (cascade Lane E1, R5): the pipeline
+#: witnesses what it regenerates - the step-area segments plus the
+#: render ledger under `pipeline_output/steps` - and a legacy-only
+#: file is ignored, never fingerprinted.
 DISPLAY_ROOTS = (
     Area.SUBTITLE_PLANS.value,
-    Area.SUBTITLE_OVERLAYS.value,
     "pipeline_output/steps",
     "pipeline_output/review/reel_proposals_v2.json",
     _TRANSCRIPT_DISPLAY,

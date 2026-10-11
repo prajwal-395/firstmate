@@ -10456,10 +10456,10 @@ def built_name(moment, name_suffix: str = "") -> str:
     write the plan's name can only ever REPLACE what is already there.
 
     Spelled once, here, so the timeline Resolve creates, the name the
-    build records, the key `caption_hashes` is filed under and the
-    `timeline` component of every caption filename cannot drift apart -
-    and a caption filename that drifted would overwrite the overlays a
-    timeline this build is not touching still points at.
+    build records, the reel key its derived registry is filed under and
+    the `timeline` component of every caption filename cannot drift
+    apart - and a caption filename that drifted would overwrite the
+    overlays a timeline this build is not touching still points at.
     """
     return f"{moment.timeline_name}{name_suffix}"
 
@@ -10505,8 +10505,8 @@ def promote_moment_records(moment_ids: dict, moment_spans: dict,
                            final_names) -> tuple:
     """Move moment records from staging names to final names.
 
-    `moment_ids` (staging -> key) remaps like `caption_hashes`; each
-    `moment_spans` entry is already keyed by the key itself, so only
+    `moment_ids` (staging -> key) remaps at promotion like the other
+    per-reel maps; each `moment_spans` entry is already keyed by the key itself, so only
     its `reel` name moves to the final.  Pure: the build calls it after
     promotion, and the cascade test calls it off-Resolve.
     """
@@ -10690,7 +10690,7 @@ def _connect_resolve():
 def _record_reel_versions(project_folder: str, rows_by_final: dict,
                           round_number=None) -> list:
     """One `build` (or `rollback`) version per promoted reel, with its plan."""
-    from library.tools.plan_provenance import read_provenance
+    from library.tools.plan_provenance import provenance_with_registry
     from library.tools.reel_proposal import proposal_path, read_proposal
     from library.tools.versions import reel_versions as _versions
 
@@ -10700,7 +10700,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     plan = proposal_path(project_folder)
     moments = ({moment.timeline_name: moment.as_dict() for moment in
                 read_proposal(str(plan))} if plan.exists() else {})
-    provenance = (read_provenance(os.path.join(
+    provenance = (provenance_with_registry(os.path.join(
         project_folder, "pipeline_output", "review")) or {})
     built_with = dict(provenance.get("built_with") or {})
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
@@ -12629,9 +12629,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     while anything is staged and is `{}` once promotion renamed them;
     the verifier promotes off that mapping. Every other field was
     already computed here and then dropped on the floor -
-    `built_reel_names` and `caption_hashes` went into provenance and
-    nowhere else - which is how a verifier could re-derive a different
-    grouping a day later and grade against it.
+    `built_reel_names` went into provenance and nowhere else - which
+    is how a verifier could re-derive a different grouping a day
+    later and grade against it.
     """
     import json
     import os
@@ -13319,7 +13319,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools import reel_rebuild_need as _need
     from library.tools.plan_provenance import (
         plan_content_hash as _plan_hash,
-        read_provenance as _read_prov,
+        provenance_with_registry as _read_prov,
     )
     _engine_code = _need.engine_code_digest()
     # The PROJECT-WIDE half: `project.yaml`, the brand template's
@@ -13393,6 +13393,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   if _timeline is not None else None)
         _carried_self_reads[final_name] = digest
         return digest
+    # Lane E3 (R2/R9): the recorded baseline is the provenance
+    # sidecar with the derived registry overlaid - the registry wins
+    # per key, the legacy maps answer only for reels that predate it.
     _recorded_signatures = ((_read_prov(os.path.join(
         project_folder, "pipeline_output", "review")) or {}).get(
             "build_signatures") or {})
@@ -13407,8 +13410,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # this call touched to the moment's one key, and `moment_spans`
     # files the spans this call actually placed under that same key -
     # so proposal moments, build spans and reel names join on
-    # `moment-{NN}-{span}` instead of on renumberable numbers.  Both
-    # are remapped staging -> final beside `caption_hashes` below.
+    # `moment-{NN}-{span}` instead of on renumberable numbers. Both
+    # are remapped staging -> final at promotion.
     moment_ids: dict = {}
     moment_spans: dict = {}
     overlay_records = {}
@@ -14819,19 +14822,28 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         asset_hashes = None
     # MERGES into any existing record: a partial rebuild must not
     # delete the provenance of the reels it did not touch.
+    # Lane E3 (R2/R9): the build no longer files per-reel content
+    # hashes here - no `caption_hashes`, no `footage_binding_hashes`,
+    # no `build_signatures`. Those live per reel in the derived
+    # registry (written below from the same values) and, from
+    # deliver on, on the model's render receipt (`details.build`);
+    # readers take the merged view (`provenance_with_registry`).
+    # Maps already on disk from older builds stay readable and keep
+    # their rename/drop maintenance - this call just adds none.
     write_provenance(review_dir, proposal_path, built_reel_names,
-                     caption_hashes=caption_hashes,
-                     footage_binding_hashes=footage_binding_hashes,
+                     caption_hashes=None,
+                     footage_binding_hashes=None,
                      asset_hashes=asset_hashes,
-                     build_signatures=build_signatures)
-    # Lane D (cascade engine): file this build's derivation under the
-    # same reel keys in the per-reel derived registry
-    # (`library/tools/cascade_graph.py`) - the generalised
+                     build_signatures=None)
+    # Lane D (cascade engine) plus Lane E3: file this build's
+    # derivation under the same reel keys in the per-reel derived
+    # registry (`library/tools/cascade_graph.py`) - the generalised
     # build_signatures the next build's dirty walk reads. Merged per
     # reel like every other per-reel map here; the carried half stays
     # open until promotion closes it, and the staging->final rename
-    # travels with `rename_reel_entries`. Never fails the build: the
-    # signatures above stay authoritative until Lane E.
+    # travels with `rename_reel_entries`. Never fails the build: with
+    # the legacy maps retired, a registry that cannot be written
+    # refuses the skip (fail-closed) rather than passing quietly.
     try:
         from library.tools import cascade_graph as _cascade_reg
         for _reel_name in built_reel_names:
@@ -15109,22 +15121,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                            f"onto {_final}")
         except Exception:
             pass
-        caption_hashes = {
-            final: caption_hashes[promotion_staged_to_final[final]]
-            for final in final_names
-            if promotion_staged_to_final[final] in caption_hashes}
-        # Lane A2: the moment key follows its reel through promotion,
-        # beside `caption_hashes` above - a staging container's key is
-        # the final timeline's key.  One spelling (`promote_moment_records`)
+        # Lane E3 (R2/R9): the `caption_hashes` /
+        # `footage_binding_hashes` staging->final remap is retired with
+        # the copies it served - the registry file follows the reel
+        # through `rename_reel_entries`, and the build record carries
+        # no hash copy.
+        # Lane A2: the moment key follows its reel through promotion -
+        # a staging container's key is the final timeline's key.  One
+        # spelling (`promote_moment_records`)
         # for the build and the cascade test, so the two cannot disagree
         # about what promotion does to the key.
         moment_ids, moment_spans = promote_moment_records(
             moment_ids, moment_spans, promotion_staged_to_final,
             final_names)
-        footage_binding_hashes = {
-            final: footage_binding_hashes[promotion_staged_to_final[final]]
-            for final in final_names
-            if promotion_staged_to_final[final] in footage_binding_hashes}
         overlay_records = {
             final: overlay_records[promotion_staged_to_final[final]]
             for final in final_names
@@ -15440,7 +15449,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # final and promote to nothing.
         "staged_timelines": staged_out,
         "staged_timeline_ids": staged_timeline_ids,
-        "caption_hashes": caption_hashes,
+        # Lane E3 (R2/R9): no `caption_hashes` copy here. The
+        # build-time baseline lives per reel in the derived registry
+        # and, from deliver on, on the model's render receipt - a
+        # declared output with no reader is removed, not kept
+        # (AGENTS.md 10.1). The `only_reels` scoping in
+        # `verify_reels`/`run_reels` keeps naming the key so records
+        # written before this lane still scope.
         # Lane A2 (moment identity): `moment_ids` joins final reel
         # names to the one `moment-{NN}-{span}` key minted at
         # selection, and `moment_spans` files the declared body beside

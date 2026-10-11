@@ -7246,10 +7246,12 @@ def run_verification(
 
     # The build's own record of what it placed. Read ONCE, and its
     # absence is a refusal per reel rather than a silent pass.
-    from library.tools.plan_provenance import read_provenance
+    # Lane E3: the caption baseline lives in the derived registry;
+    # the merged view keeps this reader's shape.
+    from library.tools.plan_provenance import provenance_with_registry
     caption_provenance = None
     if plan_path:
-        caption_provenance = read_provenance(
+        caption_provenance = provenance_with_registry(
             review_dir or os.path.dirname(os.path.abspath(plan_path)))
 
     # ── Find all timelines ───────────────────────────────────────────

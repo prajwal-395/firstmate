@@ -26,9 +26,11 @@ item, or a missing hash marks the whole reel dirty - today's
 `derived_registry.json` generalises three stores into one file per reel:
 `plan_provenance.json`'s `build_signatures`, the caption ledger's
 `caption_hashes` / `footage_binding_hashes`, and the subtitle render
-ledger. It is ADDITIVE: the three stores keep being written (Lane E
-retires them only after receipts carry the data - out of scope here),
-and this registry is the one place a dirty walk reads all of them.
+ledger. Lane E retired the provenance writes (the build files only
+this registry, and deliver stamps the same hashes onto the model's
+render receipt) - the registry is the one place a dirty walk reads
+all of them, with the legacy maps as fallback for reels that
+predate it.
 """
 
 from __future__ import annotations
@@ -380,10 +382,11 @@ def gate_rebuild_decision(decision, *,
 #
 # One file per reel, generalising three stores: `build_signatures`
 # (derivation+carried), the caption hashes (caption binding + footage
-# binding), and the subtitle render ledger's content keys. The three
-# stores keep being written - Lane E retires them only after receipts
-# carry the data, which is out of scope - and this registry is the one
-# place a dirty walk reads all of them.
+# binding), and the subtitle render ledger's content keys. Lane E
+# retired the provenance writes, so this registry is where new
+# baselines land - the legacy maps stay readable for reels that
+# predate it, and the render receipt carries the same hashes from
+# deliver on.
 
 
 def registry_dir(review_dir: str) -> str:

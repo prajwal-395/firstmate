@@ -529,6 +529,65 @@ def attach_hearing_qa(model: Mapping[str, Any], reel_slug: str,
     return updated, report
 
 
+def attach_build_hashes(model: Mapping[str, Any], reel_slug: str,
+                        hashes: Mapping[str, Any] | None,
+                        plan_hash: str | None = None,
+                        ) -> tuple[dict[str, Any], dict]:
+    """A model copy whose receipt carries the reel's content hashes.
+
+    Cascade Lane E3 (R2/R9): writes ``details.build`` on
+    ``receipt:<slug>`` - ``{plan_hash, derivation, carried,
+    caption_binding, footage_binding}`` - beside whatever ``details``
+    already carries, never replacing it. This is the converged copy
+    the report names: the per-reel maps in ``plan_provenance.json``
+    and the build record retire once receipts carry the data, and
+    this is what carries it. Refuses with the reason when the
+    receipt is absent (the render is recorded first, the hashes
+    second) and when no store names the reel. The input model is
+    never mutated.
+    """
+    import copy
+    report: dict[str, Any] = {"reel_slug": reel_slug, "attached": False,
+                              "reason": ""}
+    if not isinstance(model, Mapping):
+        report["reason"] = "no model to attach to"
+        return {}, report
+    receipt_id = f"receipt:{reel_slug}"
+    receipts = model.get("receipts") or []
+    if not any(isinstance(row, dict) and row.get("id") == receipt_id
+               for row in receipts):
+        report["reason"] = (f"{receipt_id!r} is not in the model: "
+                            f"record the deliver before its hashes")
+        return dict(model), report
+    known = dict(hashes or {})
+    if not any([known.get("derivation"), known.get("carried"),
+                known.get("caption_binding"),
+                known.get("footage_binding")]):
+        report["reason"] = ("no store names this reel's content hashes: "
+                            "neither the derived registry nor the legacy "
+                            "provenance maps record it")
+        return dict(model), report
+    build = {
+        "derivation": str(known.get("derivation") or ""),
+        "carried": str(known.get("carried") or ""),
+        "caption_binding": str(known.get("caption_binding") or ""),
+        "footage_binding": str(known.get("footage_binding") or ""),
+    }
+    if plan_hash:
+        build["plan_hash"] = str(plan_hash)
+    updated = copy.deepcopy(dict(model))
+    for row in updated.get("receipts") or []:
+        if isinstance(row, dict) and row.get("id") == receipt_id:
+            details = dict(row.get("details") or {})
+            details["build"] = build
+            row["details"] = details
+            break
+    report["attached"] = True
+    report["reason"] = "content hashes carried on the receipt"
+    report["fields"] = sorted(build)
+    return updated, report
+
+
 def _frame_map_for(model: Mapping[str, Any],
                    reel_slug: str) -> tuple[dict | None, str]:
     """The source-to-reel frame map for one reel, or (None, reason)."""
