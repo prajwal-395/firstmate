@@ -204,13 +204,59 @@ def _render_motion_graphics_hyperframes(render_props: dict, dest_path: str,
     return frames
 
 
+def _fframes_fallback_reason(render_props: dict,
+                             project_folder: str) -> str | None:
+    """Why this card cannot ship FFrames pixels, or None when it can.
+
+    Fail-closed: anything unreadable here routes the card to the
+    Remotion render explicitly rather than shipping an FFrames blank.
+    An arm with no lowering leaves no group node behind (census G2);
+    an image node with no bounds cannot be drawn (census G3) - both
+    are named, never silently skipped.
+    """
+    from library.graphics_ir import lowering as _lowering
+
+    try:
+        from library.tools import fframes_render as _ff
+        resolved = _ff.resolve_props(
+            "MotionGraphics", render_props, project_folder or "")
+        scene = _lowering.lower_motion_graphics(resolved)
+    except Exception as exc:
+        return (f"FFrames lowering failed ({exc}); "
+                f"falling back to Remotion")[:300]
+    from library.graphics_ir.model import NodeType
+
+    groups = {node.id for node in scene.nodes
+              if node.type == NodeType.GROUP
+              and node.id.startswith("element_")}
+    for element in render_props.get("elements", []):
+        kind = element.get("element", "")
+        if kind not in _lowering.MG_FFRAMES_COVERED_ARMS:
+            return (f"arm {kind!r} has no FFrames lowering yet; "
+                    f"falling back to Remotion")
+        try:
+            start = int(element.get("startFrame", 0))
+        except (TypeError, ValueError):
+            start = 0
+        if f"element_{kind}_{start}" not in groups:
+            return (f"arm {kind!r} lowered to no drawable nodes; "
+                    f"falling back to Remotion")
+    boundless = sorted(node.id for node in scene.nodes
+                       if node.type == NodeType.IMAGE
+                       and node.bounds is None)
+    if boundless:
+        return (f"boundless image node(s) {', '.join(boundless)}; "
+                f"falling back to Remotion")
+    return None
+
+
 def _ordered_motion_frames(frames_dir: str, engine: str,
                            expected: int) -> list[str] | None:
     """Read the renderer's frame sequence and require its declared span."""
     import re
     from pathlib import Path
 
-    if engine == "hyperframes":
+    if engine in ("hyperframes", "fframes"):
         frames = sorted(Path(frames_dir).glob("frame_*.png"))
     else:
         frames = sorted(
@@ -986,23 +1032,47 @@ def render_one_segment(planned: dict, out_dir: str,
           f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
     from library.tools import graphics_renderer as _engines
     use_fframes = _engines.is_fframes(project_folder or None)
-    if use_fframes:
-        print(f"    engine: FFrames for {placement_label} "
-              f"(MotionGraphics has an FFrames form; selected by "
-              f"{_engines.USER_SETTING_KEY} or the project's "
-              f"pipeline.graphics_renderer)", file=sys.stderr)
-        from library.tools import fframes_render as _ff
-        _ff.render_one_card_frames(
-            "MotionGraphics", render_props, frames_dir,
-            os.path.dirname(os.path.abspath(frames_dir)),
-            project_folder or "")
-        frames = _ordered_motion_frames(
-            frames_dir, "fframes", int(planned["total_frames"]))
-        if frames is None:
-            shutil.rmtree(frames_dir, ignore_errors=True)
-            return None
     use_hyperframes = _engines.is_hyperframes(project_folder or None)
-    if use_hyperframes:
+    if use_fframes:
+        fallback = _fframes_fallback_reason(
+            render_props, project_folder or "")
+        if fallback is None:
+            print(f"    engine: FFrames for {placement_label} "
+                  f"(MotionGraphics has an FFrames form; selected by "
+                  f"{_engines.USER_SETTING_KEY} or the project's "
+                  f"pipeline.graphics_renderer)", file=sys.stderr)
+            from library.tools import fframes_render as _ff
+            _ff.render_one_card_frames(
+                "MotionGraphics", render_props, frames_dir,
+                os.path.dirname(os.path.abspath(frames_dir)),
+                project_folder or "")
+            frames = _ordered_motion_frames(
+                frames_dir, "fframes", int(planned["total_frames"]))
+            if frames is None:
+                shutil.rmtree(frames_dir, ignore_errors=True)
+                return None
+        else:
+            # The selected engine cannot draw this card, so the
+            # EXISTING Remotion render draws it explicitly - said on
+            # stderr with the reason, never a blank or a silent skip.
+            print(f"    engine: Remotion for {placement_label} "
+                  f"(FFrames selected but {fallback}; "
+                  f"capability kept)", file=sys.stderr)
+            if not _render_motion_graphics_file(
+                    props_path, frames_dir, remotion, placement_label):
+                shutil.rmtree(frames_dir, ignore_errors=True)
+                return None
+            frames = _ordered_motion_frames(
+                frames_dir, "remotion", int(planned["total_frames"]))
+            if frames is None:
+                shutil.rmtree(frames_dir, ignore_errors=True)
+                return None
+            # Chromium's PNG output is straight alpha. Resolve reads both
+            # stills and qtrle overlays as premultiplied, so use the shared
+            # carriage conversion before classifying or publishing pixels.
+            from library.tools import hyperframes_render as _hf
+            _hf.premultiply_frames(frames)
+    elif use_hyperframes:
         print(f"    engine: HyperFrames for {placement_label} "
               f"(MotionGraphics has a HyperFrames form; selected by "
               f"{_engines.USER_SETTING_KEY} or the project's "

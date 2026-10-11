@@ -1032,6 +1032,15 @@ class _MGContext:
 
 _MG_TEXT_ARMS = ("title_lockup", "quote_card", "lower_third")
 
+MG_FFRAMES_COVERED_ARMS = frozenset(
+    (*_MG_TEXT_ARMS, "channel_bug")
+)
+"""MotionGraphics arms FFrames can draw yet (census G2).
+
+An element naming any other arm has no lowering: `_build_mg_element`
+returns None for it, and the 4.06 dispatch routes such a card to the
+Remotion render explicitly rather than shipping FFrames blanks."""
+
 
 def _anchor_parts(anchor: str) -> tuple[str, str]:
     """The template's ``anchorParts``: (vertical, horizontal)."""
@@ -1046,6 +1055,55 @@ def _anchor_parts(anchor: str) -> tuple[str, str]:
 def _mg_scale(el: dict[str, Any]) -> float:
     footprint = el.get("footprint")
     return footprint if footprint and footprint > 0 else 1.0
+
+
+def _channel_bug_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    """The bug's drawn width, in pixels.
+
+    The composition's rule (`anchorStyle` + `safeUsableWidth` in
+    `remotion-subtitles/src/compositions/MotionGraphics/index.tsx`,
+    mirrored in `hyperframes/compositions/MotionGraphics.html`):
+    the usable width between the safe-area insets times the plan's
+    footprint share, defaulting to the whole usable width when the
+    plan states none - there is no default size, because a bug drawn
+    at a size the engine chose is the engine deciding how loud a
+    client's mark is.
+    """
+    left = float(ctx.safe_area.get("left", 0))
+    right = float(ctx.safe_area.get("right", 0))
+    usable = max(0.0, ctx.width - left - right)
+    return float(round(usable * _mg_scale(el)))
+
+
+def _channel_bug_aspect(src: str) -> float | None:
+    """The image's width/height ratio, or None when it cannot be read.
+
+    A `data:` URI or a path nothing can open has no measurable
+    geometry here; the caller treats that as uncoverable (no bounds)
+    rather than guessing, so the dispatch falls back to Remotion
+    instead of shipping a blank.
+    """
+    if not src or src.startswith("data:"):
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(src) as image:
+            width, height = image.size
+        if height > 0:
+            return width / height
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _channel_bug_size(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float] | None:
+    """The bug's `(width, height)`, or None when the height is unknowable."""
+    width = _channel_bug_width(el, ctx)
+    aspect = _channel_bug_aspect(str(el.get("asset") or ""))
+    if aspect is None or aspect <= 0 or width <= 0:
+        return None
+    return width, width / aspect
 
 
 def _mg_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
@@ -1082,6 +1140,8 @@ def _mg_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list
 
 
 def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    if el.get("element") == "channel_bug":
+        return _channel_bug_width(el, ctx)
     if el.get("element") not in _MG_TEXT_ARMS:
         return 0.0
     scale = _mg_scale(el)
@@ -1093,6 +1153,9 @@ def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
 
 
 def _mg_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    if el.get("element") == "channel_bug":
+        size = _channel_bug_size(el, ctx)
+        return size[1] if size is not None else 0.0
     if el.get("element") not in _MG_TEXT_ARMS:
         return 0.0
     heights = [h for *_, h in _mg_run_lines(el, box_width, ctx)]
@@ -1208,11 +1271,24 @@ def _build_mg_element(
             children.append(run_id)
             y += run_height + gap
     elif kind == "channel_bug":
-        if not el.get("asset"):
+        if not el.get("asset") or box is None:
             return None
+        size = _channel_bug_size(el, ctx)
+        if size is None:
+            # No readable image geometry, so no bounds to draw in.
+            # Returning None routes the card to the Remotion render
+            # explicitly (never a boundless image node), and the
+            # renderer refuses a boundless image by name if one ever
+            # reaches it another way.
+            return None
+        bug_width, bug_height = size
+        _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+        bug_x = (box.x + (box.width - bug_width) / 2.0
+                 if horizontal == "centre" else box.x)
         image_id = f"{element_id}_image"
         child_nodes.append(Node(
             id=image_id, type=NodeType.IMAGE, image=ImageContent(src=el["asset"]),
+            bounds=Bounds(x=bug_x, y=box.y, width=bug_width, height=bug_height),
         ))
         children.append(image_id)
     else:

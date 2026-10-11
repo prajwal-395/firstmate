@@ -1452,7 +1452,14 @@ impl SceneVideo {
             }
             "shape" => g = self.draw_shape(ctx, g, node),
             "image" => {
-                if let (Some(key), Some(b)) = (ctx.images.get(&node.id), node.bounds) {
+                let Some(b) = node.bounds else {
+                    eprintln!(
+                        "ERROR: image node {} has no bounds; refusing rather than drawing blank",
+                        node.id
+                    );
+                    std::process::exit(1);
+                };
+                if let Some(key) = ctx.images.get(&node.id) {
                     g = g.c(El::new("image")
                         .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
                         .a("preserveAspectRatio", "xMidYMid meet")
