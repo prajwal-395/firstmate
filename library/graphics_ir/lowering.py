@@ -74,6 +74,12 @@ RAMP_FRAMES: dict[str, int] = {
 }
 """The entrance/exit ramp lengths, shared by FullFrameCard and MotionGraphics."""
 
+FLIP_REFUSAL = (
+    "flip needs 3D perspective FFrames has no lowering for; "
+    "refusing rather than approximating it as a flat 2D rotate"
+)
+"""Why the FFrames lowering refuses flip by name, at plan time."""
+
 TYPE_SIZE: dict[str, float] = {"display": 56, "supporting": 36, "micro": 24}
 TYPE_WEIGHT: dict[str, float] = {"display": 900, "supporting": 700, "micro": 600}
 
@@ -921,11 +927,7 @@ def _entrance_animations(
             ),
         ]
     if entrance == "flip":
-        return [Animation(
-            target=target, property="transform.rotate",
-            from_value=90.0, to_value=0.0,
-            start=0.0, duration=t_in, easing=easing,
-        )]
+        raise ValueError(f"flip entrance refused: {FLIP_REFUSAL}")
     if entrance == "glitch":
         anims: list[Animation] = []
         quarter = t_in / 4
@@ -989,11 +991,7 @@ def _exit_animations(
             ),
         ]
     if exit_char == "flip":
-        return [Animation(
-            target=target, property="transform.rotate",
-            from_value=0.0, to_value=-90.0,
-            start=t1, duration=t_out, easing=easing,
-        )]
+        raise ValueError(f"flip exit refused: {FLIP_REFUSAL}")
     if exit_char == "glitch":
         anims: list[Animation] = []
         third = t_out / 3

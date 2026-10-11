@@ -157,6 +157,18 @@ class TestFullFrameCardLowering:
         translate = state["card"]["transform.translate"]
         assert translate[1] == pytest.approx(40.0, abs=0.1)
 
+    def test_flip_entrance_refuses_by_name(self):
+        from library.graphics_ir.lowering import FLIP_REFUSAL
+
+        with pytest.raises(ValueError, match="flip"):
+            lower_full_frame_card(_card_props("flip", "cut"))
+        try:
+            lower_full_frame_card(_card_props("flip", "cut"))
+        except ValueError as exc:
+            assert FLIP_REFUSAL in str(exc)
+        else:
+            raise AssertionError("flip entrance did not refuse")
+
 
 class TestMotionGraphicsLowering:
     def test_element_opacity_start(self):
