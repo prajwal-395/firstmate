@@ -121,6 +121,15 @@ pub struct Receipt {
     pub operation: String,
     pub engine_response: Value,
     pub losses: Vec<LossReport>,
+    /// The export render path the adapter actually requested. `Some` only
+    /// for `export` receipts: `gpuRendering` was previously never sent, so
+    /// the engine default (`Off`) always applied silently and a headless
+    /// GPU fallback was invisible. Both fields are `Option` with a serde
+    /// default so receipts written before this wiring still parse.
+    #[serde(default)]
+    pub hardware_encoding: Option<HardwareEncoding>,
+    #[serde(default)]
+    pub gpu_rendering: Option<GpuRendering>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -403,6 +412,11 @@ pub enum Operation {
         path: PathBuf,
         format: ExportFormat,
         hardware_encoder: HardwareEncoding,
+        /// Requests serialized before the wiring name no compositor path;
+        /// they parse as `Off`, the only executable headless value, so old
+        /// exports keep planning while every new send names the path.
+        #[serde(default)]
+        gpu_rendering: GpuRendering,
         /// H264 video bitrate in kbps. `None` takes
         /// [`DEFAULT_H264_BITRATE_KBPS`]: Ren's delivery default, so an
         /// export that names no bitrate still ships at delivery size
@@ -452,6 +466,22 @@ pub enum ExportFormat {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HardwareEncoding {
+    Off,
+    Auto,
+}
+/// The engine compositor path (`GpuRendering` in the pinned engine's
+/// `crates/export/src/settings.rs`). Headless `auto` never renders on a
+/// GPU: the `export` subcommand falls back to the CPU reference path
+/// silently (measured 2026-10-10: framehash-identical, zero fps gained),
+/// while `exec file.exportMedia` (this adapter's path) panics the CLI
+/// outright (wgpu, no backend feature - measured 2026-10-11). The adapter
+/// sends this explicitly on every export and records it in the receipt
+/// instead of letting the engine default apply unseen; `auto` refuses at
+/// plan time until the exec path stops panicking.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GpuRendering {
+    #[default]
     Off,
     Auto,
 }
@@ -600,6 +630,16 @@ impl FilmCraft {
                 request.adapter_schema
             )));
         }
+        // Recorded on the receipt so a silently inert render path is
+        // visible: which encoder AND which compositor the export asked for.
+        let export_settings = match &request.operation {
+            Operation::Export {
+                hardware_encoder,
+                gpu_rendering,
+                ..
+            } => Some((*hardware_encoder, *gpu_rendering)),
+            _ => None,
+        };
         let (project, operation, command, params, saving) = plan(request.operation)?;
         if command != "file.newSequence" {
             if let Some(project) = project.as_deref() {
@@ -674,6 +714,8 @@ impl FilmCraft {
             operation,
             engine_response: response,
             losses,
+            hardware_encoding: export_settings.map(|(hardware, _)| hardware),
+            gpu_rendering: export_settings.map(|(_, gpu)| gpu),
         })
     }
 }
@@ -1255,9 +1297,23 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             path,
             format,
             hardware_encoder,
+            gpu_rendering,
             bitrate_kbps,
             bitrate_mode,
         } => {
+            // Measured 2026-10-11 on the pinned revision: `gpuRendering:auto`
+            // through `file.exportMedia` (this path) panics the headless CLI
+            // (`wgpu: No wgpu backend feature ... was enabled`), while the
+            // `export` subcommand's `--gpu-rendering auto` falls back
+            // silently. Refuse before any engine call rather than forward a
+            // process-killing panic; `off` preserves the previous default,
+            // now sent explicitly so the receipt shows the render path.
+            if gpu_rendering == GpuRendering::Auto {
+                return Err(Error::Schema(
+                    "FilmCraft `gpuRendering:auto` panics the pinned headless CLI via `file.exportMedia` (wgpu has no backend feature in this build); the `export` subcommand falls back silently instead - request `off` until the exec path matches the subcommand"
+                        .into(),
+                ));
+            }
             if !matches!(format, ExportFormat::H264)
                 && (bitrate_kbps.is_some() || bitrate_mode.is_some())
             {
@@ -1265,7 +1321,7 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
                     "bitrate_kbps/bitrate_mode apply to H264 only: ProRes bitrate is profile-determined and Wav is PCM, and the engine silently ignores the parameters there".into(),
                 ));
             }
-            let mut params = json!({"path":path,"format":format_name(format),"hardwareEncoding":hardware_encoder,"wait":true});
+            let mut params = json!({"path":path,"format":format_name(format),"hardwareEncoding":hardware_encoder,"gpuRendering":gpu_rendering,"wait":true});
             if matches!(format, ExportFormat::H264) {
                 let kbps = bitrate_kbps.unwrap_or(DEFAULT_H264_BITRATE_KBPS);
                 if kbps == 0 || kbps > MAX_H264_BITRATE_KBPS {
@@ -1963,6 +2019,73 @@ mod tests {
     }
 
     #[test]
+    fn export_sends_gpu_rendering_explicitly_and_records_the_render_path() {
+        // `gpuRendering` rides top-level beside `hardwareEncoding` (both
+        // validated by the pinned engine as `off|auto`); the receipt keeps
+        // both so a silently inert render path stays visible.
+        for (hardware, gpu) in [
+            (HardwareEncoding::Off, GpuRendering::Off),
+            (HardwareEncoding::Auto, GpuRendering::Off),
+        ] {
+            let (_, operation, command, params, _) = plan(Operation::Export {
+                project: "x.fcproj".into(),
+                path: "out.mp4".into(),
+                format: ExportFormat::H264,
+                hardware_encoder: hardware,
+                gpu_rendering: gpu,
+                bitrate_kbps: None,
+                bitrate_mode: None,
+            })
+            .unwrap();
+            assert_eq!(operation, "export");
+            assert_eq!(command, "file.exportMedia");
+            let expected_hardware = match hardware {
+                HardwareEncoding::Off => "off",
+                HardwareEncoding::Auto => "auto",
+            };
+            let expected_gpu = match gpu {
+                GpuRendering::Off => "off",
+                GpuRendering::Auto => "auto",
+            };
+            assert_eq!(params["hardwareEncoding"].as_str(), Some(expected_hardware));
+            assert_eq!(params["gpuRendering"].as_str(), Some(expected_gpu));
+        }
+        // Receipts written before this wiring carry neither field and must
+        // still parse (both default to `None`).
+        let legacy: Receipt = serde_json::from_str(
+            r#"{"adapter_schema":1,"engine_revision":"x","project_schema":14,"operation":"export","engine_response":{"job":1,"path":"o"},"losses":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.hardware_encoding, None);
+        assert_eq!(legacy.gpu_rendering, None);
+        let current: Receipt = serde_json::from_str(
+            r#"{"adapter_schema":1,"engine_revision":"x","project_schema":14,"operation":"export","engine_response":{"job":1,"path":"o"},"losses":[],"hardware_encoding":"auto","gpu_rendering":"off"}"#,
+        )
+        .unwrap();
+        assert_eq!(current.hardware_encoding, Some(HardwareEncoding::Auto));
+        assert_eq!(current.gpu_rendering, Some(GpuRendering::Off));
+    }
+
+    #[test]
+    fn export_refuses_gpu_auto_before_the_engine() {
+        // Measured 2026-10-11: `gpuRendering:auto` via `file.exportMedia`
+        // panics the pinned headless CLI (wgpu, no backend feature), while
+        // the `export` subcommand falls back silently. Refuse here, before
+        // any engine call, rather than forward the panic.
+        let err = plan(Operation::Export {
+            project: "x.fcproj".into(),
+            path: "out.mp4".into(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Auto,
+            gpu_rendering: GpuRendering::Auto,
+            bitrate_kbps: None,
+            bitrate_mode: None,
+        })
+        .unwrap_err();
+        assert!(matches!(err, Error::Schema(_)), "got {err:?}");
+    }
+
+    #[test]
     fn caption_lut_keyframe_and_automation_validate_before_the_engine() {
         // Negative times, empty spans and empty points refuse.
         for operation in [
@@ -2193,6 +2316,7 @@ mod tests {
             path: "out.mp4".into(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Auto,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: kbps,
             bitrate_mode: mode,
         };
@@ -2223,6 +2347,7 @@ mod tests {
                 path: "out".into(),
                 format,
                 hardware_encoder: HardwareEncoding::Off,
+                gpu_rendering: GpuRendering::Off,
                 bitrate_kbps: Some(12_000),
                 bitrate_mode: None,
             };
@@ -2232,6 +2357,7 @@ mod tests {
                 path: "out".into(),
                 format,
                 hardware_encoder: HardwareEncoding::Off,
+                gpu_rendering: GpuRendering::Off,
                 bitrate_kbps: None,
                 bitrate_mode: Some(BitrateMode::Cbr),
             };
@@ -2244,6 +2370,7 @@ mod tests {
                 path: "out".into(),
                 format,
                 hardware_encoder: HardwareEncoding::Off,
+                gpu_rendering: GpuRendering::Off,
                 bitrate_kbps: None,
                 bitrate_mode: None,
             };

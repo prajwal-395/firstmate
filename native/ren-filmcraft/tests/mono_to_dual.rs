@@ -25,7 +25,7 @@
 use ren_filmcraft::adapter::{
     import_operation, placement_operations, plan_dual_mono_mapping, plan_projection, verify_media,
 };
-use ren_filmcraft::{ExportFormat, FilmCraft, HardwareEncoding, Operation, Request};
+use ren_filmcraft::{ExportFormat, FilmCraft, GpuRendering, HardwareEncoding, Operation, Request};
 use ren_protocol::project_model::{decode_project_model, ProjectModel};
 use std::path::{Path, PathBuf};
 
@@ -210,6 +210,7 @@ fn export_h264(adapter: &FilmCraft, project: &Path, name: &str) -> PathBuf {
             path: render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))

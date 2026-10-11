@@ -101,8 +101,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    AudioChannelFormat, BitrateMode, ExportFormat, HardwareEncoding, LossReport, Operation,
-    TrimEdge, TrimMode, FILMCRAFT_REVISION,
+    AudioChannelFormat, BitrateMode, ExportFormat, GpuRendering, HardwareEncoding, LossReport,
+    Operation, TrimEdge, TrimMode, FILMCRAFT_REVISION,
 };
 
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
@@ -2467,6 +2467,26 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
                     )));
                 }
             };
+            // The compositor path rides alongside the encoder choice and is
+            // recorded with it on the receipt. `auto` plans into an
+            // `Operation::Export` but the driver refuses it at execution on
+            // the pinned headless build (wgpu panic via `file.exportMedia`,
+            // measured 2026-10-11) - `off` is the only executable value
+            // until the exec path matches the `export` subcommand.
+            let gpu_rendering = match after
+                .get("gpu")
+                .and_then(|v| v.as_str())
+                .unwrap_or("off")
+            {
+                "off" => GpuRendering::Off,
+                "auto" => GpuRendering::Auto,
+                other => {
+                    return Err(invalid(format!(
+                        "edit `{}` names unknown gpu rendering `{other}`",
+                        edit.id.0
+                    )));
+                }
+            };
             let path = PathBuf::from(after_str(edit, after, "path")?);
             // Optional bitrate pair, H264 only: absent takes Ren's delivery
             // default in the driver (`DEFAULT_H264_BITRATE_KBPS` /
@@ -2504,6 +2524,7 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
                 path,
                 format,
                 hardware_encoder,
+                gpu_rendering,
                 bitrate_kbps,
                 bitrate_mode,
             })

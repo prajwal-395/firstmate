@@ -493,7 +493,8 @@ def case_audio_unity(cli: str, case: dict, workdir: Path, log) -> dict:
     out = workdir / "roundtrip.wav"
     fc_exec(cli, project, "file.exportMedia",
             {"path": str(out), "format": "wav",
-             "hardwareEncoding": "off", "wait": True}, log)
+             "hardwareEncoding": "off", "gpuRendering": "off",
+             "wait": True}, log)
     if not out.is_file():
         raise CorpusRefused("WAV export produced no file")
     probe = ffprobe_streams(out, log)

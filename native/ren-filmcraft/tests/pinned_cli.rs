@@ -1,6 +1,6 @@
 use ren_filmcraft::{
-    BitrateMode, ExportFormat, FilmCraft, HardwareEncoding, Operation, Request, TrimEdge, TrimMode,
-    ADAPTER_SCHEMA, DEFAULT_H264_BITRATE_KBPS,
+    BitrateMode, ExportFormat, FilmCraft, GpuRendering, HardwareEncoding, Operation, Request,
+    TrimEdge, TrimMode, ADAPTER_SCHEMA, DEFAULT_H264_BITRATE_KBPS,
 };
 use serde_json::json;
 
@@ -194,12 +194,17 @@ fn pinned_cli_drives_edits_inspection_still_render_and_all_required_exports() {
                 path: path.clone(),
                 format,
                 hardware_encoder: hardware,
+                gpu_rendering: GpuRendering::Off,
                 bitrate_kbps: None,
                 bitrate_mode: None,
             }))
             .unwrap();
         assert!(receipt.engine_response["job"].is_u64());
         assert!(path.is_file(), "{name} export missing: {}", path.display());
+        // The render path the adapter requested is recorded on the
+        // receipt, so a silently inert GPU path stays visible.
+        assert_eq!(receipt.hardware_encoding, Some(hardware));
+        assert_eq!(receipt.gpu_rendering, Some(GpuRendering::Off));
     }
     assert!(clip > 0);
 }
@@ -316,6 +321,7 @@ fn pinned_cli_h264_export_honors_requested_bitrate() {
             path: explicit.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: Some(REQUEST_KBPS),
             bitrate_mode: Some(BitrateMode::Cbr),
         }))
@@ -336,6 +342,7 @@ fn pinned_cli_h264_export_honors_requested_bitrate() {
             path: defaulted.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))

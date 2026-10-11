@@ -322,7 +322,15 @@ def _fc_export(cli: Path, project: Path, out_path: Path, *,
     seconds; the full export takes the entire sequence.
     """
     params: dict[str, Any] = {"path": str(out_path), "format": "h264",
-                              "hardwareEncoding": "auto", "wait": True}
+                              "hardwareEncoding": "auto",
+                              # Sent explicitly (never defaulted unseen): the
+                              # pinned engine validates `gpuRendering` as
+                              # off|auto, and `auto` panics the headless CLI
+                              # via this exec path (wgpu, no backend) while
+                              # the `export` subcommand falls back silently -
+                              # so `off` is the only executable value here
+                              # until the exec path matches the subcommand.
+                              "gpuRendering": "off", "wait": True}
     if start_seconds is not None or end_seconds is not None:
         params["range"] = "custom"
         if start_seconds is not None:

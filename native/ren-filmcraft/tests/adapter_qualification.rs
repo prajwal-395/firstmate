@@ -22,7 +22,7 @@ use ren_filmcraft::adapter::{
     required_video_tracks, summarize_losses, title_operations, validate_render_asset, verify_media,
     volume_operations, EditContext,
 };
-use ren_filmcraft::{ExportFormat, FilmCraft, HardwareEncoding, Operation, Request};
+use ren_filmcraft::{ExportFormat, FilmCraft, GpuRendering, HardwareEncoding, Operation, Request};
 use ren_protocol::project_model::{decode_project_model, EditOperation, ProjectModel};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -252,6 +252,7 @@ fn adapter_headless_edit_yields_receipt_render_map_ids_and_losses() {
             path: render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Auto,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))
@@ -1330,6 +1331,7 @@ fn ren_reverse_plays_backwards_frame_exact() {
             path: forward_render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))
@@ -1411,6 +1413,7 @@ fn ren_reverse_plays_backwards_frame_exact() {
             path: reversed_render.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))
@@ -2223,6 +2226,7 @@ fn export_batch(adapter: &FilmCraft, project: &Path, dir: &Path, slots: usize) -
                         path: out.clone(),
                         format: ExportFormat::H264,
                         hardware_encoder: HardwareEncoding::Auto,
+                        gpu_rendering: GpuRendering::Off,
                         bitrate_kbps: None,
                         bitrate_mode: None,
                     }))
@@ -2279,6 +2283,149 @@ fn concurrent_render_probe_reports_wall_and_rss_without_gating() {
             serial_wall * *slots as f64 / wall,
         );
     }
+}
+
+ /// SSIM of `first` against `second` (ffmpeg `ssim` filter, `All` channel
+/// average). ffmpeg is a declared requirement of this file, so its absence
+/// fails the proof rather than passing vacuously.
+fn ssim_all(first: &Path, second: &Path) -> f64 {
+    let output = std::process::Command::new("ffmpeg")
+        .args(["-v", "info", "-i"])
+        .arg(first)
+        .args(["-i"])
+        .arg(second)
+        .args(["-lavfi", "ssim", "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg must be on PATH for the pre-conform fidelity gate");
+    assert!(
+        output.status.success(),
+        "ffmpeg ssim comparison failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let marker = "All:";
+    let start = stderr
+        .find(marker)
+        .expect("ffmpeg ssim output carries an All average")
+        + marker.len();
+    let rest = stderr[start..].trim_start();
+    let end = rest
+        .find(|c: char| c != '.' && !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].parse().expect("ssim All parses as f64")
+}
+
+/// Pre-conform qualification: the same 72-frame timeline exported from the
+/// camera original and from an edit-resolution ProRes pre-conform must
+/// match within tolerance, and both receipts must record the render path.
+///
+/// The pre-conform here is geometry-identical (160x90 like-for-like), so
+/// the gate isolates transcode fidelity; the 4K-to-vertical conform
+/// policy is measured separately on real Reel 22 ranges. Floors (SSIM
+/// 0.95, PSNR 35 dB) sit below the transcode-only measurement on this
+/// fixture (SSIM 0.998, PSNR 46.3 dB, 2026-10-11) with margin for the one
+/// H264 generation both exports share. Export timings REPORT, never gate.
+#[test]
+fn preconformed_export_matches_direct_export_within_tolerance() {
+    let adapter = FilmCraft::new().unwrap();
+    let media = linked_av_fixture();
+
+    // Direct: the camera original placed and exported as-is.
+    let direct_model = test_model(&media, true, false);
+    let direct = place_through_adapter(&adapter, "preconform-direct", &direct_model);
+    let direct_out = direct._temp.path().join("preconform-direct.mp4");
+    let started = std::time::Instant::now();
+    let direct_receipt = adapter
+        .execute(request(Operation::Export {
+            project: direct.project.clone(),
+            path: direct_out.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
+        }))
+        .unwrap();
+    let direct_wall = started.elapsed().as_secs_f64();
+    assert_eq!(
+        direct_receipt.engine_response["result"]["frames"].as_u64(),
+        Some(72)
+    );
+    assert_eq!(
+        direct_receipt.hardware_encoding,
+        Some(HardwareEncoding::Off)
+    );
+    assert_eq!(direct_receipt.gpu_rendering, Some(GpuRendering::Off));
+
+    // Pre-conform: the used range to edit-resolution ProRes once, then the
+    // engine places the proxy instead of the original.
+    let proxy = direct._temp.path().join("preconform-proxy.mov");
+    let transcode = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&media)
+        .args([
+            "-frames:v",
+            "72",
+            "-vf",
+            "scale=160:90:flags=lanczos,format=yuv422p10le",
+            "-c:v",
+            "prores_ks",
+            "-profile:v",
+            "2",
+            "-c:a",
+            "pcm_s16le",
+        ])
+        .arg(&proxy)
+        .status()
+        .expect("ffmpeg must be on PATH for the pre-conform fidelity gate");
+    assert!(transcode.success(), "the fixture must pre-conform cleanly");
+    let proxy_model = test_model(&proxy, true, false);
+    let placed = place_through_adapter(&adapter, "preconform-proxy", &proxy_model);
+    let proxy_out = placed._temp.path().join("preconform-proxy.mp4");
+    let started = std::time::Instant::now();
+    let proxy_receipt = adapter
+        .execute(request(Operation::Export {
+            project: placed.project.clone(),
+            path: proxy_out.clone(),
+            format: ExportFormat::H264,
+            hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
+            bitrate_kbps: None,
+            bitrate_mode: None,
+        }))
+        .unwrap();
+    let proxy_wall = started.elapsed().as_secs_f64();
+    assert_eq!(
+        proxy_receipt.engine_response["result"]["frames"].as_u64(),
+        Some(72)
+    );
+    assert_eq!(proxy_receipt.hardware_encoding, Some(HardwareEncoding::Off));
+    assert_eq!(proxy_receipt.gpu_rendering, Some(GpuRendering::Off));
+
+    let ssim = ssim_all(&direct_out, &proxy_out);
+    let psnr = psnr_average(&proxy_out, &direct_out, false);
+    assert!(
+        ssim >= 0.95,
+        "pre-conformed export must match the direct export (SSIM All {ssim:.4} under 0.95)"
+    );
+    assert!(
+        psnr >= 35.0,
+        "pre-conformed export must match the direct export (PSNR {psnr:.1} dB under 35 dB)"
+    );
+    let direct_engine = direct_receipt.engine_response["result"]["seconds"]
+        .as_f64()
+        .unwrap_or(-1.0);
+    let proxy_engine = proxy_receipt.engine_response["result"]["seconds"]
+        .as_f64()
+        .unwrap_or(-1.0);
+    eprintln!(
+        "[preconform-gate] ssim={ssim:.4} psnr={psnr:.1}dB \
+         direct_engine={direct_engine:.2}s direct_wall={direct_wall:.2}s \
+         proxy_engine={proxy_engine:.2}s proxy_wall={proxy_wall:.2}s \
+         bytes_direct={} bytes_proxy={}",
+        direct_out.metadata().map(|m| m.len()).unwrap_or(0),
+        proxy_out.metadata().map(|m| m.len()).unwrap_or(0),
+    );
 }
 
 /// Overlay fixtures: a green H264 base plus a ProRes 4444 overlay carrying
@@ -2409,6 +2556,7 @@ fn export_project(
             path: out.clone(),
             format: ExportFormat::H264,
             hardware_encoder: HardwareEncoding::Auto,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))
@@ -2567,7 +2715,6 @@ fn overlay_qtrle_refuses_at_verify_media_with_real_ffprobe() {
     }
 }
 
-
 // ── Native audio mix: per-clip gain + bed/SFX stems, measured ──
 //
 // Ren's declared mix intent (per-clip dB, bed/SFX stems on their own
@@ -2686,6 +2833,7 @@ fn export_mix_wav(adapter: &FilmCraft, project: &Path, dir: &Path, name: &str) -
             path: out.clone(),
             format: ExportFormat::Wav,
             hardware_encoder: HardwareEncoding::Off,
+            gpu_rendering: GpuRendering::Off,
             bitrate_kbps: None,
             bitrate_mode: None,
         }))
