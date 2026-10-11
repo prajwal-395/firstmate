@@ -116,10 +116,12 @@ fm_path_mtime() {
 }
 
 fm_path_age() {
-  local path=$1 m now
+  local path=$1 m
   m=$(fm_path_mtime "$path") || { echo 999999; return; }
-  fm_epoch_seconds_to now
-  echo $(( now - m ))
+  # Plain $(date +%s), not the fork-free fm_epoch_seconds_to builtin: watcher
+  # fixtures fake `date` to pin the clock, and the printf %(%s)T builtin reads
+  # real time past that seam (a pinned beacon would read stale).
+  echo $(( $(date +%s) - m ))
 }
 
 # fm_poll_derived_grace [poll-seconds]
@@ -1101,6 +1103,10 @@ fm_recovery_marker_ack() {
 
 fm_recovery_marker_begin_handling() {
   _fm_recovery_marker_begin_handling "$1" "${2:-}"
+}
+
+fm_recovery_marker_handover_restore() {  # <marker> <snapshot-token> <snapshot-seq>
+  fm_recovery_transition "$1" handover-restore "$2" "$3"
 }
 
 fm_recovery_marker_arm_check() {

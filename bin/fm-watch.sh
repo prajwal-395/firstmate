@@ -925,23 +925,22 @@ secondmate_oldest_queue_row() {  # <queue-path>
   ' "$queue" 2>/dev/null || true
 }
 
-# 0 iff <task> is demonstrably inside an active turn, through the watcher's own
-# busy-state knowledge: an exact busy verdict from the semantic contract, bounded
-# by the same BUSY_TURN_MAX_SECS that stops a busy pane from proving liveness
-# forever. A mate mid-turn has not stopped draining its queue - it simply drains
-# between turns - so this gate, not the elapsed interval, is what separates a
-# healthy mate from a frozen wake loop. The bound is measured on <idle>, how long
-# the queue's drain position has not moved, because a mate's turns end in its own
-# home and this home holds no completed-turn evidence to age them by
-# (busy_turn_over_age, whose spawn-record fallback would age every mate from its
-# launch). Any absence of proof (no window, a failed capture, an idle or unknown
-# verdict, a queue frozen past the bound) is NOT an active turn, so a frozen
-# queue still escalates.
-secondmate_in_active_turn() {  # <task> <window>
-  local task=$1 w=$2 tail40
+# 0 iff <window> is demonstrably inside an active turn: the queue has been
+# frozen for less than BUSY_TURN_MAX_SECS and the pane still reads busy. The
+# bound is measured on <idle>, how long the queue's drain position has not
+# moved, because a mate's turns end in its own home and this home holds no
+# completed-turn evidence to age them by: aging the turn from the meta's launch
+# mtime loses the gate for every mate launched more than the bound ago, while
+# a turn that never ends still cannot hide a frozen queue past the bound. Any
+# absence of proof (no window, a failed capture, an idle verdict, a queue
+# frozen past the bound) is NOT an active turn, so a frozen queue still
+# escalates.
+secondmate_in_active_turn() {  # <window> <idle>
+  local w=$1 idle=$2 tail40
   [ -n "$w" ] || return 1
-  ! busy_turn_over_age "$task" || return 1
-  tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || return 1
+  [ "$idle" -lt "$BUSY_TURN_MAX_SECS" ] || return 1
+  watcher_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" || return 1
+  tail40=$WATCHER_CAPTURE
   window_is_busy "$w" "$tail40"
 }
 
@@ -1021,11 +1020,8 @@ secondmate_stall_rewake() {  # <task> <meta> <seq> <idle> <row-key> <now>
 # a later genuine freeze remains visible. A mate demonstrably inside an active
 # turn defers its escalation, but only while this same interval is under
 # BUSY_TURN_MAX_SECS, so a turn that never ends cannot hide a frozen queue.
-# A mate whose busy class is exactly idle, whose agent is alive, and whose
-# composer is not pending is rung once so its own home can drain, and the
-# parent notification is withheld until that same row stays frozen for another
-# stall interval. Unknown, busy-over-bound, and ring-unsafe panes keep the
-# parent alarm. Empty inbox and a fresh child beacon are not idle proof.
+# Otherwise the tick attempts one typed rewake (best-effort, never fatal)
+# and queues its durable parent notification either way.
 # Receipts close the append-before-marker crash window without changing the
 # foreign queue.
 secondmate_wake_stall_tick() {
@@ -1091,7 +1087,8 @@ EOF
     [ "$episode_alerted" -eq 0 ] || continue
     idle=$((now - observed_at))
     [ "$idle" -ge "$threshold" ] || continue
-    ! secondmate_in_active_turn "$task" "$(fm_backend_target_of_meta "$meta")" || continue
+    w=$(fm_backend_target_of_meta "$meta")
+    ! secondmate_in_active_turn "$w" "$idle" || continue
     secondmate_stall_rewake "$task" "$meta" "$seq" "$idle" "$row_key" "$now"
     receipt="$receipt_dir/$row_key"
     if [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ]; then
@@ -1138,6 +1135,80 @@ EOF
   return 0
 }
 
+secondmate_liveness_tick() {
+  local tick_marker="$STATE/.secondmate-liveness-tick"
+  [ "$(age_of "$tick_marker")" -ge "$SECONDMATE_LIVENESS_SECS" ] || return 0
+  touch "$tick_marker" || return 1
+  local now=$(( $(date +%s) )) meta id kind
+  local bound_marker attempts notify_key reason queued err first_reason='' failed=0
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    kind=$(fm_meta_get "$meta" kind 2>/dev/null || true)
+    [ "$kind" = secondmate ] || continue
+    id=${meta##*/}
+    id=${id%.meta}
+    case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    fm_secondmate_liveness_lock "$id" || continue
+    fm_secondmate_liveness_probe "$meta" "$id" poll
+    bound_marker="$STATE/.secondmate-relaunch-bound-$id"
+    reason='' notify_key='' err=''
+    case "$FM_SM_LIVE_STATUS" in
+      relaunchable)
+        if [ -e "$bound_marker" ] || [ -L "$bound_marker" ]; then
+          :
+        elif ! attempts=$(fm_secondmate_liveness_recent_attempts "$id" "$SECONDMATE_LIVENESS_WINDOW_SECS"); then
+          err="relaunch ledger is unreadable; endpoint left $FM_SM_LIVE_STATE"
+        elif [ "$attempts" -ge "$SECONDMATE_LIVENESS_MAX_ATTEMPTS" ]; then
+          if printf '%s\t%s\n' "$now" "$FM_SM_LIVE_STATE" > "$bound_marker"; then
+            reason="check: secondmate $id auto-relaunch paused after $SECONDMATE_LIVENESS_MAX_ATTEMPTS attempts in ${SECONDMATE_LIVENESS_WINDOW_SECS}s; endpoint still $FM_SM_LIVE_STATE - relaunch it manually or retire the route"
+            notify_key="secondmate-relaunch-bound-$id"
+          else
+            err="relaunch park marker could not be written; endpoint left $FM_SM_LIVE_STATE"
+          fi
+        elif fm_secondmate_liveness_relaunch "$meta" "$id" "$SECONDMATE_LIVENESS_TIMEOUT"; then
+          reason="check: secondmate $id auto-relaunched after $FM_SM_LIVE_CAUSE ($FM_SM_LIVE_WHERE)"
+          notify_key="secondmate-relaunch-$id-$now"
+        elif [ "$FM_SM_LIVE_STATUS" = skipped ]; then
+          err=$FM_SM_LIVE_REASON
+        else
+          reason="check: secondmate $id auto-relaunch failed after $FM_SM_LIVE_CAUSE: $(fm_sm_live_first_line "$FM_SM_LIVE_OUT")"
+          notify_key="secondmate-relaunch-failed-$id-$now"
+        fi
+        ;;
+      alive)
+        if [ -e "$bound_marker" ] || [ -L "$bound_marker" ]; then
+          if ! fm_secondmate_liveness_ledger_add "$id" rearmed; then
+            err="relaunch ledger is unwritable; auto-relaunch stays paused"
+          elif ! rm -f "$bound_marker"; then
+            err="relaunch park marker could not be cleared; auto-relaunch stays paused"
+          else
+            triage_log "secondmate $id live again; auto-relaunch pause cleared"
+          fi
+        fi
+        ;;
+      skipped)
+        triage_log "secondmate $id liveness: $FM_SM_LIVE_REASON"
+        ;;
+    esac
+    if [ -n "$reason" ]; then
+      queued=$(fm_wake_queued_keys check)
+      if printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1 \
+        || fm_wake_append check "$notify_key" "$reason"; then
+        [ -n "$first_reason" ] || first_reason=$reason
+      else
+        err="check wake row could not be queued: $reason"
+      fi
+    fi
+    fm_secondmate_liveness_unlock "$id"
+    if [ -n "$err" ]; then
+      echo "watcher: secondmate $id liveness: $err" >&2
+      triage_log "secondmate $id liveness error: $err" || true
+      failed=1
+    fi
+  done
+  [ -z "$first_reason" ] || wake "$first_reason"
+  [ "$failed" -eq 0 ]
+}
 # Consecutive wedge-escalation count for a window past FM_WEDGE_DEMAND_INSPECT_COUNT
 # (default 3): a pane that keeps re-wedging on the SAME stale hash - each
 # escalation gets absorbed again as "still validating" one poll later, since the
@@ -3033,6 +3104,16 @@ while :; do
   # A live secondmate endpoint does not prove that its own wake loop is alive.
   # Observe the foreign queue before the rest of this cycle so an aged row wakes
   # the parent without consuming or rewriting the receiving home's record.
+  # Endpoint liveness runs before queue observation: a positively dead or
+  # missing secondmate endpoint is relaunched here on a bounded cadence, which
+  # is also what unsticks that mate's foreign wake queue. The tick's single
+  # wake exits the cycle like every other wake, so its marker is stamped before
+  # any relaunch and the restarted watcher will not re-probe early.
+  secondmate_liveness_tick || {
+    echo "watcher: secondmate liveness check failed" >&2
+    exit 1
+  }
+
   secondmate_wake_stall_tick || {
     echo "watcher: secondmate wake-loop observation failed" >&2
     exit 1
