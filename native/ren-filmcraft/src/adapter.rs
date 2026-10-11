@@ -2,11 +2,12 @@
 //! the pinned FilmCraft driver in `super`.
 //!
 //! Ren's model stays canonical. This adapter serializes only the bounded subset
-//! FilmCraft can represent (asset imports plus ordered clip placements on V1/V2,
+//! FilmCraft can represent (asset imports plus ordered clip placements on
+//! video tracks, base picture on V1/V2 with compositing overlays above,
 //! music/SFX stems dealt across the audio pool from A2 upward, per-clip gain
-//! via `clip.audioGain`, track gain via `mixer.setValue`, caption/title tracks
-//! from speech observations, LUT application, keyframed transform/crop/opacity
-//! on clip uses, and track volume automation)
+//! via `clip.audioGain`, track gain via `mixer.setValue`, caption/title
+//! tracks from speech observations, LUT application, keyframed
+//! transform/crop/opacity on clip uses, and track volume automation)
 //! into driver [`super::Operation`]s, keeps the bidirectional Ren/engine ID map,
 //! builds the exact timeline-to-render [`FrameMap`](ren_protocol::project_model::FrameMap),
 //! validates the exported render asset, and carries every loss explicitly.
@@ -23,9 +24,11 @@
 //!   `(timeline_start, clip_use_id)`; imports sort by asset id; ID maps are
 //!   `BTreeMap`s. Planning twice over the same model yields identical bytes.
 //! - Anything the engine cannot represent is a projection [`super::LossReport`]
-//!   (model effects, masks, object tracks) or an [`AdapterError::Unsupported`]
-//!   refusal (overlapping timeline ranges, unknown roles, short sources,
-//!   inexact tick conversion, unknown edit operations). Nothing is guessed.
+//!   (model effects, masks, object tracks, overlay positioning) or an
+//!   [`AdapterError::Unsupported`] refusal (overlapping timeline ranges on one
+//!   track, overlapping base picture, unknown roles, short sources,
+//!   undecodable overlay codecs, inexact tick conversion, unknown edit
+//!   operations). Nothing is guessed.
 //! - Legacy editorial operation strings (for example `clip.trim` without
 //!   explicit engine parameters) are translated by [`plan_ren_edit`], which
 //!   resolves the target against the model and projection: split drives the
@@ -161,12 +164,15 @@ pub struct AssetImport {
     pub uri: String,
 }
 
-/// One ordered clip placement derived from a model `ClipUse`.
+/// One ordered clip placement derived from a model `ClipUse`. `role` rides
+/// along so the execution boundary (`verify_media`'s overlay codec gate)
+/// and every reader can see what a placement is without rejoining the model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Placement {
     pub clip_use_id: String,
     pub asset_id: String,
+    pub role: String,
     pub track: String,
     pub audio_track: Option<String>,
     pub frame: i64,
@@ -260,19 +266,51 @@ fn has_audio_stream(model: &ProjectModel, asset_id: &str) -> bool {
     })
 }
 
-/// Deterministic video track per picture role. Audio stems (`music`,
+/// Deterministic video track per role. Anything else has no mapping.
+///
+/// Base picture (`a_roll`, `b_roll`, `end_card`) owns the timeline spine on
+/// V1/V2; compositing overlays ride fixed upper tracks so a reel with
+/// B-roll and captions never collides: `subtitle_overlay` on V3,
+/// `motion_graphic` on V4, `frame_overlay` on V5. An `end_card` is full-frame
+/// tail/head content beside the footage, so it shares V1 and the same-track
+/// rule forces it sequential with the base. V4/V5 exceed a fresh project's
+/// three video tracks: plan [`add_tracks_operation`] before placing when
+/// [`required_video_tracks`] reports more than three. Audio stems (`music`,
 /// `sfx`) never reach this function: they allocate across the audio pool
 /// in [`allocate_stem_strips`], because two overlapping bed pieces cannot
-/// share one strip. Anything else has no mapping.
+/// share one strip.
 fn track_for_role(role: &str, clip_use_id: &str) -> Result<String> {
     match role {
         "a_roll" => Ok("V1".into()),
         "b_roll" => Ok("V2".into()),
+        "subtitle_overlay" => Ok("V3".into()),
+        "motion_graphic" => Ok("V4".into()),
+        "frame_overlay" => Ok("V5".into()),
+        "end_card" => Ok("V1".into()),
         _ => Err(unsupported(
             "unsupported_role",
-            format!("clip use `{clip_use_id}` has role `{role}`; projection maps `a_roll`/`b_roll` to picture and `music`/`sfx` to audio stems"),
+            format!("clip use `{clip_use_id}` has role `{role}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay` and `end_card` to picture and `music`/`sfx` to audio stems"),
         )),
     }
+}
+
+/// Roles that composite over the picture rather than extending it: they may
+/// overlap the base spine (and each other across tracks) because the engine
+/// stacks video tracks. Everything else is base picture, which stays
+/// strictly sequential exactly as before this vocabulary existed.
+fn is_compositing_overlay(role: &str) -> bool {
+    matches!(
+        role,
+        "subtitle_overlay" | "motion_graphic" | "frame_overlay"
+    )
+}
+
+/// Roles that drive the render span. Compositing overlays add no render
+/// time - they draw onto the base frames beneath them - so [`build_frame_map`]
+/// packs these only. A model with none of them is overlays over nothing and
+/// refuses as `no_base_spine` rather than mapping an empty render.
+fn is_spine_role(role: &str) -> bool {
+    matches!(role, "a_roll" | "b_roll" | "end_card")
 }
 
 /// True for the roles that place sound onto audio strips rather than
@@ -415,28 +453,83 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
     // them: a `title` overlapping dialogue is an unmapped role, not a
     // picture overlap.
     for clip_use in &ordered {
-        if !matches!(clip_use.role.as_str(), "a_roll" | "b_roll" | "music" | "sfx") {
+        if !matches!(
+            clip_use.role.as_str(),
+            "a_roll"
+                | "b_roll"
+                | "end_card"
+                | "subtitle_overlay"
+                | "motion_graphic"
+                | "frame_overlay"
+                | "music"
+                | "sfx"
+        ) {
             return Err(unsupported(
                 "unsupported_role",
                 format!(
-                    "clip use `{}` has role `{}`; projection maps `a_roll`/`b_roll` to picture and `music`/`sfx` to audio stems",
+                    "clip use `{}` has role `{}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay` and `end_card` to picture and `music`/`sfx` to audio stems",
                     clip_use.id.0, clip_use.role
                 ),
             ));
         }
     }
-    // Picture overlaps refuse: V1/V2 place one layer each, so stacking
-    // would be a guess. Stem overlaps never reach this check: the bed's
-    // declared crossfades ARE overlaps, and the strip allocator below
-    // spreads them across tracks instead of refusing.
-    let picture: Vec<_> = ordered.iter().filter(|u| !is_stem_role(&u.role)).collect();
-    if picture.windows(2).any(|pair| {
-        let (first, second) = (&pair[0].timeline_interval, &pair[1].timeline_interval);
-        first.end > second.start
-    }) {
+    // Overlap discipline, per track pair: the same track never stacks (the
+    // engine would trim silently), and base picture never overlaps base
+    // picture even across tracks (B-roll stays a sequential cutaway, so the
+    // frame map's sequential packing is unambiguous). An overlap involving a
+    // compositing overlay is the normal case - captions over dialogue, a
+    // bezel under everything - and is allowed across tracks. Stems sit out
+    // this check entirely: the bed's declared crossfades ARE overlaps, and
+    // the strip allocator below spreads them across tracks instead of
+    // refusing. All pairs are checked, not just adjacent windows: a
+    // same-track pair with an overlay between them in sort order still
+    // collides.
+    {
+        let mut tracks: Vec<String> = Vec::with_capacity(ordered.len());
+        for use_ in &ordered {
+            tracks.push(if is_stem_role(&use_.role) {
+                String::new()
+            } else {
+                track_for_role(&use_.role, &use_.id.0)?
+            });
+        }
+        for (index, first) in ordered.iter().enumerate() {
+            for (other_index, second) in ordered.iter().enumerate().skip(index + 1) {
+                if is_stem_role(&first.role) || is_stem_role(&second.role) {
+                    continue;
+                }
+                let (a, b) = (&first.timeline_interval, &second.timeline_interval);
+                if a.start < b.end && b.start < a.end {
+                    let shared =
+                        is_compositing_overlay(&first.role) || is_compositing_overlay(&second.role);
+                    if tracks[index] == tracks[other_index] || !shared {
+                        return Err(unsupported(
+                            "timeline_overlap",
+                            format!(
+                                "clip use `{}` ({} on {}) overlaps clip use `{}` ({} on {}) over [{}, {}); same-track stacking and base-picture overlap have no `timeline.place` representation",
+                                first.id.0,
+                                first.role,
+                                tracks[index],
+                                second.id.0,
+                                second.role,
+                                tracks[other_index],
+                                a.start.max(b.start),
+                                a.end.min(b.end),
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    // Overlays over nothing refuse: compositing overlays add no render time
+    // on their own. Stems alone need no spine.
+    if ordered.iter().any(|use_| is_compositing_overlay(&use_.role))
+        && !ordered.iter().any(|use_| is_spine_role(&use_.role))
+    {
         return Err(unsupported(
-            "timeline_overlap",
-            "two picture uses claim overlapping timeline ranges; the projection places one video layer without guessing stacking".into(),
+            "no_base_spine",
+            "the model names compositing overlays but no `a_roll`, `b_roll` or `end_card` to draw them over; overlays add no render time on their own".into(),
         ));
     }
     // Deal the audio strips before placing anything: music first from the
@@ -475,7 +568,9 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
             timeline,
             &format!("clip use `{}` timeline length", clip_use.id.0),
         )?;
-        if source_frames < timeline_frames && !retime_explains(model, &clip_use.id.0, source_frames, timeline_frames) {
+        if source_frames < timeline_frames
+            && !retime_explains(model, &clip_use.id.0, source_frames, timeline_frames)
+        {
             return Err(unsupported(
                 "source_too_short",
                 format!(
@@ -528,12 +623,18 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
         } else {
             (
                 track_for_role(&clip_use.role, &clip_use.id.0)?,
-                has_audio_stream(model, &asset.id.0).then(|| "A1".into()),
+                // Only base picture carries audio: an overlay or card file's
+                // incidental audio stream (the renderer writes silence onto
+                // every overlay and card .mov) is never wired to the mix.
+                (matches!(clip_use.role.as_str(), "a_roll" | "b_roll")
+                    && has_audio_stream(model, &asset.id.0))
+                    .then(|| "A1".into()),
             )
         };
         placements.push(Placement {
             clip_use_id: clip_use.id.0.clone(),
             asset_id: asset.id.0.clone(),
+            role: clip_use.role.clone(),
             track,
             audio_track,
             frame,
@@ -561,6 +662,26 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
             detail: format!(
                 "the model carries {} object track(s); the FilmCraft projection has no track operation, so none were sent",
                 model.tracks.len()
+            ),
+        });
+    }
+    let unpositioned: Vec<&str> = placements
+        .iter()
+        .filter(|p| is_compositing_overlay(&p.role))
+        .map(|p| p.clip_use_id.as_str())
+        .collect();
+    // The projection carries no motion parameters (`timeline.place` takes
+    // none), so every compositing overlay draws at the engine's default
+    // position. Full-frame cards are exempt by role contract; anything
+    // smaller than the sequence needs a follow-up positioning pass
+    // (`effects.setParam` on the motion effect) before it sits on its row.
+    if !unpositioned.is_empty() {
+        losses.push(LossReport {
+            code: "overlay_unpositioned".into(),
+            detail: format!(
+                "{} overlay placement(s) carry no motion parameters and draw at the engine default position: {}",
+                unpositioned.len(),
+                unpositioned.join(", "),
             ),
         });
     }
@@ -1743,10 +1864,33 @@ pub fn asset_path(media_dir: &Path, uri: &str) -> PathBuf {
     }
 }
 
-/// Refuse before the engine runs when a referenced media file is absent.
+/// Refuse before the engine runs when a referenced media file is absent,
+/// and when an overlay or card file uses a codec the pinned engine cannot
+/// draw.
+///
+/// Measured on the pinned revision: ProRes with alpha composites over the
+/// base (transparent pixels show the picture, opaque pixels cover it), while
+/// QuickTime Animation (`qtrle`) and PNG-in-.mov decode to nothing - the
+/// base shows through as if the overlay were never placed. A caption file
+/// in `qtrle` placed without this gate ships a reel with no captions and no
+/// error, which is exactly what the verified projection exists to prevent.
+/// Base picture (`a_roll`/`b_roll`) is never gated: camera codecs are the
+/// engine's own business and outside this lane's measurements.
 pub fn verify_media(
     media_dir: &Path,
     projection: &Projection,
+) -> Result<BTreeMap<String, PathBuf>> {
+    verify_media_with_probe(media_dir, projection, &ffprobe_video_codec)
+}
+
+/// [`verify_media`] with an injectable codec probe (tests stub the probe;
+/// production reads `ffprobe`). `probe` sees each overlay/card asset path
+/// and reports `(codec_name, pix_fmt)` of its first video stream, or `None`
+/// when the file carries no decodable video description.
+pub fn verify_media_with_probe(
+    media_dir: &Path,
+    projection: &Projection,
+    probe: &dyn Fn(&Path) -> Option<(String, String)>,
 ) -> Result<BTreeMap<String, PathBuf>> {
     let mut resolved = BTreeMap::new();
     for import in &projection.imports {
@@ -1763,7 +1907,104 @@ pub fn verify_media(
         }
         resolved.insert(import.asset_id.clone(), path);
     }
+    let mut overlay_assets: BTreeMap<&str, &str> = BTreeMap::new();
+    for placement in &projection.placements {
+        if matches!(
+            placement.role.as_str(),
+            "subtitle_overlay" | "motion_graphic" | "frame_overlay" | "end_card"
+        ) {
+            overlay_assets.insert(placement.asset_id.as_str(), placement.role.as_str());
+        }
+    }
+    for (asset_id, role) in overlay_assets {
+        let path = resolved.get(asset_id).ok_or_else(|| {
+            invalid(format!(
+                "placement names asset `{asset_id}` with no import to resolve it from"
+            ))
+        })?;
+        match probe(path) {
+            None => {
+                return Err(unsupported(
+                    "overlay_codec_unverified",
+                    format!(
+                        "asset `{asset_id}` ({role}) resolves to `{}` but ffprobe reports no video codec for it; refusing an overlay the engine may not draw - probe the file or transcode it to ProRes 4444",
+                        path.display(),
+                    ),
+                ));
+            }
+            Some((codec, pix_fmt)) => {
+                overlay_codec_compliant(role, asset_id, &codec, &pix_fmt)?;
+            }
+        }
+    }
     Ok(resolved)
+}
+
+/// Whether the pinned engine draws an overlay file with this video codec
+/// and pixel format. Pure and measured: ProRes with alpha composites;
+/// `qtrle` and PNG-in-.mov decode to nothing (the base shows through);
+/// anything else is unmeasured and refuses rather than ships unseen.
+/// Full-frame `end_card`s need no alpha (opaque cards cover the tail), so
+/// they accept the measured opaque decodes too; compositing overlays must
+/// carry alpha or they would box over the picture.
+pub fn overlay_codec_compliant(
+    role: &str,
+    asset_id: &str,
+    codec: &str,
+    pix_fmt: &str,
+) -> Result<()> {
+    let alpha = pix_fmt.contains('a');
+    let ok = match role {
+        "subtitle_overlay" | "motion_graphic" | "frame_overlay" => codec == "prores" && alpha,
+        "end_card" => codec == "prores" || codec == "h264",
+        _ => {
+            return Err(invalid(format!(
+                "asset `{asset_id}` with role `{role}` is not an overlay or card; the codec gate covers overlay roles only"
+            )));
+        }
+    };
+    if ok {
+        return Ok(());
+    }
+    Err(unsupported(
+        "overlay_codec_not_supported",
+        format!(
+            "asset `{asset_id}` ({role}) probes as {codec}/{pix_fmt}, which the pinned engine does not draw (measured: ProRes with alpha composites, `qtrle` and PNG decode to nothing); transcode the overlay to ProRes 4444{0} first",
+            if role == "end_card" {
+                " or H264"
+            } else {
+                ""
+            },
+        ),
+    ))
+}
+
+/// `(codec_name, pix_fmt)` of a file's first video stream via `ffprobe`,
+/// or `None` when ffprobe is absent or reports no video stream.
+fn ffprobe_video_codec(path: &Path) -> Option<(String, String)> {
+    let output = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,pix_fmt",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let stream = value.get("streams")?.as_array()?.first()?;
+    Some((
+        stream.get("codec_name")?.as_str()?.to_owned(),
+        stream.get("pix_fmt")?.as_str()?.to_owned(),
+    ))
 }
 
 /// The single import operation for a projection: all asset paths, sorted by
@@ -1813,6 +2054,39 @@ pub fn placement_operations(
     Ok(operations)
 }
 
+/// Highest video track number a projection addresses (`V3` -> 3). Fresh
+/// FilmCraft projects carry three video tracks; anything above needs
+/// [`add_tracks_operation`] before the first place, or the engine refuses
+/// the place with `no track V4`.
+pub fn required_video_tracks(projection: &Projection) -> u32 {
+    projection
+        .placements
+        .iter()
+        .filter_map(|p| p.track.strip_prefix('V')?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Video tracks a fresh engine project already carries. `CreateProject`
+/// takes no track counts, so every project starts here unless the caller
+/// pre-created it wider (as the dimensions workaround already does).
+pub const DEFAULT_VIDEO_TRACKS: u32 = 3;
+
+/// The `sequence.addTracks` operation provisioning a projection's overlay
+/// tracks, or `None` when the default three video tracks suffice. Drive it
+/// after create and before import: one call per project, never once per
+/// placement (the command adds tracks; repeating it stacks empties).
+pub fn add_tracks_operation(project: &Path, projection: &Projection) -> Option<Operation> {
+    let needed = required_video_tracks(projection).saturating_sub(DEFAULT_VIDEO_TRACKS);
+    if needed == 0 {
+        return None;
+    }
+    Some(Operation::AddTracks {
+        project: project.into(),
+        video: needed,
+        audio: 0,
+    })
+}
 /// Dual-mono channel mapping for discrete-mono sources.
 ///
 /// Measured at the pinned revision: a source whose audio streams are discrete
@@ -4039,10 +4313,12 @@ fn patch_inner_to_edit(
 }
 
 /// Exact timeline-to-render frame map for a projection. Render output packs
-/// placements in timeline order from render tick zero; each placement maps
-/// onto its render span and names its source clip use. Placements with a
-/// logged constant retime map [`MappingKind::Retimed`] with the exact
-/// playback speed; everything else maps one-to-one.
+/// the spine placements (`a_roll`, `b_roll`, `end_card`) in timeline order
+/// from render tick zero; each placement maps onto its render span and names
+/// its source clip use. Compositing overlays draw onto the base frames
+/// beneath them and add no render time, so they contribute no segments.
+/// Placements with a logged constant retime map [`MappingKind::Retimed`] with
+/// the exact playback speed; everything else maps one-to-one.
 /// Timeline gaps between placements become explicit `Gap` segments so a
 /// later swap-back refuses to move keyframes across unrendered picture.
 /// Overlapping placements are refused by [`plan_projection`] before this runs.
@@ -4059,7 +4335,11 @@ pub fn build_frame_map(
     let mut segments = Vec::new();
     let mut cursor = 0i64;
     let mut previous_end: Option<i64> = None;
-    for placement in &projection.placements {
+    for placement in projection
+        .placements
+        .iter()
+        .filter(|p| is_spine_role(&p.role))
+    {
         if let Some(previous) = previous_end {
             if placement.timeline_start > previous {
                 let gap_len = placement.timeline_start - previous;
@@ -4334,6 +4614,417 @@ mod tests {
         assert!(
             matches!(err, AdapterError::Unsupported { ref code, .. } if code == "unsupported_role")
         );
+    }
+
+    fn model_with_uses(uses: serde_json::Value) -> ProjectModel {
+        let document = serde_json::json!({
+            "id": "adapter-overlay-unit",
+            "schema_version": 1,
+            "timebase_policy": "rational_frames",
+            "clocks": [
+                {"id": "clock-source", "domain": {"kind": "source", "asset_id": "asset-a", "stream_id": "stream-video"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-timeline", "domain": {"kind": "project"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}},
+                {"id": "clock-render", "domain": {"kind": "render", "render_id": "render-1"}, "ticks_per_second": 24, "frame_rate": {"numerator": 24, "denominator": 1}}
+            ],
+            "assets": [
+                {"id": "asset-a", "kind": "video", "uri": "media/a.mp4", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]},
+                {"id": "asset-b", "kind": "video", "uri": "media/b.mov", "content_digest": null, "metadata": {}, "provenance": ["prov-1"]}
+            ],
+            "streams": [
+                {"id": "stream-video", "asset_id": "asset-a", "stream_index": 0, "clock_id": "clock-source", "metadata": {"codec_type": "video"}},
+                {"id": "stream-audio", "asset_id": "asset-a", "stream_index": 1, "clock_id": "clock-source", "metadata": {"codec_type": "audio"}}
+            ],
+            "entities": [], "observations": [], "identity_links": [], "masks": [],
+            "object_classes": [], "tracks": [], "relations": [], "intents": [],
+            "clip_uses": uses,
+            "edits": [], "effects": [], "renders": [], "frame_maps": [],
+            "nle_bindings": [], "receipts": [],
+            "provenance": [{"id": "prov-1", "producer": "unit", "producer_version": null, "source_digest": null, "recorded_at": null}]
+        });
+        decode_project_model(&document.to_string()).expect("overlay unit model decodes")
+    }
+
+    fn clip_use(
+        id: &str,
+        asset: &str,
+        role: &str,
+        src: (i64, i64),
+        tl: (i64, i64),
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "id": id, "asset_id": asset,
+            "source_interval": {"clock_id": "clock-source", "start": src.0, "end": src.1},
+            "timeline_interval": {"clock_id": "clock-timeline", "start": tl.0, "end": tl.1},
+            "entity_links": [], "role": role, "intent_id": null
+        })
+    }
+
+    #[test]
+    fn overlay_roles_project_to_fixed_tracks_without_audio() {
+        let model = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-b", "asset-b", "b_roll", (0, 24), (24, 48)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 48), (0, 48)),
+            clip_use("use-mg", "asset-b", "motion_graphic", (0, 24), (0, 24)),
+            clip_use("use-frame", "asset-b", "frame_overlay", (0, 48), (0, 48)),
+            clip_use("use-card", "asset-b", "end_card", (0, 12), (48, 60)),
+        ]));
+        let projection = plan_projection(&model).unwrap();
+        assert_eq!(projection.adapter_version, ADAPTER_VERSION);
+        let tracks: Vec<(&str, &str, &Option<String>)> = projection
+            .placements
+            .iter()
+            .map(|p| (p.clip_use_id.as_str(), p.track.as_str(), &p.audio_track))
+            .collect();
+        // Projection order is (timeline_start, id): the three uses opening
+        // at frame 0 sort by id under the V1 base.
+        assert_eq!(
+            tracks,
+            vec![
+                ("use-a", "V1", &Some("A1".into())),
+                ("use-frame", "V5", &None),
+                ("use-mg", "V4", &None),
+                ("use-sub", "V3", &None),
+                ("use-b", "V2", &None),
+                ("use-card", "V1", &None),
+            ]
+        );
+        // Roles ride the placements for the execution boundary to read.
+        assert!(projection.placements.iter().all(|p| !p.role.is_empty()));
+        assert_eq!(projection.placements[0].role, "a_roll");
+        assert_eq!(projection.placements[3].role, "subtitle_overlay");
+        // The base asset's audio stream reaches A1; overlay and card files
+        // never wire audio even when the asset carries an audio stream.
+        let voiced = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use(
+                "use-voice-sub",
+                "asset-a",
+                "subtitle_overlay",
+                (0, 24),
+                (0, 24)
+            ),
+            clip_use("use-voice-card", "asset-a", "end_card", (24, 36), (24, 36)),
+        ]));
+        let voiced = plan_projection(&voiced).unwrap();
+        let audio: Vec<(&str, &Option<String>)> = voiced
+            .placements
+            .iter()
+            .map(|p| (p.clip_use_id.as_str(), &p.audio_track))
+            .collect();
+        assert_eq!(
+            audio,
+            vec![
+                ("use-a", &Some("A1".into())),
+                ("use-voice-sub", &None),
+                ("use-voice-card", &None),
+            ]
+        );
+        // Compositing overlays carry the positioning loss by name; the
+        // full-frame card and the base do not.
+        assert_eq!(projection.losses.len(), 1);
+        assert_eq!(projection.losses[0].code, "overlay_unpositioned");
+        for name in ["use-frame", "use-mg", "use-sub"] {
+            assert!(
+                projection.losses[0].detail.contains(name),
+                "loss must name {name}: {}",
+                projection.losses[0].detail
+            );
+        }
+        assert!(!projection.losses[0].detail.contains("use-card"));
+    }
+
+    #[test]
+    fn overlay_overlap_discipline() {
+        // Same-track overlay stacking refuses, even non-adjacent in sort
+        // order: the V1 pair below has the V3 subtitle between them.
+        let stacked = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 20), (0, 20)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 5), (5, 10)),
+            clip_use("use-a2", "asset-b", "a_roll", (0, 5), (10, 15)),
+        ]));
+        let err = plan_projection(&stacked).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "timeline_overlap"),
+            "non-adjacent same-track overlap must refuse, got {err:?}"
+        );
+        // Two subtitles over the same span refuse on their shared V3.
+        let subs = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-s1", "asset-b", "subtitle_overlay", (0, 12), (0, 12)),
+            clip_use("use-s2", "asset-b", "subtitle_overlay", (0, 12), (6, 18)),
+        ]));
+        let err = plan_projection(&subs).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "timeline_overlap"),
+            "same-track subtitle stacking must refuse, got {err:?}"
+        );
+        // Base picture stays sequential across tracks: B-roll cannot cover
+        // A-roll, and a card cannot overlap the body.
+        for (id, role, tl) in [
+            ("use-b", "b_roll", (10, 15)),
+            ("use-card", "end_card", (10, 20)),
+        ] {
+            let covered = model_with_uses(serde_json::json!([
+                clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+                clip_use(id, "asset-b", role, (0, 10), tl),
+            ]));
+            let err = plan_projection(&covered).unwrap_err();
+            assert!(
+                matches!(err, AdapterError::Unsupported { ref code, .. } if code == "timeline_overlap"),
+                "{role} overlapping the base must refuse, got {err:?}"
+            );
+        }
+        // Overlays across tracks compose freely over the base and each other.
+        let composed = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 24), (0, 24)),
+            clip_use("use-mg", "asset-b", "motion_graphic", (0, 24), (12, 24)),
+            clip_use("use-frame", "asset-b", "frame_overlay", (0, 24), (0, 24)),
+        ]));
+        assert_eq!(plan_projection(&composed).unwrap().placements.len(), 4);
+    }
+
+    #[test]
+    fn overlays_without_a_spine_refuse() {
+        let floating = model_with_uses(serde_json::json!([clip_use(
+            "use-sub",
+            "asset-b",
+            "subtitle_overlay",
+            (0, 24),
+            (0, 24)
+        ),]));
+        let err = plan_projection(&floating).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "no_base_spine"),
+            "overlays over nothing must refuse, got {err:?}"
+        );
+        // A lone end card is a spine of its own and projects.
+        let card = model_with_uses(serde_json::json!([clip_use(
+            "use-card",
+            "asset-b",
+            "end_card",
+            (0, 72),
+            (0, 72)
+        ),]));
+        let projection = plan_projection(&card).unwrap();
+        assert_eq!(projection.placements.len(), 1);
+        assert_eq!(projection.placements[0].track, "V1");
+    }
+
+    #[test]
+    fn overlay_short_sources_refuse_like_base() {
+        let short = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 10), (0, 70)),
+        ]));
+        let err = plan_projection(&short).unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "source_too_short"),
+            "a subtitle file shorter than its play must refuse, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn reel_22_craig_cut_source_span_regression() {
+        // Native trial, Reel 22: `use-craig` holds source 87030..87284
+        // (254 frames, Resolve's raw `GetSourceEndFrame` readback) for a
+        // 255-frame timeline use, and the as-recorded projection refused as
+        // `source_too_short` until the source end was hand-patched +1 to
+        // the played end 87285. The refusal below locks the fail-closed
+        // half; the corrected projection locks the pipelineable half.
+        // Clocks tick per frame (24 tps at 24 fps), as in the trial model.
+        let uses = |source_end: i64| {
+            serde_json::json!([
+                clip_use(
+                    "use-craig",
+                    "asset-a",
+                    "a_roll",
+                    (87030, source_end),
+                    (0, 255)
+                ),
+                clip_use(
+                    "use-akshita",
+                    "asset-b",
+                    "a_roll",
+                    (87375, 88303),
+                    (255, 1183)
+                ),
+            ])
+        };
+        let err = plan_projection(&model_with_uses(uses(87284))).unwrap_err();
+        match &err {
+            AdapterError::Unsupported { code, detail } => {
+                assert_eq!(code, "source_too_short");
+                assert!(
+                    detail.contains("use-craig"),
+                    "the refusal must name the short use: {detail}"
+                );
+            }
+            other => panic!("as-recorded Craig cut must refuse, got {other:?}"),
+        }
+        let fixed = plan_projection(&model_with_uses(uses(87285))).unwrap();
+        assert_eq!(fixed.placements.len(), 2);
+        assert_eq!(fixed.placements[0].clip_use_id, "use-craig");
+        assert_eq!(fixed.placements[0].track, "V1");
+        assert_eq!(fixed.placements[0].frame, 0);
+        assert_eq!(
+            fixed.placements[0].duration_ticks,
+            255 * ENGINE_TICKS_PER_SECOND / 24
+        );
+        assert!(fixed.losses.is_empty());
+    }
+
+    #[test]
+    fn frame_map_packs_the_spine_and_skips_overlays() {
+        let model = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 48), (0, 48)),
+            clip_use("use-b", "asset-b", "b_roll", (0, 24), (24, 48)),
+            clip_use("use-card", "asset-b", "end_card", (0, 12), (48, 60)),
+        ]));
+        let projection = plan_projection(&model).unwrap();
+        let map = build_frame_map(&model, &projection, "clock-render", "map-spine").unwrap();
+        // Base spine only: the full-timeline subtitle contributes no
+        // segments and no render time.
+        assert_eq!(map.segments.len(), 3);
+        assert!(map.segments.iter().all(|s| s
+            .source_clip_use
+            .as_ref()
+            .is_some_and(|id| id.0 != "use-sub")));
+        assert_eq!(
+            map.segments
+                .iter()
+                .map(|s| s.source_clip_use.as_ref().unwrap().0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["use-a", "use-b", "use-card"]
+        );
+        assert_eq!((map.segments[2].to.start, map.segments[2].to.end), (48, 60));
+        assert_eq!(render_span(&map), 60);
+    }
+
+    #[test]
+    fn track_provisioning_counts_overlay_tracks() {
+        let base = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-b", "asset-b", "b_roll", (0, 24), (24, 48)),
+        ]));
+        let base = plan_projection(&base).unwrap();
+        assert_eq!(required_video_tracks(&base), 2);
+        assert!(add_tracks_operation(Path::new("x.fcproj"), &base).is_none());
+        let subs = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 24), (0, 24)),
+        ]));
+        let subs = plan_projection(&subs).unwrap();
+        assert_eq!(required_video_tracks(&subs), 3);
+        assert!(add_tracks_operation(Path::new("x.fcproj"), &subs).is_none());
+        let full = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 24), (0, 24)),
+            clip_use("use-mg", "asset-b", "motion_graphic", (0, 24), (0, 24)),
+            clip_use("use-frame", "asset-b", "frame_overlay", (0, 24), (0, 24)),
+        ]));
+        let full = plan_projection(&full).unwrap();
+        assert_eq!(required_video_tracks(&full), 5);
+        match add_tracks_operation(Path::new("x.fcproj"), &full) {
+            Some(Operation::AddTracks { video, audio, .. }) => {
+                assert_eq!((video, audio), (2, 0));
+            }
+            other => panic!("V5 overlays need two added tracks, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn overlay_codec_gate_names_what_the_engine_draws() {
+        // Measured allowlist: ProRes with alpha composites; opaque ProRes
+        // and H264 are full-frame decodes, fine for cards but a box over
+        // the picture for compositing roles. `qtrle` and PNG decode to
+        // nothing. Anything unmeasured refuses.
+        for role in ["subtitle_overlay", "motion_graphic", "frame_overlay"] {
+            overlay_codec_compliant(role, "use-x", "prores", "yuva444p10le").unwrap();
+            overlay_codec_compliant(role, "use-x", "prores", "yuva444p12le").unwrap();
+            for (codec, pix_fmt) in [
+                ("qtrle", "argb"),
+                ("png", "rgba"),
+                ("h264", "yuv420p"),
+                ("prores", "yuv422p10le"),
+                ("hevc", "yuv420p"),
+            ] {
+                let err = overlay_codec_compliant(role, "use-x", codec, pix_fmt).unwrap_err();
+                assert!(
+                    matches!(err, AdapterError::Unsupported { ref code, .. } if code == "overlay_codec_not_supported"),
+                    "{role} {codec}/{pix_fmt} must refuse, got {err:?}"
+                );
+            }
+        }
+        overlay_codec_compliant("end_card", "use-c", "prores", "yuva444p12le").unwrap();
+        overlay_codec_compliant("end_card", "use-c", "prores", "yuv422p10le").unwrap();
+        overlay_codec_compliant("end_card", "use-c", "h264", "yuv420p").unwrap();
+        let err = overlay_codec_compliant("end_card", "use-c", "qtrle", "argb").unwrap_err();
+        assert!(
+            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "overlay_codec_not_supported"),
+            "a qtrle end card draws nothing and must refuse, got {err:?}"
+        );
+        assert!(matches!(
+            overlay_codec_compliant("a_roll", "use-a", "prores", "yuv422p10le").unwrap_err(),
+            AdapterError::InvalidModel(_)
+        ));
+    }
+
+    #[test]
+    fn verify_media_gates_overlay_codecs_only() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("media")).unwrap();
+        for name in ["a.mp4", "b.mov"] {
+            std::fs::write(dir.path().join("media").join(name), b"fake").unwrap();
+        }
+        // Base picture never probes: a panicking probe proves the gate
+        // does not touch base assets.
+        let base = model_with_uses(serde_json::json!([clip_use(
+            "use-a",
+            "asset-a",
+            "a_roll",
+            (0, 24),
+            (0, 24)
+        ),]));
+        let projection = plan_projection(&base).unwrap();
+        let resolved = verify_media_with_probe(dir.path(), &projection, &|_| {
+            panic!("base assets must not probe")
+        })
+        .unwrap();
+        assert_eq!(resolved.len(), 1);
+        // Overlays probe per asset (one probe per asset, not per use).
+        let mixed = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-s1", "asset-b", "subtitle_overlay", (0, 12), (0, 12)),
+            clip_use("use-s2", "asset-b", "subtitle_overlay", (0, 12), (12, 24)),
+        ]));
+        let projection = plan_projection(&mixed).unwrap();
+        let probes = std::cell::Cell::new(0);
+        let resolved = verify_media_with_probe(dir.path(), &projection, &|path| {
+            probes.set(probes.get() + 1);
+            assert!(path.ends_with("b.mov"));
+            Some(("prores".into(), "yuva444p10le".into()))
+        })
+        .unwrap();
+        assert_eq!((probes.get(), resolved.len()), (1, 2));
+        // An undecodable overlay refuses by name; an unprobed one refuses
+        // as unverified rather than shipping unseen.
+        for (probe, code) in [
+            (
+                Some(("qtrle".to_string(), "argb".to_string())),
+                "overlay_codec_not_supported",
+            ),
+            (None, "overlay_codec_unverified"),
+        ] {
+            let err =
+                verify_media_with_probe(dir.path(), &projection, &|_| probe.clone()).unwrap_err();
+            assert!(
+                matches!(err, AdapterError::Unsupported { code: ref c, .. } if c == code),
+                "expected {code}, got {err:?}"
+            );
+        }
     }
 
     fn model_with_audio_channels(channels: &[Option<u64>]) -> ProjectModel {

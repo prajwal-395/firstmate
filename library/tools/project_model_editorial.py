@@ -151,6 +151,63 @@ def interval_from_seconds(
     )
 
 
+def interval_from_played_frames(
+    clock_id: str,
+    start_frame: Any,
+    played_frames: Any,
+    ticks_per_second: int,
+    fps_num: int,
+    fps_den: int,
+) -> dict[str, Any]:
+    """A model half-open interval from a start frame plus a played count.
+
+    The end is DERIVED (start plus played), never taken from a raw end
+    frame. Reel 22's Craig cut is why: the review snapshot's
+    ``source_out_frame`` carries Resolve's raw ``GetSourceEndFrame()``
+    readback, which disagrees by a frame on about a third of clips
+    (``library/tools/timeline_ingest.py`` derives the played range instead
+    for the same reason). Copying the raw end 87284 into a half-open
+    interval models a 254-frame source for a 255-frame play, which the
+    native projection correctly refuses as ``source_too_short``; the
+    played end is 87285.
+
+    Frames convert exactly (no rounding: a frame count that is not whole
+    ticks on the clock is refused, never rounded into place).
+    """
+    if isinstance(start_frame, bool) or isinstance(played_frames, bool):
+        raise EditorialMigrationError(
+            f"frame counts must be integers, got {start_frame!r}..{played_frames!r}"
+        )
+    if not isinstance(start_frame, int) or not isinstance(played_frames, int):
+        raise EditorialMigrationError(
+            f"frame counts must be integers, got {start_frame!r}..{played_frames!r}"
+        )
+    if played_frames <= 0:
+        raise EditorialMigrationError(
+            f"played frames must be positive, got {played_frames!r}"
+        )
+    for name, value in (("ticks_per_second", ticks_per_second),
+                        ("fps_num", fps_num), ("fps_den", fps_den)):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise EditorialMigrationError(
+                f"{name} must be a positive int, got {value!r}"
+            )
+    start_product = start_frame * ticks_per_second * fps_den
+    if start_product % fps_num != 0:
+        raise EditorialMigrationError(
+            f"start frame {start_frame} is not whole ticks on {clock_id}: "
+            f"refusing, not rounding"
+        )
+    length_product = played_frames * ticks_per_second * fps_den
+    if length_product % fps_num != 0:
+        raise EditorialMigrationError(
+            f"{played_frames} played frames are not whole ticks on "
+            f"{clock_id}: refusing, not rounding"
+        )
+    start = start_product // fps_num
+    return interval_from_ticks(clock_id, start, start + length_product // fps_num)
+
+
 def spans_to_intervals(
     spans: Any, clock_id: str
 ) -> list[dict[str, Any]]:
@@ -667,6 +724,73 @@ def broll_node_to_clip_use(
         "role": BROLL_ROLE,
         "intent_id": None,
     }, None
+
+
+def _fps_pair(name: str, rate: Any) -> tuple[int, int]:
+    """An (fps_num, fps_den) pair, validated as positive ints."""
+    if (not isinstance(rate, (list, tuple)) or len(rate) != 2
+            or any(isinstance(v, bool) or not isinstance(v, int)
+                   for v in rate)
+            or rate[0] <= 0 or rate[1] <= 0):
+        raise EditorialMigrationError(
+            f"{name} must be an (fps_num, fps_den) pair of positive "
+            f"ints, got {rate!r}"
+        )
+    return (rate[0], rate[1])
+
+
+def clip_use_from_played_span(
+    *,
+    role: str,
+    clip_id: str,
+    asset_id: str,
+    source_clock: str,
+    source_start_frame: int,
+    played_source_frames: int,
+    timeline_clock: str,
+    timeline_start_frame: int,
+    timeline_frames: int,
+    source_tps: int,
+    source_fps: tuple[int, int],
+    timeline_tps: int,
+    timeline_fps: tuple[int, int],
+) -> dict[str, Any]:
+    """One model ``ClipUse`` from frame counts with a derived source end.
+
+    This is the constructor for rebuilding a use from a timeline record
+    (a review snapshot, a build placement): the source end is
+    ``source_start_frame + played_source_frames`` via
+    :func:`interval_from_played_frames`, never the record's raw end
+    frame. Identity links stay empty for Unit 3, as in the node
+    converters. The role passes through verbatim - the native projection
+    refuses unknown roles, so an invented one fails there by name rather
+    than here by guess.
+    """
+    if not isinstance(role, str) or not role:
+        raise EditorialMigrationError("a clip use needs a non-empty role")
+    if not isinstance(clip_id, str) or not clip_id:
+        raise EditorialMigrationError("a clip use needs a non-empty clip_id")
+    if not isinstance(asset_id, str) or not asset_id:
+        raise EditorialMigrationError("a clip use needs a non-empty asset_id")
+    source_num, source_den = _fps_pair("source_fps", source_fps)
+    timeline_num, timeline_den = _fps_pair("timeline_fps", timeline_fps)
+    source = interval_from_played_frames(
+        source_clock, source_start_frame, played_source_frames,
+        source_tps, source_num, source_den,
+    )
+    timeline = interval_from_played_frames(
+        timeline_clock, timeline_start_frame, timeline_frames,
+        timeline_tps, timeline_num, timeline_den,
+    )
+    return {
+        "id": _clip_use_id(role, clip_id, source, timeline),
+        "asset_id": asset_id,
+        "source_interval": source,
+        "timeline_interval": timeline,
+        "entity_links": [],
+        "role": role,
+        "intent_id": None,
+    }
 
 
 def migrate_edit_graph(

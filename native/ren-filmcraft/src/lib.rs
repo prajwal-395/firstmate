@@ -141,6 +141,15 @@ pub enum Operation {
         project: PathBuf,
         paths: Vec<PathBuf>,
     },
+    /// Provision video/audio tracks beyond the three-plus-three a fresh
+    /// project carries (`sequence.addTracks`). Planned by
+    /// [`adapter::add_tracks_operation`] when a projection's overlay tracks
+    /// need them; drive once per project after create, before place.
+    AddTracks {
+        project: PathBuf,
+        video: u32,
+        audio: u32,
+    },
     Place {
         project: PathBuf,
         item: u64,
@@ -706,6 +715,22 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             json!({"paths": paths}),
             true,
         ),
+        Operation::AddTracks {
+            project,
+            video,
+            audio,
+        } => {
+            if video == 0 && audio == 0 {
+                return Err(Error::Schema("track request adds no tracks".into()));
+            }
+            (
+                Some(project),
+                "add_tracks",
+                "sequence.addTracks",
+                json!({"video": video, "audio": audio}),
+                true,
+            )
+        }
         Operation::Place {
             project,
             item,
@@ -1433,23 +1458,10 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         }
         return Ok(());
     }
-    // Track growth answers the minted track ids per family; the strips
-    // themselves read back off `mixer.inspect`.
-    if command == "sequence.addTracks" {
-        let object = value.as_object().ok_or_else(|| Error::UnknownResponse {
-            command: command.into(),
-            detail: "expected JSON object".into(),
-        })?;
-        for key in ["audio", "submix", "video"] {
-            if !object.get(key).is_some_and(Value::is_array) {
-                return Err(Error::UnknownResponse {
-                    command: command.into(),
-                    detail: format!("missing `{key}` array"),
-                });
-            }
-        }
-        return Ok(());
-    }
+    // Track growth answers the minted track ids per family (`video` always;
+    // `audio`/`submix` ride along when the call grew those families); the
+    // strips themselves read back off `mixer.inspect`. The general tables
+    // below govern: `video` required, unknown fields refused.
     let allowed: &[&str] = match command {
         "file.newSequence" => &["sequence"],
         "file.import" => &[
@@ -1460,6 +1472,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
             "ingest",
             "imageSequences",
         ],
+        "sequence.addTracks" => &["video", "audio", "submix"],
         "timeline.place" => &["clips"],
         "timeline.razor" => &["cuts"],
         "timeline.trim" => &["delta"],
@@ -1535,6 +1548,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
     let required: &[&str] = match command {
         "file.newSequence" => &["sequence"],
         "file.import" => &["items"],
+        "sequence.addTracks" => &["video"],
         "timeline.place" => &["clips"],
         "timeline.razor" => &["cuts"],
         "timeline.trim" => &["delta"],
@@ -1572,6 +1586,11 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
         "file.newSequence" => value["sequence"].is_u64(),
         "file.import" => {
             value["items"].is_array() && value.get("errors").is_none_or(Value::is_array)
+        }
+        "sequence.addTracks" => {
+            value["video"].is_array()
+                && value.get("audio").is_none_or(Value::is_array)
+                && value.get("submix").is_none_or(Value::is_array)
         }
         "timeline.place" => value["clips"]
             .as_array()
@@ -2272,6 +2291,37 @@ mod tests {
             effect: Some("cross_dissolve".into()),
         };
         assert!(plan(operation).is_ok());
+    }
+
+    #[test]
+    fn add_tracks_validates_and_contracts_before_the_engine() {
+        // An empty track request refuses without a CLI call.
+        let operation = Operation::AddTracks {
+            project: "x.fcproj".into(),
+            video: 0,
+            audio: 0,
+        };
+        assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        // A real request plans onto `sequence.addTracks`.
+        let operation = Operation::AddTracks {
+            project: "x.fcproj".into(),
+            video: 2,
+            audio: 0,
+        };
+        assert!(plan(operation).is_ok());
+        // The pinned response shape (measured: `{"video":[9],...}`).
+        assert!(validate_response_contract(
+            "sequence.addTracks",
+            &json!({"video": [9], "audio": [], "submix": []}),
+        )
+        .is_ok());
+        assert!(validate_response_contract("sequence.addTracks", &json!({"video": [9]}),).is_ok());
+        assert!(validate_response_contract("sequence.addTracks", &json!({"audio": []}),).is_err());
+        assert!(validate_response_contract(
+            "sequence.addTracks",
+            &json!({"video": [9], "future": true}),
+        )
+        .is_err());
     }
 
     #[test]

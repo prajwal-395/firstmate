@@ -11,7 +11,7 @@ The public API is a versioned typed request and receipt. `.fcproj` remains an en
 and the adapter checks its explicit format identifier and schema version before accepting it.
 Unknown adapter versions, project schemas, malformed command output and unrecognized command
 response shapes are errors. The request vocabulary stays bounded to project create / import,
-placement, razor, trim, move / insert, delete / ripple delete, link, retime,
+track provisioning, placement, razor, trim, move / insert, delete / ripple delete, link, retime,
 transition, track gain, per-clip gain (`clip.audioGain`, mode `set`),
 audio-track growth, H.264 / ProRes / WAV export, still
 render and inspection. H264 exports carry an explicit bitrate and rate
@@ -32,8 +32,11 @@ and trim-delta defects and requires an explicit loss report for either.
 
 The deterministic bridge between Ren's canonical Project Model
 (`ren-protocol`) and this driver. `plan_projection` turns a model's clip
-uses into ordered imports plus `timeline.place` operations (A-roll on V1,
-B-roll on V2) with no I/O, so the same model always plans identical bytes.
+uses into ordered imports plus `timeline.place` operations with no I/O, so
+the same model always plans identical bytes. Roles map onto fixed tracks:
+`a_roll` on V1, `b_roll` on V2, `subtitle_overlay` on V3,
+`motion_graphic` on V4, `frame_overlay` on V5, and full-frame `end_card`s
+beside the footage on V1. Anything else refuses as `unsupported_role`.
 `plan_edit` translates only explicit `filmcraft.*` model edits into driver
 operations. `plan_ren_edit` translates Ren's own editorial vocabulary -
 split, trim (both edges, including the E2E fixture's `timeline_end` /
@@ -65,7 +68,12 @@ retime gap - variable speed has no engine parameter at all - is tracked in
 plans two razors (video plus audio) so the measured V1-only razor defect
 does not recur; delete, ripple delete and retime rely on the engine
 following linked audio itself (measured); a Ren move compensates the measured one-frame-early
-`timeline.move` defect to land frame-exact. A move that trims an occupant
+`timeline.move` defect to land frame-exact. Overlap refuses per track
+pair: the same track never stacks, and base picture (`a_roll`, `b_roll`,
+`end_card`) stays sequential even across tracks, while a compositing
+overlay may overlap the base and other tracks' overlays - captions over
+dialogue are the normal case, not an error. Only base picture carries
+audio; overlay and card files are never wired to the mix. A move that trims an occupant
 reports `move_overwrote` instead of trimming silently. `apply_ren_edit_to_model`
 mutates clip uses for the equivalence proof, so qualification compares the
 engine's inspected timeline against Ren's expected clip uses frame-exact
@@ -73,8 +81,21 @@ and the render's frame map against the mutated model's map. Constant
 retimes log into `model.edits` so the map carries their exact rational
 rate as `Retimed` segments; a slow-motion span longer than its source
 re-projects exactly when its logged retime explains the ratio, and still
-refuses as `source_too_short` otherwise. Model effects,
+refuses as `source_too_short` otherwise. A model with overlays but no
+`a_roll`/`b_roll`/`end_card` spine refuses as `no_base_spine`, and the
+frame map packs the spine alone - overlays draw onto the base frames and
+add no render time. Model effects,
 masks, and object tracks become explicit loss entries, never silent drops.
+Compositing overlays additionally carry an `overlay_unpositioned` loss:
+the projection has no motion parameters to send, so they draw at the
+engine's default position until a positioning pass lands. `verify_media`
+gates overlay and card codecs through ffprobe before anything runs:
+ProRes with alpha composites (measured), while QuickTime Animation and
+PNG decode to nothing and refuse as `overlay_codec_not_supported` -
+transcode those to ProRes 4444 first (H264 is accepted for opaque end
+cards). Overlays needing V4/V5 plan one `sequence.addTracks` operation
+(`add_tracks_operation`, driven once after create) because fresh projects
+carry three video tracks.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
 whole array for retime and link, the first id otherwise - per-clip gain

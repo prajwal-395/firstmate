@@ -126,6 +126,111 @@ def test_aroll_node_with_empty_span_is_refused():
     assert "half-open" in reason
 
 
+def test_clip_use_from_played_span_derives_the_played_end():
+    # Reel 22 Craig: the review snapshot reads source_out_frame 87284 raw
+    # (Resolve's GetSourceEndFrame -1 disagreement); the played range is
+    # 255 frames from 87030. Copying the raw end into a half-open
+    # interval models 254 frames and refuses downstream - the played end
+    # is 87285, and this constructor derives it.
+    first = editorial.clip_use_from_played_span(
+        role="a_roll",
+        clip_id="LCATL0013.MXF",
+        asset_id="asset-craig",
+        source_clock="clock-source",
+        source_start_frame=87030,
+        played_source_frames=255,
+        timeline_clock="clock-timeline",
+        timeline_start_frame=0,
+        timeline_frames=255,
+        source_tps=24,
+        source_fps=(24, 1),
+        timeline_tps=24,
+        timeline_fps=(24, 1),
+    )
+
+    assert first["source_interval"] == {
+        "clock_id": "clock-source", "start": 87030, "end": 87285}
+    assert first["timeline_interval"] == {
+        "clock_id": "clock-timeline", "start": 0, "end": 255}
+    assert first["role"] == "a_roll"
+    assert first["asset_id"] == "asset-craig"
+    assert first["entity_links"] == []
+    assert first["intent_id"] is None
+    # Stable and idempotent: the same record rebuilds the same id.
+    second = editorial.clip_use_from_played_span(
+        role="a_roll",
+        clip_id="LCATL0013.MXF",
+        asset_id="asset-craig",
+        source_clock="clock-source",
+        source_start_frame=87030,
+        played_source_frames=255,
+        timeline_clock="clock-timeline",
+        timeline_start_frame=0,
+        timeline_frames=255,
+        source_tps=24,
+        source_fps=(24, 1),
+        timeline_tps=24,
+        timeline_fps=(24, 1),
+    )
+    assert second == first
+    # Overlay roles pass through; the projection refuses unknown ones.
+    sub = editorial.clip_use_from_played_span(
+        role="subtitle_overlay",
+        clip_id="sub_001",
+        asset_id="asset-sub",
+        source_clock="clock-source",
+        source_start_frame=12,
+        played_source_frames=53,
+        timeline_clock="clock-timeline",
+        timeline_start_frame=70,
+        timeline_frames=53,
+        source_tps=24,
+        source_fps=(24, 1),
+        timeline_tps=24,
+        timeline_fps=(24, 1),
+    )
+    assert sub["role"] == "subtitle_overlay"
+    assert sub["source_interval"] == {
+        "clock_id": "clock-source", "start": 12, "end": 65}
+
+
+def test_clip_use_from_played_span_refuses_what_is_not_a_span():
+    base = {
+        "role": "a_roll",
+        "clip_id": "clip_001",
+        "asset_id": "asset-1",
+        "source_clock": "clock-source",
+        "source_start_frame": 0,
+        "played_source_frames": 24,
+        "timeline_clock": "clock-timeline",
+        "timeline_start_frame": 0,
+        "timeline_frames": 24,
+        "source_tps": 24,
+        "source_fps": (24, 1),
+        "timeline_tps": 24,
+        "timeline_fps": (24, 1),
+    }
+
+    for key, value in [
+        ("played_source_frames", 0),
+        ("played_source_frames", -3),
+        ("timeline_frames", 0),
+        ("source_start_frame", 1.5),
+        ("role", ""),
+        ("source_fps", (24, 0)),
+        ("timeline_fps", "24/1"),
+    ]:
+        with pytest.raises(editorial.EditorialMigrationError):
+            editorial.clip_use_from_played_span(
+                **{**base, key: value})
+    # A frame count that is not whole ticks refuses rather than rounding:
+    # one NTSC frame is not whole ticks on a 24 tps clock.
+    with pytest.raises(editorial.EditorialMigrationError):
+        editorial.clip_use_from_played_span(
+            **{**base,
+               "source_tps": 24, "source_fps": (24000, 1001)})
+
+
 def test_migrate_edit_graph_rebuild_is_idempotent_and_validated():
     graph = {"nodes": [_aroll_node(), {
         "node_id": "transition:4",
