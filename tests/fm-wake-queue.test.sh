@@ -364,6 +364,131 @@ SH
   pass "foreign secondmate queue alerts once per no-progress episode without age-only or cascade noise"
 }
 
+test_secondmate_stall_rewake_reaches_idle_mate_once_per_episode() {
+  local dir state sub fakebin real_date attempt out sent stall_count ring_count row_before
+  dir=$(make_supercase secondmate-stall-rewake)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this rewake fixture holds
+  # a fresh autoarm beacon in the fake clock and only the stall tick acts.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
+  fakebin="$dir/fakebin"
+  real_date=$(command -v date)
+  cat > "$fakebin/date" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = +%s ]; then
+  cat "\${FM_FAKE_NOW_FILE:?}"
+else
+  exec "$real_date" "\$@"
+fi
+SH
+  chmod +x "$fakebin/date"
+  # No capture file: the pane reads idle, so the mate is provably not mid-turn.
+  # The supercase fake records every send-keys line in FM_FAKE_TMUX_SENT.
+  sent="$dir/sent.log"
+  : > "$sent"
+
+  # The first observation of a frozen row starts its interval: no parent
+  # notification and, crucially, no typed wake yet.
+  printf '1000\n' > "$dir/now"
+  printf '100\t7\tcheck\trouted\tcheck: routed row\n' > "$sub/state/.wake-queue"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-observe.out" 2> "$dir/watch-observe.err" || true
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "the first observation of a frozen foreign row alerted"
+  [ ! -s "$sent" ] \
+    || fail "the first observation of a frozen foreign row typed a wake: $(cat "$sent")"
+
+  # With no drain progress past the threshold the stall fires: the durable
+  # parent notification is queued AND exactly one typed rewake reaches the
+  # idle mate's endpoint, without touching the foreign queue.
+  printf '1004\n' > "$dir/now"
+  row_before="$dir/foreign-before"
+  cp "$sub/state/.wake-queue" "$row_before"
+  out="$dir/watch-stalled.out"
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-stalled.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=7 idle=4s' "$out" && break
+    attempt=$((attempt + 1))
+  done
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7 idle=4s' "$out" >/dev/null \
+    || fail "a frozen foreign queue did not alert: $(cat "$out")"
+  stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
+  [ "$stall_count" -eq 1 ] || fail "the stalled episode did not publish exactly one parent notification"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "the stalled episode did not type exactly one rewake, got $ring_count: $(cat "$sent")"
+  grep -F 'bin/fm-wake-drain.sh' "$sent" >/dev/null \
+    || fail "the typed rewake did not direct the mate to drain: $(cat "$sent")"
+  cmp -s "$row_before" "$sub/state/.wake-queue" \
+    || fail "the stall rewake changed the foreign queue row"
+  grep -F '100-7 sent' "$state/.secondmate-wake-rewake-mate" >/dev/null \
+    || fail "the stalled episode did not record its rewake delivery"
+
+  # A repeat poll inside the same no-progress episode re-rings nothing and
+  # publishes nothing: one rewake per episode, exactly like the notification.
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-repeat.out" 2> "$dir/watch-repeat.err" || true
+  stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
+  [ "$stall_count" -eq 1 ] || fail "a repeat poll duplicated the stall notification"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "a repeat poll duplicated the typed rewake"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" \
+    || fail "parent drain failed after the stall notification"
+  ack_drain_err "$state" "$dir/drain.err" \
+    || fail "parent stall notification could not be acknowledged"
+
+  # Drain progress ends the episode and starts a fresh interval: a newly
+  # oldest row earns observation silence again, with no immediate rewake.
+  printf '1006\n' > "$dir/now"
+  printf '200\t8\tcheck\tnext\tcheck: next row\n' > "$sub/state/.wake-queue"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-next.out" 2> "$dir/watch-next.err" || true
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "a newly-oldest row cascaded an immediate second alert after progress"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "a newly-oldest row cascaded an immediate second rewake"
+
+  # When the new drain position genuinely freezes, it is a new no-progress
+  # episode: it alerts and rewakes again rather than staying muted forever.
+  printf '1012\n' > "$dir/now"
+  out="$dir/watch-refrozen.out"
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-refrozen.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=8 idle=6s' "$out" && break
+    attempt=$((attempt + 1))
+  done
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=8 idle=6s' "$out" >/dev/null \
+    || fail "a genuine later no-progress episode was hidden after earlier progress: $(cat "$out")"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 2 ] || fail "a genuine later no-progress episode did not rewake again, got $ring_count"
+  pass "a stalled secondmate queue types one rewake per no-progress episode without touching the foreign queue"
+}
+
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   local dir state sub fakebin real_date
   dir=$(make_case secondmate-declared-pause-queue)
@@ -2032,6 +2157,7 @@ test_bounded_lock_handoff_after_contention
 test_live_presentation_holder_is_deadlined_without_weakening_ack
 test_malformed_presentation_lock_reports_acquire_failure
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once
+test_secondmate_stall_rewake_reaches_idle_mate_once_per_episode
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation
 test_secondmate_reprovisioned_queue_starts_a_fresh_interval
 test_secondmate_active_turn_defers_stall_until_the_turn_ends

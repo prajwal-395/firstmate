@@ -122,8 +122,12 @@
 #                          between observations for FM_SECONDMATE_WAKE_STALL_SECS
 #                          while the mate was not in an active turn; declared
 #                          external-wait pause rows do not feed this escalation,
-#                          observation is read-only, and one parent notification
-#                          covers each no-progress episode
+#                          the foreign queue itself is never written, one parent
+#                          notification covers each no-progress episode, and one
+#                          typed rewake reaches the mate's live endpoint per
+#                          episode (secondmate_stall_rewake) so a Stop-hook
+#                          rewake that never materialized into an agent turn
+#                          still produces one
 #   check: secondmate watcher quiet: mate=<id> <beacon-desc> (<reason>, model <model>; cause unknown from outside: ...)
 #                          an endpoint-recorded local secondmate home still needs
 #                          supervision but its model-aware watcher verdict is down;
@@ -332,6 +336,11 @@ BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
 # secondmate_wake_stall_tick, never a substitute for it.
 SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-}
 case "$SECONDMATE_WAKE_STALL_SECS" in ''|*[!0-9]*|0) SECONDMATE_WAKE_STALL_SECS=180 ;; esac
+# Spacing between delivery attempts when one typed rewake to a stalled mate
+# was skipped or failed while its no-progress episode persists. A sent rewake
+# or a dead-or-missing endpoint is never retried for that row episode.
+SECONDMATE_REWAKE_RETRY_SECS=${FM_SECONDMATE_REWAKE_RETRY_SECS:-60}
+case "$SECONDMATE_REWAKE_RETRY_SECS" in ''|*[!0-9]*|0) SECONDMATE_REWAKE_RETRY_SECS=60 ;; esac
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
 # A captain-held or paused crew whose agent has confidently exited uses the same
@@ -836,6 +845,70 @@ secondmate_in_active_turn() {  # <task> <window>
   window_is_busy "$w" "$tail40"
 }
 
+# Deliver one typed rewake to a mate whose foreign queue demonstrably stopped
+# advancing while the mate is not in an active turn (the stall tick's own
+# gates: the caller proves both before calling). A Claude mate's Stop-hook
+# rewake fires only at a turn end, so once a delivered rewake fails to
+# materialize into an agent turn, no hook ever fires again and the queued rows
+# sit until a human prompts the mate by hand (2026-10-11: a rewake fired, then
+# the mate sat idle with queued rows, no watcher, and a 7-minute-old beacon
+# until a manual fm-send). The typed wake uses the same text-plus-Enter
+# submit that manual doorbell used, through the shared safety gates in
+# bin/fm-task-inbox-lib.sh, so it starts an agent turn in an idle composer
+# without touching a busy one, a dialog, or a dead endpoint. Best-effort and
+# never fatal to the tick: the caller still queues its durable parent
+# notification either way, so the parent agent sees the stall even when the
+# ring cannot land. Bounded to one successful delivery per stalled row
+# episode, with a spaced retry while the episode persists and no retry once
+# the endpoint reads dead or missing (recovery owns dead endpoints). Never
+# touches the foreign queue: the mate's own drain owns acknowledgement.
+# Returns 0 always; the attempt outcome lives in the rewake marker and the
+# triage log.
+secondmate_stall_rewake() {  # <task> <meta> <seq> <idle> <row-key> <now>
+  local task=$1 meta=$2 seq=$3 idle=$4 row_key=$5 now=$6
+  local marker window backend label line saved_key saved_outcome saved_at rc
+  marker="$STATE/.secondmate-wake-rewake-$task"
+  if [ -L "$marker" ]; then
+    triage_log "mate-queue rewake refused: $task marker is a symlink, leaving it for inspection"
+    return 0
+  fi
+  if [ -e "$marker" ]; then
+    [ -f "$marker" ] || return 0
+    read -r saved_key saved_outcome saved_at < "$marker" 2>/dev/null || saved_key=
+    if [ "$saved_key" = "$row_key" ]; then
+      case "$saved_outcome" in
+        sent|dead) return 0 ;;
+        skipped|failed)
+          case "$saved_at" in
+            ''|*[!0-9]*) ;;
+            *) [ "$((now - saved_at))" -ge "$SECONDMATE_REWAKE_RETRY_SECS" ] || return 0 ;;
+          esac
+          ;;
+      esac
+    fi
+  fi
+  window=$(fm_backend_target_of_meta "$meta")
+  case "$window" in
+    '')
+      triage_log "mate-queue rewake refused: $task records no endpoint target, typing nowhere rather than the current pane"
+      return 0 ;;
+  esac
+  backend=$(window_backend "$window")
+  label=$(window_label "$window")
+  line="firstmate rewake: your wake queue holds an unhandled row (seq $seq, idle ${idle}s) that reached no agent turn; run bin/fm-wake-drain.sh first, handle each wake, then run its exact WAKE_ACK_REQUIRED --ack-through command."
+  rc=0
+  fm_typed_wake_ring "$backend" "$window" "$label" "$line" || rc=$?
+  case "$rc" in
+    0) saved_outcome=sent ;;
+    1) saved_outcome=skipped ;;
+    3) saved_outcome=dead ;;
+    *) saved_outcome=failed ;;
+  esac
+  printf '%s %s %s\n' "$row_key" "$saved_outcome" "$now" > "$marker" 2>/dev/null || true
+  triage_log "mate-queue rewake: $task row=$seq result=$saved_outcome"
+  return 0
+}
+
 # Surface one durable parent check when the foreign queue's drain position has
 # not moved for the bounded interval. The progress marker records that position
 # as the same epoch-sequence row identity the stall receipts use, so the timer
@@ -871,9 +944,10 @@ secondmate_wake_stall_tick() {
     row=$(secondmate_oldest_queue_row "$queue")
     marker="$STATE/.secondmate-wake-stall-$task"
     progress_marker="$STATE/.secondmate-wake-progress-$task"
+    rewake_marker="$STATE/.secondmate-wake-rewake-$task"
     receipt_dir="$STATE/.secondmate-wake-stall-receipts/$task"
     if [ -z "$row" ]; then
-      rm -f "$marker" "$progress_marker"
+      rm -f "$marker" "$progress_marker" "$rewake_marker"
       if [ -e "$receipt_dir" ] || [ -L "$receipt_dir" ]; then
         [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] || return 1
         rm -rf -- "$receipt_dir" || return 1
@@ -904,6 +978,7 @@ EOF
     if [ -z "$observed_at" ] || [ -z "$observed_key" ] \
       || [ "$now" -lt "$observed_at" ] || [ "$row_key" != "$observed_key" ]; then
       fm_wake_secondmate_progress_marker_write "$task" "$now" "$row_key" || return 1
+      rm -f "$rewake_marker" || return 1
       [ "$episode_alerted" -eq 0 ] || rm -f "$marker" || return 1
       continue
     fi
@@ -911,6 +986,7 @@ EOF
     idle=$((now - observed_at))
     [ "$idle" -ge "$threshold" ] || continue
     ! secondmate_in_active_turn "$task" "$(fm_backend_target_of_meta "$meta")" || continue
+    secondmate_stall_rewake "$task" "$meta" "$seq" "$idle" "$row_key" "$now"
     receipt="$receipt_dir/$row_key"
     if [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ]; then
       fm_wake_secondmate_stall_marker_write "$task" "$row_key" || return 1
