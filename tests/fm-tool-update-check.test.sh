@@ -572,10 +572,12 @@ SH
   write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
   out="$home/out.txt"
   # The bound is wide enough that the earlier probes answer comfortably, so the
-  # only probe that can hit it is the object query the fixture stalls. Asserting
-  # that specific report keeps an unrelated timeout from passing this case for the
-  # wrong reason.
-  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=3
+  # only probe that can hit it is the object query the fixture stalls. It stays
+  # wide under machine load on purpose: a tight bound lets a slow-but-healthy
+  # early probe time out first and report a different unanswered question.
+  # Asserting that specific report keeps an unrelated timeout from passing this
+  # case for the wrong reason.
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=10
   report=$(cat "$out")
   assert_not_contains "$report" "update available" "a probe that never answered was reported as an available update"
   assert_contains "$report" "firstmate check failed: $work did not answer whether it already has" "the stalled object query was not the reported failure"
@@ -618,12 +620,15 @@ SH
 test_git_network_probes_outlast_a_short_local_probe_bound() {
   local home work dir out report
   # Ordinary remote latency straddles the local probe bound: a fork whose
-  # ls-remote answers in 8 seconds is healthy, but the 5-second local bound
-  # would report it as a check failure twice a day. The network probes carry
-  # their own longer bound, so this clone reports its 2 commits behind instead.
-  # The local bound stays at its default throughout: no local probe runs near
-  # its bound, so this case cannot fail from machine load the way a tightened
-  # local bound would.
+  # ls-remote answers in 12 seconds is healthy, but the local bound would
+  # report it as a check failure twice a day. The network probes carry their
+  # own longer bound, so this clone reports its 2 commits behind instead. The
+  # local bound is raised for load room rather than left at its default: under
+  # machine load even the first local probe can stall past 5 seconds, which
+  # would report a different unanswered question and fail this case for the
+  # wrong reason. The stalled answer still lands past the local bound in
+  # effect and inside the network bound, so the split this case proves is
+  # unchanged.
   home=$(make_home git-network-bound)
   work=$(git_fixture git-network-bound-repo)
   git -C "$work" reset -q --hard HEAD~2
@@ -634,7 +639,7 @@ test_git_network_probes_outlast_a_short_local_probe_bound() {
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = ls-remote ]; then
-    sleep 8
+    sleep 12
     break
   fi
 done
@@ -644,7 +649,7 @@ SH
 
   write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir")" "$out"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=8
   report=$(cat "$out")
   assert_contains "$report" "firstmate update available: local main is 2 commits behind origin/main" "a network probe that answered past the local bound was not reported as an update"
   assert_not_contains "$report" "did not answer" "a network probe that answered inside its own bound was reported as unanswered"
@@ -663,7 +668,7 @@ test_git_probe_bound_override_is_respected_and_refused_when_invalid() {
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = ls-remote ]; then
-    sleep 3
+    sleep 5
     break
   fi
 done
@@ -673,9 +678,11 @@ SH
 
   write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
   out="$home/out.txt"
-  # A 1-second network bound kills the same 3-second answer the default bound
-  # accepts, so the override reaches the network probes.
-  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_GIT_PROBE_SECS=1
+  # A 1-second network bound kills the same 5-second answer the default bound
+  # accepts, so the override reaches the network probes. The local bound is
+  # raised for load room: under machine load an early local probe can stall
+  # past the default and report a different unanswered question first.
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_GIT_PROBE_SECS=1 FM_TOOL_UPDATE_PROBE_SECS=8
   report=$(cat "$out")
   assert_contains "$report" "firstmate check failed: origin did not answer where main points" "the network probe did not use its own bound"
 
@@ -720,13 +727,13 @@ test_version_probe_bound_override_is_respected_and_refused_when_invalid() {
   mkdir -p "$dir"
   cat > "$dir/slow-version-fixture" <<'SH'
 #!/usr/bin/env bash
-sleep 3
+sleep 5
 printf 'slowtool 1.2.3\n'
 SH
   chmod 0755 "$dir/slow-version-fixture"
   write_config "$home" '{"tools":[{"name":"slowtool","command":"slow-version-fixture"}]}'
   out="$home/out.txt"
-  # A 1-second version bound kills the same 3-second answer the default bound
+  # A 1-second version bound kills the same 5-second answer the default bound
   # accepts, so the override reaches the version probes.
   run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_VERSION_PROBE_SECS=1
   report=$(cat "$out")
