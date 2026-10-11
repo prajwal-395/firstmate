@@ -35,12 +35,17 @@ def test_p4_entity_copy_draws_literally():
 
 def test_p6_all_mg_arms_lower():
     status, _ = probe_status("P6")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p7_channel_bug_bounded_and_placed():
     status, _ = probe_status("P7")
     assert status == "EXPECTED-FAIL"
+
+
+def test_p8_flip_refuses_by_name():
+    status, _ = probe_status("P8")
+    assert status == "PASS"
 
 
 def test_p9_brand_motion_composites_video():

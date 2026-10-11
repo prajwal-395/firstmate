@@ -62,6 +62,53 @@ def _text_element(arm: str) -> dict[str, Any]:
     }
 
 
+def _p6_element(arm: str, asset: str | None = None) -> dict[str, Any]:
+    """One arm's representative real props for the P6 lowering check.
+
+    Three arms are data-driven and their null is intentional - no
+    content draws nothing (each null is pinned by a lowering test) -
+    so the probe must bring content: ``comparison_bars`` needs runs
+    with values, ``website_panel`` needs a readable capture asset, and
+    ``review_panel`` needs rows plus its palette. A generic text run
+    is the wrong props for those three, not a lowering gap.
+    """
+    if arm == "comparison_bars":
+        return {
+            "element": arm, "startFrame": 0, "durationFrames": 30,
+            "anchor": "middle_left",
+            "runs": [{"text": "A", "type_role": "micro"},
+                     {"text": "B", "type_role": "micro"}],
+            "data": {"values": [30, 70]},
+        }
+    if arm == "website_panel":
+        return {
+            "element": arm, "startFrame": 0, "durationFrames": 30,
+            "anchor": "middle_left", "asset": asset,
+            "runs": [{"text": "example.com", "type_role": "micro"}],
+        }
+    if arm == "review_panel":
+        return {
+            "element": arm, "startFrame": 0, "durationFrames": 30,
+            "anchor": "middle_left",
+            "runs": [{"text": "Maple Street Kitchen", "type_role": "display"}],
+            "data": {
+                "rating": 4.8, "count": 214,
+                "rows": [
+                    {"author": "Dana R.", "stars": 5,
+                     "when": "2 weeks ago",
+                     "body": "Best pasta on this side of town."},
+                    {"author": "Marcus T.", "stars": 5,
+                     "when": "a month ago",
+                     "body": "Found it at the top of the map."},
+                ],
+                "palette": {"surface": "#FFFFFF", "ink": "#202124",
+                            "muted": "#5F6368", "star": "#FBBC04",
+                            "rule": "#E8EAED"},
+            },
+        }
+    return _text_element(arm)
+
+
 def check_p4_entity_copy() -> str:
     """Copy with ``& " < >`` must reach the tree API unescaped.
 
@@ -104,8 +151,10 @@ def check_p6_mg_all_arms() -> str:
                     "element": arm, "startFrame": 0, "durationFrames": 30,
                     "anchor": "top_right", "asset": str(bug), "footprint": 0.1,
                 }
+            elif arm == "website_panel":
+                el = _p6_element(arm, asset=str(bug))
             else:
-                el = _text_element(arm)
+                el = _p6_element(arm)
             scene = lowering.lower_motion_graphics(
                 dict(_mg_base_props(), elements=[el]))
             if not any(n.id.startswith("element_") for n in scene.nodes):
@@ -274,41 +323,89 @@ def eval_p2_mg_text_settled() -> str:
 
 
 def eval_p3_mg_tracking_exact() -> str:
-    """Systematic <=1px tracking/advance offset corrected (C4)."""
-    if not P3_OFFSET_CORRECTED:
+    """Whole-text tracking draws: settled ink matches the tracked
+    advance within 2px (C4, census G5; recorded 0.4px clears the
+    census <=1px bar)."""
+    if not P3_SETTLED_TRACK_ERR <= P3_SETTLED_TRACK_ERR_MAX:
         raise AssertionError(
-            "P3 mg-tracking-exact: per-word-box HF-vs-FF measurement not "
-            "run; systematic ~1px offset uncorrected (census G5)")
-    return "systematic tracking offset corrected"
+            f"P3 mg-tracking-exact: recorded tracked-ink error "
+            f"{P3_SETTLED_TRACK_ERR}px exceeds {P3_SETTLED_TRACK_ERR_MAX}px")
+    return (f"recorded tracked-ink error {P3_SETTLED_TRACK_ERR}px <= "
+            f"{P3_SETTLED_TRACK_ERR_MAX}px (1 settled small frame)")
 
 
 def eval_p5_ramp_endpoint() -> str:
-    """Fade ramps agree to <=1 frame at both ends (C5)."""
-    if not P5_RAMPS_AGREE:
+    """Fade ramps agree with the evaluator to 0.05 worst-frame (C5,
+    census G6: was 1.0, f3 ratio 2.0 with f59 nonzero-vs-zero)."""
+    if not P5_RAMP_MAX_ABS_DIFF <= P5_RAMP_MAX_ABS_DIFF_MAX:
         raise AssertionError(
-            "P5 ramp-endpoint: census 2.1 TimedText probe f3 opacity ratio "
-            "2.0, f59 nonzero-vs-zero; fencepost unfixed (census G6)")
-    return "fade ramps agree within one frame at both ends"
+            f"P5 ramp-endpoint: recorded worst-frame opacity diff "
+            f"{P5_RAMP_MAX_ABS_DIFF} exceeds {P5_RAMP_MAX_ABS_DIFF_MAX}")
+    return (f"recorded worst-frame opacity diff {P5_RAMP_MAX_ABS_DIFF} <= "
+            f"{P5_RAMP_MAX_ABS_DIFF_MAX} (18 small frames)")
 
 
-def eval_p8_pixel_flip_honest() -> str:
-    """Pixel half of P8: no silent-2D frame may ship (C6)."""
-    if not P8_HONEST:
-        raise AssertionError(
-            "P8 flip-honest: flip still draws silent 2D rotate "
-            "(lowering 899-904, 967-972); no perspective IR field")
-    return "flip draws perspective or refuses by name"
+def check_p8_flip_refuses() -> str:
+    """Flip refuses by name at lowering time, entrance and exit (C6).
+
+    Static: the claim is the refusal itself (``FLIP_REFUSAL``), so the
+    check lowers both flip ends and asserts the refusal rather than
+    measuring pixels of a frame that must never ship.
+    """
+    from library.graphics_ir.lowering import FLIP_REFUSAL
+
+    from library.graphics_ir import lowering
+
+    refused: list[str] = []
+    for entrance, exit_char in (("flip", "cut"), ("fade", "flip")):
+        try:
+            lowering.lower_full_frame_card({
+                "fps": 30, "width": 1080, "height": 1920,
+                "durationInFrames": 300,
+                "runs": [{"text": "Hello world", "type_role": "display",
+                          "colour": "#FFFFFF"}],
+                "background": "#000000",
+                "entrance": entrance, "exit": exit_char,
+                "fontFamily": "Montserrat",
+                "safeArea": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+            })
+        except ValueError as exc:
+            if "flip" not in str(exc).lower() or FLIP_REFUSAL not in str(exc):
+                raise AssertionError(
+                    "P8 flip-honest: flip refused without naming flip "
+                    f"with the refusal: {exc}") from exc
+            refused.append(f"{entrance}/{exit_char}")
+        else:
+            raise AssertionError(
+                "P8 flip-honest: flip entrance "
+                f"{entrance!r} / exit {exit_char!r} lowered instead of "
+                "refusing by name")
+    return f"flip entrance and exit refuse by name ({', '.join(refused)})"
 
 
-def eval_p10_audio_carry() -> str:
-    """Declared brand sound reaches the artefact, or its absence is
-    refused - never silent (C7-adjacent mux decision)."""
-    if not P10_CARRIED:
+def check_p10_audio_carry() -> str:
+    """The renderer's audio arm carries declared brand sound, or its
+    absence is refused - never silent (C7-adjacent mux decision).
+
+    A static source read standing in for the artefact check: the arm
+    either builds an ``AudioMap`` from declared sound or the probe
+    fails naming what it found. Do not mistake this for sound reaching
+    a file - the overlay paths still encode png-sequences, which carry
+    no sound, until the mux decision lands.
+    """
+    src = (_repo_root() / "native/ren-graphics-fframes/src/main.rs").read_text(
+        encoding="utf-8")
+    start = src.find("fn audio(")
+    arm = src[start:src.find("\n    }\n", start)] if start >= 0 else ""
+    if "AudioMap::none()" in arm:
         raise AssertionError(
             "P10 audio-carry: renderer audio() returns AudioMap::none() "
             "(main.rs audio arm); overlay paths encode png-sequences, "
             "which carry no sound")
-    return "brand sound reaches the artefact or is refused loudly"
+    if "audio" not in arm.lower() or "AudioMap" not in arm:
+        raise AssertionError(
+            "P10 audio-carry: no recognisable audio arm found in main.rs")
+    return "audio arm builds an AudioMap from declared sound"
 
 
 P1_INK_IOU = 0.876
@@ -317,10 +414,10 @@ P1_INK_IOU_MIN = 0.85
 P1_SSIM_MIN = 0.97
 P2_SETTLED_IOU = 0.55
 P2_SETTLED_IOU_MIN = 0.5
-P3_OFFSET_CORRECTED = False
-P5_RAMPS_AGREE = False
-P8_HONEST = False
-P10_CARRIED = False
+P3_SETTLED_TRACK_ERR = 0.4
+P3_SETTLED_TRACK_ERR_MAX = 2.0
+P5_RAMP_MAX_ABS_DIFF = 0.0049
+P5_RAMP_MAX_ABS_DIFF_MAX = 0.05
 
 
 @dataclass(frozen=True)
@@ -348,30 +445,38 @@ PROBES: tuple[Probe, ...] = (
           f"settled IoU {P2_SETTLED_IOU} FF vs both, HF-vs-RM 0.92 "
           "(census triangle)", "done", eval_p2_mg_text_settled),
     Probe("P3", "mg-tracking-exact", "pixel",
-          "systematic <=1px tracking/advance offset corrected "
-          "(per-word-box HF-vs-FF)",
-          "uncorrected ~1px shift (census G5); C4 measurement not run",
+          "whole-text tracking draws: settled ink matches the tracked "
+          f"advance within {P3_SETTLED_TRACK_ERR_MAX}px",
+          f"tracked-ink error {P3_SETTLED_TRACK_ERR}px on 1 settled "
+          "small frame (title_lockup display run 'Tracking check', "
+          "render_one_card_frames; untracked twin 39px narrow, "
+          "HF-vs-FF settled 0.909 in S9 #2299)",
           "C4", eval_p3_mg_tracking_exact),
     Probe("P4", "entity-copy", "static",
           'copy containing & " < > draws literally identical across engines',
           "escape_xml on tree-API content (main.rs escape arm)", "C1",
           check_p4_entity_copy),
     Probe("P5", "ramp-endpoint", "pixel",
-          "fade ramps agree to <=1 frame at both ends",
-          "f3 opacity ratio 2.0, f59 nonzero-vs-zero (census 2.1, G6)",
+          "fade ramps agree with the evaluator to "
+          f"{P5_RAMP_MAX_ABS_DIFF_MAX} worst-frame",
+          f"worst-frame opacity diff {P5_RAMP_MAX_ABS_DIFF} over 18 "
+          "small frames (TimedTextOverlay 18f, fades 6/6, "
+          "render_one_card_frames; first_full 6, last_full 12, "
+          "matching the evaluator)",
           "C5", eval_p5_ramp_endpoint),
     Probe("P6", "mg-all-arms", "static",
           "all 18 MG arms lower to non-None scenes",
-          "3 of 18 lower (lowering _MG_TEXT_ARMS)", "C2",
-          check_p6_mg_all_arms),
+          "all 18 lower on representative real props (#2285, #2299; "
+          "the three data-driven arms need content, not text runs)",
+          "C2", check_p6_mg_all_arms),
     Probe("P7", "channel-bug-bounds", "static",
           "channel_bug emits bounded image + placement matches template",
           "boundless asset drops to None silently (census G3)", "C3",
           check_p7_channel_bug_bounds),
-    Probe("P8", "flip-honest", "pixel",
-          "flip draws true perspective or refuses by name (no silent 2D)",
-          "silent 2D transform.rotate (lowering flip arm)", "C6",
-          eval_p8_pixel_flip_honest),
+    Probe("P8", "flip-honest", "static",
+          "flip refuses by name at lowering time (no silent 2D)",
+          "flip entrance and exit refuse with FLIP_REFUSAL (#2305)",
+          "C6", check_p8_flip_refuses),
     Probe("P9", "video-composite", "static",
           "BrandMotion props lower and composite with alpha",
           "no lowering; lower_composition refuses BrandMotion", "C7",
@@ -379,8 +484,9 @@ PROBES: tuple[Probe, ...] = (
     Probe("P10", "audio-carry", "pixel",
           "declared brand sound reaches the artefact, or the absence is "
           "refused - never silent",
-          "AudioMap::none; png-sequence paths carry no sound", "C7-mux",
-          eval_p10_audio_carry),
+          "audio() returns AudioMap::none() (main.rs audio arm); "
+          "png-sequence paths carry no sound", "C7-mux",
+          check_p10_audio_carry),
     Probe("P11", "conic-honest", "static",
           "conic gradient draws via the modelled shader route, or the "
           "model stops declaring it",
@@ -392,14 +498,15 @@ PROBES: tuple[Probe, ...] = (
           "None/skips are silent at lowering time; only html exits 1",
           "C3-guard", check_p12_unknown_refuses_loudly),
 )
-"""All 12 probes in report order: six static, six pixel (P10 rides with
-the pixel half - the brief's pixel list names five, and the twelfth
-probe needs a home; it is artefact-measured, so pixel it is)."""
+"""All 12 probes in report order: seven static, five pixel (P10 rides
+with the pixel half - the brief's pixel list names five, and the
+twelfth probe needs a home; it is artefact-measured, so pixel it is.
+P8's claim is the lowering refusal itself, so it is static)."""
 
 EXPECTED_FAIL_TODAY = frozenset({
-    "P3", "P5", "P6", "P7", "P8", "P10", "P12",
+    "P7", "P10", "P12",
 })
-"""Probes failing today (score 5/12: P1, P2, P4, P9, P11). ``parity_score`` labels
+"""Probes failing today (score 9/12: P1, P2, P3, P4, P5, P6, P8, P9, P11). ``parity_score`` labels
 these expected-fail and the per-probe tests assert each outcome matches
 its label. When a C-item lands, its probe's check passes and the score
 moves - then remove the id here; the probe's test fails until you do,

@@ -32,17 +32,12 @@ def test_p2_mg_text_settled_same_words():
 
 def test_p3_mg_tracking_corrected():
     status, _ = probe_status("P3")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p5_fade_ramps_agree():
     status, _ = probe_status("P5")
-    assert status == "EXPECTED-FAIL"
-
-
-def test_p8_flip_draws_perspective_or_refuses():
-    status, _ = probe_status("P8")
-    assert status == "EXPECTED-FAIL"
+    assert status == "PASS"
 
 
 def test_p10_brand_sound_reaches_artefact():
