@@ -111,6 +111,100 @@ assertion now reads the manifest instead of a hardcoded SHA. The
 `qualification-receipts.json` fixture keeps the 09:41 UTC full-run record
 at the old pin as history; it refreshes on the next full (`--resolve`) run.
 
+## Intake record: 2026-10-11 FilmCraft `98ba9ac` -> `0800a8b`
+
+Upstream `main` advanced 284 commits (`98ba9acbcedcbb630ba2a07b782176b66835edd2`
+to `0800a8b0aa4a703ba42172f415b45a61f8d8a5e1`, `v0.6.0-4-g0800a8b`),
+carrying the headless `gpuRendering:auto` panic fix (`d215d0e`), schema
+v15 (no-op `notes` migration), the morph_cut optical-flow change (#805)
+and the Lumetri vignette-roundness change (#719). EffectCraft `main` was
+not intaken (FilmCraft first, alone).
+
+Gate (all at the candidate, captain's Mac):
+
+- `cargo build --release -p filmcraft-cli -j4`: clean (3m15s);
+  `--version` prints `filmcraft-cli 0.6.0`.
+- `cargo test --release -p filmcraft-interchange -p filmcraft-golden -j4`:
+  70 + 33 passed, 0 failed.
+- Patch replay: `library/tools/upstream_patches/filmcraft/` holds no
+  `*.patch`; nothing to replay.
+- Committed render corpus (`corpus_version 2026-10-10.1`): passed at the
+  candidate with fidelity identical to the old pin (solids center diff 0
+  on all five, stereo level -0.001 dB; pin-vs-candidate outputs
+  pixel-identical, PSNR inf). `filmcraft-edit-50`: 0.772 s wall,
+  102.8 MB peak RSS (budgets 600 s / 8192 MB; no ratio findings).
+- Adapter suites against the candidate CLI (`cargo test -p ren-filmcraft`):
+  67 unit + 24 `adapter_qualification` + 3 `mono_to_dual` + 6 `pinned_cli`,
+  all passed - after one Ren-side absorption: `sequence.inspect` gained a
+  top-level `gapSelection` key, and the response contract now allows it
+  (same class as the earlier `transitionSelection` tolerance).
+- `ren qualification pm-e2e --no-resolve`: passed (all five failure
+  injections refuse by name).
+
+Behaviour deltas the adapter absorbs:
+
+- Project schema 14 -> 15 (`v14_to_v15` is a no-op notes migration).
+  `FILMCRAFT_PROJECT_SCHEMA` moved to 15.
+- `sequence.inspect` gained `gapSelection` (allowed, not required).
+- Transition authority unchanged: the candidate's
+  `exec effects.list '{"kind":"VideoTransition"}'` output is byte-identical
+  to the pin's (112 ids, same entry set) - no file change.
+- `clip.speedDuration` still single-speed (REQUESTS.md ask #1 stays open).
+- `describe file.exportMedia` still omits `gpuRendering`, and the response
+  carries `job/path/result` with no `gpu_render_stats` (asks #1 and #3
+  stay open; ask #2 closed - see GPU below).
+
+Intended pixel changes, measured pin-vs-candidate (not corpus cases -
+the committed corpus is pixel-identical):
+
+- morph_cut transition (textured 12-frame blend): frames inside the blend
+  differ strongly (PSNR ~24.5-26 dB, SSIM ~0.977-0.987, max delta 254);
+  frames outside it identical. Optical-flow morph confirmed.
+- Lumetri vignette with nonzero roundness (amount -3.0, roundness +100):
+  max delta 148, PSNR 16.5 dB, SSIM 0.893. Roundness honored vs ignored.
+- Ren plans reach neither by default: `morph_cut` renders only when a
+  model edit explicitly names it (nothing in the pipeline emits it; the
+  omitted effect is the engine default), and Ren never sends vignette
+  params (only `lumetri.setInputLut`).
+- MXF span re-probe (LCATL0013.MXF, 24-frame 0-1 s export): import
+  12.7 s vs 12.6 s, export 18.8 s vs 19.7 s - no ingest change, so
+  pre-conform stays (ask #2 stays open). Pixels moved slightly
+  (max delta 27, PSNR 50.4 dB, SSIM Y 0.997; frame 0 identical, frames
+  1-23 drift), consistent with the open-GOP leading-picture fix.
+
+GPU re-probe (captain 2026-10-11: acceptable when visually
+indistinguishable; bar SSIM >= 0.995 and worst-frame PSNR >= 45 dB):
+
+- `gpuRendering:auto` through `exec file.exportMedia` no longer panics
+  (rc=0); the `export` subcommand behaves the same. The shipped CLI
+  compiles wgpu with no backend (metal/vulkan/dx12/gles are
+  dev-dependencies only), so `auto` falls back to the CPU reference path
+  on every platform with this build.
+- GPU-vs-CPU on the same 96 effects-heavy frames (1080p, lumetri +
+  morph_cut): SSIM Y 1.000000, avg PSNR inf, worst-frame PSNR inf, max
+  per-pixel delta 0 - the bar is exceeded trivially because no GPU path
+  runs. Timing equal (`off` 3.90/3.76 s vs `auto` 3.78/3.88 s per 96
+  frames; outputs byte-identical across reps).
+- Ren lifted the `auto` refusal but keeps the `off` default everywhere
+  (fidelity rule - PR #421 parity-tolerance statement still governs real
+  GPUs); switching on stays the captain's call. Side-by-side stills
+  (CPU left, GPU-auto right): `sbs-frame12/50/70.png` beside this record's
+  probe log (intake scratch, retained on the captain's Mac).
+- `gpuRendering` default kept `off` in the adapter, the qualification
+  export, and the corpus.
+
+Pin moved in every place it lives: `FILMCRAFT_REVISION`,
+`FILMCRAFT_CLI_VERSION` ("0.6.0") and `FILMCRAFT_PROJECT_SCHEMA` (15) in
+`native/ren-filmcraft/src/lib.rs` (sole source),
+`library/tools/upstream_engines.json`
+(`qualified_sha`/`last_seen_upstream_sha`), `FILMCRAFT_REVISION` /
+`FILMCRAFT_VERSION` in `library/tools/project_model_qualification.py` and
+`library/tools/project_model_cli.py`, the FilmCraft pin in
+`THIRD_PARTY_NOTICES` (closure re-measured at the candidate: 267 unique
+packages, symphonia x16 MPL-2.0, no GPL/AGPL/LGPL-only, no UI crates),
+plus the `gapSelection` tolerance and the `auto`-refusal lift with their
+unit tests.
+
 ## Qualification gate
 
 For each engine with a candidate newer than its qualified pin, intake builds

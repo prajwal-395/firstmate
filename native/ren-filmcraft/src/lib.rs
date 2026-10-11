@@ -18,10 +18,10 @@ use thiserror::Error;
 pub const FILMCRAFT_REPOSITORY: &str = "https://github.com/storytold/filmcraft.git";
 /// Mirrored by library/tools/upstream_engines.json; the upstream intake refuses
 /// promotion when the manifest drifts from this constant. Keep this as the sole pin source.
-pub const FILMCRAFT_REVISION: &str = "98ba9acbcedcbb630ba2a07b782176b66835edd2";
-pub const FILMCRAFT_CLI_VERSION: &str = "0.5.0";
+pub const FILMCRAFT_REVISION: &str = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1";
+pub const FILMCRAFT_CLI_VERSION: &str = "0.6.0";
 pub const FILMCRAFT_PROJECT_FORMAT: &str = "filmcraft.project";
-pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 14;
+pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 15;
 pub const ADAPTER_SCHEMA: u32 = 1;
 
 /// Checked-in transition authority: verbatim `filmcraft-cli exec effects.list
@@ -1305,19 +1305,19 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
             bitrate_kbps,
             bitrate_mode,
         } => {
-            // Measured 2026-10-11 on the pinned revision: `gpuRendering:auto`
-            // through `file.exportMedia` (this path) panics the headless CLI
+            // Measured 2026-10-11 at the pinned revision: `gpuRendering:auto`
+            // through `file.exportMedia` (this path) panicked the headless CLI
             // (`wgpu: No wgpu backend feature ... was enabled`), while the
-            // `export` subcommand's `--gpu-rendering auto` falls back
-            // silently. Refuse before any engine call rather than forward a
-            // process-killing panic; `off` preserves the previous default,
-            // now sent explicitly so the receipt shows the render path.
-            if gpu_rendering == GpuRendering::Auto {
-                return Err(Error::Schema(
-                    "FilmCraft `gpuRendering:auto` panics the pinned headless CLI via `file.exportMedia` (wgpu has no backend feature in this build); the `export` subcommand falls back silently instead - request `off` until the exec path matches the subcommand"
-                        .into(),
-                ));
-            }
+            // `export` subcommand's `--gpu-rendering auto` fell back
+            // silently. Re-probed 2026-10-11 at 0800a8b: the exec path now
+            // falls back to the CPU reference path too (96/96 decoded frames
+            // byte-identical to `off`, SSIM 1.0, equal wall time) - the
+            // build compiles wgpu with no backend, so there is no GPU path
+            // to take. `auto` is therefore executable again, but `off`
+            // stays the default: the GPU matches the CPU only within parity
+            // tolerance elsewhere (upstream PR #421), so fidelity outranks
+            // speed and the switch stays the captain's call. The render path
+            // is still sent explicitly so the receipt shows which one ran.
             if !matches!(format, ExportFormat::H264)
                 && (bitrate_kbps.is_some() || bitrate_mode.is_some())
             {
@@ -1575,6 +1575,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
             "out",
             "split",
             "transitionSelection",
+            "gapSelection",
             "markers",
             "video",
             "audio",
@@ -1919,7 +1920,7 @@ mod tests {
         assert!(matches!(check_project_schema(&path), Err(Error::Schema(_))));
         std::fs::write(
             &path,
-            r#"{"format":"filmcraft.project","schema_version":14,"project":{}}"#,
+            r#"{"format":"filmcraft.project","schema_version":15,"project":{}}"#,
         )
         .unwrap();
         assert!(check_project_schema(&path).is_ok());
@@ -2103,12 +2104,12 @@ mod tests {
     }
 
     #[test]
-    fn export_refuses_gpu_auto_before_the_engine() {
-        // Measured 2026-10-11: `gpuRendering:auto` via `file.exportMedia`
-        // panics the pinned headless CLI (wgpu, no backend feature), while
-        // the `export` subcommand falls back silently. Refuse here, before
-        // any engine call, rather than forward the panic.
-        let err = plan(Operation::Export {
+    fn export_sends_gpu_auto_through_after_the_fallback_fix() {
+        // Re-probed 2026-10-11 at 0800a8b: `gpuRendering:auto` via
+        // `file.exportMedia` falls back to the CPU path (byte-identical to
+        // `off`), so it plans instead of refusing. `off` stays the default
+        // (fidelity rule); this only proves the switch exists and is safe.
+        let (_, _, command, params, _) = plan(Operation::Export {
             project: "x.fcproj".into(),
             path: "out.mp4".into(),
             format: ExportFormat::H264,
@@ -2117,8 +2118,9 @@ mod tests {
             bitrate_kbps: None,
             bitrate_mode: None,
         })
-        .unwrap_err();
-        assert!(matches!(err, Error::Schema(_)), "got {err:?}");
+        .unwrap();
+        assert_eq!(command, "file.exportMedia");
+        assert_eq!(params["gpuRendering"], json!("auto"));
     }
 
     #[test]

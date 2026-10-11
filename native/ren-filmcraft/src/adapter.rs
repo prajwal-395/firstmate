@@ -2718,10 +2718,10 @@ pub fn plan_edit(edit: &EditOperation, context: &EditContext<'_>) -> Result<Oper
             };
             // The compositor path rides alongside the encoder choice and is
             // recorded with it on the receipt. `auto` plans into an
-            // `Operation::Export` but the driver refuses it at execution on
-            // the pinned headless build (wgpu panic via `file.exportMedia`,
-            // measured 2026-10-11) - `off` is the only executable value
-            // until the exec path matches the `export` subcommand.
+            // `Operation::Export` and executes since 0800a8b (the exec path
+            // falls back to the CPU reference path there, byte-identical to
+            // `off`; measured 2026-10-11) - `off` stays the default by the
+            // fidelity rule, and switching it on stays the captain's call.
             let gpu_rendering = match after
                 .get("gpu")
                 .and_then(|v| v.as_str())

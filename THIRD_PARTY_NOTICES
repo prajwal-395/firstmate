@@ -567,9 +567,9 @@ hash-verified: no (pinned npm release; npm transport)
 
 component-id : engine.filmcraft_cli
 edition      : public
-component   : FilmCraft headless CLI 0.5.0; Ren's adapter does not
+component   : FilmCraft headless CLI 0.6.0; Ren's adapter does not
               package or invoke the desktop application.
-pin         : 98ba9acbcedcbb630ba2a07b782176b66835edd2
+pin         : 0800a8b0aa4a703ba42172f415b45a61f8d8a5e1
               (native/ren-filmcraft/src/lib.rs)
 source      : https://github.com/storytold/filmcraft
 license     : MIT OR Apache-2.0
@@ -578,9 +578,9 @@ fetched     : downloaded-at-first-use (pinned cargo install into the
 commercial  : ok
 hash-verified: yes (cargo install pins the immutable revision)
 note        : Cargo.lock at the pinned source revision identifies its
-              transitive Rust dependencies. Measured 2026-10-10 over
+              transitive Rust dependencies. Measured 2026-10-11 over
               `cargo tree -p filmcraft-cli` at the pinned revision
-              (270 crates): all upstream workspace crates MIT OR
+              (267 unique packages): all upstream workspace crates MIT OR
               Apache-2.0 (including the new filmcraft-tts/narration
               crates; the whisper/download features stay off, so no
               model is downloaded or bundled); registry crates

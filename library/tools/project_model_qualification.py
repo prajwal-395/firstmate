@@ -64,8 +64,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/project_model_e2e"
 FIXTURE_MEDIA = FIXTURE_ROOT / "media"
 
-FILMCRAFT_REVISION = "98ba9acbcedcbb630ba2a07b782176b66835edd2"
-FILMCRAFT_VERSION = "0.5.0"
+FILMCRAFT_REVISION = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1"
+FILMCRAFT_VERSION = "0.6.0"
 EFFECTCRAFT_REVISION = "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
 EFFECTCRAFT_VERSION = "0.7.0"
 
@@ -324,12 +324,12 @@ def _fc_export(cli: Path, project: Path, out_path: Path, *,
     params: dict[str, Any] = {"path": str(out_path), "format": "h264",
                               "hardwareEncoding": "auto",
                               # Sent explicitly (never defaulted unseen): the
-                              # pinned engine validates `gpuRendering` as
-                              # off|auto, and `auto` panics the headless CLI
-                              # via this exec path (wgpu, no backend) while
-                              # the `export` subcommand falls back silently -
-                              # so `off` is the only executable value here
-                              # until the exec path matches the subcommand.
+                              # engine validates `gpuRendering` as off|auto.
+                              # `auto` panicked the headless CLI via this exec
+                              # path before 0800a8b; at the pin it falls back
+                              # to the CPU path byte-identical to `off`
+                              # (measured 2026-10-11), but `off` stays the
+                              # qualification default by the fidelity rule.
                               "gpuRendering": "off", "wait": True}
     if start_seconds is not None or end_seconds is not None:
         params["range"] = "custom"

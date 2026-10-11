@@ -49,6 +49,10 @@ equivalence proofs (`ren_retime_ramp_expands_to_razors_plus_constant_retimes`,
 
 - Pin-move lane: re-probe at the new HEAD whether any multi-speed parameter
   appeared; update or close this entry with the outcome.
+- Re-probed 2026-10-11 at `0800a8b` (CLI 0.6.0): `clip.speedDuration`
+  params unchanged (single `speed` percent, `reverse`, `ripple`,
+  `interpolation` frameSampling|frameBlending|opticalFlow) - still no
+  per-piece parameter. Entry stays open; Ren keeps `expand_retime_ramp`.
 - No code in Ren depends on this file; it is a tracking note only.
 
 ## 2. MXF ingest cost: fixed open/scan plus slow per-frame decode (open)
@@ -95,9 +99,16 @@ LC4932.MXF (59,972,918,320 B), `file.exportMedia` h264/auto over 0-5 s.
 
 - Pin-move lane: re-probe the fixed cost and per-frame rate at the new
   HEAD; update or close this entry with the outcome.
+- Re-probed 2026-10-11 at `0800a8b` on LCATL0013.MXF (50 GB, 4K):
+  `file.import` 12.7 s vs 12.6 s at the pin; 24-frame 0-1 s h264 export
+  18.8 s vs 19.7 s at the pin (noise) - no ingest win, as expected (no
+  MXF-decode commit in the window). Export pixels moved slightly
+  (max per-pixel delta 27, PSNR 50.4 dB, SSIM Y 0.997; frame 0 identical,
+  frames 1-23 drift - consistent with the open-GOP leading-picture fix).
+  Entry stays open; Ren keeps pre-conforming.
 - No code in Ren depends on this file; it is a tracking note only.
 
-## 3. GPU export rendering is inert headless, and `auto` diverges by path (open)
+## 3. GPU export rendering is inert headless, and `auto` diverges by path (partially closed 2026-10-11)
 
 Raised by the native speed profile (report sections 5-6, 2026-10-10) and
 extended by the pre-conform lane (2026-10-11). Measured at the pinned
@@ -138,4 +149,16 @@ revision `98ba9acbcedc` (CLI 0.5.0).
 - Pin-move lane: re-probe `gpuRendering:auto` on both paths at the new
   HEAD (fallback? parity? still panics?); update or close this entry
   with the outcome.
+- Re-probed 2026-10-11 at `0800a8b`: ask 2 is CLOSED - `exec
+  file.exportMedia` with `gpuRendering:auto` no longer panics (rc=0,
+  upstream `d215d0e`); it falls back to the CPU path, 96/96 decoded
+  frames byte-identical to `off` (SSIM Y 1.0, equal wall time), as does
+  the `export` subcommand. The shipped CLI compiles wgpu with no
+  backend (metal/vulkan/dx12/gles are dev-dependencies only), so there
+  is no GPU path to take on any platform with this build. Ren lifted
+  the `auto` refusal but keeps the `off` default (fidelity rule); the
+  switch is the captain's call. Asks 1 and 3 stay OPEN: the
+  `file.exportMedia` response carries `job/path/result`
+  (bytes/frames/render_fps, no `gpu_render_stats`), and `describe`
+  still omits `gpuRendering`.
 - No code in Ren depends on this file; it is a tracking note only.

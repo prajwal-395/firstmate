@@ -3,8 +3,8 @@
   "engines": {
     "filmcraft": {
       "upstream_url": "https://github.com/storytold/filmcraft.git",
-      "qualified_sha": "98ba9acbcedcbb630ba2a07b782176b66835edd2",
-      "last_seen_upstream_sha": "98ba9acbcedcbb630ba2a07b782176b66835edd2",
+      "qualified_sha": "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1",
+      "last_seen_upstream_sha": "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1",
       "last_qualification_record": "docs/UPSTREAM_ENGINE_INTAKE.md"
     },
     "effectcraft": {
