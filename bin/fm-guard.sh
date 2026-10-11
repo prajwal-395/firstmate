@@ -58,6 +58,13 @@ queue_pending=false
 queue_branch_held=false
 READ_ONLY=${FM_GUARD_READ_ONLY:-0}
 case "$READ_ONLY" in 1|true|TRUE|yes|YES) READ_ONLY=1 ;; *) READ_ONLY=0 ;; esac
+# A drain calls this guard mid-handling to assert supervision health: the
+# queued rows are the drain's own business there, so it sets
+# FM_GUARD_NO_QUEUE_NOTICE=1 to keep this call to the supervision verdict and
+# the tangle alarm. Every other caller leaves it unset and keeps the queued
+# wake notices.
+NO_QUEUE_NOTICE=${FM_GUARD_NO_QUEUE_NOTICE:-0}
+case "$NO_QUEUE_NOTICE" in 1|true|TRUE|yes|YES) NO_QUEUE_NOTICE=1 ;; *) NO_QUEUE_NOTICE=0 ;; esac
 CONTINUE_LINE=${FM_GUARD_CONTINUE_LINE:-This is a supervision warning only; the guarded operation WILL still run.}
 
 # Volatile, home-scoped episode marker: one line = the current stale-episode key.
@@ -249,6 +256,8 @@ elif [ "$watcher_healthy" = false ]; then
         printf '●  %s process-event source(s) registered, but %s.\n' "$sources" "$watcher_cause"
       elif [ "$checks" -gt 0 ]; then
         printf '●  %s registered custom check(s), but %s.\n' "$checks" "$watcher_cause"
+      elif "$queue_pending"; then
+        printf '●  queued wakes are pending, but %s.\n' "$watcher_cause"
       else
         printf '●  X-mode relay polling needs supervision, but %s.\n' "$watcher_cause"
       fi
@@ -281,12 +290,16 @@ fi
 # loop. The branch can act on nothing outside its grant anyway, so for that
 # actor the guard stays silent about queued rows.
 if "$queue_pending"; then
-  if [ "$READ_ONLY" -eq 1 ]; then
-    echo "WARNING: queued wakes pending - left untouched because this session lacks verified fleet-lock ownership." >&2
-  elif [ "$GUARD_ACTOR" != branch ]; then
-    echo "WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else." >&2
+  if [ "$NO_QUEUE_NOTICE" -eq 0 ]; then
+    if [ "$READ_ONLY" -eq 1 ]; then
+      echo "WARNING: queued wakes pending - left untouched because this session lacks verified fleet-lock ownership." >&2
+    elif [ "$GUARD_ACTOR" != branch ]; then
+      echo "WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else." >&2
+    fi
   fi
 elif "$queue_branch_held"; then
-  echo "NOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here." >&2
+  if [ "$NO_QUEUE_NOTICE" -eq 0 ]; then
+    echo "NOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here." >&2
+  fi
 fi
 exit 0

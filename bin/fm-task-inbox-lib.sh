@@ -4,7 +4,9 @@
 #
 # ONE owner of the steering-inbox contract: the record format, sequence
 # allocation, the idempotent re-enqueue dedup, the handled/ acknowledgement,
-# the self-describing doorbell line, and the watcher's re-ring ladder policy.
+# the self-describing doorbell line, the watcher's re-ring ladder policy, and
+# the shared typed-wake ring (fm_typed_wake_ring) that types one wake line
+# under the doorbell's safety gates for callers with no inbox record.
 # bin/fm-send.sh writes and rings locally, the host-local remote steer leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) writes idempotently and rings
 # on the remote host, bin/fm-watch.sh polls and re-rings, and the brief
@@ -354,25 +356,46 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # rather than skipped; skipping it would block every later ring. On both paths
 # a lost first Enter gets one confirmed retry.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
-  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
-  case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
-    dead|missing) return 3 ;;
-  esac
+  local backend=$1 target=$2 rec=$3 label=${4:-} line
   if ! line=$(fm_task_inbox_doorbell_line "$rec"); then
     return 2
   fi
+  fm_typed_wake_ring "$backend" "$target" "$label" "$line"
+}
+
+# Type one self-describing wake line plus Enter into a live endpoint, under
+# the same safety gates as the inbox doorbell above: a positively dead or
+# missing endpoint is never typed into (3), a composer provenly holding
+# pending text or a modal dialog is left alone (1), and any other send
+# failure reports 2. The verdict beyond send-failed is advisory only, exactly
+# as in fm_task_inbox_ring: no return value is delivery proof. The caller
+# owns durability and retry policy; this function only refuses unsafe typing.
+# Non-printable lines are refused (2) rather than sending terminal control
+# bytes to a pane. The secondmate wake-stall rewake (bin/fm-watch.sh) is the
+# other caller: an idle mate whose Stop-hook rewake never materialized into
+# an agent turn still picks up a typed wake, the same mechanism a manual
+# fm-send doorbell uses.
+fm_typed_wake_ring() {  # <backend> <target> <expected-label> <line>
+  local backend=$1 target=$2 label=$3 line=$4 cstate verdict
+  case "$line" in
+    ''|*[![:print:]]*) return 2 ;;
+  esac
+  case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
+    dead|missing) return 3 ;;
+  esac
   cstate=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || cstate=unknown
   case "$cstate" in
-    # A modal dialog is not a composer: typing the doorbell line into one
+    # A modal dialog is not a composer: typing the wake line into one
     # could answer a safety interlock, so it refuses exactly like pending
     # input rather than ringing through it.
     pending|dialog) return 1 ;;
   esac
   # Accepted residual race: terminal input and Enter are separate delivery
   # steps, so an agent exiting after the liveness check could leave a bare
-  # shell only a suffix; the `: ` prefix protects complete lines only. Do not
-  # add process-bound atomic delivery here unless an incident reopens this.
-  if ! verdict=$(fm_backend_send_text_submit "$backend" "$target" "$line" 2 0.4 0.3 "$label" 2>/dev/null); then
+  # shell only a suffix; wake lines carry no shell syntax, so a partial line
+  # in a bare shell runs nothing. Do not add process-bound atomic delivery
+  # here unless an incident reopens this.
+  if ! verdict=$(fm_backend_send_text_submit "$backend" "$target" "$line" 1 0.4 0.3 "$label" 2>/dev/null); then
     return 2
   fi
   # The verdict is read only to report a failed keystroke; every other value

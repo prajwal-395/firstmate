@@ -2027,8 +2027,46 @@ resolve_project_dir_arg() {
   esac
 }
 
+# registered_project_name <proj-arg>: the project's REGISTERED name, the name
+# under projects/ the caller passed, never the resolved symlink target's
+# folder name. A symlinked project directory (projects/starling-site pointing
+# at a folder named "site") must still route by its registered name, so
+# dispatch and delivery-mode lookups match the registry. The
+# physically-resolved path is still used for everything else spawn needs.
+registered_project_name() {
+  local proj_arg=$1 rest logical rel resolved
+  case "$proj_arg" in
+    projects/*)
+      rest=${proj_arg#projects/}
+      printf '%s\n' "${rest%%/*}"
+      return 0
+      ;;
+  esac
+  case "$proj_arg" in
+    /*) : ;;
+    *) proj_arg=$(resolve_project_dir_arg "$proj_arg") ;;
+  esac
+  # An absolute path under this home's projects dir carries the registered
+  # name as its first component below projects/, spelled through the symlink
+  # or not, so read it off the logical path before anything resolves it.
+  if [ -n "${PROJECTS:-}" ] \
+    && logical=$(cd "$proj_arg" 2>/dev/null && pwd); then
+    case "$logical" in
+      "$PROJECTS"/*)
+        rel=${logical#"$PROJECTS"/}
+        printf '%s\n' "${rel%%/*}"
+        return 0
+        ;;
+    esac
+  fi
+  # Outside projects/: fall back to the physical basename, the behavior for
+  # non-registered paths before this fix.
+  resolved=$(cd "$proj_arg" 2>/dev/null && pwd -P) || return 1
+  basename "$resolved"
+}
+
 dispatch_apply_profile() {
-  local dispatch_rules="$CONFIG/crew-dispatch.json" brief_file project_dir project_name note_file route_json route_status
+  local dispatch_rules="$CONFIG/crew-dispatch.json" brief_file project_name note_file route_json route_status
   local requested_harness requested_raw mismatch=0 expected_profile
   if [ "$KIND" = secondmate ] || [ "$RELAUNCH" -eq 1 ]; then
     if [ "$DISPATCH_OVERRIDE_SET" -eq 1 ]; then
@@ -2048,11 +2086,10 @@ dispatch_apply_profile() {
   command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/crew-dispatch.json" >&2; return 1; }
   brief_file="$DATA/$ID/brief.md"
   [ -r "$brief_file" ] || { echo "error: dispatch resolution needs the written task brief at $brief_file" >&2; return 1; }
-  project_dir=$(cd "$(resolve_project_dir_arg "$PROJ")" 2>/dev/null && pwd -P) || {
+  project_name=$(registered_project_name "$PROJ") || {
     echo "error: project directory cannot be resolved for dispatch: $PROJ" >&2
     return 1
   }
-  project_name=$(basename "$project_dir")
   note_file=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-resolve.XXXXXX") || {
     echo "error: could not prepare dispatch resolver diagnostics" >&2
     return 1
@@ -2784,19 +2821,20 @@ case "$HARNESS" in
     ;;
 esac
 
-# The second-workspace pin (bin/fm-opencode-second-lib.sh owns the
-# mechanism). A fresh ladder-routed Go launch rides the second workspace
-# exactly when the tier pick
-# (bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace) says
-# so: the monthly-soonest plan serves while uncapped, and a plan under a
-# shorter cap yields to the other until that limit resets;
-# an explicit Go request keeps the main workspace (with a proven main-Go cap
-# the gate above already refused it). A relaunch keeps the recorded workspace
-# unless --opencode-workspace moves it, and a harness switch away from
-# opencode drops the pin. Without a configured second workspace this is the
-# main workspace, exactly as today.
+# The Go workspace lane (bin/fm-opencode-second-lib.sh owns the pins,
+# bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace owns
+# the tier pick). A fresh ladder-routed Go launch rides the second workspace
+# exactly when the tier pick says so: the monthly-soonest plan serves while
+# uncapped, and a plan under a shorter cap yields to the other until that
+# limit resets; an explicit Go request keeps the main workspace (with a
+# proven main-Go cap the gate above already refused it). A relaunch keeps
+# the recorded workspace unless --opencode-workspace moves it, and a harness
+# switch away from opencode drops the pin. The databases themselves are
+# ensured below, after the secondmate-harness tokens resolve the final
+# MODEL, so the pin decision reads the model the launch will run.
 OPENCODE_WORKSPACE=main
 OPENCODE_SECOND_DB=
+OPENCODE_MAIN_DB=
 if [ "$HARNESS" = opencode ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
     if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
@@ -2808,9 +2846,6 @@ if [ "$HARNESS" = opencode ]; then
     && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
     OPENCODE_WORKSPACE=secondary
   fi
-fi
-if [ "$OPENCODE_WORKSPACE" = secondary ]; then
-  OPENCODE_SECOND_DB=$(fm_opencode_second_db) || exit 1
 fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
@@ -2833,6 +2868,26 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
       esac
     fi
   fi
+fi
+# The Go workspace pin databases (bin/fm-opencode-second-lib.sh owns the
+# mechanism; bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
+# which models bill a Go workspace). This runs after the secondmate-harness
+# tokens above so the pin decision reads the final MODEL. A pin applies only
+# to a launch that actually bills a Go workspace: the free model and every
+# other non-Go model launch exactly as before, pinned to nothing, so
+# discovering or requiring a workspace never blocks them - including on a
+# host with no console login. An explicit secondary workspace keeps its pin
+# whatever the model. In a home with a configured second workspace every Go
+# launch rides its own pin, main and secondary alike: an unpinned main launch
+# would inherit the machine-wide active workspace and bill the capped
+# secondary plan while its record reads main, so a main pin that cannot be
+# proven refuses the launch rather than running unpinned. Without a
+# configured second workspace the main workspace runs exactly as today.
+if [ "$OPENCODE_WORKSPACE" = secondary ]; then
+  OPENCODE_SECOND_DB=$(fm_opencode_second_db) || exit 1
+elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
+  && fm_opencode_second_configured 2>/dev/null; then
+  OPENCODE_MAIN_DB=$(fm_opencode_main_db) || exit 1
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
@@ -3609,7 +3664,7 @@ delivery_rigor_rank() { # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task 
 # would launch a worker whose instructions and whose recorded task delivery
 # differ, which is the exact drift this contract prevents.
 if [ "$KIND" = ship ]; then
-  PROJ_NAME=$(basename "$PROJ_ABS")
+  PROJ_NAME=$(registered_project_name "$PROJ" 2>/dev/null) || PROJ_NAME=$(basename "$PROJ_ABS")
   # The parser's own refusal reaches the operator here rather than being
   # discarded: an entry it refuses (an unknown forge token, or a forge on
   # local-only) resolves to no posture at all, and launching on the silent
@@ -6210,17 +6265,25 @@ if [ -n "$WORKER_ACCOUNT" ]; then
 elif [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
-# A secondary-workspace opencode launch rides its pinned console database so
-# the vendor attributes the session to the second workspace even though the
-# machine-wide active workspace is elsewhere. The database was ensured where
-# the workspace resolved above, before any endpoint or record existed; a
-# missing path here is refused rather than launched unpinned.
+# A pinned opencode launch rides its workspace's console database so the
+# vendor attributes the session to that workspace even though the
+# machine-wide active workspace is elsewhere. Each database was ensured where
+# the workspace resolved above, before any endpoint or record existed; a Go
+# launch whose resolved workspace the pin cannot prove is refused rather than
+# launched unpinned, so a Go launch never runs on a workspace the ladder did
+# not choose. A non-Go launch carries no pin by construction.
 if [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
   [ -n "$OPENCODE_SECOND_DB" ] || {
     echo "error: task $ID is pinned to the second OpenCode workspace but its database is missing; refusing to launch unpinned" >&2
     exit 1
   }
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_SECOND_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_MAIN_DB" ]; then
+  LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_MAIN_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = main ] \
+  && fm_opencode_model_bills_go "$MODEL" 2>/dev/null && fm_opencode_second_configured 2>/dev/null; then
+  echo "error: task $ID is on the main OpenCode workspace but its pinned database is missing; refusing to launch unpinned" >&2
+  exit 1
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

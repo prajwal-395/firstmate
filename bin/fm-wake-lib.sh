@@ -2225,7 +2225,11 @@ fm_mate_has_live_task() {
 # does a home whose every task record is a declared stop: firstmate itself
 # stopped those agents through the control plane, the endpoints are agent-free
 # by design (bin/fm-stopped-lib.sh), and an idle mate at a prompt is the
-# documented healthy state. A registered Relay poll, event source, or custom
+# documented healthy state. A queued wake row counts the same way: it is work
+# the mate home has not handled yet, and an idle mate has no turn end left
+# for its Stop-hook auto-arm to fire on, so a queued row with no live watcher
+# reads as down and the parent's quiet tick wakes within one poll instead of
+# waiting out the slower wake-stall threshold. A registered Relay poll, event source, or custom
 # check still counts as a wait that needs a watcher, as does any task record
 # without a declared stop. The model override is saved and restored, so the
 # caller's own model is untouched.

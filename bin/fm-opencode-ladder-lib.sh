@@ -179,8 +179,13 @@ fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
     id=${f##*/}; id=${id%.opencode-retry}
     # A secondary-workspace lane's evidence belongs to the fourth rung, never
     # to the main Go rung: without the split one capped workspace would mark
-    # the other capped. Lanes with no marker read as main, exactly as today.
-    lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || lane_ws=$FM_OPENCODE_WORKSPACE_MAIN
+    # the other capped. A cap is recorded only against the workspace a lane
+    # provably ran on: a retry record with no live task meta is orphan
+    # evidence and attributes to no rung, so it is skipped. Among live lanes
+    # a secondary marker selects the fourth rung; anything else - a
+    # markerless lane reads as main, exactly as today - may feed this rung.
+    [ -f "$state_dir/$id.meta" ] || continue
+    lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || continue
     [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ] && continue
     out=$("$_FM_OPENCODE_LADDER_RETRY" check "$state_dir" "$id" 2>/dev/null) || continue
     status=''; horizon=''; model=''
@@ -214,6 +219,9 @@ fm_opencode_ladder_go_second_reactive_capped() {  # <state-dir>
   for f in "$state_dir"/*.opencode-retry; do
     [ -e "$f" ] || continue
     id=${f##*/}; id=${id%.opencode-retry}
+    # Orphan retry evidence attributes to no rung either: only a live lane
+    # with the secondary marker feeds the fourth rung.
+    [ -f "$state_dir/$id.meta" ] || continue
     lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || continue
     [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ] || continue
     out=$("$_FM_OPENCODE_LADDER_RETRY" check "$state_dir" "$id" 2>/dev/null) || continue
@@ -487,6 +495,21 @@ fm_opencode_ladder_bare_model() {  # <model>
     */*) printf '%s' "${1##*/}" ;;
     *) printf '%s' "$1" ;;
   esac
+}
+
+# fm_opencode_model_bills_go <model>: 0 when <model> runs on the Go tier and
+# therefore bills a Go workspace. The provider-qualified id and its bare
+# form both count: a bare `--model muse-spark-1.3-contributor` passthrough
+# resolves to the same tier. Anything else - free, Codex Plus, an ungoverned
+# passthrough, empty, `default` - bills no Go workspace, so the workspace
+# pin never applies to it (bin/fm-opencode-second-lib.sh owns the pin).
+fm_opencode_model_bills_go() {  # <model>
+  local model=${1:-} bare go_bare
+  case "$model" in ''|default) return 1 ;; esac
+  [ "$model" = "$FM_OPENCODE_LADDER_GO" ] && return 0
+  bare=$(fm_opencode_ladder_bare_model "$model") || return 1
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO") || return 1
+  [ -n "$bare" ] && [ "$bare" = "$go_bare" ]
 }
 
 # fm_opencode_ladder_free_capped: is the free tier proven exhausted on the

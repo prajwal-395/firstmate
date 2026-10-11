@@ -816,6 +816,13 @@ else
   else
     printf '(no queued wakes)\n'
   fi
+  # Snapshot the queue depth right after the drain: the deferred worker from
+  # step 1 keeps appending (its inactive-outcome scan and the startup-network
+  # pointer row) while this digest prints, and a row that lands after this
+  # drain would otherwise sit unhandled in an idle home with no live watcher.
+  # Step 7 compares against this snapshot and re-drains late arrivals.
+  QUEUE_LINES_AT_DRAIN=$(grep -c . "$STATE/.wake-queue" 2>/dev/null || true)
+  case "$QUEUE_LINES_AT_DRAIN" in ''|*[!0-9]*) QUEUE_LINES_AT_DRAIN=0 ;; esac
 fi
 
 # --- 4. supervision operating instructions ----------------------------------
@@ -1022,6 +1029,23 @@ if [ "$READ_ONLY" -eq 1 ]; then
   printf 'has no action they would gate. The session holding the lock runs them.\n'
 else
   "$SCRIPT_DIR/fm-startup-network.sh" harvest --pid $$ 2>&1 || true
+  # Late arrivals: the deferred worker may have appended wake rows after the
+  # step 3 drain (its scan findings land directly in the queue, and its
+  # pointer row lands when harvest did not print inline). When the step 3
+  # drain found nothing, those rows are presented here in this same digest,
+  # before the handling turn, so an idle home with no live watcher still
+  # picks them up without another prompt. When step 3 already presented rows
+  # the handling turn owns them and the turn-end guard owns anything later,
+  # so no second presentation runs and nothing is ever printed twice.
+  QUEUE_LINES_NOW=$(grep -c . "$STATE/.wake-queue" 2>/dev/null || true)
+  case "$QUEUE_LINES_NOW" in ''|*[!0-9]*) QUEUE_LINES_NOW=0 ;; esac
+  if [ "$QUEUE_LINES_AT_DRAIN" -eq 0 ] && [ "$QUEUE_LINES_NOW" -gt 0 ]; then
+    REDRAIN_OUT=$("$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
+    if [ -n "$REDRAIN_OUT" ]; then
+      subsection "WAKE QUEUE (rows that arrived during startup)"
+      printf '%s\n' "$REDRAIN_OUT"
+    fi
+  fi
 fi
 
 # --- 8. context digest -----------------------------------------------------

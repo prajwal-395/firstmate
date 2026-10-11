@@ -121,7 +121,7 @@ test_stale_enqueue_before_suppressor() {
 # the queue-safety invariant - enqueue the stale wake BEFORE advancing the .stale-*
 # suppressor - so a watcher killed between the two never swallows the surfaced finish.
 test_not_working_stale_enqueue_before_suppressor() {
-  local dir state fakebin out drain_out capture_file window key pane_hash
+  local dir state fakebin out drain_out capture_file window key pane_hash i watcher_pid
   dir=$(make_case stale-stopped)
   state="$dir/state"
   fakebin="$dir/fakebin"
@@ -145,7 +145,12 @@ test_not_working_stale_enqueue_before_suppressor() {
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  wait_for_exit "$!" 40 || fail "watcher did not surface a not-provably-working stale"
+  watcher_pid=$!
+  # Wait on the artefact (the stale line in watch.out), not a fixed 4s bound:
+  # under load the scan needs more than 4s to reach its stale verdict.
+  i=0
+  while [ "$i" -lt 600 ] && ! grep -Fxq "stale: $window" "$out" 2>/dev/null; do sleep 0.05; i=$((i + 1)); done
+  wait_for_exit "$watcher_pid" 300 || fail "watcher did not surface a not-provably-working stale"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the immediate stale wake"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after the immediate stale wake failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "immediate stale wake was not queued"
@@ -271,7 +276,7 @@ foreign_stall_watch_leg() {  # <dir> <leg> <now> [observation]
 }
 
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
-  local dir state sub fakebin out row_before row_after stall_count real_date
+  local dir state sub fakebin out row_before row_after stall_count real_date attempt
   dir=$(make_case secondmate-foreign-stall)
   state="$dir/state"
   sub="$dir/secondmate"
@@ -280,6 +285,17 @@ test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # This case pins the stall tick's progress tracking, not watcher liveness:
+  # a queued row with no live watcher is supervision need (an idle mate must
+  # still pick up a queued wake), so the quiet tick would report it within one
+  # poll. A fresh beacon under the autoarm model reads healthy without a
+  # watcher process, keeping this fixture to the stall mechanism alone. The
+  # beacon mtime is set in this fixture's fake clock (steps run at fake
+  # now=1000..1012): a real-time touch would read as a far-future mtime and
+  # correctly count as stale, and touch -t parses in local time, so the stamp
+  # is fixed in UTC for portability.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -295,14 +311,25 @@ SH
   # An already-old row starts an observation interval; its creation time alone
   # cannot produce an alert.
   printf '100\t7\tcheck\trouted\tcheck: routed row\n' > "$sub/state/.wake-queue"
-  foreign_stall_watch_leg "$dir" first 1000 "$(printf '1000\t100-7')"
+  # A generous checkpoint bound (not a 1s wall-clock bet): under load the scan
+  # needs more than 1s to complete, and a timeout kill before then leaves no
+  # progress update for the later steps.
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "the first observation of an old foreign row produced an age-only alert"
 
   # The oldest sequence advances after more than the threshold. This is healthy
   # drain progress even though the replacement row is itself very old.
   printf '100\t8\tcheck\thealthy\tcheck: healthy progress\n' > "$sub/state/.wake-queue"
-  foreign_stall_watch_leg "$dir" progress 1002 "$(printf '1002\t100-8')"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-progress.out" 2> "$dir/watch-progress.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "an advancing foreign queue produced a stall alert because its oldest row was old"
 
@@ -313,7 +340,19 @@ SH
   row_after="$dir/foreign-after"
   cp "$sub/state/.wake-queue" "$row_before"
   out="$dir/watch-stalled.out"
-  foreign_stall_watch_leg "$dir" stalled 1004
+  # Wait on the artefact (the stall line in watch-stalled.out), not a single
+  # 1s wall-clock bound: under load one bounded scan may be killed before it
+  # completes, so retry until the durable notification appears.
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-stalled.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=8 idle=2s' "$out" && break
+    attempt=$((attempt + 1))
+  done
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=8 idle=2s' "$out" >/dev/null \
     || fail "a foreign queue with no progress did not alert: $(cat "$out")"
   stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
@@ -328,7 +367,11 @@ SH
   # Partial draining changes the oldest row, ends the prior no-progress episode,
   # and cannot produce an immediate notification cascade.
   printf '100\t9\tcheck\tnext\tcheck: next row\n' > "$sub/state/.wake-queue"
-  foreign_stall_watch_leg "$dir" next 1010 "$(printf '1010\t100-9')"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-next.out" 2> "$dir/watch-next.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "a newly-oldest row cascaded an immediate second alert after progress"
   cp "$sub/state/.wake-queue" "$row_after"
@@ -336,7 +379,19 @@ SH
 
   # If that new drain position then genuinely stops advancing, it is a new
   # no-progress episode and must remain visible rather than being muted forever.
-  foreign_stall_watch_leg "$dir" refrozen 1012
+  printf '1012\n' > "$dir/now"
+  # Same artefact wait as the first stall above: retry the bounded scan until
+  # the new no-progress episode surfaces.
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-refrozen.out" 2> "$dir/watch-refrozen.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-refrozen.out" && break
+    attempt=$((attempt + 1))
+  done
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-refrozen.out" >/dev/null \
     || fail "a genuine later no-progress episode was hidden after earlier progress"
   stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
@@ -344,231 +399,129 @@ SH
   pass "foreign secondmate queue alerts once per no-progress episode without age-only or cascade noise"
 }
 
-# Stall-tick legs wait on the watcher's own record, never on a wall-clock
-# checkpoint. Under load a short checkpoint is killed before the first tick, so
-# a later leg treats its own first sight as the whole episode and a negative
-# assertion passes with no observation at all. Each mode stops on the artifact
-# that leg's assertion depends on. The poll ceiling only bounds a hang.
-#
-#   progress <task> <body>     progress marker body is exactly <body>
-#   tick                        one stall cycle finished
-#   cleared                     paused queue observation cleared its progress marker
-#   defer <task> <row-key> [hold]
-#                              a cycle at least the stall threshold, or [hold]
-#                              seconds when larger, after the first observation
-#                              finished without alerting
-#   ring <task> <row-key>      ring marker records <row-key> and that tick
-#                              rewrote the progress marker
-#   stall-file <task> <row-key>
-#                              stall marker file records <row-key>
-#   drained <task> <queue>     child queue emptied, the doorbell was submitted,
-#                              and that tick rewrote the progress marker
-#   alert                      the watcher exited on the stall wake
-#   reject                     the watcher exited refusing the stall marker path
-stall_watch_beat_epoch() {
-  if [ "$(uname)" = Darwin ]; then
-    /usr/bin/stat -f %m "$1" 2>/dev/null || echo 0
-  else
-    stat -c %Y "$1" 2>/dev/null || echo 0
-  fi
-}
+test_secondmate_stall_rewake_reaches_idle_mate_once_per_episode() {
+  local dir state sub fakebin real_date attempt out sent stall_count ring_count row_before
+  dir=$(make_supercase secondmate-stall-rewake)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this rewake fixture holds
+  # a fresh autoarm beacon in the fake clock and only the stall tick acts.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
+  fakebin="$dir/fakebin"
+  real_date=$(command -v date)
+  cat > "$fakebin/date" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = +%s ]; then
+  cat "\${FM_FAKE_NOW_FILE:?}"
+else
+  exec "$real_date" "\$@"
+fi
+SH
+  chmod +x "$fakebin/date"
+  # No capture file: the pane reads idle, so the mate is provably not mid-turn.
+  # The supercase fake records every send-keys line in FM_FAKE_TMUX_SENT.
+  sent="$dir/sent.log"
+  : > "$sent"
 
-stall_watch_has_wake() { # <out>
-  grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$1" >/dev/null 2>&1
-}
+  # The first observation of a frozen row starts its interval: no parent
+  # notification and, crucially, no typed wake yet.
+  printf '1000\n' > "$dir/now"
+  printf '100\t7\tcheck\trouted\tcheck: routed row\n' > "$sub/state/.wake-queue"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-observe.out" 2> "$dir/watch-observe.err" || true
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "the first observation of a frozen foreign row alerted"
+  [ ! -s "$sent" ] \
+    || fail "the first observation of a frozen foreign row typed a wake: $(cat "$sent")"
 
-stall_watch_record_met() { # <mode> <marker> <want> <progress> <progress-start> <sent>
-  local mode=$1 marker=$2 want=$3 progress=$4 start=$5 sent=$6
-  case "$mode" in
-    progress)
-      [ "$(cat "$marker" 2>/dev/null || true)" = "$want" ]
-      ;;
-    ring)
-      [ "$(cat "$marker" 2>/dev/null || true)" = "$want" ] \
-        && [ "$(cat "$progress" 2>/dev/null || true)" != "$start" ]
-      ;;
-    stall-file)
-      [ -f "$marker" ] && [ ! -L "$marker" ] \
-        && [ "$(cat "$marker" 2>/dev/null || true)" = "$want" ]
-      ;;
-    drained)
-      [ ! -s "$marker" ] && [ -s "$sent" ] && grep -F '[ENTER]' "$sent" >/dev/null 2>&1 \
-        && [ "$(cat "$progress" 2>/dev/null || true)" != "$start" ]
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-secondmate_stall_watch_leg() { # <dir> <leg> <mode> [arg...]
-  local dir=$1 leg=$2 mode=$3
-  shift 3
-  local out="$dir/watch-$leg.out" err="$dir/watch-$leg.err"
-  local beat="$dir/state/.last-watcher-beat" sent="$dir/sent"
-  local pid i=0 limit=600 met=0
-  local marker='' want='' progress='' progress_start='' row_key='' bound=0
-  local body key observed_at=0 first=0 mark=0 mtime
-  case "$mode" in
-    alert|reject|tick)
-      ;;
-    cleared)
-      marker="$dir/state/.secondmate-wake-progress-mate"
-      printf 'unobserved\n' > "$marker"
-      ;;
-    progress)
-      marker="$dir/state/.secondmate-wake-progress-$1"
-      want=$2
-      ;;
-    defer)
-      marker="$dir/state/.secondmate-wake-progress-$1"
-      row_key=$2
-      bound=${FM_SECONDMATE_WAKE_STALL_SECS:-1}
-      [ "${3:-0}" -le "$bound" ] || bound=$3
-      ;;
-    ring)
-      marker="$dir/state/.secondmate-wake-ring-$1"
-      want=$2
-      progress="$dir/state/.secondmate-wake-progress-$1"
-      ;;
-    stall-file)
-      marker="$dir/state/.secondmate-wake-stall-$1"
-      want=$2
-      ;;
-    drained)
-      marker=$2
-      progress="$dir/state/.secondmate-wake-progress-$1"
-      ;;
-    *)
-      fail "unknown stall watch mode: $mode"
-      ;;
-  esac
-  [ -z "$progress" ] || progress_start=$(cat "$progress" 2>/dev/null || true)
-  rm -f "$beat"
-  # These legs pin wake-loop stall behavior only. A large cadence alone does
-  # not suppress the first endpoint tick when its marker is absent; seed it so
-  # every watcher launch and restart leaves the fixture endpoints untouched.
-  touch "$dir/state/.secondmate-liveness-tick"
-  FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" >"$out" 2>"$err" &
-  pid=$!
-  case "$mode" in
-    alert)
-      while [ "$i" -lt "$limit" ]; do
-        if ! is_live_non_zombie "$pid"; then
-          wait_for_exit "$pid" 50 || true
-          if grep -F 'secondmate wake-loop stalled' "$out" >/dev/null 2>&1; then
-            return 0
-          fi
-          FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" >>"$out" 2>>"$err" &
-          pid=$!
-        fi
-        sleep 0.1
-        i=$((i + 1))
-      done
-      wait_for_exit "$pid" 50 || true
-      grep -F 'secondmate wake-loop stalled' "$out" >/dev/null \
-        || fail "watcher leg $leg did not alert: $(cat "$out" 2>/dev/null) $(cat "$err" 2>/dev/null)"
-      return 0
-      ;;
-    reject)
-      wait_for_exit "$pid" "$limit" || true
-      grep -F 'watcher: secondmate wake-loop observation failed' "$err" >/dev/null \
-        || fail "watcher leg $leg did not refuse the stall marker path: $(cat "$out" 2>/dev/null) $(cat "$err" 2>/dev/null)"
-      return 0
-      ;;
-  esac
-  while [ "$i" -lt "$limit" ]; do
-    met=0
-    case "$mode" in
-      tick)
-        if [ -e "$beat" ]; then
-          mtime=$(stall_watch_beat_epoch "$beat")
-          if [ "$first" -eq 0 ]; then
-            first=$mtime
-          elif [ "$mtime" -gt "$first" ]; then
-            met=1
-          fi
-        fi
-        if [ "$met" -eq 0 ] && ! is_live_non_zombie "$pid" && stall_watch_has_wake "$out"; then
-          met=1
-        fi
-        ;;
-      cleared)
-        [ ! -e "$marker" ] && met=1
-        ;;
-      defer)
-        if [ "$observed_at" -eq 0 ]; then
-          body=$(cat "$marker" 2>/dev/null || true)
-          key=${body#*$'\t'}
-          if [ -n "$key" ] && [ "$key" != "$body" ] && [ "$key" = "$row_key" ]; then
-            observed_at=${body%%$'\t'*}
-            case "$observed_at" in
-              ''|*[!0-9]*) observed_at=0 ;;
-            esac
-          fi
-        elif [ -e "$beat" ]; then
-          mtime=$(stall_watch_beat_epoch "$beat")
-          if [ "$mtime" -ge $((observed_at + bound)) ]; then
-            if ! is_live_non_zombie "$pid" && stall_watch_has_wake "$out"; then
-              met=1
-            elif [ "$mark" -gt 0 ] && [ "$mtime" -gt "$mark" ]; then
-              met=1
-            else
-              mark=$mtime
-            fi
-          fi
-        fi
-        if grep -F 'secondmate wake-loop stalled' "$out" >/dev/null 2>&1; then
-          fail "watcher leg $leg alerted during a deferred busy turn: $(cat "$out")"
-        fi
-        ;;
-      *)
-        stall_watch_record_met "$mode" "$marker" "$want" "$progress" "$progress_start" "$sent" && met=1
-        ;;
-    esac
-    if [ "$met" -eq 1 ]; then
-      break
-    fi
-    if ! is_live_non_zombie "$pid"; then
-      # The process has flushed. A wake after the stall tick counts; a startup
-      # exit does not, so start another watcher against the same fixture.
-      wait_for_exit "$pid" 50 || true
-      case "$mode" in
-        tick)
-          stall_watch_has_wake "$out" && met=1
-          ;;
-        cleared)
-          [ ! -e "$marker" ] && met=1
-          ;;
-        defer)
-          if [ "$observed_at" -gt 0 ] && stall_watch_has_wake "$out" \
-            && ! grep -F 'secondmate wake-loop stalled' "$out" >/dev/null 2>&1; then
-            mtime=$(stall_watch_beat_epoch "$beat")
-            [ "$mtime" -ge $((observed_at + bound)) ] && met=1
-          fi
-          ;;
-        *)
-          stall_watch_record_met "$mode" "$marker" "$want" "$progress" "$progress_start" "$sent" && met=1
-          ;;
-      esac
-      if [ "$met" -eq 1 ]; then
-        break
-      fi
-      rm -f "$beat"
-      FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" >>"$out" 2>>"$err" &
-      pid=$!
-      first=0
-      mark=0
-    fi
-    sleep 0.1
-    i=$((i + 1))
+  # With no drain progress past the threshold the stall fires: the durable
+  # parent notification is queued AND exactly one typed rewake reaches the
+  # idle mate's endpoint, without touching the foreign queue.
+  printf '1004\n' > "$dir/now"
+  row_before="$dir/foreign-before"
+  cp "$sub/state/.wake-queue" "$row_before"
+  out="$dir/watch-stalled.out"
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-stalled.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=7 idle=4s' "$out" && break
+    attempt=$((attempt + 1))
   done
-  [ "$met" -eq 1 ] \
-    || fail "watcher leg $leg ($mode) did not observe the stall condition: $(cat "$out" 2>/dev/null) $(cat "$err" 2>/dev/null)"
-  if is_live_non_zombie "$pid"; then
-    kill -TERM "$pid" 2>/dev/null || true
-  fi
-  wait_for_exit "$pid" "$limit" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7 idle=4s' "$out" >/dev/null \
+    || fail "a frozen foreign queue did not alert: $(cat "$out")"
+  stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
+  [ "$stall_count" -eq 1 ] || fail "the stalled episode did not publish exactly one parent notification"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "the stalled episode did not type exactly one rewake, got $ring_count: $(cat "$sent")"
+  grep -F 'bin/fm-wake-drain.sh' "$sent" >/dev/null \
+    || fail "the typed rewake did not direct the mate to drain: $(cat "$sent")"
+  cmp -s "$row_before" "$sub/state/.wake-queue" \
+    || fail "the stall rewake changed the foreign queue row"
+  grep -F '100-7 sent' "$state/.secondmate-wake-rewake-mate" >/dev/null \
+    || fail "the stalled episode did not record its rewake delivery"
+
+  # A repeat poll inside the same no-progress episode re-rings nothing and
+  # publishes nothing: one rewake per episode, exactly like the notification.
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-repeat.out" 2> "$dir/watch-repeat.err" || true
+  stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
+  [ "$stall_count" -eq 1 ] || fail "a repeat poll duplicated the stall notification"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "a repeat poll duplicated the typed rewake"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" \
+    || fail "parent drain failed after the stall notification"
+  ack_drain_err "$state" "$dir/drain.err" \
+    || fail "parent stall notification could not be acknowledged"
+
+  # Drain progress ends the episode and starts a fresh interval: a newly
+  # oldest row earns observation silence again, with no immediate rewake.
+  printf '1006\n' > "$dir/now"
+  printf '200\t8\tcheck\tnext\tcheck: next row\n' > "$sub/state/.wake-queue"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-next.out" 2> "$dir/watch-next.err" || true
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "a newly-oldest row cascaded an immediate second alert after progress"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 1 ] || fail "a newly-oldest row cascaded an immediate second rewake"
+
+  # When the new drain position genuinely freezes, it is a new no-progress
+  # episode: it alerts and rewakes again rather than staying muted forever.
+  printf '1012\n' > "$dir/now"
+  out="$dir/watch-refrozen.out"
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='fm-mate' FM_FAKE_TMUX_SENT="$sent" \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-refrozen.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=8 idle=6s' "$out" && break
+    attempt=$((attempt + 1))
+  done
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=8 idle=6s' "$out" >/dev/null \
+    || fail "a genuine later no-progress episode was hidden after earlier progress: $(cat "$out")"
+  ring_count=$(grep -c 'firstmate rewake' "$sent" || true)
+  [ "$ring_count" -eq 2 ] || fail "a genuine later no-progress episode did not rewake again, got $ring_count"
+  pass "a stalled secondmate queue types one rewake per no-progress episode without touching the foreign queue"
 }
 
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
@@ -578,7 +531,13 @@ test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   sub="$dir/secondmate"
   mkdir -p "$sub/state"
   printf 'mate\n' > "$sub/.fm-secondmate-home"
-  printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nhome=%s\n' "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this pause-exclusion
+  # fixture holds a fresh autoarm beacon across both fake-clock steps.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  TZ=UTC touch -t 197001010123.20 "$dir/fake-epoch-5000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -595,17 +554,20 @@ SH
 100	8	stale	fleet:w2:p3	stale: fleet:w2:p3 (paused 3615s, awaiting external - declared pause, rechecked on a long cadence not a wedge)
 EOF
   printf '1000\n' > "$dir/now"
+  # A generous checkpoint bound (not a 1s wall-clock bet): under load the scan
+  # needs more than 1s to complete.
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    secondmate_stall_watch_leg "$dir" "first" cleared
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
   printf '5000\n' > "$dir/now"
+  touch -r "$dir/fake-epoch-5000" "$sub/state/.last-watcher-beat"
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    secondmate_stall_watch_leg "$dir" "second" cleared
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-second.out" 2> "$dir/watch-second.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "declared external-wait rows fed the secondmate wake-loop escalation"
   ! grep -F 'secondmate wake-loop stalled' "$dir/watch-first.out" "$dir/watch-second.out" >/dev/null \
@@ -620,7 +582,7 @@ EOF
 # no-progress interval: inheriting that interval fires a wake-loop stall against
 # a queue the mate has only just created.
 test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
-  local dir state sub fakebin real_date
+  local dir state sub fakebin real_date attempt
   dir=$(make_case secondmate-reprovisioned-queue)
   state="$dir/state"
   sub="$dir/secondmate"
@@ -628,6 +590,11 @@ test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this reprovisioning
+  # fixture holds a fresh autoarm beacon in the fake clock.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -643,11 +610,13 @@ SH
   # The retired generation's last observation records sequence 9.
   printf '1000\n' > "$dir/now"
   printf '100\t9\tcheck\told\tcheck: retired generation row\n' > "$sub/state/.wake-queue"
+  # A generous checkpoint bound (not a 1s wall-clock bet): under load the scan
+  # needs more than 1s to complete and record its observation interval.
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    secondmate_stall_watch_leg "$dir" "old" progress mate "$(printf '1000\t100-9')"
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-old.out" 2> "$dir/watch-old.err" || true
   [ ! -s "$state/.wake-queue" ] || fail "the first observation of the retired generation alerted"
 
   # Reprovisioning under the same task id restarts the sequence on 9 again, long
@@ -659,17 +628,25 @@ SH
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    secondmate_stall_watch_leg "$dir" "regen" progress mate "$(printf '1010\t200-9')"
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-regen.out" 2> "$dir/watch-regen.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "a reprovisioned queue generation inherited the retired generation's idle interval and alerted"
 
   # The restarted generation still earns its own honest no-progress episode.
   printf '1012\n' > "$dir/now"
-  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
-    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    secondmate_stall_watch_leg "$dir" "regen-frozen" alert
+  # Wait on the artefact (the stall line), not a single 1s wall-clock bound:
+  # under load one bounded scan may be killed before it completes, so retry
+  # until the frozen reprovisioned generation surfaces.
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-regen-frozen.out" 2> "$dir/watch-regen-frozen.err" || true
+    grep -Fq 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-regen-frozen.out" && break
+    attempt=$((attempt + 1))
+  done
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-regen-frozen.out" >/dev/null \
     || fail "a frozen reprovisioned queue generation was hidden: $(cat "$dir/watch-regen-frozen.out")"
   pass "a reprovisioned queue generation starts a fresh no-progress interval"
@@ -693,6 +670,10 @@ test_secondmate_active_turn_defers_stall_until_the_turn_ends() {
   row_epoch=$(( $(date +%s) - 10 ))
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$row_epoch" \
     > "$sub/state/.wake-queue"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this deferral fixture
+  # holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -1126,7 +1107,11 @@ test_secondmate_stall_marker_rejects_symlink() {
   sub="$dir/secondmate"
   mkdir -p "$sub/state"
   printf 'mate\n' > "$sub/.fm-secondmate-home"
-  printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nhome=%s\n' "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this marker-rejection
+  # fixture holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$sub/state/.wake-queue"
   outside="$dir/outside"
@@ -1166,6 +1151,10 @@ test_acknowledged_stall_publication_survives_pre_marker_crash() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this crash-recovery
+  # fixture holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$sub/state/.wake-queue"
   row_before="$dir/foreign-before"
@@ -1206,7 +1195,12 @@ test_empty_prefix_mate_preserves_other_mate_receipt() {
   printf 'ios\n' > "$empty/.fm-secondmate-home"
   printf 'ios-ui\n' > "$stalled/.fm-secondmate-home"
   printf 'window=firstmate:fm-ios\nkind=secondmate\nhome=%s\n' "$empty" > "$state/ios.meta"
-  printf 'window=firstmate:fm-ios-ui\nkind=secondmate\nhome=%s\n' "$stalled" > "$state/ios-ui.meta"
+  printf 'window=firstmate:fm-ios-ui\nkind=secondmate\nharness=claude\nhome=%s\n' "$stalled" > "$state/ios-ui.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so the queued ios-ui mate
+  # holds a fresh autoarm beacon while the real clock runs. The empty ios
+  # mate needs nothing and stays silent on its own.
+  touch "$stalled/state/.last-watcher-beat"
   : > "$empty/state/.wake-queue"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t9\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$stalled/state/.wake-queue"
@@ -1600,18 +1594,28 @@ test_main_is_never_told_to_drain_rows_only_the_branch_owns() {
   # grant released. Nothing about the row makes it unpresentable - only the
   # live grant did - so main now presents it with an executable acknowledgement.
   FM_STATE_OVERRIDE="$state" "$GRANT" release held-by-branch || fail "branch grant release failed"
+  # The counted-equals-presentable invariant lives at the guard layer: with
+  # the grant gone the row is main's again, so a direct guard call warns.
+  FM_STATE_OVERRIDE="$state" "$GUARD" 2> "$dir/guard-released.err" || fail "guard failed after the grant released"
+  grep -Fq 'queued wakes pending' "$dir/guard-released.err" \
+    || fail "guard stopped warning about a row main can actually drain"
+  ! grep -Fq 'wake rows held by the live supervision branch' "$dir/guard-released.err" \
+    || fail "guard kept advising about a hold that was already released"
   out="$dir/main-drain-after.out"
   err="$dir/main-drain-after.err"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" || fail "main drain failed after release: $(cat "$err")"
   grep -Fq "$(printf '\tstale\tfleet:w2:p3\t')" "$out" || fail "main drain omitted the released row"
   ! grep -Fq 'WAKE ROWS HELD BY SUPERVISION BRANCH' "$out" \
     || fail "main drain reported a hold that no longer exists"
-  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$sequence" ] && [ -n "$generation" ] || fail "the released row was presented without an acknowledgement command"
-  grep -Fq 'queued wakes pending' "$err" || fail "guard stopped warning about a row main can actually drain"
+  # A drain owns the rows it presents: its liveness assert reports supervision
+  # and tangle health only, and never re-reports those rows as still pending.
+  ! grep -Fq 'queued wakes pending' "$err" \
+    || fail "drain re-reported its own presented rows as still pending"
   ! grep -Fq 'wake rows held by the live supervision branch' "$err" \
-    || fail "guard kept advising about a hold that was already released"
+    || fail "drain kept advising about a hold that was already released"
   FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
     || fail "acknowledgement of the released row failed"
   [ ! -s "$state/.wake-queue" ] || fail "the acknowledged row stayed queued"
@@ -2718,6 +2722,13 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
   append_wake "$state" signal task.status "signal: $status" \
     || fail "could not seed the presentation-deadline wake"
 
+  # This test measures lock-deadline mechanics, not supervision: a queued row
+  # with no live watcher is supervision need (an idle home must still pick up
+  # a queued wake), so the drain's liveness guard would alarm here. A fresh
+  # beacon under the autoarm model reads healthy without a watcher process,
+  # keeping stderr to the deadline advisories this test pins.
+  touch "$state/.last-watcher-beat"
+
   FM_STATE_OVERRIDE="$state" bash -c '
     . "$1"
     fm_lock_acquire_wait "$2"
@@ -2734,7 +2745,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     || { kill "$queue_holder" 2>/dev/null || true; fail "queue holder never acquired its lock"; }
 
   start=$(date +%s)
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$queue_out" 2> "$queue_err" \
     || { kill "$queue_holder" 2>/dev/null || true; fail "bounded queue presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
@@ -2774,7 +2785,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     || { kill "$presentation_holder" 2>/dev/null || true; fail "presentation holder never acquired its lock"; }
 
   start=$(date +%s)
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$first_out" 2> "$first_err" \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "bounded presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
@@ -2798,7 +2809,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
 
   kill "$presentation_holder" 2>/dev/null || true
   wait "$presentation_holder" 2>/dev/null || true
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$second_out" 2> "$second_err" || fail "presentation retry failed"
   grep -F 'task.status: needs-decision [key=fixture]: presentation remains retriable' "$second_out" >/dev/null \
     || fail "the next presentation pass did not surface the skipped status"
@@ -3534,6 +3545,7 @@ test_bounded_lock_handoff_after_contention
 test_live_presentation_holder_is_deadlined_without_weakening_ack
 test_malformed_presentation_lock_reports_acquire_failure
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once
+test_secondmate_stall_rewake_reaches_idle_mate_once_per_episode
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation
 test_secondmate_reprovisioned_queue_starts_a_fresh_interval
 test_secondmate_active_turn_defers_stall_until_the_turn_ends

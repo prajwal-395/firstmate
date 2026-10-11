@@ -1199,20 +1199,25 @@ By accepted design, a `clear` result does not enforce catalog/authentication, re
 
 The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
 
-## Second OpenCode Go workspace (config/opencode-second-org)
+## Second OpenCode Go workspace (config/opencode-second-org, config/opencode-main-org)
 
 When one OpenCode account holds a second workspace with its own Go subscription, firstmate spends it as the Go tier's second member: the tier drains the plan whose overall (monthly) quota resets soonest first, and a plan under a shorter cap yields to the other until that limit resets. Order is exhaustion, never an even split.
 Write the second workspace id alone into the gitignored `config/opencode-second-org` (exactly one line).
+The main workspace id needs no hand setup: on the first main Go launch that needs it, firstmate reads it from the machine's own console login and records it alone in the gitignored `config/opencode-main-org`, and a hand-written file there wins when one exists.
 Write each plan's monthly billing reset into the gitignored `config/opencode-go-resets`, one `<main|secondary> <ISO-8601>` line per plan (blank lines and `#` comments ignored); the dates project forward by calendar month, so a past date stays valid as the cycle anchor. A missing file means monthly timing is known only for the main plan through live `quota-axi`, and a second plan with no usable line reads as unknown, which keeps the choice on main exactly as before.
-A missing file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
+A missing second-workspace file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
 No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
-On the first launch that needs it, firstmate builds the gitignored `config/opencode-second.db`: a migrated database seeded from this machine's console login and pinned to the configured workspace.
+On the first launch that needs it, firstmate builds the gitignored pin database beside each id file (`config/opencode-second.db`, `config/opencode-main.db`): a migrated database seeded from this machine's console login and pinned to that workspace.
 On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
-Before the launch rides the pin, the pinned config must resolve the `opencode` provider to the secondary workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
-That launch carries `OPENCODE_DB` at the pinned database, so the vendor attributes the session to the second workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
-The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a pinned lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
-The org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
-Each home builds its own `config/opencode-second.db` from its own machine's live console login on the first launch that needs it; the database itself is never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
+The pin is a copy, never the login itself: a pin path that names the live console database is refused before anything reads or writes either file.
+Before a launch rides its pin, the pinned config must resolve the `opencode` provider to that launch's own workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
+Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no Go launch ever inherits the machine-wide active workspace; a Go launch whose pin cannot be proven is refused rather than run unpinned.
+The pin applies only to launches that actually bill a Go workspace: the free model and every other non-Go model launch exactly as before, pinned to nothing, so a host with no console login still launches them.
+A home with no second workspace runs the main workspace exactly as before.
+Each launch carries `OPENCODE_DB` at its pinned database, so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
+The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a secondary lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
+Each org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
+Each home builds its own pin databases from its own machine's live console login on the first launch that needs them; the databases themselves are never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
 `bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
@@ -1419,7 +1424,7 @@ See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a star
 
 **Arm, edit, and disarm**
 
-`FM_TOOL_UPDATE_INTERVAL` (default 900 seconds, `0` to probe on every run) sets how often probes actually run, `FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds one local probe, `FM_TOOL_UPDATE_GIT_PROBE_SECS` (default 15) bounds one network probe (`git ls-remote`, whose ordinary latency already straddles the local bound), and `FM_TOOL_UPDATE_BUDGET_SECS` (default 20) bounds a whole sweep.
+`FM_TOOL_UPDATE_INTERVAL` (default 900 seconds, `0` to probe on every run) sets how often probes actually run, `FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds one local git probe, `FM_TOOL_UPDATE_VERSION_PROBE_SECS` (default 15) bounds one command version probe (whose runtime startup already straddles the local bound and stalls further under machine load), `FM_TOOL_UPDATE_GIT_PROBE_SECS` (default 15) bounds one network probe (`git ls-remote`, whose ordinary latency already straddles the local bound), and `FM_TOOL_UPDATE_BUDGET_SECS` (default 25) bounds a whole sweep.
 A sweep that runs out of budget says which tool it did not reach rather than reporting the rest as current.
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
@@ -2328,9 +2333,10 @@ FM_MAIL_CHECK_BUDGET=15   # seconds allowed for one standing mail poll; valid 5.
 FM_MAIL_POLL_MAX_WAKES=20   # per-poll wake cap for a mail poll; valid 1..200, keeps a flood from flooding firstmate
 FM_MAIL_TIMEOUT=20   # mail-plane IMAP/SMTP socket timeout in seconds; invalid or non-positive values become 20
 FM_TOOL_UPDATE_INTERVAL=900   # seconds between watched-tool probe sweeps; 0 probes on every run, other values must be 60..86400
-FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one local version or git probe
+FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one local git probe
+FM_TOOL_UPDATE_VERSION_PROBE_SECS=15   # 1..30 seconds allowed for one command version probe
 FM_TOOL_UPDATE_GIT_PROBE_SECS=15   # 1..30 seconds allowed for one network git probe (git ls-remote)
-FM_TOOL_UPDATE_BUDGET_SECS=20   # 1..120 seconds allowed for a whole watched-tool sweep; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
+FM_TOOL_UPDATE_BUDGET_SECS=25   # 1..120 seconds allowed for a whole watched-tool sweep; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
 FM_TOOL_UPDATE_NOW=     # test override for the watched-tool sweep clock; the sweep budget still uses real time
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims

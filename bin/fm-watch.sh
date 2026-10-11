@@ -133,8 +133,12 @@
 #                          between observations for FM_SECONDMATE_WAKE_STALL_SECS
 #                          while the mate was not in an active turn; declared
 #                          external-wait pause rows do not feed this escalation,
-#                          observation is read-only, and one parent notification
-#                          covers each no-progress episode
+#                          the foreign queue itself is never written, one parent
+#                          notification covers each no-progress episode, and one
+#                          typed rewake reaches the mate's live endpoint per
+#                          episode (secondmate_stall_rewake) so a Stop-hook
+#                          rewake that never materialized into an agent turn
+#                          still produces one
 #   check: secondmate watcher quiet: mate=<id> <beacon-desc> (<reason>, model <model>; cause unknown from outside: ...)
 #                          an endpoint-recorded local secondmate home still needs
 #                          supervision but its model-aware watcher verdict is down;
@@ -402,6 +406,11 @@ SECONDMATE_LIVENESS_MAX_ATTEMPTS=${FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS:-}
 case "$SECONDMATE_LIVENESS_MAX_ATTEMPTS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_MAX_ATTEMPTS=3 ;; esac
 SECONDMATE_LIVENESS_WINDOW_SECS=${FM_SECONDMATE_LIVENESS_WINDOW_SECS:-}
 case "$SECONDMATE_LIVENESS_WINDOW_SECS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_WINDOW_SECS=3600 ;; esac
+# Spacing between delivery attempts when one typed rewake to a stalled mate
+# was skipped or failed while its no-progress episode persists. A sent rewake
+# or a dead-or-missing endpoint is never retried for that row episode.
+SECONDMATE_REWAKE_RETRY_SECS=${FM_SECONDMATE_REWAKE_RETRY_SECS:-60}
+case "$SECONDMATE_REWAKE_RETRY_SECS" in ''|*[!0-9]*|0) SECONDMATE_REWAKE_RETRY_SECS=60 ;; esac
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
 # A captain-held or paused crew whose agent has confidently exited uses the same
@@ -928,69 +937,76 @@ secondmate_oldest_queue_row() {  # <queue-path>
 # launch). Any absence of proof (no window, a failed capture, an idle or unknown
 # verdict, a queue frozen past the bound) is NOT an active turn, so a frozen
 # queue still escalates.
-secondmate_in_active_turn() {  # <window> <idle>
-  local w=$1 idle=$2 tail40
+secondmate_in_active_turn() {  # <task> <window>
+  local task=$1 w=$2 tail40
   [ -n "$w" ] || return 1
-  [ "$idle" -lt "$BUSY_TURN_MAX_SECS" ] || return 1
-  watcher_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" || return 1
-  tail40=$WATCHER_CAPTURE
+  ! busy_turn_over_age "$task" || return 1
+  tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || return 1
   window_is_busy "$w" "$tail40"
 }
 
-# Set SECONDMATE_BUSY_CLASS to the first token of the semantic busy
-# classification for <window>: busy, idle, unknown, or dead. Capture failure and
-# a missing window are unknown, never idle. Empty inbox and a fresh watcher
-# beacon are not consulted. Call it directly, never in $(...), so its pane
-# capture runs in the watcher's own shell.
-SECONDMATE_BUSY_CLASS=
-secondmate_busy_class() {  # <window>
-  local w=$1 task meta tail40 verdict
-  SECONDMATE_BUSY_CLASS=unknown
-  task=$(window_to_task "$w" "$STATE")
-  meta="$STATE/$task.meta"
-  if [ -z "$w" ] || [ -z "$task" ] || [ ! -f "$meta" ]; then
+# Deliver one typed rewake to a mate whose foreign queue demonstrably stopped
+# advancing while the mate is not in an active turn (the stall tick's own
+# gates: the caller proves both before calling). A Claude mate's Stop-hook
+# rewake fires only at a turn end, so once a delivered rewake fails to
+# materialize into an agent turn, no hook ever fires again and the queued rows
+# sit until a human prompts the mate by hand (2026-10-11: a rewake fired, then
+# the mate sat idle with queued rows, no watcher, and a 7-minute-old beacon
+# until a manual fm-send). The typed wake uses the same text-plus-Enter
+# submit that manual doorbell used, through the shared safety gates in
+# bin/fm-task-inbox-lib.sh, so it starts an agent turn in an idle composer
+# without touching a busy one, a dialog, or a dead endpoint. Best-effort and
+# never fatal to the tick: the caller still queues its durable parent
+# notification either way, so the parent agent sees the stall even when the
+# ring cannot land. Bounded to one successful delivery per stalled row
+# episode, with a spaced retry while the episode persists and no retry once
+# the endpoint reads dead or missing (recovery owns dead endpoints). Never
+# touches the foreign queue: the mate's own drain owns acknowledgement.
+# Returns 0 always; the attempt outcome lives in the rewake marker and the
+# triage log.
+secondmate_stall_rewake() {  # <task> <meta> <seq> <idle> <row-key> <now>
+  local task=$1 meta=$2 seq=$3 idle=$4 row_key=$5 now=$6
+  local marker window backend label line saved_key saved_outcome saved_at rc
+  marker="$STATE/.secondmate-wake-rewake-$task"
+  if [ -L "$marker" ]; then
+    triage_log "mate-queue rewake refused: $task marker is a symlink, leaving it for inspection"
     return 0
   fi
-  watcher_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" || return 0
-  tail40=$WATCHER_CAPTURE
-  verdict=$(fm_busy_classify_meta "$meta" "$task" "$STATE" "$tail40")
-  SECONDMATE_BUSY_CLASS=${verdict%% *}
-}
-
-# 0 iff a child ring is authorized: exact idle, a live agent, and a composer
-# that is not proven pending. Busy, unknown, dead, missing, and pending
-# composer all refuse, so a Kimi or Claude pane without an exact idle
-# verdict is never typed into.
-secondmate_idle_ring_safe() {  # <window>
-  local w=$1 backend agent_state cstate
-  [ -n "$w" ] || return 1
-  secondmate_busy_class "$w"
-  [ "$SECONDMATE_BUSY_CLASS" = idle ] || return 1
-  backend=$(window_backend "$w")
-  agent_state=$(fm_backend_agent_state "$backend" "$w" 2>/dev/null || true)
-  [ "$agent_state" = alive ] || return 1
-  cstate=$(fm_backend_composer_state "$backend" "$w" "$(window_label "$w")" 2>/dev/null) || cstate=unknown
-  [ "$cstate" != pending ] || return 1
+  if [ -e "$marker" ]; then
+    [ -f "$marker" ] || return 0
+    read -r saved_key saved_outcome saved_at < "$marker" 2>/dev/null || saved_key=
+    if [ "$saved_key" = "$row_key" ]; then
+      case "$saved_outcome" in
+        sent|dead) return 0 ;;
+        skipped|failed)
+          case "$saved_at" in
+            ''|*[!0-9]*) ;;
+            *) [ "$((now - saved_at))" -ge "$SECONDMATE_REWAKE_RETRY_SECS" ] || return 0 ;;
+          esac
+          ;;
+      esac
+    fi
+  fi
+  window=$(fm_backend_target_of_meta "$meta")
+  case "$window" in
+    '')
+      triage_log "mate-queue rewake refused: $task records no endpoint target, typing nowhere rather than the current pane"
+      return 0 ;;
+  esac
+  backend=$(window_backend "$window")
+  label=$(window_label "$window")
+  line="firstmate rewake: your wake queue holds an unhandled row (seq $seq, idle ${idle}s) that reached no agent turn; run bin/fm-wake-drain.sh first, handle each wake, then run its exact WAKE_ACK_REQUIRED --ack-through command."
+  rc=0
+  fm_typed_wake_ring "$backend" "$window" "$label" "$line" || rc=$?
+  case "$rc" in
+    0) saved_outcome=sent ;;
+    1) saved_outcome=skipped ;;
+    3) saved_outcome=dead ;;
+    *) saved_outcome=failed ;;
+  esac
+  printf '%s %s %s\n' "$row_key" "$saved_outcome" "$now" > "$marker" 2>/dev/null || true
+  triage_log "mate-queue rewake: $task row=$seq result=$saved_outcome"
   return 0
-}
-
-# Write one fire-and-forget drain steer and ring the child's doorbell. The
-# steer carries the same from-firstmate fire-and-forget carrier fm-send uses
-# for a secondmate (marker, then delivery=<16-hex-id>, then the text), so the
-# mate reads it as a parent request that expects no reply, never as captain
-# intervention. The worker's ordinary wake-handling turn drains its own home's
-# wake queue; this parent never rewrites that foreign queue. 0 iff the ring
-# call returned 0.
-secondmate_ring_to_drain() {  # <task> <window>
-  local task=$1 w=$2 rec backend delivery_id
-  backend=$(window_backend "$w")
-  delivery_id=$(LC_ALL=C od -An -v -tx1 -N 8 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
-  case "$delivery_id" in ''|*[!0-9a-f]*) return 1 ;; esac
-  [ "${#delivery_id}" -eq 16 ] || return 1
-  rec=$(fm_task_inbox_write "$STATE" "$task" \
-    "${FM_FROMFIRST_MARK}delivery=${delivery_id} Drain pending rows in this home's wake queue, then resume idle supervision." \
-    fire-and-forget) || return 1
-  fm_task_inbox_ring "$backend" "$w" "$rec" "$(window_label "$w")"
 }
 
 # Surface one durable parent check when the foreign queue's drain position has
@@ -1014,7 +1030,7 @@ secondmate_ring_to_drain() {  # <task> <window>
 # foreign queue.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
-  local meta task kind remote_host home queue row epoch seq row_key marker progress_marker ring_marker progress observed_at observed_key
+    local meta task kind remote_host home queue row epoch seq row_key marker progress_marker rewake_marker progress observed_at observed_key
   local receipt receipt_dir notify_key queued idle reason episode_alerted already_rung w
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
@@ -1034,10 +1050,10 @@ secondmate_wake_stall_tick() {
     row=$(secondmate_oldest_queue_row "$queue")
     marker="$STATE/.secondmate-wake-stall-$task"
     progress_marker="$STATE/.secondmate-wake-progress-$task"
-    ring_marker="$STATE/.secondmate-wake-ring-$task"
+    rewake_marker="$STATE/.secondmate-wake-rewake-$task"
     receipt_dir="$STATE/.secondmate-wake-stall-receipts/$task"
     if [ -z "$row" ]; then
-      rm -f "$marker" "$progress_marker" "$ring_marker"
+      rm -f "$marker" "$progress_marker" "$rewake_marker"
       if [ -e "$receipt_dir" ] || [ -L "$receipt_dir" ]; then
         [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] || return 1
         rm -rf -- "$receipt_dir" || return 1
@@ -1068,27 +1084,15 @@ EOF
     if [ -z "$observed_at" ] || [ -z "$observed_key" ] \
       || [ "$now" -lt "$observed_at" ] || [ "$row_key" != "$observed_key" ]; then
       fm_wake_secondmate_progress_marker_write "$task" "$now" "$row_key" || return 1
+      rm -f "$rewake_marker" || return 1
       [ "$episode_alerted" -eq 0 ] || rm -f "$marker" || return 1
-      rm -f "$ring_marker" || return 1
       continue
     fi
     [ "$episode_alerted" -eq 0 ] || continue
     idle=$((now - observed_at))
     [ "$idle" -ge "$threshold" ] || continue
-    w=$(fm_backend_target_of_meta "$meta")
-    ! secondmate_in_active_turn "$w" "$idle" || continue
-    already_rung=0
-    if [ -e "$ring_marker" ] || [ -L "$ring_marker" ]; then
-      [ -f "$ring_marker" ] && [ ! -L "$ring_marker" ] || return 1
-      [ "$(cat "$ring_marker" 2>/dev/null || true)" = "$row_key" ] && already_rung=1
-    fi
-    if [ "$already_rung" -eq 0 ] && secondmate_idle_ring_safe "$w"; then
-      if secondmate_ring_to_drain "$task" "$w"; then
-        fm_wake_secondmate_ring_marker_write "$task" "$row_key" || return 1
-        fm_wake_secondmate_progress_marker_write "$task" "$now" "$row_key" || return 1
-        continue
-      fi
-    fi
+    ! secondmate_in_active_turn "$task" "$(fm_backend_target_of_meta "$meta")" || continue
+    secondmate_stall_rewake "$task" "$meta" "$seq" "$idle" "$row_key" "$now"
     receipt="$receipt_dir/$row_key"
     if [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ]; then
       fm_wake_secondmate_stall_marker_write "$task" "$row_key" || return 1

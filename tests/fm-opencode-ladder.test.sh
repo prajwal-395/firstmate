@@ -67,6 +67,18 @@ chmod +x "$QUOTA_BIN/quota-axi"
 HELPER="$ROOT/bin/fm-opencode-retry.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
 
+# Hermetic home: the gate resolves the second workspace through
+# FM_CONFIG_OVERRIDE then FM_HOME/config, so the invoking home's real
+# opencode-second-org would otherwise offer a fourth rung to cases that
+# assert three-rung exhaustion. Every case runs under this empty home; cases
+# that need a second workspace set FM_CONFIG_OVERRIDE themselves, and the
+# spawn cases below build their own homes per launch.
+FAKEHOME="$TMP_ROOT/fakehome"
+mkdir -p "$FAKEHOME/config"
+FM_HOME="$FAKEHOME"
+export FM_HOME
+unset FM_CONFIG_OVERRIDE
+
 FREE='opencode/muse-spark-1.3-contributor-free'
 GO='opencode-go/muse-spark-1.3-contributor'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
@@ -887,6 +899,46 @@ test_main_lane_evidence_feeds_main_go() {
   pass "reactive evidence on a main lane feeds the main Go rung only"
 }
 
+test_orphan_retry_attributes_to_no_go_rung() {
+  local state out cfg
+  state=$(fresh_state orphan-go)
+  cfg=$(second_config orphango)
+  cap_free_plus "$state"
+  # The 2026-10-10 shape: the lane was cleaned up, so it has no meta and no
+  # workspace marker, but its retry record survives with a Go-tier model and
+  # a quota-scale horizon. That orphan evidence must attribute to no Go rung.
+  record_cap "$state" ghostlane 78840 "$GO_BARE" || fail "record refused the orphan observation"
+  [ -f "$state/ghostlane.opencode-retry" ] || fail "record wrote no sidecar"
+  fm_opencode_ladder_go_reactive_capped "$state" 2>/dev/null \
+    && fail "an orphan retry record must not read as a main Go cap"
+  fm_opencode_ladder_go_second_reactive_capped "$state" 2>/dev/null \
+    && fail "an orphan retry record must not read as a fourth-rung cap"
+  fm_opencode_ladder_go_main_capped "$state" 2>/dev/null \
+    && fail "an orphan retry record must not cap the Go tier"
+  [ ! -f "$state/.opencode-cap-go" ] || fail "an orphan retry record must not preserve a main Go cap"
+  [ ! -f "$state/.opencode-cap-go-second" ] || fail "an orphan retry record must not preserve a fourth-rung cap"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "an uncapped Go rung must accept the spawn"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "with Go uncapped the gate must route Go, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) fail "an orphan must not divert the route to the second workspace: $NOTE" ;; esac
+  [ ! -f "$state/.opencode-cap-go" ] || fail "the gate must not preserve a main Go cap from orphan evidence"
+  pass "an orphan retry record attributes to no Go rung"
+}
+
+test_markerless_live_lane_records_main_go_cap() {
+  local state
+  state=$(fresh_state markerless-go)
+  # The boundary the orphan fix must not cross: a live lane with no marker is
+  # the main workspace by convention, so its Go evidence still feeds this rung.
+  write_lane_meta "$state" plainlane "$GO"
+  record_cap "$state" plainlane 78840 "$GO_BARE" || fail "record refused the markerless lane observation"
+  fm_opencode_ladder_go_reactive_capped "$state" 2>/dev/null \
+    || fail "a live markerless lane must still read as the main workspace"
+  [ -f "$state/.opencode-cap-go" ] || fail "a live markerless lane must preserve a main Go cap"
+  [ ! -f "$state/.opencode-cap-go-second" ] || fail "a live markerless lane must not mark the fourth rung capped"
+  pass "a live markerless lane records its Go cap against the main rung"
+}
+
 test_explicit_go_refuses_despite_live_second_rung() {
   local state note got cfg
   state=$(fresh_state explicit-go-second)
@@ -1110,6 +1162,26 @@ JSON
   pass "an unstarted window on an idle plan never counts as resetting soonest"
 }
 
+test_bills_go_names_only_the_go_tier() {
+  fm_opencode_model_bills_go "$GO" \
+    || fail "the Go model id must bill the Go workspace"
+  fm_opencode_model_bills_go "$GO_BARE" \
+    || fail "the bare Go model id must bill the Go workspace"
+  fm_opencode_model_bills_go "$FREE" \
+    && fail "the free model must bill no Go workspace"
+  fm_opencode_model_bills_go "$FREE_BARE" \
+    && fail "the bare free model must bill no Go workspace"
+  fm_opencode_model_bills_go "$FM_OPENCODE_LADDER_PLUS_MODEL" \
+    && fail "the Codex Plus model must bill no Go workspace"
+  fm_opencode_model_bills_go "anthropic/claude-opus-4-5" \
+    && fail "an ungoverned passthrough model must bill no Go workspace"
+  fm_opencode_model_bills_go "" \
+    && fail "an empty model must bill no Go workspace"
+  fm_opencode_model_bills_go "default" \
+    && fail "the default model must bill no Go workspace"
+  pass "only the Go tier bills a Go workspace, in either id form"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
@@ -1144,6 +1216,8 @@ test_fourth_rung_exhaustion_refuses
 test_second_rung_cap_never_marks_main_go
 test_secondary_lane_evidence_feeds_fourth_rung
 test_main_lane_evidence_feeds_main_go
+test_orphan_retry_attributes_to_no_go_rung
+test_markerless_live_lane_records_main_go_cap
 test_explicit_go_refuses_despite_live_second_rung
 test_plus_request_falls_to_second_workspace
 test_unconfigured_exhaustion_ignores_second_record
@@ -1155,3 +1229,4 @@ test_5h_cap_falls_back_and_returns
 test_weekly_cap_falls_back_and_returns
 test_longcat_unreachable_while_second_plan_live
 test_unstarted_window_never_prioritizes_idle_plan
+test_bills_go_names_only_the_go_tier
