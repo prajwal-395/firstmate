@@ -86,9 +86,13 @@ to 3 Tier-1 jobs at pytest `-n 1` with a 90s window (small clusters,
 low latency). Loaded: 1 job at `-n 2` with a 600s window (bigger
 clusters, fewer full-gate runs). Swap pressure caps fan-out (1GB) then
 serialises (2GB); the 1-minute load average survives only as a fallback
-when the CPU sample is unavailable. A ripe ready cluster has priority:
-no new Tier-1 starts until the batch has started, and Tier-2 fires as
-soon as running Tier-1 jobs drain. A batch
+when the CPU sample is unavailable. Tier-1 keeps running while a
+ready cluster is ripe or testing, so every ready PR gets checked and
+enters the queue: a ripe batch waits for running Tier-1 jobs to drain
+(a time-boxed round), never for new heads to stop arriving. Heavy work
+still never overlaps - a Tier-1 pytest refuses while a batch
+full-suite gate holds the machine lock, and Tier-2 fires through the
+idle gate once the drain completes. A batch
 full-suite gate in flight defers everything; a run that would breach
 the 10GB disk floor refuses and says so. The policy is pure and pinned
 by `tests/unit/tools/test_local_ci_load.py` - tune the matrix, not the

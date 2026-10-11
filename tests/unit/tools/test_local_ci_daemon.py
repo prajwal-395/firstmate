@@ -2,9 +2,9 @@
 
 Defects caught: two new heads where only one gets checked (serial
 leftover), a ledger write lost to a thread race, a red ready-PR that
-keeps its queue label, latency nobody recorded (untunable), a ripe
-Tier-2 cluster starved by steady Tier-1 arrivals, and timed-out Tier-1
-runs posted as failures with no retry.
+keeps its queue label, latency nobody recorded (untunable), ready PRs
+starved of Tier-1 by a ripe Tier-2 batch (never entering the queue),
+and timed-out Tier-1 runs posted as failures with no retry.
 GitHub is faked; the ledger is real (tmp state dir).
 """
 
@@ -400,12 +400,14 @@ def test_timeout_exhaustion_posts_failure_and_drops_the_label(
     assert state.read_queue(str(tmp_path)) == []
 
 
-def test_ripe_tier2_defers_new_tier1_until_the_batch_starts(
+def test_tier1_runs_while_tier2_is_ripe(
         monkeypatch, tmp_path, faked_github):
-    # PRs 2265/2273 sat queued with Tier-1 green while 2274's Tier-1
-    # ran: the event loop started Tier-1 whenever a slot freed, so a
-    # steady stream of heads starved Tier-2. When Tier-2 is due, no new
-    # Tier-1 starts until the batch has started.
+    # PRs 2287-2302 sat queued-ready for hours without a Tier-1 run,
+    # so they never entered the Tier-2 queue: a ripe batch (with
+    # chained bisects behind it) refused every new head. Tier-1 keeps
+    # running while a cluster is ripe; the heavy-work lock - not the
+    # dispatcher - serializes heavy execution (runner.run refuses
+    # while a full-suite gate holds the machine).
     old = time.time() - 1000
     state.write_queue(
         [{"pr": 31, "head": "head-31", "status": state.ENTRY_QUEUED,
@@ -413,24 +415,44 @@ def test_ripe_tier2_defers_new_tier1_until_the_batch_starts(
     faked_github.prs = [_pr(32)]
     monkeypatch.setattr(daemon, "run_tier1",
                         lambda world, pr, workers: _outcome(pr))
-    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
-    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
     world = queue.World(state_dir=str(tmp_path))
     done = daemon.pass_once(world, plan={"tier1_jobs": 2, "pytest_n": 1,
                                          "window": 90, "headroom": 9.0,
                                          "heavy": []})
-    assert done["checked"] == []
-    assert done["tier2_priority"] is True
-    assert any("Tier-2 batch" in line for line in done["refused"])
+    assert done["checked"] == [32]
+    assert not any("Tier-2 batch" in line for line in done["refused"])
+    assert done["queue"]["stubbed"] is True
+
+
+def test_green_ready_head_joins_the_queue_while_tier2_is_ripe(
+        monkeypatch, tmp_path, faked_github):
+    # The captain's demand: every PR labelled ready actually enters
+    # the queue, even with a ripe batch ahead of it - so the next
+    # Tier-2 run tests it instead of leaving it unqueued for hours.
+    old = time.time() - 1000
+    state.write_queue(
+        [{"pr": 31, "head": "head-31", "status": state.ENTRY_QUEUED,
+          "reason": "", "enqueued_at": old}], str(tmp_path))
+    faked_github.prs = [_pr(32, labels=[config.READY_LABEL])]
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
+    world = queue.World(state_dir=str(tmp_path))
+    done = daemon.pass_once(world, plan={"tier1_jobs": 2, "pytest_n": 1,
+                                         "window": 90, "headroom": 9.0,
+                                         "heavy": []})
+    assert done["checked"] == [32]
+    assert done["queued"] == [32]
+    queued = {entry["pr"]: entry
+              for entry in state.read_queue(str(tmp_path))}
+    assert queued[32]["head"] == "head-32"
 
 
 def test_tier2_fires_as_soon_as_running_tier1_drains(
         monkeypatch, tmp_path):
-    # Priority without drain would wedge Tier-1 forever: with a ripe
-    # cluster and no Tier-1 in flight, the same pass that defers Tier-1
-    # must still run the Tier-2 batch. (No faked_github fixture here:
-    # it stubs queue.process_once, which is exactly what this test
-    # needs real.)
+    # The idle gate still holds: the sync path runs Tier-1 inline and
+    # the same pass must still run the Tier-2 batch once the slots
+    # have drained. (No faked_github fixture here: it stubs
+    # queue.process_once, which is exactly what this test needs real.)
     from library.tools.local_ci import github
     old = time.time() - 1000
     state.write_queue(
@@ -439,6 +461,8 @@ def test_tier2_fires_as_soon_as_running_tier1_drains(
     monkeypatch.setattr(github, "list_open_prs", lambda: [_pr(34)])
     monkeypatch.setattr(github, "post_status", lambda *a, **k: None)
     monkeypatch.setattr(github, "remove_label", lambda *a, **k: None)
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
 
     class BatchWorld(queue.World):
         def main_sha(self):
@@ -462,32 +486,41 @@ def test_tier2_fires_as_soon_as_running_tier1_drains(
     done = daemon.pass_once(world, plan={"tier1_jobs": 2, "pytest_n": 1,
                                          "window": 90, "headroom": 9.0,
                                          "heavy": []})
-    assert done["started"] if "started" in done else True
-    assert done["checked"] == []
+    assert done["checked"] == [34]
     assert done["queue"]["ripe"] is True
     assert done["queue"]["merged"] == [33]
 
 
-def test_scheduler_defers_new_tier1_while_tier2_is_ripe(
+def test_scheduler_starts_tier1_while_tier2_is_ripe(
         monkeypatch, tmp_path, faked_github):
-    # Async path: poll_once must also yield to a ripe cluster instead
-    # of filling every free slot with new heads.
+    # Async path: poll_once starts new Tier-1 jobs even with a ripe
+    # cluster waiting, and Tier-2 fires through the idle gate once
+    # those workers drain and their outcomes are collected.
     old = time.time() - 1000
     state.write_queue(
         [{"pr": 35, "head": "head-35", "status": state.ENTRY_QUEUED,
           "reason": "", "enqueued_at": old}], str(tmp_path))
     faked_github.prs = [_pr(36)]
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
     monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
     monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
     scheduler = daemon.Tier1Scheduler(queue.World(state_dir=str(tmp_path)))
+    plan = {"tier1_jobs": 2, "pytest_n": 1, "window": 90,
+            "headroom": 9.0, "heavy": []}
     try:
-        done = scheduler.poll_once({"tier1_jobs": 2, "pytest_n": 1,
-                                    "window": 90, "headroom": 9.0,
-                                    "heavy": []})
+        done = scheduler.poll_once(plan)
+        assert done["started"] == [36]
+        assert "tier2_priority" not in done
+        deadline = time.monotonic() + 5
+        while not scheduler.has_completed() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert scheduler.has_completed()
+        collected = scheduler.poll_once(plan)
+        assert collected["checked"] == [36]
+        assert collected["queue"]["stubbed"] is True
     finally:
         scheduler.shutdown(wait=True)
-    assert done["started"] == []
-    assert done["tier2_priority"] is True
 
 
 def test_capped_selection_is_recorded_on_the_status(

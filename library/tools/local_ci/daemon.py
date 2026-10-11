@@ -31,6 +31,13 @@ One synchronous/manual pass:
    in threads, as many as the plan allows.
 4. Ripe ready-cluster with no batch in flight -> Tier-2 process_once.
 
+Tier-1 never yields to a ripe Tier-2 cluster at dispatch: new heads
+are checked even while a batch is ripe or testing, so every ready PR
+enters the queue. Heavy work still never overlaps: a Tier-1 pytest
+refuses while a full-suite gate holds the machine lock (runner.run),
+and a ripe batch fires through the idle gate once running Tier-1
+jobs drain.
+
 Tier-1 ledger writes stay on the daemon thread, so concurrent results
 cannot overwrite each other's records.
 """
@@ -289,15 +296,17 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
     from library.tools.local_ci import github
     plan = plan or load.targets(load.measure())
     done: dict = {"plan": load.describe(plan), "checked": [],
-                  "queued": [], "refused": [], "queue": {},
-                  "tier2_priority": False}
+                  "queued": [], "refused": [], "queue": {}}
     due, checks = _discover_due(world, done)
-    if due and _tier2_ripe(world.state_dir, plan["window"], due):
-        done["tier2_priority"] = True
-        for pr, _seen_at in due:
-            done["refused"].append(
-                f"PR #{pr['number']}: deferred for ripe Tier-2 batch")
-        due = []
+    # No ripe-cluster deferral: Tier-1 keeps running while a Tier-2
+    # cluster is ripe or testing. PRs 2287-2302 sat ready for hours
+    # without a Tier-1 run - and so never entered the queue - because
+    # a ripe batch (with chained bisects behind it) refused every new
+    # head. Serialization is the heavy-work lock's job, not the
+    # dispatcher's: runner.run refuses while a full-suite gate holds
+    # the machine, and Tier-2 fires through the idle gate below once
+    # running Tier-1 jobs drain. Tier-1 rounds are time-boxed, so a
+    # ripe batch waits minutes for the drain, never hours for heads.
     if due:
         slots = hygiene.Slots(world.state_dir, jobs=plan["tier1_jobs"])
 
@@ -356,32 +365,6 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
                         for e in entries)):
         done["queue"] = queue.process_once(world, window=plan["window"])
     return done
-
-
-def _tier2_ripe(state_dir: str, window: int, due: list | None = None) -> bool:
-    """Whether a ready cluster is due: Tier-1 must yield, not starve it.
-
-    Ripe means plan_cluster would run a cluster now (window elapsed
-    since the oldest ready entry arrived) with no member currently
-    testing. Callers check
-    this BEFORE starting new Tier-1 jobs: when ripe, no new Tier-1
-    starts until the batch has started, and Tier-2 fires as soon as
-    running Tier-1 jobs drain (the existing idle gate below). Queue
-    entries whose PR has a NEW head in `due` are stale (the batch
-    would only refresh them, not test them), so they do not hold
-    Tier-1 off while the fresh head still needs its check.
-    """
-    entries = state.read_queue(state_dir)
-    if any(e.get("status") == state.ENTRY_TESTING for e in entries):
-        return False
-    due_heads = {pr["number"]: pr["head"] for pr, _seen in (due or [])}
-    fresh = [e for e in entries
-             if e.get("status") in (state.ENTRY_QUEUED, state.ENTRY_GREEN)
-             and due_heads.get(e.get("pr"), e.get("head")) == e.get("head")]
-    if not fresh:
-        return False
-    cluster, _waiting = queue.plan_cluster(fresh, time.time(), window)
-    return bool(cluster)
 
 
 def _maybe_enqueue(world: queue.World, pr: dict, record: dict, done: dict) -> None:
@@ -543,8 +526,7 @@ class Tier1Scheduler:
         """Collect completed work, detect heads, and fill free slots."""
         plan = plan or load.targets(load.measure())
         done = {"plan": load.describe(plan), "checked": [], "started": [],
-                "queued": [], "refused": [], "queue": {},
-                "tier2_priority": False}
+                "queued": [], "refused": [], "queue": {}}
         self.collect(done)
         due, _ = _discover_due(self.world, done)
 
@@ -557,15 +539,11 @@ class Tier1Scheduler:
         active_count = len(active_slots) + active_reserved
         target = min(max(1, int(plan["tier1_jobs"])), load.TIER1_MAX)
         capacity = max(0, target - active_count)
-        if due and _tier2_ripe(self.world.state_dir, plan["window"], due):
-            # A ripe ready cluster has priority: start no new Tier-1
-            # jobs until the batch has started. Running Tier-1 jobs
-            # drain, then the idle gate below fires Tier-2 at once.
-            capacity = 0
-            done["tier2_priority"] = True
-            for pr, _seen_at in sorted(due, key=lambda item: item[1]):
-                done["refused"].append(
-                    f"PR #{pr['number']}: deferred for ripe Tier-2 batch")
+        # No ripe-cluster deferral here either (see pass_once): new
+        # heads start even while a batch is ripe. The heavy-work lock
+        # serializes execution - a Tier-1 pytest refuses while the gate
+        # holds the machine - and the idle gate below fires Tier-2 once
+        # these workers drain, so neither tier starves the other.
         from library.tools.local_ci import upstream
         queued = state.read_queue(self.world.state_dir)
         intake_idle = (not due and active_count == 0
