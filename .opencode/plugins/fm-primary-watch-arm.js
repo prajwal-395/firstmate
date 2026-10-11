@@ -59,12 +59,16 @@ function setArmStatus(status) {
 // fd 3 still execs the arm script, and its successor is then reported as still
 // starting rather than as a failure.
 const ARM_HANDOFF_MARKER = "fm-arm-exec";
-const ARM_COMMAND = [
-  'config_dir="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"',
-  '[ -f "$config_dir/x-mode.env" ] && . "$config_dir/x-mode.env"',
-  `{ printf '${ARM_HANDOFF_MARKER}\\n' >&3; exec 3>&-; } 2>/dev/null`,
-  'exec "$FM_ROOT_OVERRIDE/bin/fm-watch-arm.sh" --restart',
-].join("; ");
+function armCommand(hostMode) {
+  return [
+    'config_dir="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"',
+    '[ -f "$config_dir/x-mode.env" ] && . "$config_dir/x-mode.env"',
+    `{ printf '${ARM_HANDOFF_MARKER}\\n' >&3; exec 3>&-; } 2>/dev/null`,
+    hostMode
+      ? 'exec "$FM_ROOT_OVERRIDE/bin/fm-supervision-host.sh" park --restart'
+      : 'exec "$FM_ROOT_OVERRIDE/bin/fm-watch-arm.sh" --restart',
+  ].join("; ");
+}
 
 // Expiry never decides that a successor failed, only which interval expired.
 // Before the arm child announces its handoff it has not run a single arm
@@ -464,7 +468,8 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     FM_CONFIG_OVERRIDE: paths.config,
     FM_WATCH_PREDECESSOR_ARM_PID: predecessorArmPid,
   };
-  const armChild = spawn("bash", ["-lc", ARM_COMMAND], {
+  if (hostMode) env.FM_SUPERVISION_HOST_PRIMARY = "opencode";
+  const armChild = spawn("bash", ["-lc", armCommand(hostMode)], {
     cwd: paths.root,
     env,
     stdio: ["ignore", "pipe", "pipe", "pipe"],
