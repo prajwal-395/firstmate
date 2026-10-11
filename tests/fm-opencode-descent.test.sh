@@ -58,6 +58,18 @@ chmod +x "$FAKEBIN/quota-axi"
 PATH="$FAKEBIN:$PATH"
 export PATH
 
+# Hermetic home: the Codex Plus effort and the second-workspace pick resolve
+# through FM_CONFIG_OVERRIDE then FM_HOME/config, so the invoking home's real
+# crew-dispatch.json (notably its Codex effort) and opencode-second-org would
+# otherwise leak into the default assertions below. Every case runs under this
+# empty home; the configured-effort and second-workspace cases set
+# FM_CONFIG_OVERRIDE themselves for the case under test.
+FAKEHOME="$TMP_ROOT/fakehome"
+mkdir -p "$FAKEHOME/config"
+FM_HOME="$FAKEHOME"
+export FM_HOME
+unset FM_CONFIG_OVERRIDE
+
 RETRY="$ROOT/bin/fm-opencode-retry.sh"
 BUSY="$ROOT/bin/fm-busy-event.sh"
 

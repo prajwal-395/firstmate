@@ -67,6 +67,18 @@ chmod +x "$QUOTA_BIN/quota-axi"
 HELPER="$ROOT/bin/fm-opencode-retry.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
 
+# Hermetic home: the gate resolves the second workspace through
+# FM_CONFIG_OVERRIDE then FM_HOME/config, so the invoking home's real
+# opencode-second-org would otherwise offer a fourth rung to cases that
+# assert three-rung exhaustion. Every case runs under this empty home; cases
+# that need a second workspace set FM_CONFIG_OVERRIDE themselves, and the
+# spawn cases below build their own homes per launch.
+FAKEHOME="$TMP_ROOT/fakehome"
+mkdir -p "$FAKEHOME/config"
+FM_HOME="$FAKEHOME"
+export FM_HOME
+unset FM_CONFIG_OVERRIDE
+
 FREE='opencode/muse-spark-1.3-contributor-free'
 GO='opencode-go/muse-spark-1.3-contributor'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
