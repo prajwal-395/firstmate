@@ -238,7 +238,8 @@
       "to": "catalog",
       "data_mapping": {
         "raw_footage_files": "raw_footage_files",
-        "raw_audio_files": "raw_audio_files"
+        "raw_audio_files": "raw_audio_files",
+        "model_revision": "model_revision"
       }
     },
     {

@@ -40,6 +40,12 @@
         "name": "total_files",
         "type": "int",
         "description": "State output: total_files"
+      },
+      {
+        "name": "model_revision",
+        "type": "int",
+        "description": "State output: model_revision - which Project Model revision this scan's footage was migrated at through the revision API (library/tools/footage_model_link.link_scan). None when the link was refused; the reason is in the step's model_link output. Read by the catalog edge.",
+        "required": false
       }
     ]
   },

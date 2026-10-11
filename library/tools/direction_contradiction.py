@@ -276,6 +276,7 @@ DECLINED_OUTPUTS = {
     "skipped_files": "1.01/1.02 - a listing of what was not read",
     "total_files": "1.01 - a count of a listing",
     "total_clips": "1.02 - a count of a listing",
+    "model_revision": "1.01/1.02 - which Project Model revision the footage was migrated at: a store pointer so readers resolve ids, not a measurement of the material",
     "total_clips_analyzed": "1.03 - a count of a listing",
     "index_dir": "1.04 - a path",
     "source": "1.04 - which route produced the index",

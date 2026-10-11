@@ -3026,10 +3026,18 @@ def run_pipeline(
     def finish_reused_planning_step(node_id, output):
         """Restore the state witnesses so downstream readers see the result."""
         capability_outputs.record(state, node_id, output)
+        reused_entry = {
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "reused": True,
+        }
+        # Lane B R10: what ingest this completion stands on - the one
+        # fingerprint function, called by the ledger, not reimplemented.
+        # Best-effort: absent when unreadable, never a failure.
+        _ingest = step_ledger.ingest_mark(project_dir)
+        if _ingest is not None:
+            reused_entry["ingest_fingerprint"] = _ingest["digest"]
         step_ledger.record(
-            state, stage_by_node[node_id], node_id,
-            {"completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-             "reused": True},
+            state, stage_by_node[node_id], node_id, reused_entry,
         )
         save_pipeline_state(project_dir, state)
         run_control.record_step_timing(project_dir, node_id, reused=True)
@@ -3657,6 +3665,12 @@ def run_pipeline(
                 "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "elapsed_s": round(elapsed, 1),
             }
+            # Lane B R10: what ingest this completion stands on - the one
+            # fingerprint function, called by the ledger, not
+            # reimplemented. Best-effort: absent when unreadable.
+            _ingest = step_ledger.ingest_mark(project_dir)
+            if _ingest is not None:
+                entry["ingest_fingerprint"] = _ingest["digest"]
             if auto_mode and impl["type"] == "hybrid":
                 entry["note"] = "auto-completed via bridge (context only)"
             step_ledger.record(state, stage_by_node[node_id], node_id, entry)

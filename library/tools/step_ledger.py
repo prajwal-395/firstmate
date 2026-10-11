@@ -398,3 +398,34 @@ def parse_rerun_target(target: str, known_steps: Iterable[str]) -> Tuple[str, st
             f"this pipeline."
         )
     return ("step", target)
+
+
+# ── The ingest mark (cascade Lane B, R10) ────────────────────────────
+
+def ingest_mark(project_folder: str) -> dict | None:
+    """The footage ingest's fingerprint, or None when it cannot be read.
+
+    R10 names three fingerprints - ``ingest_fingerprint`` (catalog +
+    memory, the index build's staleness key), the ledger's
+    ``source_fingerprints`` (per-file footage identity) and
+    ``footage_identity.fingerprint`` - and converges them on ONE
+    function: the index fingerprint already composes the other two, so
+    the ledger calls it instead of reimplementing.  The runner stamps
+    the returned digest onto each step completion it records, so a
+    reader of the ledger knows what ingest a step completed at.
+
+    Best-effort by contract: a mark that cannot be computed reads as
+    absent, never as a failure - the Resolve path is unchanged either
+    way.
+    """
+    try:
+        from library.tools.analysis import footage_segments
+    except ImportError:
+        return None
+    try:
+        mark = footage_segments.ingest_fingerprint(project_folder)
+    except Exception:  # noqa: BLE001 - best-effort linkage
+        return None
+    if not isinstance(mark, dict) or not mark.get("digest"):
+        return None
+    return mark

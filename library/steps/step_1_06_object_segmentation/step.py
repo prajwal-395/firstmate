@@ -78,6 +78,35 @@ def _stamp_segmentation_identity(path: Path, clip_path: str,
     except (OSError, ValueError):
         pass
 
+
+def _stamp_segmentation_model_ids(path: Path, clip_id: str) -> None:
+    """Write the ``{mask_id, track_id}`` sidecar beside a fresh matte.
+
+    Lane B (cascade report 2.1): the mask file's bytes stay the
+    authority (58MB/13min is not state); the sidecar is the foreign
+    key into the Project Model, minted with the same ids
+    ``project_model_evidence._migrate_segmentation`` mints so the
+    sidecar a reader opens and the model the migration commits
+    resolve to each other. Best-effort like the identity stamp above:
+    a sidecar that fails to land leaves the matte usable and the next
+    run's migration reads the segmentation file directly.
+    """
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    try:
+        from library.tools import footage_model_link
+        sidecar = (path.parent
+                   / footage_model_link.sidecar_name(clip_id))
+        sidecar.write_text(json.dumps({
+            "clip_id": clip_id,
+            "objects": footage_model_link.mask_sidecar_entries(
+                clip_id, stored),
+        }, indent=2), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
 #: THE TRIGGER. This step segments ONLY the clips a matte-needing plan
 #: names on this run - never every clip on every run (measured 6.1x
 #: realtime and 58.3 MB for 807s at 2 fps on 001, so a full pass is a
@@ -380,6 +409,7 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
                 os.rename(old_file, new_file)
             _stamp_segmentation_identity(new_file, clip_path,
                                          face_box, SEGMENT_SAMPLE_FPS)
+            _stamp_segmentation_model_ids(new_file, clip_id)
 
             # Add summary to step results
             results.append({

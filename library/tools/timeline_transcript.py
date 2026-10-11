@@ -807,7 +807,8 @@ def rebind_document(document: dict, snapshot,
         snapshot, rebound_segments,
         transcription=document.get("transcription"),
         mic_bleed_resolution=(mic_bleed_resolution
-                              or document.get("mic_bleed_resolution", [])))
+                              or document.get("mic_bleed_resolution", [])),
+        project_folder=project_folder)
     # A rebound transcript SAYS it is one.  The words came from the run
     # named here; the binding came from this machine's clip list, and a
     # reader comparing two transcripts of one timeline needs to know
@@ -1027,6 +1028,7 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
                         transcription: Optional[dict] = None,
                         mic_bleed_resolution: Optional[List[dict]] = None,
                         diarization: Optional[dict] = None,
+                        project_folder: Optional[str] = None,
                         ) -> dict:
     """The whole transcript, as written to disk.
 
@@ -1040,6 +1042,13 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
     `single-label`) and why. A transcript whose voices were never
     separated reads that here rather than leaving the reader to infer
     it from one speaker key.
+
+    `project_folder` (Lane B, cascade report 2.1) stamps each segment
+    row's `obs_id` - the utterance Observation the source-memory M1
+    mints for the source span that row overlaps. The span-cache key is
+    untouched: this adds a field, it changes no key. Rows that resolve
+    to no fresh M1 utterance carry no `obs_id`; the document's own
+    population counts say how many linked and how many did not.
     """
     unbound = sum(1 for s in merged if s.resolve_item_id is None)
     read_from_words = sum(1 for s in merged if s.read_from_words)
@@ -1161,6 +1170,12 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         body["transcription"] = transcription
     if diarization is not None:
         body["diarization"] = diarization
+    if project_folder:
+        from library.tools import footage_model_link
+        linkage = footage_model_link.attach_transcript_obs_ids(
+            body, project_folder)
+        body["segments_with_obs_id"] = linkage["linked"]
+        body["segments_without_obs_id"] = linkage["unlinked"]
     return body
 
 
@@ -1596,7 +1611,8 @@ def build_and_transcribe(project_folder: str, snapshot,
         snapshot, merged,
         transcription=transcription_record(heard_by),
         mic_bleed_resolution=mic_bleed_resolution,
-        diarization=diarization_record)
+        diarization=diarization_record,
+        project_folder=project_folder)
     # The guarantee half: respell at the root, before anything
     # downstream reads it. Downstream consumers need no changes - they
     # read corrected words because corrected words are what is here.

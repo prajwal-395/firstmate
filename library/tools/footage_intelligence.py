@@ -192,11 +192,17 @@ def _record_completion(project: str, state: dict, cid: str, node: str,
     from library.tools import capability_outputs
     capability_outputs.record(state, node, payload, capability_id=cid)
     rp._clear_step_failure(state, node)
-    step_ledger.record(state, stage, node, {
+    completion = {
         "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "elapsed_s": round(seconds, 1),
         "operation": cid,
-    })
+    }
+    # Lane B R10: what ingest this completion stands on - the one
+    # fingerprint function, called by the ledger, not reimplemented.
+    _ingest = step_ledger.ingest_mark(project)
+    if _ingest is not None:
+        completion["ingest_fingerprint"] = _ingest["digest"]
+    step_ledger.record(state, stage, node, completion)
     rp.save_pipeline_state(project, state)
     rp._export_step_for_review(project, node, nodes[node]["name"], payload,
                                state)

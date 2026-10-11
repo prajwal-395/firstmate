@@ -298,6 +298,39 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M1 {status}; no speech "
                              f"observations")
         return
+    # Lane B (cascade report 2.1): one Observation per utterance, with
+    # the deterministic lane key `footage_model_link.utterance_obs_id`
+    # both the footage index and timeline transcripts mint. Word-level
+    # rows below keep their counter ids; the utterance row is what a
+    # transcript segment's `obs_id` resolves to.
+    try:
+        from library.tools import footage_model_link as link
+    except ImportError:  # pragma: no cover - same-tree import
+        link = None
+    for u_idx, utt in enumerate(doc.get("utterances") or []):
+        if link is not None and isinstance(utt, dict):
+            ticks = sec_to_ticks(utt.get("start"), utt.get("end"))
+            obs_id = link.utterance_obs_id(digest, u_idx)
+            if ticks is not None and not any(
+                    isinstance(row, dict) and row.get("id") == obs_id
+                    for row in builder.model["observations"]):
+                words = utt.get("words") or []
+                text = utt.get("text")
+                if isinstance(text, str) and text.strip():
+                    builder.model["observations"].append({
+                        "id": obs_id,
+                        "asset_id": asset_id,
+                        "interval": {"clock_id": clock_id,
+                                     "start": ticks[0], "end": ticks[1]},
+                        "modality": "speech",
+                        "payload": {"text": text,
+                                    "utterance_index": u_idx,
+                                    "word_count": len(words)},
+                        "confidence": None,
+                        "provenance_id": builder.provenance(
+                            digest, "m1",
+                            "library.tools.source_memory:M1"),
+                    })
     for u_idx, utt in enumerate(doc.get("utterances") or []):
         for word in utt.get("words") or []:
             if not isinstance(word, dict):
@@ -807,18 +840,26 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
 
 
 def migrate_project_evidence(project_folder: str, *,
-                             memory_root: str | Path | None = None
+                             memory_root: str | Path | None = None,
+                             catalog: list | None = None,
                              ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Migrate one project's measured evidence into a Project Model dict.
 
     Returns ``(model, report)``; the model is validated before return.
     Reads only: catalog, recorded fingerprints, memory lanes, the person
     roster derived from stored identity, and 1.06 segmentation files.
+
+    ``catalog`` is the in-memory clip catalog when the caller just
+    measured it (the scan link); None reads it off the project state
+    as before.
     """
     root = Path(memory_root).expanduser() if memory_root else None
     slug = Path(project_folder).name or "project"
     builder = _Builder(f"project-{slug}")
-    catalog = source_memory.load_catalog(project_folder)
+    if catalog is None:
+        catalog = source_memory.load_catalog(project_folder)
+    if not isinstance(catalog, list):
+        catalog = []
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     roster = person_entity.resolve_person_tracks(
         project_folder, root)["persons"]

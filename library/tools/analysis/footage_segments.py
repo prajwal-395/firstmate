@@ -100,6 +100,17 @@ class Segment:
     text: str
     facets: dict = field(default_factory=dict)
     words: list = field(default_factory=list)
+    # Lane B (cascade report 2.1): the segment's foreign keys into the
+    # Project Model. `asset_id` + the source-clock interval locate the
+    # span on the model's time; `obs_id` (speech rows from a fresh M1
+    # transcript only) resolves to the utterance Observation the
+    # migration mints. Absent when the digest or transcript is
+    # unresolvable - honestly unlinked, never guessed.
+    asset_id: str | None = None
+    clock_id: str | None = None
+    start_tick: int | None = None
+    end_tick: int | None = None
+    obs_id: str | None = None
 
     @property
     def duration(self) -> float:
@@ -280,7 +291,23 @@ def _clean(value) -> str:
     return " ".join(str(value or "").split())
 
 
-def _speech_segments(clip, temporal_doc, base_facets) -> list:
+def _linkage(start: float, end: float,
+             digest: str | None) -> dict:
+    """A segment's model FKs, or all-None when the digest is absent."""
+    if digest is None:
+        return {"asset_id": None, "clock_id": None,
+                "start_tick": None, "end_tick": None}
+    from library.tools import footage_model_link as model_link
+
+    ticks = model_link.sec_to_ticks(start, end)
+    return {"asset_id": model_link.asset_id_for_digest(digest),
+            "clock_id": model_link.clock_id_for_digest(digest),
+            "start_tick": ticks[0] if ticks else None,
+            "end_tick": ticks[1] if ticks else None}
+
+
+def _speech_segments(clip, temporal_doc, base_facets,
+                     digest: str | None = None) -> list:
     out = []
     for i, region in enumerate(temporal_doc.get("speech_regions") or []):
         text = _clean(region.get("text"))
@@ -306,11 +333,15 @@ def _speech_segments(clip, temporal_doc, base_facets) -> list:
                     "transcript_source": "temporal-index",
                     **curve_facets(temporal_doc, start, end)},
             words=words,
+            # 1.04 regions are not M1 utterances: no utterance
+            # Observation exists for them, so no obs_id is minted.
+            **_linkage(start, end, digest),
         ))
     return out
 
 
-def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets) -> list:
+def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets,
+                            digest: str | None = None) -> list:
     """One segment per whole-source memory utterance.
 
     The same id namespace and region keys as `_speech_segments` - an
@@ -337,7 +368,7 @@ def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets) -> list:
         ]
         if not words:
             continue
-        out.append(Segment(
+        row = Segment(
             segment_id=f"{clip['clip_id']}#speech#{i:03d}",
             clip_id=clip["clip_id"],
             filename=clip.get("filename", ""),
@@ -350,7 +381,13 @@ def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets) -> list:
                     "transcript_source": "source-memory",
                     **curve_facets(temporal_doc, start, end)},
             words=words,
-        ))
+            **_linkage(start, end, digest),
+        )
+        if digest is not None:
+            from library.tools import footage_model_link as model_link
+
+            row.obs_id = model_link.utterance_obs_id(digest, i)
+        out.append(row)
     return out
 
 
@@ -789,15 +826,6 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
     vision = load_vision_profiles(project_folder, catalog)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
 
-    cutters = {
-        "speech": lambda c, v, t, b: _speech_segments(c, t, b),
-        "action": _action_segments,
-        "scene": _scene_segments,
-        "camera": _camera_segments,
-        "object": _object_segments,
-        "chunk": lambda c, v, t, b: _chunk_segments(c, t, v, b),
-    }
-
     segments = []
     for clip in catalog:
         clip_id = clip.get("clip_id")
@@ -808,6 +836,23 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         base = _vision_facets(vision_doc)
         base.update(_deterministic_facets(temporal_doc))
         base["duration_seconds"] = clip.get("duration_seconds")
+        # Lane B (cascade report 2.1): the clip's content digest is what
+        # a segment's foreign keys resolve through - `asset-{digest}`
+        # and the source-clock interval. Computed once per clip and
+        # passed to both speech paths; absent when the media is offline
+        # and nothing was recorded, which reads as unlinked, never as
+        # a guessed id.
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        cutters = {
+            "speech": lambda c, v, t, b, digest=digest: _speech_segments(
+                c, t, b, digest),
+            "action": _action_segments,
+            "scene": _scene_segments,
+            "camera": _camera_segments,
+            "object": _object_segments,
+            "chunk": lambda c, v, t, b: _chunk_segments(c, t, v, b),
+        }
         # A fresh whole-source transcript supersedes the 1.04 regions
         # for the same clip: both transcribe the whole file, so
         # serving both would index every word twice. The memory is
@@ -818,7 +863,7 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         if memory_doc is not None and memory_status == "fresh":
             if "speech" in kinds:
                 segments.extend(_memory_speech_segments(
-                    clip, memory_doc, temporal_doc, base))
+                    clip, memory_doc, temporal_doc, base, digest))
             kinds_rest = [k for k in kinds if k != "speech"]
         else:
             kinds_rest = list(kinds)

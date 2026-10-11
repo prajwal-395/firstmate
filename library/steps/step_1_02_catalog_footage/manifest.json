@@ -41,6 +41,12 @@
         "type": "array",
         "required": false,
         "description": "State input: raw_audio_files - scan's audio-only files in audio_001 numbering. Absent on runs whose scan predates it; empty on video-only projects."
+      },
+      {
+        "name": "model_revision",
+        "type": "int",
+        "required": false,
+        "description": "State input: model_revision - the scan's Project Model revision, routed over the DAG edge. Stamped onto every clip_catalog entry and the catalog output so a reader knows which revision's assets/streams/clocks its rows resolve into. Absent on runs whose scan predates Lane B; None when the scan's link was refused."
       }
     ],
     "outputs": [

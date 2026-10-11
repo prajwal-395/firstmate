@@ -766,7 +766,8 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
                     project_config: dict | None = None,
                     project_folder: str = "",
                     measure_program_stream: bool | None = None,
-                    raw_audio_files: list | None = None) -> dict:
+                    raw_audio_files: list | None = None,
+                    model_revision=None) -> dict:
     """
     Extract metadata for each file, sort chronologically, assign ordering.
 
@@ -885,6 +886,14 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
     for i, entry in enumerate(entries):
         entry["source_order"] = i + 1
 
+    # Lane B (cascade report 2.1): which Project Model revision this
+    # catalog's rows resolve into - the scan's link, routed over the
+    # DAG edge. None when the link was refused; unlinked, never zero.
+    # Spelled by footage_model_link, the one owner of footage-layer
+    # keys; the step only routes the value.
+    from library.tools import footage_model_link
+    footage_model_link.stamp_catalog_revision(entries, model_revision)
+
     # --- Derive project fps and the SOURCE resolution ---
     # `source_resolution` DESCRIBES THE FOOTAGE. It is not the render
     # target and must never be used as one (captain's ruling,
@@ -966,6 +975,10 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         "source_resolution": source_res,
         "audio_catalog": audio_catalog,
         "duplicate_groups": duplicate_groups,
+        # Lane B (cascade report 2.1): the catalog-wide revision, beside
+        # the per-entry stamp above, so a reader need not open every row
+        # to learn which revision this write resolves into.
+        "model_revision": model_revision,
     }
     # Publish the human-usable first value as soon as lightweight cataloging
     # finishes. Semantic and temporal analysis are downstream and may still run.
@@ -1105,6 +1118,7 @@ def main():
             measure_program_stream=input_data.get(
                 "measure_program_stream"),
             raw_audio_files=input_data.get("raw_audio_files"),
+            model_revision=input_data.get("model_revision"),
         )
     except (ValueError, RuntimeError) as e:
         print(json.dumps({

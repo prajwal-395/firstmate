@@ -111,6 +111,37 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/graphics_renderer.py",
         "library/tools/safe_zone_policy.py",
         "library/tools/platform_safe_zones.py",
+        # Lane B: the scan writes Asset/Stream/Clock through the Project
+        # Model revision API (footage_model_link.link_scan), so a fix to
+        # the link - or to the migration and stores behind it - changes
+        # what the scan commits. Scan is seconds, so the transcript
+        # chain this drags in re-scans cheaply rather than risking a
+        # stale model write. Same rows on the 1.06 side below.
+        "library/tools/footage_model_link.py",
+        "library/tools/project_model.py",
+        "library/tools/project_model_evidence.py",
+        "library/tools/project_model_store.py",
+        "library/tools/source_memory.py",
+        # Imported by source_memory: the transcript lanes a fresh M1
+        # resolves through.
+        "library/tools/hybrid_transcription.py",
+        "library/tools/protocol_conformance.py",
+        "library/tools/shared_environment.py",
+        "library/tools/source_primitives.py",
+        "library/tools/transcript_measurement.py",
+        # Imported by the transcript chain above.
+        "library/tools/heard_speech.py",
+        "library/tools/mfa_align.py",
+        "library/tools/subject_framing.py",
+        "library/tools/timeline_transcript.py",
+        "library/tools/word_boundaries.py",
+        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/caption_reading.py",
+        "library/tools/single_track_diarization.py",
+        "library/tools/transcript_confidence.py",
+        "library/tools/transcript_corrections.py",
+        "library/tools/transcript_fit.py",
+        "library/tools/learned_context.py",
     ),
     "step_1_01_scan_project": (
         # enumerate_footage produces raw_footage_files, the step's output.
@@ -149,6 +180,37 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by safe_zone_policy: the platform zones a policy
         # names and is checked against.
         "library/tools/platform_safe_zones.py",
+        # Lane B: the scan writes Asset/Stream/Clock through the Project
+        # Model revision API (footage_model_link.link_scan), so a fix to
+        # the link - or to the migration and stores behind it - changes
+        # what the scan commits. Scan is seconds, so the transcript
+        # chain this drags in re-scans cheaply rather than risking a
+        # stale model write. Same rows on the 1.06 side above.
+        "library/tools/footage_model_link.py",
+        "library/tools/project_model.py",
+        "library/tools/project_model_evidence.py",
+        "library/tools/project_model_store.py",
+        "library/tools/source_memory.py",
+        # Imported by source_memory: the transcript lanes a fresh M1
+        # resolves through.
+        "library/tools/hybrid_transcription.py",
+        "library/tools/protocol_conformance.py",
+        "library/tools/shared_environment.py",
+        "library/tools/source_primitives.py",
+        "library/tools/transcript_measurement.py",
+        # Imported by the transcript chain above.
+        "library/tools/heard_speech.py",
+        "library/tools/mfa_align.py",
+        "library/tools/subject_framing.py",
+        "library/tools/timeline_transcript.py",
+        "library/tools/word_boundaries.py",
+        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/caption_reading.py",
+        "library/tools/single_track_diarization.py",
+        "library/tools/transcript_confidence.py",
+        "library/tools/transcript_corrections.py",
+        "library/tools/transcript_fit.py",
+        "library/tools/learned_context.py",
     ),
     "step_1_02_catalog_footage": (
         # The exact-file probe cache changes the measurement reused for
@@ -203,6 +265,32 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/resource_scheduler.py",
         # Imported by the catalog handoff to persist assignment artifacts.
         "library/tools/assignment_artifacts.py",
+        # Lane B: the catalog stamps the scan's Project Model revision
+        # onto every row through footage_model_link, so a fix to the
+        # link changes what the cached rows resolve into. (Same chain
+        # as the scan row above.)
+        "library/tools/footage_model_link.py",
+        "library/tools/project_model.py",
+        "library/tools/project_model_evidence.py",
+        "library/tools/project_model_store.py",
+        "library/tools/source_memory.py",
+        "library/tools/hybrid_transcription.py",
+        "library/tools/protocol_conformance.py",
+        "library/tools/shared_environment.py",
+        "library/tools/source_primitives.py",
+        "library/tools/transcript_measurement.py",
+        "library/tools/heard_speech.py",
+        "library/tools/mfa_align.py",
+        "library/tools/subject_framing.py",
+        "library/tools/timeline_transcript.py",
+        "library/tools/word_boundaries.py",
+        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/caption_reading.py",
+        "library/tools/single_track_diarization.py",
+        "library/tools/transcript_confidence.py",
+        "library/tools/transcript_corrections.py",
+        "library/tools/transcript_fit.py",
+        "library/tools/learned_context.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
@@ -251,6 +339,16 @@ STEP_IMPLEMENTATION_DEPS = {
         # subject framing the reserved lanes are measured against.
         "library/tools/mfa_align.py",
         "library/tools/subject_framing.py",
+        # Lane B: the transcript chain above now mints utterance
+        # Observation ids through footage_model_link, so a fix to the
+        # link changes what the cached layers resolve into.
+        "library/tools/footage_model_link.py",
+        # Imported by footage_model_link: the migration and the stores
+        # behind the link.
+        "library/tools/project_model.py",
+        "library/tools/project_model_evidence.py",
+        "library/tools/project_model_store.py",
+        "library/tools/protocol_conformance.py",
         # Imported by transcript_measurement: the timeline transcript
         # whose segments the stored hearings are served from.
         "library/tools/timeline_transcript.py",
@@ -328,6 +426,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/steps/step_1_04_temporal_index/media_decode.py",
         # Span extraction feeding region re-measurement.
         "library/tools/timeline_transcript.py",
+        # Lane B: the transcript above now mints utterance Observation
+        # ids through footage_model_link, so a fix to the link changes
+        # what the cached segments resolve into.
+        "library/tools/footage_model_link.py",
+        # Imported by footage_model_link: the migration and the stores
+        # behind the link.
+        "library/tools/project_model.py",
+        "library/tools/project_model_evidence.py",
+        "library/tools/project_model_store.py",
+        "library/tools/protocol_conformance.py",
         # Imported by timeline_transcript: project words bias the
         # transcription and surviving corrections are applied at the
         # transcript root, so a fix here changes the cached segments.

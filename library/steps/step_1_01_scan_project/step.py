@@ -96,6 +96,19 @@ def scan_project_folder(project_folder: str) -> dict:
     # deliberately not created. See library/tools/project_layout.py.
     ProjectLayout(project_folder).ensure()
 
+    # Lane B (cascade report 2.1): the scan writes Asset/Stream/Clock
+    # through the Project Model revision API - the one writer PR 2271
+    # built, no second store. Fail-soft by contract: a model link that
+    # fails the scan is recorded in the step's own output, never raised
+    # - the Resolve path is unchanged either way. The enumerated files
+    # carry clip_id + path, which is all the migration needs to mint
+    # content-derived ids; the catalog step stamps the revision.
+    from library.tools import footage_model_link
+    model_link = footage_model_link.link_scan(
+        project_folder, catalog=raw_footage_files)
+    model_revision = (model_link.get("revision")
+                      if model_link.get("status") == "committed" else None)
+
     # What the project DECLARES, and nothing else.  This block used to
     # write `target_duration_seconds: 60`, `style_preset:
     # "shortform_vertical"` and `subtitle_style: "word_by_word"` for a
@@ -116,6 +129,13 @@ def scan_project_folder(project_folder: str) -> dict:
         "raw_audio_files": raw_audio_files,
         "skipped_files": skipped_files,
         "project_config": project_config,
+        # Lane B: which Project Model revision this scan's footage is
+        # migrated at (None when the link was refused - the reason is
+        # in `model_link`). The catalog step routes it onto every
+        # entry it writes, so a reader of the catalog knows which
+        # revision's assets/streams/clocks its rows resolve into.
+        "model_revision": model_revision,
+        "model_link": model_link,
     }
 
 
