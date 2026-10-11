@@ -10,6 +10,16 @@ lower third, timed-text card and staged explainer through Fusion comps,
 V6 and Remotion burn-in, so a headless render silently lacked all of
 them.
 
+EffectCraft projection, not overlay rendering
+---------------------------------------------
+This projector mints editable ``AddText`` layers inside an EffectCraft
+*project* - copy a creator re-opens and re-edits - not flattened overlay
+frames. FFrames owns every flattened pixel Ren ships and cannot replace
+an editable layer; this path cannot replace FFrames. The separation is
+drawn once, in the graphics-into-FFrames census
+(``vep-graphics-into-fframes-census``, spec S5): keep this path bounded,
+and never consolidate an engine away from inside this module.
+
 Inputs are the pipeline's own resolved shapes, not new ones: timed-text
 props as :func:`timed_text_overlay.plan_timed_text_segments` returns
 them (``moments`` with ``startFrame``/``durationFrames`` plus
@@ -92,6 +102,23 @@ Two deliberate narrowings, both recorded rather than silent:
   refuses the same way ``resolve_plan`` drops it: no per-frame track
   reaches this layer.
 - Only Montserrat projects (see Fonts below).
+
+Copy must fit the comp width, measured, not eyeballed
+------------------------------------------------------
+The engine draws one unbroken line per layer and renders nothing past
+the frame edge: a display run wider than the comp clips at both edges
+and ships silently (measured on real geo-podcast copy, census S5 -
+``SHOW UP MOST WINS GOOGLE`` at display size inks 898px on a 540-wide
+probe comp). The anchor-point check (:class:`TitleOutsideComp`) cannot
+see that - the point is inside the comp while the ink leaves it - so
+every run is measured against the bundled Montserrat file
+(:func:`render_fonts.measurable_font_path`) at its own pixel size and a
+run whose centred span leaves ``[0, comp width]`` refuses with
+:class:`CopyOverflowsCompWidth` naming the copy and both widths. When
+the file cannot be measured here (no Pillow, no bundled file), the run
+projects with a ``copy_width_unmeasured`` loss rather than a guessed
+width. Shorten or wrap the copy upstream; the layer is editable, the
+clipped render is not recoverable.
 
 Fonts: a family that will really draw the glyphs, or a refusal
 ---------------------------------------------------------------
@@ -291,6 +318,15 @@ class TitleOutsideComp(TitleProjectionError):
     """A title whose comp point or span leaves the composition."""
 
 
+class CopyOverflowsCompWidth(TitleProjectionError):
+    """A copy run whose centred span leaves ``[0, comp width]``.
+
+    The anchor point is inside the comp - :class:`TitleOutsideComp`
+    cannot see this - but the measured ink is wider than the frame, so
+    the engine would clip both edges and ship the clipping silently.
+    """
+
+
 class SideAnchorNotProjected(TitleProjectionError):
     """A side- or tracked-anchored run the centred text op cannot place."""
 
@@ -446,6 +482,81 @@ def _anchor_point(anchor: str, size_px: float, row: int,
             f"({x:.1f}, {y:.1f}) outside a {width}x{height} comp"
         )
     return [x, y]
+
+
+_BUNDLED_FONT_BY_SIZE: dict[int, Any] = {}
+"""PIL handles on the bundled Montserrat file, keyed by pixel size.
+
+The file never changes mid-process, so one handle per size is enough;
+the census measured per-weight static instancing as the dominant cost
+on short cards, and re-opening the file per run would pay it per run.
+"""
+
+
+def _copy_width_px(text: str, size_px: float) -> float | None:
+    """The advance width of one copy run at ``size_px``, or None.
+
+    Measured with Pillow off the bundled Montserrat file at the run's
+    own size - the face the engine resolves and the instance it draws
+    (the headless ``AddText`` carries size/fill/font only, so no weight
+    or tracking is added: the plain advance is what the engine inks).
+    Multi-line copy measures its longest line; how the engine splits
+    lines is unmeasured, so the per-line max is the honest bound. None
+    means unmeasurable here (no Pillow, no bundled file) - the caller
+    records that, never a guessed width.
+    """
+    try:
+        from library.tools.render_fonts import measurable_font_path
+    except ImportError:  # imported as ``tools.*`` from inside library/
+        from tools.render_fonts import measurable_font_path
+    path = measurable_font_path(MOTION_FONT_FAMILY, None, None)
+    if path is None:
+        return None
+    try:
+        from PIL import ImageFont
+    except ImportError:
+        return None
+    size = max(1, int(round(size_px)))
+    font = _BUNDLED_FONT_BY_SIZE.get(size)
+    if font is None:
+        try:
+            font = ImageFont.truetype(path, size)
+        except OSError:
+            return None
+        _BUNDLED_FONT_BY_SIZE[size] = font
+    lines = str(text).splitlines() or [""]
+    return max(font.getlength(line) for line in lines)
+
+
+def _require_copy_fits(label: str, text: str, size_px: float,
+                       centre_x: float, comp_width: int,
+                       losses: list[dict[str, str]]) -> None:
+    """Refuse a copy run the comp would clip at both edges, by name.
+
+    The engine centres the run on ``centre_x`` and clips past the frame
+    edge, so a run wider than the comp ships clipped copy silently. A
+    run that fits passes quietly; an unmeasurable run records a
+    ``copy_width_unmeasured`` loss and projects, because refusing on a
+    missing local measurement would fail runs the engine would draw.
+    """
+    width = _copy_width_px(text, size_px)
+    if width is None:
+        losses.append({
+            "reason": "copy_width_unmeasured",
+            "detail": f"{label} copy {str(text)[:40]!r}: no bundled "
+                      f"Montserrat measurement here, so the comp-width "
+                      f"fit is unverified; check the render before it ships",
+        })
+        return
+    if centre_x - width / 2.0 < -1e-6 \
+            or centre_x + width / 2.0 > comp_width + 1e-6:
+        raise CopyOverflowsCompWidth(
+            f"{label} copy {str(text)[:60]!r} measures {width:.1f}px at "
+            f"{size_px:.1f}px, centred on x={centre_x:.1f} of a "
+            f"{comp_width}px comp: the engine draws one unbroken line "
+            f"and clips past the frame edge. Shorten or wrap the copy "
+            f"upstream"
+        )
 
 
 def _require_fill(color: str, label: str) -> str:
@@ -623,6 +734,8 @@ def project_timed_text_moment(moment: dict[str, Any], index: int,
     disappear = (moment["startFrame"] + moment["durationFrames"]) / fps \
         - comp_start_seconds
     _check_comp_span(appear, disappear, comp, label)
+    _require_copy_fits(label, str(text), float(size), position[0],
+                       comp.width, out.losses)
     for key in ("fontWeight", "textShadow", "textAlign"):
         if moment.get(key) not in (None, "", "center", "none"):
             out.losses.append({
@@ -727,6 +840,9 @@ def project_motion_moment(moment: dict[str, Any], comp: CompSpec,
                 f"{comp.width}x{comp.height} comp"
             )
         point = [x, y]
+        _require_copy_fits(f"{label} run {position_index}",
+                           str(run["text"]), size, x, comp.width,
+                           out.losses)
         layer = f"{key}-{moment['startFrame']}-{position_index}"
         out.operations.append({
             "op": "add_text",

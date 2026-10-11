@@ -391,3 +391,78 @@ def test_cli_projects_titles_off_a_document(tmp_path):
         "size": 64.0, "fill": "#D4A34A", "position": [540.0, 960.0],
         "font": "Montserrat"}
     assert stored["identity_map"]["titles"][0]["layer"] == "timed-text-0"
+
+
+# Census S5: the real geo-podcast title_lockup copy overflows the comp.
+# Runs quoted from geo-podcast's 4.06 props
+# (mg_geo-podcast_03cfd15b_tight_props.json: 844x480, 144f): the display
+# run inks 898px at 56px as one unbroken line and clipped at both frame
+# edges on the census's 540-wide probe comp.
+GEO_DISPLAY_COPY = "SHOW UP MOST WINS GOOGLE"
+GEO_SUPPORTING_COPY = "MATTER MOST WINS AI"
+
+
+def _geo_motion_moment(**overrides):
+    moment = _motion_moment(
+        runs=[{"text": GEO_DISPLAY_COPY, "type_role": "display",
+               "uppercase": False},
+              {"text": GEO_SUPPORTING_COPY, "type_role": "supporting",
+               "uppercase": False}],
+        entrance="cut", exit_="cut", startFrame=0, durationFrames=15)
+    moment.update(overrides)
+    return moment
+
+
+def test_copy_width_measures_the_bundled_face_at_run_size():
+    pytest.importorskip("PIL.ImageFont", reason="Pillow absent")
+    width = titles._copy_width_px(GEO_DISPLAY_COPY, 56.0)
+    assert width == pytest.approx(898.0, abs=5.0)
+    assert titles._copy_width_px("Night 1", 64.0) < 540.0
+    # Multi-line copy is bounded by its longest line.
+    assert titles._copy_width_px(
+        f"AB\n{GEO_DISPLAY_COPY}", 56.0) == pytest.approx(width)
+
+
+def test_overflowing_geo_podcast_copy_is_refused_by_name():
+    comp = _comp(width=540, height=960, fps=30.0, duration=3.0)
+    with pytest.raises(titles.CopyOverflowsCompWidth,
+                       match="SHOW UP MOST WINS GOOGLE"):
+        titles.project_titles(
+            {"motion_moments": [_geo_motion_moment()]},
+            comp, 30.0, _safe(width=540, height=960))
+
+
+def test_overflowing_timed_text_is_refused_by_name():
+    comp = _comp(width=540, height=960, fps=30.0, duration=3.0)
+    moment = _timed_moment(text=GEO_DISPLAY_COPY, fontSize=64,
+                           x=0.5, y=0.5)
+    with pytest.raises(titles.CopyOverflowsCompWidth,
+                       match="540px comp"):
+        titles.project_titles(
+            _timed_doc([moment]), comp, 30.0,
+            _safe(width=540, height=960))
+
+
+def test_fitting_copy_projects_with_no_overflow_bookkeeping():
+    projection = titles.project_titles(
+        {"motion_moments": [_motion_moment(
+            runs=[{"text": GEO_SUPPORTING_COPY,
+                   "type_role": "supporting", "uppercase": False}])]},
+        _comp(width=540, height=960, fps=30.0, duration=3.0), 30.0,
+        _safe(width=540, height=960))
+    assert [op for op in projection.operations
+            if op["op"] == "add_text"]
+    assert all(loss["reason"] != "copy_width_unmeasured"
+               for loss in projection.losses)
+
+
+def test_unmeasurable_copy_records_a_loss_and_still_projects(monkeypatch):
+    monkeypatch.setattr(titles, "_copy_width_px",
+                        lambda text, size: None)
+    projection = titles.project_titles(
+        {"motion_moments": [_motion_moment()]},
+        _comp(), 30.0, _safe())
+    assert [op for op in projection.operations
+            if op["op"] == "add_text"]
+    assert any(loss["reason"] == "copy_width_unmeasured"
+               for loss in projection.losses)
