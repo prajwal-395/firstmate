@@ -6,8 +6,10 @@ FULL-suite pass on the exact tree that lands - test security is not
 given up for speed:
 
 - CLUSTER: ready PRs gather within an adaptive window (load.targets:
-  short on a quiet machine, long on a busy one). A ripe cluster (window
-  elapsed, or BATCH_MAX reached) tests together; an unripe one waits.
+  short on a quiet machine, long on a busy one). A ripe cluster
+  (window elapsed since the oldest ready entry arrived) tests
+  together; an unripe one waits. A ripe cluster takes EVERY queued
+  entry: the full gate is one process whatever the cluster size.
 - TEST: the cluster stacks onto current main (main + members in queue
   order) in a disposable checkout and runs the FULL suite once on that
   stacked tree - the exact tree the ordered merges will produce.
@@ -61,13 +63,20 @@ class TestResult:
     """
 
     def __init__(self, ok: bool, passed: int = 0, failed: int = 0,
-                 reason: str = "", log: str = "", requeue: bool = False) -> None:
+                 reason: str = "", log: str = "", requeue: bool = False,
+                 stack_conflict: str = "") -> None:
         self.ok = ok
         self.passed = passed
         self.failed = failed
         self.reason = reason
         self.log = log
         self.requeue = requeue
+        # The full head SHA that would not merge onto the accumulated
+        # stack ("" when the stack built). A stacking conflict is
+        # decided WITHOUT a gate run: resolve_batch kicks only this
+        # member and tests the rest, so no full-suite run is ever spent
+        # bisecting a conflict.
+        self.stack_conflict = stack_conflict
 
 
 class World:
@@ -117,7 +126,8 @@ class World:
         with hygiene.disposable_checkout(self.mirror, base, self.state_dir) as checkout:
             stack = _stack_checkout(checkout, base, [m["head"] for m in members])
             if not stack["ok"]:
-                return TestResult(False, reason=stack["reason"])
+                return TestResult(False, reason=stack["reason"],
+                                  stack_conflict=stack.get("conflict", ""))
             log = os.path.join(self.state_dir, "logs",
                                f"tier2-{int(time.time())}.log")
             gate = runner.run_gate(
@@ -173,7 +183,9 @@ def _stack_checkout(checkout: str, base: str, heads: list) -> dict:
     """Merge heads onto the base checkout in order. Conflict is a
     RESULT (the stack cannot exist), not an exception. Each merge is
     committed locally so the next PR can merge onto the accumulated
-    tree; the disposable checkout is never pushed."""
+    tree; the disposable checkout is never pushed. On conflict the
+    result names the FULL head that would not merge (`conflict`), so
+    the caller can kick only that member without running the gate."""
     for head in heads:
         code, _err = _git(
             checkout, "-c", "user.name=ren-ci", "-c",
@@ -182,17 +194,19 @@ def _stack_checkout(checkout: str, base: str, heads: list) -> dict:
         if code != 0:
             _git(checkout, "merge", "--abort")
             return {"ok": False,
-                    "reason": f"conflict stacking {head[:12]} onto batch"}
-    return {"ok": True, "reason": ""}
+                    "reason": f"conflict stacking {head[:12]} onto batch",
+                    "conflict": head}
+    return {"ok": True, "reason": "", "conflict": ""}
 
 
 def plan_cluster(entries: list, now: float, window: int) -> tuple:
     """Split the queue into (ripe cluster, waiting).
 
     A cluster is ripe when the window elapsed since the OLDEST ready
-    entry arrived (the timebox closed), or when it reached BATCH_MAX
-    (a full box runs now rather than holding the oldest PR hostage for
-    company). Otherwise the whole queue waits: merging one PR per pass
+    entry arrived (the timebox closed). A ripe cluster takes EVERY
+    queued entry: the full gate is one process whatever the cluster
+    size, so holding part of the queue back for a second cluster buys
+    nothing. Otherwise the whole queue waits: merging one PR per pass
     would serialize what the timebox exists to group. An empty queue
     ripens nothing.
     """
@@ -200,9 +214,8 @@ def plan_cluster(entries: list, now: float, window: int) -> tuple:
     if not queued:
         return [], []
     oldest = min(float(e.get("enqueued_at") or 0) for e in queued)
-    cluster = queued[:config.BATCH_MAX]
-    if len(queued) >= config.BATCH_MAX or now - oldest >= window:
-        return cluster, queued[len(cluster):]
+    if now - oldest >= window:
+        return list(queued), []
     return [], queued
 
 
@@ -254,6 +267,43 @@ def is_main_red_reason(reason: str) -> bool:
         and " red: " in reason
 
 
+def is_stack_conflict(verdict: TestResult) -> bool:
+    """Whether a stack verdict is a MERGE conflict, not a test failure.
+
+    A conflict means the stack could not be built, so no gate ran and
+    none may be spent deciding it: the member that cannot merge onto
+    the accumulated stack is kicked and the rest is tested. The
+    explicit `stack_conflict` head wins; the `conflict stacking`
+    reason prefix is the legacy shape real stacks always carry.
+    """
+    if getattr(verdict, "stack_conflict", ""):
+        return True
+    reason = getattr(verdict, "reason", "") or ""
+    return isinstance(reason, str) and reason.startswith("conflict stacking")
+
+
+def _conflict_member_index(members: list, verdict: TestResult) -> int:
+    """Position of the member that would not stack, or -1 if unknown."""
+    head = getattr(verdict, "stack_conflict", "") or ""
+    if head:
+        for index, member in enumerate(members):
+            if member.get("head") == head:
+                return index
+        for index, member in enumerate(members):
+            candidate = str(member.get("head") or "")
+            if candidate and (candidate.startswith(head)
+                              or head.startswith(candidate)):
+                return index
+    reason = getattr(verdict, "reason", "") or ""
+    prefix = "conflict stacking "
+    if isinstance(reason, str) and reason.startswith(prefix):
+        short = reason[len(prefix):].split(" ")[0]
+        for index, member in enumerate(members):
+            if str(member.get("head") or "").startswith(short):
+                return index
+    return -1
+
+
 def resolve_batch(world: World, base: str, members: list) -> tuple:
     """Test one cluster and split the verdict: (green, kicked, requeued).
 
@@ -270,6 +320,12 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
     bisecting would kick each innocent member with main's failure
     reason. A red main kicks nobody - the whole cluster waits queued.
     Only a green main bisects.
+
+    A stacking CONFLICT never reaches main or the bisect: the member
+    that cannot merge onto the accumulated stack is KICKED with the
+    conflict reason (its ready label is removed so it cannot re-enter
+    silently - the author rebases and re-readies), and the rest is
+    tested. No full-suite run is spent bisecting a conflict.
     """
     if not members:
         return [], [], []
@@ -279,6 +335,27 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
             member["status"] = state.ENTRY_QUEUED
             member["reason"] = verdict.reason or "gate could not judge"
         return [], [], list(members)
+    if is_stack_conflict(verdict):
+        index = _conflict_member_index(members, verdict)
+        if index < 0:
+            # Conflict without an identified member: requeue the whole
+            # cluster with the reason rather than kicking blind or
+            # spending gate runs bisecting what never built.
+            for member in members:
+                member["status"] = state.ENTRY_QUEUED
+                member["reason"] = (verdict.reason
+                                    or "conflict stacking onto batch")
+            return [], [], list(members)
+        kicked_member = dict(members[index])
+        kicked_member["status"] = state.ENTRY_KICKED
+        kicked_member["reason"] = (verdict.reason
+                                   or "conflict stacking onto batch")
+        rest = [m for i, m in enumerate(members) if i != index]
+        if not rest:
+            return [], [kicked_member], []
+        green_rest, kicked_rest, requeued_rest = resolve_batch(
+            world, base, rest)
+        return green_rest, [kicked_member] + kicked_rest, requeued_rest
     if verdict.ok:
         return [_tested(m, base) for m in members], [], []
     baseline = judge_main(world, base)

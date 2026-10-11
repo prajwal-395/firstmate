@@ -361,8 +361,9 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
 def _tier2_ripe(state_dir: str, window: int, due: list | None = None) -> bool:
     """Whether a ready cluster is due: Tier-1 must yield, not starve it.
 
-    Ripe means plan_cluster would run a cluster now (window elapsed or
-    BATCH_MAX reached) with no member currently testing. Callers check
+    Ripe means plan_cluster would run a cluster now (window elapsed
+    since the oldest ready entry arrived) with no member currently
+    testing. Callers check
     this BEFORE starting new Tier-1 jobs: when ripe, no new Tier-1
     starts until the batch has started, and Tier-2 fires as soon as
     running Tier-1 jobs drain (the existing idle gate below). Queue

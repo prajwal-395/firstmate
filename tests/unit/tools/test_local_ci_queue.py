@@ -11,7 +11,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from library.tools.local_ci import config, github, history, hygiene, queue, runner, state
+from library.tools.local_ci import github, history, hygiene, queue, runner, state
 
 
 def _git(repo, *argv):
@@ -254,14 +254,18 @@ def test_a_cluster_ripens_when_the_window_closes_not_before():
     assert [m["pr"] for m in ripe] == [1, 2] and waiting == []
 
 
-def test_a_full_box_runs_before_the_window_closes():
+def test_a_large_queue_waits_for_the_window_then_ripens_wholly():
+    # No cap: a ripe cluster takes every queued entry, and ripeness
+    # comes only from the window closing - a big queue waits while the
+    # window is open instead of running an early capped box.
     import time
     now = time.time()
-    full = [dict(_member(n), enqueued_at=now)
-            for n in range(config.BATCH_MAX + 1)]
-    ripe, waiting = queue.plan_cluster(full, now + 1, window=600)
-    assert len(ripe) == config.BATCH_MAX  # oldest runs now, rest waits
-    assert len(waiting) == 1
+    many = [dict(_member(n), enqueued_at=now) for n in range(1, 28)]
+    ripe, waiting = queue.plan_cluster(many, now + 1, window=600)
+    assert ripe == [] and len(waiting) == 27  # window open: group, don't run
+    ripe, waiting = queue.plan_cluster(many, now + 601, window=600)
+    assert [m["pr"] for m in ripe] == list(range(1, 28))  # all 27 go
+    assert waiting == []
 
 
 def test_an_unjudgeable_cluster_requeues_instead_of_kicking():
@@ -488,3 +492,116 @@ def test_process_once_reports_a_red_main_and_merges_nothing(tmp_path):
     assert entries[11]["status"] == state.ENTRY_QUEUED
     assert entries[12]["status"] == state.ENTRY_QUEUED
     assert world.reports == []  # no kick posted for any member
+
+
+class ConflictWorld(FakeWorld):
+    """A stack that cannot be built: heads in `conflicting` fail the
+    merge onto the accumulated stack, so test_stack reports the
+    conflict WITHOUT running the gate (tests counts only stacking
+    attempts, main_tests must stay zero)."""
+
+    def __init__(self, conflicting, **kwargs):
+        super().__init__(**kwargs)
+        self.conflicting = set(conflicting)
+
+    def test_stack(self, base, members):
+        self.tests += 1
+        for member in members:
+            if member["head"] in self.conflicting:
+                return queue.TestResult(
+                    False,
+                    reason=f"conflict stacking {member['head'][:12]} "
+                           "onto batch",
+                    stack_conflict=member["head"])
+        if self.fail_when([m["pr"] for m in members]):
+            return queue.TestResult(False, 0, 1, reason="stack red")
+        return queue.TestResult(True, 3, 0)
+
+
+def test_a_stacking_conflict_kicks_only_the_conflicting_member():
+    world = ConflictWorld(conflicting={"head-2"})
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2), _member(3)])
+    assert [m["pr"] for m in green] == [1, 3]
+    assert [m["pr"] for m in kicked] == [2]
+    assert requeued == []
+    assert kicked[0]["status"] == state.ENTRY_KICKED
+    assert "conflict stacking" in kicked[0]["reason"]
+    assert world.main_tests == 0  # no gate spent judging main ...
+    assert world.tests == 2  # ... only the conflict probe and the rest
+
+
+def test_a_legacy_conflict_reason_without_the_head_field_still_kicks():
+    class LegacyConflict(FakeWorld):
+        def test_stack(self, base, members):
+            self.tests += 1
+            heads = [m["head"] for m in members]
+            if "head-1" in heads:
+                return queue.TestResult(
+                    False, reason="conflict stacking head-1 onto batch")
+            return queue.TestResult(True, 3, 0)
+
+    world = LegacyConflict()
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2)])
+    assert [m["pr"] for m in green] == [2]
+    assert [m["pr"] for m in kicked] == [1]
+    assert requeued == []
+    assert world.main_tests == 0
+
+
+def test_stacking_conflicts_kick_every_conflicting_member_and_test_rest():
+    world = ConflictWorld(conflicting={"head-1", "head-3"})
+    green, kicked, requeued = queue.resolve_batch(
+        world, "base", [_member(1), _member(2), _member(3)])
+    assert [m["pr"] for m in green] == [2]
+    assert sorted(m["pr"] for m in kicked) == [1, 3]
+    assert requeued == []
+    assert world.main_tests == 0
+
+
+def test_a_real_conflicting_stack_names_the_conflicting_head(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "ren-ci@test")
+    _git(repo, "config", "user.name", "ren-ci")
+    (repo / "shared.txt").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "-c", "pr-a")
+    (repo / "shared.txt").write_text("A\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "PR A")
+    head_a = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "--detach", base)
+    _git(repo, "switch", "-c", "pr-b")
+    (repo / "shared.txt").write_text("B\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "PR B")
+    head_b = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "--detach", base)
+    result = queue._stack_checkout(str(repo), base, [head_a, head_b])
+
+    assert result["ok"] is False
+    assert result["conflict"] == head_b
+    assert "conflict stacking" in result["reason"]
+
+
+def test_process_once_kicks_the_conflicting_member_and_merges_rest(
+        tmp_path):
+    world = ConflictWorld(conflicting={"head-12"},
+                          fail_when=lambda prs: False,
+                          state_dir=str(tmp_path))
+    state.write_queue([_member(11), _member(12)], str(tmp_path))
+    summary = queue.process_once(world, window=0)  # ripe immediately
+    assert summary["ripe"] is True
+    assert summary["merged"] == [11]
+    assert summary["kicked"] == [12]
+    entries = {e["pr"]: e for e in state.read_queue(str(tmp_path))}
+    assert entries[11]["status"] == state.ENTRY_MERGED
+    assert entries[12]["status"] == state.ENTRY_KICKED
+    assert "conflict stacking" in entries[12]["reason"]
+    assert world.main_tests == 0  # decided without judging main

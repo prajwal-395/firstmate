@@ -156,11 +156,12 @@ TIER1_TIMEOUT_RETRY_BASE_SECONDS = 60
 # optimum; a webhook receiver is the documented future upgrade.
 POLL_SECONDS = 30
 
-# A cluster holds at most this many PRs: beyond it the full-gate run
-# and the bisect fan-out cost more than a second cluster. The window
-# (load.targets) decides WHEN a ripe cluster runs; this caps how big it
-# may grow while the window is open.
-BATCH_MAX = 4
+# A ripe cluster takes every queued entry: the full gate is ONE process
+# whatever the cluster size, so cluster size does not change machine
+# memory or CPU, and no measurement ever backed a cap (2026-10-10: the
+# old BATCH_MAX=4 was justified by bisect cost alone). The window
+# (load.targets) decides WHEN a ripe cluster runs; nothing caps how big
+# it may grow while the window is open.
 
 
 def state_dir() -> str:
