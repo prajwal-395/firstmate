@@ -242,6 +242,17 @@ test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # This case pins the stall tick's progress tracking, not watcher liveness:
+  # a queued row with no live watcher is supervision need (an idle mate must
+  # still pick up a queued wake), so the quiet tick would report it within one
+  # poll. A fresh beacon under the autoarm model reads healthy without a
+  # watcher process, keeping this fixture to the stall mechanism alone. The
+  # beacon mtime is set in this fixture's fake clock (steps run at fake
+  # now=1000..1012): a real-time touch would read as a far-future mtime and
+  # correctly count as stale, and touch -t parses in local time, so the stamp
+  # is fixed in UTC for portability.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -337,7 +348,13 @@ test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   sub="$dir/secondmate"
   mkdir -p "$sub/state"
   printf 'mate\n' > "$sub/.fm-secondmate-home"
-  printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nhome=%s\n' "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this pause-exclusion
+  # fixture holds a fresh autoarm beacon across both fake-clock steps.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  TZ=UTC touch -t 197001010123.20 "$dir/fake-epoch-5000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -360,6 +377,7 @@ EOF
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
   printf '5000\n' > "$dir/now"
+  touch -r "$dir/fake-epoch-5000" "$sub/state/.last-watcher-beat"
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
@@ -387,6 +405,11 @@ test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this reprovisioning
+  # fixture holds a fresh autoarm beacon in the fake clock.
+  TZ=UTC touch -t 197001010016.40 "$dir/fake-epoch-1000"
+  touch -r "$dir/fake-epoch-1000" "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
@@ -451,6 +474,10 @@ test_secondmate_active_turn_defers_stall_until_the_turn_ends() {
     "$sub" > "$state/mate.meta"
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" \
     > "$sub/state/.wake-queue"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this deferral fixture
+  # holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   fakebin="$dir/fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -497,7 +524,11 @@ test_secondmate_stall_marker_rejects_symlink() {
   sub="$dir/secondmate"
   mkdir -p "$sub/state"
   printf 'mate\n' > "$sub/.fm-secondmate-home"
-  printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nhome=%s\n' "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this marker-rejection
+  # fixture holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$sub/state/.wake-queue"
   outside="$dir/outside"
@@ -538,6 +569,10 @@ test_acknowledged_stall_publication_survives_pre_marker_crash() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so this crash-recovery
+  # fixture holds a fresh autoarm beacon while the real clock runs.
+  touch "$sub/state/.last-watcher-beat"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$sub/state/.wake-queue"
   row_before="$dir/foreign-before"
@@ -578,7 +613,12 @@ test_empty_prefix_mate_preserves_other_mate_receipt() {
   printf 'ios\n' > "$empty/.fm-secondmate-home"
   printf 'ios-ui\n' > "$stalled/.fm-secondmate-home"
   printf 'window=firstmate:fm-ios\nkind=secondmate\nhome=%s\n' "$empty" > "$state/ios.meta"
-  printf 'window=firstmate:fm-ios-ui\nkind=secondmate\nhome=%s\n' "$stalled" > "$state/ios-ui.meta"
+  printf 'window=firstmate:fm-ios-ui\nkind=secondmate\nharness=claude\nhome=%s\n' "$stalled" > "$state/ios-ui.meta"
+  # Stall-mechanism isolation (see the foreign-stall case above): the quiet
+  # tick owns queued rows with no live watcher, so the queued ios-ui mate
+  # holds a fresh autoarm beacon while the real clock runs. The empty ios
+  # mate needs nothing and stays silent on its own.
+  touch "$stalled/state/.last-watcher-beat"
   : > "$empty/state/.wake-queue"
   epoch=$(( $(date +%s) - 10 ))
   printf '%s\t9\tcheck\trouted\tcheck: routed row\n' "$epoch" > "$stalled/state/.wake-queue"
@@ -923,18 +963,28 @@ test_main_is_never_told_to_drain_rows_only_the_branch_owns() {
   # grant released. Nothing about the row makes it unpresentable - only the
   # live grant did - so main now presents it with an executable acknowledgement.
   FM_STATE_OVERRIDE="$state" "$GRANT" release held-by-branch || fail "branch grant release failed"
+  # The counted-equals-presentable invariant lives at the guard layer: with
+  # the grant gone the row is main's again, so a direct guard call warns.
+  FM_STATE_OVERRIDE="$state" "$GUARD" 2> "$dir/guard-released.err" || fail "guard failed after the grant released"
+  grep -Fq 'queued wakes pending' "$dir/guard-released.err" \
+    || fail "guard stopped warning about a row main can actually drain"
+  ! grep -Fq 'wake rows held by the live supervision branch' "$dir/guard-released.err" \
+    || fail "guard kept advising about a hold that was already released"
   out="$dir/main-drain-after.out"
   err="$dir/main-drain-after.err"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" || fail "main drain failed after release: $(cat "$err")"
   grep -Fq "$(printf '\tstale\tfleet:w2:p3\t')" "$out" || fail "main drain omitted the released row"
   ! grep -Fq 'WAKE ROWS HELD BY SUPERVISION BRANCH' "$out" \
     || fail "main drain reported a hold that no longer exists"
-  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$sequence" ] && [ -n "$generation" ] || fail "the released row was presented without an acknowledgement command"
-  grep -Fq 'queued wakes pending' "$err" || fail "guard stopped warning about a row main can actually drain"
+  # A drain owns the rows it presents: its liveness assert reports supervision
+  # and tangle health only, and never re-reports those rows as still pending.
+  ! grep -Fq 'queued wakes pending' "$err" \
+    || fail "drain re-reported its own presented rows as still pending"
   ! grep -Fq 'wake rows held by the live supervision branch' "$err" \
-    || fail "guard kept advising about a hold that was already released"
+    || fail "drain kept advising about a hold that was already released"
   FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
     || fail "acknowledgement of the released row failed"
   [ ! -s "$state/.wake-queue" ] || fail "the acknowledged row stayed queued"
@@ -1718,6 +1768,13 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
   append_wake "$state" signal task.status "signal: $status" \
     || fail "could not seed the presentation-deadline wake"
 
+  # This test measures lock-deadline mechanics, not supervision: a queued row
+  # with no live watcher is supervision need (an idle home must still pick up
+  # a queued wake), so the drain's liveness guard would alarm here. A fresh
+  # beacon under the autoarm model reads healthy without a watcher process,
+  # keeping stderr to the deadline advisories this test pins.
+  touch "$state/.last-watcher-beat"
+
   FM_STATE_OVERRIDE="$state" bash -c '
     . "$1"
     fm_lock_acquire_wait "$2"
@@ -1734,7 +1791,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     || { kill "$queue_holder" 2>/dev/null || true; fail "queue holder never acquired its lock"; }
 
   start=$(date +%s)
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$queue_out" 2> "$queue_err" \
     || { kill "$queue_holder" 2>/dev/null || true; fail "bounded queue presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
@@ -1774,7 +1831,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     || { kill "$presentation_holder" 2>/dev/null || true; fail "presentation holder never acquired its lock"; }
 
   start=$(date +%s)
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$first_out" 2> "$first_err" \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "bounded presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
@@ -1798,7 +1855,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
 
   kill "$presentation_holder" 2>/dev/null || true
   wait "$presentation_holder" 2>/dev/null || true
-  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 FM_SUPERVISION_MODEL=autoarm \
     "$DRAIN" > "$second_out" 2> "$second_err" || fail "presentation retry failed"
   grep -F 'task.status: needs-decision [key=fixture]: presentation remains retriable' "$second_out" >/dev/null \
     || fail "the next presentation pass did not surface the skipped status"

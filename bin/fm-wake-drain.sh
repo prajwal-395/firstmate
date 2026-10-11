@@ -222,9 +222,11 @@ esac
 # the Pi extension model, a fresh beacon also stays silent during a genuinely
 # unheld-lock hand-off only while the live session proves extension ownership.
 # Persistent-watcher models still require the live identity-matched watcher.
-# Never let a guard hiccup change the drain's exit status.
+# The queued rows are this drain's own business, so the guard call skips its
+# queue notices (FM_GUARD_NO_QUEUE_NOTICE) and reports only supervision and
+# tangle health. Never let a guard hiccup change the drain's exit status.
 assert_watcher_liveness() {
-  "$SCRIPT_DIR/fm-guard.sh" || true
+  FM_GUARD_NO_QUEUE_NOTICE=1 "$SCRIPT_DIR/fm-guard.sh" || true
 }
 
 # Mark presentation-stage inactive terminal outcomes only after the handling
