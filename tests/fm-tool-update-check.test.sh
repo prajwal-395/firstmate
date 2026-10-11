@@ -688,6 +688,59 @@ SH
   pass "the network probe bound is configurable and refuses what it cannot use"
 }
 
+test_version_probes_outlast_a_short_local_probe_bound() {
+  local home dir out
+  # Runtime startup straddles the local probe bound: a healthy command whose
+  # version answers in 8 seconds would be reported as broken under the 5-second
+  # local bound, and under machine load that false failure lands twice a day.
+  # The version probes carry their own longer bound, so this tool stays silent.
+  # The local bound stays at its default throughout: no local probe runs near
+  # its bound, so this case cannot fail from machine load the way a tightened
+  # local bound would.
+  home=$(make_home version-bound)
+  dir="$TMP_ROOT/version-bound/bin"
+  mkdir -p "$dir"
+  cat > "$dir/slow-version-fixture" <<'SH'
+#!/usr/bin/env bash
+sleep 8
+printf 'slowtool 1.2.3\n'
+SH
+  chmod 0755 "$dir/slow-version-fixture"
+  write_config "$home" '{"tools":[{"name":"slowtool","command":"slow-version-fixture"}]}'
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "a version probe that answered past the local bound was reported as a failure: $(cat "$out")"
+  pass "a version probe that answers past the local bound is not reported as broken"
+}
+
+test_version_probe_bound_override_is_respected_and_refused_when_invalid() {
+  local home dir out report status
+  home=$(make_home version-bound-override)
+  dir="$TMP_ROOT/version-bound-override/bin"
+  mkdir -p "$dir"
+  cat > "$dir/slow-version-fixture" <<'SH'
+#!/usr/bin/env bash
+sleep 3
+printf 'slowtool 1.2.3\n'
+SH
+  chmod 0755 "$dir/slow-version-fixture"
+  write_config "$home" '{"tools":[{"name":"slowtool","command":"slow-version-fixture"}]}'
+  out="$home/out.txt"
+  # A 1-second version bound kills the same 3-second answer the default bound
+  # accepts, so the override reaches the version probes.
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_VERSION_PROBE_SECS=1
+  report=$(cat "$out")
+  assert_contains "$report" "slowtool check failed: $dir/slow-version-fixture did not report a version" "the version probe did not use its own bound"
+
+  status=0
+  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=0 "$CHECK" >/dev/null 2>&1 || status=$?
+  expect_code 2 "$status" "zero version probe bound exit"
+  status=0
+  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=999 "$CHECK" >/dev/null 2>&1 || status=$?
+  expect_code 2 "$status" "oversized version probe bound exit"
+  pass "the version probe bound is configurable and refuses what it cannot use"
+}
+
 # --- registry and reporting contract ----------------------------------------
 
 test_absent_registry_is_silent() {
@@ -858,7 +911,7 @@ test_an_oversized_budget_is_cut_to_fit_and_reported() {
   assert_contains "$report" "sweep budget 60s cut to 27s to stay inside the watcher check timeout of 30s" "a budget that cannot fit the watcher bound was not cut and reported"
   assert_contains "$report" "herdr update not in effect" "the detector went quiet instead of sweeping with the cut budget"
 
-  # The default budget of 20s fits the default bound, so it is used as written.
+  # The default budget of 25s fits the default bound, so it is used as written.
   # The record is cleared first because the no-nag gate would otherwise suppress
   # this run, whose bare skew line differs from the cut run's line above.
   rm -f "$home/state/.tool-updates"
@@ -1103,6 +1156,8 @@ test_a_git_probe_that_does_not_answer_is_not_an_update
 test_a_stalled_repository_probe_is_not_reported_as_not_a_repository
 test_git_network_probes_outlast_a_short_local_probe_bound
 test_git_probe_bound_override_is_respected_and_refused_when_invalid
+test_version_probes_outlast_a_short_local_probe_bound
+test_version_probe_bound_override_is_respected_and_refused_when_invalid
 test_absent_registry_is_silent
 test_malformed_registry_is_reported_not_ignored
 test_findings_are_reported_once_until_they_change
