@@ -2141,6 +2141,66 @@ def cmd_propose_reels(args):
     print(f"Assignment {record['assignment_id']}: {record['state']}")
 
 
+def cmd_approve_reels(args):
+    """Approve proposed reels for building, keeping every other ruling."""
+    from library.tools.reel_proposal import (
+        Approval, held_back, proposal_path, read_proposal, set_approval,
+    )
+    folder = _reel_project_folder(args.project)
+    moments = read_proposal(str(proposal_path(folder)))
+    if args.all:
+        numbers = [int(m.number) for m in moments]
+    else:
+        numbers = [int(n) for n in (args.reels or [])]
+    if not numbers:
+        raise RenRefusal(
+            "no reel was named and --all was not passed",
+            "an approval rules on moments that exist",
+            f"run `ren approve {args.project} 1 2` or "
+            f"`ren approve {args.project} --all`")
+    ruled = set_approval(folder, numbers, Approval.APPROVED,
+                         note=args.note, by=args.by)
+    remaining = held_back(read_proposal(str(proposal_path(folder))))
+    print(f"Approved reel(s) {', '.join(str(n) for n in ruled)}.")
+    if remaining["proposed"]:
+        left = ", ".join(str(int(m.number)) for m in remaining["proposed"])
+        print(f"  Still proposed: {left} - "
+              f"`ren approve {args.project} {left}` or "
+              f"`ren reject {args.project} {left}`.")
+    else:
+        print(f"  Nothing is left proposed - `ren build {args.project}` "
+              f"builds the approved reels.")
+
+
+def cmd_reject_reels(args):
+    """Reject proposed reels, recording why, keeping every other ruling."""
+    from library.tools.reel_proposal import (
+        Approval, held_back, proposal_path, read_proposal, set_approval,
+    )
+    folder = _reel_project_folder(args.project)
+    moments = read_proposal(str(proposal_path(folder)))
+    if args.all:
+        numbers = [int(m.number) for m in moments]
+    else:
+        numbers = [int(n) for n in (args.reels or [])]
+    if not numbers:
+        raise RenRefusal(
+            "no reel was named and --all was not passed",
+            "a rejection rules on moments that exist",
+            f"run `ren reject {args.project} 2 --note \"why\"` or "
+            f"`ren reject {args.project} --all --note \"why\"`")
+    ruled = set_approval(folder, numbers, Approval.REJECTED,
+                         note=args.note, by=args.by)
+    remaining = held_back(read_proposal(str(proposal_path(folder))))
+    print(f"Rejected reel(s) {', '.join(str(n) for n in ruled)}"
+          + (f": {args.note}" if args.note else "."))
+    if remaining["proposed"]:
+        left = ", ".join(str(int(m.number)) for m in remaining["proposed"])
+        print(f"  Still proposed: {left} - "
+              f"`ren approve {args.project} {left}` or "
+              f"`ren reject {args.project} {left}`.")
+
+
 def cmd_build_reels(args):
     """Run the `reels` PROCESS through its own runner.
 
@@ -3647,6 +3707,42 @@ def main():
         "--force", action="store_true",
         help="Overwrite a proposal file the captain has already ruled on")
     propose_reels_parser.set_defaults(func=cmd_propose_reels)
+
+    approve_reels_parser = _add_command(sub, "approve-reels")
+    approve_reels_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    approve_reels_parser.add_argument(
+        "reels", type=int, nargs="*",
+        help="Proposed reel numbers to approve; none with --all")
+    approve_reels_parser.add_argument(
+        "--all", action="store_true",
+        help="Approve every proposed moment")
+    approve_reels_parser.add_argument(
+        "--note", default="",
+        help="Why this ruling, recorded on each ruled moment")
+    approve_reels_parser.add_argument(
+        "--by", default="captain",
+        help="Who ruled, recorded on each ruled moment")
+    approve_reels_parser.set_defaults(func=cmd_approve_reels)
+
+    reject_reels_parser = _add_command(sub, "reject-reels")
+    reject_reels_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    reject_reels_parser.add_argument(
+        "reels", type=int, nargs="*",
+        help="Proposed reel numbers to reject; none with --all")
+    reject_reels_parser.add_argument(
+        "--all", action="store_true",
+        help="Reject every proposed moment")
+    reject_reels_parser.add_argument(
+        "--note", default="",
+        help="Why this ruling, recorded on each ruled moment")
+    reject_reels_parser.add_argument(
+        "--by", default="captain",
+        help="Who ruled, recorded on each ruled moment")
+    reject_reels_parser.set_defaults(func=cmd_reject_reels)
 
     build_reels_parser = _add_command(sub, "build-reels")
     from library.processes.reels import run_reels

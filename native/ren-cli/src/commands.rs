@@ -182,6 +182,8 @@ const VERBS: &[Verb] = &[
     Verb { name: "spec", group: "Projects", summary: "Translate, clarify and record a natural-language edit spec" },
     Verb { name: "reindex", group: "Projects", summary: "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)" },
     Verb { name: "propose", group: "Reels", summary: "Publish the chosen moments as the reel review file" },
+    Verb { name: "approve", group: "Reels", summary: "Approve proposed reels for building" },
+    Verb { name: "reject", group: "Reels", summary: "Reject proposed reels, recording why" },
     Verb { name: "build", group: "Reels", summary: "Build approved reels in Resolve" },
     Verb { name: "adopt", group: "Reels", summary: "Adopt existing reel timelines as Ren-built by exact Resolve id" },
     Verb { name: "touch", group: "Reels", summary: "Apply a small change to a built reel (a touch-up, not a rebuild)" },

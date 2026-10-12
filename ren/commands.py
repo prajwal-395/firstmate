@@ -115,6 +115,10 @@ VERBS = (
          detail="Move a project's words onto Voz plus MFA: invalidate legacy temporal indexes, then re-transcribe them"),
 
     Verb("propose", "Reels", "Publish the chosen moments as the reel review file", subcommand="propose-reels"),
+    Verb("approve", "Reels", "Approve proposed reels for building", subcommand="approve-reels",
+         detail="`ren approve <project> 1 3` (or `--all`) rules on the moments in review/reel_proposals_v2.json, keeping every other ruling. `--note` records why; `--by` records who."),
+    Verb("reject", "Reels", "Reject proposed reels, recording why", subcommand="reject-reels",
+         detail="`ren reject <project> 2 --note \"why\"` (or `--all --note \"why\"`) rules on the moments in review/reel_proposals_v2.json, keeping every other ruling."),
     Verb("build", "Reels", "Build approved reels in Resolve", subcommand="build-reels"),
     Verb("adopt", "Reels", "Adopt existing reel timelines as Ren-built by exact Resolve id",
          module_argv=("library.tools.resolve_axi", "ownership"),

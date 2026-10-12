@@ -690,6 +690,38 @@ def test_publishing_refuses_to_discard_the_captains_answer(tmp_path):
     assert read_proposal(path)[0].approval is Approval.PROPOSED
 
 
+def test_approve_rules_only_the_named_moments_and_keeps_the_rest(tmp_path):
+    """T3 (`ren approve` / `ren reject`): ruling on 1 and 3 of three
+    PROPOSED moments leaves 2 PROPOSED, gates exactly 1 and 3 for the
+    build, and a second propose without force still refuses."""
+    from library.tools.reel_proposal import set_approval, write_from_step_output
+    root = _project_with_step_output(tmp_path, [
+        _emitted(number=1, slug="one", timeline_start=10.0, timeline_end=18.0),
+        _emitted(number=2, slug="two", timeline_start=18.5, timeline_end=26.0),
+        _emitted(number=3, slug="three", timeline_start=400.0, timeline_end=409.0),
+    ])
+    path = write_from_step_output(root)
+
+    assert set_approval(str(root), [1, 3], Approval.APPROVED,
+                        note="these two", by="captain") == [1, 3]
+    by_number = {int(m.number): m for m in read_proposal(path)}
+    assert by_number[2].approval is Approval.PROPOSED
+    assert [int(m.number) for m in approved_only(
+        read_proposal(path))] == [1, 3]
+    assert by_number[1].approval_note == "these two"
+    assert by_number[1].approved_by == "captain"
+    assert by_number[1].approved_at != ""
+    assert by_number[2].approval_note == ""
+
+    assert assert_approved(by_number[1]) is by_number[1]
+    with pytest.raises(NotApproved, match="still PROPOSED"):
+        assert_approved(by_number[2])
+
+    with pytest.raises(ProposalError, match="ruled on"):
+        write_from_step_output(root)
+    assert read_proposal(path)[1].approval is Approval.PROPOSED
+
+
 def test_a_borrowed_closer_reports_the_speech_its_text_omits():
     """The CTA has the body's old blind spot, and it matters more here.
 

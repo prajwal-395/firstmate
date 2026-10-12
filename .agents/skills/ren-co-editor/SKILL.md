@@ -152,6 +152,7 @@ it whenever the goal is about what is IN the footage.
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act |
 | An editor's natural-language request | `ren spec prepare` / `ren spec resolve` (section 7) |
 | Reel candidates for approval | `ren propose <project>` |
+| Rule on the proposed reels | After `ren propose`, show the list in chat and approve what the person says: `ren approve <project> 1 3` (or `--all`), `ren reject <project> 2 --note "why"` |
 | Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |
 | Two versions of one reel | `ren variant new` / `build` / `diff` / `choose` |
 | Redo one stage, step or clip | `ren edit <project> --full-auto agent` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |

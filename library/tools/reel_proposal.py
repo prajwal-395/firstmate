@@ -272,6 +272,11 @@ class ReelMoment:
     approval: Approval = Approval.PROPOSED
     approval_note: str = ""
 
+    approved_by: str = ""
+    """Who ruled on this moment (`ren approve` / `ren reject --by`)."""
+    approved_at: str = ""
+    """When the ruling was recorded (`ren approve` / `ren reject`)."""
+
     rejections: tuple = ()
     """Every rejection recorded against this moment, oldest first.
 
@@ -362,6 +367,8 @@ class ReelMoment:
     def as_dict(self) -> dict:
         body = asdict(self)
         body["approval"] = self.approval.value
+        body["approved_by"] = self.approved_by
+        body["approved_at"] = self.approved_at
         body["moment_id"] = self.moment_id or mint_moment_id(
             self.number, self.timeline_start, self.timeline_end)
         body["speakers"] = list(self.speakers)
@@ -391,6 +398,8 @@ class ReelMoment:
                 float(data["timeline_end"]))),
             approval=Approval(data.get("approval", "proposed")),
             approval_note=str(data.get("approval_note", "")),
+            approved_by=str(data.get("approved_by", "")),
+            approved_at=str(data.get("approved_at", "")),
             rejections=tuple(ProposalRejection.from_dict(r) for r in
                              (data.get("rejections") or ())),
             speakers=tuple(data.get("speakers") or ()),
@@ -634,6 +643,89 @@ def file_rejection(project_folder, number, reason, *,
     write_proposal(path, updated, transcript)
     return file_history_rejection(project_folder, rejected, reason,
                                   rejected_by=rejected_by)
+
+
+def set_approval(project_folder, numbers, approval, *,
+                 note: str = "", by: str = "captain",
+                 at: Optional[str] = None) -> List[int]:
+    """Rule on proposal moments WITHOUT touching the others' rulings.
+
+    The writer behind `ren approve` / `ren reject`: reads
+    `reel_proposals_v2.json`, sets `approval` (plus the who/when/note
+    record - `approved_by`, `approved_at`, `approval_note`) on the
+    numbered moments, and writes the document back. Moments NOT named
+    keep their approval, note and stamp byte-for-byte - a ruling is
+    the captain's answer and a later ruling on another reel must not
+    move it.
+
+    A rejection also appends a `ProposalRejection` entry (reason, who,
+    when, span) so the history keying (`prior_rejection_for`) can
+    refuse a re-proposal of the same seconds by name - the same record
+    `record_rejection` carries.
+
+    Needs no transcript: ruling on a proposal is not re-checking it,
+    so unlike `file_rejection` this never reads one. Returns the
+    ruled reel numbers, sorted. Raises `ProposalError` naming any
+    number that is not among the moments.
+    """
+    if isinstance(approval, str):
+        approval = Approval(approval)
+    wanted = sorted({int(n) for n in numbers})
+    path = proposal_path(project_folder)
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ProposalError(
+            f"{path} cannot be read ({exc})",
+            "a ruling names moments in the proposal file",
+            "run `ren propose <project>` first, then rule") from exc
+    if raw.get("format") != PROPOSAL_FORMAT:
+        raise ProposalError(
+            f"{path} is {raw.get('format')!r}, not {PROPOSAL_FORMAT!r}",
+            "a foreign document is not a reel proposal",
+            "point at the proposal file this pipeline published "
+            "(`ren propose`), not another document")
+    stored = raw.get("moments") or []
+    have = set()
+    for entry in stored:
+        try:
+            have.add(int(entry["number"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    missing = [n for n in wanted if n not in have]
+    if missing:
+        raise ProposalError(
+            f"reel(s) {', '.join(str(n) for n in missing)} "
+            f"are not among the {len(stored)} proposed moment(s)",
+            "a ruling names a moment that exists",
+            "check the reel number against reel_proposals_v2.json")
+    stamp = at or datetime.now(UTC).isoformat(timespec="seconds")
+    for entry in stored:
+        try:
+            number = int(entry["number"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if number not in wanted:
+            continue
+        entry["approval"] = approval.value
+        if note:
+            entry["approval_note"] = str(note)
+        entry["approved_by"] = str(by or "captain")
+        entry["approved_at"] = str(stamp)
+        if approval is Approval.REJECTED:
+            span = (float(entry.get("timeline_start", 0.0)),
+                    float(entry.get("timeline_end", 0.0)))
+            entry["rejections"] = list(entry.get("rejections") or []) + [
+                ProposalRejection(
+                    reason=str(note or entry.get("approval_note") or
+                               "rejected without a reason"),
+                    rejected_by=str(by or "captain"), at=str(stamp),
+                    span=span).as_dict()]
+    raw["moment_count"] = len(stored)
+    from library.tools.stable_json import dumps_stable
+
+    Path(path).write_text(dumps_stable(raw), encoding="utf-8")
+    return wanted
 
 
 _REEL_LABEL_RE = re.compile(r"^reel\s+(\d+)\b", re.IGNORECASE)
