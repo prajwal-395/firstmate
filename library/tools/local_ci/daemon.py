@@ -45,6 +45,7 @@ cannot overwrite each other's records.
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import os
 import threading
 import time
@@ -170,17 +171,41 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                       "process_group_leaked": False,
                       "broker_leaked": False, "reason": "", "log": log}
         else:
-            junit_path = log + ".junit.xml"
-            raw = runner.run(part["run"], checkout, log, workers=workers,
-                             junit_path=junit_path)
-            result_cache.record_from_junit(
-                world.state_dir, checkout, junit_path, part["run"],
-                head=head, builder=builder, source="pr",
-                pytest_python=runner._pytest_python())
-            result = dict(raw)
+            pytest_python = runner._pytest_python()
+            verification = [
+                (path, result_cache.compute_key(
+                    checkout, path, builder,
+                    interpreter=result_cache.pytest_interpreter_version(
+                        pytest_python)))
+                for path in part["run"]]
+            request_key = hashlib.sha256(
+                repr(verification).encode("utf-8")).hexdigest()
+
+            def execute_request():
+                junit_path = log + ".junit.xml"
+                raw_result = runner.run(
+                    part["run"], checkout, log, workers=workers,
+                    junit_path=junit_path)
+                result_cache.record_from_junit(
+                    world.state_dir, checkout, junit_path, part["run"],
+                    head=head, builder=builder, source="pr",
+                    pytest_python=pytest_python)
+                return dict(raw_result)
+
+            from library.tools.local_ci import request_dedup
+            shared = request_dedup.run(
+                request_key, f"PR #{number}@{head}", execute_request)
+            result = dict(shared["result"])
+            if shared["shared"]:
+                with open(log, "w", encoding="utf-8") as handle:
+                    handle.write(
+                        "ren-ci duplicate request: shared execution for "
+                        f"{', '.join(shared['consumers'])}\n")
+                result["log"] = log
+            result["request_consumers"] = shared["consumers"]
             # Reused files passed on identical inputs; the run's own
             # failures still fail the check.
-            result["passed"] = raw["passed"] + part["reused_passed"]
+            result["passed"] = result["passed"] + part["reused_passed"]
         return {"pr": number, "head": head, "url": url,
                 "ok": result["ok"], "passed": result["passed"],
                 "failed": result["failed"], "elapsed": result["elapsed"],
@@ -195,7 +220,8 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "reason": result.get("reason", ""),
                 "timeout_diagnostic": result.get("timeout_diagnostic", ""),
                 "process_group_leaked": result.get(
-                    "process_group_leaked", False)}
+                    "process_group_leaked", False),
+                "request_consumers": result.get("request_consumers", [])}
 
 
 def _report_line(outcome: dict) -> str:
