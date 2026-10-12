@@ -196,7 +196,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "undo", group: "Reels", summary: "Undo a touch-up (in place) or rebuild (by version)" },
     Verb { name: "redo", group: "Reels", summary: "Re-apply a reversed touch-up or rebuild" },
     Verb { name: "dry-run", group: "Reels", summary: "Plan a touch-up against the live timeline and stop" },
-    Verb { name: "deliver", group: "Reels", summary: "Render one approved reel to a file" },
+    Verb { name: "deliver", group: "Reels", summary: "Render approved reels to files (all signed-off, or one named reel)" },
     Verb { name: "watch", group: "Reels", summary: "Have a model watch a delivered reel" },
     Verb { name: "hear", group: "Reels", summary: "Hear a delivered reel against its plan" },
     Verb { name: "drift", group: "Reels", summary: "Compare each reel's build snapshot with the live timeline" },

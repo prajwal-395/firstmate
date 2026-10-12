@@ -164,6 +164,92 @@ def read_deliver_declaration(project_folder: str) -> dict:
     return {"preset": dict(preset), "naming": naming.strip()}
 
 
+def record_deliver_declaration(project_folder: str, *,
+                               preset: Optional[dict] = None,
+                               naming: str = "") -> dict:
+    """Write the captain's answered preset/naming into project.yaml.
+
+    The UNDECLARED prompt (T16) asks once; the answer lands here, in
+    the project's own `pipeline:` block, so the next delivery reads it
+    as declared instead of reporting the fallback again. Either half
+    may be left out (`None`/`""` keeps today's value). Values are
+    validated exactly as `read_deliver_declaration` validates them - a
+    choice nothing reads is refused at the prompt, not recorded.
+
+    Returns `{"preset_recorded": bool, "naming_recorded": bool}`.
+    """
+    if preset is None and not (naming or "").strip():
+        return {"preset_recorded": False, "naming_recorded": False}
+    if preset is not None:
+        if not isinstance(preset, dict):
+            raise DeliverRefused(
+                f"pipeline.deliver_preset must be a mapping of "
+                f"{list(DELIVER_PRESET_KEYS)}, got "
+                f"{type(preset).__name__}: {preset!r}",
+                "a declaration nothing reads is refused",
+                "answer the preset as format and codec, e.g. mp4 and H264")
+        unknown = sorted(set(preset) - set(DELIVER_PRESET_KEYS))
+        if unknown:
+            raise DeliverRefused(
+                f"pipeline.deliver_preset declares {unknown}, which "
+                f"nothing reads",
+                f"it takes {list(DELIVER_PRESET_KEYS)}",
+                f"answer with {list(DELIVER_PRESET_KEYS)} only")
+        for key, value in preset.items():
+            if not isinstance(value, str) or not value.strip():
+                raise DeliverRefused(
+                    f"pipeline.deliver_preset[{key!r}] must be a "
+                    f"non-empty string, got {value!r}",
+                    "an empty preset value names no format or codec",
+                    f"answer pipeline.deliver_preset[{key!r}] with a "
+                    f"non-empty string")
+    naming = (naming or "").strip()
+
+    import yaml as _yaml
+
+    project_file = os.path.join(project_folder, "project.yaml")
+    try:
+        with open(project_file, encoding="utf-8") as handle:
+            document = _yaml.safe_load(handle) or {}
+    except (OSError, ValueError) as exc:
+        raise DeliverRefused(
+            f"project.yaml cannot be read ({exc})",
+            "the answered declaration has nowhere to land",
+            "repair project.yaml, then answer again") from None
+    if not isinstance(document, dict):
+        raise DeliverRefused(
+            "project.yaml is not a mapping",
+            "the answered declaration has nowhere to land",
+            "repair project.yaml, then answer again")
+    block = document.get("pipeline")
+    if block is None:
+        block = {}
+        document["pipeline"] = block
+    if not isinstance(block, dict):
+        raise DeliverRefused(
+            "project.yaml `pipeline:` is not a mapping",
+            "the answered declaration has nowhere to land",
+            "repair the pipeline block, then answer again")
+    recorded = {"preset_recorded": False, "naming_recorded": False}
+    if preset is not None:
+        block["deliver_preset"] = {key: value.strip()
+                                   for key, value in preset.items()}
+        recorded["preset_recorded"] = True
+    if naming:
+        block["deliver_naming"] = naming
+        recorded["naming_recorded"] = True
+    try:
+        with open(project_file, "w", encoding="utf-8") as handle:
+            _yaml.safe_dump(document, handle, sort_keys=False,
+                            allow_unicode=True)
+    except OSError as exc:
+        raise DeliverRefused(
+            f"project.yaml cannot be written ({exc})",
+            "the answered declaration was validated but not recorded",
+            "answer again once the file is writable") from None
+    return recorded
+
+
 def resolve_deliver_settings(project_folder: str) -> dict:
     """Everything a render needs, each half labelled derived or declared.
 

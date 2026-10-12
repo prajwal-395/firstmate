@@ -2748,6 +2748,147 @@ def cmd_safe_zones(args):
         sys.exit(2)
 
 
+def _parse_deliver_preset_flag(raw: str) -> dict:
+    """`--preset FORMAT:CODEC` to the declaration mapping it names."""
+    from library.tools import reel_deliver
+
+    halves = (raw or "").split(":")
+    if len(halves) != 2 or not halves[0].strip() or not halves[1].strip():
+        raise reel_deliver.DeliverRefused(
+            f"--preset must name a format and a codec as FORMAT:CODEC, "
+            f"got {raw!r}",
+            "a preset choice nothing reads is refused, not recorded",
+            "e.g. `ren deliver <project> --preset mp4:H264`")
+    return {"format": halves[0].strip(), "codec": halves[1].strip()}
+
+
+def _ensure_deliver_declaration(project_folder: str, args) -> None:
+    """Ask the UNDECLARED question once, and record the answer once (T16).
+
+    Explicit `--preset`/`--naming` flags are recorded straight into
+    project.yaml. Otherwise, on a TTY and without `--no-prompt`, each
+    undeclared half is asked once; the answer is recorded, and the
+    next delivery reads it as declared instead of reporting the
+    fallback again. Off a TTY (agents, pipes) nothing is asked: the
+    delivery proceeds on the fallback and reports it, exactly as
+    before.
+    """
+    from library.tools import reel_deliver
+
+    if getattr(args, "preset", "") or getattr(args, "naming", ""):
+        recorded = reel_deliver.record_deliver_declaration(
+            project_folder,
+            preset=(_parse_deliver_preset_flag(args.preset)
+                    if getattr(args, "preset", "") else None),
+            naming=getattr(args, "naming", "") or "")
+        for half, done in (("pipeline.deliver_preset",
+                            recorded["preset_recorded"]),
+                           ("pipeline.deliver_naming",
+                            recorded["naming_recorded"])):
+            if done:
+                print(f"  recorded {half} in project.yaml - the next "
+                      f"delivery reads it as declared.")
+        return
+    declaration = reel_deliver.read_deliver_declaration(project_folder)
+    missing = [half for half, present in (
+        ("preset", declaration["preset"]),
+        ("naming", declaration["naming"])) if not present]
+    if not missing or getattr(args, "no_prompt", False):
+        return
+    if not sys.stdin.isatty():
+        return
+    settings = reel_deliver.resolve_deliver_settings(project_folder)
+    if "preset" in missing:
+        answer = input(
+            f"  pipeline.deliver_preset is UNDECLARED - this delivery "
+            f"renders {settings['format']}/{settings['codec']} (the "
+            f"mechanism fallback). Record a preset as FORMAT:CODEC so "
+            f"the next delivery stops asking? [Enter keeps the "
+            f"fallback] ").strip()
+        if answer:
+            reel_deliver.record_deliver_declaration(
+                project_folder,
+                preset=_parse_deliver_preset_flag(answer))
+            print("  recorded pipeline.deliver_preset in project.yaml.")
+    if "naming" in missing:
+        answer = input(
+            f"  pipeline.deliver_naming is UNDECLARED - files are named "
+            f"'{settings['naming']}' (the mechanism fallback). Record a "
+            f"naming with {{timeline}} and {{ext}} placeholders so the "
+            f"next delivery stops asking? [Enter keeps the fallback] "
+        ).strip()
+        if answer:
+            reel_deliver.record_deliver_declaration(
+                project_folder, naming=answer)
+            print("  recorded pipeline.deliver_naming in project.yaml.")
+
+
+def cmd_deliver_all(project_folder: str, args) -> None:
+    """Deliver every approved (signed-off) reel: T16.
+
+    One render per reel per distinct platform spec (pmk's three
+    identical verticals are one master), `deliverable_qc` on every
+    produced file, one delivery receipt per owning assignment, and the
+    exports folder revealed in Finder. A second invocation with
+    nothing changed re-renders nothing - the ledger says so, per reel.
+    A reel whose render is refused does not stop the batch; when
+    nothing at all was delivered the first refusal raises, so the CLI
+    exits as a refusal rather than a quiet partial.
+    """
+    from library.tools import deliver_all as _batch
+    from library.tools import reel_deliver
+
+    try:
+        report = _batch.deliver_all_approved(
+            project_folder,
+            platforms=tuple(getattr(args, "platform", None) or ()),
+            output_dir=args.output_dir or "",
+            timeout_seconds=args.timeout)
+    except reel_deliver.DeliverRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+
+    jobs = report["jobs"]
+    print(f"Delivering {len(report['delivered']) + len(report['up_to_date'])} "
+          f"approved reel(s) for {', '.join(report['platforms'])} "
+          f"({len(jobs)} render job(s)):")
+    for row in report["delivered"]:
+        qc = row.get("qc") or {}
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} -> "
+              f"{row['output_path']} "
+              f"(QC {'PASS' if qc.get('passed') else 'FAIL'})")
+    for row in report["up_to_date"]:
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} up to date "
+              f"({row['output_path']} - {row['reason']})")
+    for row in report["failed"]:
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} NOT delivered: "
+              f"{row['error']}", file=sys.stderr)
+    for row in report["unapproved"]:
+        print(f"  Reel {row['number']} {row['name']!r} skipped: "
+              f"{row['reason']}")
+    for row in report["untracked"]:
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} delivered "
+              f"without a receipt: no assignment owns it")
+    for note in report["variant_notes"]:
+        print(f"  Reel {note['reel']} variant for "
+              f"{'+'.join(note['serves'])} pending: {note['reason']}")
+    for receipt in report["receipts"]:
+        resume = (receipt["receipt"].get("resume_point") or {})
+        print(f"  receipt: {receipt['path']} (assignment "
+              f"{receipt['assignment_id']}, resume: "
+              f"{resume.get('command') or resume.get('action')})")
+    for half in report["settings"]["needs_captain_word"]:
+        print(f"  note: pipeline.{half} is UNDECLARED - rendered with "
+              f"the mechanism fallback; answer the prompt (or pass "
+              f"--preset/--naming) once to record it.")
+    if getattr(args, "no_reveal", False):
+        print(f"  exports: {report['exports_dir']} (reveal skipped "
+              f"by --no-reveal)")
+    else:
+        revealed, reason = _batch.reveal_in_finder(report["exports_dir"])
+        print(f"  exports: {report['exports_dir']} ({reason})")
+
+
 def cmd_deliver_reel(args):
     """Render ONE chosen reel timeline to a video file. The explicit verb.
 
@@ -2768,6 +2909,17 @@ def cmd_deliver_reel(args):
     from library.tools import reel_deliver
 
     project_folder = _reel_project_folder(args.project)
+    _ensure_deliver_declaration(project_folder, args)
+    if args.reel is None:
+        if getattr(args, "name", ""):
+            raise reel_deliver.DeliverRefused(
+                "--name names one file",
+                "delivering all approved reels names each file from the "
+                "declaration, so one name cannot cover the batch",
+                "drop --name, or name one reel: "
+                "`ren deliver <project> <reel> --name <file>`")
+        cmd_deliver_all(project_folder, args)
+        return
     # The delivery is an act of the reel's assignment
     # (library/tools/assignment_spine.py): D2 asks before an approved
     # delivery is overwritten, and the state moves only on success.
@@ -2815,6 +2967,38 @@ def cmd_deliver_reel(args):
               f"the mechanism fallback and this needs the captain's "
               f"word before it becomes a standard.")
     print(f"  report: {full['report_path']}")
+    # The batch skip-check reads this ledger: an explicit single
+    # delivery always renders, but it records its signature so a later
+    # `ren deliver <project>` with nothing changed re-renders nothing.
+    # Fail-soft: the file is delivered and verified whatever the store
+    # says.
+    try:
+        from library.tools import deliver_all as _deliver_all
+        from library.tools.delivery_spec import (
+            resolve_delivery_spec_for_project,
+        )
+        _moment = _deliver_all.moment_for_number(
+            project_folder, int(args.reel))
+        _record, _entry = _deliver_all.owning_assignment_reel(
+            project_folder, _moment.moment_id) if _moment is not None \
+            else (None, None)
+        _deliver_all.record_ledger_entry(
+            project_folder, timeline_name=full["timeline_name"],
+            signature=_deliver_all.delivery_signature(
+                timeline_name=full["timeline_name"],
+                settings=full["settings"],
+                spec=_deliver_all.spec_summary(
+                    resolve_delivery_spec_for_project(project_folder)),
+                proposal_digest=_deliver_all.proposal_sha(project_folder),
+                assignment_reel=_entry),
+            output_path=verification["output_path"],
+            reel=int(args.reel),
+            assignment_id=(_record or {}).get("assignment_id"),
+            qc_passed=bool(verification.get("passed")))
+    except Exception as exc:  # noqa: BLE001 - delivered, unaffected
+        print(f"  deliver ledger not updated ({exc!r}) - the deliver "
+              f"stands; the next batch delivery will re-render this "
+              f"reel.", file=sys.stderr)
     # The Project Model records the render with its frame map
     # (`library/tools/reel_project_model.py`). Fail-soft: the file
     # is delivered and verified whatever the store says.
@@ -4025,10 +4209,32 @@ def main():
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
     deliver_reel_parser.add_argument(
-        "reel", type=int,
-        help="The approved reel number to render. Required: rendering "
-             "without naming one is refused, because that is the "
-             "unasked render the standing ruling forbids")
+        "reel", type=int, nargs="?",
+        default=None,
+        help="The approved reel number to render. Omit it to deliver "
+             "every approved (signed-off) reel: one render per reel, "
+             "one receipt per assignment, nothing re-rendered twice")
+    deliver_reel_parser.add_argument(
+        "--platform", action="append", default=[],
+        help="An extra delivery platform for this run; repeatable. "
+             "Default: the series' or project's own platform. "
+             "Platforms whose specs agree share one render")
+    deliver_reel_parser.add_argument(
+        "--preset", default="",
+        help="Record pipeline.deliver_preset once as FORMAT:CODEC "
+             "(e.g. mp4:H264) and deliver with it")
+    deliver_reel_parser.add_argument(
+        "--naming", default="",
+        help="Record pipeline.deliver_naming once (e.g. "
+             "'{timeline}.{ext}') and deliver with it")
+    deliver_reel_parser.add_argument(
+        "--no-prompt", action="store_true",
+        help="Never prompt for undeclared preset/naming; render on "
+             "the fallback and report it")
+    deliver_reel_parser.add_argument(
+        "--no-reveal", action="store_true",
+        help="Do not reveal the exports folder in Finder after an "
+             "all-approved delivery")
     deliver_reel_parser.add_argument(
         "--output-dir", default="",
         help="Where to write the file. Default: the project's exports/")
