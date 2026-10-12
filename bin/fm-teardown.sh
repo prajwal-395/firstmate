@@ -1122,7 +1122,8 @@ remote_secondmate_teardown() {
     || { echo "error: status-presentation retirement failed for remote secondmate $ID; preserving the local route for retry" >&2; return 1; }
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" \
     || { echo "error: remote secondmate $ID's task record could not be removed ($FM_BACKLOG_TRANSITION_ERROR); preserving the local route for retry" >&2; return 1; }
-  rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" "$STATE/$ID.stopped"
+  rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" "$STATE/$ID.stopped" \
+    "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
   printf 'teardown %s complete (remote %s:%s)\n' "$ID" "$remote_host" "$remote_home"
   return 0
 }
@@ -3927,7 +3928,8 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" "$STATE/$ID.stopped" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
   "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" \
   "$STATE/.$ID.branch-outcome-index" "$STATE/.agy-pin-$ID" \
-  "$STATE/.opencode-pin-$ID" "$STATE/$ID.opencode-retry"
+  "$STATE/.opencode-pin-$ID" "$STATE/$ID.opencode-retry" \
+  "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
 # retired endpoint; teardown only runs after landing is confirmed, so any
 # leftover unhandled steer here is moot rather than unlanded work.
