@@ -1126,6 +1126,46 @@ def _line(check: Check, width: int) -> list:
     return lines
 
 
+def summary_line(checks: list) -> str:
+    """The one line the budgeted default keeps: counts, nothing else."""
+    from library.tools import machine_needs
+    report = capability_report(checks)
+    by_verdict = {verdict: [c for c, (v, _, _, _) in report.items() if v == verdict]
+                  for verdict in (machine_needs.UNAVAILABLE, machine_needs.UNKNOWN,
+                                  machine_needs.DEGRADED, machine_needs.AVAILABLE)}
+    failed = required_failures(checks)
+    undetermined = sum(check.undetermined for check in checks)
+    missing = sum(not check.ok and not check.undetermined for check in checks) - len(failed)
+    return (f"{sum(check.ok for check in checks)} passed, {len(failed)} required "
+            f"failed, {missing} missing, {undetermined} undetermined. Capabilities: "
+            f"{len(by_verdict[machine_needs.AVAILABLE])} available, "
+            f"{len(by_verdict[machine_needs.DEGRADED])} degraded, "
+            f"{len(by_verdict[machine_needs.UNKNOWN])} unknown, "
+            f"{len(by_verdict[machine_needs.UNAVAILABLE])} unavailable.")
+
+
+def render_brief(checks: list) -> str:
+    """The budgeted default: only FAIL/WARN rows plus the summary line.
+
+    LE-12: `ren doctor` defaulted to the full ledger (7,497 bytes
+    measured) - every PASS line, the capabilities table and the help
+    footer. The brief keeps what needs acting on (FAIL, MISS and
+    UNKNOWN lines with their fixes) plus `summary_line`. `--all`
+    restores `render`.
+    """
+    width = max((len(check.name) for check in checks), default=0)
+    lines: list[str] = []
+    for check in checks:
+        if check.ok:
+            continue
+        lines += _line(check, width)
+    if not lines:
+        lines = ["All checks passed."]
+    lines.append(summary_line(checks))
+    lines.append("(`ren doctor --all` prints every check; `--json` prints the report.)")
+    return "\n".join(lines)
+
+
 def render(checks: list) -> str:
     from library.tools import machine_needs
     from library.tools.runtime_backends import doctor_line
@@ -1169,15 +1209,7 @@ def render(checks: list) -> str:
                                subsequent_indent=" " * 15)
 
     failed = required_failures(checks)
-    undetermined = sum(check.undetermined for check in checks)
-    missing = sum(not check.ok and not check.undetermined for check in checks) - len(failed)
-    lines += ["",
-              (f"{sum(check.ok for check in checks)} passed, {len(failed)} required "
-               f"failed, {missing} missing, {undetermined} undetermined. Capabilities: "
-               f"{len(by_verdict[machine_needs.AVAILABLE])} available, "
-               f"{len(by_verdict[machine_needs.DEGRADED])} degraded, "
-               f"{len(by_verdict[machine_needs.UNKNOWN])} unknown, "
-               f"{len(by_verdict[machine_needs.UNAVAILABLE])} unavailable."),
+    lines += ["", summary_line(checks),
               "`ren doctor --for <capability>` checks one capability's needs."]
     return "\n".join(lines)
 
@@ -1213,6 +1245,39 @@ def render_for(capability: str, checks: list) -> str:
     return "\n".join(lines)
 
 
+def render_for_brief(capability: str, checks: list) -> str:
+    """The budgeted `--for` default: only FAIL/WARN rows plus the verdict."""
+    from library.tools import machine_needs
+    failing = {check.need for check in checks
+               if not check.ok and not check.undetermined and check.need}
+    undetermined = {check.need for check in checks
+                    if check.undetermined and check.need}
+    verdict, missing, degraded, undetermined_missing = \
+        machine_needs.availability(capability, failing, undetermined)
+    needs = machine_needs.needs_of(capability)
+    width = max((len(check.name) for check in checks), default=0)
+    lines: list[str] = []
+    for check in checks:
+        if check.ok:
+            continue
+        if check.undetermined:
+            mark = "UNKNOWN"
+        else:
+            mark = "FAIL" if check.need in needs.requires else "MISS"
+        lines.append(f"{mark}  {check.name.ljust(width)}  {check.detail}")
+        if check.fix:
+            lines.append(f"      {' ' * width}  fix: {check.fix}")
+    if not lines:
+        lines = ["All checks passed."]
+    if missing:
+        lines.append(f"{capability}: {verdict} - missing {', '.join(missing)}")
+    else:
+        lines.append(f"{capability}: {verdict}")
+    lines += [f"  without {need}: {why}" for need, why in degraded.items()]
+    lines += [f"  could not determine {need}" for need in undetermined_missing]
+    return "\n".join(lines)
+
+
 def main(argv=None, probe=None) -> int:
     from ren.version import build_info
     engine_root = _engine_root()
@@ -1222,6 +1287,9 @@ def main(argv=None, probe=None) -> int:
     runtime_backends = runtime_backend_snapshot()
     parser = argparse.ArgumentParser(prog="ren doctor", description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true", help="Print the checks as JSON")
+    parser.add_argument("--all", action="store_true",
+                        help="Print every check (today's default); without "
+                             "it, print only FAIL/WARN rows plus one summary line")
     parser.add_argument(
         "--for", dest="capability", metavar="CAPABILITY",
         help="check only what one capability needs, and exit 1 if it is "
@@ -1248,7 +1316,8 @@ def main(argv=None, probe=None) -> int:
                               "undetermined": list(undetermined_missing),
                               "checks": [asdict(check) for check in checks]}, indent=1))
         else:
-            print(render_for(args.capability, checks))
+            print(render_for(args.capability, checks) if args.all
+                  else render_for_brief(args.capability, checks))
         return 1 if verdict == machine_needs.UNAVAILABLE else 0
 
     checks = run_checks(probe)
@@ -1264,5 +1333,5 @@ def main(argv=None, probe=None) -> int:
                              for c, (v, m, d, u) in capability_report(checks).items()},
         }, indent=1))
     else:
-        print(render(checks))
+        print(render(checks) if args.all else render_brief(checks))
     return 1 if failed else 0

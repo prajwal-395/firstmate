@@ -751,6 +751,58 @@ def _version_label(reference: Mapping | None, *, missing: str) -> str:
     return f"{label} ({at})" if at else label
 
 
+def render_summary(document: Mapping) -> str:
+    """The budgeted default: counts plus the 5 newest notes, never the ledger.
+
+    LE-12: `ren outcomes` defaulted to the full per-note ledger
+    (25,394 bytes on the measured project). The summary keeps the
+    shape an agent scans - per-action counts, per-verification-state
+    counts, and the 5 newest notes with one line each - under budget.
+    `--full` restores `render_text`.
+    """
+    notes = list(document.get("notes") or ())
+    events = [event for note in notes for event in (note.get("outcomes") or ())]
+    by_action: dict[str, int] = {}
+    by_state: dict[str, int] = {}
+    for event in events:
+        action = str((event.get("action") or {}).get("kind") or "unknown")
+        by_action[action] = by_action.get(action, 0) + 1
+        state = str((event.get("verification") or {}).get("state") or "unknown")
+        by_state[state] = by_state.get(state, 0) + 1
+    open_notes = sum(1 for note in notes if not note.get("outcomes"))
+    lines = [f"Feedback outcomes: {len(notes)} note(s), "
+             f"{document.get('outcome_count', len(events))} outcome event(s)"
+             f" ({open_notes} open)"]
+    if by_action:
+        lines.append("actions: " + ", ".join(
+            f"{kind}={count}" for kind, count in sorted(by_action.items())))
+    else:
+        lines.append("actions: none recorded")
+    if by_state:
+        lines.append("verification: " + ", ".join(
+            f"{state}={count}" for state, count in sorted(by_state.items())))
+    else:
+        lines.append("verification: none recorded")
+    newest = sorted(
+        notes,
+        key=lambda row: (str(row.get("last_seen") or ""),
+                         str(row.get("first_asked") or ""),
+                         str(row.get("identity") or "")),
+        reverse=True)[:5]
+    lines.append(f"newest {len(newest)} note(s):")
+    for note in newest:
+        outcome_kinds = ",".join(
+            str((event.get("action") or {}).get("kind") or "?")
+            for event in (note.get("outcomes") or ())) or "open"
+        text = str(note.get("text") or "(no text)").splitlines()
+        first_line = text[0][:100] if text else "(no text)"
+        lines.append(f"  {note.get('reel', '?')} - {note.get('identity', '?')}"
+                     f" [{outcome_kinds}]: {first_line}")
+    lines.append("(`ren outcomes <project> --full` prints the full ledger; "
+                 "`--json` prints the document.)")
+    return "\n".join(lines)
+
+
 def render_text(document: Mapping) -> str:
     notes = list(document.get("notes") or ())
     lines = [f"Feedback outcomes: {len(notes)} note(s), "
@@ -900,6 +952,10 @@ def main(argv=None) -> int:
                         help="print a standalone HTML report")
     parser.add_argument("--json", action="store_true",
                         help="print the outcome document as JSON")
+    parser.add_argument("--full", action="store_true",
+                        help="print the full per-note ledger (today's "
+                             "default); without it, print the budgeted "
+                             "summary")
     parser.add_argument("--backfill", action="store_true",
                         help="write derived entries from existing records first")
     args = parser.parse_args(argv)
@@ -912,6 +968,10 @@ def main(argv=None) -> int:
         parser.error("--from-reel cannot be greater than --to-reel")
     if args.html and args.json:
         parser.error("--html and --json cannot be used together")
+    if args.full and args.json:
+        parser.error("--full and --json cannot be used together")
+    if args.full and args.html:
+        parser.error("--full and --html cannot be used together")
     try:
         project = _resolve_project(args.project)
     except (FileNotFoundError, RuntimeError) as refused:
@@ -929,8 +989,10 @@ def main(argv=None) -> int:
         print(render_html(document))
     elif args.json:
         print(json.dumps(document, indent=2, ensure_ascii=False))
-    else:
+    elif args.full:
         print(render_text(document))
+    else:
+        print(render_summary(document))
     return 0
 
 

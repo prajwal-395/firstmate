@@ -2455,6 +2455,7 @@ def run_pipeline(
     single_step: str = None,
 
     dry_run: bool = False,
+    dry_run_json: bool = False,
     auto_mode: bool = False,
     review_mode: bool = False,
     resume_mode: bool = False,
@@ -2488,6 +2489,18 @@ def run_pipeline(
     `review_mode` is the special case "every step".  See
     library/tools/breakpoints.py.
     """
+    # LE-12: the dry-run plan prints ONCE. JSON on stdout when stdout
+    # is not a TTY or `dry_run_json` is set; human text otherwise.
+    # The banner, step list and gate lines below are the human plan,
+    # so JSON mode skips them (the same facts ride in the summary) -
+    # warnings and refusals still print either way.
+    _dry_want_json = False
+    if dry_run:
+        _dry_want_json = bool(dry_run_json)
+        try:
+            _dry_want_json = _dry_want_json or not sys.stdout.isatty()
+        except Exception:  # noqa: BLE001 - an unreadable stdout is not a TTY
+            _dry_want_json = True
     # Initialize logger
     get_logger(project_dir)
 
@@ -2679,18 +2692,19 @@ def run_pipeline(
     # default would hold every run at PARTIAL forever.
     universe = list(scope.universe)
 
-    print(f"\n{'═'*60}", file=sys.stderr)
-    print(f"  Pipeline: edit_video", file=sys.stderr)
-    print(f"  Project: {project_dir}", file=sys.stderr)
-    print(f"  Steps: {len(universe)}", file=sys.stderr)
-    print(f"  Order: {' → '.join(universe)}", file=sys.stderr)
-    for line in external_inputs.describe(external):
-        print(line, file=sys.stderr)
-    for line in run_profile.describe(active_profile):
-        print(line, file=sys.stderr)
-    for line in run_scope.describe(scope):
-        print(line, file=sys.stderr)
-    print(f"{'═'*60}\n", file=sys.stderr)
+    if not (dry_run and _dry_want_json):
+        print(f"\n{'═'*60}", file=sys.stderr)
+        print(f"  Pipeline: edit_video", file=sys.stderr)
+        print(f"  Project: {project_dir}", file=sys.stderr)
+        print(f"  Steps: {len(universe)}", file=sys.stderr)
+        print(f"  Order: {' → '.join(universe)}", file=sys.stderr)
+        for line in external_inputs.describe(external):
+            print(line, file=sys.stderr)
+        for line in run_profile.describe(active_profile):
+            print(line, file=sys.stderr)
+        for line in run_scope.describe(scope):
+            print(line, file=sys.stderr)
+        print(f"{'═'*60}\n", file=sys.stderr)
 
     # Determine which steps to run.  The scope has already decided which
     # steps this run may touch; --from and --step narrow that further and
@@ -2721,7 +2735,8 @@ def run_pipeline(
                 continue
             steps_to_run.append(node_id)
     
-    print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
+    if not (dry_run and _dry_want_json):
+        print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
 
     # Requirements are checked against what will EXECUTE, not against the
     # plan the scope agreed to.
@@ -2912,21 +2927,21 @@ def run_pipeline(
 
     # Where this run stops, and - loudly - anywhere it was asked to stop
     # and will not reach.  Printed against `steps_to_run` rather than the
-    # scope, because --step and --from narrow it further.
-    for line in gates.describe(steps_to_run):
-        print(line, file=sys.stderr)
+    # scope, because --step and --from narrow it further. In a JSON
+    # dry run the same facts ride in the summary, so the human lines
+    # stay quiet there (LE-12).
+    if not (dry_run and _dry_want_json):
+        for line in gates.describe(steps_to_run):
+            print(line, file=sys.stderr)
 
     if dry_run:
-        for node_id in steps_to_run:
-            impl = get_step_implementation(get_step_dir(nodes[node_id]))
-            done = step_ledger.is_completed(state, node_id)
-            stage = stage_by_node[node_id]
-            print(f"    {'[done] ' if done else '       '}{node_id} "
-                  f"({impl['type']}, {stage})", file=sys.stderr)
+        # LE-12: the plan prints ONCE. JSON on stdout when stdout is
+        # not a TTY (an agent capturing it) or `--json` is passed;
+        # human text on stderr otherwise. Today both always printed,
+        # doubling every dry-run read.
+        want_json = _dry_want_json
         estimate = run_scope.estimated_seconds(scope, dag=dag,
                                                steps=steps_to_run)
-        print(f"    ({estimate['selected']}s of estimated work selected, "
-              f"{estimate['skipped']}s skipped)", file=sys.stderr)
         # Native freshness is lock-free hashing, so a dry run can REPORT
         # it without taking the heavy-work lock it refuses to wait on
         # (LE-01: `main` skips `ensure_current` for dry runs). One line
@@ -2944,8 +2959,6 @@ def run_pipeline(
                     continue
                 if _state in ("stale", "missing"):
                     native_stale.append(_part)
-                    print(f"native: {_part} {_state}; "
-                          f"a real run rebuilds it first", file=sys.stderr)
         except Exception:  # noqa: BLE001 - a staleness report never breaks a dry run
             native_stale = []
         summary = {
@@ -2972,7 +2985,20 @@ def run_pipeline(
             # waits for the slot a rebuild would take.
             "native_stale": native_stale,
         }
-        json.dump(summary, sys.stdout, indent=2)
+        if want_json:
+            json.dump(summary, sys.stdout, indent=2)
+            return summary
+        for node_id in steps_to_run:
+            impl = get_step_implementation(get_step_dir(nodes[node_id]))
+            done = step_ledger.is_completed(state, node_id)
+            stage = stage_by_node[node_id]
+            print(f"    {'[done] ' if done else '       '}{node_id} "
+                  f"({impl['type']}, {stage})", file=sys.stderr)
+        print(f"    ({estimate['selected']}s of estimated work selected, "
+              f"{estimate['skipped']}s skipped)", file=sys.stderr)
+        for _part in native_stale:
+            print(f"native: {_part} stale or missing; "
+                  f"a real run rebuilds it first", file=sys.stderr)
         return summary
 
     # The creative brief's versioned home.  The declared path may sit
@@ -4546,6 +4572,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--step", help="Run only this step")
     parser.add_argument("--dry-run", action="store_true",
                        help="Print the execution plan without running steps")
+    parser.add_argument("--json", action="store_true",
+                       help="With --dry-run: print the plan as JSON on "
+                            "stdout (the default when stdout is not a TTY); "
+                            "without it on a TTY, print human text instead")
 
     parser.add_argument("--auto", action="store_true", 
                        help="Auto-complete hybrid steps (use bridge output as final)")
@@ -4713,6 +4743,7 @@ def main():
             single_step=args.step,
 
             dry_run=args.dry_run,
+            dry_run_json=args.json,
             auto_mode=args.auto,
             review_mode=args.review,
             resume_mode=args.resume,

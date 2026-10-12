@@ -2043,6 +2043,8 @@ def cmd_run(args):
         cmd.extend(["--step", args.step])
     if args.dry_run:
         cmd.append("--dry-run")
+    if getattr(args, "json", False):
+        cmd.append("--json")
     if args.auto:
         cmd.append("--auto")
     if args.review:
@@ -3279,12 +3281,18 @@ def cmd_still_overlays(args):
                 f"run `ren propose {args.project}` first, or name reels "
                 f"the plan approves")
     failed = 0
+    as_json = bool(getattr(args, "json", False))
+    reel_reports: list = []
     for moment in approved:
         if wanted is not None and int(moment.number) not in wanted:
             continue
         report = _stills.swap_reel_overlays(
             args.project, moment.timeline_name, project_folder,
             dry_run=args.dry_run)
+        reel_reports.append({"timeline": moment.timeline_name,
+                             "number": int(moment.number), **report})
+        if as_json:
+            continue
         swapped = len(report.get("swapped") or [])
         skipped = len(report.get("skipped") or [])
         if report.get("refused") is not None:
@@ -3301,8 +3309,16 @@ def cmd_still_overlays(args):
                       f"{entry.get('item')}: {entry.get('why')}")
             for label in report.get("planned") or ():
                 print(f"    would swap {label}")
-    from library.tools.execution.asset_gc import report_after as _gc_report
-    _gc_report(project_folder)
+    if as_json:
+        failed = sum(1 for entry in reel_reports
+                     if entry.get("refused") is not None)
+        print(json.dumps({"command": "still-overlays",
+                          "dry_run": bool(args.dry_run),
+                          "reels": reel_reports}, indent=2,
+                         ensure_ascii=False))
+    else:
+        from library.tools.execution.asset_gc import report_after as _gc_report
+        _gc_report(project_folder)
     if failed:
         raise RenRefusal(
             f"{failed} reel(s) refused the still swap",
@@ -3383,17 +3399,20 @@ def cmd_dedupe_stills(args):
             "a merge the pixels do not support stops the whole run; "
             "nothing was changed",
             "re-run --dry-run to see the measured distances") from None
-    for group in project_plan["graphic_groups"]:
-        files = ", ".join(path.rsplit("/", 1)[-1]
-                          for path in group["files"])
-        print(f"  graphic {group['graphic']}: "
-              f"{group['members']} item(s) at worst distance "
-              f"{group['worst_distance']} -> "
-              f"{(group['canonical'] or '').rsplit('/', 1)[-1]} "
-              f"[{files}]")
-    for entry in project_plan["skipped"]:
-        print(f"  skipped {entry.get('file_path') or entry.get('graphic')}: "
-              f"{entry.get('why')}")
+    as_json = bool(getattr(args, "json", False))
+    if not as_json:
+        for group in project_plan["graphic_groups"]:
+            files = ", ".join(path.rsplit("/", 1)[-1]
+                              for path in group["files"])
+            print(f"  graphic {group['graphic']}: "
+                  f"{group['members']} item(s) at worst distance "
+                  f"{group['worst_distance']} -> "
+                  f"{(group['canonical'] or '').rsplit('/', 1)[-1]} "
+                  f"[{files}]")
+        for entry in project_plan["skipped"]:
+            print(f"  skipped {entry.get('file_path') or entry.get('graphic')}: "
+                  f"{entry.get('why')}")
+    reel_reports: list = []
     for moment in approved:
         if wanted is not None and int(moment.number) not in wanted:
             continue
@@ -3401,6 +3420,10 @@ def cmd_dedupe_stills(args):
             args.project, moment.timeline_name, project_folder,
             dry_run=args.dry_run,
             scoped_repoints=project_plan["repoints"])
+        reel_reports.append({"timeline": moment.timeline_name,
+                             "number": int(moment.number), **report})
+        if as_json:
+            continue
         repointed = len(report.get("repointed") or [])
         skipped = len(report.get("skipped") or [])
         if report.get("refused") is not None:
@@ -3428,8 +3451,17 @@ def cmd_dedupe_stills(args):
                       f"{entry.get('why')}")
             for label in report.get("planned") or ():
                 print(f"    would repoint {label}")
-    from library.tools.execution.asset_gc import report_after as _gc_report
-    _gc_report(project_folder)
+    if as_json:
+        failed = sum(1 for entry in reel_reports
+                     if entry.get("refused") is not None)
+        print(json.dumps({"command": "dedupe-stills",
+                          "dry_run": bool(args.dry_run),
+                          "project_plan": project_plan,
+                          "reels": reel_reports}, indent=2,
+                         ensure_ascii=False))
+    else:
+        from library.tools.execution.asset_gc import report_after as _gc_report
+        _gc_report(project_folder)
     if failed:
         raise RenRefusal(
             f"{failed} reel(s) refused the still dedupe",
@@ -4428,6 +4460,9 @@ def main():
         "--dry-run", action="store_true",
         help="Plan the swaps and report them without writing anything - "
              "no .drt backup, no timeline edit")
+    still_overlays_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the dry-run or result report as JSON on stdout")
     still_overlays_parser.set_defaults(func=cmd_still_overlays)
 
     dedupe_stills_parser = _add_command(sub, "dedupe-stills")
@@ -4443,6 +4478,9 @@ def main():
         "--dry-run", action="store_true",
         help="Plan the re-points and report them without writing "
              "anything - no .drt backup, no timeline edit")
+    dedupe_stills_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the dry-run or result report as JSON on stdout")
     dedupe_stills_parser.set_defaults(func=cmd_dedupe_stills)
 
     touch_master_parser = _add_command(sub, "touch-master")
@@ -4673,6 +4711,9 @@ def main():
     p_run.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     p_run.add_argument("--step", help="Run only this step")
     p_run.add_argument("--dry-run", action="store_true", help="Show plan without executing")
+    p_run.add_argument("--json", action="store_true",
+                       help="With --dry-run: print the plan as JSON on "
+                            "stdout (the default when stdout is not a TTY)")
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
     p_run.add_argument("--review", action="store_true",
                        help="Arm a review gate after EVERY step - the "

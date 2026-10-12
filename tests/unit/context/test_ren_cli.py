@@ -323,7 +323,7 @@ def test_free_edition_fails_resolve_capabilities_by_name_not_the_machine(
     assert "Studio" in edition
     assert "render.build: unavailable - missing resolve.studio" in out
 
-    code = doctor.main([], probe=lambda: _FREE)
+    code = doctor.main(["--all"], probe=lambda: _FREE)
     out = capsys.readouterr().out
     assert code == 0
     assert any(line.startswith("MISS  Resolve edition") for line in out.splitlines())
@@ -338,7 +338,7 @@ def test_a_missing_baseline_need_fails_the_doctor(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "python_checks", lambda: [doctor.Check(
         "Python core", False, "1 not satisfied: pyyaml", need="python.core")])
 
-    code = doctor.main([], probe=lambda: _FREE)
+    code = doctor.main(["--all"], probe=lambda: _FREE)
 
     out = capsys.readouterr().out
     assert code == 1
@@ -448,7 +448,7 @@ def test_doctor_passes_without_obsolete_or_optional_models(tmp_path, monkeypatch
     monkeypatch.setattr(shared_environment, "mfa_available",
                         lambda: (True, "MFA available"))
 
-    code = doctor.main([], probe=lambda: {})
+    code = doctor.main(["--all"], probe=lambda: {})
 
     output = capsys.readouterr().out
     assert code == 0
