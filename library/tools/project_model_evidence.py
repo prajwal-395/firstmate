@@ -20,10 +20,12 @@ they land in the migration report as dropped, never as empty intervals.
 Identity policy (fail-closed, never guessed):
 
 - Person entities come from ``person_entity.resolve_person_tracks``:
-  face-embedding clusters, face-only across sources. Cross-source voice
-  identity stays ABSENT while ``VOICE_MATCH_THRESHOLD`` is unmeasured;
-  voice tracks become per-source Speaker entities and reach a Person
-  only through a within-source measured speech-face link.
+  face-embedding clusters, face-only across sources. Voice tracks become
+  per-source Speaker entities and reach a Person through a within-source
+  measured speech-face link, or through a cross-source voice match at the
+  measured ``VOICE_MATCH_THRESHOLD`` to a voice already linked to that
+  person (``person_entity.join_voices_across_sources``) - never by
+  merging two persons.
 - Object instances stay per-clip: no cross-clip object re-identification
   is measured, so no link is minted for one.
 - A face-seeded (1.06) subject mask reaches the roster Person only when
@@ -507,6 +509,24 @@ def _migrate_speech_face_links(builder: _Builder, digest: str,
                          digest, "m3b", "library.tools.person_entity")
 
 
+def _migrate_voice_matches(builder: _Builder, roster: list[dict]) -> None:
+    """Cross-source voice-to-person links: a voice track no face in its
+    own source claims, matched at the measured threshold to a voice this
+    person's face IS linked to (`resolve_person_tracks` decided it)."""
+    for person in roster:
+        for match in person.get("voice_matches") or []:
+            digest = match["content_digest"]
+            voice_provs = {_prov_id(digest, "m3b"), _prov_id(digest, "m1b")}
+            for obs in builder.model["observations"]:
+                if (obs["modality"] == "voice_turn"
+                        and obs["provenance_id"] in voice_provs
+                        and str(obs["payload"].get("voice_track"))
+                        == match["voice_track"]):
+                    builder.link(person["person_id"], obs["id"],
+                                 "cross_source_voice_match", digest, "m3b",
+                                 "library.tools.person_entity")
+
+
 def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     clock_id: str, root: Path | None) -> None:
     m4 = source_memory.read_scenes(digest, root)
@@ -908,6 +928,7 @@ def migrate_project_evidence(project_folder: str, *,
                        _clock_id(digest), roster, root)
     for digest in seen:
         _migrate_speech_face_links(builder, digest, roster, root)
+    _migrate_voice_matches(builder, roster)
     for clip_id, digest in clip_digest.items():
         _migrate_segmentation(builder, project_folder, clip_id, digest,
                               roster, root)
@@ -987,8 +1008,6 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "dropped": report.get("dropped") or [],
             "notes": report.get("notes") or [],
             "absent_identity": [
-                ("cross-source voice links: withheld, "
-                 "VOICE_MATCH_THRESHOLD unmeasured"),
                 ("cross-clip object links: withheld, no re-identification "
                  "measurement"),
                 ("M10 relations: candidates stay observations until an "

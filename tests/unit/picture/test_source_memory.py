@@ -21,6 +21,7 @@ from library.tools import (
     footage_identity,
     person_entity,
     source_memory,
+    voice_identity_study,
 )
 from library.tools.analysis import footage_segments
 from library.tools.analysis import measurement_layers as ml
@@ -1521,6 +1522,98 @@ def test_resolve_person_tracks_never_merges_on_voice_alone(
     assert len(roster["persons"]) == 2
 
 
+def _two_speaker_sources(tmp_path, memory_root, voices_b):
+    """Source A: two faces, each linked to its own voice. Source B: no
+    face found, only `voices_b`. Returns the project folder."""
+    face_c, face_a = _embedding(512, 1), _embedding(512, 2)
+    media_a = _media_2(tmp_path, "A.MXF", b"source-a")
+    media_b = _media_2(tmp_path, "B.MXF", b"source-b")
+    digest_a = footage_identity.fingerprint(str(media_a))["content_digest"]
+    digest_b = footage_identity.fingerprint(str(media_b))["content_digest"]
+    project = _project_with_clips(
+        tmp_path, [("clip_001", media_a, digest_a),
+                  ("clip_002", media_b, digest_b)])
+    link = "co-occurrence: voice span + face span overlap"
+    _write_identity(memory_root, digest_a, {
+        "content_digest": digest_a, "status": "measured",
+        "faces": [{"track_id": "face_001", "embedding": list(face_c),
+                  "spans": [{"start": 1.0, "end": 1.2}]},
+                 {"track_id": "face_002", "embedding": list(face_a),
+                  "spans": [{"start": 40.0, "end": 40.2}]}],
+        "voices": [{"track_id": "voice_001", "embedding": list(VOICE_CRAIG),
+                   "spans": [[0.0, 30.0]]},
+                  {"track_id": "voice_002", "embedding": list(VOICE_AKSHITA),
+                   "spans": [[35.0, 65.0]]}],
+        "speech_face_links": [
+            {"t": 1.1, "face_track": "face_001", "voice_track": "voice_001",
+             "basis": link},
+            {"t": 40.1, "face_track": "face_002", "voice_track": "voice_002",
+             "basis": link}]})
+    _write_identity(memory_root, digest_b, {
+        "content_digest": digest_b, "status": "no-faces-detected",
+        "faces": [], "voices": voices_b, "speech_face_links": []})
+    return project, digest_b
+
+
+VOICE_CRAIG = _embedding(192, 7)
+VOICE_AKSHITA = _embedding(192, 8)
+
+
+def test_roster_joins_the_same_voice_across_sources_and_keeps_others_apart(
+        tmp_path, memory_root_2):
+    """MU-17 acceptance. Source B shows no face, so before cross-source
+    voice matching its two voice tracks reached nobody: Craig's and
+    Akshita's speech on the second camera was missing from both persons.
+    At the measured `VOICE_MATCH_THRESHOLD` each joins the person whose
+    voice it is - and only that person."""
+    project, digest_b = _two_speaker_sources(tmp_path, memory_root_2, [
+        {"track_id": "voice_001", "embedding": list(_jitter(VOICE_AKSHITA, 3)),
+         "spans": [[100.0, 130.0]]},
+        {"track_id": "voice_002", "embedding": list(_jitter(VOICE_CRAIG, 4)),
+         "spans": [[140.0, 175.0]]}])
+
+    roster = person_entity.resolve_person_tracks(str(project))
+
+    craig, akshita = roster["persons"]
+    def b_spans(person):
+        return sorted((s["start"], s["end"]) for s in person["voice_spans"]
+                      if s["content_digest"] == digest_b)
+    assert b_spans(craig) == [(140.0, 175.0)]
+    assert b_spans(akshita) == [(100.0, 130.0)]
+    assert [m["voice_track"] for m in craig["voice_matches"]] == ["voice_002"]
+    assert craig["voice_matches"][0]["matched"][0]["similarity"] >= \
+        person_entity.VOICE_MATCH_THRESHOLD
+    assert roster["voice_match_conflicts"] == []
+
+
+def test_roster_voice_match_never_joins_a_stranger_or_bridges_two_persons(
+        tmp_path, memory_root_2):
+    """A voice unlike every linked voice joins nobody, a matching voice
+    shorter than `VOICE_MATCH_MIN_SECONDS` joins nobody (the study's
+    every false reject was such a fragment), and a voice that matches
+    two persons' voices is a conflict, never a merge: a false voice join
+    silently corrupts a person's whole speech history."""
+    stranger = _embedding(192, 9)
+    between = _unit(np.asarray(VOICE_CRAIG) + np.asarray(VOICE_AKSHITA))
+    project, digest_b = _two_speaker_sources(tmp_path, memory_root_2, [
+        {"track_id": "voice_001", "embedding": list(stranger),
+         "spans": [[100.0, 130.0]]},
+        {"track_id": "voice_002", "embedding": list(_jitter(VOICE_CRAIG, 4)),
+         "spans": [[140.0, 150.0]]}])
+    roster = person_entity.resolve_person_tracks(str(project))
+    assert all(s["content_digest"] != digest_b
+               for p in roster["persons"] for s in p["voice_spans"])
+
+    voices_by_digest = {
+        "a": [{"track_id": "v1", "embedding": list(VOICE_CRAIG), "spans": [[0, 30]]}],
+        "b": [{"track_id": "v1", "embedding": list(VOICE_AKSHITA), "spans": [[0, 30]]}],
+        "c": [{"track_id": "v1", "embedding": list(between), "spans": [[0, 30]]}]}
+    joins, conflicts = person_entity.join_voices_across_sources(
+        voices_by_digest, {("a", "v1"): {0}, ("b", "v1"): {1}}, threshold=0.5)
+    assert joins == {}
+    assert conflicts[0]["persons"] == [0, 1]
+
+
 def test_find_person_resolves_declared_name_and_reports_none_unmatched(
         tmp_path, memory_root_2):
     base = _embedding(512, 1)
@@ -1630,6 +1723,37 @@ def test_measure_cross_source_voice_separation_requires_both_classes():
     report = person_entity.measure_cross_source_voice_separation(same_only)
     assert report["separates"] is False
     assert "reason" in report
+
+
+def _segment(item, speaker, source, offset, start, end):
+    return {"resolve_item_id": item, "speaker": speaker, "source_file": source,
+            "timeline_start": start, "timeline_end": end,
+            "source_start": start + offset, "source_end": end + offset}
+
+
+def test_voice_study_labels_the_other_camera_through_the_timelines_sync():
+    """The study's ground truth for a cross-microphone pair is a speaker's
+    ISO segment carried onto the OTHER camera through the timeline's own
+    sync. A wrong delta labels Akshita's bleed as silence, or as Craig;
+    an unsynced pair (one cut, or cuts that disagree) must label nothing,
+    never a guessed shift."""
+    segments = [
+        _segment("i1", "Craig", "B.MXF", 100.0, 0.0, 5.0),
+        _segment("i2", "Akshita", "A.MXF", 96.0, 5.5, 9.0),
+        _segment("i3", "Craig", "B.MXF", 100.0, 9.5, 12.0),
+        _segment("i4", "Akshita", "A.MXF", 96.0, 12.5, 15.0),
+        _segment("i5", "Craig", "C.MXF", 7.0, 15.5, 18.0),
+    ]
+    spans = voice_identity_study.spans_from_timeline_transcript(
+        {"segments": segments})
+    margin = voice_identity_study.SYNC_MARGIN_S
+
+    assert (100.0, 105.0, "Craig") in spans["B.MXF"]
+    assert (96.0 + margin, 101.0 - margin, "Craig") in spans["A.MXF"]
+    assert (105.5 + margin, 109.0 - margin, "Akshita") in spans["B.MXF"]
+    # C abuts the edit once: its own segment, and nothing carried either way.
+    assert spans["C.MXF"] == [(22.5, 25.0, "Craig")]
+    assert len(spans["A.MXF"]) == len(spans["B.MXF"]) == 4
 
 
 # --------------------------------------------------------------------------

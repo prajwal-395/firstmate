@@ -296,15 +296,19 @@ M2 timestamps, threshold, sampling policy, input width and model pack.
 Changing one of those inputs rebuilds faces. Voice diarization still runs
 on each build.
 
-**Cross-source person identity is face-only.** `person_entity.
+**Cross-source persons are FACES; a voice can only JOIN one.** `person_entity.
 resolve_person_tracks` unifies face tracks across every source digest a
-project's catalog references, by the same measured threshold. Voice
-embeddings are NOT matched across sources - only the diarization DER
-(separating voices WITHIN one file) is proven; porting that into a
-cross-file identity claim would be exactly the unmeasured leap the rigor
-gate exists to catch. A source's voice spans travel with whichever
-person their speech-face link (within that same source) attaches them
-  to. `ren search --person <name-or-id>` and `filter --person` read this
+project's catalog references, by the same measured threshold. A source's
+voice spans travel with whichever person their speech-face link (within
+that same source) attaches them to. A voice track no face in its own
+source claims joins a person when it matches, across sources, a voice
+that person's face IS linked to - ECAPA cosine >= `VOICE_MATCH_THRESHOLD`
+on tracks of >= `VOICE_MATCH_MIN_SECONDS`, both measured by
+`library/tools/voice_identity_study.py`
+([`CROSS_SOURCE_VOICE_MEASUREMENT.md`](CROSS_SOURCE_VOICE_MEASUREMENT.md)).
+A voice match never merges two persons: a match group touching two is
+listed in `voice_match_conflicts` and joins nobody.
+`ren search --person <name-or-id>` and `filter --person` read this
   resolution; a project may declare `source.person_names: {person_001:
   "Craig"}` to give a measured cluster a human name (a label, never a
   substitute for the embedding match that assigned the id).

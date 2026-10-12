@@ -33,20 +33,16 @@ its 512-d ArcFace embedding and nothing else.
   recorded with the basis that produced them. Never invented past what
   overlaps.
 
-**Cross-source voice matching:** implemented, threshold pending
-measurement. `match_voices_across_sources` matches voice tracks across
-sources by ECAPA cosine similarity, but only when `VOICE_MATCH_THRESHOLD`
-is set to a measured value. The within-source diarization proof (PR #1482)
-measures separating voices WITHIN one file; whether that separation holds
-ACROSS files (different microphones, rooms, camera positions) is an open
-question. `measure_cross_source_voice_separation` computes the
-same-person and different-person distance distributions from labelled
-pairs, and `docs/CROSS_SOURCE_VOICE_MEASUREMENT.md` specifies the
-real-footage measurement that sets the threshold. Until that measurement
-is run, cross-source person identity remains **face-only**; a source's
-voice tracks travel with whichever person their speech-face link (within
-that same source) attaches them to, never on their own cosine distance
-to another source's voice track.
+**Cross-source voice matching:** measured and on.
+`match_voices_across_sources` matches voice tracks across sources by
+ECAPA cosine >= `VOICE_MATCH_THRESHOLD`, a threshold set by
+`library/tools/voice_identity_study.py` (FAR=0/FRR=0 on the captain's
+cameras, lavs and phone takes - `docs/CROSS_SOURCE_VOICE_MEASUREMENT.md`).
+Cross-source PERSON identity is still face-only: a voice track travels
+with whichever person its speech-face link (within its own source)
+attaches it to, and a voice no face in its own source claims JOINS the
+person whose linked voice it matches (`join_voices_across_sources`). A
+voice match never merges two persons.
 """
 
 from __future__ import annotations
@@ -83,17 +79,27 @@ corrupts a person's whole span history; a missed match leaves two
 person_ids for one person, visible and recoverable in search results.
 """
 
-VOICE_MATCH_THRESHOLD = None
+VOICE_MATCH_THRESHOLD = 0.45
 """Cosine floor for 'same voice' on a 192-d ECAPA embedding, across sources.
 
-None until measured: the within-source diarization proof (PR #1482) measures
-separating voices WITHIN one file, not matching them ACROSS files. Setting
-this before a cross-source measurement would be the unmeasured leap the
-rigor gate exists to catch. `measure_cross_source_voice_separation`
-computes the distributions from labelled pairs;
-`docs/CROSS_SOURCE_VOICE_MEASUREMENT.md` specifies the real-footage
-measurement that sets this threshold.
+Measured, not chosen, by `voice_identity_study` (2026-10-12) on 12 of the
+captain's sources - the geo-podcast's two cameras (each speaker's own
+lav, and the other speaker's voice bleeding into it) and five phone
+takes - labelled by physical track: tracks of at least
+`VOICE_MATCH_MIN_SECONDS` have FAR=0/FRR=0 from 0.30 to 0.65 (closest
+different-person 0.2925, weakest same-person 0.6954). 0.45 is the
+FAR-biased point of that band: FAR is 0 at 0.40 and above even for 3 s
+chunks (closest different-person 0.3874), so a short track that slips
+the gate still cannot false-merge. Full record:
+`docs/CROSS_SOURCE_VOICE_MEASUREMENT.md`.
 """
+
+VOICE_MATCH_MIN_SECONDS = 21.0
+"""Speech a voice track must carry before it is matched across sources.
+Every same-person false reject in the study involved a diarizer fragment
+of 4-6 s; 40-window chunks (>= 21 s of speech) pass FAR=0/FRR=0 from 0.30
+to 0.50, and tracks this long from 0.30 to 0.65. A shorter track stays
+where its own source's speech-face link put it."""
 
 FRAME_SAMPLE_INTERVAL_S = 10.0
 """How often a source is sampled for faces. `resolve_sample_frames`
@@ -530,7 +536,7 @@ def measure_voice_tracks(wav_path: str,
     return out, None
 
 
-# ── cross-source voice matching (threshold pending measurement) ──────
+# ── cross-source voice matching (measured: voice_identity_study) ──────
 
 
 def measure_cross_source_voice_separation(labelled_pairs: list) -> dict:
@@ -628,6 +634,78 @@ def match_voices_across_sources(voice_tracks_by_source: dict,
                             "similarity": round(sim, 6),
                         })
     return matches
+
+
+def join_voices_across_sources(voices_by_digest: Dict[str, List[dict]],
+                               attached: Dict[Tuple[str, str], set],
+                               threshold: Optional[float] = None
+                               ) -> Tuple[dict, List[dict]]:
+    """Which unlinked voice tracks join which person, by voice alone.
+
+    `attached` maps `(digest, track_id)` to the persons a within-source
+    speech-face link already gave that voice. Matches at `threshold`
+    (default `VOICE_MATCH_THRESHOLD`) are grouped transitively; a group
+    whose linked members all belong to ONE person brings its unlinked
+    members to that person. Returns `({(digest, track_id): (person,
+    matched)}, conflicts)`.
+
+    A voice match never MERGES two persons and never moves a linked
+    voice: face identity is the stronger measurement, and a false voice
+    merge would corrupt both persons' histories. A group touching two
+    persons joins nobody and is returned as a conflict; a group touching
+    none has no person to join and stays out of the roster, as before.
+    """
+    if threshold is None:
+        threshold = VOICE_MATCH_THRESHOLD
+    if threshold is None:
+        return {}, []
+    eligible = {digest: [v for v in voices
+                         if sum(e - s for s, e in v["spans"])
+                         >= VOICE_MATCH_MIN_SECONDS]
+                for digest, voices in voices_by_digest.items()}
+    matches = match_voices_across_sources(eligible, threshold)
+    parent: Dict[Tuple[str, str], Tuple[str, str]] = {}
+
+    def find(node):
+        parent.setdefault(node, node)
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for match in matches:
+        a = (match["source_a"], match["voice_a"])
+        b = (match["source_b"], match["voice_b"])
+        parent[find(a)] = find(b)
+    groups: Dict[Tuple[str, str], list] = {}
+    for node in list(parent):
+        groups.setdefault(find(node), []).append(node)
+
+    joins, conflicts = {}, []
+    for members in groups.values():
+        owners = set().union(*(attached.get(m, set()) for m in members))
+        unlinked = sorted(m for m in members if m not in attached)
+        if not unlinked:
+            continue
+        if len(owners) > 1:
+            conflicts.append({
+                "voice_tracks": [{"content_digest": d, "voice_track": t}
+                                 for d, t in sorted(members)],
+                "persons": sorted(owners)})
+            continue
+        if not owners:
+            continue
+        owner = next(iter(owners))
+        for member in unlinked:
+            matched = [{"content_digest": m[side_b], "voice_track": m[voice_b],
+                        "similarity": m["similarity"]}
+                       for m in matches
+                       for side_a, voice_a, side_b, voice_b in (
+                           ("source_a", "voice_a", "source_b", "voice_b"),
+                           ("source_b", "voice_b", "source_a", "voice_a"))
+                       if (m[side_a], m[voice_a]) == member]
+            joins[member] = (owner, matched)
+    return joins, conflicts
 
 
 # ── speech-face linking ───────────────────────────────────────────────
@@ -901,16 +979,20 @@ def resolve_person_tracks(project_folder: str,
                           root: Optional[Path] = None) -> dict:
     """The project's person roster: face tracks unified across every
     source digest its catalog references, by cosine >=
-    `FACE_MATCH_THRESHOLD` (face-only - see the module docstring for why
-    voice never merges identity across sources). Each person's spans are
-    clip-scoped for the project doing the asking; voice spans and
-    speech-face links travel along from whichever source produced them.
+    `FACE_MATCH_THRESHOLD` (face-only - voice never merges two persons).
+    Each person's spans are clip-scoped for the project doing the asking;
+    voice spans and speech-face links travel along from whichever source
+    produced them, and a voice no face in its own source claims joins
+    the person whose linked voice it matches across sources
+    (`voice_matches`; ambiguous groups in `voice_match_conflicts`).
     """
     catalog = source_memory.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     names = declared_person_names(project_folder)
 
     nodes = []  # one per (clip, face_track)
+    voices_by_digest: Dict[str, List[dict]] = {}
+    clips_by_digest: Dict[str, List[str]] = {}
     for clip in catalog:
         digest, _basis = source_memory.digest_for_clip(
             project_folder, clip, recorded)
@@ -919,6 +1001,8 @@ def resolve_person_tracks(project_folder: str,
         identity = read_identity(digest, root)
         if not identity:
             continue
+        clips_by_digest.setdefault(digest, []).append(clip.get("clip_id"))
+        voices_by_digest.setdefault(digest, identity.get("voices", []))
         voice_by_id = {v["track_id"]: v for v in identity.get("voices", [])}
         linked_voice = {}
         for link in identity.get("speech_face_links", []):
@@ -933,6 +1017,7 @@ def resolve_person_tracks(project_folder: str,
             })
 
     persons: List[dict] = []
+    attached: Dict[Tuple[str, str], set] = {}
     for node in nodes:
         emb = node["face_track"]["embedding"]
         best_idx, best_sim = None, -2.0
@@ -945,8 +1030,9 @@ def resolve_person_tracks(project_folder: str,
         else:
             person = {"_centroid": emb, "_members": [], "face_spans": [],
                       "face_tracks": [], "voice_spans": [],
-                      "speech_face_links": []}
+                      "speech_face_links": [], "voice_matches": []}
             persons.append(person)
+            best_idx = len(persons) - 1
         person["_members"].append(emb)
         import numpy as np
         mean = np.mean(np.asarray(person["_members"]), axis=0)
@@ -962,6 +1048,8 @@ def resolve_person_tracks(project_folder: str,
                 "content_digest": node["content_digest"],
                 **span})
         for link in node["links"]:
+            attached.setdefault((node["content_digest"], link["voice_track"]),
+                                set()).add(best_idx)
             voice = node["voice_by_id"].get(link["voice_track"])
             person["speech_face_links"].append({
                 "clip_id": node["clip_id"], **link})
@@ -973,9 +1061,30 @@ def resolve_person_tracks(project_folder: str,
                     if entry not in person["voice_spans"]:
                         person["voice_spans"].append(entry)
 
+    joins, conflicts = join_voices_across_sources(voices_by_digest, attached)
+    for (digest, track_id), (owner, matched) in sorted(joins.items()):
+        person = persons[owner]
+        voice = next(v for v in voices_by_digest[digest]
+                     if v["track_id"] == track_id)
+        person["voice_matches"].append({
+            "content_digest": digest, "voice_track": track_id,
+            "matched": matched,
+            "basis": "cross-source voice match: ECAPA cosine >= "
+                     "VOICE_MATCH_THRESHOLD to a voice this person's "
+                     "face is linked to"})
+        for clip_id in clips_by_digest[digest]:
+            for start, end in voice["spans"]:
+                entry = {"clip_id": clip_id, "content_digest": digest,
+                         "start": start, "end": end}
+                if entry not in person["voice_spans"]:
+                    person["voice_spans"].append(entry)
+
+    def person_id_of(index: int) -> str:
+        return f"person_{index + 1:03d}"
+
     out = []
     for i, person in enumerate(persons):
-        person_id = f"person_{i + 1:03d}"
+        person_id = person_id_of(i)
         out.append({
             "person_id": person_id,
             "name": names.get(person_id),
@@ -984,9 +1093,16 @@ def resolve_person_tracks(project_folder: str,
             "face_tracks": person["face_tracks"],
             "voice_spans": person["voice_spans"],
             "speech_face_links": person["speech_face_links"],
+            "voice_matches": person["voice_matches"],
         })
     return {"project_folder": os.path.abspath(project_folder),
-           "face_match_threshold": FACE_MATCH_THRESHOLD, "persons": out}
+           "face_match_threshold": FACE_MATCH_THRESHOLD,
+           "voice_match_threshold": VOICE_MATCH_THRESHOLD,
+           "voice_match_conflicts": [
+               {**conflict, "persons": [person_id_of(i)
+                                        for i in conflict["persons"]]}
+               for conflict in conflicts],
+           "persons": out}
 
 
 def find_person(project_folder: str, query: str,

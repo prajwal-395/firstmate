@@ -24,8 +24,8 @@ D2 = "digest-bbb-002"
 EMB_A = [1.0, 0.0, 0.0, 0.0]
 EMB_B = [0.0, 1.0, 0.0, 0.0]
 EMB_C = [0.0, 0.0, 1.0, 0.0]
-# The same voice on both sources: cross-source voice identity must still
-# stay absent while VOICE_MATCH_THRESHOLD is unmeasured.
+# The same voice on both sources, each already linked to a different
+# person's face: a cross-source voice match never merges two persons.
 EMB_VOICE = [0.5, 0.5, 0.5, 0.5]
 
 
@@ -227,9 +227,12 @@ def test_unmeasured_identity_stays_absent(fixture_project):
     assert voice_obs_links, "within-source voice links must migrate"
     for link in voice_obs_links:
         assert link["entity_id"] in persons
-    # The same voice embedding on both sources still mints no
-    # cross-digest voice-to-person link: every cooccurrence link stays
-    # inside its own digest's provenance.
+    # The same voice embedding on both sources mints no cross-digest
+    # voice-to-person link (each voice is already linked to a different
+    # person): every cooccurrence link stays inside its own digest's
+    # provenance, and no voice match bridges the two persons.
+    assert not [link for link in model["identity_links"]
+                if link["method"] == "cross_source_voice_match"]
     for link in voice_obs_links:
         prov = next(o for o in model["observations"]
                     if o["id"] == link["observation_id"])["provenance_id"]
@@ -362,6 +365,47 @@ def test_coverage_and_bridge_parity_dual_read(fixture_project):
         stored["observations"])
     assert coverage["absent_identity"], "withheld links must be named"
     assert coverage["dropped"] == report["dropped"]
+
+
+def test_a_voice_matched_across_sources_links_its_turns_to_the_person(
+        tmp_path):
+    """D2 shows no face, so its voice turns reached no person until a
+    cross-source voice match joined them to the person D1 links that
+    voice to. The match must reach the model as an identity link, or the
+    person's speech on the second camera stays unattributed there."""
+    project, memory = tmp_path / "proj", tmp_path / "memory"
+    faces_d1 = [{"track_id": "face_001", "embedding": EMB_A,
+                 "spans": [{"start": 0.0, "end": 5.0,
+                            "box": [0, 0, 10, 10], "det_score": 0.9}]}]
+    voice = {"track_id": "voice_001", "embedding": EMB_VOICE,
+             "spans": [[1.0, 30.0]]}
+    for digest, faces, links in (
+            (D1, faces_d1, [{"face_track": "face_001",
+                             "voice_track": "voice_001"}]),
+            (D2, [], [])):
+        for name, doc in _lane_docs(digest, faces, [voice], links).items():
+            _write(memory / digest / name, doc)
+    catalog = [{"clip_id": f"clip_00{i}", "source_file": f"/nonexistent/{n}",
+                "path": f"/nonexistent/{n}"}
+               for i, n in ((1, "a.mov"), (2, "b.mov"))]
+    _write(project / "pipeline_data.json", {
+        "capability_outputs": {"footage.catalog": {"clip_catalog": catalog}},
+        "source_fingerprints": {
+            "clip_001": {"path": "/nonexistent/a.mov", "content_digest": D1},
+            "clip_002": {"path": "/nonexistent/b.mov", "content_digest": D2}}})
+
+    model, _report = evidence.migrate_project_evidence(
+        str(project), memory_root=str(memory))
+
+    validate_project_model(model)
+    persons = [e["id"] for e in model["entities"] if e["kind"] == "person"]
+    matched = [link for link in model["identity_links"]
+               if link["method"] == "cross_source_voice_match"]
+    assert matched and {link["entity_id"] for link in matched} == set(persons)
+    for link in matched:
+        obs = next(o for o in model["observations"]
+                   if o["id"] == link["observation_id"])
+        assert obs["provenance_id"] in (f"prov-{D2}-m3b", f"prov-{D2}-m1b")
 
 
 def test_resolve_person_cli_reads_a_model_file(fixture_project, capsys):
