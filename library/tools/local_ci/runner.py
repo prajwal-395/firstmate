@@ -531,6 +531,12 @@ def run_gate(checkout: str, log_path: str,
     cache hit waits for CI-08's incremental verdict. A falsy
     `state_dir` disables the hook, so direct callers without a state
     dir stay hermetic and file nothing.
+
+    The returned dict always carries `failed_tests`: the test files
+    with any failure/error in the gate's JUnit report (CI-12's "which
+    tests failed" read). Empty on green, on requeue, and whenever no
+    report exists - an empty list falls back to the legacy full-gate
+    bisect, never to an empty blame set.
     """
     if timeout is None:
         timeout = history.default_tier2_timeout()
@@ -572,7 +578,8 @@ def run_gate(checkout: str, log_path: str,
             pass
     if certifiable_verdict(verdict) and result["group_clean"]:
         return {"ok": True, "requeue": False, "verdict": verdict,
-                "reason": "", "timed_out": False, "log": log_path}
+                "reason": "", "timed_out": False, "log": log_path,
+                "failed_tests": []}
     if (verdict in ("NARROWED PASS", "DID NOT RUN") or timed_out
             or not result["group_clean"]):
         return {"ok": False, "requeue": True, "verdict": verdict,
@@ -581,10 +588,29 @@ def run_gate(checkout: str, log_path: str,
                           + (" (process group did not exit)"
                              if not result["group_clean"] else "")
                           + f", log {log_path}",
-                "timed_out": timed_out, "log": log_path}
+                "timed_out": timed_out, "log": log_path,
+                "failed_tests": []}
     return {"ok": False, "requeue": False, "verdict": verdict,
             "reason": f"full gate FAIL, log {log_path}",
-            "timed_out": False, "log": log_path}
+            "timed_out": False, "log": log_path,
+            "failed_tests": failed_tests_from_junit(junit_path)}
+
+
+def failed_tests_from_junit(junit_path: str) -> list:
+    """Test files with any failure/error in a pytest `--junitxml` report.
+
+    The resolver's "which tests failed" read (CI-12): the
+    `render_qa`-style failing-test list, wired into failure diagnosis.
+    Missing or unparseable XML is [] - the caller falls back to the
+    legacy full-gate bisect, never to an empty blame set.
+    """
+    if not junit_path:
+        return []
+    from library.tools.local_ci import result_cache
+    outcomes = result_cache.parse_junit(junit_path)
+    return sorted(
+        rel for rel, outcome in outcomes.items()
+        if (outcome.get("failed") or 0) > 0)
 
 
 def _read_verdict(log_path: str) -> str:

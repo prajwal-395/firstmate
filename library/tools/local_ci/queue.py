@@ -60,11 +60,18 @@ class TestResult:
     requeue=True means "the machine could not judge" (narrowed
     environment, crashed harness): the cluster waits for a better
     moment. It is neither green (merge) nor red (bisect/kick).
+
+    failed_tests names the test FILES with any failure/error in the
+    run's JUnit report (CI-12's "which tests failed" read, wired from
+    `runner.failed_tests_from_junit`). Empty on green, on requeue, and
+    whenever no report exists - an empty list falls back to the legacy
+    full-gate bisect, never to an empty blame set.
     """
 
     def __init__(self, ok: bool, passed: int = 0, failed: int = 0,
                  reason: str = "", log: str = "", requeue: bool = False,
-                 stack_conflict: str = "") -> None:
+                 stack_conflict: str = "",
+                 failed_tests: list | tuple = ()) -> None:
         self.ok = ok
         self.passed = passed
         self.failed = failed
@@ -77,6 +84,7 @@ class TestResult:
         # member and tests the rest, so no full-suite run is ever spent
         # bisecting a conflict.
         self.stack_conflict = stack_conflict
+        self.failed_tests = sorted(failed_tests or [])
 
 
 class World:
@@ -151,7 +159,130 @@ class World:
                        "builder": builder, "interpreter": interpreter,
                        "consulted": consulted})
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
-                              requeue=gate["requeue"])
+                              requeue=gate["requeue"],
+                              failed_tests=gate.get("failed_tests") or [])
+
+    def test_subset(self, base: str, members: list,
+                    test_files: list) -> TestResult:
+        """Evaluate ONLY test_files on the stacked tree: the focused
+        reproduction (CI-12).
+
+        The same stack the full gate would build (main + members in
+        order), but pytest runs just the red stack's failing files
+        instead of the whole suite. A red focused run REPRODUCES the
+        failure on this subset; a green one exonerates it. Blame lands
+        only on reproduction - never on full-gate correlation.
+
+        Conflict maps exactly like test_stack (no gate spent deciding
+        it). A run that could not start, ran no tests, or left no
+        JUnit report requeues: the subset judged nothing.
+        """
+        if not test_files:
+            return TestResult(False, requeue=True,
+                              reason="no failing tests to reproduce")
+        from library.tools.local_ci import hygiene, runner
+        hygiene.fetch_base(self.mirror, base)
+        with hygiene.disposable_checkout(
+                self.mirror, base, self.state_dir) as checkout:
+            stack = _stack_checkout(checkout, base, [m["head"] for m in members])
+            if not stack["ok"]:
+                return TestResult(False, reason=stack["reason"],
+                                  stack_conflict=stack.get("conflict", ""))
+            log = os.path.join(self.state_dir, "logs",
+                               f"tier2-focused-{int(time.time())}.log")
+            junit_path = log + ".junit.xml"
+            try:
+                result = runner.run(
+                    list(test_files), checkout, log,
+                    junit_path=junit_path)
+            except Exception as exc:  # noqa: BLE001 - HygieneRefused et al
+                return TestResult(
+                    False, requeue=True,
+                    reason=f"focused run could not start "
+                           f"({type(exc).__name__}: {exc})")
+            if result.get("timed_out"):
+                return TestResult(False, requeue=True,
+                                  reason="focused run timed out - re-testing",
+                                  log=log)
+            failed = runner.failed_tests_from_junit(junit_path)
+            if result.get("ok"):
+                return TestResult(True, passed=result.get("passed", 0),
+                                  log=log)
+            if not failed:
+                # Red without a machine-readable report: the requested
+                # files are the reproduction set (they were the only
+                # files run), so carry them rather than an empty list
+                # the caller would misread as "no evidence".
+                failed = sorted(set(test_files))
+            return TestResult(False, passed=result.get("passed", 0),
+                              failed=result.get("failed", 1),
+                              reason=(result.get("reason")
+                                      or "focused run FAIL"),
+                              log=log, failed_tests=failed)
+
+    def pr_changed_files(self, base: str, head: str) -> list:
+        """Repo-relative paths changed between base and head, or [].
+
+        Unknown (fetch/diff failure) reads as "no evidence", never as
+        "changed nothing": the caller treats unknown PRs as relevant,
+        so diagnosis widens instead of exonerating blind.
+        """
+        import subprocess
+        try:
+            from library.tools.local_ci import hygiene
+            mirror = self.mirror or hygiene.ensure_mirror(
+                f"https://github.com/{config.OWNER}/{config.REPO}.git",
+                self.state_dir)
+            self.mirror = mirror
+            fetched = subprocess.run(
+                ["git", "-C", mirror, "fetch", "--quiet",
+                 "origin", head],
+                capture_output=True, encoding="utf-8",
+                check=False, timeout=120)
+            _ = fetched
+            result = subprocess.run(
+                ["git", "-C", mirror, "diff", "--name-only",
+                 f"{base}..{head}"],
+                capture_output=True, encoding="utf-8",
+                check=False, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if result.returncode != 0:
+            return []
+        return sorted(line.strip() for line in result.stdout.splitlines()
+                      if line.strip())
+
+    def relevant_members(self, base: str, members: list,
+                         failing_tests: list) -> tuple:
+        """Split members into (relevant, irrelevant) for failing_tests.
+
+        Dependency-guided (CI-12 §3, CI-06 graph): a PR is relevant
+        when the static selector maps any of its changed files onto any
+        failing test. Usable with the static graph on day one; sharper
+        with CI-06's coverage index (the selector itself narrows when
+        its index is fresh). Unknown PRs (no changed files, selector
+        failure, unmapped tree) stay relevant: diagnosis widens, never
+        exonerates on missing evidence. Empty failing_tests keeps
+        everybody relevant - the caller falls back to the legacy bisect
+        before consulting this anyway.
+        """
+        if not failing_tests:
+            return list(members), []
+        try:
+            from library.tools.local_ci import hygiene
+            hygiene.fetch_base(self.mirror, base)
+            with hygiene.disposable_checkout(
+                    self.mirror, base, self.state_dir) as checkout:
+                changed_by = {}
+                for member in members:
+                    changed_by[member["pr"]] = self.pr_changed_files(
+                        base, member.get("head", ""))
+                return relevant_partition_by_map(
+                    changed_by, failing_tests,
+                    select_fn=lambda changed: _affected_tests(
+                        checkout, changed))
+        except Exception:  # noqa: BLE001 - relevance never fails a verdict
+            return list(members), []
 
     def test_main(self, base: str) -> TestResult:
         """Evaluate main ALONE: the same full gate, no member stacked.
@@ -200,7 +331,8 @@ class World:
                         print(f"ren-ci baseline: "
                               f"{certified.get('reason')}", flush=True)
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
-                              requeue=gate["requeue"])
+                              requeue=gate["requeue"],
+                              failed_tests=gate.get("failed_tests") or [])
 
     # -- writes --
     def merge_pr(self, pr: int, head: str) -> str:
@@ -408,6 +540,156 @@ def _conflict_member_index(members: list, verdict: TestResult) -> int:
     return -1
 
 
+def _affected_tests(checkout: str, changed: list) -> set | None:
+    """Tests the static selector maps changed files onto, or None.
+
+    None means "unknown": the selector failed, the checkout has no
+    selector, or the change names nothing testable. The caller treats
+    unknown as relevant (widen, never exonerate). Uses the CI-06
+    hybrid selector through `selection.dependent`, so a fresh
+    coverage index sharpens the answer and a stale one falls back to
+    the wide static selection byte-for-byte.
+    """
+    if not changed:
+        return None
+    try:
+        from library.tools.local_ci import selection
+        return set(selection.dependent(list(changed), repo=checkout))
+    except Exception:  # noqa: BLE001 - relevance never fails a verdict
+        return None
+
+
+def relevant_partition_by_map(changed_by_pr: dict, failing_tests: list,
+                              select_fn=None) -> tuple:
+    """Split PR ids into (relevant, irrelevant) for failing test files.
+
+    Pure (no git, no checkout): `changed_by_pr` maps PR id to its
+    changed repo-relative paths, `select_fn(changed)` returns the
+    affected test set or None for unknown. A PR is relevant when its
+    affected set intersects the failing tests; unknown PRs (no changed
+    files, selector failure, empty affected set with unchanged files
+    present) stay relevant. Returns PR-id lists, order-stable by input.
+    """
+    failing = set(failing_tests or [])
+    relevant, irrelevant = [], []
+    for pr, changed in changed_by_pr.items():
+        if not failing:
+            relevant.append(pr)
+            continue
+        if not changed:
+            relevant.append(pr)
+            continue
+        try:
+            affected = select_fn(list(changed)) if select_fn is not None \
+                else None
+        except Exception:  # noqa: BLE001 - widen on selector failure
+            affected = None
+        if affected is None:
+            relevant.append(pr)
+        elif set(affected) & failing:
+            relevant.append(pr)
+        else:
+            irrelevant.append(pr)
+    return relevant, irrelevant
+
+
+def _focused_bisect(world: World, base: str, members: list,
+                    failing_tests: list) -> tuple:
+    """Bisect relevant members with focused runs: (culprits, clean,
+    requeued, interaction).
+
+    Each node runs ONLY the red stack's failing files
+    (`world.test_subset`), never the full gate. Blame lands only on
+    reproduction: a single red member is the culprit; red halves
+    recurse; both-green halves are an interaction (the failure needs
+    the combination). Any unjudgeable node poisons the split: the
+    whole relevant set requeues rather than kicking on partial
+    evidence. Combinations are included by construction - halves are
+    tested as halves, never only as singles.
+    """
+    if not members:
+        return [], [], [], False
+    verdict = world.test_subset(base, members, list(failing_tests))
+    if verdict.requeue:
+        return [], [], list(members), False
+    if is_stack_conflict(verdict):
+        # A conflict is decided, not bisected: reuse the conflict
+        # path's member lookup rather than spending focused runs on
+        # what never built.
+        return [], [], list(members), False
+    if verdict.ok:
+        return [], list(members), [], False
+    if len(members) == 1:
+        return list(members), [], [], False
+    half = len(members) // 2
+    culprits_a, clean_a, requeued_a, interaction_a = _focused_bisect(
+        world, base, members[:half], failing_tests)
+    culprits_b, clean_b, requeued_b, interaction_b = _focused_bisect(
+        world, base, members[half:], failing_tests)
+    if requeued_a or requeued_b or interaction_a or interaction_b:
+        # Partial evidence poisons the split: halves that could not
+        # be judged (or an interaction inside one half) mean the
+        # bisect learned nothing conclusive about the whole.
+        return [], [], list(members), False
+    if not culprits_a and not culprits_b:
+        # Both halves pass the focused files alone: the failure is
+        # the COMBINATION of the halves.
+        return [], [], [], True
+    return (culprits_a + culprits_b, clean_a + clean_b, [], False)
+
+
+def _legacy_bisect(world: World, base: str, members: list,
+                   verdict: TestResult) -> tuple:
+    """The pre-CI-12 halve-and-full-gate recursion, unchanged.
+
+    Reached only when the red stack names no failing tests (no JUnit
+    report): each bisect node re-runs the FULL gate via
+    `world.test_stack`. Fail-closed fallback, kept so a report-less
+    red still names its culprit exactly as before.
+    """
+    if len(members) == 1:
+        member = dict(members[0])
+        member["status"] = state.ENTRY_KICKED
+        member["reason"] = verdict.reason or "stack test failed"
+        return [], [member], []
+    half = len(members) // 2
+    green_a, kicked_a, requeued_a = resolve_batch(world, base, members[:half])
+    green_b, kicked_b, requeued_b = resolve_batch(world, base, members[half:])
+    if requeued_a or requeued_b:
+        # A half the machine could not judge poisons the split: the
+        # bisect learned nothing, so the whole cluster waits rather
+        # than kicking on partial evidence.
+        for member in members:
+            if member.get("status") != state.ENTRY_KICKED:
+                member["status"] = state.ENTRY_QUEUED
+                member["reason"] = verdict.reason or "bisect inconclusive"
+        return [], [], list(members)
+    if not kicked_a and not kicked_b:
+        # Both halves pass alone: the failure is the COMBINATION.
+        # Land the first half in order; the second re-tests on the
+        # new main rather than merging blind.
+        for member in members[half:]:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = ("interaction with earlier cluster: "
+                                "re-testing on the new main")
+        return green_a, [], []
+    return green_a + green_b, kicked_a + kicked_b, []
+
+
+def _kick_with_failing_reason(members: list, failing_tests: list,
+                              detail: str) -> list:
+    """Mark members kicked, naming the failing tests that convicted them."""
+    kicked = []
+    names = ", ".join(list(failing_tests)[:3])
+    suffix = f" (failing: {names})" if names else ""
+    for member in members:
+        entry = dict(member)
+        entry["status"] = state.ENTRY_KICKED
+        entry["reason"] = (detail or "stack test failed") + suffix
+        kicked.append(entry)
+    return kicked
+
+
 def resolve_batch(world: World, base: str, members: list) -> tuple:
     """Test one cluster and split the verdict: (green, kicked, requeued).
 
@@ -430,6 +712,16 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
     conflict reason (its ready label is removed so it cannot re-enter
     silently - the author rebases and re-readies), and the rest is
     tested. No full-suite run is spent bisecting a conflict.
+
+    A red stack with a JUnit report names its failing TESTS
+    (`verdict.failed_tests`) and bisects FOCUSED (CI-12): the red-main
+    baseline check stays, then only the failing files reproduce
+    against relevant PR subsets (dependency-guided via
+    `relevant_members`, combinations included - halves are tested as
+    halves), blame lands only on reproduction, and the surviving
+    stack revalidates with the FULL gate before merging (incremental
+    after CI-08). A red stack with NO report falls back to the legacy
+    halve-and-full-gate recursion, node for node.
     """
     if not members:
         return [], [], []
@@ -475,33 +767,90 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
             member["status"] = state.ENTRY_QUEUED
             member["reason"] = reason
         return [], [], list(members)
+    failing = sorted(getattr(verdict, "failed_tests", None) or [])
+    if not failing:
+        # No "which tests failed" read (no JUnit report): the legacy
+        # halve-and-full-gate recursion, unchanged.
+        return _legacy_bisect(world, base, members, verdict)
     if len(members) == 1:
-        member = dict(members[0])
-        member["status"] = state.ENTRY_KICKED
-        member["reason"] = verdict.reason or "stack test failed"
-        return [], [member], []
-    half = len(members) // 2
-    green_a, kicked_a, requeued_a = resolve_batch(world, base, members[:half])
-    green_b, kicked_b, requeued_b = resolve_batch(world, base, members[half:])
-    if requeued_a or requeued_b:
-        # A half the machine could not judge poisons the split: the
-        # bisect learned nothing, so the whole cluster waits rather
-        # than kicking on partial evidence.
+        return _kick_with_failing_reason(
+            members, failing, verdict.reason or "stack test failed"), [], []
+    relevant, irrelevant = world.relevant_members(base, members, failing)
+    if not relevant:
+        # Nothing maps onto the failing tests: fail open to the full
+        # set rather than exonerating the whole batch on a selector
+        # miss.
+        relevant, irrelevant = list(members), []
+    culprits, _clean, requeued, interaction = _focused_bisect(
+        world, base, relevant, failing)
+    if requeued:
+        # A focused node the machine could not judge poisons the
+        # diagnosis: the bisect learned nothing, so the whole cluster
+        # waits rather than kicking on partial evidence.
         for member in members:
             if member.get("status") != state.ENTRY_KICKED:
                 member["status"] = state.ENTRY_QUEUED
                 member["reason"] = verdict.reason or "bisect inconclusive"
         return [], [], list(members)
-    if not kicked_a and not kicked_b:
-        # Both halves pass alone: the failure is the COMBINATION.
-        # Land the first half in order; the second re-tests on the
-        # new main rather than merging blind.
-        for member in members[half:]:
+    if interaction:
+        # Halves pass the failing files alone: the failure needs the
+        # COMBINATION. Focused passes are not mergeable evidence, so
+        # the first half revalidates with the full gate before it
+        # lands; the second re-tests on the new main.
+        half = len(relevant) // 2
+        first, second = relevant[:half], relevant[half:]
+        recheck = world.test_stack(base, first)
+        if recheck.requeue:
+            for member in members:
+                member["status"] = state.ENTRY_QUEUED
+                member["reason"] = (recheck.reason
+                                    or "gate could not judge")
+            return [], [], list(members)
+        if not recheck.ok:
+            # The first half alone is red under the full gate after
+            # all: recurse on it for the real culprit.
+            return resolve_batch(world, base, first + second)
+        for member in second:
             member["status"] = state.ENTRY_QUEUED
             member["reason"] = ("interaction with earlier cluster: "
                                 "re-testing on the new main")
-        return green_a, [], []
-    return green_a + green_b, kicked_a + kicked_b, []
+        for member in irrelevant:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = ("interaction with earlier cluster: "
+                                "re-testing on the new main")
+        return [_tested(m, base) for m in first], [], \
+            list(second) + list(irrelevant)
+    if not culprits:
+        # Focused diagnosis exonerated everybody it tested while the
+        # full gate stays red: the failing-test read or the relevance
+        # map missed (or the failure is order-dependent). Fail closed
+        # to the legacy full-gate bisect over the whole batch.
+        return _legacy_bisect(world, base, members, verdict)
+    culprit_prs = {m["pr"] for m in culprits}
+    survivors = [m for m in members if m.get("pr") not in culprit_prs]
+    kicked = _kick_with_failing_reason(
+        culprits, failing, verdict.reason or "stack test failed")
+    if not survivors:
+        return [], kicked, []
+    # The surviving stack revalidates with the FULL gate before
+    # merging (incremental after CI-08's bar is met): focused green
+    # is reproduction evidence, never merge evidence.
+    recheck = world.test_stack(base, survivors)
+    if recheck.requeue:
+        for member in survivors:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = (recheck.reason
+                                or "gate could not judge")
+        return [], kicked, list(survivors)
+    if recheck.ok:
+        return [_tested(m, base) for m in survivors], kicked, []
+    # Survivors still red without the culprits: a second culprit, a
+    # combination, or stale relevance. Recurse on the survivors (a
+    # strictly smaller set, so this terminates) and keep the proven
+    # culprits kicked.
+    green_rest, kicked_rest, requeued_rest = resolve_batch(
+        world, base, survivors)
+    return green_rest, kicked + kicked_rest, requeued_rest
 
 
 def merge_in_order(world: World, base: str, green: list) -> tuple:
