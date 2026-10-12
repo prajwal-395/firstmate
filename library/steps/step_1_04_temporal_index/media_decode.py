@@ -20,7 +20,6 @@ class DecodedMedia:
     motion_gray: str
     flow_gray: str
     face_rgb: str
-    vision_jpegs: tuple[str, ...]
     hue_rgb: str
     face_width: int
     face_height: int
@@ -44,23 +43,18 @@ def decode_temporal_media(
     """
     scratch = tempfile.TemporaryDirectory(prefix="ren-temporal-media-")
     root = Path(scratch.name)
-    vision_dir = root / "vision"
-    vision_dir.mkdir()
     paths = {
         "motion": root / "motion.gray",
         "flow": root / "flow.gray",
         "face": root / "face.rgb",
         "hue": root / "hue.rgb",
-        "vision": vision_dir / "f_%05d.jpg",
     }
     graph = ";".join((
-        "[0:v:0]split=6[scene_in][motion_in][flow_in][face_in]"
-        "[vision_in][hue_in]",
+        "[0:v:0]split=5[scene_in][motion_in][flow_in][face_in][hue_in]",
         "[scene_in]select='gt(scene,0.3)',metadata=print,nullsink",
         "[motion_in]fps=30,scale=160:90,format=gray[motion]",
         "[flow_in]fps=5,scale=160:90,format=gray[flow]",
         f"[face_in]fps=5,scale={face_width}:{face_height}[face]",
-        f"[vision_in]fps=5,scale={face_width}:{face_height}[vision]",
         "[hue_in]fps=1,scale=80:45[hue]",
     ))
     command = [
@@ -72,8 +66,6 @@ def decode_temporal_media(
         str(paths["flow"]),
         "-map", "[face]", "-f", "rawvideo", "-pix_fmt", "rgb24",
         str(paths["face"]),
-        "-map", "[vision]", "-f", "image2", "-q:v", "2",
-        str(paths["vision"]),
         "-map", "[hue]", "-f", "rawvideo", "-pix_fmt", "rgb24",
         str(paths["hue"]),
     ]
@@ -100,21 +92,11 @@ def decode_temporal_media(
         scratch.cleanup()
         return None
 
-    vision_paths = tuple(sorted(
-        str(path) for path in vision_dir.iterdir()
-        if path.suffix.lower() == ".jpg"
-    ))
-    if not vision_paths:
-        print("  WARNING: shared video decode produced no Vision samples; "
-              "using individual measurements", file=sys.stderr)
-        scratch.cleanup()
-        return None
     return DecodedMedia(
         scene_stderr=result.stderr.decode("utf-8", errors="replace"),
         motion_gray=str(paths["motion"]),
         flow_gray=str(paths["flow"]),
         face_rgb=str(paths["face"]),
-        vision_jpegs=vision_paths,
         hue_rgb=str(paths["hue"]),
         face_width=face_width,
         face_height=face_height,

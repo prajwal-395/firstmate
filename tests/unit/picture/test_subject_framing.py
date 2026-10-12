@@ -1039,13 +1039,13 @@ class TestNearestBody:
 
 class TestProbeBodyCentroids:
     def test_vision_unavailable_returns_none_not_a_crash(self, monkeypatch):
-        import library.steps.step_1_04_temporal_index.vision_measure as vm
+        import library.tools.vision_measure as vm
 
         monkeypatch.setattr(vm, "ensure_helper", lambda: (None, "no swiftc"))
         assert _probe_body_centroids(["/x/f0.png"], [0.5]) is None
 
     def test_per_frame_alignment_with_the_nearest_face(self, monkeypatch):
-        import library.steps.step_1_04_temporal_index.vision_measure as vm
+        import library.tools.vision_measure as vm
 
         monkeypatch.setattr(vm, "ensure_helper", lambda: ("/bin/true", None))
 

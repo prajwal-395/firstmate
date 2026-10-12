@@ -223,7 +223,7 @@ def test_helper_reports_pose_and_quality_with_mirrored_yaw(tmp_path):
     opposite signs (mirroring flips the head's turn), and every face
     carries a capture quality. Skipped where the helper cannot build
     (non-macOS); on main the keys do not exist, so it fails."""
-    from library.steps.step_1_04_temporal_index import vision_measure
+    from library.tools import vision_measure
 
     helper, reason = vision_measure.ensure_helper()
     if helper is None:

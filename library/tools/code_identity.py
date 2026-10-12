@@ -135,7 +135,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
         "library/tools/word_boundaries.py",
-        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/transcript_confidence.py",
@@ -204,7 +204,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
         "library/tools/word_boundaries.py",
-        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/transcript_confidence.py",
@@ -284,7 +284,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
         "library/tools/word_boundaries.py",
-        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/transcript_confidence.py",
@@ -355,7 +355,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by source_primitives / transcript_measurement: the
         # per-clip vision measurements and the transcript corrections
         # and confidence the cached profile is composed from.
-        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/transcript_confidence.py",
@@ -422,6 +422,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/platform_safe_zones.py",
         # Face measurement feeding the per-clip index.
         "library/tools/subject_framing.py",
+        # Imported by subject_framing for the reel punch-in's body-pose
+        # aim. Step 1.04 runs no Vision pass of its own (MU-12); the
+        # file is declared only because the import graph reaches it.
+        "library/tools/vision_measure.py",
         # Shared FFmpeg graph that supplies the per-clip visual measurements.
         "library/steps/step_1_04_temporal_index/media_decode.py",
         # Span extraction feeding region re-measurement.
@@ -520,10 +524,6 @@ STEP_IMPLEMENTATION_DEPS = {
         # summary is part of the same semantic-document read path.
         "library/tools/vision_schema_adapter.py",
         "library/tools/segment_coverage.py",
-        # Apple Vision face/pose/hand measurement called from step.py
-        # beside the Haar path: a fix here changes the cached
-        # vision_faces/vision_body_pose/vision_hand_pose/vision_person_mask.
-        "library/steps/step_1_04_temporal_index/vision_measure.py",
         # Imported by build_temporal_index: the per-clip lanes run on
         # these bounded FREE lanes, so a fix here changes how many
         # clips measure at once (and its transitive resource_scheduler

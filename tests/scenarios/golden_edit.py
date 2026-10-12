@@ -289,14 +289,8 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
     monkeypatch.setattr(captions, "_default_unit_engine",
                         lambda *_a, **_k: renderer)
     # The measurement models, answered with what the recipe's media
-    # measures (a test pattern and a steady tone): no faces, no audio
-    # events, no beats. Each is the narrowest seam its step reaches.
-    from library.steps.step_1_04_temporal_index import vision_measure
-    monkeypatch.setattr(
-        vision_measure, "measure_clip_vision",
-        lambda *_a, **_k: vision_measure.empty_vision_doc(
-            "golden recipe: test-pattern footage, nothing to measure",
-            vision_measure.VISION_SAMPLE_RATE_HZ))
+    # measures (a test pattern and a steady tone): no audio events, no
+    # beats. Each is the narrowest seam its step reaches.
     monkeypatch.setattr(temporal, "_panns_checkpoint_present", lambda: False)
     from library.tools.analysis import music_pipeline
     monkeypatch.setattr(music_pipeline, "analyze_tempo_beats",

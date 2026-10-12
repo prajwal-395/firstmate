@@ -684,7 +684,7 @@ def _probe_body_centroids(frame_paths: Sequence[str],
     same length as `frame_paths` otherwise, with None where that frame's
     body could not be read.
     """
-    from library.steps.step_1_04_temporal_index.vision_measure import (
+    from library.tools.vision_measure import (
         VisionUnavailable, ensure_helper, measure_frames)
 
     if not frame_paths:

@@ -3,11 +3,13 @@ footage memory (`docs/SOURCE_MEMORY.md`).
 
 Faces (box, head-pose yaw/pitch/roll, face capture quality, lip
 landmarks) and hands (21 joints each) at the shared M2
-cadence (~2 Hz on the geo-podcast cameras), measured by the SAME Apple
-Vision helper step 1.04 runs (`vision_measure.measure_frames` over
-`vision_helper.swift`, persistence filter included) - this module only
-feeds it the M2 thumbnails instead of a decode of its own. Step 1.04 is
-not touched: it keeps sampling its own frames for its own index.
+cadence (~2 Hz on the geo-podcast cameras), measured by the shared Apple
+Vision helper (`vision_measure.measure_frames` over `vision_helper.swift`,
+persistence filter included) - this module only feeds it the M2
+thumbnails instead of a decode of its own. This is THE per-frame face
+record: step 1.04 no longer runs a Vision pass of its own (MU-12), so a
+reader that needs faces reads M3, and one that needs a denser rate
+raises M2's rate for that source rather than running a second sampler.
 
 **One coordinate frame.** Every point here is IMAGE-normalised, top-left
 origin: x in 0..1 of the frame width, y in 0..1 of its height. Vision's
@@ -63,16 +65,15 @@ start once, but a helper killed at frame 9,000 of 9,873 would lose
 everything; 2,000 frames is ~70 s warm at the measured 34 ms/frame."""
 
 LANDMARK_FACE_MIN_IOU = 0.5
-"""Landmarks pair to a face box by overlap, as step 1.04 pairs them
-(`vision_measure._assemble`): the two requests observe independently,
-so an unpaired landmark set is dropped rather than attached to the
-wrong face."""
+"""Landmarks pair to a face box by overlap: the two requests observe
+independently, so an unpaired landmark set is dropped rather than
+attached to the wrong face."""
 
 
 def _vision():
-    """Step 1.04's Vision wrapper, imported where it is used: a tool
-    that only reads M3 must not pay for (or need) the step package."""
-    from library.steps.step_1_04_temporal_index import vision_measure
+    """The shared Vision wrapper, imported where it is used: a tool
+    that only reads M3 never loads it."""
+    from library.tools import vision_measure
     return vision_measure
 
 

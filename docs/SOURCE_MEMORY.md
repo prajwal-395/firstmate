@@ -210,9 +210,11 @@ python3 -m library.tools.conversation_clock status <project>
 
 Owner: `library/tools/person_measurements.py`. Apple Vision faces (box,
 head-pose yaw/pitch/roll, face capture quality, inner/outer lips) and
-hands (21 joints) on every M2 frame, through step
-1.04's own helper (`vision_measure.measure_frames`, persistence filter
-unchanged) - step 1.04 itself is untouched. Measured 22-27 ms/frame on
+hands (21 joints) on every M2 frame, through the shared Vision helper
+(`library/tools/vision_measure.measure_frames`, persistence filter
+included). This is the one per-frame face record: step 1.04 ran a second
+5 Hz Vision pass of its own whose `vision_*` keys nothing read, and that
+pass is gone (MU-12). Measured 22-27 ms/frame on
 geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project
 (pre-quality; the quality request adds ~17-27 ms/frame warm).
 

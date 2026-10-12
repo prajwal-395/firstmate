@@ -1,4 +1,4 @@
-// vision_helper.swift - Apple Vision measurement for step 1.04.
+// vision_helper.swift - Apple Vision person measurement (M3, the punch-in aim).
 //
 // One image list in, one JSON array out. Six requests per image: face
 // rectangles (box, confidence, head-pose yaw/pitch/roll), face capture
@@ -9,13 +9,13 @@
 //   <path-file> holds one image path per line. stdout is ONLY the JSON
 //   array (one doc per input line, in order); diagnostics go to stderr.
 //   The first image pays model load (cold); later images are warm, so the
-//   caller batches a whole clip per process.
+//   caller batches many frames per process.
 //
 // Why a compiled helper instead of pyobjc (PR justification): no new pip
 // dependencies, no import-time cost on machines without Apple silicon,
 // and the call path is the same harness the eval measured (34 ms/frame
 // warm for all five requests). The Python wrapper compiles this once per
-// source revision into a temp cache and falls back to Haar when the
+// source revision into a temp cache and reports a named absence when the
 // compile or the run fails, so non-macOS machines never notice it.
 import Foundation
 import Vision

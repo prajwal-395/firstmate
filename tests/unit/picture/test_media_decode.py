@@ -19,7 +19,7 @@ def _ffmpeg_output(*args):
 
 
 def test_shared_decode_keeps_legacy_video_representations(tmp_path):
-    """Filter-graph fan-out cannot change pixels or sampled JPEGs."""
+    """Filter-graph fan-out cannot change the pixels any measurement reads."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("ffmpeg is required to compare decoded frame inputs")
 
@@ -51,24 +51,10 @@ def test_shared_decode_keeps_legacy_video_representations(tmp_path):
             "-i", str(source), "-vf", "fps=1,scale=80:45",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-v", "quiet", "-",
         )
-        vision_dir = tmp_path / "vision"
-        vision_dir.mkdir()
-        _ffmpeg_output(
-            "-i", str(source), "-vf",
-            f"fps=5,scale={sample_w}:{sample_h}",
-            "-f", "image2", "-q:v", "2",
-            str(vision_dir / "f_%05d.jpg"),
-        )
-
         assert old_motion == Path(media.motion_gray).read_bytes()
         assert old_flow == Path(media.flow_gray).read_bytes()
         assert old_face == Path(media.face_rgb).read_bytes()
         assert old_hue == Path(media.hue_rgb).read_bytes()
-        old_jpegs = sorted(vision_dir.glob("*.jpg"))
-        new_jpegs = [Path(path) for path in media.vision_jpegs]
-        assert [path.read_bytes() for path in old_jpegs] == [
-            path.read_bytes() for path in new_jpegs
-        ]
         assert step.detect_scenes(str(source)) == step.detect_scenes(
             str(source), captured_stderr=media.scene_stderr)
     finally:

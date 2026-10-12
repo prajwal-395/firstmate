@@ -628,59 +628,46 @@ def test_backfill_writes_nothing_when_nothing_is_measured(
 # --------------------------------------------------------------------------
 # From test_vision_measure.py
 #
-# Apple Vision measurement in step 1.04: fallback and phantom filter.
+# The shared Apple Vision helper wrapper, and step 1.04's retirement of
+# its own Vision pass (MU-12).
 #
-# Covers `library/steps/step_1_04_temporal_index/vision_measure.py` - the
-# wrapper, not the Swift helper (which the eval measured directly). Each
-# test names the defect it would catch; there are no count, existence or
-# snapshot tests here.
+# Covers `library/tools/vision_measure.py` - the wrapper, not the Swift
+# helper (which the eval measured directly). Each test names the defect
+# it would catch; there are no count, existence or snapshot tests here.
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.steps.step_1_04_temporal_index import vision_measure
+from library.tools import vision_measure
 
 
-def _vision_only_env(monkeypatch, tmp_path):
-    """A machine with no swiftc and an empty helper cache.
+def test_failed_helper_is_a_named_absence_not_an_exception(
+        monkeypatch, tmp_path):
+    """A Vision outage must not raise out of `ensure_helper`.
 
-    `ensure_helper` consults the temp cache first: without redirecting
-    it, a developer machine that once compiled the helper would never
-    take the fallback path under test.
+    Would catch: `ensure_helper` raising when swiftc is missing, which
+    would fail M3 or the reel punch-in on any machine without the
+    helper instead of letting each caller record its own absence. The
+    temp cache is redirected: a developer machine that once compiled
+    the helper would never take the path under test.
     """
     monkeypatch.setattr(shutil, "which", lambda *_, **__: None)
     monkeypatch.setattr(vision_measure.tempfile, "gettempdir",
                         lambda: str(tmp_path))
+    monkeypatch.setattr(vision_measure.sys, "platform", "darwin")
+    helper, reason = vision_measure.ensure_helper()
+    assert helper is None
+    assert str(reason).startswith("unavailable:")
 
 
-def test_failed_helper_is_a_fallback_with_all_keys_not_an_exception(
-        monkeypatch, tmp_path):
-    """A Vision outage must not break the step or its document shape.
+def test_working_helper_returns_its_docs_in_order(tmp_path):
+    """A runnable helper must be measured, never refused.
 
-    Would catch: `measure_clip_vision` raising (or returning a partial
-    dict) when swiftc is missing, so a whole clip fails - or worse,
-    downstream `KeyError` on `vision_faces` - on any machine without
-    the helper. The fallback carries every owned key empty with the
-    reason stamped, the same contract the face_presence tests pin.
-    """
-    _vision_only_env(monkeypatch, tmp_path)
-    doc = vision_measure.measure_clip_vision("no-such-file.mp4", 854, 480)
-    for key in vision_measure.VISION_KEYS:
-        assert key in doc, f"fallback missing {key}"
-    method = doc["vision_method"]
-    assert method["engine"] == "none"
-    assert str(method["fallback"]).startswith("unavailable:")
-
-
-def test_working_helper_returns_measurements_not_fallback(tmp_path):
-    """A runnable helper must be measured, never fallback-stamped.
-
-    Would catch: the availability/parse path claiming `unavailable`
-    despite a working helper (bad `ensure_helper` check, wrong argv,
-    JSON shape drift) - the silent form of the fallback defect, where
-    the step serves empty Vision documents on a capable machine. The
+    Would catch: the run/parse path claiming `unavailable` despite a
+    working helper (wrong argv, JSON shape drift) - the silent form of
+    the outage, where M3 records no faces on a capable machine. The
     fake helper below speaks the real `--list` protocol and returns one
-    faced doc per input line; landmarks must survive pairing.
+    doc per input line, numbered so order is checked.
     """
     helper = tmp_path / "vision_helper"
     helper.write_text(
@@ -689,22 +676,91 @@ def test_working_helper_returns_measurements_not_fallback(tmp_path):
         "paths = [l for l in open(sys.argv[sys.argv.index('--list') + 1])"
         ".read().splitlines() if l]\n"
         "docs = [{\"faces\": [{\"box\": [0.4, 0.2, 0.6, 0.5], "
-        "\"confidence\": 0.9}], "
-        "\"landmarks\": [{\"box\": [0.4, 0.2, 0.6, 0.5], "
-        "\"outerLips\": [[0.48, 0.4], [0.52, 0.4]]}], "
-        "\"bodies\": [], \"hands\": [], \"segmentation\": {}} "
-        "for _ in paths]\n"
+        "\"confidence\": 0.9}], \"path\": p} for p in paths]\n"
         "sys.stdout.write(json.dumps(docs) + \"\\n\")\n"
     )
     helper.chmod(helper.stat().st_mode | stat.S_IEXEC)
     docs = vision_measure.measure_frames(["a.jpg", "b.jpg"], str(helper))
-    assert len(docs) == 2
-    doc = vision_measure._assemble(docs, 5, "testsha", "854x480")
-    assert doc["vision_method"]["engine"] == vision_measure.VISION_METHOD
-    assert doc["vision_method"]["fallback"] is None
-    assert len(doc["vision_faces"]["samples"]) == 2
-    assert (doc["vision_faces"]["samples"][0][0]["landmarks"]
-            ["outerLips"] == [[0.48, 0.4], [0.52, 0.4]])
+    assert [doc["path"] for doc in docs] == ["a.jpg", "b.jpg"]
+    assert docs[0]["faces"][0]["box"] == [0.4, 0.2, 0.6, 0.5]
+
+
+def test_temporal_index_runs_no_vision_pass_of_its_own(tmp_path,
+                                                        monkeypatch):
+    """Step 1.04 must not run the Apple Vision helper (MU-12).
+
+    Would catch: 1.04 sampling every clip at 5 Hz through the helper
+    again - a second Vision pass over footage M3 already measures on the
+    shared M2 grid, writing `vision_*` keys no reader opens. The audio
+    models are stubbed (they are not under test); everything on the
+    picture side runs for real over a synthetic clip, and any call into
+    the helper wrapper fails the test.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is required to index a synthetic clip")
+    from library.steps.step_1_04_temporal_index import step as ti
+    from library.tools.project_layout import ProjectLayout
+
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi",
+         "-i", "testsrc2=size=320x180:rate=24:duration=2",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+         "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-y", str(clip)],
+        check=True, capture_output=True, timeout=60)
+    audio = tmp_path / "clip.wav"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(clip), "-ac", "1",
+         "-ar", "16000", "-y", str(audio)],
+        check=True, capture_output=True, timeout=60)
+
+    calls = []
+
+    def _no_vision(name):
+        def refuse(*_a, **_k):
+            calls.append(name)
+            raise AssertionError(f"1.04 called vision_measure.{name}")
+        return refuse
+
+    for name in ("ensure_helper", "helper_available", "measure_frames"):
+        monkeypatch.setattr(vision_measure, name, _no_vision(name))
+    monkeypatch.setattr(ti, "measure_clip_sound_events",
+                        lambda _audio: ([], "unmeasured: stubbed"))
+    monkeypatch.setattr(
+        ti, "measure_audio_classification",
+        lambda *_a, **_k: {"categories_measured": [],
+                           "method": "unmeasured: stubbed"})
+
+    project = tmp_path / "project"
+    project.mkdir()
+    pretranscribed = (str(audio), [], [], [],
+                      {"aligner": "stub", "arm": "stub",
+                       "detected_language": "en"})
+    index = ti.index_clip(str(clip), "clip_001", ProjectLayout(str(project)),
+                          pretranscribed=pretranscribed)
+
+    assert calls == []
+    assert index["face_presence"]["values"], "the Haar 5 Hz pass still runs"
+    assert not set(ti.RETIRED_VISION_KEYS) & set(index)
+
+
+def test_a_cached_index_sheds_the_retired_vision_keys():
+    """A reused per-clip index must not keep serving `vision_*` keys.
+
+    Would catch: a project indexed while 1.04 still ran its own Vision
+    pass carrying those unread keys forever, so a reused index and a
+    fresh one disagree on shape. Shedding reports whether anything
+    changed, so an index without them is never rewritten.
+    """
+    from library.steps.step_1_04_temporal_index import step as ti
+
+    index = {"clip_id": "clip_001", "face_presence": {"values": [0.9]}}
+    index.update({key: {"samples": []} for key in ti.RETIRED_VISION_KEYS})
+    assert ti.shed_retired_vision_keys(index) is True
+    assert index == {"clip_id": "clip_001",
+                     "face_presence": {"values": [0.9]}}
+    assert ti.shed_retired_vision_keys(index) is False
 
 
 def test_persistence_keeps_tracks_drops_only_isolated():
@@ -951,7 +1007,6 @@ class TestParallelLanesKeepTheSerialContract:
         monkeypatch.setattr(ti, "motion_backfill_needed", lambda index: False)
         monkeypatch.setattr(ti, "sound_events_backfill_needed",
                             lambda index: False)
-        monkeypatch.setattr(ti, "vision_backfill_needed", lambda index: False)
         # Regional motion arrives through a function-local import inside
         # `build_temporal_index`, so the stub goes on the owning module.
         from library.tools import regional_motion
