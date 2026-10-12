@@ -134,6 +134,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/mfa_align.py",
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
+        "library/tools/overlapped_speech.py",
         "library/tools/word_boundaries.py",
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
@@ -203,6 +204,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/mfa_align.py",
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
+        "library/tools/overlapped_speech.py",
         "library/tools/word_boundaries.py",
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
@@ -283,6 +285,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/mfa_align.py",
         "library/tools/subject_framing.py",
         "library/tools/timeline_transcript.py",
+        "library/tools/overlapped_speech.py",
         "library/tools/word_boundaries.py",
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
@@ -352,6 +355,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by transcript_measurement: the timeline transcript
         # whose segments the stored hearings are served from.
         "library/tools/timeline_transcript.py",
+        "library/tools/overlapped_speech.py",
         # Imported by source_primitives / transcript_measurement: the
         # per-clip vision measurements and the transcript corrections
         # and confidence the cached profile is composed from.
@@ -430,6 +434,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/steps/step_1_04_temporal_index/media_decode.py",
         # Span extraction feeding region re-measurement.
         "library/tools/timeline_transcript.py",
+        "library/tools/overlapped_speech.py",
         # Lane B: the transcript above now mints utterance Observation
         # ids through footage_model_link, so a fix to the link changes
         # what the cached segments resolve into.

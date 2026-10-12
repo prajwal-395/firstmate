@@ -1005,7 +1005,8 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     # The two halves now read the same list.
     segments = bound_segments(transcript)
     words = _word_intervals(transcript)
-    # Four phases, in this order, and the order is the contract.
+    # Four phases (and a measured fifth, below), in this order, and the
+    # order is the contract.
     # Segments first: a boundary must never cut a bound row, and only
     # the segment pass knows rows.  Words second: a segment edge can
     # still sit inside a STRADDLING row's word - reel 5 of the rebuild
@@ -1019,8 +1020,22 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     # A final span that still cuts a bound row is refused downstream by
     # `validate_proposal`. Other overlaps genuinely lack a reconciled
     # edge, so the proposal refuses them instead of guessing.
+    #
+    # Between the second and third phase, MEASURED crosstalk (MU-20,
+    # `library/tools/overlapped_speech.py`): a boundary strictly inside
+    # a span where two voices sound at once moves outward to its edge,
+    # by the word pass's own rule - a reel that opens or closes there
+    # starts or ends on half of the other voice's word, in a gap the
+    # word pass cannot see because neither row's word covers it. Before
+    # the last segment and word phases, so the span still settles on a
+    # row and a word edge. A transcript never measured has no spans and
+    # this phase is the identity.
+    from library.tools import overlapped_speech
+    crosstalk = [(span.start, span.end) for span
+                 in overlapped_speech.spans_of(transcript) or ()]
     start, end = _widen_to_segments(start, end, segments)
     start, end = _snap_out_of_words(start, end, words)
+    start, end = _snap_out_of_words(start, end, crosstalk)
     start, end = _widen_to_segments(start, end, segments)
     start, end = _snap_out_of_words(start, end, words)
     return start, end

@@ -801,6 +801,7 @@ def rebind_document(document: dict, snapshot,
     audio_tracks = (cached_speaker_audio_tracks(
         project_folder, per_speaker)
         if project_folder else None)
+    from library.tools.overlapped_speech import RECORD_KEY
     rebound_segments, mic_bleed_resolution = merge_speakers(
         per_speaker, audio_tracks)
     rebound = transcript_document(
@@ -808,7 +809,10 @@ def rebind_document(document: dict, snapshot,
         transcription=document.get("transcription"),
         mic_bleed_resolution=(mic_bleed_resolution
                               or document.get("mic_bleed_resolution", [])),
-        project_folder=project_folder)
+        project_folder=project_folder,
+        # Measured off the audio on the timeline clock, which a rebind
+        # neither re-hears nor moves: the account travels with it.
+        overlapped_speech=document.get(RECORD_KEY))
     # A rebound transcript SAYS it is one.  The words came from the run
     # named here; the binding came from this machine's clip list, and a
     # reader comparing two transcripts of one timeline needs to know
@@ -1029,6 +1033,7 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
                         mic_bleed_resolution: Optional[List[dict]] = None,
                         diarization: Optional[dict] = None,
                         project_folder: Optional[str] = None,
+                        overlapped_speech: Optional[dict] = None,
                         ) -> dict:
     """The whole transcript, as written to disk.
 
@@ -1042,6 +1047,11 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
     `single-label`) and why. A transcript whose voices were never
     separated reads that here rather than leaving the reader to infer
     it from one speaker key.
+
+    `overlapped_speech` is the account of WHEN two voices sounded at
+    once (`library/tools/overlapped_speech.py`): which arm measured it
+    and the spans, or why nothing could be. Absent on transcripts that
+    predate it, which readers take as "not measured", never as "none".
 
     `project_folder` (Lane B, cascade report 2.1) stamps each segment
     row's `obs_id` - the utterance Observation the source-memory M1
@@ -1170,6 +1180,9 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         body["transcription"] = transcription
     if diarization is not None:
         body["diarization"] = diarization
+    if overlapped_speech is not None:
+        from library.tools.overlapped_speech import RECORD_KEY
+        body[RECORD_KEY] = overlapped_speech
     if project_folder:
         from library.tools import footage_model_link
         linkage = footage_model_link.attach_transcript_obs_ids(
@@ -1421,10 +1434,12 @@ def _slice_wav_spans(source: Path, spans: Sequence[tuple[float, float]],
 def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
                             per_speaker, heard_by, audio_tracks,
                             model_size, initial_prompt, hotwords,
-                            diarize) -> dict:
+                            diarize) -> tuple[dict, dict]:
     """One audio path: diarize-then-transcribe-per-cluster, or one label.
 
-    Returns the `diarization` record for the document, always. The
+    Returns the `diarization` record for the document, always, and the
+    `overlapped_speech` record beside it, which on one audio path is
+    always "not measured" and says why (`SINGLE_TRACK_REASON`). The
     fallback is taken only when `should_diarize_single_track` says the
     timeline has one audio path and the project does not declare fewer
     than two voices, AND the caller allows it (`diarize` None reads
@@ -1434,7 +1449,7 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
     the rebuilt track under one label, which is today's behavior, with
     the reason on the record rather than in a log line.
     """
-    from library.tools import single_track_diarization
+    from library.tools import overlapped_speech, single_track_diarization
 
     label = (sole or "unnamed").lower().replace(" ", "_")
     audio_path = scratch / f"{label}.wav"
@@ -1458,8 +1473,10 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
         segments = segments_for_speaker(aligned, sole, clips)
         print(f"[{sole}] {len(segments)} spoken segments", file=sys.stderr)
         per_speaker[sole] = segments
-        return single_track_diarization.DiarizationRecord(
-            path="single-label", reason=reason).as_dict()
+        return (single_track_diarization.DiarizationRecord(
+                    path="single-label", reason=reason).as_dict(),
+                overlapped_speech.not_measured(
+                    overlapped_speech.SINGLE_TRACK_REASON))
 
     eligible, eligibility, declared_k = (
         single_track_diarization.should_diarize_single_track(
@@ -1509,7 +1526,9 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
         speakers_estimated=diarization.speakers_estimated,
         inference_seconds=diarization.inference_seconds,
         weights=diarization.weights,
-        device=diarization.device).as_dict()
+        device=diarization.device).as_dict(), (
+            overlapped_speech.not_measured(
+                overlapped_speech.SINGLE_TRACK_REASON))
 
 
 # ── CLI ──────────────────────────────────────────────────────────────
@@ -1538,7 +1557,7 @@ def build_and_transcribe(project_folder: str, snapshot,
       / `--no-diarize-single-track` on the CLI.
     """
     from library.tools.project_layout import Area, ProjectLayout
-    from library.tools import single_track_diarization
+    from library.tools import overlapped_speech, single_track_diarization
 
     layout = ProjectLayout(project_folder)
     scratch = Path(layout.write_dir(Area.SCRATCH)) / SCRATCH_SUBDIR
@@ -1565,6 +1584,7 @@ def build_and_transcribe(project_folder: str, snapshot,
         project_folder)
 
     diarization_record = None
+    overlap_record = None
     # One key of ANY kind is one path: a None speaker (an untagged
     # track) is a path, not an absence. Testing `sole is not None` here
     # once routed every untagged single-mic timeline to per-ISO and the
@@ -1572,7 +1592,7 @@ def build_and_transcribe(project_folder: str, snapshot,
     if len(by_speaker) == 1:
         sole = next(iter(by_speaker))
         if wanted is None or sole in wanted:
-            diarization_record = _transcribe_single_path(
+            diarization_record, overlap_record = _transcribe_single_path(
                 project_folder, sole, by_speaker[sole], scratch, cache_dir,
                 per_speaker, heard_by, audio_tracks,
                 model_size, initial_prompt, hotwords, diarize)
@@ -1591,6 +1611,14 @@ def build_and_transcribe(project_folder: str, snapshot,
                     reason=(f"{len(by_speaker)} audio paths: the per-ISO "
                             f"path owns multi-track timelines "
                             f"unchanged")).as_dict())
+            # Not from `audio_tracks`: on a cut each holds its camera only
+            # while its picture plays, so two are never voiced at once.
+            # Each speaker's camera is laid under the WHOLE timeline
+            # through the M6 clock instead (`overlapped_speech`), for
+            # every speaker - crosstalk is a property of the room, not
+            # of the speakers this run re-heard.
+            overlap_record = overlapped_speech.timeline_record(
+                snapshot.picture_clips(), snapshot.duration)
 
     if (diarization_record is not None
             and diarization_record.get("path") == "single-track-fallback"):
@@ -1612,7 +1640,8 @@ def build_and_transcribe(project_folder: str, snapshot,
         transcription=transcription_record(heard_by),
         mic_bleed_resolution=mic_bleed_resolution,
         diarization=diarization_record,
-        project_folder=project_folder)
+        project_folder=project_folder,
+        overlapped_speech=overlap_record)
     # The guarantee half: respell at the root, before anything
     # downstream reads it. Downstream consumers need no changes - they
     # read corrected words because corrected words are what is here.

@@ -4919,6 +4919,10 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         print(f"  {name}: dropped "
               f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
               file=sys.stderr)
+    if spine.get("unison_blocks_kept"):
+        print(f"  {name}: kept {spine['unison_blocks_kept']} same-words "
+              f"pair(s) both captioned - measured crosstalk, two voices "
+              f"rather than one mic's bleed", file=sys.stderr)
     for item in spine.get("undetermined_words") or []:
         print(f"  {name}: UNDETERMINED WORD {item['word']!r} "
               f"({item['speaker'] or 'unknown speaker'}, master "

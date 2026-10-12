@@ -418,6 +418,71 @@ def speech_observations(model: dict[str, Any], transcript: dict | None,
     return minted
 
 
+def overlap_observations(model: dict[str, Any], transcript: dict | None,
+                         speaker: str, source_file: str, asset_id: str,
+                         clock_id: str, entity_id: str) -> list[str]:
+    """MU-20: one ``overlap`` observation per measured crosstalk span
+    this speaker's rows on this source sound in.
+
+    The transcript's ``overlapped_speech`` spans are TIMELINE seconds; a
+    row's own binding (``source_start - timeline_start``) carries the
+    part of the span the row covers onto the source clock, as
+    ``speech_observations`` does for the row itself. A transcript that
+    was never measured mints nothing - "unknown" is not "no overlap",
+    and a reader of the model sees no observation rather than a false
+    negative. Returns the observation ids minted.
+    """
+    from library.tools import overlapped_speech
+
+    minted: list[str] = []
+    spans = overlapped_speech.spans_of(transcript)
+    if not spans:
+        return minted
+    for index, row in enumerate((transcript or {}).get("segments") or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("speaker") or "").strip() != str(speaker or "").strip():
+            continue
+        if str(row.get("source_file") or "") != str(source_file or ""):
+            continue
+        try:
+            row_start = float(row["timeline_start"])
+            row_end = float(row["timeline_end"])
+            offset = float(row["source_start"]) - row_start
+        except (KeyError, TypeError, ValueError):
+            continue
+        for span in spans:
+            if speaker not in span.voices:
+                continue
+            start, end = max(row_start, span.start), min(row_end, span.end)
+            interval = sec_to_ms(start + offset, end + offset)
+            if interval is None:
+                continue
+            obs_id = (f"obs:overlap:"
+                      f"{_sha16(speaker, source_file, span.start, span.end, index)}")
+            if not any(isinstance(obs, dict) and obs.get("id") == obs_id
+                       for obs in model.get("observations") or []):
+                model.setdefault("observations", []).append({
+                    "id": obs_id,
+                    "asset_id": asset_id,
+                    "interval": {"clock_id": clock_id,
+                                 "start": interval[0], "end": interval[1]},
+                    "modality": "overlap",
+                    "payload": {
+                        "voices": list(span.voices),
+                        "speaker_entity_id": entity_id,
+                        "timeline_start": round(span.start, 3),
+                        "timeline_end": round(span.end, 3),
+                        "arm": transcript[overlapped_speech.RECORD_KEY]["arm"],
+                    },
+                    "confidence": None,
+                    "provenance_id": PROVENANCE_ID,
+                })
+            _link(model, entity_id, obs_id, "diarization_speaker_label")
+            minted.append(obs_id)
+    return minted
+
+
 def _reel_clock(model: dict[str, Any], reel_slug: str,
                 timeline_name: str) -> str:
     return _clock(model, f"clock:reel:{reel_slug}",
@@ -483,6 +548,10 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             if entity_id is not None:
                 entity_links.append(entity_id)
                 evidence_ids.extend(speech_observations(
+                    model, transcript, str(speaker),
+                    str(place.get("source_file") or ""),
+                    asset_id, source_clock, entity_id))
+                evidence_ids.extend(overlap_observations(
                     model, transcript, str(speaker),
                     str(place.get("source_file") or ""),
                     asset_id, source_clock, entity_id))

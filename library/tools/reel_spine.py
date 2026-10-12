@@ -66,6 +66,17 @@ speech that was already cut.  Every block here is `speech`, and a step
 that needs more than speech gets an honest absence rather than a
 fabricated block (AGENTS.md 10.5).
 
+**Measured crosstalk overrules the text rule.**  `_is_bleed` reads
+wording alone because, without a measurement, timing cannot tell a
+second mic from a second mouth.  Where the transcript carries
+`overlapped_speech` (`library/tools/overlapped_speech.py`) and a pair's
+shared seconds sit inside a span in which BOTH speakers were measured
+sounding at once, the pair is two people saying the same words - a
+"yeah, exactly" in unison - and both blocks stay.  A transcript that was
+never measured keeps the text rule exactly; "unknown" is not
+"crosstalk".  Each block carries the measured spans it sounds in, in
+REEL seconds, as `overlapped_speech` (absent when nothing was measured).
+
 `tests/unit/reels/test_reel_spine.py`, `tests/unit/reels/test_keep_ranges.py`.
 
 The ruling that folded `reel_subtitles.py` into the pipeline and the
@@ -78,6 +89,7 @@ from collections.abc import Sequence
 from difflib import SequenceMatcher
 from math import isfinite
 
+from library.tools import overlapped_speech
 from library.tools import region as region_mod
 from library.tools.spine_contract import validate_spine_blocks
 
@@ -821,6 +833,8 @@ def spine_for_reel(moment, transcript: dict,
             spelling_corrections = None
             display_suppressions = None
 
+    measured_overlaps = overlapped_speech.spans_of(transcript)
+
     undetermined_words = []
     for segment in segments:
         start, end = segment.get("timeline_start"), segment.get("timeline_end")
@@ -972,6 +986,19 @@ def spine_for_reel(moment, transcript: dict,
             unanchored_bands[band] += 1
             unanchored_seconds += float(reel_end) - float(reel_start)
 
+        block_overlap = {}
+        if measured_overlaps is not None:
+            # Master to reel inside one block is one shift: blocks are
+            # split at removed spans above, so a block plays one range.
+            shift = float(reel_start) - float(master_start)
+            block_overlap["overlapped_speech"] = [
+                [round(max(span.start, float(master_start)) + shift, 3),
+                 round(min(span.end, float(master_end)) + shift, 3),
+                 list(span.voices)]
+                for span in measured_overlaps
+                if span.start < float(master_end)
+                and span.end > float(master_start)]
+
         blocks.append({
             "position": len(blocks),
             "block_type": "speech",
@@ -994,6 +1021,7 @@ def spine_for_reel(moment, transcript: dict,
             # while its timing is absent. Its per-word reason is returned
             # in `undetermined_words` below.
             "content": {"text": " ".join(w["word"] for w in words).strip()},
+            **block_overlap,
         })
 
     # ORDER BY THE REEL, not by the master.  A reel's closer may be cut
@@ -1003,7 +1031,7 @@ def spine_for_reel(moment, transcript: dict,
     # segments by - stops meaning play order.  The bleed sweep below
     # compares neighbours, so it needs this too.
     blocks.sort(key=lambda b: (b["timeline_start"], b["timeline_end"]))
-    blocks, bled = _drop_bleed(blocks)
+    blocks, bled, unison_kept = _drop_bleed(blocks)
     # WHOLE-block bleed first, then the partial. The other order mangles
     # a near-duplicate pair: both rows carry the same sentence, so both
     # get an edge cut, and what `_drop_bleed` would have removed whole
@@ -1035,6 +1063,9 @@ def spine_for_reel(moment, transcript: dict,
         for block in blocks:
             block["timeline_start"] = float(block["timeline_start"]) + lead_seconds
             block["timeline_end"] = float(block["timeline_end"]) + lead_seconds
+            for span in block.get("overlapped_speech") or []:
+                span[0] = round(span[0] + lead_seconds, 3)
+                span[1] = round(span[1] + lead_seconds, 3)
         for span in unbindable:
             span["reel_start"] = round(span["reel_start"] + lead_seconds, 3)
             span["reel_end"] = round(span["reel_end"] + lead_seconds, 3)
@@ -1066,6 +1097,12 @@ def spine_for_reel(moment, transcript: dict,
             "undetermined_words": undetermined_words,
             "dropped_segments": dropped_no_binding,
             "bleed_blocks_dropped": bled,
+            # Same-text pairs the text rule would have dropped as bleed
+            # but measured crosstalk kept: two voices, not two mics.
+            # None when the transcript carries no overlap measurement.
+            "unison_blocks_kept": (unison_kept
+                                   if measured_overlaps is not None
+                                   else None),
             # A card carrying two speakers is what the captain saw on
             # reel 05, and these are the three numbers that say whether
             # this reel had any: how many bled words were cut off a
@@ -1390,6 +1427,9 @@ def _foreign_at(blocks: list[dict], spans: list, index: int) -> list:
     A copy is the same normalised word at an OVERLAPPING reel second. Two
     people cannot utter one word at one instant, so a copy is one mic
     hearing the other - there is no threshold in that and none is wanted.
+    The one exception is MEASURED: an instant inside crosstalk in which
+    both speakers were heard (`_in_measured_crosstalk`) is two mouths,
+    and the copy is the other speaker's own word.
     Returns one list of `(block_index, word_index)` per word, empty where
     the word is the speaker's own.
     """
@@ -1408,9 +1448,25 @@ def _foreign_at(blocks: list[dict], spans: list, index: int) -> list:
                 if other_text != text:
                     continue
                 if min(end, other_end) - max(start, other_start) > 0.0:
+                    if _in_measured_crosstalk(
+                            block, other, max(start, other_start),
+                            min(end, other_end)):
+                        continue
                     out[word_index].append((other_index, other_word))
                     break
     return out
+
+
+def _in_measured_crosstalk(block: dict, other: dict, start: float,
+                           end: float) -> bool:
+    """Is the instant `[start, end)` inside a measured overlap span that
+    names both blocks' speakers? Its midpoint decides, a word's own
+    timing being the finest the spans can be read against."""
+    middle = (start + end) / 2.0
+    both = {block.get("speaker"), other.get("speaker")}
+    return any(span_start <= middle < span_end and both <= set(voices)
+               for span_start, span_end, voices
+               in block.get("overlapped_speech") or ())
 
 
 def _edge_run(foreign: list) -> tuple[int, int]:
@@ -1582,14 +1638,38 @@ def _cut_cross_speaker_edges(blocks: list[dict]) -> tuple[list[dict], dict]:
                          "middle_runs": middle_runs}
 
 
-def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int]:
+def _measured_unison(earlier: dict, later: dict) -> bool:
+    """Do the pair's shared seconds sit in MEASURED crosstalk of both?
+
+    At least half of the seconds both blocks play must lie inside
+    overlap spans that name both speakers. Half, because the pair's
+    envelopes include the aligner's padding either side of the words;
+    a block with no `overlapped_speech` key was never measured and
+    never qualifies.
+    """
+    if "overlapped_speech" not in earlier or "overlapped_speech" not in later:
+        return False
+    start = max(float(earlier["timeline_start"]), float(later["timeline_start"]))
+    end = min(float(earlier["timeline_end"]), float(later["timeline_end"]))
+    if end <= start:
+        return False
+    both = {earlier.get("speaker"), later.get("speaker")}
+    inside = sum(max(0.0, min(end, span_end) - max(start, span_start))
+                 for span_start, span_end, voices in earlier["overlapped_speech"]
+                 if both <= set(voices))
+    return inside * 2 >= end - start
+
+
+def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int, int]:
     """Drop blocks that are another block's speech bleeding onto a second mic.
 
     Swept repeatedly, because dropping one block can expose an overlap
     between two that were not adjacent before.  Returns the surviving
-    blocks, renumbered, and how many went.
+    blocks, renumbered, how many went, and how many same-text pairs
+    MEASURED crosstalk kept (`_measured_unison`).
     """
     dropped = 0
+    unison = set()
     changed = True
     while changed:
         changed = False
@@ -1602,7 +1682,11 @@ def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int]:
             if block["timeline_start"] >= previous["timeline_end"]:
                 kept.append(block)
                 continue
-            if _is_bleed(previous, block):
+            if _is_bleed(previous, block) and _measured_unison(previous, block):
+                # Same words, but both voices were measured sounding
+                # here: two people said them. Counted once per pair.
+                unison.add((previous["position"], block["position"]))
+            elif _is_bleed(previous, block):
                 # The later one is the bleed.  The earlier block already
                 # carries the mic the words were spoken into, which is
                 # also the right speaker attribution.
@@ -1617,7 +1701,7 @@ def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int]:
 
     for position, block in enumerate(blocks):
         block["position"] = position
-    return blocks, dropped
+    return blocks, dropped, len(unison)
 
 
 def _source_words(segment: dict, master_start: float,
