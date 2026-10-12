@@ -132,6 +132,14 @@
 #   outside herdr has no workspace to inherit and uses this home's own labeled
 #   workspace, which must then match exactly one. --secondmate is the deliberate
 #   exception: it stands up that secondmate home's own workspace.
+#   A fresh herdr --secondmate launch whose home is a temporary directory
+#   (under TMPDIR, /tmp, /private/tmp, or /private/var/folders) is refused when
+#   it would land in the live session rather than a named isolated lab (a
+#   HERDR_SESSION starting with fm-lab-, bin/fm-herdr-lab.sh): ambient
+#   HERDR_PANE_ID/HERDR_SESSION once opened a stray 2ndmate workspace in the
+#   live session for a throwaway home. Persistent homes, lab sessions, other
+#   backends, and launches without live herdr identity (stubbed test backends)
+#   are unaffected (spawn_refuse_temp_home_live_herdr below).
 #   Herdr additionally uses a presentation-only layout by default when the
 #   selected client and running server meet the Herdr 0.8.0 floor. The local
 #   config/herdr-presentation-spaces file can say off to disable it or on to
@@ -3456,12 +3464,50 @@ if [ "$KIND" = secondmate ]; then
   fi
 fi
 
+# spawn_refuse_temp_home_live_herdr <id> <abs-home>: refuse a fresh herdr
+# --secondmate launch that would open a workspace for a throwaway home in the
+# live session. <abs-home> must already be canonical (validate_... returns
+# pwd -P). A home under TMPDIR, /tmp, /private/tmp, or /private/var/folders is
+# temporary; a HERDR_SESSION starting with fm-lab- is a named isolated lab
+# (bin/fm-herdr-lab.sh) and is always allowed. Without live herdr identity
+# (HERDR_PANE_ID or HERDR_SESSION) there is no live session to stray into, so
+# stubbed test backends keep working unchanged.
+spawn_refuse_temp_home_live_herdr() {
+  local id=$1 home=$2 session base raw_base
+  [ -n "$id" ] && [ -n "$home" ] || return 1
+  session=${HERDR_SESSION:-default}
+  case "$session" in
+  fm-lab-*) return 0 ;;
+  esac
+  if [ -z "${HERDR_PANE_ID:-}" ] && [ -z "${HERDR_SESSION:-}" ]; then
+    return 0
+  fi
+  for raw_base in "${TMPDIR:-/tmp}" /tmp /private/tmp /private/var/folders; do
+    [ -n "$raw_base" ] || continue
+    base=${raw_base%/}
+    if [ -d "$base" ]; then
+      base=$(cd "$base" 2>/dev/null && pwd -P) || base=${raw_base%/}
+    fi
+    [ -n "$base" ] || continue
+    case "$home" in
+    "$base" | "$base"/*)
+      echo "error: secondmate $id home $home is under temporary directory $base and this launch would land in the live herdr session '$session'; refusing to open a stray workspace in the live session - use a persistent secondmate home, or run inside a named isolated lab session (fm-lab-*, bin/fm-herdr-lab.sh) with HERDR_SESSION set to it" >&2
+      return 1
+      ;;
+    esac
+  done
+  return 0
+}
+
 if [ "$KIND" = secondmate ]; then
   [ -n "$FIRSTMATE_HOME" ] || {
     echo "error: no firstmate home supplied or registered for $ID" >&2
     exit 1
   }
   PROJ_ABS=$(validate_firstmate_home_for_spawn "$ID" "$FIRSTMATE_HOME")
+  if [ "$RELAUNCH" -eq 0 ] && [ "${BACKEND:-}" = herdr ]; then
+    spawn_refuse_temp_home_live_herdr "$ID" "$PROJ_ABS" || exit 1
+  fi
   if [ -e "$DATA/secondmates.md" ] || [ -L "$DATA/secondmates.md" ]; then
     if ! secondmate_registry_validate_bindings "$DATA/secondmates.md" resolve_path "$ID" "$FIRSTMATE_HOME"; then
       echo "error: $SECONDMATE_REGISTRY_ERROR" >&2

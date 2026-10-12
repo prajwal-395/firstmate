@@ -3022,6 +3022,62 @@ EOF
   pass "fm-backlog-handoff refuses Done items under whitespace section headings and unsafe homes"
 }
 
+test_secondmate_spawn_refuses_temp_home_in_live_herdr_session() {
+  # A throwaway secondmate home launched from inside the live herdr session
+  # once opened a stray 2ndmate workspace in that session. The spawn must
+  # refuse before touching the backend; a named lab session and a stubbed
+  # launch without live identity still proceed to the backend.
+  local home sub fakebin log err
+  home="$TMP_ROOT/launch-guard-home"
+  sub="$TMP_ROOT/launch-guard-sub"
+  err="$TMP_ROOT/launch-guard.err"
+  mkdir -p "$home/data" "$home/state" "$sub/data" "$sub/state" "$sub/config" "$sub/projects"
+  mark_firstmate_home "$sub"
+  printf 'tempsm\n' > "$sub/.fm-secondmate-home"
+  printf 'trivial launch-guard charter: nothing to do.\n' > "$sub/data/charter.md"
+  fakebin="$TMP_ROOT/launch-guard-fake"
+  mkdir -p "$fakebin"
+  log="$fakebin/herdr.log"
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_HERDR_LOG"
+exit 1
+SH
+  chmod +x "$fakebin/herdr"
+  : > "$log"
+
+  # Live session identity carried into a temporary home: refused with no backend contact.
+  if env PATH="$fakebin:$PATH" FM_FAKE_HERDR_LOG="$log" FM_HOME="$home" \
+    HERDR_SESSION=default HERDR_PANE_ID=w9:p9 \
+    "$ROOT/bin/fm-spawn.sh" tempsm "$sub" codex --secondmate --backend herdr >/dev/null 2>"$err"; then
+    fail "secondmate spawn launched a temporary home into the live herdr session"
+  fi
+  assert_grep 'live herdr session' "$err" "spawn did not explain the live-session refusal"
+  [ ! -s "$log" ] || fail "spawn contacted the herdr backend before refusing the live session"
+  assert_absent "$home/state/tempsm.meta" "spawn published metadata after the live-session refusal"
+  assert_absent "$home/state/.spawn-tempsm.lock" "spawn left a lock after the live-session refusal"
+
+  # A named isolated lab session is the supported shape for a throwaway home.
+  : > "$log"
+  if env PATH="$fakebin:$PATH" FM_FAKE_HERDR_LOG="$log" FM_HOME="$home" \
+    HERDR_SESSION=fm-lab-throwaway-1 HERDR_PANE_ID=w9:p9 \
+    "$ROOT/bin/fm-spawn.sh" tempsm "$sub" codex --secondmate --backend herdr >/dev/null 2>"$err"; then
+    fail "lab-session secondmate spawn unexpectedly succeeded against the stub backend"
+  fi
+  assert_no_grep 'live herdr session' "$err" "spawn applied the live-session refusal inside a named lab session"
+  [ -s "$log" ] || fail "lab-session spawn never reached the stubbed herdr backend"
+
+  # No live identity at all (a stubbed backend from a plain shell) also proceeds.
+  : > "$log"
+  if env -u HERDR_SESSION -u HERDR_PANE_ID -u HERDR_SOCKET_PATH PATH="$fakebin:$PATH" FM_FAKE_HERDR_LOG="$log" FM_HOME="$home" \
+    "$ROOT/bin/fm-spawn.sh" tempsm "$sub" codex --secondmate --backend herdr >/dev/null 2>"$err"; then
+    fail "stubbed secondmate spawn unexpectedly succeeded"
+  fi
+  assert_no_grep 'live herdr session' "$err" "spawn applied the live-session refusal without live herdr identity"
+  [ -s "$log" ] || fail "stubbed spawn never reached the herdr backend"
+  pass "secondmate spawn refuses temporary homes in the live herdr session but keeps lab and stubbed launches"
+}
+
 test_fm_home_parameterization
 test_lock_status_is_per_home
 test_seed_allows_overlapping_clones_and_drops_owner
@@ -3067,6 +3123,7 @@ test_home_seed_refuses_operational_dirs_outside_subhome
 test_home_seed_refuses_unsafe_leaf_files
 test_home_seed_preserves_existing_parent_binding
 test_secondmate_spawn_requires_seeded_matching_home
+test_secondmate_spawn_refuses_temp_home_in_live_herdr_session
 test_secondmate_spawn_refuses_operational_dirs_outside_subhome
 test_fm_send_refuses_bare_window_without_home_meta
 test_secondmate_teardown_retires_empty_home
