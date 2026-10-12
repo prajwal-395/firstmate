@@ -1264,6 +1264,47 @@ def test_a_grounded_segment_precomposites_under_the_matte(tmp_path):
 
 
 @needs_ffmpeg
+def test_the_export_shows_the_subject_occluding_the_title(tmp_path):
+    """Acceptance (MU-10): a behind-subject render shows the subject
+    occluding the title on an EXPORTED frame - never on a viewer, and
+    never on the precomp alone. The composite is what the build places:
+    the precomp on its overlay row over the untouched picture, flattened
+    by ffmpeg the way Resolve renders premultiplied Full. A title drawn
+    on top instead of under would read white where the subject is."""
+    import subprocess
+
+    from PIL import Image
+
+    plate = np.full((24, 32, 3), 128, dtype=np.uint8)
+    plate_path = str(tmp_path / "plate.png")
+    Image.fromarray(plate, mode="RGB").save(plate_path)
+    segment = _title_sequence(str(tmp_path / "titles"))
+    placed, _, _ = behind_subject.apply_behind_subject(
+        [segment], {"c1": _seg_result()},
+        clip_at=lambda s, e: [_clip()],
+        matte_dir=str(tmp_path / "mattes"),
+        precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
+        clip_metadata={"c1": {"width": 32, "height": 24}})
+    export = str(tmp_path / "export_%05d.png")
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-loop", "1", "-framerate", "10",
+         "-i", plate_path, "-i", placed[0]["overlay_path"],
+         "-filter_complex",
+         "[0:v][1:v]overlay=0:0:format=rgb:shortest=1,format=rgb24",
+         "-frames:v", "40", export],
+        capture_output=True, timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr.decode()[-300:]
+    frame = np.asarray(Image.open(str(tmp_path / "export_00020.png")))
+    assert frame.shape == (24, 32, 3)
+    # Where the subject is, the plate: the title passes behind them.
+    assert (frame[6:18, 10:22] == 128).all()
+    # Everywhere else, the title's own white.
+    assert (frame[0:6, :] == 255).all()
+    assert (frame[:, 0:10] == 255).all()
+    assert (frame[:, 22:] == 255).all()
+
+
+@needs_ffmpeg
 def test_partial_alpha_and_partial_matte_multiply(tmp_path):
     from PIL import Image
 

@@ -1,12 +1,28 @@
 """Subject-only colour grading: warm the speaker, leave the room.
 
-The smallest build that proves the region-specification path the scout
-measured (`data/vep-region-granular-editing/report.md` in the firstmate
-home): name (face-seeded "speaker"), delineate+track (step 1.06 SAM 2.1
-masks, already measured), apply (a Fusion Loader matte gating a
-BrightnessContrast through `EffectMask` - the vignette's proven pattern
-in `library/tools/fusion/effects.py`, generalised from a generated shape
-to a loaded matte).
+Name, delineate, apply. The subject is named by the plan: the
+colourist's entry cites the `region_exposure` row it was sourced from
+(`<clip_id>/<region_track>`, step 5.01), and a region track M3d linked
+to a face track IS a person. It is delineated on every played frame by
+the delivery tier (`library/tools/person_matte.py`, Apple Vision person
+instance masks); a clip with no single person instance keeps step
+1.06's SAM 2.1 face-seeded subject, held at its 2 fps samples
+(`write_subject_matte`).
+
+It is APPLIED as a precomposite, not a Fusion comp. The first build
+gated a BrightnessContrast with a Loader matte through `EffectMask`,
+and a scripted Loader never decodes on a timeline comp in Resolve
+Studio 21.1 (measured 2026-09-24, `library/tools/execution/
+deliver_loaders.py`): the comp imported, the matte read back 0x0, and
+the grade never reached the picture. `precomposite_subject_grade`
+draws the graded subject itself - the clip's own source frames, graded
+by the plan's numbers, alpha = the matte, premultiplied ``qtrle`` - and
+the timeline build places it on the subject-grade row directly above
+the picture rows (`timeline_layout.SUBJECT_GRADE`), with the clip's own
+conform and CDL, so it registers on the pixels it replaces. Inside the
+subject the viewer sees the graded copy; everywhere else the clip
+under it. `docs/benchmarks/2026-10-12-person-matte-delivery.md` has the
+exported frames that prove it on Resolve 21.1.
 
 A plan entry looks like::
 
@@ -24,9 +40,11 @@ with no non-neutral term is dropped as `no_readable_parameters`.
 **No grade value lives here.** Neutral (gain 1.0, contrast 0.0,
 saturation 1.0) is the absence of decoration, not taste, and is the only
 number this module names; every other number arrives in the plan entry
-and travels verbatim to the comp. There is no clamp and no bound, for
-the same reason step 5.01 carries none: how far a grade may travel is
-the colourist's.
+and travels verbatim to the precomposite. There is no bound on a value,
+for the same reason step 5.01 carries none: how far a grade may travel
+is the colourist's. The graded pixel is clipped to the 8-bit carriage
+the overlay is (`overlay_carriage`), which is the file format's limit,
+not a choice about the grade.
 """
 
 from __future__ import annotations
@@ -41,8 +59,16 @@ from library.tools.analysis.object_segmentation import (
     FACE_SEED_LABEL,
     decode_rle,
 )
-from library.tools.fusion.effects import EffectBlock
-from library.tools.fusion.nodes import FusionNode
+from library.tools.overlay_carriage import (
+    OVERLAY_FORMAT_NAME,
+    OverlayEncodeFailed,
+    encode_verified_overlay,
+)
+from library.tools.person_matte import (
+    DELIVERY_METHOD,
+    SAM_ROUTE_REASONS,
+    PersonMatteUnavailable,
+)
 
 #: The one region scope that exists. "Everything except X" is the same
 #: plumbing with an inverted matte and arrives when a plan asks for it;
@@ -140,7 +166,25 @@ def parse_plan_entry(entry: dict) -> tuple[dict | None, dict | None]:
     for key in ("measured_basis", "measured_basis_absent_because"):
         if key in entry:
             clean[key] = entry[key]
+    region = named_region_track(entry.get("measured_basis"))
+    if region is not None:
+        clean["region_track"] = region
     return clean, None
+
+
+def named_region_track(basis: Any) -> str | None:
+    """The person a cited `region_exposure` row names, as its M3d region
+    track - or None when the row is unassigned (no face inside it, so
+    nobody) or the entry cites nothing. This is how a colourist's plan
+    names a PERSON rather than only a clip: the row it was sourced from
+    is one person's region (`region_stats.exposure_rows`)."""
+    if not isinstance(basis, dict):
+        return None
+    track = basis.get("region_track")
+    owner = str(basis.get("owner") or "")
+    if not track or not owner or owner.startswith("unassigned"):
+        return None
+    return str(track)
 
 
 def _face_seeded_object(seg_result: dict) -> dict | None:
@@ -334,140 +378,244 @@ def validate_matte(record: dict, *, played_frames: int | None = None,
     return errors
 
 
-_counter = {"n": 0}
+def matte_route(record: dict) -> str:
+    """Which route drew a matte record: `person_instance` (the delivery
+    tier, every played frame) or `sam2_held` (step 1.06, 2 fps held)."""
+    method = ((record or {}).get("provenance") or {}).get("method")
+    return "person_instance" if method == DELIVERY_METHOD else "sam2_held"
 
 
-def subject_grade_block(matte_file: str, *, gain: float = 1.0,
-                        contrast: float = 0.0,
-                        saturation: float = 1.0) -> EffectBlock:
-    """A Loader matte gating a BrightnessContrast through `EffectMask`.
+def grade_rgb(rgb: np.ndarray, grade: dict) -> np.ndarray:
+    """The plan's BrightnessContrast terms over float RGB in 0..1.
 
-    The vignette's wiring generalised: where the vignette feeds a
-    generated EllipseMask into `EffectMask`, this feeds a tracked matte
-    sequence through a Loader. All three grade values arrive from the
-    plan entry; an all-neutral grade draws nothing.
+    In Fusion's order and meaning, so a value means what it meant when
+    the colourist wrote it against the comp: gain multiplies, contrast
+    scales about mid grey (``(x - 0.5) * (1 + contrast) + 0.5``),
+    saturation pulls each pixel from its Rec.709 luma. An absent term is
+    its neutral. Clipped to 0..1 last: the carriage is 8-bit.
     """
-    if (gain == 1.0 and contrast == 0.0 and saturation == 1.0):
-        return EffectBlock(nodes=[], input_name="", output_name="")
-    _counter["n"] += 1
-    loader_name = f"SubjectMatte{_counter['n']}"
-    grade_name = f"SubjectGrade{_counter['n']}"
-
-    loader = FusionNode(loader_name, "Loader")
-    loader.add_clip(matte_file)
-    loader.pos = (220, 110)
-
-    grade = FusionNode(grade_name, "BrightnessContrast")
-    grade.set_input("Gain", float(gain))
-    grade.set_input("Contrast", float(contrast))
-    grade.set_input("Saturation", float(saturation))
-    grade.set_input("EffectMask", loader_name, source="Mask")
-    grade.pos = (330, 0)
-
-    return EffectBlock(nodes=[loader, grade],
-                       input_name=grade_name,
-                       output_name=grade_name)
+    gain = float(grade.get("gain", NEUTRAL_GRADE["gain"]))
+    contrast = float(grade.get("contrast", NEUTRAL_GRADE["contrast"]))
+    saturation = float(grade.get("saturation",
+                                 NEUTRAL_GRADE["saturation"]))
+    out = rgb * gain
+    if contrast != 0.0:
+        out = (out - 0.5) * (1.0 + contrast) + 0.5
+    if saturation != 1.0:
+        luma = (out @ np.array([0.2126, 0.7152, 0.0722],
+                               dtype=out.dtype))[..., None]
+        out = luma + (out - luma) * saturation
+    return np.clip(out, 0.0, 1.0)
 
 
-#: Effect-dict keys `build_effect_comp` reads for a subject grade. The
-#: matte is the first frame's path; the Loader follows the numbered
-#: sequence from it.
-MATTE_KEY = "subject_grade_matte"
-GRADE_KEYS = {"subject_grade_gain": "gain",
-              "subject_grade_contrast": "contrast",
-              "subject_grade_saturation": "saturation"}
+class SubjectGradeRefused(ValueError):
+    """A grounded subject grade whose precomposite could not be made."""
 
 
-def block_from_effects(effects: dict) -> EffectBlock:
-    """The `build_effect_comp` dispatch: effect keys to a masked grade.
+def precomposite_subject_grade(source_file: str, matte_files: list[str],
+                               out_path: str, *, source_in: float,
+                               timeline_fps: float, grade: dict,
+                               label: str = "?",
+                               timeout: int = 1200) -> dict:
+    """The graded subject over one played window, as a ``qtrle`` overlay.
 
-    Absent matte key, or an all-neutral grade, draws nothing.
+    Per played frame: the clip's own source frame (decoded at its own
+    size, by index - `person_matte.played_source_frames`, the frame the
+    build places), graded by `grade_rgb`, with alpha = the matte and RGB
+    premultiplied. Outside the matte the overlay is exact zeros, so the
+    picture under it comes through untouched; inside it is the graded
+    copy of the same pixels. Streamed to the encoder frame by frame and
+    verified by round trip (`overlay_carriage.encode_verified_overlay`).
+
+    Returns `{"overlay_path", "frame_count", "width", "height"}`; raises
+    `SubjectGradeRefused` naming the window.
     """
-    matte = (effects or {}).get(MATTE_KEY)
-    if not matte:
-        return EffectBlock(nodes=[], input_name="", output_name="")
-    values = {}
-    for key, term in GRADE_KEYS.items():
-        if key in effects:
-            values[term] = effects[key]
-    return subject_grade_block(
-        matte,
-        gain=values.get("gain", 1.0),
-        contrast=values.get("contrast", 0.0),
-        saturation=values.get("saturation", 1.0))
+    import tempfile
+
+    from PIL import Image
+
+    from library.tools import person_matte
+
+    try:
+        probe = person_matte.probe_video(source_file)
+    except PersonMatteUnavailable as exc:
+        raise SubjectGradeRefused(f"{label}: {exc.detail}") from exc
+    width, height = probe["width"], probe["height"]
+    shown = person_matte.played_source_frames(
+        source_in, len(matte_files), timeline_fps, probe["fps"])
+    with tempfile.TemporaryDirectory(prefix="ren-subject-grade-") as tmp:
+        try:
+            paths = person_matte.decode_frames(
+                source_file, shown[0], shown[-1] - shown[0] + 1, probe, tmp)
+        except PersonMatteUnavailable as exc:
+            raise SubjectGradeRefused(f"{label}: {exc.detail}") from exc
+
+        def frames():
+            for matte_path, index in zip(matte_files, shown):
+                rgb = np.asarray(Image.open(paths[index - shown[0]])
+                                 .convert("RGB"), dtype=np.float32) / 255.0
+                matte = np.asarray(Image.open(matte_path).convert("L"),
+                                   dtype=np.uint32)
+                if matte.shape != rgb.shape[:2]:
+                    raise SubjectGradeRefused(
+                        f"{label}: matte {matte.shape[1]}x{matte.shape[0]} "
+                        f"against source {rgb.shape[1]}x{rgb.shape[0]} - "
+                        f"the matte would gate the wrong pixels")
+                graded = np.rint(grade_rgb(rgb, grade) * 255.0
+                                 ).astype(np.uint32)
+                frame = np.empty((height, width, 4), dtype=np.uint8)
+                frame[..., :3] = ((graded * matte[..., None] + 127) // 255
+                                  ).astype(np.uint8)
+                frame[..., 3] = matte.astype(np.uint8)
+                yield frame.tobytes()
+
+        try:
+            encoded = encode_verified_overlay(
+                frames(), width, height, timeline_fps, out_path,
+                timeout=timeout)
+        except OverlayEncodeFailed as exc:
+            raise SubjectGradeRefused(
+                f"{label}: the precomposite did not verify "
+                f"({exc.stage}: {exc.detail})") from exc
+    return {"overlay_path": out_path,
+            "frame_count": encoded["frame_count"],
+            "width": width, "height": height}
 
 
-def apply_subject_grades(entries: list[dict],
-                         seg_by_clip: dict[str, dict], *,
-                         matte_dir: str,
-                         timeline_fps: float = 30.0,
-                         played_frames: dict[str, int] | None = None,
-                         source_resolution: dict[str, tuple] | None = None,
-                         start_samples: dict[str, int] | None = None,
-                         matte_stems: dict[str, str] | None = None
-                         ) -> tuple[dict[str, dict], list[dict], list[dict]]:
-    """Ground plan entries, write their mattes, patch per-clip effects.
+#: The layer a subject-grade precomposite carries, and the manifest key
+#: the build places from.
+SUBJECT_GRADE_LAYER = "subject_grade"
+OVERLAY_KEY = "subject_grade_overlay"
 
-    Returns `(patch, drops, mattes)`: `patch` maps clip_id to the
-    effect keys `build_effect_comp` reads; `drops` carry reason/detail
-    for every entry that did not survive; `mattes` are the matte
-    records, in entry order. An entry that cannot be delivered is
-    dropped with the reason - never completed, never graded
-    whole-frame in its place.
 
-    `matte_stems` names the file stem per clip_id (default the
-    clip_id): a clip placed twice needs two mattes over two different
-    played windows, so the caller distinguishes them here.
+def apply_subject_grades(entries: list[dict], seg: dict | None, *,
+                         placement: dict,
+                         windows: list[tuple[float, float]],
+                         matte_dir: str, precomp_dir: str,
+                         timeline_fps: float,
+                         source_resolution: tuple | None = None,
+                         person_matte: Any = None,
+                         ) -> tuple[list[dict], list[dict], list[dict]]:
+    """Ground one placement's subject grades and precomposite each window.
+
+    `entries` are the plan entries naming the placement's clip;
+    `placement` is the placed clip (`label`, `clip_id`, `source_file`,
+    `timeline_in`, `source_in`); `windows` are the timeline spans
+    `[start, end)` where that clip is the picture on top - compile cuts
+    away the spans a clip on a higher picture row covers, because a
+    subject drawn there would draw over the cutaway. `seg` is the clip's
+    1.06 segmentation, and `person_matte` the delivery tier's callback
+    (`behind_subject.apply_behind_subject` documents its shape).
+
+    Returns `(segments, drops, mattes)`: overlay segments for the build's
+    subject-grade row, drops with reason/detail for every entry that did
+    not survive, and the matte records. Never a whole-frame grade in a
+    subject's place.
     """
-    played_frames = played_frames or {}
-    source_resolution = source_resolution or {}
-    start_samples = start_samples or {}
-    matte_stems = matte_stems or {}
-    patch: dict[str, dict] = {}
+    cid = placement["clip_id"]
+    stem = f"{cid}_{placement.get('label', '')}"
+    segments: list[dict] = []
     drops: list[dict] = []
     mattes: list[dict] = []
 
-    def _refuse(clip_id, reason, detail):
-        drops.append({"clip_id": clip_id, "reason": reason,
-                      "detail": detail})
+    def _drop(reason, detail):
+        drops.append({"clip_id": cid, "reason": reason, "detail": detail})
 
-    for entry in entries or []:
+    for e_index, entry in enumerate(entries or []):
         clean, drop = parse_plan_entry(entry)
         if drop is not None:
-            _refuse((entry or {}).get("clip_id", "?"),
-                    drop["reason"], drop["detail"])
+            _drop(drop["reason"], drop["detail"])
             continue
-        clip_id = clean["clip_id"]
-        grounded, drop = ground_entry(clean, seg_by_clip.get(clip_id))
-        if drop is not None:
-            _refuse(clip_id, drop["reason"], drop["detail"])
+        if not windows:
+            _drop("no_played_window",
+                  f"Clip {cid}: no frame of placement "
+                  f"{placement.get('label')!r} is the picture on top, so "
+                  f"there is no subject to show graded.")
             continue
-        need = played_frames.get(clip_id, 0)
-        if need <= 0:
-            _refuse(clip_id, "no_played_window",
-                    f"Clip {clip_id}: the played window covers no "
-                    f"frames, so there is no matte to write.")
-            continue
-        try:
-            record = write_subject_matte(
-                seg_by_clip[clip_id], grounded["object_id"], matte_dir,
-                matte_stems.get(clip_id, clip_id),
-                timeline_fps=timeline_fps, played_frames=need,
-                resolution=source_resolution.get(clip_id),
-                start_sample=start_samples.get(clip_id, 0))
-        except UnknownSubjectObject as exc:
-            _refuse(clip_id, "matte_refused", str(exc))
-            continue
-        errors = validate_matte(
-            record, played_frames=need,
-            source_resolution=source_resolution.get(clip_id))
-        if errors:
-            _refuse(clip_id, "matte_invalid", "; ".join(errors))
-            continue
-        mattes.append(record)
-        eff = {MATTE_KEY: record["files"][0]}
-        for key, term in GRADE_KEYS.items():
-            if term in grounded["grade"]:
-                eff[key] = grounded["grade"][term]
-        patch[clip_id] = eff
-    return patch, drops, mattes
+        # One entry is one decision: a window that cannot be drawn
+        # drops the whole entry, never half of it.
+        entry_segments: list[dict] = []
+        entry_mattes: list[dict] = []
+        failed = False
+        for w_index, (start, end) in enumerate(windows):
+            frames = max(round((end - start) * timeline_fps), 0)
+            if frames <= 0:
+                continue
+            window_in = (float(placement.get("source_in", 0.0))
+                         + start - float(placement.get("timeline_in", 0.0)))
+            window_stem = f"{stem}_g{e_index}_w{w_index}"
+            record = None
+            region = clean.get("region_track")
+            if person_matte is not None:
+                try:
+                    record = person_matte(
+                        placement, stem=window_stem, source_in=window_in,
+                        played_frames=frames, resolution=source_resolution,
+                        region_track=region)
+                except PersonMatteUnavailable as exc:
+                    if region is not None or (
+                            exc.reason not in SAM_ROUTE_REASONS):
+                        _drop("person_not_drawable",
+                              f"Clip {cid}: "
+                              f"{region or 'the subject'} cannot be drawn "
+                              f"frame by frame ({exc.reason}: "
+                              f"{exc.detail}). Not graded rather than "
+                              f"graded on someone else.")
+                        failed = True
+                        break
+            if record is None:
+                grounded, drop = ground_entry(clean, seg)
+                if drop is not None:
+                    _drop(drop["reason"], drop["detail"])
+                    failed = True
+                    break
+                sample_fps = float((seg or {}).get("sample_fps") or 2.0)
+                try:
+                    record = write_subject_matte(
+                        seg, grounded["object_id"], matte_dir, window_stem,
+                        timeline_fps=timeline_fps, played_frames=frames,
+                        resolution=source_resolution,
+                        start_sample=int(window_in * sample_fps))
+                except UnknownSubjectObject as exc:
+                    _drop("matte_refused", str(exc))
+                    failed = True
+                    break
+            errors = validate_matte(record, played_frames=frames,
+                                    source_resolution=source_resolution)
+            if errors:
+                _drop("matte_invalid", "; ".join(errors))
+                failed = True
+                break
+            out_path = os.path.join(precomp_dir,
+                                    f"{window_stem}_subject_grade.mov")
+            try:
+                precomposite_subject_grade(
+                    placement["source_file"], record["files"], out_path,
+                    source_in=window_in, timeline_fps=timeline_fps,
+                    grade=clean["grade"], label=f"Clip {cid} {window_stem}")
+            except SubjectGradeRefused as exc:
+                _drop("precomposite_refused", str(exc))
+                failed = True
+                break
+            entry_mattes.append(record)
+            entry_segments.append({
+                "segment_id": window_stem,
+                "layer": SUBJECT_GRADE_LAYER,
+                "clip_id": cid,
+                "clip_label": placement.get("label", ""),
+                "source_file": placement["source_file"],
+                "overlay_path": out_path,
+                "timeline_start": float(start),
+                "timeline_end": float(end),
+                "total_frames": frames,
+                "format": OVERLAY_FORMAT_NAME,
+                "has_alpha": True,
+                "fps": float(timeline_fps),
+                "grade": dict(clean["grade"]),
+                "matte_route": matte_route(record),
+                "region_track": record.get("region_track"),
+            })
+        if not failed:
+            segments.extend(entry_segments)
+            mattes.extend(entry_mattes)
+    return segments, drops, mattes

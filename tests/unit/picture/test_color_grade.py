@@ -1398,39 +1398,174 @@ class TestWriteSubjectMatte:
                 timeline_fps=30.0, played_frames=30, resolution=(24, 32))
 
 
-# ─── 4. Comp block: Loader matte gates a BrightnessContrast ───
+# ─── 4. The precomposite: the graded subject, alpha = its matte ───
 
-class TestSubjectGradeBlock:
-    def test_masked_grade_wires_effect_mask_to_loader(self):
-        block = subject_grade.subject_grade_block(
-            matte_file="/m/matte_00000.png",
-            gain=1.173, contrast=0.0, saturation=1.311)
-        comp = (CompEngine(clip_dur=60, width=1080, height=1920)
-                .add(fx.grade(gain=1.0, contrast=0.0, saturation=1.0))
-                .add(block).serialize())
-        assert "Loader" in comp
-        assert "matte_00000.png" in comp
-        assert "EffectMask" in comp
-        assert "1.173" in comp
-        assert "1.311" in comp
+needs_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="needs ffmpeg and ffprobe - CI installs both")
 
-    def test_neutral_grade_draws_nothing(self):
-        block = subject_grade.subject_grade_block(
-            matte_file="/m/matte_00000.png",
-            gain=1.0, contrast=0.0, saturation=1.0)
-        assert block.nodes == []
 
-    def test_comp_builder_dispatches_subject_grade_keys(self):
+def _source_clip(path, seconds=1, size=(32, 24), fps=10):
+    """A real decodable source: ffmpeg testsrc2, the shape a clip has."""
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         f"testsrc2=size={size[0]}x{size[1]}:rate={fps}:duration={seconds}",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "1",
+         "-color_primaries", "bt709", "-color_trc", "bt709",
+         "-colorspace", "bt709", str(path)],
+        check=True, capture_output=True, timeout=120)
+    return str(path)
+
+
+def _rgba_frames(path, size=(32, 24)):
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-pix_fmt", "rgba",
+         "-f", "rawvideo", "-"], capture_output=True, timeout=120,
+        check=True)
+    return np.frombuffer(proc.stdout, dtype=np.uint8).reshape(
+        -1, size[1], size[0], 4)
+
+
+class TestSubjectGradePrecomposite:
+    def test_grade_terms_mean_what_brightnesscontrast_meant(self):
+        rgb = np.array([[[0.25, 0.5, 0.75]]], dtype=np.float32)
+        assert np.allclose(subject_grade.grade_rgb(rgb, {"gain": 2.0}),
+                           [[[0.5, 1.0, 1.0]]])
+        assert np.allclose(subject_grade.grade_rgb(rgb, {"contrast": 1.0}),
+                           [[[0.0, 0.5, 1.0]]])
+        grey = subject_grade.grade_rgb(rgb, {"saturation": 0.0})
+        assert np.allclose(grey[..., 0], grey[..., 1])
+        # Neutral is the absence of a grade, not a look.
+        assert np.allclose(subject_grade.grade_rgb(rgb, {}), rgb)
+
+    @needs_ffmpeg
+    def test_the_subject_is_the_graded_source_and_the_rest_is_clear(
+            self, tmp_path):
+        """The defect this replaces: the Loader comp's grade never reached
+        the picture. The precomposite IS the picture: inside the matte the
+        clip's own frame, graded; outside, exact zeros."""
+        from PIL import Image
+
+        from library.tools import person_matte
+
+        source = _source_clip(tmp_path / "c1.mp4")
+        matte = np.zeros((24, 32), dtype=np.uint8)
+        matte[6:18, 10:22] = 255
+        files = []
+        for i in range(5):
+            path = str(tmp_path / f"m_{i:05d}.png")
+            Image.fromarray(matte, mode="L").save(path)
+            files.append(path)
+        out = str(tmp_path / "graded.mov")
+        record = subject_grade.precomposite_subject_grade(
+            source, files, out, source_in=0.3, timeline_fps=10.0,
+            grade={"gain": 1.4})
+        assert record["frame_count"] == 5
+        got = _rgba_frames(out)
+        probe = person_matte.probe_video(source)
+        plain = person_matte.decode_frames(source, 3, 5, probe,
+                                           str(tmp_path / "plain"))
+        for i, path in enumerate(plain):
+            want = np.rint(subject_grade.grade_rgb(
+                np.asarray(Image.open(path).convert("RGB"),
+                           dtype=np.float32) / 255.0,
+                {"gain": 1.4}) * 255.0).astype(np.uint8)
+            inside = got[i][6:18, 10:22]
+            assert (inside[..., 3] == 255).all()
+            assert (inside[..., :3] == want[6:18, 10:22]).all()
+            assert (got[i][0:6, :] == 0).all()
+            assert (got[i][:, 0:10] == 0).all()
+
+    @needs_ffmpeg
+    def test_the_export_grades_the_subject_and_holds_the_room(
+            self, tmp_path):
+        """Acceptance (MU-10): a subject-graded EXPORT shows a luma
+        difference inside vs outside the matte. The composite is what the
+        build places: the graded-subject precomp on the subject-grade row
+        over the untouched picture, flattened by ffmpeg the way Resolve
+        renders premultiplied Full. The defect this replaces is the
+        Loader-matte comp, whose grade never reached the picture
+        (`deliver_loaders.py`): an export through that route reads the
+        room's luma inside the matte too."""
+        from PIL import Image
+
+        plate = np.full((24, 32, 3), 128, dtype=np.uint8)
+        plate_path = tmp_path / "plate.png"
+        Image.fromarray(plate, mode="RGB").save(plate_path)
+        source = str(tmp_path / "c1.mov")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-loop", "1", "-framerate",
+             "10", "-i", str(plate_path), "-frames:v", "40",
+             "-c:v", "png", "-pix_fmt", "rgb24", source],
+            check=True, capture_output=True, timeout=120)
+        matte = np.zeros((24, 32), dtype=np.uint8)
+        matte[6:18, 10:22] = 255
+        files = []
+        for i in range(5):
+            path = str(tmp_path / f"g_{i:05d}.png")
+            Image.fromarray(matte, mode="L").save(path)
+            files.append(path)
+        graded = str(tmp_path / "graded.mov")
+        subject_grade.precomposite_subject_grade(
+            source, files, graded, source_in=0.0, timeline_fps=10.0,
+            grade={"gain": 1.4})
+        export = str(tmp_path / "export_%05d.png")
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-loop", "1", "-framerate",
+             "10", "-i", str(plate_path), "-i", graded,
+             "-filter_complex",
+             "[0:v][1:v]overlay=0:0:format=rgb:shortest=1,format=rgb24",
+             "-frames:v", "5", export],
+            capture_output=True, timeout=120, check=False)
+        assert proc.returncode == 0, proc.stderr.decode()[-300:]
+        frame = np.asarray(
+            Image.open(str(tmp_path / "export_00003.png")),
+            dtype=np.float64)
+        luma = frame @ np.array([0.2126, 0.7152, 0.0722])
+        inside = luma[6:18, 10:22].mean()
+        outside = np.concatenate(
+            [luma[0:6, :].ravel(), luma[:, 0:10].ravel()]).mean()
+        # The room comes through untouched; the subject carries the
+        # colourist's gain (128 x 1.4 = 179.2, carried as 179).
+        assert outside == 128.0
+        assert inside == pytest.approx(179.0, abs=1.0)
+        assert inside - outside > 40.0
+
+    @needs_ffmpeg
+    def test_a_matte_at_the_wrong_size_refuses(self, tmp_path):
+        from PIL import Image
+
+        source = _source_clip(tmp_path / "c1.mp4")
+        path = str(tmp_path / "m_00000.png")
+        Image.fromarray(np.zeros((12, 16), dtype=np.uint8),
+                        mode="L").save(path)
+        with pytest.raises(subject_grade.SubjectGradeRefused):
+            subject_grade.precomposite_subject_grade(
+                source, [path], str(tmp_path / "x.mov"), source_in=0.0,
+                timeline_fps=10.0, grade={"gain": 1.2})
+
+    def test_stale_subject_grade_keys_draw_no_loader(self):
+        """A scripted Loader never decodes on a Resolve 21.1 timeline comp
+        (deliver_loaders.py), so the comp path is gone, not kept."""
         comp = comp_builder.build_effect_comp(
             {"subject_grade_matte": "/m/matte_00000.png",
              "subject_grade_gain": 1.173,
-             "subject_grade_saturation": 1.311},
+             "grade_gain": 1.1},
             clip_dur=60, source_res=(32, 24))
-        assert "Loader" in comp
-        assert "EffectMask" in comp
-        # Without the keys there is no Loader at all.
-        assert "Loader" not in comp_builder.build_effect_comp(
-            {"grade_gain": 1.1}, clip_dur=60, source_res=(32, 24))
+        assert "Loader" not in comp
+
+    def test_a_cited_owned_region_names_the_person(self):
+        row = {"basis_id": "c1/region_002", "region_track": "region_002",
+               "owner": "face_track_01"}
+        clean, _ = subject_grade.parse_plan_entry(
+            _warm_entry(measured_basis=row))
+        assert clean["region_track"] == "region_002"
+        unowned = dict(row, owner="unassigned (no_face_inside)")
+        clean, _ = subject_grade.parse_plan_entry(
+            _warm_entry(measured_basis=unowned))
+        assert "region_track" not in clean
+        clean, _ = subject_grade.parse_plan_entry(_warm_entry())
+        assert "region_track" not in clean
 
 # ─── 5. Validator: a named matte must exist and cover the window ───
 
@@ -1486,7 +1621,7 @@ def _compile_inputs(source, subject_grades):
 
 
 class TestCompileMerge:
-    def test_grounded_entry_lands_on_its_clips_effects(self, tmp_path):
+    def _compile(self, tmp_path, entry, fusion_look=None):
         import json as _json
         from unittest.mock import patch as _patch
 
@@ -1497,30 +1632,54 @@ class TestCompileMerge:
         out_dir = tmp_path / "pipeline_output"
         seg_dir = out_dir / "steps" / "1_06_object_segmentation"
         seg_dir.mkdir(parents=True)
-        seg = _seg_result(frames=4, shape=(24, 32))
+        seg = _seg_result(frames=26, shape=(24, 32))
         (seg_dir / "c1_segmentation.json").write_text(_json.dumps(seg))
 
-        source = os.path.abspath(__file__)
+        source = _source_clip(tmp_path / "c1.mp4", seconds=13, fps=30)
+        inputs = _compile_inputs(source, [entry])
+        if fusion_look:
+            inputs["color_grade_spec"]["fusion_look"] = fusion_look
+        with _patch(
+                "library.steps.step_5_04_compile_manifest.step.load",
+                side_effect=lambda out_dir, filename: inputs):
+            return compile_manifest(
+                str(out_dir), object_segmentation=[{"clip_id": "c1"}])
+
+    @needs_ffmpeg
+    def test_grounded_entry_is_a_placed_precomposite(self, tmp_path):
+        """No source memory here, so no person instance: the clip's 1.06
+        subject is the route, and the grade reaches the build as a
+        subject-grade overlay - never as comp keys on the clip."""
         entry = {"clip_id": "c1",
                  "target": {"kind": "person", "role": "speaker"},
                  "scope": "subject-only",
                  "grade": {"gain": 1.173, "saturation": 1.311}}
-        inputs = _compile_inputs(source, [entry])
-        with _patch(
-                "library.steps.step_5_04_compile_manifest.step.load",
-                side_effect=lambda out_dir, filename: inputs):
-            manifest = compile_manifest(
-                str(out_dir), object_segmentation=[{"clip_id": "c1"}])
+        manifest = self._compile(tmp_path, entry)
 
-        per_clip = manifest["fusion_effects"]["per_clip"]
-        assert per_clip, "the subject grade reached no clip"
-        eff = next(iter(per_clip.values()))
-        assert eff["subject_grade_gain"] == 1.173
-        assert eff["subject_grade_saturation"] == 1.311
-        assert os.path.exists(eff["subject_grade_matte"])
+        assert manifest["fusion_effects"]["per_clip"] == {}
+        segments = manifest["subject_grade_overlay"]["segments"]
+        assert len(segments) == 1, manifest["subject_grade_drops"]
+        seg = segments[0]
+        assert seg["layer"] == "subject_grade"
+        assert seg["grade"] == {"gain": 1.173, "saturation": 1.311}
+        assert seg["matte_route"] == "sam2_held"
+        assert seg["total_frames"] == 300
+        assert os.path.isfile(seg["overlay_path"])
+        assert "conform" in seg
         assert manifest["subject_grade_drops"] == []
         assert len(manifest["subject_mattes"]) == 1
         assert subject_grade.validate_matte(manifest["subject_mattes"][0]) == []
+
+    @needs_ffmpeg
+    def test_a_clip_carrying_a_comp_drops_the_grade_by_name(self, tmp_path):
+        entry = {"clip_id": "c1",
+                 "target": {"kind": "person", "role": "speaker"},
+                 "scope": "subject-only", "grade": {"gain": 1.173}}
+        manifest = self._compile(tmp_path, entry,
+                                 fusion_look={"film_grain": True})
+        assert manifest["subject_grade_overlay"]["segments"] == []
+        assert [d["reason"] for d in manifest["subject_grade_drops"]] == [
+            "picture_effect_under_subject"]
 
     def test_unreported_old_mask_is_not_reused(self, tmp_path):
         import json as _json
@@ -1545,7 +1704,7 @@ class TestCompileMerge:
                 side_effect=lambda out_dir, filename: inputs):
             manifest = compile_manifest(str(out_dir), object_segmentation=[])
 
-        assert manifest["fusion_effects"]["per_clip"] == {}
+        assert manifest["subject_grade_overlay"]["segments"] == []
         assert len(manifest["subject_grade_drops"]) == 1
         assert manifest["subject_grade_drops"][0]["reason"] == (
             "no_segmentation")
@@ -1567,7 +1726,7 @@ class TestCompileMerge:
             manifest = compile_manifest(str(tmp_path))
 
         # No 1.06 dir: nothing grounds, nothing is graded whole-frame.
-        assert manifest["fusion_effects"]["per_clip"] == {}
+        assert manifest["subject_grade_overlay"]["segments"] == []
         assert manifest["subject_mattes"] == []
         assert len(manifest["subject_grade_drops"]) == 1
         assert manifest["subject_grade_drops"][0]["reason"] == (

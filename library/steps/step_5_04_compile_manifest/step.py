@@ -2491,84 +2491,23 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
             for key, value in fusion_look.items():
                 effect.setdefault(key, value)
 
-    # ── Subject-scoped grades (5.01 subject_grades) ──
-    # Each entry grounds against its clip's 1.06 segmentation, writes a
-    # timeline-rate matte under this step's own directory (the layout
-    # answers "which step wrote this" by where the file is), and merges
-    # the masked-grade keys onto every placement cut from that source.
-    # What does not ground is a drop with a reason, never a
-    # whole-frame grade in its place.
+    # ── The delivery-tier person matte (MU-10) ──
+    # Shared by the behind-subject composites and the subject grades
+    # below: a matte drawn from a person instance on every played frame
+    # (library/tools/person_matte.py), asked before step 1.06's 2 fps
+    # SAM masks, which stay the route for a clip with no single person
+    # instance to draw.
+    _matte_dir = os.path.join(out_dir, "subject_mattes")
     subject_mattes = []
-    subject_grade_drops = list(
-        color_data.get("color_grade_spec", {}).get(
-            "subject_grade_drops", []) or [])
-    subject_entries = (
-        color_data.get("color_grade_spec", {}).get("subject_grades", [])
-        or [])
-    if subject_entries:
-        # 1.06's segmentation files live in THAT step's directory -
-        # resolved through the layout, never composed by hand. A raw
-        # join onto out_dir points at pipeline_output/ root, where no
-        # step writes, so every lookup missed (MU-01: the same defect
-        # the behind-subject block below already fixed).
-        _seg_dir = str(ProjectLayout(os.path.dirname(
-            os.path.abspath(out_dir))).step_dir("object_segmentation"))
-        _matte_dir = os.path.join(out_dir, "subject_mattes")
-        _source_to_cid = {path: cid
-                          for cid, path in clip_lookup.items()}
-        _seg_cache: dict = {}
 
-        def _seg_for(cid):
-            if cid not in _seg_cache:
-                _seg_cache[cid] = None
-                _seg_path = os.path.join(
-                    _seg_dir, f"{cid}_segmentation.json")
-                if (reported_segmentation_ids is not None
-                        and cid not in reported_segmentation_ids):
-                    return _seg_cache[cid]
-                if os.path.exists(_seg_path):
-                    with open(_seg_path, encoding="utf-8") as f:
-                        _seg_cache[cid] = json.load(f)
-            return _seg_cache[cid]
-
-        _seen_drop_keys = {
-            (d.get("clip_id"), d.get("reason")) for d in subject_grade_drops}
-        for clip in v1_clips + v2_clips:
-            if clip.get("bookend"):
-                continue
-            cid = _source_to_cid.get(clip.get("source_file"))
-            if cid is None:
-                continue
-            wanted = [e for e in subject_entries
-                      if e.get("clip_id") == cid]
-            if not wanted:
-                continue
-            meta = clip_metadata.get(cid, {})
-            _cw, _ch = meta.get("width"), meta.get("height")
-            dur = max(int(round((clip.get("timeline_out", 0)
-                                 - clip.get("timeline_in", 0)) * fps)), 0)
-            seg = _seg_for(cid)
-            _sample_fps = float((seg or {}).get("sample_fps") or 2.0)
-            patch, drops, mattes = apply_subject_grades(
-                wanted, {cid: seg}, matte_dir=_matte_dir,
-                timeline_fps=float(fps),
-                played_frames={cid: dur},
-                source_resolution=(
-                    {cid: (_ch, _cw)} if _cw and _ch else {}),
-                start_samples={cid: int(float(
-                    clip.get("source_in", 0.0)) * _sample_fps)},
-                matte_stems={cid: f"{cid}_{clip['label']}"})
-            for drop in drops:
-                _drop_key = (drop.get("clip_id"), drop.get("reason"))
-                if _drop_key not in _seen_drop_keys:
-                    _seen_drop_keys.add(_drop_key)
-                    subject_grade_drops.append(drop)
-                    logger.warning("  Subject grade not built: %s",
-                                   drop.get("detail"))
-            if cid in patch:
-                effect = per_clip_effects.setdefault(clip["label"], {})
-                effect.update(patch[cid])
-            subject_mattes.extend(mattes)
+    def _person_matte(clip, *, stem, source_in, played_frames, resolution,
+                      region_track=None):
+        from library.tools.person_matte import person_matte_for_clip
+        return person_matte_for_clip(
+            _project_root, clip["clip_id"], clip["source_file"],
+            out_dir=_matte_dir, stem=stem, source_in=source_in,
+            played_frames=played_frames, timeline_fps=float(fps),
+            region_track=region_track, resolution=resolution)
 
     # ── Behind-subject composites (4.06 layer behind_subject) ──
     # Each behind segment is a full-canvas title precomposited UNDER
@@ -2600,7 +2539,6 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # for no matte on real runs (measured 2026-09-24).
         _seg_dir = str(ProjectLayout(os.path.dirname(
             os.path.abspath(out_dir))).step_dir("object_segmentation"))
-        _matte_dir = os.path.join(out_dir, "subject_mattes")
         _precomp_dir = os.path.join(out_dir, "behind_subject_precomp")
         _source_to_cid = {path: cid
                           for cid, path in clip_lookup.items()}
@@ -2649,6 +2587,7 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
             matte_dir=_matte_dir, precomp_dir=_precomp_dir,
             timeline_fps=float(fps),
             clip_metadata=clip_metadata,
+            person_matte=_person_matte,
             matte_stems={(cid, clip["label"]): f"{cid}_{clip['label']}"
                          for clip in _placed
                          for cid in [_source_to_cid.get(
@@ -2736,6 +2675,109 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
             _behind_by_label, per_clip_effects=per_clip_effects,
             stabilized_labels=_stabilized,
             speed_ops=native_speed_ops)
+
+    # ── Subject-scoped grades (5.01 subject_grades) ──
+    # Here, after every per-clip effect is final, because the graded
+    # subject is a PRECOMPOSITE on the subject-grade row above the
+    # picture (library/tools/subject_grade.py): the build places it with
+    # the clip's own conform and CDL, and a Fusion comp on the clip (a
+    # look, a VFX, a reframe) would be hidden under it inside the subject
+    # or moved off it, so such a clip drops the grade by name. Windows
+    # are the spans where the clip is the only picture playing - a
+    # subject drawn over a cutaway would draw over the cutaway. What does
+    # not ground is a drop with a reason, never a whole-frame grade.
+    subject_grade_drops = list(
+        color_data.get("color_grade_spec", {}).get(
+            "subject_grade_drops", []) or [])
+    subject_entries = (
+        color_data.get("color_grade_spec", {}).get("subject_grades", [])
+        or [])
+    subject_grade_segments: list = []
+    if subject_entries:
+        _seg_dir = str(ProjectLayout(os.path.dirname(
+            os.path.abspath(out_dir))).step_dir("object_segmentation"))
+        _sg_precomp_dir = os.path.join(out_dir, "subject_grade_precomp")
+        _source_to_cid = {path: cid
+                          for cid, path in clip_lookup.items()}
+        _picture = [c for c in v1_clips + v2_clips if not c.get("bookend")]
+
+        def _seg_for_grade(cid):
+            if (reported_segmentation_ids is not None
+                    and cid not in reported_segmentation_ids):
+                return None
+            _seg_path = os.path.join(_seg_dir, f"{cid}_segmentation.json")
+            if os.path.exists(_seg_path):
+                with open(_seg_path, encoding="utf-8") as f:
+                    return json.load(f)
+            return None
+
+        def _alone_windows(clip):
+            spans = [(float(clip.get("timeline_in", 0)),
+                      float(clip.get("timeline_out", 0)))]
+            for other in _picture:
+                if other is clip:
+                    continue
+                o_in = float(other.get("timeline_in", 0))
+                o_out = float(other.get("timeline_out", 0))
+                spans = [piece for a, b in spans
+                         for piece in ((a, min(b, o_in)), (max(a, o_out), b))
+                         if piece[1] - piece[0] > 0.5 / fps]
+            return spans
+
+        _speed_labels = {op.get("label") for op in native_speed_ops}
+        _seen_drop_keys = {
+            (d.get("clip_id"), d.get("reason")) for d in subject_grade_drops}
+        for clip in _picture:
+            cid = _source_to_cid.get(clip.get("source_file"))
+            wanted = [e for e in subject_entries
+                      if cid is not None and e.get("clip_id") == cid]
+            if not wanted:
+                continue
+            drops = []
+            covered = sorted(per_clip_effects.get(clip["label"]) or {})
+            if covered or clip["label"] in _speed_labels:
+                what = (f"Fusion effect keys {covered[:4]}" if covered
+                        else "a native speed change")
+                drops.append({
+                    "clip_id": cid, "reason": "picture_effect_under_subject",
+                    "detail": (
+                        f"Clip {cid} ({clip['label']}) carries {what}. The "
+                        f"graded subject is a copy of the source pixels "
+                        f"placed above the clip, so it would hide that "
+                        f"effect inside the subject (or sit off a moved "
+                        f"or retimed picture). Not graded rather than "
+                        f"graded over a different picture.")})
+                patch_segments, mattes = [], []
+            else:
+                meta = clip_metadata.get(cid, {})
+                _cw, _ch = meta.get("width"), meta.get("height")
+                patch_segments, drops, mattes = apply_subject_grades(
+                    wanted, _seg_for_grade(cid),
+                    placement={"label": clip["label"], "clip_id": cid,
+                               "source_file": clip["source_file"],
+                               "timeline_in": clip.get("timeline_in", 0.0),
+                               "source_in": clip.get("source_in", 0.0)},
+                    windows=_alone_windows(clip),
+                    matte_dir=_matte_dir, precomp_dir=_sg_precomp_dir,
+                    timeline_fps=float(fps),
+                    source_resolution=((_ch, _cw) if _cw and _ch else None),
+                    person_matte=_person_matte)
+            for drop in drops:
+                _drop_key = (drop.get("clip_id"), drop.get("reason"))
+                if _drop_key not in _seen_drop_keys:
+                    _seen_drop_keys.add(_drop_key)
+                    subject_grade_drops.append(drop)
+                    logger.warning("  Subject grade not built: %s",
+                                   drop.get("detail"))
+            for segment in patch_segments:
+                # The clip's own conform rides the overlay, so the build
+                # scales and aims it exactly as the picture under it.
+                segment["conform"] = {
+                    key: clip.get(key) for key in (
+                        "needs_conform", "fill_zoom", "framing_pan_x",
+                        "framing_pan_y") if key in clip}
+            subject_grade_segments.extend(patch_segments)
+            subject_mattes.extend(mattes)
 
     # An entry over a stretch of timeline with no clip on V1 OR V2 cannot
     # be drawn - there is no picture to put a comp on.  It used to RAISE,
@@ -3838,6 +3880,10 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # one place. The validator holds the records to disk.
         "subject_mattes": subject_mattes,
         "subject_grade_drops": subject_grade_drops,
+        # The graded subjects themselves: premultiplied qtrle windows
+        # the build places on the subject-grade row, each with its
+        # clip's conform and source (for the CDL).
+        "subject_grade_overlay": {"segments": subject_grade_segments},
         # Behind-subject composites: the matte records (same shape,
         # same validator) and which clips each behind segment
         # composited onto, with the precomp each produced. A behind

@@ -34,6 +34,10 @@ Picture rows first, top to bottom, then sound rows:
    rule that collapsed the picture to one row under the look is
    withdrawn).
 2. B-roll, one row.
+   Subject grade, one row per overlapping layer, directly on the
+   picture: a graded subject is a copy of the picture's own pixels
+   (`library/tools/subject_grade.py`), so it sits under every row that
+   draws over the picture.
 3. Frame, one row - the reel TV-frame look's set, dressing the
    picture rows directly below it. A reel wearing it reads footage
    rows, frame, captions.
@@ -64,6 +68,11 @@ Picture rows first, top to bottom, then sound rows:
   the stream, the way the captain's own edit reads "Akshita CH1".
 - **B-roll.** One row, and only when the plan asks for cutaways. B-roll
   is video-only by design and carries no link.
+- **Subject-grade rows.** Only when the colourist grades a subject.
+  Each window is the subject's graded pixels with alpha = its matte,
+  placed with the clip's own conform and CDL so it registers on the
+  picture under it; two graded people in one shot overlap and take two
+  rows, by the same packing.
 - **Motion-graphics rows.** One row or many depending on how layered
   the picture is - decided mechanically by overlap, the same packing
   that stacks SFX. Overlap is a fact about the plan, and the smallest
@@ -91,7 +100,8 @@ never invented at build time:
 - An a-roll row carries its angle's label ("Akshita", "Craig").
 - A speech row carries its angle plus its program stream ("Akshita
   CH1"). The stream half comes from the catalog's recorded selection.
-- Singleton roles carry the standard name: "B-Roll", "Frame",
+- Singleton roles carry the standard name: "B-Roll", "Subject Grade"
+  (then "Subject Grade 2", ...), "Frame",
   "Subtitles", "Transitions", "Explainer", "Semantic",
   "Motion Graphics" (then "Motion Graphics 2", ...), "Generator
   Effects", "Timed Text", "Music", "SFX" (then "SFX 2", ...).

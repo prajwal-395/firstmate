@@ -11,7 +11,9 @@ rather than hardcoded indices beside it.
 What is fixed and what is derived
 ---------------------------------
 The row ORDER is the standard and it is fixed: picture rows first (one
-a-roll row per angle, then b-roll), then the frame row where the reel
+a-roll row per angle, then b-roll), then the subject-grade rows (a
+graded copy of the subject, which must sit directly on the picture it
+replaces and under everything drawn over it), then the frame row where the reel
 TV-frame look dresses the picture, then the caption row, then the
 reel's additive rows (transitions, explainer, semantic), then
 decorative picture (motion-graphics rows, generator effects, timed
@@ -45,6 +47,11 @@ from dataclasses import dataclass, field
 
 A_ROLL = "a_roll"
 B_ROLL = "b_roll"
+#: A subject grade's precomposite (`library/tools/subject_grade.py`): the
+#: graded subject, alpha = its matte, placed directly above the picture
+#: rows so captions, titles and the frame draw over it as they do over
+#: the picture itself.
+SUBJECT_GRADE = "subject_grade"
 FRAME = "frame"
 CAPTIONS = "captions"
 TRANSITIONS = "transitions"
@@ -90,7 +97,8 @@ SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
 #: thirds' row (`speaker_identity.TRACK_NAME`): without it a master
 #: carrying lower thirds would read as a third camera.
 SINGLETON_NAMES = frozenset({
-    "B-Roll", "Frame", "Subtitles", "Captions", "Transitions",
+    "B-Roll", "Subject Grade", "Frame", "Subtitles", "Captions",
+    "Transitions",
     "Explainer", "Semantic", "Motion Graphics", "Generator Effects",
     "Timed Text", "Post Header", "Safe Zones", "Music", "SFX",
 })
@@ -219,6 +227,7 @@ class TrackPlan:
 #: that put it there - so a row renamed in one place cannot silently
 #: stop matching in the other.
 ROLE_ROW_BASE = {
+    SUBJECT_GRADE: "Subject Grade",
     EXPLAINER: "Explainer",
     SEMANTIC: "Semantic",
     MOTION_GRAPHICS: "Motion Graphics",
@@ -324,6 +333,9 @@ def plan_layout(material: dict) -> TrackPlan:
       per-reel camera plan actually shows. Speech rows still use every
       angle so selecting a picture never removes a speaker's audio.
     - has_broll: bool.
+    - subject_grade_spans: [(start, end)] in frames - the subject-grade
+      precomposites, packed by overlap like motion graphics (two graded
+      people in one shot are two rows), directly above the picture.
     - has_frame: bool. The TV-frame look's set row, directly above the
       picture rows it dresses. (`tv_frame.LAYER_TRACKS` reads footage
       V1, frame V2, captions V3 - that is the MASTER path's shape,
@@ -403,6 +415,16 @@ def plan_layout(material: dict) -> TrackPlan:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=B_ROLL, name="B-Roll",
                                occupant="b_roll"))
+
+    sg_rows = allocate_non_overlapping_rows(
+        [tuple(s) for s in material.get("subject_grade_spans", [])],
+        base_index=len(video) + 1)
+    for name in (_layered_names(SUBJECT_GRADE, ROLE_ROW_BASE[SUBJECT_GRADE],
+                                len({r for _, r in sg_rows}))
+                 if sg_rows else []):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=SUBJECT_GRADE, name=name,
+                               occupant="subject_grade"))
 
     if material.get("has_frame"):
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,

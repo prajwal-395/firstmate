@@ -96,10 +96,11 @@ exported frames from the measurement above.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 # ─── What the encoder is told ────────────────────────────────────────
 
@@ -531,6 +532,90 @@ def frames_are_identical(left: str, right: str, timeout: int = 600) -> bool:
 
     a, b = _raw(left), _raw(right)
     return a is not None and b is not None and a == b
+
+
+class OverlayEncodeFailed(RuntimeError):
+    """A computed RGBA overlay did not reach disk as the frames it was.
+
+    `stage` names where: `run` (ffmpeg would not start or timed out),
+    `encode` (it failed), `probe` (the file is not qtrle with alpha) or
+    `round_trip` (it decodes to different pixels). A precomposite caller
+    turns this into its own refusal, naming its own segment."""
+
+    def __init__(self, stage: str, detail: str):
+        super().__init__(f"{stage}: {detail}")
+        self.stage = stage
+        self.detail = detail
+
+
+def encode_verified_overlay(frames: Iterable[bytes], width: int,
+                            height: int, fps: float, out_path: str, *,
+                            timeout: int = 600) -> dict:
+    """Encode raw premultiplied RGBA frames as this engine's overlay
+    carriage, and prove the file IS those frames.
+
+    The frames stream to ffmpeg's stdin one at a time (a 4K window does
+    not fit in memory as one buffer), hashed on the way in; the written
+    file is probed (it must read as alpha-carrying ``qtrle``, which is
+    what `apply_clip_attributes` keys Full + Premultiplied on) and then
+    decoded back and hashed. The codec is lossless over 8-bit RGBA, so a
+    different hash is a broken encode, never a rounding. Judged by what
+    the encode WROTE, never by its return code alone.
+
+    Returns `{"frame_count", "sha256"}`; raises `OverlayEncodeFailed`.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    want = hashlib.sha256()
+    count = 0
+    try:
+        proc = subprocess.Popen(
+            ["ffmpeg", "-y", "-v", "error",
+             "-f", "rawvideo", "-pix_fmt", "rgba",
+             "-s", f"{int(width)}x{int(height)}",
+             "-framerate", str(float(fps)), "-i", "-",
+             *OVERLAY_ENCODE_ARGS, out_path],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE)
+    except OSError as exc:
+        raise OverlayEncodeFailed("run", str(exc)) from exc
+    try:
+        for frame in frames:
+            want.update(frame)
+            count += 1
+            proc.stdin.write(frame)
+        proc.stdin.close()
+        stderr = proc.stderr.read()
+        proc.wait(timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc.kill()
+        proc.wait()
+        raise OverlayEncodeFailed("run", str(exc)) from exc
+    if proc.returncode != 0 or not os.path.isfile(out_path):
+        raise OverlayEncodeFailed(
+            "encode", stderr.decode("utf-8", "replace").strip()[-300:])
+    fields = probe_overlay(out_path)
+    if (fields.get("codec_name", "").lower() != OVERLAY_VIDEO_CODEC
+            or "argb" not in (fields.get("pix_fmt", "") or "").lower()):
+        raise OverlayEncodeFailed(
+            "probe", f"probes as {fields.get('codec_name', '?')!r}/"
+            f"{fields.get('pix_fmt', '?')!r}, not qtrle/argb")
+    got = hashlib.sha256()
+    try:
+        back = subprocess.Popen(
+            ["ffmpeg", "-v", "error", "-i", out_path,
+             "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        for chunk in iter(lambda: back.stdout.read(1 << 20), b""):
+            got.update(chunk)
+        back.wait(timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise OverlayEncodeFailed("run", f"decode back: {exc}") from exc
+    if back.returncode != 0 or got.hexdigest() != want.hexdigest():
+        _unlink(out_path)
+        raise OverlayEncodeFailed(
+            "round_trip", "the file does not decode to the computed "
+            "pixels")
+    return {"frame_count": count, "sha256": want.hexdigest()}
 
 
 def _unlink(path: str) -> None:

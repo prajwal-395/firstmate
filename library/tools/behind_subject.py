@@ -45,18 +45,22 @@ a quiet behind.
 from __future__ import annotations
 
 import os
-import subprocess
 from typing import Any
 
 from library.tools.overlay_carriage import (
-    OVERLAY_ENCODE_ARGS,
     OVERLAY_FORMAT_NAME,
-    probe_overlay,
+    OverlayEncodeFailed,
+    encode_verified_overlay,
+)
+from library.tools.person_matte import (
+    SAM_ROUTE_REASONS,
+    PersonMatteUnavailable,
 )
 from library.tools.ren_refusal import RenRefusal
 from library.tools.subject_grade import (
     FACE_SEED_LABEL,
     UnknownSubjectObject,
+    matte_route,
     validate_matte,
     write_subject_matte,
 )
@@ -205,11 +209,11 @@ def precomposite_title_under_matte(
     the window; `matte_files` are the `write_subject_matte` L-mode
     PNGs for the same window (255 where the subject is).
 
-    The frames travel to ffmpeg as raw RGBA on stdin - no intermediate
-    sequence on disk - encoded with `OVERLAY_ENCODE_ARGS`, the same
-    carriage every overlay this engine writes. The encode is verified
-    by round-trip, not by return code alone: the ``qtrle`` file is
-    decoded back and must match the computed bytes exactly (the codec
+    The frames stream to ffmpeg as raw RGBA - no intermediate sequence
+    on disk - through `overlay_carriage.encode_verified_overlay`, the
+    same carriage every overlay this engine writes. The encode is
+    verified by round-trip, not by return code alone: the ``qtrle``
+    file is decoded back and must hash to the computed bytes (the codec
     is lossless over 8-bit RGBA, so anything else is a broken
     encode), and the probe must read it as an alpha-carrying
     ``qtrle`` clip - which is what `apply_clip_attributes` needs to
@@ -236,10 +240,7 @@ def precomposite_title_under_matte(
             "clip - check its trigger record on the run), or re-plan "
             "the entry with layer above.")
 
-    computed: list[bytes] = []
-    width = height = 0
-    for i, (title, matte_path) in enumerate(
-            zip(title_frames, matte_files)):
+    def _punched(i, title, matte_path):
         title_arr = (np.asarray(Image.open(title).convert("RGBA"))
                      if isinstance(title, str)
                      else np.asarray(title, dtype=np.uint8))
@@ -272,9 +273,6 @@ def precomposite_title_under_matte(
                 f"rescaled rather than rescaled in silence.",
                 "Re-render the title at the delivery frame, or re-plan "
                 "the entry with layer above.")
-        if i == 0:
-            height, width = (int(title_arr.shape[0]),
-                             int(title_arr.shape[1]))
         title_f = title_arr.astype(np.uint32)
         matte_f = matte_arr.astype(np.uint32)
         # The punch: zero alpha (hence premultiplied black) wherever
@@ -287,76 +285,48 @@ def precomposite_title_under_matte(
         frame = np.empty_like(title_arr)
         frame[..., :3] = out_rgb.astype(np.uint8)
         frame[..., 3] = out_a.astype(np.uint8)
-        computed.append(frame.tobytes())
+        return frame
 
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)),
-                exist_ok=True)
+    first = _punched(0, title_frames[0], matte_files[0])
+    height, width = int(first.shape[0]), int(first.shape[1])
+
+    def _frames():
+        yield first.tobytes()
+        for i in range(1, len(title_frames)):
+            frame = _punched(i, title_frames[i], matte_files[i])
+            if frame.shape[:2] != (height, width):
+                raise BehindSubjectRefused(
+                    "a behind_subject title has no usable matte",
+                    f"Behind-subject {label}: title frame {i} is "
+                    f"{frame.shape[1]}x{frame.shape[0]}, frame 0 is "
+                    f"{width}x{height} - one window, one canvas.",
+                    "Re-render the title segment (step 4.06), or "
+                    "re-plan the entry with layer above.")
+            yield frame.tobytes()
+
+    # Lossless carriage, verified by round trip: a clip whose alpha
+    # did not survive would place as an opaque title over the subject.
     try:
-        proc = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error",
-             "-f", "rawvideo", "-pix_fmt", "rgba",
-             "-s", f"{width}x{height}", "-framerate", str(float(fps)),
-             "-i", "-",
-             *OVERLAY_ENCODE_ARGS, out_path],
-            input=b"".join(computed),
-            capture_output=True, timeout=timeout, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        encoded = encode_verified_overlay(
+            _frames(), width, height, fps, out_path, timeout=timeout)
+    except OverlayEncodeFailed as exc:
+        why = {"run": f"the precomposite encode would not run "
+                      f"({exc.detail})",
+               "encode": f"the precomposite encode failed ({exc.detail}) "
+                         f"- so there is no overlay to place",
+               "probe": f"the precomposite {exc.detail} - so Resolve "
+                        f"would not read it as a premultiplied overlay",
+               "round_trip": "the precomposite does not decode to the "
+                             "computed pixels - so placing it would draw "
+                             "a different title than the plan rendered",
+               }[exc.stage]
         raise BehindSubjectRefused(
             "a behind_subject title has no usable matte",
-            f"Behind-subject {label}: the precomposite encode would "
-            f"not run ({exc}).",
+            f"Behind-subject {label}: {why}.",
             "Re-run the compile; if it refuses again, re-plan the "
             "entry with layer above.") from exc
-    if proc.returncode != 0 or not os.path.isfile(out_path):
-        raise BehindSubjectRefused(
-            "a behind_subject title has no usable matte",
-            f"Behind-subject {label}: the precomposite encode failed "
-            f"({(proc.stderr or b'').decode('utf-8', 'replace').strip()[-300:]}) "
-            f"- so there is no overlay to place.",
-            "Re-run the compile; if it refuses again, re-plan the "
-            "entry with layer above.")
-
-    # The verify half: lossless carriage, so the file must decode to
-    # the computed bytes exactly - judged by what the encode WROTE,
-    # never by its return code. A clip whose alpha did not survive
-    # would place as an opaque title over the subject.
-    fields = probe_overlay(out_path)
-    if (fields.get("codec_name", "").lower() != "qtrle"
-            or "argb" not in (fields.get("pix_fmt", "") or "").lower()):
-        raise BehindSubjectRefused(
-            "a behind_subject title has no usable matte",
-            f"Behind-subject {label}: the precomposite probes as "
-            f"{fields.get('codec_name', '?')!r}/"
-            f"{fields.get('pix_fmt', '?')!r}, not qtrle/argb - so "
-            f"Resolve would not read it as a premultiplied overlay.",
-            "Re-run the compile; if it refuses again, re-plan the "
-            "entry with layer above.")
-    try:
-        back = subprocess.run(
-            ["ffmpeg", "-v", "error", "-i", out_path,
-             "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
-            capture_output=True, timeout=timeout, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise BehindSubjectRefused(
-            "a behind_subject title has no usable matte",
-            f"Behind-subject {label}: the precomposite would not "
-            f"decode back ({exc}).",
-            "Re-run the compile; if it refuses again, re-plan the "
-            "entry with layer above.") from exc
-    if (back.returncode != 0
-            or (back.stdout or b"") != b"".join(computed)):
-        try:
-            os.remove(out_path)
-        except OSError:
-            pass
-        raise BehindSubjectRefused(
-            "a behind_subject title has no usable matte",
-            f"Behind-subject {label}: the precomposite does not "
-            f"decode to the computed pixels - so placing it would "
-            f"draw a different title than the plan rendered.",
-            "Re-run the compile; if it refuses again, re-plan the "
-            "entry with layer above.")
-    return {"overlay_path": out_path, "frame_count": len(computed),
+    return {"overlay_path": out_path,
+            "frame_count": encoded["frame_count"],
             "width": width, "height": height}
 
 
@@ -402,6 +372,7 @@ def apply_behind_subject(segments: list[dict],
                          timeline_fps: float,
                          clip_metadata: dict,
                          matte_stems: dict[str, str] | None = None,
+                         person_matte: Any = None,
                          ) -> tuple[list[dict], list[dict], list[dict]]:
     """Ground behind_subject segments and precomposite each under its matte.
 
@@ -424,6 +395,14 @@ def apply_behind_subject(segments: list[dict],
     or a precomposite that does not verify. A behind request is
     never dropped with a reason and never drawn on top: both would be
     a different placement wearing this one's name.
+
+    `person_matte(clip, stem=, source_in=, played_frames=, resolution=)`
+    is the delivery tier (`library/tools/person_matte.py`): a matte
+    record drawn from a person instance on every played frame. It is
+    asked first; where it answers that the clip holds no single person
+    instance (`person_matte.SAM_ROUTE_REASONS`) the clip's 1.06 SAM 2
+    subject is the route, held at its 2 fps samples. Any other answer
+    is a person that cannot be drawn, and refuses.
     """
     matte_stems = matte_stems or {}
     placed: list[dict] = []
@@ -458,10 +437,6 @@ def apply_behind_subject(segments: list[dict],
         hit_clips: list[str] = []
         for clip in clips:
             cid = clip.get("clip_id", "")
-            grounded, refusal = ground_segment(
-                segment, seg_by_clip.get(cid), clip_id=cid)
-            if refusal is not None:
-                _refuse(refusal["detail"])
             meta = (clip_metadata or {}).get(cid, {})
             width, height = meta.get("width"), meta.get("height")
             overlap_in = max(float(clip.get("timeline_in", 0.0)), start)
@@ -485,18 +460,36 @@ def apply_behind_subject(segments: list[dict],
             window_stem = f"{stem}_behind_s{seg_index}"
             clip_offset = max(0.0, overlap_in
                               - float(clip.get("timeline_in", 0.0)))
-            try:
-                record = write_subject_matte(
-                    seg, grounded["object_id"], matte_dir,
-                    window_stem,
-                    timeline_fps=fps, played_frames=dur,
-                    resolution=((height, width)
-                                if width and height else None),
-                    start_sample=int(float(
-                        clip.get("source_in", 0.0) + clip_offset)
-                        * sample_fps))
-            except UnknownSubjectObject as exc:
-                _refuse(str(exc))
+            window_in = float(clip.get("source_in", 0.0)) + clip_offset
+            resolution = (height, width) if width and height else None
+            record = None
+            if person_matte is not None:
+                try:
+                    record = person_matte(
+                        clip, stem=window_stem, source_in=window_in,
+                        played_frames=dur, resolution=resolution)
+                except PersonMatteUnavailable as exc:
+                    if exc.reason not in SAM_ROUTE_REASONS:
+                        _refuse(
+                            f"Behind-subject segment {label} plays over "
+                            f"clip {cid}, whose person cannot be drawn "
+                            f"frame by frame ({exc.reason}: "
+                            f"{exc.detail}). Not composited under a "
+                            f"different subject in its place.")
+            if record is None:
+                grounded, refusal = ground_segment(
+                    segment, seg, clip_id=cid)
+                if refusal is not None:
+                    _refuse(refusal["detail"])
+                try:
+                    record = write_subject_matte(
+                        seg, grounded["object_id"], matte_dir,
+                        window_stem,
+                        timeline_fps=fps, played_frames=dur,
+                        resolution=resolution,
+                        start_sample=int(window_in * sample_fps))
+                except UnknownSubjectObject as exc:
+                    _refuse(str(exc))
             errors = validate_matte(
                 record, played_frames=dur,
                 source_resolution=((height, width)
@@ -530,6 +523,7 @@ def apply_behind_subject(segments: list[dict],
             seg_precomps.append({
                 "clip_id": cid,
                 "label": clip_label,
+                "matte_route": matte_route(record),
                 "overlay_path": precomp_path,
                 "timeline_start": overlap_in,
                 "timeline_end": overlap_out,

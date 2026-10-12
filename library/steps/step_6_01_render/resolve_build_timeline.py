@@ -1241,6 +1241,10 @@ def _prepare_timeline_build(
     sub_segments = sub_overlay_info.get("segments", [])
     mg_segments = mg_overlay_info.get("segments", [])
     tt_segments = tt_overlay_info.get("segments", [])
+    # The graded subjects (library/tools/subject_grade.py): full-canvas
+    # premultiplied windows over the clip they grade.
+    sg_segments = (manifest.get("subject_grade_overlay") or {}).get(
+        "segments", []) or []
 
     if (not sub_segments and subtitle_overlay_path
             and path_exists(subtitle_overlay_path)):
@@ -1409,6 +1413,9 @@ def _prepare_timeline_build(
         "mg_spans": [span_seconds(segment.get("timeline_start"),
                                    segment.get("timeline_end"))
                      for segment in mg_segments],
+        "subject_grade_spans": [span_seconds(segment.get("timeline_start"),
+                                              segment.get("timeline_end"))
+                                for segment in sg_segments],
         "has_generators": bool(manifest.get("generator_overlays", [])),
         "timed_text_spans": [span_seconds(segment.get("timeline_start"),
                                             segment.get("timeline_end"))
@@ -1457,7 +1464,8 @@ def _prepare_timeline_build(
                     for clip in (v1_clips + v2_clips + a2_clips + a3_clips
                                  + a1_voiceover_clips + room_tone_fills)]
     overlay_paths = [segment.get("overlay_path", "")
-                     for segment in sub_segments + mg_segments + tt_segments]
+                     for segment in (sub_segments + mg_segments + tt_segments
+                                     + sg_segments)]
     for segment in sub_segments:
         frame_dir = ((segment.get("frames") or {}).get("dir", "")
                      if segment.get("container") == "frames" else "")
@@ -1494,6 +1502,7 @@ def _prepare_timeline_build(
         "sub_segments": sub_segments,
         "mg_segments": mg_segments,
         "tt_segments": tt_segments,
+        "sg_segments": sg_segments,
         "results": results,
         "available_paths": available_paths,
         "track_plan": track_plan,
@@ -1638,6 +1647,7 @@ def _build_timeline_under_lease(
     sub_segments = prepared["sub_segments"]
     mg_segments = prepared["mg_segments"]
     tt_segments = prepared["tt_segments"]
+    sg_segments = prepared["sg_segments"]
     results = prepared["results"]
     available_paths = prepared["available_paths"]
     track_plan = prepared["track_plan"]
@@ -1779,6 +1789,9 @@ def _build_timeline_under_lease(
     total_imported += _import_to_folder(
         bin_layout.MOTION_GRAPHICS_BIN,
         [s.get('overlay_path', '') for s in tt_segments])
+    total_imported += _import_to_folder(
+        bin_layout.MOTION_GRAPHICS_BIN,
+        [s.get('overlay_path', '') for s in sg_segments])
     
     if total_imported > 0:
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)
@@ -2738,6 +2751,81 @@ def _build_timeline_under_lease(
     # ══════════════════════════════════════════════════════════
     # PLACE MOTION GRAPHICS (plan rows, one row per overlapping layer)
     # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════
+    # PLACE SUBJECT GRADES (plan rows directly above the picture)
+    # ══════════════════════════════════════════════════════════
+    # Each window is the subject's graded pixels with alpha = its matte
+    # (library/tools/subject_grade.py), so it must register on the
+    # picture under it: same file size as the clip, the clip's own
+    # conform (zoom / pan / tilt, read back like the clip's), and - in
+    # the colour pass below - the clip's own CDL, keyed by this file.
+    _sg_rows = [t.index for t in track_plan.video_tracks
+                if t.role == "subject_grade"]
+    if sg_segments:
+        if not _sg_rows:
+            results["errors"].append(
+                "Subject grades planned with no subject-grade row; refusing.")
+            return results
+        _sg_allocations = allocate_non_overlapping_rows(
+            [(round(s.get("timeline_start", 0) * fps),
+              round(s.get("timeline_end", 0) * fps)) for s in sg_segments],
+            base_index=_sg_rows[0])
+        print(f"\n── Subject Grades ({','.join(f'V{r}' for r in _sg_rows)}): "
+              f"{len(sg_segments)} windows ──", file=sys.stderr)
+        _sg_counts = {}
+        for si, seg in enumerate(sg_segments):
+            seg_path = seg.get('overlay_path', '')
+            seg_basename = os.path.basename(seg_path)
+            _sg_row = _sg_allocations[si][1]
+            pool_item = _find_pool_clip(seg_path)
+            if not pool_item:
+                results["errors"].append(
+                    f"V{_sg_row}[{si}] subject grade {seg_basename} is not "
+                    f"in the pool")
+                continue
+            apply_clip_attributes(pool_item, seg_path)
+            seg_frames = seg.get('total_frames', round(
+                (seg.get('timeline_end', 0) - seg.get('timeline_start', 0))
+                * fps))
+            tl_in_frame = round(seg.get('timeline_start', 0) * fps)
+            assert_current_timeline(project, timeline)
+            placed, note = place_overlay_segment(
+                media_pool, timeline, pool_item,
+                track_index=_sg_row, record_frame=tl_in_frame,
+                source_in_frame=0, source_out_frame=seg_frames,
+                label=f"V{_sg_row}[{si}] {seg_basename}",
+                resolve_project=project,
+                project_folder=project_folder,
+                timeline_name=timeline_name)
+            if not placed:
+                results["errors"].append(
+                    f"V{_sg_row}[{si}] subject grade placement failed: "
+                    f"{note}")
+                continue
+            if note:
+                results["warnings"].append(note)
+            conform = dict(seg.get("conform") or {})
+            if conform.get("needs_conform"):
+                item = next(
+                    (it for it in (timeline.GetItemListInTrack(
+                        "video", _sg_row) or [])
+                     if it.GetStart() == tl_in_frame), None)
+                if item is None:
+                    results["errors"].append(
+                        f"V{_sg_row}[{si}] subject grade {seg_basename} "
+                        f"did not read back at frame {tl_in_frame}, so its "
+                        f"conform could not follow the clip under it")
+                    continue
+                conform["label"] = seg.get("segment_id", seg_basename)
+                _apply_conform(item, conform, results,
+                               frame_size=(width, height))
+            _sg_counts[_sg_row] = _sg_counts.get(_sg_row, 0) + 1
+            print(f"  ✓ [{si}] {seg_basename} on V{_sg_row} "
+                  f"({seg_frames}f @ TL {tl_in_frame}, "
+                  f"{seg.get('matte_route', '?')})", file=sys.stderr)
+        for _r in _sg_rows:
+            results["tracks"][f"V{_r}"] = _sg_counts.get(_r, 0)
+
     _mg_rows = [t.index for t in track_plan.video_tracks
                 if t.role == "motion_graphics"]
     if has_mg:
@@ -3642,6 +3730,15 @@ def _build_timeline_under_lease(
         src = adj.get("source_file", "")
         if src:
             color_lookup[os.path.basename(src).lower()] = adj.get("cdl_values", {})
+    # A graded subject is a copy of its clip's pixels, so it takes its
+    # clip's CDL - else the subject would sit ungraded-by-CDL on a graded
+    # picture and the matte edge would show.
+    for seg in sg_segments:
+        cdl = color_lookup.get(
+            os.path.basename(seg.get("source_file", "")).lower())
+        if cdl:
+            color_lookup[os.path.basename(
+                seg.get("overlay_path", "")).lower()] = cdl
 
     # The PowerGrade declaration is resolved BEFORE the color passes so
     # the per-DRX check (gap E6) can capture the test clip's frame while
