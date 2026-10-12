@@ -2317,6 +2317,26 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
 
 # ── Main Runner ─────────────────────────────────────────────────────
 
+def _project_ref(project_dir: str) -> str:
+    """What `ren edit <ref>` names this project: slug when readable.
+
+    The slug is what a person types; an absolute path always resolves
+    too (`project_root` loads a project kept anywhere on disk), so a
+    project whose config cannot be read is named by its path rather
+    than refused a runnable command.
+    """
+    try:
+        import yaml as _yaml
+        with open(os.path.join(project_dir, "project.yaml"),
+                  encoding="utf-8") as handle:
+            slug = (_yaml.safe_load(handle) or {}).get("slug")
+        if slug:
+            return str(slug)
+    except Exception:  # noqa: BLE001 - the path below always works
+        pass
+    return os.path.abspath(project_dir)
+
+
 #: The run endings that push a macOS completion notification. `PARTIAL`
 #: (a scoped run that deliberately left work out), `held` and the
 #: gate-pending pause are not endings, so they stay silent.
@@ -2754,6 +2774,47 @@ def run_pipeline(
     )
     unmet = verdict.unmet
 
+    # A missing prerequisite whose every state-side entry names a
+    # producer is auto-recoverable: the runner knows exactly what would
+    # satisfy it. Under `--full-auto agent` the runner adds those
+    # producers to the run - the same selection as `--only <producer>`
+    # - and says so in one line, instead of refusing. A dry run
+    # reports the gap without running anything, and `--step` stays an
+    # isolated step, so neither expands the run.
+    auto_recovered: list = []
+    if (unmet and not dry_run and not single_step
+            and normalize_full_auto(full_auto) == FULL_AUTO_AGENT):
+        rank = {node_id: i for i, node_id in enumerate(order)}
+        for _ in range(len(order) + 1):
+            if not requirements.is_auto_recoverable(unmet):
+                break
+            fresh = [p for p in requirements.missing_producers(unmet)
+                     if p in nodes and p not in steps_to_run]
+            if not fresh:
+                break
+            fresh.sort(key=lambda n: rank.get(n, len(rank)))
+            steps_to_run = [n for n in order
+                            if n in set(steps_to_run) | set(fresh)]
+            auto_recovered.extend(fresh)
+            print(f"  ↻ auto-recovered: added {', '.join(fresh)} to this "
+                  f"run (same as "
+                  f"{' '.join(f'--only {p}' for p in fresh)})",
+                  file=sys.stderr)
+            verdict = requirements.evaluate(
+                steps_to_run,
+                requirements.Context(
+                    project_folder=str(project_dir),
+                    state=state,
+                    run_set=frozenset(steps_to_run),
+                    recorded=run_scope.recorded_outputs(state),
+                    external={key: entry.value
+                              for key, entry in external.items()},
+                    overrides=frozenset(overrides or ()),
+                ),
+                requirements.all_requirements(dag, manifests),
+            )
+            unmet = verdict.unmet
+
     # An override is not a pass, and it is never silent.
     #
     # The requirement REFUSED and a person said proceed anyway, so the
@@ -2818,7 +2879,9 @@ def run_pipeline(
         print("", file=sys.stderr)
 
     if unmet:
-        reason = "\n".join(requirements.describe_refusal(unmet))
+        project_ref = _project_ref(project_dir)
+        reason = "\n".join(requirements.describe_refusal(
+            unmet, project_ref=project_ref))
         if dry_run:
             # A dry run REPORTS and does not refuse.
             #
@@ -2836,7 +2899,15 @@ def run_pipeline(
             print(f"\n  ✗ REFUSED\n", file=sys.stderr)
             print(reason, file=sys.stderr)
             print("", file=sys.stderr)
-            summary = {"status": "REFUSED", "reason": reason}
+            if requirements.is_auto_recoverable(unmet):
+                refusal = requirements.MissingPrerequisiteRefused(
+                    unmet, project_ref)
+                summary = {"status": "REFUSED", "reason": reason,
+                           "recovery_class": refusal.recovery_class,
+                           "fix": refusal.fix,
+                           "producers": list(refusal.producers)}
+            else:
+                summary = {"status": "REFUSED", "reason": reason}
             return emit_run_summary(summary, project_dir, state)
 
     # Where this run stops, and - loudly - anywhere it was asked to stop
@@ -2989,6 +3060,11 @@ def run_pipeline(
                                  carry_run_group=bool(resume_mode),
                                  sidecar=_sidecar,
                                  run_id=_run_id)
+    if auto_recovered:
+        # The run record names what the agent backend added, so a later
+        # reader can tell a requested step from a recovered producer.
+        run_control.write_run_status(
+            project_dir, auto_recovered_producers=list(auto_recovered))
     print(f"  Mode: {run_mode}", file=sys.stderr)
     for _line in run_restart.summary_lines(_restart):
         print(_line, file=sys.stderr)
@@ -4346,6 +4422,7 @@ def run_pipeline(
     # Output final state
     summary = {
         "status": status,
+        "auto_recovered_producers": list(auto_recovered),
         "undetermined_declarations": undetermined_records,
         "direction_contradictions": contradiction_records,
         "briefing_questions": briefing_records,

@@ -295,6 +295,11 @@ def create_project(
     """
     root = root or PROJECTS_ROOT
 
+    # `ren new` creates a missing projects root outright, so no `ren
+    # init` run is required first: a new user goes from setup to a
+    # project in one command.
+    root.mkdir(parents=True, exist_ok=True)
+
     # Determine project path
     if client:
         project_dir = root / client / slug

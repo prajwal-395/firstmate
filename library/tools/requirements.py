@@ -98,6 +98,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from library.tools import shared_environment as _node_env
+from library.tools.ren_refusal import RenRefusal
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _LIBRARY_ROOT.parent
@@ -1924,7 +1925,82 @@ def _producer_will_make_it(req: Requirement, run_set: Set[str]) -> bool:
     return all(producer in run_set for producer in req.produced_by)
 
 
-def describe_refusal(unmet: Sequence[Unmet]) -> List[str]:
+def missing_producers(unmet: Sequence[Unmet]) -> List[str]:
+    """The producer steps that would satisfy a missing-prerequisite refusal.
+
+    Only the state side (non-environment) names producers: the machine
+    side is reported, never refused, and a requirement no step produces
+    (the runner-injected transcript) has no producer to name.
+    """
+    return sorted({p for e in unmet
+                   if e.requirement.kind != KIND_ENVIRONMENT
+                   for p in e.satisfaction.produced_by})
+
+
+def is_auto_recoverable(unmet: Sequence[Unmet]) -> bool:
+    """Whether a missing-prerequisite refusal is safe to recover alone.
+
+    True when every state-side entry names at least one producer step:
+    running those producers first is the named safe recovery, so a host
+    may perform exactly that (the agent backend) or be told the exact
+    command (everywhere else). A requirement no step produces, or a run
+    with nothing missing on the state side, is not auto-recoverable by
+    running steps.
+    """
+    state_side = [e for e in unmet
+                  if e.requirement.kind != KIND_ENVIRONMENT]
+    if not state_side:
+        return False
+    return all(e.satisfaction.produced_by for e in state_side)
+
+
+def recovery_command(project_ref: str, producers: Sequence[str]) -> str:
+    """The runnable command that runs the missing producers first.
+
+    A pure command, no prose: `ren edit <project> --only <p> ...` - the
+    same selection the agent backend adds to the run itself.
+    """
+    return f"ren edit {project_ref} " + " ".join(
+        f"--only {p}" for p in producers)
+
+
+class MissingPrerequisiteRefused(RenRefusal):
+    """A scoped run whose prerequisites no step in it will produce.
+
+    The safe recovery is named and only named: run the producer steps
+    first. The recovery class is `auto_recoverable`, so a host may
+    perform exactly that recovery; everywhere else the fix is the
+    runnable command. The producer list rides along as `producers` for
+    machine readers (the runner, the run record).
+    """
+
+    CODE = "REN_MISSING_PREREQUISITE"
+    RECOVERY_CLASS = "auto_recoverable"
+
+    def __init__(self, unmet: Sequence[Unmet], project_ref: str) -> None:
+        producers = missing_producers(unmet)
+        if not producers:
+            raise ValueError(
+                "a missing-prerequisite refusal names its producers; "
+                "this refusal has none to name")
+        state_side = [e for e in unmet
+                      if e.requirement.kind != KIND_ENVIRONMENT]
+        reasons = "; ".join(e.satisfaction.reason for e in state_side)
+        command = recovery_command(project_ref, producers)
+        super().__init__(
+            what=("this selection cannot run: "
+                  f"{len(state_side)} prerequisite(s) missing"),
+            why=reasons,
+            fix=command,
+            user_message=("I couldn't run this selection - a step it "
+                          "needs has not run yet. "
+                          f"Run: {command}"),
+        )
+        self.producers = tuple(producers)
+
+
+def describe_refusal(unmet: Sequence[Unmet],
+                     project_ref: str = "") -> List[str]:
     """The refusal text, in the shape `run_scope` already prints."""
     if not unmet:
         return []
@@ -1941,16 +2017,25 @@ def describe_refusal(unmet: Sequence[Unmet]) -> List[str]:
     for entry in state_side:
         lines.append(f"  {entry.satisfaction.reason}")
 
-    producers = sorted({p for e in state_side
-                        for p in e.satisfaction.produced_by})
+    producers = missing_producers(unmet)
     if producers:
-        lines += [
-            "",
-            "Either:",
-            f"  - run the producers once so their output is on file: "
-            f"--only {' --only '.join(producers)}",
-            f"  - or skip the steps that need them",
-        ]
+        if project_ref and is_auto_recoverable(unmet):
+            command = recovery_command(project_ref, producers)
+            lines += [
+                "",
+                "Either:",
+                f"  - run the producers once so their output is on file: "
+                f"{command}",
+                f"  - or skip the steps that need them",
+            ]
+        else:
+            lines += [
+                "",
+                "Either:",
+                f"  - run the producers once so their output is on file: "
+                f"--only {' --only '.join(producers)}",
+                f"  - or skip the steps that need them",
+            ]
 
     if machine_side:
         if state_side:

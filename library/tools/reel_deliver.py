@@ -830,7 +830,7 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             "this worker cannot render the reel",
             "; ".join(blocking),
             "run `ren worker manifest` to see this worker's advertisement, "
-            "and `ren doctor` to repair the missing needs")
+            "and `ren setup` to repair the missing needs")
 
     project_folder = os.path.abspath(project_folder)
     settings = resolve_deliver_settings(project_folder)
