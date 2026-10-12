@@ -540,9 +540,8 @@ fm_backend_herdr_tool_check() {
 # server instead of silently reading whichever default server is running.
 fm_backend_herdr_version_check() {
   fm_backend_herdr_tool_check || return 1
-  local session status protocol version
-  session=$(fm_backend_herdr_session)
-  status=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null) || { echo "error: 'herdr status --json' failed; is herdr installed correctly?" >&2; return 1; }
+  local status protocol version
+  status=$(herdr status --json 2>/dev/null) || { echo "error: 'herdr status --json' failed; is herdr installed correctly?" >&2; return 1; }
   protocol=$(printf '%s' "$status" | jq -r '.client.protocol // empty' 2>/dev/null)
   version=$(printf '%s' "$status" | jq -r '.client.version // empty' 2>/dev/null)
   case "$protocol" in
