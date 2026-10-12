@@ -238,8 +238,8 @@ JSON
   pass "fm-claude-trust.sh: preserves unrelated keys on the project-root entry"
 }
 
-# hasClaudeMdExternalIncludesApproved===false on the project-root entry is a
-# human's explicit "No, disable" answer, recorded in the SAME store their own
+# hasClaudeMdExternalIncludesApproved===false with WarningShown===true on the
+# project-root entry is a human's explicit "No, disable" answer, recorded in the SAME store their own
 # interactive sessions read. A spawn must never flip that to true on their
 # behalf: doing so would grant every later interactive session in that
 # checkout silent external-file inclusion the human declined. The whole
@@ -303,10 +303,34 @@ JSON
   expect_code 1 $? "a project that already declined external imports must be refused: $out"
   assert_contains "$out" "declined external CLAUDE.md imports" \
     "the refusal did not name the declined-consent reason"
+  assert_contains "$out" "approve the imports dialog interactively" \
+    "the refusal did not name the recovery"
   after=$(cat "$store")
   [ "$before" = "$after" ] || fail "the store was modified despite the refusal"
   assert_not_trusted "$store" "$WT" "the worktree entry was registered despite the refusal"
   pass "fm-claude-trust.sh: refuses to override a project's declined external-imports consent"
+}
+
+# Claude Code's own default project entry carries BOTH external-imports flags as
+# false before the dialog was ever shown; answering the dialog either way sets
+# hasClaudeMdExternalIncludesWarningShown to true. So false/false is "never
+# asked", not "No, disable": it must be treated like an absent flag - trust
+# registered, no import consent manufactured - rather than refused.
+test_project_root_entry_default_import_flags_are_not_a_decline() {
+  local rec store out
+  rec=$(make_case project-default-flags)
+  read_case "$rec"
+  store="$CONFIG/.claude.json"
+  cat > "$store" <<JSON
+{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"allowedTools":[],"mcpContextUris":[],"mcpServers":{},"enabledMcpjsonServers":[],"disabledMcpjsonServers":[],"hasTrustDialogAccepted":false,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false}}}
+JSON
+  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  expect_code 0 $? "a never-asked default entry must not be refused as a decline: $out"
+  assert_trust_only_no_import_consent "$store" "$WT" \
+    "the worktree entry either lost trust or gained unearned import consent"
+  assert_trust_only_no_import_consent "$store" "$PROJ" \
+    "the project-root entry either lost trust or gained import consent it was never asked for"
+  pass "fm-claude-trust.sh: a never-asked default external-imports pair is not treated as a decline"
 }
 
 test_registration_is_idempotent() {
@@ -718,8 +742,8 @@ JSON
 }
 
 # The spawn half: a real fm-spawn of a claude worker must pre-register the
-# worktree AND deliver the launch command carrying the brief, with no dialog to
-# answer and no human in the loop.
+# worktree and launch with the brief, with no dialog to answer and no human
+# in the loop.
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   local case_dir home proj wt config fakebin launch_log out
   case_dir="$TMP_ROOT/spawn"
