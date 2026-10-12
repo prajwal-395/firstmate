@@ -140,6 +140,12 @@ fn read_python_assign(path: &Path, name: &str) -> Option<String> {
     None
 }
 
+/// A verb's name, group and summary - what `ren --help` renders.
+///
+/// The Python row's `effects`, `json` and `dry_run` are NOT mirrored here,
+/// by design: `ren --help --json` (the only reader of those fields) is
+/// served by Python, so the catalog has one source and this list cannot
+/// drift from it (`tests/contracts/test_verb_catalog.py`).
 struct Verb {
     name: &'static str,
     group: &'static str,
@@ -181,6 +187,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "pause", group: "Projects", summary: "Pause a project's pipeline run at the next step boundary" },
     Verb { name: "resume", group: "Projects", summary: "Release a paused pipeline run" },
     Verb { name: "wait", group: "Projects", summary: "Wait for the next thing a pipeline run needs (read only)" },
+    Verb { name: "ops", group: "Projects", summary: "List the named pipeline operations and the scopes each runs at (read only)" },
     Verb { name: "trace", group: "Projects", summary: "Regenerate the run traceback and artifact index" },
     Verb { name: "profile", group: "Projects", summary: "Show where a run spent its time, layer by layer (read only)" },
     Verb { name: "progress", group: "Projects", summary: "Read plain-language progress and currently available capabilities" },
@@ -262,7 +269,7 @@ pub fn usage() -> String {
     let mut lines = vec![
         "usage: ren <verb> [args...]".to_string(),
         String::new(),
-        "Ren is the front door to the video editing engine. `ren <verb> --help` shows a verb's own options.".to_string(),
+        "Ren is the front door to the video editing engine. `ren <verb> --help` shows a verb's own options; `ren --help --json` lists every verb with its effects.".to_string(),
         String::new(),
     ];
     let mut group = "";

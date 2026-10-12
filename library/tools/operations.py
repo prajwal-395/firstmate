@@ -75,6 +75,7 @@ raises `ScopeNotSupported`; an unknown name raises `UnknownOperation`.
 Reachability
 ------------
     python3 -m library.tools.operations --list
+    python3 -m library.tools.operations --list --json      # = `ren ops --json`
     python3 -m library.tools.operations subtitles.render --project <p> --region 45.0-72.0
     python3 -m library.tools.operations subtitles.splice --project <p> \\
         --region 45.0-72.0 --set stored_plan=@subtitle_plan.json
@@ -2375,6 +2376,17 @@ def describe() -> str:
     return "\n".join(lines)
 
 
+def catalog() -> dict:
+    """`describe()` as a structure: `--list --json`, which `ren ops --json` prints."""
+    return {"count": len(_REGISTRY),
+            "operations": [{"name": op.name, "summary": op.summary,
+                            "owning_node": op.legacy_node,
+                            "scopes": list(op.scopes),
+                            "produces": list(op.produces),
+                            "consumes": list(op.consumes)}
+                           for op in _REGISTRY]}
+
+
 def emit_skill() -> str:
     """The registry, rendered as an agent skill.
 
@@ -2484,7 +2496,8 @@ def main(argv=None) -> int:
                         help="an interval of the TIMELINE, e.g. 45.0-72.0")
     parser.add_argument("--clip", default="", help="a clip id, e.g. clip_007")
     parser.add_argument("--json", action="store_true",
-                        help="print the operation's result as JSON")
+                        help="print the operation's result as JSON "
+                             "(with --list: every operation, as JSON)")
     parser.add_argument(
         "--set", action="append", metavar="NAME=VALUE", default=[],
         dest="overrides",
@@ -2500,7 +2513,10 @@ def main(argv=None) -> int:
         print(emit_skill())
         return 0
     if args.list or not args.operation:
-        print(describe())
+        if args.json:
+            print(json.dumps(catalog(), indent=2))
+        else:
+            print(describe())
         return 0
 
     try:

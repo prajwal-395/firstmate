@@ -86,6 +86,12 @@ fn run(argv: &[OsString]) -> i32 {
 
     let name = argv[0].to_string_lossy().to_string();
     if name == "-h" || name == "--help" || name == "help" {
+        // `ren --help --json` is the verb catalog with each verb's effects,
+        // which only the Python registry carries: exec it rather than keep
+        // a second copy of those fields here.
+        if argv[1..].iter().any(|arg| arg == "--json") {
+            return exec_python(&engine_root, argv).unwrap_or(REFUSAL_EXIT_CODE);
+        }
         println!("{}", commands::usage());
         return 0;
     }

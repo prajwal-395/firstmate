@@ -74,6 +74,27 @@ fn help_is_served_natively() {
 }
 
 #[test]
+fn help_json_is_the_python_catalog() {
+    // The catalog's effects live only in the Python registry, so
+    // `--help --json` must reach Python rather than print the native usage.
+    let output = run_ren(
+        &["--help", "--json"],
+        &[(
+            "REN_ENGINE_ROOT".to_string(),
+            engine_root().to_string_lossy().to_string(),
+        )],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("usage: ren <verb>"), "stdout: {stdout}");
+    assert!(stdout.contains("\"effects\""), "stdout: {stdout}");
+}
+
+#[test]
 fn the_interpreter_is_resolved_without_a_python_helper() {
     // A verb that needs Python must still run: the ladder finds the
     // interpreter natively, so no python3 helper process is started. `doctor`

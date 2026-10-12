@@ -49,7 +49,8 @@ def usage() -> str:
     root = find_engine_root()
     lines = ["usage: ren <verb> [args...]", "",
              ("Ren is the front door to the video editing engine. "
-              "`ren <verb> --help` shows a verb's own options."), ""]
+              "`ren <verb> --help` shows a verb's own options; "
+              "`ren --help --json` lists every verb with its effects."), ""]
     width = max(len(verb.name) for verb in VERBS)
     group = None
     for verb in VERBS:
@@ -112,6 +113,15 @@ def main(argv=None) -> int:
         return 3
 
     if not argv or argv[0] in ("-h", "--help", "help"):
+        # `ren --help --json`: the same registry as a catalog a host can
+        # parse - each verb's effects, and whether it takes `--json` and
+        # `--dry-run` (`ren.commands.catalog`).
+        if "--json" in argv[1:]:
+            import json
+
+            from ren.commands import catalog
+            print(json.dumps(catalog(), indent=2))
+            return 0
         print(usage())
         return 0 if argv else 1
 
@@ -124,7 +134,10 @@ def main(argv=None) -> int:
 
     if verb.builtin == "doctor":
         from library.tools.ren_refusal import (
-            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+            REFUSAL_EXIT_CODE,
+            RenRefusal,
+            emit_refusal_result,
+        )
         from ren import doctor
         try:
             return doctor.main(rest)
@@ -134,7 +147,10 @@ def main(argv=None) -> int:
             return REFUSAL_EXIT_CODE
     if verb.builtin == "config":
         from library.tools.ren_refusal import (
-            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+            REFUSAL_EXIT_CODE,
+            RenRefusal,
+            emit_refusal_result,
+        )
         from ren import config
         try:
             return config.main(rest)
@@ -144,7 +160,10 @@ def main(argv=None) -> int:
             return REFUSAL_EXIT_CODE
     if verb.builtin == "support-bundle":
         from library.tools.ren_refusal import (
-            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+            REFUSAL_EXIT_CODE,
+            RenRefusal,
+            emit_refusal_result,
+        )
         from ren import support_bundle
         try:
             return support_bundle.main(rest)
@@ -160,7 +179,10 @@ def main(argv=None) -> int:
         return uninstall.main(rest)
     if verb.builtin in {"upgrade", "rollback"}:
         from library.tools.ren_refusal import (
-            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+            REFUSAL_EXIT_CODE,
+            RenRefusal,
+            emit_refusal_result,
+        )
         from ren import upgrade
         try:
             if verb.builtin == "upgrade":
@@ -172,7 +194,10 @@ def main(argv=None) -> int:
             return REFUSAL_EXIT_CODE
     if verb.builtin == "update":
         from library.tools.ren_refusal import (
-            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+            REFUSAL_EXIT_CODE,
+            RenRefusal,
+            emit_refusal_result,
+        )
         from ren import update
         try:
             return update.main(rest)
