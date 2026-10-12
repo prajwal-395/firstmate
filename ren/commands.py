@@ -82,6 +82,9 @@ VERBS = (
 
     Verb("new", "Projects", "Create a project", subcommand="new"),
     Verb("projects", "Projects", "List projects", subcommand="list"),
+    Verb("series", "Projects", "Register a series' brief and episode database: list, show, add",
+         module_argv=("library.tools.series_registry",),
+         detail="The per-machine series registry (~/.config/ren/series.yaml): `ren series add <id> --dir <series folder>` registers a series' creative-direction document and episode database; `ren series show <id> --episode <n>` prints that episode's row, its status and what the interview would ask. Then `ren new <slug> --series <id> --episode <n>` makes the planning tree the brief. Ren never writes the episode database."),
     Verb("status", "Projects", "Show a project's pipeline status", subcommand="status"),
     Verb("info", "Projects", "Show a project's configuration as JSON", subcommand="info"),
     Verb("work-state", "Projects", "Read where a project left off",

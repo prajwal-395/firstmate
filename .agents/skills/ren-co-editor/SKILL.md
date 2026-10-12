@@ -78,6 +78,16 @@ ren new <slug> --name "..."       # create the project, then copy footage into r
 ren check <project>               # readiness: footage found, layout ok
 ```
 
+When the person names a series or an episode ("episode 12 of 4th Wall"),
+run `ren series list`, then `ren new <slug> --series <id> --episode <n>`:
+the series document and the episode's row in its episode database ARE
+the brief, attached by reference, so do not ask what the row already
+says. `ren series show <id> --episode <n>` prints the row, its status
+and what the interview would ask. A series not listed is registered once
+with `ren series add <id> --dir <series folder>`. Ren reports the
+episode's status (Filmed -> Edited) and never writes the database; tell
+the person to update it.
+
 `<project>` is the slug, or the absolute project path for projects
 outside `PIPELINE_PROJECTS_ROOT`. Never touch a real project or a real
 Resolve project unasked: fixtures and temp dirs unless the user named
@@ -228,7 +238,8 @@ briefing interview. A run that stops asking has finished or failed;
 
 ### The briefing interview happens in chat
 
-When no creative brief is attached, the chat interview
+When no creative brief is attached - or a series episode's row has an
+empty cell, which is then the only thing asked - the chat interview
 (`llm_requests/briefing_interview.json`, `kind=briefing_interview`)
 starts after the quick footage catalog is committed and before deeper
 analysis. The request includes a compact inventory, scoped intent, and

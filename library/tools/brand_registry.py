@@ -351,6 +351,15 @@ def resolve_project_template(template_name: str = "",
         return load_brand_template(brand_path)
     if not template_name:
         return no_brand_template()
+    if _looks_like_path(template_name):
+        # A series' brand template lives in its shared store and is
+        # declared by absolute path (`ren new --series`,
+        # library/tools/series_registry.py) - the PATH form
+        # `resolve_template_reference` already honours.  Missing raises.
+        if not os.path.exists(template_name):
+            raise FileNotFoundError(
+                f"Brand template path {template_name!r} does not exist.")
+        return load_brand_template(template_name)
     base = templates_dir or TEMPLATES_DIR
     for ext in (".yaml", ".yml", ".json"):
         candidate = os.path.join(base, f"{template_name}{ext}")

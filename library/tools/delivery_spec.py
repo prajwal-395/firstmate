@@ -100,6 +100,12 @@ class DeliverySpec:
     true_peak_ceiling_dbtp: float
     caption_format: str
     source: str
+    #: The longest this deliverable may run, in seconds, or None when
+    #: nothing declares one. Not a platform property - every row below
+    #: leaves it None - but the PROJECT's (`pipeline.max_duration_seconds`,
+    #: which `ren new --series` seeds from the series registry), applied
+    #: by :func:`resolve_delivery_spec_for_project`.
+    max_duration_seconds: Optional[float] = None
 
     @property
     def aspect(self) -> str:
@@ -312,5 +318,53 @@ def resolve_delivery_spec_for_project(
     project that names a platform getting THAT platform's spec rather
     than the default's).
     """
-    return resolve_delivery_spec(
+    spec = resolve_delivery_spec(
         delivery_platform_name(project_folder, templates_dir=templates_dir))
+    limit = project_max_duration_seconds(project_folder)
+    if limit is not None:
+        from dataclasses import replace
+        spec = replace(spec, max_duration_seconds=limit)
+    return spec
+
+
+#: The project.yaml key (under `pipeline:`) declaring the longest the
+#: deliverable may run. A series declares it once in the series registry
+#: (`library/tools/series_registry.py`) and `ren new --series` writes it
+#: here, so the project carries its own word and runs without a registry.
+MAX_DURATION_KEY = "max_duration_seconds"
+
+
+def project_max_duration_seconds(
+        project_folder: Optional[str] = None) -> Optional[float]:
+    """The project's declared maximum length in seconds, or None.
+
+    A value that is not a positive number RAISES at the declaration: a
+    limit nobody can read is not a limit, and dropping it would ship an
+    overlong video as though nothing had been declared.
+    """
+    declared = _project_pipeline_block(project_folder).get(MAX_DURATION_KEY)
+    if declared is None:
+        return None
+    if (isinstance(declared, bool)
+            or not isinstance(declared, (int, float)) or declared <= 0):
+        raise ValueError(
+            f"pipeline.{MAX_DURATION_KEY} must be a positive number of "
+            f"seconds, got {declared!r}.")
+    return float(declared)
+
+
+def duration_refusal(spec: DeliverySpec, seconds: float,
+                     frame_seconds: float = 0.0) -> str:
+    """Why a `seconds`-long deliverable breaks `spec`'s maximum, or "".
+
+    `frame_seconds` is the one-frame allowance a frame-quantised timeline
+    needs: a 60 s limit is not broken by a cut that ends on the frame
+    after 60.0.
+    """
+    limit = spec.max_duration_seconds
+    if limit is None or seconds is None:
+        return ""
+    if float(seconds) > limit + max(0.0, float(frame_seconds)):
+        return (f"the deliverable runs {float(seconds):.2f}s and the project "
+                f"declares at most {limit:g}s (pipeline.{MAX_DURATION_KEY})")
+    return ""

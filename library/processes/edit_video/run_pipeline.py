@@ -574,6 +574,14 @@ def load_pipeline_state(project_dir: str) -> dict:
         if attachment.attached:
             state["creative_brief"] = attachment.path
         print(brief_attachment.describe(attachment), file=sys.stderr)
+        # The episode half of a series project's brief: which row, where
+        # the captain's production status stands (REPORTED - Ren never
+        # writes the episode database) and what the row leaves open.
+        # A bound episode whose row cannot be read raises here, at the
+        # run header, rather than at the first planning step.
+        from library.tools import series_registry
+        for line in series_registry.describe_for_run(project_dir):
+            print(line, file=sys.stderr)
 
     # The brand this project renders under, declared per project.
     #
@@ -1521,6 +1529,8 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 from library.tools.brief_reference import (
                     build_reference, project_pinned_sections,
                     project_series_identity)
+                from library.tools.series_registry import (
+                    episode_block_for_project)
                 inputs["creative_brief"] = build_reference(
                     os.path.abspath(brief_path), content,
                     pinned=project_pinned_sections(project_folder),
@@ -1529,6 +1539,12 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                     # states which one this video is - or, by passing ""
                     # when it names none, has the absence said out loud.
                     series_identity=project_series_identity(
+                        project_folder),
+                    # The episode's row, when the project is an episode
+                    # of a registered series: read off the episode
+                    # database NOW, by number, never copied into the
+                    # project (library/tools/series_registry.py).
+                    episode_block=episode_block_for_project(
                         project_folder))
 
         # The captain's context folder plus the learnings routed to this
@@ -3012,6 +3028,7 @@ def run_pipeline(
     # the dry-run return above, for the same reason a dry run reports
     # and writes nothing.  See library/tools/brief_snapshot.py.
     from library.tools import brief_snapshot as _brief_snapshot
+    from library.tools import series_registry
     _brief_record = _brief_snapshot.record_brief_for_run(
         project_dir, state.get("creative_brief") or "")
     if _brief_record.get("snapshotted") and not _brief_record.get("unchanged"):
@@ -3019,7 +3036,11 @@ def run_pipeline(
               f"{_brief_record['source']!r} "
               f"(sha256 {_brief_record['sha256'][:12]}…)",
               file=sys.stderr)
-    elif _brief_record.get("cleared"):
+    _episode_record = series_registry.record_episode_for_run(project_dir)
+    if _episode_record.get("recorded") and not _episode_record.get("unchanged"):
+        print(f"  Episode row recorded from {_episode_record['database']!r} "
+              f"line {_episode_record['line']}", file=sys.stderr)
+    if _brief_record.get("cleared"):
         print(f"  Creative brief: {_brief_record['reason']}",
               file=sys.stderr)
     elif not _brief_record.get("snapshotted") and _brief_record.get("reason"):

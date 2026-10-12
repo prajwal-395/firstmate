@@ -167,6 +167,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "ci", group: "Setup", summary: "This Mac's local CI service, merge queue, and upstream engine intake" },
     Verb { name: "new", group: "Projects", summary: "Create a project" },
     Verb { name: "projects", group: "Projects", summary: "List projects" },
+    Verb { name: "series", group: "Projects", summary: "Register a series' brief and episode database: list, show, add" },
     Verb { name: "status", group: "Projects", summary: "Show a project's pipeline status" },
     Verb { name: "info", group: "Projects", summary: "Show a project's configuration as JSON" },
     Verb { name: "work-state", group: "Projects", summary: "Read where a project left off" },

@@ -320,6 +320,18 @@ class PipelineConfig:
     # names its own series_id, but the template is a look, not the
     # project's word about which creative world this video is in.
     series: str = ""
+    # Which episode of a registered series this video is: a mapping of
+    # `series_id`, `number` and `database` (the episode database's
+    # absolute path), plus the columns the row is read with. `ren new
+    # --series <id> --episode <n>` writes it off the per-machine series
+    # registry; the run reads the row off the database by number, so the
+    # row travels BY REFERENCE. None means the project is no episode.
+    # Shape and reader: library/tools/series_registry.py.
+    episode: dict | None = None
+    # The longest the deliverable may run, in seconds - a series' "at
+    # most 60 s". None means nothing declares a maximum. Reader:
+    # library/tools/delivery_spec.resolve_delivery_spec_for_project.
+    max_duration_seconds: float | None = None
     # Project-declared creative tasks: named pieces of craft judgement the
     # pipeline INVOKES, instead of adding a permanent step for work only
     # some projects need (reel selection is the first). Each entry is a
@@ -542,6 +554,18 @@ class ProjectConfig:
                 "pipeline.series must be the name of the series this "
                 "video belongs to, got "
                 f"{type(self.pipeline.series).__name__}.")
+        if (self.pipeline.episode is not None
+                and not isinstance(self.pipeline.episode, dict)):
+            errors.append(
+                "pipeline.episode must be a mapping (series_id, number, "
+                f"database), got {type(self.pipeline.episode).__name__}.")
+        limit = self.pipeline.max_duration_seconds
+        if limit is not None and (isinstance(limit, bool)
+                                  or not isinstance(limit, (int, float))
+                                  or limit <= 0):
+            errors.append(
+                "pipeline.max_duration_seconds must be a positive number "
+                f"of seconds, got {limit!r}.")
         from library.tools.overlay_mode import CONTAINERS, GEOMETRIES
         if self.pipeline.subtitle_overlay_geometry not in GEOMETRIES:
             errors.append(
@@ -716,6 +740,8 @@ def _dict_to_project_config(data: dict,
         series=(pipeline_data.get("series")
                 if pipeline_data.get("series") is not None
                 else data.get("series")) or "",
+        episode=pipeline_data.get("episode"),
+        max_duration_seconds=pipeline_data.get("max_duration_seconds"),
         creative_tasks=list(
             pipeline_data.get("creative_tasks", []) or []),
         sfx_library=_expand_path(pipeline_data.get("sfx_library", "")),
@@ -863,6 +889,13 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             # absence anyway (brief_reference.project_series_identity).
             **({} if not config.pipeline.series
                 else {"series": config.pipeline.series}),
+            # Only when declared: a project that is no episode and
+            # declares no maximum carries neither key.
+            **({} if config.pipeline.episode is None
+               else {"episode": dict(config.pipeline.episode)}),
+            **({} if config.pipeline.max_duration_seconds is None
+               else {"max_duration_seconds":
+                     config.pipeline.max_duration_seconds}),
             # Only when declared, for the same reason: an empty list in
             # every project.yaml reads as a decision nobody made.
             **({} if not config.pipeline.creative_tasks

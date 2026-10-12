@@ -30,6 +30,14 @@ Response (`llm_responses/briefing_interview.json`): a JSON object with
 user declined - the run proceeds exactly as a brief-less run does
 today, and the summary still records what was asked.
 
+A project that is an episode of a registered series
+(`library/tools/series_registry.py`) has its brief ATTACHED - the series
+document plus the episode's row - so the starter questions are not
+asked. What its row can still lack is a cell, and the interview asks
+exactly those (`series_registry.gap_questions`): one question per empty
+cell, none about a filled one. Either way the count is recorded on
+`state["briefing_interview_record"]`.
+
 The runner calls `should_interview()` at startup; the skill
 (`ren-co-editor`) tells the host how to conduct it. The answers land
 on `state["brief_answers"]` and are prepended to every step's context
@@ -305,10 +313,18 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
     if state is None:
         return state
     attached = bool(state.get("creative_brief"))
-    if not should_interview(attached, full_auto or ""):
-        return state
     if state.get("brief_answers") is not None:
         return state  # asked already; a resume must not re-ask
+    episode_gaps = None
+    if attached and (full_auto or "") == "agent":
+        # An episode's attached brief is the series document plus the
+        # row; the row's empty cells are the only open questions.
+        from library.tools import series_registry
+        if series_registry.project_binding(project_folder) is not None:
+            episode_gaps = series_registry.interview_gaps(project_folder)
+    if episode_gaps is None and not should_interview(attached,
+                                                     full_auto or ""):
+        return state
 
     import datetime as _dt
     import json as _json
@@ -319,7 +335,18 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
     from library.tools import scoped_intent
     intent_view = scoped_intent.for_project(
         project_folder, "creative_direction", state=state)
-    questions = unresolved_questions(state.get("briefing_questions"), intent_view)
+    if episode_gaps is not None:
+        questions = list(episode_gaps)
+        basis = "episode_row"
+    else:
+        questions = unresolved_questions(
+            state.get("briefing_questions"), intent_view)
+        basis = "no_brief_attached"
+    state["briefing_interview_record"] = {
+        "basis": basis,
+        "questions_asked": len(questions),
+        "questions": [q["question"] for q in questions],
+    }
     if not questions:
         state["brief_answers"] = []
         state["briefing_assumptions"] = []

@@ -323,6 +323,8 @@ def create_project(
     speakers: list | None = None,
     brief_title: str = "",
     brand_series: str = "",
+    series_id: str = "",
+    episode: str | int | None = None,
 ) -> ProjectConfig:
     """Scaffold a new project directory with standard structure.
 
@@ -345,8 +347,31 @@ def create_project(
     a declared-zero project, None for undeclared). Every one of them
     is a project.yaml declaration the pipeline reads; the four files
     are what the interview behind `manage_project.py new` fills in.
+
+    `series_id` (and optionally `episode`) binds the project to a series
+    in the per-machine series registry
+    (library/tools/series_registry.py): the series document becomes the
+    attached brief BY REFERENCE, the episode's row is read off the
+    episode database at run time, and the series' brand template and
+    delivery declarations are written into project.yaml. No `brief.md`
+    starter is written then - the planning tree IS the brief - and no
+    empty `brand.json` either when the series names a brand template,
+    because a project's own `brand.json` wins over any named template.
     """
     root = root or PROJECTS_ROOT
+
+    series = None
+    if episode is not None and str(episode).strip() and not series_id:
+        raise ValueError(
+            "an episode is an episode OF a series: pass --series with "
+            "--episode")
+    if series_id:
+        from library.tools.series_registry import (
+            SeriesRegistryError, new_project_declarations)
+        try:
+            series = new_project_declarations(series_id, episode)
+        except SeriesRegistryError as exc:
+            raise ValueError(str(exc)) from exc
 
     # `ren new` creates a missing projects root outright, so no `ren
     # init` run is required first: a new user goes from setup to a
@@ -381,10 +406,19 @@ def create_project(
             shape=(shape or ""),
             speakers=speakers,
         ),
-        pipeline=PipelineConfig(
+        pipeline=(PipelineConfig(
             brand_template=template,
             creative_brief="brief.md",
-        ),
+        ) if series is None else PipelineConfig(
+            brand_template=template or series["entry"].brand_template,
+            delivery_format=series["entry"].delivery_format,
+            delivery_platform=series["entry"].delivery_platform,
+            max_duration_seconds=series["entry"].max_duration_seconds,
+            creative_brief=series["entry"].creative_direction,
+            attach_creative_brief=True,
+            series=series["entry"].name,
+            episode=series["episode"],
+        )),
         resolve=ResolveConfig(
             project_name=resolve_project_name or name,
             folder=resolve_folder or client,
@@ -415,19 +449,23 @@ def create_project(
 
     # The four starters the interview fills in. Each loads clean and
     # changes nothing until the project declares something in it.
-    _write_brand_starter(project_dir / "brand.json",
-                         brand_series or slug)
-    _write_brief_starter(project_dir / "brief.md", config,
-                         brief_title or name)
-    # The starter's digest, so a run can tell an unfilled scaffold from
-    # a brief the project actually wrote (library/tools/brief_attachment
-    # compares bytes, never headings). Best-effort: a record that
-    # cannot be written leaves today's attached reading in place.
-    try:
-        from library.tools.brief_attachment import record_starter_sha
-        record_starter_sha(str(project_dir), str(project_dir / "brief.md"))
-    except Exception:  # noqa: BLE001 - the scaffold itself is complete
-        pass
+    if series is None or not config.pipeline.brand_template:
+        _write_brand_starter(project_dir / "brand.json",
+                             brand_series or series_id or slug)
+    if series is None:
+        _write_brief_starter(project_dir / "brief.md", config,
+                             brief_title or name)
+        # The starter's digest, so a run can tell an unfilled scaffold
+        # from a brief the project actually wrote
+        # (library/tools/brief_attachment compares bytes, never
+        # headings). Best-effort: a record that cannot be written leaves
+        # today's attached reading in place.
+        try:
+            from library.tools.brief_attachment import record_starter_sha
+            record_starter_sha(str(project_dir),
+                               str(project_dir / "brief.md"))
+        except Exception:  # noqa: BLE001 - the scaffold itself is complete
+            pass
     _write_style_starter(project_dir / "style.yaml")
     _write_video_starter(project_dir / "video.yaml")
 

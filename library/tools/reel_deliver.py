@@ -898,6 +898,9 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         timeline_fps, timeline_start, timeline_end = _timeline_clock(
             timeline)
         expected_seconds = _timeline_expected_seconds(timeline)
+        # One frame of allowance for the declared maximum below: a cut
+        # quantised to frames may end on the frame just past it.
+        frame_seconds = 1.0 / float(timeline.GetSetting("timelineFrameRate"))
 
         # Fail fast, naming the files: a render against stale overlay
         # metadata burns the captain's machine to learn what the pool
@@ -911,6 +914,21 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             "rebuild the reel once the pool-metadata refresh lands, then "
             "deliver again - a deliver that repaired this itself would "
             "rebind the captain's live timeline outside a build")
+    # The project's declared maximum length (a series' "at most 60 s",
+    # seeded by `ren new --series`), checked before a render spends the
+    # machine on a file the platform brief already rules out.
+    from library.tools.delivery_spec import (
+        duration_refusal, resolve_delivery_spec_for_project)
+    too_long = duration_refusal(
+        resolve_delivery_spec_for_project(project_folder), expected_seconds,
+        frame_seconds=frame_seconds)
+    if too_long:
+        raise DeliverRefused(
+            "the reel is longer than the project allows",
+            too_long,
+            "trim the reel to the declared maximum, or change "
+            "pipeline.max_duration_seconds in project.yaml if this video "
+            "may run longer")
 
     raw_dir = str(layout.write_dir(Area.SCRATCH, step="deliver-reel"))
     report = resolve_render.render_timeline(

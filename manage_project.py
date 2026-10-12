@@ -484,11 +484,15 @@ def _interview_new(args) -> dict:
         answers["speakers"] = speakers
         answers["speakers_undecided"] = not speakers
 
-    if not args.brief_title:
+    # A series episode's brief is the planning tree's, and its brand is
+    # the series': neither is asked.
+    in_series = bool(getattr(args, "series", None))
+
+    if not args.brief_title and not in_series:
         answers["brief_title"] = ask(
             "Brief title (blank keeps the project name)")
 
-    if not args.brand_series:
+    if not args.brand_series and not in_series:
         answers["brand_series"] = ask(
             "Brand series id for brand.json (blank keeps the slug)")
 
@@ -505,13 +509,15 @@ def cmd_new(args):
     no_speakers = getattr(args, "no_speakers", False)
     brief_title = getattr(args, "brief_title", None)
     brand_series = getattr(args, "brand_series", None)
+    series_id = getattr(args, "series", None) or ""
+    episode = getattr(args, "episode", None)
     interactive = (sys.stdin.isatty()
                    and not getattr(args, "non_interactive", False))
     interviewed = {}
     if interactive and (
             not shape or not language
             or (not cli_speakers and not no_speakers)
-            or not brief_title or not brand_series):
+            or (not series_id and (not brief_title or not brand_series))):
         print(f"\n  New project: {args.slug} - a few questions "
               f"(blank keeps the default):")
         interviewed = _interview_new(args)
@@ -560,6 +566,8 @@ def cmd_new(args):
                          or interviewed.get("brief_title") or ""),
             brand_series=(brand_series
                           or interviewed.get("brand_series") or ""),
+            series_id=series_id,
+            episode=episode,
         )
         print(f"\n  ✓ Created project: {config.name}")
         print(f"    Slug:     {config.slug}")
@@ -575,12 +583,36 @@ def cmd_new(args):
         else:
             print(f"    Speakers: "
                   f"{', '.join(s.get('name', '') for s in config.source.speakers)}")
-        print(f"\n  Scaffolded: project.yaml, brand.json, brief.md, "
-              f"style.yaml, video.yaml")
-        print(f"\n  Next steps:")
-        print(f"    1. Copy raw footage to: {config.raw_dir}")
-        print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
-        print(f"       or just tell your chat what you want.")
+        if series_id:
+            print(f"    Series:   {config.pipeline.series} ({series_id})")
+            print(f"    Brief:    {config.pipeline.creative_brief} "
+                  f"(attached by reference)")
+            if config.pipeline.episode:
+                from library.tools.series_registry import (
+                    project_binding, status_report)
+                row = project_binding(str(config.project_root)).row()
+                print(f"    Episode:  {row.episode}"
+                      + (f" - {row.title}" if row.title else "")
+                      + f" (row at line {row.line})")
+                print(f"    {status_report(row)}")
+            if config.pipeline.max_duration_seconds:
+                print(f"    Delivery: at most "
+                      f"{config.pipeline.max_duration_seconds:g}s")
+            print(f"\n  Scaffolded: project.yaml, style.yaml, video.yaml"
+                  + ("" if config.pipeline.brand_template else ", brand.json"))
+            print(f"\n  Next steps:")
+            print(f"    1. Copy raw footage to: {config.raw_dir}")
+            print(f"    2. Run the pipeline: ren edit {config.slug} "
+                  f"--full-auto agent - the series brief and the episode "
+                  f"row are the brief")
+            print(f"       or just tell your chat what you want.")
+        else:
+            print(f"\n  Scaffolded: project.yaml, brand.json, brief.md, "
+                  f"style.yaml, video.yaml")
+            print(f"\n  Next steps:")
+            print(f"    1. Copy raw footage to: {config.raw_dir}")
+            print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
+            print(f"       or just tell your chat what you want.")
 
     except FileExistsError as e:
         raise RenRefusal(
@@ -4059,6 +4091,10 @@ def main():
                        help="Declare the project has no voices (music / montage)")
     p_new.add_argument("--brief-title", help="Title line for the scaffolded brief.md (default: project name)")
     p_new.add_argument("--brand-series", help="Series id for the scaffolded brand.json (default: slug)")
+    p_new.add_argument("--series", help="A series id from the series registry (`ren series list`): "
+                                        "its documents become the brief, by reference")
+    p_new.add_argument("--episode", help="With --series: the episode number whose row in the "
+                                         "episode database is this video's brief")
     p_new.add_argument("--non-interactive", action="store_true",
                        help="Never prompt; missing answers stay undeclared. "
                             "Implied when stdin is not a terminal.")

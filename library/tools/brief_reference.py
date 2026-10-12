@@ -245,7 +245,8 @@ DEFAULT_WHY_REFERENCED = ("most of it is about the channel rather than "
 def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
                     document_name: str = DEFAULT_DOCUMENT_NAME,
                     why_referenced: str = DEFAULT_WHY_REFERENCED,
-                    series_identity: str | None = None) -> str:
+                    series_identity: str | None = None,
+                    episode_block: str = "") -> str:
     """The text a step receives in place of the document's own bytes.
 
     `path` is recorded exactly as the step will have to use it, so it is
@@ -265,6 +266,12 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
     brief" - the SFX catalogue and the footage analysis carry no such
     line.  Any string, including "", states the reading, so only the
     creative-brief call site passes it.
+
+    `episode_block` is the episode's row when the project is an episode
+    of a registered series (`series_registry.episode_block_for_project`):
+    the per-video half of the brief, quoted because a row is under the
+    inline threshold, and stated after the membership line.  "" means
+    the project is no episode.
     """
     if not harness_reads_files(harness):
         if series_identity is None:
@@ -272,7 +279,10 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
         # The whole document travels, so the header does not - but the
         # series anchor (#258) is not the header, it is the one line
         # that keeps the full roster from reading as a choice.
-        return series_membership_line(series_identity) + "\n\n" + content
+        lead = series_membership_line(series_identity)
+        if episode_block:
+            lead += "\n\n" + episode_block
+        return lead + "\n\n" + content
 
     pinned = {_normalise(p) for p in pinned}
     preamble, sections = parse_sections(content)
@@ -305,6 +315,9 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
 
     if series_identity is not None:
         out.append(series_membership_line(series_identity))
+        out.append("")
+    if episode_block:
+        out.append(episode_block)
         out.append("")
 
     if preamble.strip():
@@ -516,8 +529,13 @@ def restore_for_harness(inputs: dict, harness: str) -> tuple:
             # document rather than lose it: under this harness the model
             # reads the full roster, which is where the pull toward a
             # named series was measured.
+            folder = inputs.get("project_folder") or ""
+            from library.tools.series_registry import (
+                episode_block_for_project)
+            episode = episode_block_for_project(folder)
             content = (series_membership_line(project_series_identity(
-                inputs.get("project_folder") or "")) + "\n\n" + content)
+                folder)) + "\n\n"
+                + (episode + "\n\n" if episode else "") + content)
         if not restored:
             inputs = dict(inputs)
         inputs[key] = content
