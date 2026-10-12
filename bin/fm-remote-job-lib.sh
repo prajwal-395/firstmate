@@ -1625,30 +1625,16 @@ fm_remote_job_ensure_worker() { # <remote-root> <account-home>
     fm_remote_job_ensure_launchagent "$root" "$account_home" "$uid"
     return
   fi
-  fm_remote_job_wait_for_probe "$root" "$account_home" "$started"
-  ready_status=$?
-  case "$ready_status" in
-    0) return 0 ;;
-    # The worker tree exited rather than losing a startup race, so starting it
-    # again would only reproduce the same refusal. Report what was seen instead
-    # of spending a second full wait on it.
-    2) ;;
-    *)
-      if [ "$platform" = darwin ]; then
-        fm_remote_job_reload_launchagent "$account_home" "$uid" || return 1
-        FM_REMOTE_JOB_REPAIRED=1
-        fm_remote_job_wait_for_probe "$root" "$account_home" "$started" && return 0
-      else
-        # A replaced Linux supervisor can lose its first ownership race while the
-        # prior supervisor finishes releasing the shared worker lock. Retry the
-        # idempotent start once, matching the bounded recovery already used above
-        # for launchd, before reporting a startup failure.
-        fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
-        FM_REMOTE_JOB_REPAIRED=1
-        fm_remote_job_wait_for_probe "$root" "$account_home" "$started" && return 0
-      fi
-      ;;
-  esac
+  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
+  fm_remote_job_wait_for_probe "$root" "$account_home" "$started" && return 0
+  # A replaced Linux supervisor can lose its first ownership race while the
+  # prior supervisor finishes releasing the shared worker lock. Retry the
+  # idempotent start once before reporting a startup failure. (Never wait
+  # before the first start: with no worker running that wait burns the whole
+  # readiness budget before anything exists to become ready.)
+  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
+  FM_REMOTE_JOB_REPAIRED=1
+  fm_remote_job_wait_for_probe "$root" "$account_home" "$started" && return 0
   # shellcheck disable=SC2034 # Sourceable API consumed by the entrypoint and remote doctor.
   FM_REMOTE_JOB_ERROR="remote job worker did not report ready within ${FM_REMOTE_JOB_READY_WAIT_SECONDS}s: ${FM_REMOTE_JOB_READY_OBSERVED:-nothing observable changed}"
   return 1
