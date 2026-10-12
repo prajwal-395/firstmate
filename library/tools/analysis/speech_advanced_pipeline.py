@@ -2,7 +2,10 @@
 """
 Advanced Speech Analysis — Prosody
 
-Supplements WhisperX transcription (step 1.04) with prosodic features
+Supplements the hybrid transcription (step 1.04 through
+`library/tools/timeline_transcript.transcribe_audio`: the on-device
+transcriber's text through MFA, the only arm since the WhisperX arms
+left on 2026-09-24) with prosodic features
 that no other pipeline component captures:
 
 - Pitch (F0) contour at 10ms resolution, full clip

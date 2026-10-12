@@ -247,7 +247,8 @@ needs and cannot reconstruct.
 """
 
 # The timeline transcript, produced by `library/tools/timeline_transcript.py`
-# running outside the pipeline (it needs Resolve open and WhisperX).
+# running outside the pipeline (it needs Resolve open; the hearing is
+# the hybrid `transcribe_audio` seam, not WhisperX).
 # Like qa_findings, it is not DAG-routable: the producer is a CLI tool,
 # not a step, so an edge cannot carry it.  It reaches a step because the
 # step's manifest declares it, and `gather_step_inputs` reads it from

@@ -12,7 +12,10 @@ actually measures: the horizontal centre of the largest detected face,
 sampled at 5Hz by `step_1_04_temporal_index.compute_face_presence` as
 `face_center_x`. The v3 vision pass measures shot size, identity and time
 ranges, none of which is a position; `object_segmentation` and
-`ocr_extraction` do produce boxes but are not wired into the DAG.
+`ocr_extraction` do produce boxes and both hold DAG nodes
+(`object_segmentation` runs matte-triggered through `matte_trigger`,
+`ocr_extraction` is wired and deselected by default under
+`run_scope.DESELECTED_BY_DEFAULT`), but neither feeds this module.
 
 Two deliberate limits.
 

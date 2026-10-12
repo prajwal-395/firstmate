@@ -135,7 +135,9 @@ def _full_default_run() -> frozenset:
     for exactly the reason its requirement refuses:
 
         "Requires a timeline_transcript produced outside the pipeline
-         (needs Resolve open and WhisperX). Running it by default would
+         (needs Resolve open; heard through the hybrid seam
+         timeline_transcript.transcribe_audio, not WhisperX). Running it
+         by default would
          crash on the missing transcript."
 
     Asking a deselected step's requirement of a run that never includes

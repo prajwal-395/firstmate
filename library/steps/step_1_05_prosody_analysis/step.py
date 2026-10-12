@@ -2,7 +2,10 @@
 """
 Step 1.05: Prosody Analysis
 
-Supplements WhisperX transcription (step 1.04) with prosodic features
+Supplements the hybrid transcription (step 1.04 through
+`library/tools/timeline_transcript.transcribe_audio`: the on-device
+transcriber's text through MFA, the only arm since the WhisperX arms
+left on 2026-09-24) with prosodic features
 that the LLM can use for creative decisions:
 
   - Pitch (F0) contour → emphasis, questions, trailing off

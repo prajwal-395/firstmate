@@ -1,12 +1,12 @@
 # Prosody - what step 1.05 would have measured on 001, and what already answers it
 
-**Status: MEASURED, and the step is now UNWIRED.**
+**Status: MEASURED, and the step is WIRED (re-wired 2026-09-01).**
 
 This closes the question the captain asked on 2026-08-29 - is prosody genuinely useful
 to this pipeline - and records the numbers, so re-adding it later means overturning a
 measurement rather than re-deriving one.
 
-It is an unwiring, not a deletion. **The capability stays on disk in full:**
+It is a re-wiring, not a deletion. **The capability stays on disk in full:**
 
     library/steps/step_1_05_prosody_analysis/          the step, unchanged
     library/tools/analysis/speech_advanced_pipeline.py the parselmouth pass, unchanged
@@ -14,12 +14,17 @@ It is an unwiring, not a deletion. **The capability stays on disk in full:**
     library/tools/context_views.py                     view:prosody, unchanged
     tests/unit/audio/test_prosody.py, tests/unit/audio/test_prosody.py
 
-What changed is that no DAG node runs it and no step declares its output, and its
-recorded `unwired_reason` in `library/tools/project_layout.STEPS` now states what was
-measured rather than what was assumed. The precedent is `object_segmentation` (1.06) and
+What changed is that the step runs on a DAG node again and declares the
+output consumers read: `prosody_analysis` in
+`library/processes/edit_video/dag.json` feeds `creative_direction`,
+`speech_sequence`, `plan_transitions`, `plan_vfx` and `plan_sfx`, and steps
+2.01 and 2.02 read its profiles through `view:prosody` in
+`library/tools/context_views.py` (the anchor-consuming planners 4.02-4.04
+read `view:emphasis` from the same module). The precedent it once followed
+is `object_segmentation` (1.06) and
 [`docs/SUBJECT_MASKING_MEASURED.md`](SUBJECT_MASKING_MEASURED.md); the distinction
-between UNWIRED and DESELECTED is AGENTS.md section 3, and prosody is unwired because
-after 2.01's declaration went there is no consumer left at all.
+between UNWIRED and DESELECTED is AGENTS.md section 3, and prosody is wired
+because its declaration has consumers again.
 
 The full scout report this is drawn from is
 `data/vep-prosody-usefulness-test/report.md` in the firstmate home, sections 3-5.

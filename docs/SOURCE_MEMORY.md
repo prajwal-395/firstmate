@@ -18,17 +18,21 @@ copy it; nothing goes into `pipeline_data.json`.
   source.json                    # M0 - written (library/tools/source_primitives.py)
   program.16k.wav                # M0 - the program track, 16 kHz mono s16le
   transcript.words.json          # M1 - written
-  speakers.json                  # M1b - diarization lane (RESERVED)
+  speakers.json                  # M1b - written (library/tools/person_entity.py,
+                                 #   via the identity lane)
   frames/ + frames.index.json    # M2  - written
   persons.json                   # M3  - written (library/tools/person_measurements.py)
   identity.json                  # M3b - entity lane (library/tools/person_entity.py)
   expressions.json               # M3c - written (library/tools/expression_classifier.py)
-  scenes.json                    # M4  - CLIP lane (RESERVED)
-  sound.json                     # M5  - SoundAnalysis lane (RESERVED)
+  scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
+                                 #   library/tools/analysis/vision_pipeline_v3.py)
+  sound.json                     # M5  - written (step 1.04 via write_sound_memory in
+                                 #   library/steps/step_1_04_temporal_index/step.py)
   clock.json                     # M6  - written
   events.json                    # M7  - written (library/tools/event_spans.py)
   verdicts.json                  # M8  - written (library/tools/span_verification.py)
-  world_model.json               # M9  - written (library/tools/world_model.py)
+  world_model.json               # M9  - written (library/tools/world_model.py,
+                                 #   via its own build command, not a ren analyze lane)
   relationships.json             # M10 - written (library/tools/relationships.py)
 <root>/transcripts/<pcm_sha256>.json   # the canonical transcript measurement
 ```
@@ -476,6 +480,50 @@ NO spans come back as `rejected` with their reasons. `--verify` with a
 predicate that is not a candidate generator (on_screen, speaking)
 REFUSES: those spans run the length of the takes.
 
+## M9 `world_model.json` (written)
+
+Owner: `library/tools/world_model.py`. Light: a pure join over the
+lanes, no decode, no model, no lock. `build_source_world_model` reads
+M0, M1, M3, M3b (+M3c), M4, M5, M6, M7, M8 and M10 out of this same
+memory and emits one joined entry per second of the source, so a query
+at time T is one array index; a lane that was never built is ABSENT
+from the record's `lanes` list, never defaulted.
+
+```json
+{"content_digest": "sha256 hex",
+ "source_file": "<absolute path>",
+ "status": "built",
+ "duration_seconds": 0.0,
+ "lanes": ["m0", "m1", "m3", "m3b", "m4", "m5", "m6", "m7", "m10"],
+ "timeline": [{"t": 0,
+               "speech": {"words": [], "speaker": null},
+               "faces": [], "scene": null,
+               "sound": {"events": []},
+               "events": {"on_screen": [], "speaking": [],
+                          "hand_near_mouth": []},
+               "relationships": {"holding": [], "pointing": []}}],
+ "entities": {"face_tracks": [], "voice_tracks": []},
+ "multicam": null}
+```
+
+`multicam` is null when the source is in no M6 group, else the M6
+`group_id`, `group_members`, `reference_digest` and
+`offset_to_reference_seconds` (`world_model._build_multicam`).
+
+It is built by its own command, not by `ren analyze`: `footage_analysis.
+LANES` carries no `world_model` lane, so the analysis run never writes
+this slot.
+
+```sh
+python3 -m library.tools.world_model build <project> [--memory-root DIR]
+python3 -m library.tools.world_model status <project>
+python3 -m library.tools.world_model query <project> --t 12.5
+```
+
+Reader: `library/tools/project_graph/footage.py` (`_build_world_models`
+via `source_memory.read_world_model`) joins each catalog source's model
+into the footage graph's scenes and transcript segments.
+
 ## M10 `relationships.json` (written)
 
 Owner: `library/tools/relationships.py`. Light: built from M3 + M3b, no
@@ -635,11 +683,14 @@ ren eval-search <project> --out-json F    # the pre-registered set by default
   each requires - never object segmentation, OCR only with `--with
   ocr.extract`. Results land in `capability_outputs` and the preflight ledger, so
   `ren edit` continues with preflight done. Then the lanes in
-  `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the text and frame
-  indexes; M9 (`world_model.json`) is built by `world_model.py` and
-  M10 (`relationships.json`) by `relationships.py`, both light
-  M3 + M3b, light, and is not a lane yet. `--memory-only` runs scan and
-  catalog alone.
+  `footage_analysis.LANES` fill M0-M3c, M6 and M7 and build the text and
+  frame indexes (the `identity` lane writes M1b `speakers.json` beside
+  M3b via `source_memory.write_speakers`); M9 (`world_model.json`) is
+  built by `world_model.build_project_world_model` through its own
+  `build` command, and M10 (`relationships.json`) by
+  `relationships.build_project_relationships` through its own `build`
+  command - neither is a `footage_analysis.LANES` lane, so `ren analyze`
+  writes neither slot. `--memory-only` runs scan and catalog alone.
 - **A fresh record is reused, never rebuilt**: a per-source lane runs only
   for sources whose slot is missing, names another digest, or is older than
   a slot it reads (an M3 measured off an M2 that was since re-sampled).

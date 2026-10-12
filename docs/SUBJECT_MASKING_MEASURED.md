@@ -1,19 +1,25 @@
 # Subject masking and tracking - what SAM 2.1 measured on 001
 
-**Status: MEASURED, and the step stays UNWIRED.**
+**Status: MEASURED, and the step is WIRED (matte-triggered).**
 
 This answers the captain's question of 2026-08-28 - "are we able to use any of the
 magic mask features... blur out the background... colorgrading specific areas...
 rotoscope out something" - and closes the two halves of #162 that were open:
 mask quality on this footage, and cost per clip.
 
-It is a measurement, not a wiring. `object_segmentation` (1.06) has no DAG node
-before this document and has none after it. What changed is that its recorded
-`unwired_reason` in `library/tools/project_layout.STEPS` now states what was
-measured rather than what was assumed.
+It is a measurement with a wired consumer. `object_segmentation` (1.06) holds
+the `object_segmentation` DAG node in `library/processes/edit_video/dag.json`,
+fed by `catalog`, `temporal_index`, `assign_aroll`, `select_broll`,
+`render_motion_graphics` and `color_grade` and feeding `compile_manifest`, and
+it segments only the clips a matte-needing plan names on that run - the
+`matte_trigger` in `library/steps/step_1_06_object_segmentation/step.py`
+(a `subject_grades` entry in the 5.01 `color_grade_spec`, or a 4.06
+`behind_subject_overlays` segment over a placed picture clip). Nothing
+planned, nothing segmented. `library/tools/project_layout.STEPS` accordingly
+carries no `unwired_reason` for it: every `StepDir` there defaults to wired.
 
     library/tools/analysis/object_segmentation.py   SAM 2.1 wrapper, TrackedObject, find_match_cut_candidates
-    library/steps/step_1_06_object_segmentation/    the unwired step
+    library/steps/step_1_06_object_segmentation/    the matte-triggered step
     tests/test_object_segmentation.py               the unit tests
     docs/RULE_EVIDENCE.md#sam-2-1-was-asked-for-a-config-that-does-not-exist
 
@@ -345,18 +351,27 @@ comparing far fewer candidate frames. That is a rewrite, not a tuning.
 
 ## 8. Recommendation
 
-**Keep the step unwired, and do not build the Fusion connection yet.**
+**The step is wired matte-triggered, and the Fusion connection stays scoped to that trigger.**
 
 The capability is real - better than expected on this footage, and the answer to
 the captain's question is "yes, through Fusion, and the tracker holds the subject
-across your shakiest walking selfies". But three things should land before any of
-it reaches a timeline, in this order:
+across your shakiest walking selfies". The wiring since follows the three
+conditions this section asked for, in its order, and each names the code that
+proves it:
 
-1. **Seed from the face box** (§6). Small, and everything else depends on it.
-2. **Decide what consumes a mask**, which is #162's question 3 and still open.
-   Wiring a producer nothing reads is the defect #187 exists to prevent.
+1. **Seed from the face box** (§6). Landed: `face_boxes_from_temporal_index`
+    in `library/steps/step_1_06_object_segmentation/step.py` seeds from the
+    1.04 Haar face box, and a clip with no located box declines instead of
+    segmenting blind.
+2. **Decide what consumes a mask**, which is #162's question 3. Answered:
+    the `matte_trigger` in the same step names the two consumers - a 5.01
+    `subject_grades` entry and a 4.06 `behind_subject_overlays` segment -
+    and `compile_manifest` reads the resulting segmentation. A producer
+    nothing reads is still the defect #187 exists to prevent; this one is
+    read.
 3. **Then pick ONE use** - region grading is the cheapest and most robust - and
-   build the Loader/EffectMask route for it alone.
+    build the Loader/EffectMask route for it alone. That route is
+    `subject_grade.write_subject_matte`, read by `comp_builder.py`.
 
 The cost is the standing objection. **6.1x realtime** means 001's 13.4 minutes of
 footage costs about 80 minutes of machine, on a machine that already goes into

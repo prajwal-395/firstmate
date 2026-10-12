@@ -74,7 +74,8 @@ REELS = "reels"
 """Short reels cut from a master timeline that already exists.  Its nodes
 are driven through the operation registry - see `manage_project.py
 build-reels` - because two of its five stages are outside any DAG by
-construction (the transcript needs Resolve open and WhisperX loaded, and
+construction (the transcript needs Resolve open and the hybrid
+transcription models, and
 the approval is the captain's)."""
 
 

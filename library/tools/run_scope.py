@@ -201,12 +201,16 @@ DESELECTED_BY_DEFAULT: Dict[str, str] = {
 
     # select_reels requires a timeline_transcript, which is produced
     # by `python3 -m library.tools.timeline_transcript <project> --write`
-    # outside the pipeline (it needs Resolve open and WhisperX).  Running
+    # outside the pipeline (it needs Resolve open; the hearing itself is
+    # the hybrid seam `timeline_transcript.transcribe_audio`, on-device
+    # text through MFA - the WhisperX arms left on 2026-09-24).  Running
     # it by default would crash any pipeline run that hasn't produced one.
     # Turn on with --with select_reels once the transcript exists.
     "select_reels": (
         "Requires a timeline_transcript produced outside the pipeline "
-        "(needs Resolve open and WhisperX). Running it by default would "
+        "(needs Resolve open; heard through the hybrid seam "
+        "timeline_transcript.transcribe_audio, not WhisperX). Running "
+        "it by default would "
         "crash on the missing transcript. Build the transcript first, "
         "then turn on with --with select_reels."
     ),
