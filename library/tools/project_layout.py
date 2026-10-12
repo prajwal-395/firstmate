@@ -261,9 +261,12 @@ orchestrates steps and the per-source memory lanes."""
 REEL_PREVIEW = "reel_preview"
 """`ren preview` (library/tools/reel_preview.py) - an explicit verb, not a
 step, like `ren deliver`."""
+ROUND_PAGE = "round_page"
+"""`ren round-page` (library/tools/round_page.py) - the review round's page,
+written beside the previews it plays."""
 NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL,
                       MARKER_CAPTURE, FOOTAGE_ANALYSIS_RUN, PROJECT_FORMAT,
-                      REEL_PREVIEW)
+                      REEL_PREVIEW, ROUND_PAGE)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -630,8 +633,9 @@ AREAS: dict[Area, AreaSpec] = {
     Area.PREVIEWS: AreaSpec(
         f"{_OUT}/previews", Kind.OUTPUT,
         "Watchable low-cost previews of built reels, one per content key, "
-        "and previews.json, the record of every render and cache hit.",
-        produced_by=(REEL_PREVIEW,)),
+        "previews.json, the record of every render and cache hit, and "
+        "round-<N>.html, each review round's page that plays them.",
+        produced_by=(REEL_PREVIEW, ROUND_PAGE)),
     Area.LLM_REQUESTS: AreaSpec(
         f"{_OUT}/llm_requests", Kind.OUTPUT,
         "The prompt each hybrid/LLM step was handed, as it was sent.",

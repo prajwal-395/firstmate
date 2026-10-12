@@ -168,7 +168,7 @@ def _note_text(note: Mapping) -> str:
 
 
 def _anchor(note: Mapping) -> dict:
-    return {
+    anchor = {
         "source": note.get("source") or "",
         "timeline": note.get("timeline") or "",
         "frame": note.get("frame"),
@@ -177,6 +177,15 @@ def _anchor(note: Mapping) -> dict:
         "pull_file": note.get("pull_file") or "",
         "collected_at": note.get("collected_at") or "",
     }
+    # A note typed while watching a file (`ren revise --at`, the round's
+    # review page) also says WHERE in that file - the moment the editor
+    # saw, which is what they will recognise.
+    watched = (note.get("custom_data") or {}).get("chat_time_anchor") \
+        if isinstance(note.get("custom_data"), Mapping) else None
+    if isinstance(watched, Mapping) and watched.get("file_clock"):
+        anchor["file_clock"] = str(watched["file_clock"])
+        anchor["watched"] = str(watched.get("watched") or "delivered")
+    return anchor
 
 
 def _identity(note: Mapping, timeline: str = "") -> str:
@@ -855,9 +864,42 @@ def render_text(document: Mapping) -> str:
     return "\n".join(lines)
 
 
+STYLE = (
+    ":root{color-scheme:light;--ink:#18211e;--muted:#61716b;--line:#d9e2dc;--paper:#f4f7f2;--card:#fff;--green:#145c45;--amber:#805600;--red:#963d35}"
+    "*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}"
+    "main{max-width:980px;margin:0 auto;padding:40px 22px 72px}h1{font-size:clamp(2rem,5vw,3rem);line-height:1.05;margin:0 0 10px;letter-spacing:-.035em}"
+    ".sub{color:var(--muted);margin:0 0 28px;overflow-wrap:anywhere}.note{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:14px 0;box-shadow:0 3px 14px #18211e0a}"
+    ".note header{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}.reel{font-weight:750;color:var(--green)}.location{font-size:.85rem;color:var(--muted)}.note-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0 18px}"
+    ".outcome{border-top:1px solid var(--line);padding-top:15px;margin-top:15px}.tags{display:flex;gap:7px;flex-wrap:wrap}.tags span{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-radius:999px;background:#edf3ee;padding:4px 9px;color:var(--green)}"
+    ".outcome h3{font-size:1rem;margin:11px 0 3px;text-transform:capitalize}.outcome p{margin:7px 0}.not-done{color:var(--red)}.open{color:var(--amber)}ul{padding-left:20px;color:var(--muted);overflow-wrap:anywhere}code{font-size:.85em}.empty{color:var(--muted)}@media(max-width:600px){main{padding:26px 14px 48px}.note{padding:17px}}")
+"""The outcome report's look, shared with the round's review page
+(`round_page`), which shows the same note cards beside the previews."""
+
+
 def render_html(document: Mapping) -> str:
+    range_label = "All reels"
+    if document.get("from_reel") is not None or document.get("to_reel") is not None:
+        low = document.get("from_reel") or 1
+        high = document.get("to_reel") or "end"
+        range_label = f"Reels {low}–{high}"
+    body = (render_cards(document.get("notes") or ())
+            or '<p class="empty">No notes found.</p>')
+    return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            f"<title>Feedback outcomes - {html.escape(range_label)}</title>"
+            f"<style>{STYLE}</style>"
+            "</head><body><main>"
+            f"<h1>Feedback outcomes</h1><p class=\"sub\">{html.escape(range_label)} · "
+            f"{len(document.get('notes') or ())} notes · "
+            f"{html.escape(str(document.get('project') or ''))}</p>"
+            f"{body}</main></body></html>")
+
+
+def render_cards(notes) -> str:
+    """One `<article class="note">` per note: its words, where it sits and
+    every outcome recorded for it. "" for no notes."""
     cards = []
-    for note in document.get("notes") or ():
+    for note in notes or ():
         note_text = html.escape(str(note.get("text") or "(no text)"))
         outcomes = []
         if not note.get("outcomes"):
@@ -907,7 +949,9 @@ def render_html(document: Mapping) -> str:
         anchor = ((note.get("outcomes") or [{}])[-1].get("anchor")
                   or note.get("anchor") or {})
         frame = anchor.get("frame_in_timeline_space")
-        location = (f"Frame {frame}" if frame is not None else
+        location = (f"At {anchor['file_clock']} in the {anchor.get('watched') or 'delivered'} file"
+                    if anchor.get("file_clock") else
+                    f"Frame {frame}" if frame is not None else
                     f"First asked {note.get('first_asked') or 'unknown'}")
         cards.append(
             f"<article class=\"note\"><header><span class=\"reel\">"
@@ -915,28 +959,7 @@ def render_html(document: Mapping) -> str:
             f"<span class=\"location\">{html.escape(location)}</span></header>"
             f"<p class=\"note-text\">{note_text}</p>"
             f"{''.join(outcomes)}</article>")
-    range_label = "All reels"
-    if document.get("from_reel") is not None or document.get("to_reel") is not None:
-        low = document.get("from_reel") or 1
-        high = document.get("to_reel") or "end"
-        range_label = f"Reels {low}–{high}"
-    body = "".join(cards) or '<p class="empty">No notes found.</p>'
-    return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            f"<title>Feedback outcomes - {html.escape(range_label)}</title>"
-            "<style>"
-            ":root{color-scheme:light;--ink:#18211e;--muted:#61716b;--line:#d9e2dc;--paper:#f4f7f2;--card:#fff;--green:#145c45;--amber:#805600;--red:#963d35}"
-            "*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}"
-            "main{max-width:980px;margin:0 auto;padding:40px 22px 72px}h1{font-size:clamp(2rem,5vw,3rem);line-height:1.05;margin:0 0 10px;letter-spacing:-.035em}"
-            ".sub{color:var(--muted);margin:0 0 28px;overflow-wrap:anywhere}.note{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:14px 0;box-shadow:0 3px 14px #18211e0a}"
-            ".note header{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}.reel{font-weight:750;color:var(--green)}.location{font-size:.85rem;color:var(--muted)}.note-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0 18px}"
-            ".outcome{border-top:1px solid var(--line);padding-top:15px;margin-top:15px}.tags{display:flex;gap:7px;flex-wrap:wrap}.tags span{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-radius:999px;background:#edf3ee;padding:4px 9px;color:var(--green)}"
-            ".outcome h3{font-size:1rem;margin:11px 0 3px;text-transform:capitalize}.outcome p{margin:7px 0}.not-done{color:var(--red)}.open{color:var(--amber)}ul{padding-left:20px;color:var(--muted);overflow-wrap:anywhere}code{font-size:.85em}.empty{color:var(--muted)}@media(max-width:600px){main{padding:26px 14px 48px}.note{padding:17px}}</style>"
-            "</head><body><main>"
-            f"<h1>Feedback outcomes</h1><p class=\"sub\">{html.escape(range_label)} · "
-            f"{len(document.get('notes') or ())} notes · "
-            f"{html.escape(str(document.get('project') or ''))}</p>"
-            f"{body}</main></body></html>")
+    return "".join(cards)
 
 
 def main(argv=None) -> int:

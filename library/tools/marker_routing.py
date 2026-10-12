@@ -152,6 +152,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -685,6 +686,12 @@ class RoutedNote:
     reason: str = ""
     attachments: list = field(default_factory=list)
 
+    file_anchor: dict = field(default_factory=dict)
+    """For a note typed while WATCHING a file rather than in Resolve
+    (`ren revise --at`, `ren notes add`, the round's review page): the
+    moment in that file - `{file_clock, file_seconds, video_path,
+    watched}` - off the note's `chat_time_anchor`. Empty for a marker."""
+
     decision: dict = field(default_factory=dict)
     """The decision that PRODUCED the clip this note is attached to, when
     there is one - `{step, decision_id, basis, locator, routes, source}`.
@@ -920,6 +927,28 @@ def stamped_decision(target: dict, custom_data=None, ledger=None) -> dict:
                       "timeline_decisions.UNSTAMPED_PLACEMENTS)"}
 
 
+def _file_anchor(custom_data) -> dict:
+    """The watched-file moment a chat note carries, or {}."""
+    anchor = (custom_data or {}).get("chat_time_anchor") \
+        if isinstance(custom_data, dict) else None
+    if not isinstance(anchor, dict) or anchor.get("file_seconds") is None:
+        return {}
+    return {key: anchor[key] for key in (
+        "file_clock", "file_seconds", "video_path", "watched")
+        if anchor.get(key) is not None}
+
+
+def _watched_line(note: "RoutedNote") -> str:
+    """`0:12.0 in Reel 02.mp4 (preview)`, or "" for a marker."""
+    anchor = note.file_anchor or {}
+    if not anchor:
+        return ""
+    name = Path(str(anchor.get("video_path") or "")).name or "(unnamed file)"
+    kind = anchor.get("watched") or "delivered"
+    return f"{anchor.get('file_clock') or anchor.get('file_seconds')} " \
+           f"in {name} ({kind})"
+
+
 def route_note(raw: dict, timeline: str = "", pull_file: str = "",
                ledger=None, timeline_fps: float = 0.0,
                timeline_start_frame: int = 0, edit_rows=None,
@@ -958,6 +987,7 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
         timeline_start_frame=int(timeline_start_frame or 0),
         target=asdict(resolve_target(raw)),
         attachments=list(raw.get("attachments") or []),
+        file_anchor=_file_anchor(raw.get("custom_data")),
     )
     routed.decision = stamped_decision(
         routed.target, raw.get("custom_data"), ledger)
@@ -1737,6 +1767,8 @@ def render_report(project_folder, routed_notes=None, timelines=None) -> str:
             f"- **Collected**: {note.collected_at} off timeline "
             f"`{note.timeline}`",
         ]
+        if note.file_anchor:
+            lines.append(f"- **Watched at**: {_watched_line(note)}")
         # Lane E4 (R7): the Project Model link survives into the
         # generated doc. The stable id (one note, every rebuild) and
         # the clip-use anchor (this note, this picture) are rendered
@@ -1840,6 +1872,10 @@ def _print_report(project_folder, routed_notes) -> None:
               f"({note.target.get('basis')}) @ "
               f"{note.timecode or '(unplaced)'}")
         print(f"    {_where(note)}")
+        if note.file_anchor:
+            print(f"    watched  : {_watched_line(note)}")
+            print(f"    revise   : ren revise {shlex.quote(str(project_folder))} "
+                  f"--note-id {shlex.quote(note.edit_link_id)}")
         for line in note.text.splitlines():
             print(f"    | {line}")
         if note.outcome == OUTCOME_ROUTED:

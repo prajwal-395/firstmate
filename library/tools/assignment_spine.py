@@ -741,7 +741,10 @@ def resume_point(project, record: dict) -> dict:
         return {"action": "sign_off",
                 "command": f"ren sign-off {quoted} {shlex.quote(reel['name'])}",
                 "why": f"{reel['name']} is built and waiting for approval"
-                       + (f"; watch {watch}" if watch else "")}
+                       + (f"; watch {watch}, or every reel of the round "
+                          f"with `ren round-page {quoted} --open`"
+                          if watch else
+                          f"; `ren preview {quoted}` makes a file to watch")}
     if by_status["signed_off"]:
         reel = by_status["signed_off"][0]
         return {"action": "deliver",

@@ -787,10 +787,16 @@ def cmd_notes(args):
         if getattr(args, "all", False):
             argv.append("--all")
         sys.exit(marker_feedback.main(argv))
+    if getattr(args, "action", "") == "add":
+        _notes_add(args)
+        return
     if getattr(args, "action", "") == "import":
         from library.tools import frameio_import
 
-        if not getattr(args, "slug", "") or not getattr(args, "file", ""):
+        # The third positional stayed `words` so one slot serves both
+        # `add` (the note) and `import` (the export); read either name.
+        export = (getattr(args, "words", "") or getattr(args, "file", ""))
+        if not getattr(args, "slug", "") or not export:
             print("Error: `ren notes import` needs the project and the "
                   "export: `ren notes import <project> <export.csv|"
                   "fiojson|edl> --reel N`.",
@@ -804,7 +810,8 @@ def cmd_notes(args):
         except FileNotFoundError:
             project_folder = args.slug
 
-        argv = [project_folder, args.file, "--reel", args.reel or ""]
+        argv = [project_folder, export, "--reel",
+                getattr(args, "reel", "") or ""]
         if getattr(args, "json", False):
             argv.append("--json")
         sys.exit(frameio_import.main(argv))
@@ -812,6 +819,7 @@ def cmd_notes(args):
         print(f"Error: unknown notes action {args.action!r}; "
               f"`ren notes <project>` routes, "
               f"`ren notes pull <project>` pulls, "
+              f"`ren notes add <project> --at 0:12 \"<note>\"` adds, "
               f"`ren notes import <project> <export> --reel N` imports.",
               file=sys.stderr)
         sys.exit(2)
@@ -828,6 +836,50 @@ def cmd_notes(args):
 
     argv = ["write" if args.write else "report", "--project", project_folder]
     sys.exit(marker_routing.main(argv))
+
+
+def _notes_add(args):
+    """`ren notes add`: store a note at a watched-file time, unrevised.
+
+    The write behind the round's review page (library/tools/round_page.py):
+    the note joins the same store `ren revise --at` writes, so `ren notes`
+    lists it and `ren revise <project> --note-id <id>` changes the reel.
+    See library/tools/delivered_note_anchor.py.
+    """
+    import shlex
+
+    from library.tools import delivered_note_anchor as anchor_mod
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
+    if not getattr(args, "slug", "") or not getattr(args, "at", ""):
+        print("Error: `ren notes add` needs the project and the moment: "
+              "`ren notes add <project> --at 0:12 [--reel N] "
+              "[--file <watched file>] \"<note>\"`.", file=sys.stderr)
+        sys.exit(2)
+    try:
+        config = get_project(args.slug, strict=False)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+    try:
+        added = anchor_mod.add_note(
+            project_folder, args.words or "", at=args.at,
+            reel=args.reel or "", file=args.file or "")
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        if args.words:
+            print(f"  (the note was not stored; its words: {args.words!r})",
+                  file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    if getattr(args, "json", False):
+        print(json.dumps(added, indent=2, default=str))
+        return
+    print(f"Noted on {added['timeline_name']} at {added['file_clock']} "
+          f"of {os.path.basename(added['video_path'])} "
+          f"(timeline frame {added['timeline_frame']}).")
+    print(f"  note id: {added['note_id']}")
+    print(f"  Revise it with: ren revise {shlex.quote(project_folder)} "
+          f"--note-id {shlex.quote(added['note_id'])}")
 
 
 def cmd_pause(args):
@@ -4958,28 +5010,42 @@ def main():
 
     # relink
     # notes (`ren notes <project>` routes; `ren notes pull <project>` pulls;
-    # `ren notes import <project> <export> --reel N` imports Frame.io comments)
+    # `ren notes add <project> --at 0:12 "<note>"` stores a note at a
+    # watched-file time; `ren notes import <project> <export> --reel N`
+    # imports Frame.io comments)
     p_notes = _add_command(sub, "notes")
     p_notes.add_argument("action", nargs="?", default="",
                          help="The project to route, `pull` to collect "
                               "new notes off Resolve first (needs Resolve "
                               "open: `ren notes pull <project> [--all]`), "
-                              "or `import` to ingest a Frame.io comment "
-                              "export (`ren notes import <project> "
+                              "`add` to store a note at a watched-file "
+                              "time, or `import` to ingest a Frame.io "
+                              "comment export (`ren notes import <project> "
                               "<export.csv|fiojson|edl> --reel N`)")
     p_notes.add_argument("slug", metavar="PROJECT", nargs="?", default="",
-                         help="With `pull`: the project slug, or an "
-                              "absolute path. With `import`: the project")
-    p_notes.add_argument("file", metavar="EXPORT", nargs="?", default="",
-                         help="With `import`: the exported comment file "
+                         help="With `pull`, `add` or `import`: the project "
+                              "slug, or an absolute path")
+    p_notes.add_argument("words", metavar="NOTE_OR_EXPORT", nargs="?",
+                         default="",
+                         help="With `add`: the note, in words. "
+                              "With `import`: the exported comment file "
                               "(.csv, .fiojson or .edl)")
     p_notes.add_argument(
+        "--at", default="",
+        help="with `add`: the moment in the watched file (seconds, M:SS "
+             "or H:M:SS), e.g. `--at 0:12`")
+    p_notes.add_argument(
         "--reel", default="",
-        help="with `import`: the reel number or exact timeline name "
-             "the comments review")
+        help="with `add` or `import`: the reel number or exact timeline "
+             "name the note or comments review")
+    p_notes.add_argument(
+        "--file", default="",
+        help="with `add`: the exact file watched - the reel's newest "
+             "preview or its delivered file (default: the delivered file)")
     p_notes.add_argument(
         "--json", action="store_true",
-        help="with `import`: print the import record as JSON")
+        help="with `add` or `import`: print the stored note or the "
+             "import record as JSON")
     p_notes.add_argument(
         "--write", action="store_true",
         help="also write the routing record and ROUTED-NOTES.md into "

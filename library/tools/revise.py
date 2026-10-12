@@ -133,19 +133,29 @@ def _save(project: str, record: dict) -> dict:
     return record
 
 
-def newest_open(project: str) -> dict | None:
-    """The most recently touched revision that has not finished."""
+def records(project: str) -> list[dict]:
+    """Every revision recorded in this project, by id."""
     path = record_path(_root(project), "x").parent
-    open_records = []
+    found = []
     for candidate in sorted(path.glob("revise_*.json")) if path.is_dir() else []:
         try:
-            record = json.loads(candidate.read_text(encoding="utf-8"))
+            found.append(json.loads(candidate.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             continue
-        if record.get("status") not in FINISHED:
-            open_records.append(record)
-    return (max(open_records, key=lambda r: r.get("updated_at") or "")
-            if open_records else None)
+    return found
+
+
+def open_records(project: str) -> list[dict]:
+    """Every revision that has not finished."""
+    return [record for record in records(project)
+            if record.get("status") not in FINISHED]
+
+
+def newest_open(project: str) -> dict | None:
+    """The most recently touched revision that has not finished."""
+    records = open_records(project)
+    return (max(records, key=lambda r: r.get("updated_at") or "")
+            if records else None)
 
 
 def _status(record: dict, status: str, **fields) -> dict:

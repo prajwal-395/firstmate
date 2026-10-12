@@ -211,6 +211,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "dry-run", group: "Reels", summary: "Plan a touch-up against the live timeline and stop" },
     Verb { name: "deliver", group: "Reels", summary: "Render approved reels to files (all signed-off, or one named reel)" },
     Verb { name: "preview", group: "Reels", summary: "Render a watchable low-cost preview of each built reel (cached by content)" },
+    Verb { name: "round-page", group: "Reels", summary: "Write this review round's page: previews, what changed, what waits on you, notes at a moment" },
     Verb { name: "watch", group: "Reels", summary: "Have a model watch a delivered reel" },
     Verb { name: "hear", group: "Reels", summary: "Hear a delivered reel against its plan" },
     Verb { name: "drift", group: "Reels", summary: "Compare each reel's build snapshot with the live timeline" },

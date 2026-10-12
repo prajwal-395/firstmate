@@ -18,6 +18,13 @@ itself. Anything older than those fields falls back to the project's
 own pull files and then to the recorded shadow snapshot for the same
 timeline - both are the project's own measurements of the same
 timeline, never a guess. With no rate to map through, this refuses.
+
+The same clock serves a PREVIEW (`ren preview`, T12): the round's
+review page (`round_page`, T13) plays the reel's newest preview, which
+also starts at the timeline's first frame, and its "note at this time"
+control stores the note through `ren notes add <p> --file <preview>`.
+A preview the reel has moved past is refused - its seconds belong to a
+cut that is no longer on the timeline.
 """
 
 from __future__ import annotations
@@ -33,6 +40,11 @@ from library.tools.ren_refusal import RenRefusal
 
 class AnchorRefused(RenRefusal):
     """The file time cannot become a timeline anchor; nothing was stored."""
+
+
+WATCHED_DELIVERED = "delivered"
+WATCHED_PREVIEW = "preview"
+"""What kind of file the editor watched when they typed the note."""
 
 
 # ── The file clock ────────────────────────────────────────────────
@@ -158,6 +170,57 @@ def find_delivered(project_folder: str, reel: str = "") -> dict:
     return mine[0]
 
 
+def find_watched(project_folder: str, file: str) -> dict:
+    """The record row for the exact file the editor watched.
+
+    `file` is a delivered file or a preview (`ren preview`). A preview
+    must still be its reel's newest one: an older preview shows a cut
+    the timeline has moved past, so its seconds would land on the wrong
+    frames and this refuses rather than anchoring there.
+    """
+    from library.tools import reel_preview
+
+    path = Path(file).expanduser()
+    if not path.is_absolute():
+        path = Path(project_folder) / path
+    path = path.resolve()
+    for row in _rows(project_folder):
+        video = row.get("video_path") or ""
+        if video and Path(video).expanduser().resolve() == path:
+            if not row.get("delivered"):
+                break
+            return {**row, "watched": WATCHED_DELIVERED}
+    sidecar = reel_preview._sidecar(path)
+    try:
+        record = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise AnchorRefused(
+            f"{path} is neither a delivered reel nor a preview Ren made",
+            "a note anchors to a moment in a file whose record maps it "
+            "onto the timeline",
+            "pass `--file` naming a preview (`ren preview`) or a delivered "
+            "file (`ren deliver`), or leave it out to use the delivered "
+            "file") from None
+    timeline = str(record.get("timeline") or "")
+    index = reel_preview.previews_dir(project_folder) / reel_preview.INDEX_FILE
+    try:
+        latest = (json.loads(index.read_text(encoding="utf-8"))
+                  .get("latest") or {}).get(timeline) or {}
+    except (OSError, ValueError):
+        latest = {}
+    newest = latest.get("path") or ""
+    if not newest or Path(newest).expanduser().resolve() != path:
+        raise AnchorRefused(
+            f"{path.name} is not the newest preview of {timeline!r}",
+            "the reel changed after this preview was made, so its seconds "
+            "would land on a cut that is no longer on the timeline",
+            "regenerate the review page (`ren round-page <project>`), "
+            "watch the newest preview and note it again")
+    return {"timeline_name": timeline, "reel": record.get("reel"),
+            "video_path": str(path), "sidecar": str(sidecar),
+            "delivered": False, "watched": WATCHED_PREVIEW}
+
+
 def _sidecar_record(row: dict) -> dict:
     try:
         return json.loads(Path(row["sidecar"]).read_text(encoding="utf-8"))
@@ -165,17 +228,78 @@ def _sidecar_record(row: dict) -> dict:
         return {}
 
 
-def delivery_timing(project_folder: str, row: dict) -> tuple:
-    """`(fps, start_frame)` for a delivered reel, off its own records.
+def _recorded_clock(project_folder: str, timeline: str):
+    """`(fps, start_frame)` the project itself recorded for a timeline.
 
-    The delivery record (`.deliver.json`) is read first - it is the
-    mapping this note is anchored through. Pull files the project
-    already holds for the same timeline come next, then the recorded
-    shadow snapshot: all three are the project's own measurements of
-    the same timeline. With no rate anywhere, this refuses rather than
-    dividing by a guessed one.
+    The pull files the project already holds for the same timeline come
+    first, then the recorded shadow snapshot: both are the project's own
+    measurements of the same timeline. None when neither carries a rate.
+    """
+    if not timeline:
+        return None
+    from library.tools import marker_feedback
+
+    for _path, payload in reversed(
+            marker_feedback.pulled_files(project_folder)):
+        if payload.get("timeline") != timeline:
+            continue
+        try:
+            pull_fps = float(payload.get("timeline_fps") or 0.0)
+        except (TypeError, ValueError):
+            pull_fps = 0.0
+        if pull_fps > 0:
+            try:
+                pull_start = int(payload.get("timeline_start_frame") or 0)
+            except (TypeError, ValueError):
+                pull_start = 0
+            return pull_fps, pull_start
+    try:
+        from library.tools import edit_spec, timeline_shadow
+
+        project_name = edit_spec._resolve_project_name(project_folder)
+        store = timeline_shadow.ShadowStore()
+        timeline_id = store.resolve_timeline(project_name, timeline)
+        snapshot = store.snapshot(store.head(project_name, timeline_id))
+        shadow_fps = float(snapshot.get("fps") or 0.0)
+        if shadow_fps > 0:
+            return shadow_fps, int(snapshot.get("start_frame") or 0)
+    except Exception:  # noqa: BLE001 - the caller refuses on None
+        pass
+    return None
+
+
+def delivery_timing(project_folder: str, row: dict) -> tuple:
+    """`(fps, start_frame)` for a watched reel file, off its own records.
+
+    A delivered file's record (`.deliver.json`) is read first - it is
+    the mapping this note is anchored through. A preview's record
+    (`.preview.json`) carries the build's frame rate but not where the
+    timeline's numbering starts, so its start comes from the project's
+    own clock for the same timeline (`_recorded_clock`). With no rate or
+    no start anywhere, this refuses rather than guessing one.
     """
     record = _sidecar_record(row)
+    timeline = str(row.get("timeline_name") or "")
+    if row.get("watched") == WATCHED_PREVIEW:
+        try:
+            fps_value = float((record.get("expected") or {}).get("fps") or 0)
+        except (TypeError, ValueError):
+            fps_value = 0.0
+        clock = _recorded_clock(project_folder, timeline)
+        start = record.get("timeline_start_frame")
+        if fps_value > 0 and start is not None:
+            return fps_value, int(start)
+        if fps_value > 0 and clock is not None:
+            return fps_value, int(clock[1])
+        raise AnchorRefused(
+            f"the preview of {timeline!r} cannot be mapped onto its "
+            "timeline",
+            "a preview second becomes a timeline frame through the "
+            "build's frame rate and the timeline's start frame, and "
+            + ("no start frame was recorded for it" if fps_value > 0
+               else "its record carries no frame rate"),
+            "render the preview again with `ren preview <project>`, or "
+            "deliver the reel and note against the delivered file")
     fps = record.get("timeline_fps")
     start = record.get("timeline_start_frame")
     try:
@@ -188,37 +312,9 @@ def delivery_timing(project_folder: str, row: dict) -> tuple:
         start_value = 0
     if fps_value > 0:
         return fps_value, start_value
-    timeline = str(row.get("timeline_name") or "")
-    if timeline:
-        from library.tools import marker_feedback
-
-        for _path, payload in reversed(
-                marker_feedback.pulled_files(project_folder)):
-            if payload.get("timeline") != timeline:
-                continue
-            try:
-                pull_fps = float(payload.get("timeline_fps") or 0.0)
-            except (TypeError, ValueError):
-                pull_fps = 0.0
-            if pull_fps > 0:
-                try:
-                    pull_start = int(
-                        payload.get("timeline_start_frame") or 0)
-                except (TypeError, ValueError):
-                    pull_start = 0
-                return pull_fps, pull_start
-        try:
-            from library.tools import edit_spec, timeline_shadow
-
-            project_name = edit_spec._resolve_project_name(project_folder)
-            store = timeline_shadow.ShadowStore()
-            timeline_id = store.resolve_timeline(project_name, timeline)
-            snapshot = store.snapshot(store.head(project_name, timeline_id))
-            shadow_fps = float(snapshot.get("fps") or 0.0)
-            if shadow_fps > 0:
-                return shadow_fps, int(snapshot.get("start_frame") or 0)
-        except Exception:  # noqa: BLE001 - fall through to the refusal
-            pass
+    clock = _recorded_clock(project_folder, timeline)
+    if clock is not None:
+        return clock
     raise AnchorRefused(
         f"the delivery record for {row.get('timeline_name')!r} carries no "
         "timeline rate to map the file time through",
@@ -234,7 +330,12 @@ def _delivered_seconds(row: dict) -> float:
     for carrier in (record.get("timeline_seconds"),
                     ((record.get("verification") or {}).get("duration") or {})
                     .get("value"),
-                    ((record.get("render") or {}).get("duration_seconds"))):
+                    ((record.get("render") or {}).get("duration_seconds")),
+                    # A preview's record: the reel's length it was
+                    # checked against, then what was measured.
+                    record.get("duration_seconds"),
+                    (record.get("verification") or {}).get(
+                        "measured_seconds")):
         try:
             value = float(carrier) if carrier is not None else 0.0
         except (TypeError, ValueError):
@@ -287,11 +388,26 @@ def _clips_at_frame(project_folder: str, timeline_name: str,
     return primary, hits
 
 
-def resolve(project_folder: str, reel: str, file_seconds: float) -> dict:
-    """Anchor one file time: delivered file -> timeline frame + clip."""
-    from library.tools.project_layout import ProjectLayout  # noqa: F401
+def resolve(project_folder: str, reel: str, file_seconds: float, *,
+            file: str = "") -> dict:
+    """Anchor one file time: watched file -> timeline frame + clip.
 
-    row = find_delivered(project_folder, reel)
+    The watched file is the reel's delivered file, or the exact file
+    `file` names (a delivered file or the reel's newest preview).
+    """
+    if file:
+        row = find_watched(project_folder, file)
+        wanted = (reel or "").strip()
+        if wanted and wanted not in (str(row.get("reel")),
+                                     row["timeline_name"]):
+            raise AnchorRefused(
+                f"{Path(file).name} is {row['timeline_name']!r}, not "
+                f"reel {wanted!r}",
+                "a note anchors to the reel whose file was watched",
+                "pass the `--reel` the file belongs to, or leave it out")
+    else:
+        row = {**find_delivered(project_folder, reel),
+               "watched": WATCHED_DELIVERED}
     fps, start_frame = delivery_timing(project_folder, row)
     duration = _delivered_seconds(row)
     if duration > 0 and file_seconds > duration + 1e-6:
@@ -310,6 +426,7 @@ def resolve(project_folder: str, reel: str, file_seconds: float) -> dict:
         "reel": row.get("reel"),
         "video_path": row.get("video_path") or "",
         "sidecar": row.get("sidecar") or "",
+        "watched": row.get("watched") or WATCHED_DELIVERED,
         "file_seconds": round(float(file_seconds), 3),
         "file_clock": format_at(file_seconds),
         "timeline_fps": fps,
@@ -386,6 +503,7 @@ def write_anchored_note(project_folder: str, text: str,
             "timeline_seconds": anchor["timeline_seconds"],
             "video_path": anchor["video_path"],
             "sidecar": anchor["sidecar"],
+            "watched": anchor.get("watched") or WATCHED_DELIVERED,
             "source_clip": anchor["source_clip"],
         }},
         "custom_data_raw": json.dumps({"chat_time_anchor": {
@@ -415,3 +533,19 @@ def write_anchored_note(project_folder: str, text: str,
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8")
     return marker_routing.edit_link_id(raw, timeline, str(path)), str(path)
+
+
+def add_note(project_folder: str, text: str, *, at: str, reel: str = "",
+             file: str = "") -> dict:
+    """Store one note at a watched-file time, without revising it yet.
+
+    `ren notes add` - the write behind the review page's "note at this
+    time" control. The note lands in the same store `ren revise --at`
+    writes, so `ren notes <p>` lists it and `ren revise <p> --note-id
+    <id>` turns it into a change. Returns the anchor plus the `note_id`
+    revise takes and the pull file it was written to.
+    """
+    anchor = resolve(project_folder, reel, parse_at(at), file=file)
+    note_id, pull_path = write_anchored_note(project_folder, text, anchor)
+    return {**anchor, "note_id": note_id, "note": text.strip(),
+            "pull_file": pull_path}

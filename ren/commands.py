@@ -268,6 +268,10 @@ VERBS = (
          effects=("read", "project_write", "resolve_read", "render", "heavy_lock"), json=True,
          module_argv=("library.tools.reel_preview",),
          detail="`ren preview <project> [--reel N ...]` renders a half-resolution proxy of every approved, built reel (or the named ones) and names the file to watch. Headless through FilmCraft by default, so Resolve is not touched; `--engine resolve` renders the live timeline instead. A reel whose content has not changed since its last preview is not rendered again (a cache hit, recorded). One preview runs at a time, never beside a Resolve render or a model pass. Not a delivery: `ren deliver` makes the file you ship."),
+    Verb("round-page", "Reels", "Write this review round's page: previews, what changed, what waits on you, notes at a moment",
+         effects=("read", "project_write"), json=True,
+         module_argv=("library.tools.round_page",),
+         detail="`ren round-page <project> [--open]` writes `pipeline_output/previews/round-<N>.html`: each reel's newest preview to play, the creative change summary per reel this round, the notes that opened the round and their outcomes, what is waiting on you (open revision questions, notes not yet revised, reels with no preview), and a \"note at this time\" control per reel. A note leaves the page as one `ren notes add` command - queued to the agent through Lavish with `--open` when lavish-axi is installed, else copied - so `ren notes` lists it and `ren revise --note-id` changes the reel. Renders nothing; `ren preview` rewrites it after every preview. Watching needs no Resolve."),
     Verb("watch", "Reels", "Have a model watch a delivered reel",
          effects=("read", "project_write"), subcommand="watch-reel",
          detail="Show a model the PICTURE of a delivered reel and ask what it sees. Renders nothing"),
@@ -323,11 +327,13 @@ VERBS = (
          effects=("read",), subcommand="pr-body"),
     Verb("notes", "Reels", "Show which timeline note went to which step",
          effects=("read", "project_write", "resolve_read"), subcommand="notes",
-          detail="`ren notes <project>` shows which timeline note went to which step. "
-                 "`ren notes pull <project> [--all]` pulls new notes off Resolve first (needs Resolve open). "
-                 "`ren notes import <project> <export.csv|fiojson|edl> --reel N` ingests a Frame.io comment "
-                 "export into the same note store, mapping file time through the delivery record; "
-                 "unmappable comments are listed, never guessed."),
+         json=True,
+         detail="`ren notes <project>` shows which timeline note went to which step, with each watched-file note's moment and the `ren revise --note-id` that changes it. "
+                "`ren notes pull <project> [--all]` pulls new notes off Resolve first (needs Resolve open). "
+                "`ren notes add <project> --at 0:12 [--reel N] [--file <preview or delivered file>] \"<note>\"` stores a note at a moment in a watched file without revising it yet (what the round's review page sends; `--json` prints it). "
+                "`ren notes import <project> <export.csv|fiojson|edl> --reel N` ingests a Frame.io comment "
+                "export into the same note store, mapping file time through the delivery record; "
+                "unmappable comments are listed, never guessed."),
     Verb("outcomes", "Reels", "Show feedback notes and their recorded outcomes",
          effects=("read", "project_write"), json=True,
          module_argv=("library.tools.feedback_outcomes",),

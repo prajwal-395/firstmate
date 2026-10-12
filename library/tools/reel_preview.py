@@ -84,8 +84,9 @@ Where it lands
 `pipeline_output/previews/<reel slug>/<key>.mp4` beside a
 `<key>.preview.json` sidecar, and `pipeline_output/previews/
 previews.json`, the record of every render and cache hit. The verb's
-last line names the file to watch, and a macOS notice names it too
-(`completion_notice`, `REN_NOTIFY=0` opts out).
+last lines name the file to watch and the round's review page
+(`round_page`, rewritten after every preview), and a macOS notice names
+the file too (`completion_notice`, `REN_NOTIFY=0` opts out).
 
 `tests/scenarios/test_reel_preview.py`.
 """
@@ -828,6 +829,17 @@ def main(argv: list[str] | None = None) -> int:
         completion_notice.post(
             f"Preview ready: {os.path.basename(watch[0])}"
             + (f" (+{len(watch) - 1} more)" if len(watch) > 1 else ""))
+        # The round's review page plays these files; rewrite it so it
+        # never shows a preview this run replaced. A page that cannot be
+        # written costs the preview nothing - the files are the product.
+        from library.tools import round_page
+        try:
+            page = round_page.write(project)["page"]
+        except Exception as exc:  # noqa: BLE001 - see above
+            print(f"  review page not written: {exc!r}", file=sys.stderr)
+        else:
+            if not args.json:
+                print(f"Review page: {page}")
         if not args.json:
             print("Watch: " + "  ".join(watch))
     return 0
