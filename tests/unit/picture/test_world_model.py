@@ -444,6 +444,73 @@ def test_entities_carry_face_and_voice_tracks(tmp_path, memory_root):
     assert wm["entities"]["voice_tracks"][0]["track_id"] == "voice_001"
 
 
+class TestWorldModelLaneWiring:
+    """The M9 world-model lane is wired into the analysis pipeline."""
+
+    def test_world_model_lane_exists(self):
+        """Defect: world_model lane not registered in footage_analysis."""
+        from library.tools import footage_analysis
+        lane_names = [lane.name for lane in footage_analysis.LANES]
+        assert "world_model" in lane_names
+
+    def test_world_model_lane_label_is_m9(self):
+        """Defect: world_model lane labelled something other than M9."""
+        from library.tools import footage_analysis
+        lane = next(l for l in footage_analysis.LANES
+                    if l.name == "world_model")
+        assert lane.label == "M9"
+
+    def test_world_model_lane_reads_m1_m3_m3b_m7(self):
+        """Defect: world_model lane does not declare its M1/M3/M3b/M7 inputs,
+        so a stale join would read as fresh."""
+        from library.tools import footage_analysis, source_memory
+        lane = next(l for l in footage_analysis.LANES
+                    if l.name == "world_model")
+        assert source_memory.SLOT_TRANSCRIPT in lane.reads
+        assert source_memory.SLOT_PERSONS in lane.reads
+        assert source_memory.SLOT_IDENTITY in lane.reads
+        assert source_memory.SLOT_EVENTS in lane.reads
+
+    def test_world_model_lane_writes_world_model(self):
+        """Defect: world_model lane writes the wrong slot."""
+        from library.tools import footage_analysis, source_memory
+        lane = next(l for l in footage_analysis.LANES
+                    if l.name == "world_model")
+        assert source_memory.SLOT_WORLD_MODEL in lane.slots
+
+    def test_world_model_lane_is_light_and_project_wide(self):
+        """Defect: the join takes the heavy lock or runs per source, though
+        it is pure data manipulation over the source memory."""
+        from library.tools import footage_analysis
+        lane = next(l for l in footage_analysis.LANES
+                    if l.name == "world_model")
+        assert lane.heavy is False
+        assert lane.per_source is False
+
+    def test_world_model_lane_builds_through_the_builder(
+            self, tmp_path, monkeypatch):
+        """Defect: the lane bypasses world_model's builder instead of
+        calling it, so the two drift."""
+        from library.tools import footage_analysis
+        monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV,
+                           str(tmp_path / "memory"))
+        called = {}
+
+        def fake_build(project_folder, root=None):
+            called["project"] = project_folder
+            return {"project_folder": project_folder, "clips": [
+                {"clip_id": "clip_001", "content_digest": "d" * 64}],
+                "failed": []}
+
+        monkeypatch.setattr(world_model, "build_project_world_model",
+                            fake_build)
+        lane = next(l for l in footage_analysis.LANES
+                    if l.name == "world_model")
+        report = lane.build("/proj", ["clip_001"], tmp_path / "memory")
+        assert called["project"] == "/proj"
+        assert report["clips"][0]["clip_id"] == "clip_001"
+
+
 class TestWorldModelLanes:
     """`build_project_world_model` runs one lane per distinct digest on
     the bounded FREE lanes. Dedup already happens serially in

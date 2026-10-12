@@ -20,8 +20,8 @@ Two halves, in order:
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
    faces and hands, M3b person identity, M3c expressions, M3d person
    regions, M3e attention saliency, M6 conversation clock, M7 event
-   spans, M10 relationship candidates, then the text and frame search
-   indexes over them. A lane whose
+   spans, M9 joined world model, M10 relationship candidates, then
+   the text and frame search indexes over them. A lane whose
    record is already FRESH for a source is reused, never rebuilt: a
    re-run over the same folder costs the fingerprints and nothing else.
 
@@ -150,6 +150,11 @@ def _build_events(project, _clip_ids, root):
     return event_spans.build_project_events(project, root)
 
 
+def _build_world_model(project, _clip_ids, root):
+    from library.tools import world_model
+    return world_model.build_project_world_model(project, root)
+
+
 def _build_relationships(project, clip_ids, root):
     from library.tools import relationships
     return relationships.build_project_relationships(project, clip_ids, root)
@@ -194,6 +199,11 @@ LANES: tuple = (
     Lane("events", "M7", "on-screen and speaking spans per person",
          (SM.SLOT_EVENTS,), (SM.SLOT_PERSONS, SM.SLOT_IDENTITY), False,
          False, _build_events),
+    Lane("world_model", "M9", "joined per-second timeline over M1/M3/M3b/M7",
+         (SM.SLOT_WORLD_MODEL,),
+         (SM.SLOT_TRANSCRIPT, SM.SLOT_PERSONS, SM.SLOT_IDENTITY,
+          SM.SLOT_EVENTS),
+         False, False, _build_world_model),
     Lane("relationships", "M10", "holding, pointing and looking-at candidates",
          (SM.SLOT_RELATIONSHIPS,),
          (SM.SLOT_PERSONS, SM.SLOT_IDENTITY, SM.SLOT_REGIONS), False, True,

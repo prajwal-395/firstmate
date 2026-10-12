@@ -1,12 +1,12 @@
 """The canonical temporal world model: M9 (`world_model.json`) of the
 per-source footage memory.
 
-Gap 1 of the footage world model gap map (the captain's top-priority
-gap): Ren has strong per-lane measurement (M0-M8) but no canonical
-temporal world model connecting the lanes into a unified understanding.
-A query like "where does Craig gesture while speaking" cannot be
-answered: M7 has speaking spans, M3 has hand geometry, but nothing
-joins them into "gesture while speaking."
+The canonical temporal world model that closes gap 1 of the footage
+world model gap map (the captain's top-priority gap): Ren's per-lane
+measurement (M0-M8) is joined here into a unified understanding.
+A query like "where does Craig gesture while speaking" is answered
+off the join: M7 has speaking spans, M3 has hand geometry, and this
+module joins them into "gesture while speaking."
 
 This module reads M0-M8 and M10 and emits a joined per-second
 timeline. No new measurement: every observation in the world model
