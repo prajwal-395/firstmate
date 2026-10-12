@@ -4,7 +4,11 @@ Defects caught: two new heads where only one gets checked (serial
 leftover), a ledger write lost to a thread race, a red ready-PR that
 keeps its queue label, latency nobody recorded (untunable), ready PRs
 starved of Tier-1 by a ripe Tier-2 batch (never entering the queue),
-and timed-out Tier-1 runs posted as failures with no retry.
+timed-out Tier-1 runs posted as failures with no retry, a Tier-2 gate
+that stalls the dispatch pass (no new-head detection until the gate
+exits), two passes starting two Tier-2 clusters at once, and an
+interrupted-queue recovery that rewrites the ledger under a running
+Tier-2 worker.
 GitHub is faked; the ledger is real (tmp state dir).
 """
 
@@ -26,7 +30,7 @@ def _pr(number, head=None, labels=(), draft=False):
 
 @pytest.fixture
 def faked_github(monkeypatch):
-    from library.tools.local_ci import github
+    from library.tools.local_ci import github, upstream
     posts = []
     monkeypatch.setattr(github, "list_open_prs", lambda: faked_github.prs)
     monkeypatch.setattr(github, "post_status",
@@ -39,6 +43,13 @@ def faked_github(monkeypatch):
     monkeypatch.setattr(queue, "process_once",
                         lambda world, window=0: {"stubbed": True,
                                                  "window": window})
+    # Dispatch tests pin head detection and slotting, never upstream
+    # scheduling: the weekly engine intake (network refs + heavy
+    # qualification, pinned in test_local_ci_upstream.py) must not
+    # fire from an idle-looking scripted pass.
+    monkeypatch.setattr(upstream, "run_due",
+                        lambda state_dir, *, idle: {"poll": None,
+                                                   "intake": None})
     faked_github.prs = []
     faked_github.posts = posts
     return faked_github
@@ -494,8 +505,10 @@ def test_tier2_fires_as_soon_as_running_tier1_drains(
 def test_scheduler_starts_tier1_while_tier2_is_ripe(
         monkeypatch, tmp_path, faked_github):
     # Async path: poll_once starts new Tier-1 jobs even with a ripe
-    # cluster waiting, and Tier-2 fires through the idle gate once
-    # those workers drain and their outcomes are collected.
+    # cluster waiting, and Tier-2 starts on its own lane once those
+    # workers drain and their outcomes are collected - the starting
+    # pass returns while the cluster evaluates, and the next pass
+    # collects its summary.
     old = time.time() - 1000
     state.write_queue(
         [{"pr": 35, "head": "head-35", "status": state.ENTRY_QUEUED,
@@ -518,7 +531,12 @@ def test_scheduler_starts_tier1_while_tier2_is_ripe(
         assert scheduler.has_completed()
         collected = scheduler.poll_once(plan)
         assert collected["checked"] == [36]
-        assert collected["queue"]["stubbed"] is True
+        assert collected["queue"] == {"ripe": True, "started": True}
+        deadline = time.monotonic() + 5
+        while not scheduler.has_completed() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        finished = scheduler.poll_once(plan)
+        assert finished["queue"]["stubbed"] is True
     finally:
         scheduler.shutdown(wait=True)
 
@@ -556,6 +574,239 @@ def test_success_status_names_the_tier2_only_files(tmp_path, faked_github):
     assert "contract-audit" in description
     assert "gate-smoke" in description
     assert len(description) <= 140
+
+
+class _BlockingGateWorld(queue.World):
+    """Scripted Tier-2: the gate blocks until the test releases it.
+
+    The queue.World seam already supports this - test_stack is the
+    only gate the tests script, so no live gate ever runs here.
+    """
+
+    def __init__(self, state_dir, entered, release):
+        super().__init__(state_dir=state_dir)
+        self._entered = entered
+        self._release = release
+        self.stacks = 0
+
+    def main_sha(self):
+        return "base"
+
+    def pr_head(self, pr):
+        return f"head-{pr}"
+
+    def test_stack(self, base, members):
+        self.stacks += 1
+        self._entered.set()
+        assert self._release.wait(timeout=30)
+        return queue.TestResult(True, 3, 0)
+
+    def merge_pr(self, pr, head):
+        return f"merge-{pr}"
+
+    def report(self, pr, head, url, ok, reason):
+        pass
+
+
+def _mock_scripted_github(monkeypatch, prs):
+    from library.tools.local_ci import github, upstream
+    monkeypatch.setattr(github, "list_open_prs", lambda: list(prs))
+    monkeypatch.setattr(github, "post_status", lambda *a, **k: None)
+    monkeypatch.setattr(github, "remove_label", lambda *a, **k: None)
+    monkeypatch.setattr(github, "main_sha", lambda: "base")
+    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _s: [])
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    # Dispatch tests pin head detection and slotting, never upstream
+    # scheduling: the weekly engine intake (network refs + heavy
+    # qualification, pinned in test_local_ci_upstream.py) must not
+    # fire from an idle-looking scripted pass.
+    monkeypatch.setattr(upstream, "run_due",
+                        lambda state_dir, *, idle: {"poll": None,
+                                                   "intake": None})
+
+
+def _ripe_queue(tmp_path, *members):
+    old = time.time() - 1000
+    state.write_queue(
+        [{"pr": number, "head": f"head-{number}",
+          "status": status, "reason": "", "enqueued_at": old}
+         for number, status in members], str(tmp_path))
+
+
+def test_dispatch_detects_new_heads_while_tier2_gate_runs(
+        monkeypatch, tmp_path):
+    # CI-04 acceptance: on main the pass that starts a Tier-2 cluster
+    # blocks inside the gate, so no new-head detection happens until
+    # the gate exits. After: the starting pass returns while the
+    # scripted gate is still running, and the next pass detects and
+    # slots new heads (within load.targets) beside it.
+    prs: list = []
+    _mock_scripted_github(monkeypatch, prs)
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
+    _ripe_queue(tmp_path, (60, state.ENTRY_QUEUED))
+    entered = threading.Event()
+    release = threading.Event()
+    world = _BlockingGateWorld(str(tmp_path), entered, release)
+    scheduler = daemon.Tier1Scheduler(world)
+    plan = {"tier1_jobs": 2, "pytest_n": 1, "window": 90,
+            "headroom": 9.0, "heavy": []}
+    first: dict = {}
+    errors: list = []
+
+    def start():
+        try:
+            first.update(scheduler.poll_once(plan))
+        except Exception as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    starter = threading.Thread(target=start)
+    try:
+        starter.start()
+        # The starting pass returns while the gate is still in flight -
+        # on main it stays stuck inside process_once past this join.
+        starter.join(timeout=10)
+        assert not errors
+        assert not starter.is_alive()
+        assert first["queue"] == {"ripe": True, "started": True}
+        assert entered.wait(timeout=10)
+        testing = [entry for entry in state.read_queue(str(tmp_path))
+                   if entry["status"] == state.ENTRY_TESTING]
+        assert [entry["pr"] for entry in testing] == [60]
+
+        prs.append(_pr(61))
+        second = scheduler.poll_once(plan)
+        assert entered.is_set() and not release.is_set()
+        assert second["started"] == [61]
+        assert second["queue"]["in_flight"] is True
+        assert second["queue"]["testing"] == [60]
+        assert world.stacks == 1
+
+        release.set()
+        deadline = time.monotonic() + 30
+        third: dict = {}
+        while time.monotonic() < deadline:
+            third = scheduler.poll_once(plan)
+            if third["queue"].get("merged") == [60]:
+                break
+            time.sleep(0.05)
+        assert third["queue"].get("merged") == [60]
+        assert world.stacks == 1
+    finally:
+        release.set()
+        starter.join(timeout=30)
+        scheduler.shutdown(wait=True)
+
+
+def test_concurrent_passes_start_only_one_tier2_cluster(
+        monkeypatch, tmp_path):
+    # Two passes racing on a ripe cluster start exactly one
+    # evaluation: Tier-2 owns the machine alone.
+    prs: list = []
+    _mock_scripted_github(monkeypatch, prs)
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
+    _ripe_queue(tmp_path, (62, state.ENTRY_QUEUED))
+    entered = threading.Event()
+    release = threading.Event()
+    world = _BlockingGateWorld(str(tmp_path), entered, release)
+    scheduler = daemon.Tier1Scheduler(world)
+    plan = {"tier1_jobs": 2, "pytest_n": 1, "window": 90,
+            "headroom": 9.0, "heavy": []}
+    try:
+        racers = [threading.Thread(
+            target=scheduler.poll_once, args=(plan,)) for _ in range(2)]
+        for racer in racers:
+            racer.start()
+        assert entered.wait(timeout=10)
+        time.sleep(0.5)
+        for racer in racers:
+            racer.join(timeout=10)
+            assert not racer.is_alive()
+        assert world.stacks == 1
+    finally:
+        release.set()
+        for racer in racers:
+            racer.join(timeout=30)
+        scheduler.shutdown(wait=True)
+
+
+def test_interrupted_recovery_waits_for_inflight_tier2(
+        monkeypatch, tmp_path):
+    # A testing row this worker never saw (a dead daemon's leftover)
+    # appears beside a running cluster: while our Tier-2 lane runs,
+    # the pass must not recover it - recover_interrupted_queue's
+    # contract requires establishing that no gate is still active,
+    # and the worker owns the ledger until its verdict lands. Once
+    # the lane drains, the next idle pass recovers it.
+    prs: list = []
+    _mock_scripted_github(monkeypatch, prs)
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, pr, workers: _outcome(pr))
+    _ripe_queue(tmp_path, (71, state.ENTRY_QUEUED))
+    entered = threading.Event()
+    release = threading.Event()
+    world = _BlockingGateWorld(str(tmp_path), entered, release)
+    scheduler = daemon.Tier1Scheduler(world)
+    plan = {"tier1_jobs": 2, "pytest_n": 1, "window": 90,
+            "headroom": 9.0, "heavy": []}
+    first: dict = {}
+    errors: list = []
+
+    def start():
+        try:
+            first.update(scheduler.poll_once(plan))
+        except Exception as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    starter = threading.Thread(target=start)
+    try:
+        starter.start()
+        starter.join(timeout=10)
+        assert not errors
+        assert not starter.is_alive()
+        assert first["queue"] == {"ripe": True, "started": True}
+        assert entered.wait(timeout=10)
+
+        leftover = {"pr": 70, "head": "head-70",
+                    "status": state.ENTRY_TESTING, "reason": "",
+                    "enqueued_at": time.time() - 1000}
+        entries = state.read_queue(str(tmp_path))
+        entries.append(leftover)
+        state.write_queue(entries, str(tmp_path))
+
+        second = scheduler.poll_once(plan)
+        assert entered.is_set() and not release.is_set()
+        assert second["queue"]["in_flight"] is True
+        assert set(second["queue"]["testing"]) == {70, 71}
+        by_pr = {entry["pr"]: entry
+                 for entry in state.read_queue(str(tmp_path))}
+        assert by_pr[70]["status"] == state.ENTRY_TESTING
+        assert "interrupted" not in by_pr[70]["reason"]
+
+        release.set()
+        starter.join(timeout=30)
+        deadline = time.monotonic() + 30
+        collected: dict = {}
+        while time.monotonic() < deadline:
+            collected = scheduler.poll_once(plan)
+            if collected["queue"].get("merged") == [71]:
+                break
+            time.sleep(0.05)
+        assert collected["queue"].get("merged") == [71]
+        # The worker's write-back left the foreign testing row alone;
+        # an idle pass recovers it instead of losing it (the collect
+        # pass above already counts as idle once the lane drains).
+        scheduler.poll_once(plan)
+        by_pr = {entry["pr"]: entry
+                 for entry in state.read_queue(str(tmp_path))}
+        assert by_pr[70]["status"] == state.ENTRY_QUEUED
+        assert "interrupted" in by_pr[70]["reason"]
+        assert world.stacks == 1
+    finally:
+        release.set()
+        starter.join(timeout=30)
+        scheduler.shutdown(wait=True)
 
 
 def test_success_status_names_which_mandatory_half_ran(

@@ -29,11 +29,25 @@ One synchronous/manual pass:
 2. Read open PRs targeting main (skip drafts); note first-seen heads.
 3. Known heads: enqueue when green + ready. New heads: Tier-1 now,
    in threads, as many as the plan allows.
-4. Ripe ready-cluster with no batch in flight -> Tier-2 process_once.
+4. Ripe ready-cluster with no batch in flight -> Tier-2 process_once,
+   run to completion inside this pass (the manual one-shot path has
+   no coordinator to own a background worker).
+
+The served loop does not use the pass above: Tier1Scheduler.poll_once
+dispatches Tier-1 asynchronously AND runs Tier-2 on its own single
+lane beside dispatch. A ripe cluster starts in a background worker
+(CI-04) so the pass returns while the gate runs; later passes keep
+detecting heads and filling Tier-1 slots while the gate is in
+flight. The cluster's state machine (testing -> verdict ->
+merge/requeue) is observable on the queue ledger throughout, and the
+pass that observes the completed worker collects its summary.
 
 Tier-1 never yields to a ripe Tier-2 cluster at dispatch: new heads
 are checked even while a batch is ripe or testing, so every ready PR
-enters the queue. Heavy work still never overlaps: a Tier-1 pytest
+enters the queue. Tier-2 never blocks the pass either: the cluster
+evaluates on its own single lane beside dispatch, so later passes
+keep detecting heads and filling Tier-1 slots while the gate runs.
+Heavy work still never overlaps: a Tier-1 pytest
 refuses while a full-suite gate holds the machine lock (runner.run),
 and a ripe batch fires through the idle gate once running Tier-1
 jobs drain.
@@ -546,7 +560,17 @@ def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
 
 
 class Tier1Scheduler:
-    """Dispatch Tier-1 asynchronously and serialize result bookkeeping."""
+    """Dispatch Tier-1 asynchronously and serialize result bookkeeping.
+
+    Tier-2 runs on its own single lane beside Tier-1: a ripe cluster
+    starts in a background worker (CI-04) so the dispatch pass stays
+    responsive during a long gate. At most one cluster is ever in
+    flight - Tier-2 owns the machine alone - and its state machine
+    (testing -> verdict -> merge/requeue) is observable on the queue
+    ledger while the gate runs. The pass that observes the completed
+    worker collects its summary; it never starts a second cluster in
+    the same pass.
+    """
 
     def __init__(self, world: queue.World,
                  max_workers: int = load.TIER1_MAX) -> None:
@@ -554,19 +578,89 @@ class Tier1Scheduler:
         self._pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, max_workers),
             thread_name_prefix="ren-ci-tier1")
+        self._tier2_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="ren-ci-tier2")
         self._lock = threading.Lock()
         self._inflight: set[str] = set()
         self._futures: dict[concurrent.futures.Future, tuple] = {}
+        self._tier2_future: concurrent.futures.Future | None = None
 
     def has_completed(self) -> bool:
         """Whether result bookkeeping should run before the next timer."""
         with self._lock:
-            return any(future.done() for future in self._futures)
+            if any(future.done() for future in self._futures):
+                return True
+            return (self._tier2_future is not None
+                    and self._tier2_future.done())
 
     def idle(self) -> bool:
-        """Whether no Tier-1 worker is in flight (a reload may happen)."""
+        """Whether no Tier-1 worker and no Tier-2 cluster is in flight.
+
+        A completed-but-uncollected Tier-2 counts as idle: its gate
+        no longer holds the machine, and the next pass collects the
+        summary. (A reload still defers on the ledger's testing
+        entries and the live gate rows beside this - see
+        self_update.daemon_idle.)
+        """
         with self._lock:
-            return not self._futures and not self._inflight
+            return ((not self._futures and not self._inflight)
+                    and (self._tier2_future is None
+                         or self._tier2_future.done()))
+
+    def tier2_busy(self) -> bool:
+        """Whether a Tier-2 cluster evaluation is in flight."""
+        with self._lock:
+            return (self._tier2_future is not None
+                    and not self._tier2_future.done())
+
+    def _tier2_collect(self, done: dict) -> bool:
+        """Surface a completed Tier-2 cluster on this caller thread.
+
+        Returns True when a completion was collected: the caller must
+        not start a second cluster in the same pass. A worker that
+        raised outside process_once's own handling requeues nothing -
+        the ledger already says what happened; the refusal names it.
+        """
+        with self._lock:
+            future = self._tier2_future
+            if future is None or not future.done():
+                return False
+            self._tier2_future = None
+        try:
+            summary = future.result()
+        except Exception as exc:  # noqa: BLE001 - interruption is not a verdict
+            done["refused"].append(f"Tier-2 worker failed: {exc}")
+            return True
+        done["queue"] = summary
+        return True
+
+    def _tier2_testing_members(self) -> list:
+        """PRs the ledger shows under test right now."""
+        return [entry["pr"]
+                for entry in state.read_queue(self.world.state_dir)
+                if entry.get("status") == state.ENTRY_TESTING]
+
+    def _tier2_start(self, window: int) -> bool:
+        """Start one cluster evaluation in the background, once.
+
+        Returns whether a worker took it. Under the lock so two
+        concurrent passes never start two clusters: Tier-2 owns the
+        machine alone. Execution itself stays subprocess-based
+        (runner._run_logged untouched); only the cluster's lifecycle
+        moved off the dispatch path, and its ledger writes merge onto
+        rows a concurrent pass wrote meanwhile (see
+        queue._merge_onto_fresh_ledger).
+        """
+        with self._lock:
+            if (self._tier2_future is not None
+                    and not self._tier2_future.done()):
+                return False
+            # A finished worker the passes never collected leaves its
+            # verdicts on the ledger (process_once writes them back
+            # itself); only the pass-log summary is superseded.
+            self._tier2_future = self._tier2_pool.submit(
+                queue.process_once, self.world, window)
+            return True
 
     def _run(self, pr: dict, seen_at: float, workers: int,
              slots_limit: int) -> dict:
@@ -705,14 +799,24 @@ class Tier1Scheduler:
             done["refused"].append(
                 f"orphaned gate group(s) {orphaned} still running - "
                 "awaiting reap")
+        tier2_collected = self._tier2_collect(done)
+        tier2_running = self.tier2_busy()
         if (not self._futures and not running_jobs and not gate_running
-                and not orphaned):
+                and not orphaned and not tier2_running):
             recovered = state.recover_interrupted_queue(self.world.state_dir)
             if recovered:
                 print(f"ren-ci recovered {recovered} interrupted Tier-2 "
                       "queue member(s); re-testing", flush=True)
             entries = state.read_queue(self.world.state_dir)
-        if (not self._futures
+        if tier2_running:
+            # A cluster is under test on the Tier-2 lane: the pass
+            # already detected heads and filled Tier-1 slots above, and
+            # the cluster's state machine is read off the ledger its
+            # worker owns (testing -> verdict -> merge/requeue).
+            done["queue"] = {"testing": self._tier2_testing_members(),
+                             "in_flight": True}
+        elif (not tier2_collected
+                and not self._futures
                 and not running_jobs
                 and any(entry.get("status") in
                         (state.ENTRY_QUEUED, state.ENTRY_GREEN)
@@ -721,13 +825,17 @@ class Tier1Scheduler:
                             for entry in entries)
                 and not gate_running
                 and not orphaned):
-            done["queue"] = queue.process_once(
-                self.world, window=plan["window"])
+            # The idle gate still holds - Tier-2 starts only once
+            # running Tier-1 jobs drain - but the start no longer
+            # blocks the pass: the cluster evaluates beside dispatch.
+            if self._tier2_start(plan["window"]):
+                done["queue"] = {"ripe": True, "started": True}
         return done
 
     def shutdown(self, wait: bool = True) -> None:
         """Close test workers; used by deterministic scheduler tests."""
         self._pool.shutdown(wait=wait)
+        self._tier2_pool.shutdown(wait=wait)
 
 
 def check_pr(world: queue.World, pr: dict, slot: int,

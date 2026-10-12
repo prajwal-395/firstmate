@@ -928,6 +928,37 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
     return merged, requeued
 
 
+def _merge_onto_fresh_ledger(world_state_dir: str, members: list,
+                         fields: tuple, match_head: bool) -> list:
+    """Write member states back without dropping a concurrent pass's rows.
+
+    A dispatch pass beside a running Tier-2 worker keeps admitting
+    heads: a green head is enqueued, a red head's entries are removed.
+    Writing this run's snapshot wholesale would silently drop those
+    rows (the ledger-write-lost-to-a-thread-race class), so each
+    member merges onto a fresh ledger read. A member the fresh ledger
+    no longer names was deliberately removed - it stays removed - and
+    rows the ledger gained meanwhile are kept as-is. Returns the
+    ledger as written.
+    """
+    fresh = state.read_queue(world_state_dir)
+    by_pr = {entry.get("pr"): entry for entry in fresh
+             if isinstance(entry, dict)}
+    for member in members:
+        slot = by_pr.get(member.get("pr"))
+        if slot is None:
+            continue
+        if match_head and slot.get("head") != member.get("head"):
+            continue
+        for field in fields:
+            if field == "reason":
+                slot[field] = member.get(field, "")
+            elif field in member:
+                slot[field] = member[field]
+    state.write_queue(fresh, world_state_dir)
+    return fresh
+
+
 def _tested(member: dict, base: str) -> dict:
     member = dict(member)
     member["status"] = state.ENTRY_GREEN
@@ -982,7 +1013,12 @@ def process_once(world: World, window: int = 90,
             continue
         member["status"] = state.ENTRY_TESTING
         fresh.append(member)
-    state.write_queue(entries, world.state_dir)
+    # Merge, not wholesale: a dispatch pass may have admitted heads
+    # while the freshness re-checks ran above (heads move under the
+    # batch, so members match by PR here, not by head).
+    _merge_onto_fresh_ledger(world.state_dir, cluster,
+                             ("head", "status", "reason"),
+                             match_head=False)
     if select is None:
         from library.tools.local_ci import selection
         select = selection.dependent
@@ -1024,22 +1060,26 @@ def process_once(world: World, window: int = 90,
         summary["requeued"].append(member["pr"])
     summary["green"].extend(m["pr"] for m in green)
     # Verdicts above land on COPIES (resolve_batch never mutates a
-    # member it did not decide): write them back onto the ledger by
-    # PR, so the queue says what happened. Anything still TESTING
-    # after the write-back missed every branch - queued, never lost.
-    by_pr = {e["pr"]: e for e in entries}
-    for member in kicked + merged + requeued + requeued_tier2:
-        slot = by_pr.get(member["pr"])
-        if slot is not None and slot.get("head") == member.get("head"):
-            slot["status"] = member["status"]
-            slot["reason"] = member.get("reason", "")
-            for stamp in ("landed_as", "merged_at"):
-                if stamp in member:
-                    slot[stamp] = member[stamp]
-    for member in entries:
-        if member.get("status") == state.ENTRY_TESTING:
-            member["status"] = state.ENTRY_QUEUED
-    state.write_queue(entries, world.state_dir)
+    # member it did not decide): merge them onto a fresh ledger read
+    # by PR, so rows a dispatch pass wrote while the gate ran (fresh
+    # admissions, deliberate removals) survive the write-back. A
+    # member still testing after the merge missed every branch -
+    # queued, never lost - but only when it is one of ours: a foreign
+    # testing row belongs to a run this worker never saw, and the
+    # idle recovery path (recover_interrupted_queue) owns it.
+    _merge_onto_fresh_ledger(
+        world.state_dir, kicked + merged + requeued + requeued_tier2,
+        ("status", "reason", "landed_as", "merged_at"), match_head=True)
+    tested = {(member.get("pr"), member.get("head")) for member in fresh}
+    swept = state.read_queue(world.state_dir)
+    if any(entry.get("status") == state.ENTRY_TESTING
+           and (entry.get("pr"), entry.get("head")) in tested
+           for entry in swept):
+        for entry in swept:
+            if (entry.get("status") == state.ENTRY_TESTING
+                    and (entry.get("pr"), entry.get("head")) in tested):
+                entry["status"] = state.ENTRY_QUEUED
+        state.write_queue(swept, world.state_dir)
     return summary
 
 
