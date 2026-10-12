@@ -26,6 +26,11 @@ hold is REPORTED in the returned note, never raised: the clip IS on
 the timeline, and failing the build over a movable caption would
 trade a misplaced caption for a missing one.
 
+What the HELD values draw over - a person region or a salient box in
+the picture under the overlay - is read after the build by the overlay
+sweep's keep-clear half (`overlay_keep_clear`), which reports and moves
+nothing.
+
 What a RESOLUTION CHANGE does to values already stored
 -----------------------------------------------------
 Measured 2026-09-11 on Resolve Studio 21.1.0.14, on a scratch project,

@@ -146,6 +146,8 @@ from library.tools.resolve_lock import (
 from library.tools import shadow_watcher
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
+    A_ROLL,
+    B_ROLL,
     EXPLAINER,
     FRAME,
     MOTION_GRAPHICS,
@@ -10040,14 +10042,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         print(f"── Overlay sweep ({len(_sweep_records)} tight overlay(s)) ──",
               file=sys.stderr)
         sweep_started = time.perf_counter() if recording else None
+        # The picture rows ride along for the keep-clear half
+        # (`overlay_keep_clear`): which overlays sit over a person or a
+        # salient box, REPORTED and never moved.
         _sweep_reads = _read_reel_overlays(
-            timeline, _sweep_records, resolve_project=project)
+            timeline, _sweep_records, resolve_project=project,
+            picture_tracks=[row.index for row in track_plan.video_tracks
+                            if row.role in (A_ROLL, B_ROLL)])
         if profile is not None:
             _otio.record_duration(
                 profile, "overlay_sweep_readback_s", sweep_started)
         _sweep_judgement = dict(intent=overlay_intent,
                                 full_wh=(width, height),
-                                draw_gain=draw_gain)
+                                draw_gain=draw_gain,
+                                project_folder=project_folder, fps=fps)
         if defer_overlay_sweep:
             build_record["overlay_sweep"] = None
             build_record["overlay_sweep_reads"] = (_sweep_reads,

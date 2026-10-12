@@ -700,6 +700,57 @@ def live_items(timeline, *, resolve_project=None) -> list:
     return rows
 
 
+def picture_items(timeline, track_indices, *, resolve_project) -> list:
+    """The picture rows' clips as the keep-clear check reads them.
+
+    Per item on each of `track_indices` (video rows): its record span,
+    the source frame it starts on, the file, the pool item's own
+    resolution and rate, whether it plays, and its transform in the
+    timeline's units (`TransformReadContext`, one per batch) - which is
+    what `reel_framing.delivered_picture` turns into the rect the
+    source is drawn at. Plain data, so the comparison runs with no
+    handle (`overlay_keep_clear`).
+
+    The same row protocol `live_track_items` serves, read lighter than
+    `clip_detail`: no comps, markers or grades, which the check does
+    not need and a picture row of sixty clips would pay for. Raises
+    `ReelReadError` like every reader here.
+    """
+    context = TransformReadContext(timeline, resolve_project)
+    out = []
+    for index in track_indices:
+        for item in live_track_items(timeline, "video", int(index)):
+            try:
+                start, end = item.GetStart(), item.GetEnd()
+            except Exception as unreadable:
+                raise ReelReadError(
+                    f"a timeline item on video{index} could not be read "
+                    f"({unreadable})") from unreadable
+            pool_item = _call(item, "GetMediaPoolItem", None)
+            source_file = resolution = fps = ""
+            if pool_item is not None:
+                source_file = (
+                    _call(pool_item, "GetClipProperty", "", "File Path")
+                    or _call(pool_item, "GetClipProperty", "", "Clip Path"))
+                resolution = _call(pool_item, "GetClipProperty", "",
+                                   "Resolution")
+                fps = _call(pool_item, "GetClipProperty", "", "FPS")
+            out.append({
+                "track_index": int(index),
+                "record_in": start,
+                "record_out": end,
+                "source_in_frame": _call(item, "GetSourceStartFrame", None),
+                "source_file": source_file or "",
+                "resolution": resolution or "",
+                "source_fps": fps or "",
+                "speed": _speed_percent(item),
+                "enabled": _call(item, "GetClipEnabled", None),
+                "transform": context.read(item),
+            })
+    context.verify()
+    return out
+
+
 def read_tracks(timeline,
                 speaker_map: Optional[Mapping[str, str]] = None,
                 *, resolve_project=None) -> list:

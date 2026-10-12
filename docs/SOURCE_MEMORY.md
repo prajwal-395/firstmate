@@ -26,6 +26,7 @@ copy it; nothing goes into `pipeline_data.json`.
   expressions.json               # M3c - written (library/tools/expression_classifier.py)
   regions.json + regions.masks.<sha256>.json.gz
                                  # M3d - written (library/tools/person_regions.py)
+  saliency.json                  # M3e - written (library/tools/attention_saliency.py)
   scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
                                  #   library/tools/analysis/vision_pipeline_v3.py)
   sound.json                     # M5  - written (step 1.04 via write_sound_memory in
@@ -431,6 +432,46 @@ python3 -m library.tools.person_regions window <project> --clip clip_002 \
 ```
 
 Cost: `docs/benchmarks/2026-10-11-person-regions-m3d.md`.
+
+## M3e `saliency.json` (written)
+
+Owner: `library/tools/attention_saliency.py` (the module docstring holds
+the input-resolution measurement). Apple Vision's
+`VNGenerateAttentionBasedSaliencyImageRequest`, through
+`library/tools/attention_saliency_helper.swift`, on the M2 thumbnails
+themselves - no decode of its own. Only the salient-object boxes are
+kept; the 68x68 heatmap has no reader.
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "status": "measured",
+  "coordinates": "image-normalised, top-left origin",
+  "frame_count": 8191,
+  "samples_measured": 8191,
+  "samples": [{"t": 0.083, "boxes": [
+      {"bbox": [x1, y1, x2, y2], "confidence": 0.52}]}],
+  "instrument": {"method": "attention-saliency-v1-m2",
+                 "input": "m2-thumbnail", "input_pixels": [384, 216],
+                 "ms_per_frame": 3.4, "wall_seconds": ...}
+}
+```
+
+`ms_per_frame` 3.4 is the warm median on the 30 frames the input was
+chosen on; a whole-source wall time has not been measured yet.
+
+- `boxes: null` on a sample means the helper could not read it; `[]`
+  means measured and nothing salient.
+- Reader: `library/tools/overlay_keep_clear.py`, which the reel build's
+  overlay sweep runs - per placed overlay, its overlap with each M3d
+  person region and each salient box under it, REPORTED and never moved.
+- Freshness: the lane (`footage_analysis.LANES`, `saliency`) rebuilds a
+  record whose `instrument.method` is not the current slot version.
+
+```sh
+python3 -m library.tools.attention_saliency build <project>
+python3 -m library.tools.attention_saliency status <project>
+```
 
 ## M7 `events.json` (written)
 

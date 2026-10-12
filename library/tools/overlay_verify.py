@@ -450,50 +450,85 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
         intent=intent, full_wh=full_wh, draw_gain=draw_gain)
 
 
+def _span(item) -> Optional[Tuple[int, int]]:
+    """A placed item's record span `(in, out)`, or None unreadable."""
+    if item is None:
+        return None
+    try:
+        return int(item.GetStart()), int(item.GetEnd())
+    except Exception:  # noqa: BLE001 - unreadable, skipped by its reader
+        return None
+
+
 def read_reel_overlays(timeline, placed: Sequence[dict], *,
-                       resolve_project) -> dict:
+                       resolve_project,
+                       picture_tracks: Sequence[int] = ()) -> dict:
     """The RESOLVE half of the sweep: each placed overlay's stored
-    transform, as plain data `judge_reel_overlays` reads with no handle.
+    transform and record span, as plain data `judge_reel_overlays` reads
+    with no handle - plus, where `picture_tracks` names the picture
+    rows, the clips on them (`reel_read.picture_items`) for the
+    keep-clear half (`overlay_keep_clear`).
 
     Never raises; a read that fails is carried as `unavailable` and
-    reported by the judge.
+    reported by the judge. A picture read that fails costs only the
+    keep-clear half, which says so.
     """
     try:
         rows: dict = {}
-        stored = []
+        stored, spans = [], []
         for entry in placed or []:
             track_index = entry.get("track_index")
             if track_index not in rows:
                 rows[track_index] = _row_items_by_start(timeline,
                                                         track_index)
             row = rows[track_index]
-            stored.append(_stored_transform(
-                None if row is None else row.get(entry.get("record_frame")),
-                timeline, resolve_project))
+            item = None if row is None else row.get(entry.get("record_frame"))
+            stored.append(_stored_transform(item, timeline, resolve_project))
+            spans.append(_span(item))
     except Exception as failed:  # noqa: BLE001 - report, never refuse
         return {"unavailable": str(failed)}
-    return {"placed": [dict(entry) for entry in placed or []],
-            "stored": stored}
+    reads = {"placed": [dict(entry) for entry in placed or []],
+             "stored": stored, "spans": spans, "pictures_read": False}
+    if picture_tracks:
+        from library.tools.reel_read import picture_items
+        try:
+            reads["pictures"] = picture_items(
+                timeline, picture_tracks, resolve_project=resolve_project)
+            reads["pictures_read"] = True
+        except Exception as failed:  # noqa: BLE001 - keep-clear says so
+            reads["pictures_unavailable"] = str(failed)
+    return reads
 
 
 def judge_reel_overlays(reads: dict, *,
                         intent: Optional[dict] = None,
                         full_wh: Tuple[int, int],
-                        draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
+                        draw_gain: float = FALLBACK_DRAW_GAIN,
+                        project_folder: str = "",
+                        fps: Optional[float] = None) -> dict:
     """The FREE half of the sweep: `read_reel_overlays`' reads against
-    intent, values then pixels. Never raises."""
+    intent, values then pixels - and, given the project and the
+    timeline rate, the keep-clear report (`overlay_keep_clear`: which
+    overlays sit over a person region or a salient box). Keep-clear
+    REPORTS and never enters `passed`. Never raises."""
     import sys
 
     try:
         if "unavailable" in reads:
             raise RuntimeError(reads["unavailable"])
-        return _judge_reel_overlays(reads, intent=intent, full_wh=full_wh,
-                                    draw_gain=draw_gain)
+        result = _judge_reel_overlays(reads, intent=intent, full_wh=full_wh,
+                                      draw_gain=draw_gain)
     except Exception as failed:  # noqa: BLE001 - report, never refuse
         reason = f"overlay sweep unavailable ({failed}); the reel stands."
         print(f"  {reason}", file=sys.stderr)
         return {"passed": True, "unavailable": str(failed),
                 "values": None, "pixels": None}
+    if project_folder and fps:
+        from library.tools.overlay_keep_clear import keep_clear_from_reads
+        result["keep_clear"] = keep_clear_from_reads(
+            reads, project_folder=project_folder, full_wh=tuple(full_wh),
+            fps=float(fps), draw_gain=draw_gain)
+    return result
 
 
 def _judge_reel_overlays(reads: dict, *,

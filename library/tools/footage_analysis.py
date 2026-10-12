@@ -19,8 +19,9 @@ Two halves, in order:
 2. **The memory lanes** (`LANES`), per source, into the per-machine memory
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
    faces and hands, M3b person identity, M3c expressions, M3d person
-   regions, M6 conversation clock, M7 event spans, M10 relationship
-   candidates, then the text and frame search indexes over them. A lane whose
+   regions, M3e attention saliency, M6 conversation clock, M7 event
+   spans, M10 relationship candidates, then the text and frame search
+   indexes over them. A lane whose
    record is already FRESH for a source is reused, never rebuilt: a
    re-run over the same folder costs the fingerprints and nothing else.
 
@@ -134,6 +135,11 @@ def _build_regions(project, clip_ids, root):
     return person_regions.build_project_regions(project, clip_ids, root)
 
 
+def _build_saliency(project, clip_ids, root):
+    from library.tools import attention_saliency
+    return attention_saliency.build_project_saliency(project, clip_ids, root)
+
+
 def _build_clock(project, _clip_ids, root):
     from library.tools import conversation_clock
     return conversation_clock.build_project(project, root)
@@ -180,6 +186,9 @@ LANES: tuple = (
          (SM.SLOT_REGIONS,),
          (SM.SLOT_FRAMES_INDEX, SM.SLOT_PERSONS, SM.SLOT_IDENTITY),
          True, True, _build_regions, "person-instance-mask-v1"),
+    Lane("saliency", "M3e", "attention-saliency boxes per frame",
+         (SM.SLOT_SALIENCY,), (SM.SLOT_FRAMES_INDEX,), True, True,
+         _build_saliency, "attention-saliency-v1-m2"),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
     Lane("events", "M7", "on-screen and speaking spans per person",

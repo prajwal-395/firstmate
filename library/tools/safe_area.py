@@ -58,6 +58,11 @@ so the vertical map does not apply to them and is not pretended to.  They
 get the broadcast title-safe convention of 5% on every edge, which is
 what a frame with no measured UI map has always been given.
 
+This keeps overlays off the PLATFORM's interface. Keeping them off the
+PICTURE - a lower third across the speaker - is a different measurement,
+over the footage memory, and `overlay_keep_clear` reports it after
+placement.
+
 An unknown delivery format RAISES, like every other enumeration in this
 tree.  A silent fallback here is a caption under the platform's own UI
 with nothing to notice.
