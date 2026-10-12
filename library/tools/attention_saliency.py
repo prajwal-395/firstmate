@@ -69,7 +69,7 @@ helper loses at most one batch."""
 
 
 def _helper() -> str:
-    from library.steps.step_1_04_temporal_index import vision_measure
+    from library.tools import vision_measure
     helper, reason = vision_measure.ensure_helper(SWIFT_SOURCE, HELPER_NAME)
     if helper is None:
         raise RuntimeError(f"attention-saliency helper unavailable: {reason}")
@@ -77,7 +77,7 @@ def _helper() -> str:
 
 
 def _measure(paths: list[str], helper: str) -> list[dict]:
-    from library.steps.step_1_04_temporal_index import vision_measure
+    from library.tools import vision_measure
     docs: list[dict] = []
     for first in range(0, len(paths), BATCH_FRAMES):
         docs.extend(vision_measure.measure_frames(
