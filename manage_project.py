@@ -423,7 +423,7 @@ def cmd_list(args):
     print(f"\n  {len(configs)} project(s) found")
 
 
-def _interview_new(args) -> dict:
+def _interview_new(args, from_footage: bool = False) -> dict:
     """Ask the captain what a project needs, in the terminal.
 
     Runs only on a TTY when an intake answer is missing and
@@ -432,6 +432,10 @@ def _interview_new(args) -> dict:
     answer has a non-interactive flag; the interview writes the same
     values the flags would. An empty answer keeps the default, which
     is always "undeclared" - never a guess dressed as one.
+
+    With `from_footage` (the project was created with `--footage`),
+    shape, language and speakers are not asked at all: they are left
+    for the catalog/speech steps, which read them off the footage.
     """
     answers = {}
 
@@ -443,7 +447,7 @@ def _interview_new(args) -> dict:
             return default
         return reply or default
 
-    if not args.shape:
+    if not from_footage and not args.shape:
         print("    What is this video built from?")
         print("      speech   - talk-led, like the podcast")
         print("      music    - a music bed carries it")
@@ -457,11 +461,11 @@ def _interview_new(args) -> dict:
             shape = ""
         answers["shape"] = shape
 
-    if not args.language:
+    if not from_footage and not args.language:
         answers["language"] = ask(
             "Language spoken in the footage (BCP-47)", "en")
 
-    if not args.speaker and not args.no_speakers:
+    if not from_footage and not args.speaker and not args.no_speakers:
         print("    Who speaks in this footage? One `Name` or `Name:role` "
               "per line, blank line to finish, blank first line for "
               "undecided.")
@@ -509,18 +513,26 @@ def cmd_new(args):
     no_speakers = getattr(args, "no_speakers", False)
     brief_title = getattr(args, "brief_title", None)
     brand_series = getattr(args, "brand_series", None)
+    footage = getattr(args, "footage", None) or []
     series_id = getattr(args, "series", None) or ""
     episode = getattr(args, "episode", None)
     interactive = (sys.stdin.isatty()
                    and not getattr(args, "non_interactive", False))
     interviewed = {}
-    if interactive and (
-            not shape or not language
-            or (not cli_speakers and not no_speakers)
-            or (not series_id and (not brief_title or not brand_series))):
+    # With --footage, shape/language/speakers are left for the
+    # catalog/speech steps, which read them off the footage - so the
+    # interview only fires for the brief title and brand series
+    # (and neither of those when the project joins a series).
+    needs_intake_answers = (
+        (not shape or not language
+         or (not cli_speakers and not no_speakers))
+        if not footage else False)
+    if interactive and (needs_intake_answers
+                        or (not series_id
+                            and (not brief_title or not brand_series))):
         print(f"\n  New project: {args.slug} - a few questions "
               f"(blank keeps the default):")
-        interviewed = _interview_new(args)
+        interviewed = _interview_new(args, from_footage=bool(footage))
 
     if no_speakers and cli_speakers:
         print("  Error: --no-speakers and --speaker cannot be combined: "
@@ -549,6 +561,19 @@ def cmd_new(args):
         speakers = interviewed.get("speakers")
 
     try:
+        footage_arg = getattr(args, "footage", None) or []
+        if footage_arg:
+            # Absolute before the scaffold: a relative root would refuse
+            # at the first footage read, against whatever directory a
+            # step happens to run in. One path stays a string, several
+            # store as a list.
+            resolved = [os.path.abspath(os.path.expanduser(str(entry)))
+                        for entry in footage_arg if str(entry).strip()]
+            resolved = list(dict.fromkeys(resolved))
+            footage_declared: str | list = (
+                resolved[0] if len(resolved) == 1 else resolved)
+        else:
+            footage_declared = ""
         config = create_project(
             slug=args.slug,
             name=args.name or args.slug.replace("-", " ").title(),
@@ -566,6 +591,7 @@ def cmd_new(args):
                          or interviewed.get("brief_title") or ""),
             brand_series=(brand_series
                           or interviewed.get("brand_series") or ""),
+            footage_root=footage_declared or None,
             series_id=series_id,
             episode=episode,
         )
@@ -574,15 +600,43 @@ def cmd_new(args):
         print(f"    Path:     {config.project_root}")
         print(f"    Resolve:  {config.resolve.project_name}")
         print(f"    Template: {config.pipeline.brand_template}")
-        print(f"    Language: {config.source.language}")
-        print(f"    Shape:    {config.source.shape or '(undecided)'}")
-        if config.source.speakers is None:
-            print(f"    Speakers: (undecided)")
-        elif not config.source.speakers:
-            print(f"    Speakers: none declared (music / montage)")
+        if footage_declared:
+            roots = ([footage_declared]
+                     if isinstance(footage_declared, str)
+                     else list(footage_declared))
+            for root in roots:
+                print(f"    Footage:  {root} (read in place - nothing copied)")
+            # Undeclared intake answers are left for the catalog/speech
+            # steps, which read them off the footage - the header says
+            # they were measured, not asked.
+            if not (shape or interviewed.get("shape")):
+                print(f"    Shape:    (undeclared - measured from footage, "
+                      f"not asked)")
+            else:
+                print(f"    Shape:    {config.source.shape}")
+            if not (language or interviewed.get("language")):
+                print(f"    Language: (undeclared - measured from footage, "
+                      f"not asked; English until then)")
+            else:
+                print(f"    Language: {config.source.language}")
+            if speakers is None and not interviewed.get("speakers"):
+                print(f"    Speakers: (undeclared - measured from footage, "
+                      f"not asked)")
+            elif not config.source.speakers:
+                print(f"    Speakers: none declared (music / montage)")
+            else:
+                print(f"    Speakers: "
+                      f"{', '.join(s.get('name', '') for s in config.source.speakers)}")
         else:
-            print(f"    Speakers: "
-                  f"{', '.join(s.get('name', '') for s in config.source.speakers)}")
+            print(f"    Language: {config.source.language}")
+            print(f"    Shape:    {config.source.shape or '(undecided)'}")
+            if config.source.speakers is None:
+                print(f"    Speakers: (undecided)")
+            elif not config.source.speakers:
+                print(f"    Speakers: none declared (music / montage)")
+            else:
+                print(f"    Speakers: "
+                      f"{', '.join(s.get('name', '') for s in config.source.speakers)}")
         if series_id:
             print(f"    Series:   {config.pipeline.series} ({series_id})")
             print(f"    Brief:    {config.pipeline.creative_brief} "
@@ -601,7 +655,10 @@ def cmd_new(args):
             print(f"\n  Scaffolded: project.yaml, style.yaml, video.yaml"
                   + ("" if config.pipeline.brand_template else ", brand.json"))
             print(f"\n  Next steps:")
-            print(f"    1. Copy raw footage to: {config.raw_dir}")
+            if footage_declared:
+                print(f"    1. Footage is read in place - no copying needed.")
+            else:
+                print(f"    1. Copy raw footage to: {config.raw_dir}")
             print(f"    2. Run the pipeline: ren edit {config.slug} "
                   f"--full-auto agent - the series brief and the episode "
                   f"row are the brief")
@@ -610,9 +667,14 @@ def cmd_new(args):
             print(f"\n  Scaffolded: project.yaml, brand.json, brief.md, "
                   f"style.yaml, video.yaml")
             print(f"\n  Next steps:")
-            print(f"    1. Copy raw footage to: {config.raw_dir}")
-            print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
-            print(f"       or just tell your chat what you want.")
+            if footage_declared:
+                print(f"    1. Footage is read in place - no copying needed.")
+                print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
+                print(f"       or just tell your chat what you want.")
+            else:
+                print(f"    1. Copy raw footage to: {config.raw_dir}")
+                print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
+                print(f"       or just tell your chat what you want.")
 
     except FileExistsError as e:
         raise RenRefusal(
@@ -4170,6 +4232,13 @@ def main():
     p_new.add_argument("--non-interactive", action="store_true",
                        help="Never prompt; missing answers stay undeclared. "
                             "Implied when stdin is not a terminal.")
+    p_new.add_argument("--footage", action="append", default=[],
+                       metavar="PATH",
+                       help="Read footage in place from this folder - "
+                            "nothing is copied into raw/. Repeat for "
+                            "several folders. Shape, language and speakers "
+                            "are then left for the catalog/speech steps, "
+                            "which read them off the footage.")
     p_new.set_defaults(func=cmd_new)
 
     # status

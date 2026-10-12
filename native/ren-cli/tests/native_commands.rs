@@ -230,6 +230,94 @@ fn check_without_raw_folder_matches_python() {
     assert_identical(&["check", "demo"], &projects_env(&project));
 }
 
+fn encode_tiny_clip(path: &Path) {
+    let encoded = Command::new("ffmpeg")
+        .arg("-v")
+        .arg("error")
+        .arg("-f")
+        .arg("lavfi")
+        .arg("-i")
+        .arg("testsrc=duration=1:size=320x240:rate=30")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg(path)
+        .arg("-y")
+        .output()
+        .unwrap();
+    assert!(encoded.status.success(), "ffmpeg must encode the fixture clip");
+}
+
+fn check_env(project: &Project) -> Vec<(String, String)> {
+    let mut env = projects_env(project);
+    let sfx = project._root.join("sfx");
+    let music = project._root.join("music");
+    fs::create_dir_all(&sfx).unwrap();
+    fs::create_dir_all(&music).unwrap();
+    env.push((
+        "PIPELINE_SFX_LIBRARY".to_string(),
+        sfx.to_string_lossy().to_string(),
+    ));
+    env.push((
+        "PIPELINE_MUSIC_LIBRARY".to_string(),
+        music.to_string_lossy().to_string(),
+    ));
+    env
+}
+
+fn declare_footage_root(project: &Project, snippet: &str) {
+    let yaml_path = project.projects_root.join("demo").join("project.yaml");
+    let text = fs::read_to_string(&yaml_path).unwrap();
+    let patched = text.replace("  fps: 29.97", &format!("  fps: 29.97\n{snippet}"));
+    fs::write(&yaml_path, patched).unwrap();
+}
+
+#[test]
+fn check_with_declared_footage_root_matches_python() {
+    // `ren new --footage <dir>`: the check reads the footage in place -
+    // raw/ stays empty and both implementations find the same clip.
+    if Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("skipping footage-root check test: ffmpeg unavailable");
+        return;
+    }
+    let project = setup_project("checkroot", "demo");
+    let media = project._root.join("media");
+    fs::create_dir_all(&media).unwrap();
+    encode_tiny_clip(&media.join("clip_a.mp4"));
+    declare_footage_root(
+        &project,
+        &format!("  footage_root: {}", media.to_string_lossy()),
+    );
+    assert_identical(&["check", "demo"], &check_env(&project));
+    assert_identical(&["info", "demo"], &projects_env(&project));
+}
+
+#[test]
+fn check_with_listed_footage_roots_matches_python() {
+    // `--footage` repeated: several roots merge into one listing on both
+    // sides, numbered centrally by absolute path.
+    if Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("skipping listed-roots check test: ffmpeg unavailable");
+        return;
+    }
+    let project = setup_project("checkroots", "demo");
+    let first = project._root.join("media_a");
+    let second = project._root.join("media_b");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    encode_tiny_clip(&first.join("b.mp4"));
+    encode_tiny_clip(&second.join("a.mp4"));
+    declare_footage_root(
+        &project,
+        &format!(
+            "  footage_root:\n    - {}\n    - {}",
+            first.to_string_lossy(),
+            second.to_string_lossy()
+        ),
+    );
+    assert_identical(&["check", "demo"], &check_env(&project));
+    assert_identical(&["info", "demo"], &projects_env(&project));
+}
+
 #[test]
 fn unknown_verb_matches_python() {
     assert_identical(&["bogus"], &[]);

@@ -5,6 +5,7 @@
 //! not port (a format migration, the safe-zone layout engine), the verb
 //! reports `Fallback` and the front door execs Python rather than drifting.
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1000,77 +1001,97 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 /// `library.tools.footage_identity.enumerate_footage` - every video file
-/// under the project's footage root.
+/// under the project's footage roots, merged into one listing.
 fn enumerate_footage(project_dir: &Path) -> Result<Vec<FootageFile>, String> {
     let config_path = project_dir.join("project.yaml");
-    let footage_root = if config_path.is_file() {
+    let engine_root = engine::find_engine_root().unwrap_or_else(|| PathBuf::from("."));
+    let declared: Vec<String> = if config_path.is_file() {
         if let Ok(text) = fs::read_to_string(&config_path) {
             if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&text) {
                 let data = yaml_to_json(&yaml);
-                let declared = data
-                    .get("source")
-                    .and_then(|s| s.get("footage_root"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if !declared.is_empty() {
-                    let expanded = project::expand_portable_pub(
-                        &declared,
-                        project_dir,
-                        &engine::find_engine_root().unwrap_or_else(|| PathBuf::from(".")),
-                    );
-                    let path = PathBuf::from(&expanded);
-                    if path.is_absolute() {
-                        path
-                    } else {
-                        project_dir.join(path)
+                match data.get("source").and_then(|s| s.get("footage_root")) {
+                    Some(Json::Str(s)) if !s.trim().is_empty() => {
+                        vec![s.to_string()]
                     }
-                } else {
-                    project_dir.join("raw")
+                    Some(Json::Array(items)) => items
+                        .iter()
+                        .filter_map(|entry| match entry {
+                            Json::Str(s) if !s.trim().is_empty() => {
+                                Some(s.to_string())
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => vec![],
                 }
             } else {
-                project_dir.join("raw")
+                vec![]
             }
         } else {
-            project_dir.join("raw")
+            vec![]
         }
     } else {
-        project_dir.join("raw")
+        vec![]
     };
-    if !footage_root.is_dir() {
+    let footage_roots: Vec<PathBuf> = if declared.is_empty() {
+        vec![project_dir.join("raw")]
+    } else {
+        declared
+            .iter()
+            .map(|entry| {
+                let expanded =
+                    project::expand_portable_pub(entry, project_dir, &engine_root);
+                let path = PathBuf::from(&expanded);
+                if path.is_absolute() {
+                    path
+                } else {
+                    project_dir.join(path)
+                }
+            })
+            .collect()
+    };
+    if footage_roots.iter().any(|root| !root.is_dir()) {
         return Err(format!(
             "Missing 'raw' subdirectory in project folder: {}",
             project_dir.display()
         ));
     }
     let mut files = vec![];
-    for (dirpath, names) in walk(&footage_root) {
-        let mut sorted = names;
-        sorted.sort();
-        for name in sorted {
-            let filepath = dirpath.join(&name);
-            let ext = Path::new(&name)
-                .extension()
-                .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
-                .unwrap_or_default();
-            if !SUPPORTED_VIDEO_EXTENSIONS.contains(&ext.as_str()) {
-                continue;
+    let mut seen: HashSet<String> = HashSet::new();
+    for footage_root in &footage_roots {
+        for (dirpath, names) in walk(footage_root) {
+            let mut sorted = names;
+            sorted.sort();
+            for name in sorted {
+                let filepath = dirpath.join(&name);
+                let ext = Path::new(&name)
+                    .extension()
+                    .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
+                    .unwrap_or_default();
+                if !SUPPORTED_VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+                    continue;
+                }
+                if !filepath.is_file() {
+                    continue;
+                }
+                let size = match fs::metadata(&filepath) {
+                    Ok(metadata) => metadata.len(),
+                    Err(_) => continue,
+                };
+                if size == 0 {
+                    continue;
+                }
+                let path = filepath.to_string_lossy().to_string();
+                // Overlapping roots walk the same file twice - one clip,
+                // not two entries for one path.
+                if !seen.insert(path.clone()) {
+                    continue;
+                }
+                files.push(FootageFile {
+                    path,
+                    filename: name,
+                });
             }
-            if !filepath.is_file() {
-                continue;
-            }
-            let size = match fs::metadata(&filepath) {
-                Ok(metadata) => metadata.len(),
-                Err(_) => continue,
-            };
-            if size == 0 {
-                continue;
-            }
-            files.push(FootageFile {
-                path: filepath.to_string_lossy().to_string(),
-                filename: name,
-            });
         }
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));

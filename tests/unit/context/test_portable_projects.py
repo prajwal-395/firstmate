@@ -269,3 +269,38 @@ def test_unrebindable_media_is_left_in_place(tmp_path):
     # And opening the project itself still works: no refusal, no trace.
     config = get_project(str(moved))
     assert config.slug == folder.name
+
+
+# ── Several footage roots ──────────────────────────────────────────
+
+def test_a_listed_footage_root_reads_as_a_list_and_rebinds(tmp_path):
+    """`source.footage_root` as a list (`ren new --footage` repeated):
+    the declarations read back raw and portable, and the rebind index
+    spans every root instead of crashing on `.strip()`."""
+    first = tmp_path / "a"
+    second = tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    (first / "ONE.mp4").write_bytes(b"\x00" * 64)
+    (second / "TWO.mp4").write_bytes(b"\x00" * 64)
+    create_project("listed", name="Listed", root=tmp_path,
+                   footage_root=[str(first), str(second)])
+    folder = tmp_path / "listed"
+
+    declared = pp.read_declarations(folder)
+    assert declared["footage_root"] == [str(first), str(second)]
+
+    from library.tools.footage_identity import enumerate_footage
+    files, skipped = enumerate_footage(str(folder))
+    assert skipped == []
+    ordered = sorted([str(first / "ONE.mp4"), str(second / "TWO.mp4")])
+    assert [f["path"] for f in files] == ordered
+    assert [f["clip_id"] for f in files] == ["clip_001", "clip_002"]
+
+    # And the rebind reads the list without crashing: nothing moved,
+    # so it stays read-only.
+    from library.tools.stable_json import write_stable
+    write_stable(folder / "pipeline_data.json",
+                 {"project_folder": str(folder),
+                  "source_fingerprints": {}})
+    assert pp.ensure_portable_paths(folder) is None

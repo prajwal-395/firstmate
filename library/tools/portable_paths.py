@@ -222,8 +222,15 @@ def read_declarations(project_folder) -> dict:
         return out
     source = data.get("source") or {}
     pipeline = data.get("pipeline") or {}
-    if isinstance(source, dict) and isinstance(source.get("footage_root"), str):
-        out["footage_root"] = source["footage_root"]
+    raw_root = (source.get("footage_root") if isinstance(source, dict)
+                else None)
+    if isinstance(raw_root, str):
+        out["footage_root"] = raw_root
+    elif isinstance(raw_root, list):
+        # Several roots (`ren new --footage` repeated): the raw
+        # spellings, tokens included, in the declared order.
+        out["footage_root"] = [e for e in raw_root
+                               if isinstance(e, str) and e.strip()]
     if isinstance(pipeline, dict):
         for key in ("sfx_library", "music_library", "creative_brief"):
             if isinstance(pipeline.get(key), str):
@@ -448,13 +455,17 @@ def ensure_portable_paths(project_folder) -> dict | None:
         old_project = str(root)
 
     declared = read_declarations(root)
-    raw_footage = (declared.get("footage_root") or "").strip()
-    if raw_footage:
-        footage_root = str(expand(raw_footage, root))
-        if not os.path.isabs(footage_root):
-            footage_root = os.path.join(str(root), footage_root)
-    else:
-        footage_root = os.path.join(str(root), "raw")
+    raw_declared = declared.get("footage_root") or ""
+    raw_roots = ([raw_declared] if isinstance(raw_declared, str)
+                 else list(raw_declared))
+    footage_roots = []
+    for raw in raw_roots:
+        expanded = str(expand(raw, root))
+        if not os.path.isabs(expanded):
+            expanded = os.path.join(str(root), expanded)
+        footage_roots.append(expanded)
+    if not footage_roots:
+        footage_roots = [os.path.join(str(root), "raw")]
 
     for key in ("sfx_library", "music_library"):
         recorded = state.get(key) or ""
@@ -475,7 +486,10 @@ def ensure_portable_paths(project_folder) -> dict | None:
     missing = [(c, k, p) for (c, k, p) in footage_entries
                if not os.path.exists(p)]
     if missing:
-        index = _index_by_basename(footage_root)
+        index: dict = {}
+        for one_root in footage_roots:
+            for base, paths in _index_by_basename(one_root).items():
+                index.setdefault(base, []).extend(paths)
         fingerprints = state.get("source_fingerprints") or {}
         records_by_path: dict = {}
         if isinstance(fingerprints, dict):

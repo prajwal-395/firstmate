@@ -319,11 +319,24 @@ def ensure_collection(footage_dir: str, into: str | None = None,
     yaml_path = folder / "project.yaml"
     if yaml_path.is_file():
         config = load_project_config(str(yaml_path))
-        declared = (config.source.footage_root or "").rstrip("/")
-        if declared != footage_dir.rstrip("/"):
+        declared = config.source.footage_root or ""
+        if isinstance(declared, str):
+            declared_roots = [declared]
+        elif isinstance(declared, list):
+            declared_roots = list(declared)
+        else:
+            # Malformed (neither a path nor a list): it cannot name
+            # this folder, so the refusal below says so by value.
+            declared_roots = [declared]
+        if [str(entry).rstrip("/") for entry in declared_roots] != [
+                footage_dir.rstrip("/")]:
+            shown = (declared.rstrip("/") or "(raw/)"
+                     if isinstance(declared, str)
+                     else ", ".join(str(e) for e in declared_roots)
+                     or "(raw/)")
             raise RenRefusal(
                 f"{folder} already exists over different footage",
-                f"it declares source.footage_root {declared or '(raw/)'!r}, "
+                f"it declares source.footage_root {shown!r}, "
                 f"not {footage_dir!r}",
                 "pass --slug <another-name> or --into <another-folder>")
         return str(folder), False

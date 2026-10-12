@@ -105,9 +105,14 @@ class SourceConfig:
     """FLOAT, not int. 23.976 and 29.97 are real project rates and an
     int silently truncated them to 23 and 29."""
 
-    footage_root: str = ""
+    footage_root: str | list = ""
     """An ABSOLUTE directory holding this project's footage, when it does
-    not live in `<project>/raw`.
+    not live in `<project>/raw` - or a LIST of them.
+
+    `ren new --footage <dir>` declares one root; repeating `--footage`
+    declares several, stored as a YAML list. A single root stays a
+    plain string, so every project written before the list existed
+    reads exactly as it always did.
 
     The file may store it portable - `$HOME/...` for a path under any
     user's home, `$PROJECT/...` for one inside the project - and it
@@ -185,6 +190,18 @@ class SourceConfig:
             errors.append(
                 "source.shape must be one of speech, music, both or "
                 f"picture-led, got {self.shape!r}.")
+        roots = (self.footage_root if isinstance(self.footage_root, list)
+                 else [self.footage_root])
+        for root in roots:
+            if not root:
+                # Undeclared ("", [], [ ]): "" and "not declared" are
+                # the same answer, and an empty list declares no root.
+                continue
+            if not isinstance(root, str) or not root.strip():
+                errors.append(
+                    "source.footage_root must be an absolute directory, "
+                    f"or a list of them, got {self.footage_root!r}.")
+                break
         if self.speakers is not None:
             if not isinstance(self.speakers, list):
                 errors.append(
@@ -664,6 +681,41 @@ def _parse_speakers(raw) -> object:
     return raw
 
 
+def _parse_footage_root(raw, project_root) -> object:
+    """`source.footage_root` off YAML: a string or a list of strings.
+
+    Missing means `<project>/raw`. A list passes through entry by
+    entry - portable tokens expanded, entries that name no directory
+    dropped - so `validate_source` refuses a malformed declaration by
+    name instead of this quietly repairing it into a string. A
+    non-string non-list passes through untouched for the same reason.
+    """
+    from library.tools.portable_paths import expand as _expand_portable
+
+    def _expand_one(entry):
+        if entry is None:
+            return ""
+        if not isinstance(entry, str):
+            return entry
+        if not entry.strip():
+            return ""
+        expanded = _expand_portable(entry, project_root)
+        return expanded if isinstance(expanded, str) else entry
+
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return _expand_one(raw)
+    if isinstance(raw, list):
+        out = []
+        for entry in raw:
+            expanded = _expand_one(entry)
+            if expanded:
+                out.append(expanded)
+        return out
+    return raw
+
+
 def _parse_format_version(data: dict, where) -> object:
     """The format version off a raw `project.yaml` mapping.
 
@@ -697,7 +749,8 @@ def _dict_to_project_config(data: dict,
 
     source = SourceConfig(
         fps=source_data.get("fps", 30),
-        footage_root=_expand_path(source_data.get("footage_root", "")),
+        footage_root=_parse_footage_root(
+            source_data.get("footage_root"), project_root),
         program_stream=source_data.get("program_stream"),
         measure_program_stream=source_data.get(
             "measure_program_stream", False),
@@ -801,6 +854,8 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             # Only when declared. An empty `footage_root:` in every
             # project.yaml would read as a decision nobody made, and
             # "" and "not declared" are the same answer here anyway.
+            # A single root writes as a string, several as a list -
+            # the shape `ren new --footage` was given.
             **({"footage_root": config.source.footage_root}
                if config.source.footage_root else {}),
             # Only when non-default: every project before the setting

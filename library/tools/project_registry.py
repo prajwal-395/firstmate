@@ -323,6 +323,7 @@ def create_project(
     speakers: list | None = None,
     brief_title: str = "",
     brand_series: str = "",
+    footage_root: str | list | None = None,
     series_id: str = "",
     episode: str | int | None = None,
 ) -> ProjectConfig:
@@ -348,6 +349,13 @@ def create_project(
     is a project.yaml declaration the pipeline reads; the four files
     are what the interview behind `manage_project.py new` fills in.
 
+    `footage_root` is the `source.footage_root` declaration: one
+    absolute directory as a string, several as a list. The footage is
+    READ in place - nothing is copied, moved or linked into `raw/`,
+    which stays empty. A root that is not a directory on disk refuses
+    here, before anything is scaffolded: a bad declaration is refused,
+    never defaulted back to `raw/` (see
+    `library/tools/footage_identity.py`).
     `series_id` (and optionally `episode`) binds the project to a series
     in the per-machine series registry
     (library/tools/series_registry.py): the series document becomes the
@@ -392,6 +400,35 @@ def create_project(
                 f"Use get_project('{slug}') to load it."
             )
 
+    if footage_root is None:
+        footage_roots: str | list = ""
+    elif isinstance(footage_root, list):
+        footage_roots = [os.path.abspath(os.path.expanduser(str(entry)))
+                         for entry in footage_root if str(entry).strip()]
+        # The same folder twice would enumerate every clip twice, under
+        # two clip ids - drop exact repeats, keeping the given order.
+        footage_roots = list(dict.fromkeys(footage_roots))
+        if len(footage_roots) == 1:
+            footage_roots = footage_roots[0]
+        elif not footage_roots:
+            footage_roots = ""
+    elif not str(footage_root).strip():
+        footage_roots = ""
+    else:
+        footage_roots = os.path.abspath(
+            os.path.expanduser(str(footage_root)))
+    for entry in ([footage_roots] if isinstance(footage_roots, str)
+                  else list(footage_roots)):
+        if not entry:
+            # Undeclared: "" and "not declared" are the same answer.
+            continue
+        if not os.path.isdir(entry):
+            raise ValueError(
+                f"Refusing to scaffold {slug}: source.footage_root "
+                f"names {entry}, which is not a directory on disk. "
+                f"The footage is read in place - point at the folder "
+                f"that holds it.")
+
     # Build config first and validate BEFORE touching disk: a
     # refusal must not leave an empty directory behind.
     config = ProjectConfig(
@@ -402,6 +439,7 @@ def create_project(
         status=ProjectStatus.DRAFT,
         source=SourceConfig(
             fps=fps,
+            footage_root=footage_roots,
             language=(language or "en"),
             shape=(shape or ""),
             speakers=speakers,

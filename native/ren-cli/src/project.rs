@@ -53,7 +53,12 @@ pub struct ProjectConfig {
 
 pub struct SourceConfig {
     pub fps: Json,
-    pub footage_root: String,
+    /// `source.footage_root`: the expanded declaration - `Str("")` when
+    /// undeclared, `Str` for one root, `Array` for several (`ren new
+    /// --footage` repeated). Kept as `Json` (like `language`) so `ren
+    /// info` prints the shape Python wrote, and malformed entries reach
+    /// `validate_source` instead of being repaired here.
+    pub footage_root: Json,
     pub program_stream: Option<Json>,
     pub measure_program_stream: Json,
     pub language: Json,
@@ -332,6 +337,41 @@ fn parse_language(raw: &Json) -> Json {
     }
 }
 
+/// `_parse_footage_root`: one root as `Str`, several as `Array`, missing
+/// as `Str("")`. Portable tokens expand per entry; entries naming no
+/// directory drop out; anything malformed passes through untouched so
+/// `validate_source` refuses it by name instead of this repairing it.
+fn parse_footage_root(raw: &Json, project_root: &Path, engine_root: &Path) -> Json {
+    match raw {
+        Json::Null => Json::str(""),
+        Json::Str(s) => {
+            let expanded = expand_portable(s, project_root, engine_root);
+            if expanded.trim().is_empty() {
+                Json::str("")
+            } else {
+                Json::str(expanded)
+            }
+        }
+        Json::Array(items) => {
+            let mut out = vec![];
+            for item in items {
+                match item {
+                    Json::Null => {}
+                    Json::Str(s) => {
+                        let expanded = expand_portable(s, project_root, engine_root);
+                        if !expanded.trim().is_empty() {
+                            out.push(Json::str(expanded));
+                        }
+                    }
+                    other => out.push(other.clone()),
+                }
+            }
+            Json::Array(out)
+        }
+        other => other.clone(),
+    }
+}
+
 fn parse_speakers(raw: &Json) -> Option<Vec<Json>> {
     match raw {
         Json::Null => None,
@@ -384,7 +424,7 @@ fn extract_config(data: &Json, project_root: &Path, engine_root: &Path) -> Proje
 
     let source = SourceConfig {
         fps: source_data.get("fps").cloned().unwrap_or(Json::Int(30)),
-        footage_root: expand_path(
+        footage_root: parse_footage_root(
             source_data.get("footage_root").unwrap_or(&Json::Null),
             project_root,
             engine_root,
@@ -766,6 +806,21 @@ fn validate_source(config: &ProjectConfig) -> Vec<String> {
             config.source.shape
         ));
     }
+    let footage_bad = match &config.source.footage_root {
+        Json::Null => false,
+        Json::Str(_) => false,
+        Json::Array(items) => items
+            .iter()
+            .any(|entry| !matches!(entry, Json::Str(s) if !s.trim().is_empty())),
+        _ => true,
+    };
+    if footage_bad {
+        errors.push(format!(
+            "source.footage_root must be an absolute directory, or a list of \
+             them, got {:?}.",
+            config.source.footage_root
+        ));
+    }
     if let Some(speakers) = &config.source.speakers {
         for (index, entry) in speakers.iter().enumerate() {
             match entry {
@@ -862,11 +917,14 @@ fn sorted_list(values: &[&str]) -> String {
 /// conditional key included or omitted exactly as the Python decides.
 pub fn config_to_dict(config: &ProjectConfig) -> Json {
     let mut source = vec![("fps".to_string(), config.source.fps.clone())];
-    if !config.source.footage_root.is_empty() {
-        source.push((
-            "footage_root".to_string(),
-            Json::str(&config.source.footage_root),
-        ));
+    match &config.source.footage_root {
+        Json::Str(s) if !s.is_empty() => {
+            source.push(("footage_root".to_string(), Json::str(s)));
+        }
+        Json::Array(items) if !items.is_empty() => {
+            source.push(("footage_root".to_string(), Json::Array(items.clone())));
+        }
+        _ => {}
     }
     let language_is_en = matches!(&config.source.language, Json::Str(s) if s == "en");
     if !language_is_en {
@@ -1401,6 +1459,65 @@ resolve:
         let text = dict.to_python_json();
         assert!(text.contains("\"fps\": 29.97"));
         assert!(text.contains("\"project_format_version\": 2"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_single_footage_root_round_trips_as_a_string() {
+        let root = unique_temp("rootstr");
+        let media = root.join("media");
+        fs::create_dir_all(&media).unwrap();
+        let yaml = VALID_YAML.replace(
+            "  shape: speech",
+            &format!(
+                "  shape: speech\n  footage_root: {}",
+                media.to_string_lossy()
+            ),
+        );
+        let path = write_project(&root, "demo", &yaml);
+        let config = load_config(&path, Path::new("/tmp/engine")).unwrap();
+        let media_text = media.to_string_lossy().to_string();
+        assert!(matches!(&config.source.footage_root,
+                        Json::Str(s) if s == &media_text));
+        let text = config_to_dict(&config).to_python_json();
+        assert!(text.contains("\"footage_root\": \""));
+        assert!(!text.contains("\"footage_root\": ["));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn listed_footage_roots_round_trip_as_a_list() {
+        let root = unique_temp("rootlist");
+        let first = root.join("a");
+        let second = root.join("b");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let yaml = VALID_YAML.replace(
+            "  shape: speech",
+            &format!(
+                "  shape: speech\n  footage_root:\n    - {}\n    - {}",
+                first.to_string_lossy(),
+                second.to_string_lossy()
+            ),
+        );
+        let path = write_project(&root, "demo", &yaml);
+        let config = load_config(&path, Path::new("/tmp/engine")).unwrap();
+        assert!(matches!(&config.source.footage_root, Json::Array(items) if items.len() == 2));
+        let text = config_to_dict(&config).to_python_json();
+        assert!(text.contains("\"footage_root\": ["));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_malformed_footage_root_is_invalid() {
+        let root = unique_temp("rootbad");
+        let yaml = VALID_YAML.replace(
+            "  shape: speech",
+            "  shape: speech\n  footage_root:\n    - 5",
+        );
+        let path = write_project(&root, "demo", &yaml);
+        let error = load_config(&path, Path::new("/tmp/engine"));
+        assert!(matches!(error, Err(LoadError::Invalid(_))));
         let _ = fs::remove_dir_all(&root);
     }
 

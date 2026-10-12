@@ -616,3 +616,161 @@ def test_new_with_fractional_fps_reaches_create_project_untruncated(
     with pytest.raises(RenRefusal):
         manage_project.cmd_new(args)
     assert seen["fps"] == 23.976
+
+
+# --------------------------------------------------------------------------
+# From test_new_from_footage.py
+#
+# Intake from a path: no copying, no undeclared shape (T6).
+#
+# `ren new <slug> --footage <dir>` declares `source.footage_root` -
+# one directory as a string, several as a list - and the footage is
+# read in place: nothing is copied, moved or linked into `raw/`,
+# which stays empty. Shape, language and speakers are then NOT asked
+# (no TTY prompts) and stay undeclared for the catalog/speech steps,
+# which read them off the footage; the header says they were
+# measured, not asked.
+#
+# The defects, one per group:
+# - no `--footage` flag at all: the only intake was "copy into raw/".
+# - a list-valued root crashed every reader (`.strip()` on a list).
+# - the interview asked shape/language/speakers even when the footage
+#   they describe was already named.
+
+def _footage_args(tmp_path, *names, **overrides):
+    media = []
+    for name in names:
+        folder = tmp_path / f"media_{name}"
+        folder.mkdir(exist_ok=True)
+        media.append(folder)
+    args = dict(slug="t6", name="T6", client="", template="", fps="",
+                resolve_name="", tags="", description="", shape=None,
+                language=None, speaker=[], no_speakers=False,
+                brief_title=None, brand_series=None,
+                non_interactive=True,
+                footage=[str(m) for m in media])
+    args.update(overrides)
+    return SimpleNamespace(**args), media
+
+
+def _create_under_tmp(monkeypatch, tmp_path):
+    """`cmd_new` scaffolds under tmp_path, never the real root: the
+    CLI has no `--root`, so the test injects it behind the call."""
+    from library.tools.project_registry import create_project
+    real = manage_project.create_project
+
+    def _scoped(**kwargs):
+        kwargs["root"] = tmp_path
+        return real(**kwargs)
+
+    monkeypatch.setattr(manage_project, "create_project", _scoped)
+
+
+def test_new_footage_declares_the_root_and_copies_nothing(tmp_path):
+    """One --footage dir lands as a string declaration; raw/ is empty
+    and the source bytes are untouched (same inode, same size)."""
+    from library.tools.project_registry import create_project
+    from library.schemas.project_config import load_project_config
+
+    args, (media,) = _footage_args(tmp_path, "one")
+    (media / "clip_a.mp4").write_bytes(b"\x00" * 1024)
+    before = os.stat(media / "clip_a.mp4")
+
+    config = create_project("t6one", name="T6", root=tmp_path,
+                            footage_root=args.footage)
+    assert config.source.footage_root == str(media)
+    reread = load_project_config(tmp_path / "t6one" / "project.yaml")
+    assert reread.source.footage_root == str(media)
+    assert list((tmp_path / "t6one" / "raw").iterdir()) == []
+    after = os.stat(media / "clip_a.mp4")
+    assert (after.st_ino, after.st_size) == (before.st_ino,
+                                             before.st_size)
+
+
+def test_new_footage_twice_declares_a_list_enumerated_as_one(tmp_path):
+    """Two --footage dirs store as a list and enumerate merged, sorted
+    centrally by absolute path with one clip numbering."""
+    from library.tools.project_registry import create_project
+    from library.schemas.project_config import load_project_config
+    from library.tools.footage_identity import (
+        enumerate_footage, footage_roots,
+    )
+
+    args, (first, second) = _footage_args(tmp_path, "one", "two")
+    (first / "b.mp4").write_bytes(b"\x00" * 64)
+    (second / "a.mp4").write_bytes(b"\x00" * 64)
+    config = create_project("t6two", name="T6", root=tmp_path,
+                            footage_root=args.footage)
+    assert config.source.footage_root == [str(first), str(second)]
+    reread = load_project_config(tmp_path / "t6two" / "project.yaml")
+    assert reread.source.footage_root == [str(first), str(second)]
+    assert footage_roots(str(tmp_path / "t6two")) == [str(first),
+                                                      str(second)]
+    files, skipped = enumerate_footage(str(tmp_path / "t6two"))
+    assert skipped == []
+    # One central numbering, sorted by absolute path - not per root,
+    # and not by bare filename.
+    ordered = sorted([str(first / "b.mp4"), str(second / "a.mp4")])
+    assert [f["path"] for f in files] == ordered
+    assert [f["clip_id"] for f in files] == ["clip_001", "clip_002"]
+
+
+def test_new_footage_refuses_a_missing_directory(tmp_path):
+    """A bad declaration is refused before the scaffold: no directory
+    left behind, and the refusal names the path."""
+    from library.tools.project_registry import create_project
+
+    with pytest.raises(ValueError, match="not a directory"):
+        create_project("t6bad", name="T6", root=tmp_path,
+                       footage_root=[str(tmp_path / "nowhere")])
+    assert not (tmp_path / "t6bad").exists()
+
+
+def test_new_footage_skips_the_intake_prompts_and_says_measured(
+        tmp_path, monkeypatch, capsys):
+    """With --footage, shape/language/speakers are left for the steps:
+    the header says measured, not asked, and nothing is copied."""
+    from library.tools.project_registry import get_project
+
+    _create_under_tmp(monkeypatch, tmp_path)
+    args, (media,) = _footage_args(tmp_path, "one")
+    manage_project.cmd_new(args)
+    out = capsys.readouterr().out
+    assert "nothing copied" in out
+    assert out.count("measured from footage, not asked") == 3
+    assert "Copy raw footage to" not in out
+    reread_config = get_project("t6", root=tmp_path)
+    assert reread_config.source.shape == ""
+    assert reread_config.source.language == "en"
+    assert reread_config.source.speakers is None
+    assert list((tmp_path / "t6" / "raw").iterdir()) == []
+
+
+def test_new_footage_keeps_declared_answers_and_still_asks_the_rest(
+        tmp_path, monkeypatch):
+    """Flags given beside --footage still declare; the TTY interview
+    then asks only the brief title and brand series - never shape,
+    language or speakers."""
+    import builtins
+
+    asked = []
+
+    def fake_input(prompt=""):
+        asked.append(prompt)
+        return ""
+
+    monkeypatch.setattr(builtins, "input", fake_input)
+    monkeypatch.setattr(manage_project.sys.stdin, "isatty", lambda: True)
+    _create_under_tmp(monkeypatch, tmp_path)
+    args, _ = _footage_args(
+        tmp_path, "one", shape="speech", language="es",
+        speaker=["Jo:host"], non_interactive=False)
+    manage_project.cmd_new(args)
+    assert asked, "the brief/brand prompts must still fire"
+    assert not [p for p in asked if "Shape" in p or "Language" in p
+                or "Speaker" in p], asked
+    reread_config = manage_project.get_project("t6", root=tmp_path)
+    assert reread_config.source.shape == "speech"
+    assert reread_config.source.language == "es"
+    assert reread_config.source.speakers == [{"name": "Jo",
+                                              "role": "host"}]

@@ -103,6 +103,52 @@ def fingerprint(path: str) -> Dict[str, object]:
     return {"size_bytes": size, "content_digest": digest.hexdigest()}
 
 
+def footage_roots(project_folder: str) -> list:
+    """Every directory this project's footage lives in.
+
+    `[<project_folder>/raw]` unless the project DECLARES a
+    `source.footage_root` - one directory as a string, several as a
+    list (`ren new --footage` repeated). Each declared root must be
+    ABSOLUTE and must exist: both are refused rather than defaulted
+    back to ``raw``, for the same reason `footage_root` states -
+    silently falling back turns a typo into "this project has no
+    footage".
+    """
+    declared = []
+    try:
+        from library.schemas.project_config import load_project_config
+        config = load_project_config(
+            os.path.join(project_folder, "project.yaml"))
+        raw = config.source.footage_root or ""
+        declared = list(raw) if isinstance(raw, list) else [raw]
+        declared = [str(entry).strip() for entry in declared
+                    if str(entry).strip()]
+    except Exception:
+        # No readable project.yaml is not an error here - step 1.01 and
+        # the identity check both call this on bare directories in
+        # tests. The default is what those expect.
+        declared = []
+
+    if not declared:
+        return [os.path.join(project_folder, "raw")]
+
+    for entry in declared:
+        if not os.path.isabs(entry):
+            raise FileNotFoundError(
+                f"source.footage_root is {entry!r}, a relative path. "
+                f"Media is addressed absolutely everywhere else in this "
+                f"pipeline, and a relative one resolves against whichever "
+                f"directory a step happens to run in.")
+        if not os.path.isdir(entry):
+            raise FileNotFoundError(
+                f"source.footage_root names {entry}, which is not a "
+                f"directory. Refusing rather than falling back to "
+                f"{project_folder}/raw: a typo that silently becomes 'this "
+                f"project has no footage' is the refusal this declaration "
+                f"exists to prevent.")
+    return declared
+
+
 def footage_root(project_folder: str) -> str:
     """Where this project's footage lives.
 
@@ -122,36 +168,20 @@ def footage_root(project_folder: str) -> str:
     rather than defaulted back to ``raw``: silently falling back would
     turn a typo into "this project has no footage", which is the exact
     unhelpful refusal this closes.
+
+    One root only: a project declaring SEVERAL refuses here, by name,
+    rather than reading the first and silently dropping the rest.
+    Callers that walk footage (`enumerate_footage`, `enumerate_audio`)
+    read `footage_roots`.
     """
-    declared = ""
-    try:
-        from library.schemas.project_config import load_project_config
-        config = load_project_config(
-            os.path.join(project_folder, "project.yaml"))
-        declared = (config.source.footage_root or "").strip()
-    except Exception:
-        # No readable project.yaml is not an error here - step 1.01 and
-        # the identity check both call this on bare directories in
-        # tests. The default is what those expect.
-        declared = ""
-
-    if not declared:
-        return os.path.join(project_folder, "raw")
-
-    if not os.path.isabs(declared):
+    roots = footage_roots(project_folder)
+    if len(roots) > 1:
         raise FileNotFoundError(
-            f"source.footage_root is {declared!r}, a relative path. "
-            f"Media is addressed absolutely everywhere else in this "
-            f"pipeline, and a relative one resolves against whichever "
-            f"directory a step happens to run in.")
-    if not os.path.isdir(declared):
-        raise FileNotFoundError(
-            f"source.footage_root names {declared}, which is not a "
-            f"directory. Refusing rather than falling back to "
-            f"{project_folder}/raw: a typo that silently becomes 'this "
-            f"project has no footage' is the refusal this declaration "
-            f"exists to prevent.")
-    return declared
+            f"source.footage_root declares {len(roots)} directories, "
+            f"and one footage root cannot name them all. Read "
+            f"`footage_roots` (every declared directory) instead of "
+            f"this.")
+    return roots[0]
 
 
 def source_block(project_folder: str) -> Dict[str, object]:
@@ -270,10 +300,13 @@ def expected_speaker_count(project_folder: str = "",
 
 
 def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
-    """Every video file under the project's footage root, with clip ids.
+    """Every video file under the project's footage roots, with clip ids.
 
-    The root is ``<project_folder>/raw`` unless the project declares a
-    ``source.footage_root`` - see ``footage_root``.
+    The roots are ``[<project_folder>/raw]`` unless the project declares
+    `source.footage_root` - see `footage_roots`. Several roots merge
+    into ONE listing: clip ids are assigned centrally, sorted by
+    absolute path, so that steps running in parallel cannot desync on
+    them.
 
     Returns ``(raw_footage_files, skipped_files)``.  Entries carry
     ``path`` (absolute), ``filename``, ``extension``, ``size_bytes`` and
@@ -286,45 +319,54 @@ def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
     footage than it did, which is why the recorded fingerprint carries
     the path and not only the size.
     """
-    raw_dir = footage_root(project_folder)
-    if not os.path.isdir(raw_dir):
+    roots = footage_roots(project_folder)
+    missing = [root for root in roots if not os.path.isdir(root)]
+    if missing:
         raise FileNotFoundError(
             f"Missing 'raw' subdirectory in project folder: {project_folder}"
         )
 
     files: List[dict] = []
     skipped: List[dict] = []
+    seen: set = set()
 
-    for root, _dirs, names in os.walk(raw_dir):
-        for fname in sorted(names):
-            filepath = os.path.join(root, fname)
-            ext = os.path.splitext(fname)[1].lower()
-            if ext in RAW_VIDEO_EXTENSIONS:
-                skipped.append({
-                    "path": filepath,
+    for raw_dir in roots:
+        for root, _dirs, names in os.walk(raw_dir):
+            for fname in sorted(names):
+                filepath = os.path.join(root, fname)
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in RAW_VIDEO_EXTENSIONS:
+                    skipped.append({
+                        "path": filepath,
+                        "extension": ext,
+                        "reason": (
+                            f"RAW format ({ext}): needs Resolve-side import "
+                            "- the catalog cannot probe it"),
+                    })
+                    continue
+                if ext not in SUPPORTED_VIDEO_EXTENSIONS:
+                    continue
+                if not os.access(filepath, os.R_OK):
+                    skipped.append({"path": filepath,
+                                    "reason": "permission denied"})
+                    continue
+                size = os.path.getsize(filepath)
+                if size == 0:
+                    skipped.append({"path": filepath,
+                                    "reason": "zero-byte file (likely corrupt)"})
+                    continue
+                abspath = os.path.abspath(filepath)
+                if abspath in seen:
+                    # Overlapping roots walk the same file twice - one
+                    # clip, not two clip ids for one path.
+                    continue
+                seen.add(abspath)
+                files.append({
+                    "path": abspath,
+                    "filename": fname,
                     "extension": ext,
-                    "reason": (
-                        f"RAW format ({ext}): needs Resolve-side import "
-                        "- the catalog cannot probe it"),
+                    "size_bytes": size,
                 })
-                continue
-            if ext not in SUPPORTED_VIDEO_EXTENSIONS:
-                continue
-            if not os.access(filepath, os.R_OK):
-                skipped.append({"path": filepath,
-                                "reason": "permission denied"})
-                continue
-            size = os.path.getsize(filepath)
-            if size == 0:
-                skipped.append({"path": filepath,
-                                "reason": "zero-byte file (likely corrupt)"})
-                continue
-            files.append({
-                "path": os.path.abspath(filepath),
-                "filename": fname,
-                "extension": ext,
-                "size_bytes": size,
-            })
 
     files.sort(key=lambda entry: entry["path"])
     for i, entry in enumerate(files):
@@ -334,10 +376,10 @@ def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
 
 
 def enumerate_audio(project_folder: str) -> Tuple[List[dict], List[dict]]:
-    """Every audio-only file under the project's footage root.
+    """Every audio-only file under the project's footage roots.
 
     Voiceover takes and music beds: what the project brings that
-    carries no picture. Same root as video (`footage_root`), same
+    carries no picture. Same roots as video (`footage_roots`), same
     fingerprint mechanics, but a separate `audio_001` numbering - see
     `SUPPORTED_AUDIO_EXTENSIONS` for why the spaces must not mix.
 
@@ -346,36 +388,43 @@ def enumerate_audio(project_folder: str) -> Tuple[List[dict], List[dict]]:
     `enumerate_footage` so the catalog and the identity check walk
     both lists the same way.
     """
-    raw_dir = footage_root(project_folder)
-    if not os.path.isdir(raw_dir):
+    roots = footage_roots(project_folder)
+    missing = [root for root in roots if not os.path.isdir(root)]
+    if missing:
         raise FileNotFoundError(
             f"Missing 'raw' subdirectory in project folder: {project_folder}"
         )
 
     files: List[dict] = []
     skipped: List[dict] = []
+    seen: set = set()
 
-    for root, _dirs, names in os.walk(raw_dir):
-        for fname in sorted(names):
-            filepath = os.path.join(root, fname)
-            ext = os.path.splitext(fname)[1].lower()
-            if ext not in SUPPORTED_AUDIO_EXTENSIONS:
-                continue
-            if not os.access(filepath, os.R_OK):
-                skipped.append({"path": filepath,
-                                "reason": "permission denied"})
-                continue
-            size = os.path.getsize(filepath)
-            if size == 0:
-                skipped.append({"path": filepath,
-                                "reason": "zero-byte file (likely corrupt)"})
-                continue
-            files.append({
-                "path": os.path.abspath(filepath),
-                "filename": fname,
-                "extension": ext,
-                "size_bytes": size,
-            })
+    for raw_dir in roots:
+        for root, _dirs, names in os.walk(raw_dir):
+            for fname in sorted(names):
+                filepath = os.path.join(root, fname)
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in SUPPORTED_AUDIO_EXTENSIONS:
+                    continue
+                if not os.access(filepath, os.R_OK):
+                    skipped.append({"path": filepath,
+                                    "reason": "permission denied"})
+                    continue
+                size = os.path.getsize(filepath)
+                if size == 0:
+                    skipped.append({"path": filepath,
+                                    "reason": "zero-byte file (likely corrupt)"})
+                    continue
+                abspath = os.path.abspath(filepath)
+                if abspath in seen:
+                    continue
+                seen.add(abspath)
+                files.append({
+                    "path": abspath,
+                    "filename": fname,
+                    "extension": ext,
+                    "size_bytes": size,
+                })
 
     files.sort(key=lambda entry: entry["path"])
     for i, entry in enumerate(files):
