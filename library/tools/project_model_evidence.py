@@ -63,6 +63,7 @@ try:
         person_entity,
         person_measurements,
         project_model_masks,
+        region_query,
         source_memory,
         span_verification,
     )
@@ -75,6 +76,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         person_entity,
         person_measurements,
         project_model_masks,
+        region_query,
         source_memory,
         span_verification,
     )
@@ -995,8 +997,13 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
 
 
 def resolve_person(model: dict[str, Any], ref: str) -> dict[str, Any] | None:
-    """Resolve a measured person to observations, masks, A-roll and
+    """Resolve a measured person to observations, masks, regions, A-roll and
     rendered ranges, with provenance. Pure read over the model dict.
+
+    ``regions`` are the person's region tracks (`geometry.kind ==
+    "region"` samples, MU-09): the model half of `region_query`. A model
+    migrated before region tracks (pre-MU-08) resolves to `regions: []`,
+    never None - absence of measurement, not absence of the key.
 
     ``ref`` is an entity id or a declared label; anything else returns
     None, never a best-effort neighbour.
@@ -1029,6 +1036,7 @@ def resolve_person(model: dict[str, Any], ref: str) -> dict[str, Any] | None:
             observations[obs["id"]] = obs
     masks = [mask for mask in model.get("masks") or []
              if mask.get("entity_id") == entity_id]
+    regions = list(region_query.region_tracks_for(model, entity_id))
     clip_uses = [use for use in model.get("clip_uses") or []
                  if entity_id in (use.get("entity_links") or [])]
     rendered_ranges = []
@@ -1052,7 +1060,8 @@ def resolve_person(model: dict[str, Any], ref: str) -> dict[str, Any] | None:
                         "mapping_kind": segment.get("mapping_kind"),
                     })
     wanted_prov = set()
-    for row in (list(observations.values()) + links + masks + clip_uses):
+    for row in (list(observations.values()) + links + masks + regions
+                + clip_uses):
         prov = row.get("provenance_id")
         if prov:
             wanted_prov.add(prov)
@@ -1060,7 +1069,7 @@ def resolve_person(model: dict[str, Any], ref: str) -> dict[str, Any] | None:
                   if prov.get("id") in wanted_prov]
     return {"entity": entity, "identity_links": links,
             "observations": list(observations.values()),
-            "masks": masks, "clip_uses": clip_uses,
+            "masks": masks, "regions": regions, "clip_uses": clip_uses,
             "rendered_ranges": rendered_ranges,
             "provenance": provenance}
 

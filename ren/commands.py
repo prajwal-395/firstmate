@@ -251,6 +251,8 @@ VERBS = (
 
     Verb("search", "Footage", "Find where in a project's footage something happens",
          module_argv=(_FOOTAGE_QUERY, "search")),
+    Verb("where", "Footage", "Where is this person in the footage (region tracks, or the region at --at)",
+         module_argv=(_FOOTAGE_QUERY, "where")),
     Verb("search-index", "Footage", "Build the footage search index (writes into the project's scratch)",
          module_argv=(_FOOTAGE_QUERY, "build")),
     Verb("analyze", "Footage", "Analyse a folder of footage without editing: steps, per-source memory, indexes",

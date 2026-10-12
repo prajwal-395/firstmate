@@ -243,6 +243,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "computer-use", group: "Resolve", summary: "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)" },
     Verb { name: "effects", group: "Resolve", summary: "Search the installed ResolveFX/OFX effects: route and verification state (read only)" },
     Verb { name: "search", group: "Footage", summary: "Find where in a project's footage something happens" },
+    Verb { name: "where", group: "Footage", summary: "Where is this person in the footage (region tracks, or the region at --at)" },
     Verb { name: "search-index", group: "Footage", summary: "Build the footage search index (writes into the project's scratch)" },
     Verb { name: "analyze", group: "Footage", summary: "Analyse a folder of footage without editing: steps, per-source memory, indexes" },
     Verb { name: "export-memory", group: "Footage", summary: "Write the versioned, path-portable export of a project's footage memory" },

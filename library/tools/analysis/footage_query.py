@@ -1624,6 +1624,9 @@ class FootageIndex:
         `word_hits` is the granularity claim made good: a speech hit
         reports the words whose text matched, in SOURCE seconds, so the
         caller can cut at a word boundary rather than at the utterance.
+        `region` is the person region at the hit's own tick when the
+        query named a roster person (MU-09): the M3d summary there, or
+        an absence with a reason - never a missing key on a person hit.
         """
         out = {
             "segment_id": segment["segment_id"],
@@ -2001,8 +2004,71 @@ class FootageIndex:
                 words = self._word_hits(segments[i], query)
                 if words:
                     hit["word_hits"] = words
+            person_values = (tags or {}).get("person")
+            if (person_values is not None and np.any(person_values)
+                    and float(person_values[i]) > 0):
+                self._attach_person_region(query, hit)
             results.append(hit)
         return results
+
+    def _attach_person_region(self, query: str, hit: dict) -> None:
+        """The region at a person hit's own tick, on the hit itself.
+
+        The query's roster persons (the same substring rule the person
+        lane ranks with) each get their M3d region at the hit midpoint;
+        the first match answers `region` with `region_person` naming
+        who, and every match is kept in `regions`. A person hit with no
+        measured M3d still carries the absence and its reason - a hit
+        that names nobody measured is data, not a missing key. A hit
+        the query names nobody for is left alone. Never raises: an
+        unreadable store is an absent region, the way `_person_roster`
+        already treats it.
+        """
+        try:
+            from library.tools import region_query
+        except ImportError:  # pragma: no cover - same-tree import
+            from tools import region_query  # type: ignore[no-redef]
+        try:
+            roster = self._person_roster()
+            persons = region_query.roster_persons_for_tokens(
+                roster, _tokenize(query))
+            if not persons:
+                return
+            try:
+                midpoint = (float(hit["start"]) + float(hit["end"])) / 2.0
+            except (TypeError, ValueError, KeyError):
+                return
+            sources = clip_sources(self.project_folder)
+            hit_digest = sources.get(hit.get("clip_id", ""), {}).get(
+                "source_digest")
+            docs = region_query.load_m3d_for_digests(
+                [hit_digest] if hit_digest else [])
+            regions = {}
+            for person in persons:
+                person_id = person.get("person_id", "")
+                doc = docs.get(hit_digest or "")
+                if doc is None:
+                    regions[person_id] = {
+                        "present": False,
+                        "reason": region_query.ABSENT_NO_TRACKS,
+                        "entity_id": person_id}
+                    continue
+                faces = {track.get("track_id")
+                         for track in person.get("face_tracks") or []
+                         if isinstance(track, dict)
+                         and track.get("content_digest") == hit_digest}
+                region = region_query.m3d_region_at(doc, faces, midpoint)
+                region["entity_id"] = person_id
+                region["content_digest"] = hit_digest
+                regions[person_id] = region
+            if regions:
+                first = persons[0].get("person_id", "")
+                hit["region_person"] = first
+                hit["region"] = regions[first]
+                if len(regions) > 1:
+                    hit["regions"] = regions
+        except Exception:  # noqa: BLE001 - region is annotation, not evidence
+            return
 
     # ── core query methods (for LLM tool use) ──
 
@@ -3757,9 +3823,10 @@ def _num(value):
 
 
 def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
-              score, dense, band, text) -> dict:
+              score, dense, band, text, region=None,
+              region_person=None) -> dict:
     """One stable hit row, whatever lane produced it."""
-    return {
+    row = {
         "source_digest": source_digest,
         "clip_id": clip_id,
         "file": file,
@@ -3771,6 +3838,11 @@ def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
         "band": band,
         "text": text if text is not None else "",
     }
+    if region is not None:
+        row["region"] = region
+    if region_person is not None:
+        row["region_person"] = region_person
+    return row
 
 
 def _text_json_hits(report, sources) -> list:
@@ -3790,7 +3862,9 @@ def _text_json_hits(report, sources) -> list:
                 start_s=row.get("start"), end_s=row.get("end"),
                 kind=row.get("kind"),
                 score=row.get("score"), dense=row.get("dense_score"),
-                band=band, text=row.get("text", "")))
+                band=band, text=row.get("text", ""),
+                region=row.get("region"),
+                region_person=row.get("region_person")))
     return hits
 
 
@@ -3990,6 +4064,111 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
     return answer
 
 
+def where_answer(project_folder, person, at=None, memory_root=None) -> dict:
+    """Where one person is: every M3d region track they own, or the one
+    region at `at` seconds (MU-09, `ren where`).
+
+    `person` is a roster person id or declared name; anything else
+    refuses the way `--person` filters do, never a best-effort
+    neighbour. Without `at`, answers each digest's owned region tracks
+    with their spans; with `at`, answers per digest the region at that
+    source second, or the absence and its reason - never the nearest
+    sample. A digest with no measured M3d reports `m3d: "missing"`
+    rather than inventing a region.
+    """
+    try:
+        from library.tools import region_query
+    except ImportError:  # pragma: no cover - same-tree import
+        from tools import region_query  # type: ignore[no-redef]
+    root = Path(memory_root).expanduser() if memory_root else None
+    match = person_entity.find_person(project_folder, person, root)
+    if match is None:
+        raise RenRefusal(
+            f"no person matching {person!r}",
+            "the person entity store (M3b) has no face or declared "
+            "name resolving to this query",
+            "build it first: python3 -m library.tools.person_entity "
+            f"build '{project_folder}', or check the spelling "
+            "against `person_entity roster`")
+    person_id = match["person_id"]
+    catalog = load_catalog(project_folder)
+    try:
+        recorded = source_memory.load_recorded_fingerprints(project_folder)
+    except (OSError, ValueError):
+        recorded = {}
+    digest_clips: dict[str, list] = {}
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        if digest is None:
+            continue
+        digest_clips.setdefault(digest, []).append(clip_id)
+    person_digests = {track.get("content_digest")
+                      for track in match.get("face_tracks") or []
+                      if isinstance(track, dict)
+                      and track.get("content_digest")}
+    answer: dict = {"person_id": person_id, "name": match.get("name"),
+                    "project": os.path.abspath(project_folder)}
+    if at is None:
+        tracks = []
+        for digest in sorted(person_digests):
+            doc = region_query.load_m3d_for_digests([digest], root).get(digest)
+            if doc is None:
+                tracks.append({"content_digest": digest,
+                               "clip_ids": digest_clips.get(digest, []),
+                               "m3d": "missing"})
+                continue
+            faces = {track.get("track_id")
+                     for track in match.get("face_tracks") or []
+                     if isinstance(track, dict)
+                     and track.get("content_digest") == digest}
+            for track in doc.get("tracks") or []:
+                if (isinstance(track, dict)
+                        and track.get("face_track") in faces):
+                    tracks.append({
+                        "content_digest": digest,
+                        "clip_ids": digest_clips.get(digest, []),
+                        "track_id": track.get("track_id"),
+                        "start": track.get("start"), "end": track.get("end"),
+                        "samples": track.get("samples"),
+                        "face_track": track.get("face_track")})
+        answer["tracks"] = tracks
+        return answer
+    try:
+        moment = float(at)
+    except (TypeError, ValueError):
+        raise RenRefusal(
+            f"--at {at!r} is not a time",
+            "a moment is source seconds, e.g. --at 12.5",
+            f"ren where {project_folder} {person} --at 12.5")
+    places = []
+    for digest in sorted(person_digests):
+        row: dict = {"content_digest": digest,
+                     "clip_ids": digest_clips.get(digest, [])}
+        doc = region_query.load_m3d_for_digests([digest], root).get(digest)
+        if doc is None:
+            row["m3d"] = "missing"
+            row["region"] = {"present": False,
+                             "reason": region_query.ABSENT_NO_TRACKS}
+            places.append(row)
+            continue
+        faces = {track.get("track_id")
+                 for track in match.get("face_tracks") or []
+                 if isinstance(track, dict)
+                 and track.get("content_digest") == digest}
+        region = region_query.m3d_region_at(doc, faces, moment)
+        region["entity_id"] = person_id
+        region["content_digest"] = digest
+        row["region"] = region
+        places.append(row)
+    answer["at"] = moment
+    answer["places"] = places
+    return answer
+
+
 def _load_external_hits(path):
     """The Resolve-side collector's JSON list, or a refusal naming the file."""
     try:
@@ -4000,6 +4179,34 @@ def _load_external_hits(path):
             f"cannot read external hits from {path}",
             f"{type(exc).__name__}: {exc}",
             "hand over the JSON list the Resolve-side collector wrote")
+
+
+def _print_where(answer: dict) -> None:
+    """One human-readable `ren where` answer: tracks, or the region at `--at`."""
+    name = answer.get("name") or answer["person_id"]
+    if "tracks" in answer:
+        tracks = answer["tracks"]
+        print(f"{name} ({answer['person_id']}): {len(tracks)} region track(s)")
+        for track in tracks:
+            clips = ", ".join(track.get("clip_ids") or [])
+            if track.get("m3d") == "missing":
+                print(f"  {track['content_digest'][:12]} [{clips}]: "
+                      f"regions unmeasured")
+            else:
+                print(f"  {track['content_digest'][:12]} [{clips}] "
+                      f"{track['track_id']}: {track['start']:.2f}-"
+                      f"{track['end']:.2f}s, {track['samples']} samples")
+        return
+    print(f"{name} ({answer['person_id']}) at {answer['at']:.2f}s:")
+    for place in answer["places"]:
+        clips = ", ".join(place.get("clip_ids") or [])
+        region = place["region"]
+        if region.get("present"):
+            print(f"  {place['content_digest'][:12]} [{clips}]: "
+                  f"bbox {region['bbox']} interior {region['interior_point']}")
+        else:
+            print(f"  {place['content_digest'][:12]} [{clips}]: "
+                  f"absent ({region['reason']})")
 
 
 def main(argv=None):
@@ -4107,6 +4314,20 @@ def main(argv=None):
                                 "answer (what the Resolve-side collector "
                                 "wrote); never replaces Ren search")
     p_search.add_argument("--index-dir")
+
+    p_where = sub.add_parser("where", help="Where is this person in the footage")
+    p_where.add_argument("project")
+    p_where.add_argument("person",
+                         help="roster person id or declared name, e.g. "
+                              "'person_001' or 'Craig'")
+    p_where.add_argument("--at", type=float, default=None,
+                         help="source seconds: the region at that moment, "
+                              "per source (omit to list the person's region "
+                              "tracks)")
+    p_where.add_argument("--json", action="store_true",
+                         help="print the whole answer as JSON")
+    p_where.add_argument("--memory-root",
+                         help="footage-memory root (default: the shared store)")
 
     p_filter = sub.add_parser("filter", help="Select by measurable properties")
     p_filter.add_argument("project")
@@ -4386,6 +4607,18 @@ def main(argv=None):
                 report["refused"]["hint"])
         _print_frame_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
+
+    if args.command == "where":
+        started = time.perf_counter()
+        answer = where_answer(args.project, args.person, at=args.at,
+                              memory_root=args.memory_root)
+        elapsed = time.perf_counter() - started
+        if args.json:
+            print(json.dumps(answer, indent=2))
+        else:
+            _print_where(answer)
+            print(f"\n{elapsed * 1000:.1f} ms")
         return 0
 
     idx = FootageIndex(args.project, index_dir=args.index_dir)
