@@ -27,18 +27,34 @@ class HistoryRefused(RuntimeError):
     """A history read (or tag write) that declined, always by name."""
 
 
-def _resolve_project(ref: str) -> str:
-    """A project slug or path to its folder, the `perf_ledger` shape."""
+def _resolve_project(ref: str, *, strict: bool = True) -> str:
+    """A project slug or path to its folder, the `perf_ledger` shape.
+
+    Reads (`commits`, `branches`) pass `strict=False` so a project
+    whose config fails validation still answers; the refusal a write
+    (`tag`, `cherry-pick`, `revert`) meets stays strict.
+    """
     from library.tools.project_registry import get_project, resolve_project_path
     found = resolve_project_path(ref)
     if found is not None:
+        if not strict:
+            try:
+                from library.schemas.project_config import load_project_config
+                from library.tools.project_registry import warn_config_findings
+                warn_config_findings(load_project_config(
+                    found, migrate_format=False, strict=False))
+            except (OSError, ValueError):
+                pass
         return str(found.parent)
     try:
-        config = get_project(ref)
+        config = get_project(ref, strict=strict)
     except FileNotFoundError as missing:
         raise HistoryRefused(
             f"no project {ref!r} - pass a project slug or a path to a "
             f"folder holding project.yaml ({missing})") from missing
+    if not strict:
+        from library.tools.project_registry import warn_config_findings
+        warn_config_findings(config)
     return str(config._project_root)
 
 
@@ -439,10 +455,17 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
-        project = _resolve_project(args.project)
+        project = _resolve_project(
+            args.project, strict=args.mode not in ("commits", "branches"))
     except HistoryRefused as refused:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 2
+    except Exception as refused:
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        if not isinstance(refused, RenRefusal):
+            raise
+        print(refused.render(), file=sys.stderr)
+        return REFUSAL_EXIT_CODE
     if args.mode not in ("cherry-pick", "revert") \
             and args.dest_tracks is not None:
         print("creative_history: --dest-tracks proves a replay or a "

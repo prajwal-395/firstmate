@@ -185,8 +185,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Read plain-language progress for a Ren project")
     parser.add_argument("project", help="project slug or absolute path")
     args = parser.parse_args(argv)
-    from library.tools.project_registry import get_project
-    config = get_project(args.project)
+    from library.tools.project_registry import get_project, warn_config_findings
+    config = get_project(args.project, strict=False)
+    warn_config_findings(config)
     print(json.dumps(progress_report(str(config.project_root)), ensure_ascii=False))
     return 0
 

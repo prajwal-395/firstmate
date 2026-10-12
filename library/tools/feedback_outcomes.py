@@ -935,21 +935,38 @@ def main(argv=None) -> int:
 
 
 def _resolve_project(ref: str) -> str:
-    """Resolve a project slug or folder without syncing or touching Resolve."""
+    """Resolve a project slug or folder without syncing or touching Resolve.
+
+    A project whose config fails validation still resolves - reads
+    answer with one `⚠ config:` line rather than refusing.
+    """
     candidate = Path(ref).expanduser()
     if candidate.is_absolute() and candidate.is_dir():
-        return str(candidate.resolve())
-    from library.tools.project_registry import get_project, resolve_project_path
+        folder = candidate.resolve()
+        yaml_path = folder / "project.yaml"
+        if yaml_path.is_file():
+            try:
+                from library.schemas.project_config import load_project_config
+                from library.tools.project_registry import warn_config_findings
+                warn_config_findings(load_project_config(
+                    yaml_path, migrate_format=False, strict=False))
+            except (OSError, ValueError):
+                pass
+        return str(folder)
+    from library.tools.project_registry import (
+        get_project, resolve_project_path, warn_config_findings)
 
     found = resolve_project_path(ref)
     if found is not None:
         return str(found.parent)
     try:
-        return str(get_project(ref)._project_root)
+        config = get_project(ref, strict=False)
     except FileNotFoundError as missing:
         raise RuntimeError(
             f"no project {ref!r}; pass a project slug or a folder path") \
             from missing
+    warn_config_findings(config)
+    return str(config._project_root)
 
 
 if __name__ == "__main__":

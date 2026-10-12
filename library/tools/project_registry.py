@@ -113,15 +113,39 @@ def project_config_paths(root: Path = None) -> list[Path]:
     return paths
 
 
-def scan_projects(root: Path = None) -> list[ProjectConfig]:
-    """Walk the project registry and load each project config."""
+def scan_projects(root: Path = None, *,
+                 warn: bool = False) -> list[ProjectConfig]:
+    """Walk the project registry and load each project config.
+
+    A project whose config fails validation is still listed, carrying
+    the failures on `config.config_findings` - a bad config takes the
+    project offline for writes, never for reads. Only `ren projects`
+    passes `warn=True`, which prints the one per-call `Warning:` line
+    about such a project; every slug-resolving verb stays silent about
+    projects it was not asked about.
+    """
     configs = []
     for yaml_path in project_config_paths(root):
         try:
-            configs.append(load_project_config(yaml_path, migrate_format=False))
+            configs.append(load_project_config(yaml_path,
+                                               migrate_format=False,
+                                               strict=False))
         except (ValueError, FileNotFoundError) as e:
-            print(f"  Warning: skipping {yaml_path}: {e}", file=sys.stderr)
+            if warn:
+                print(f"  Warning: skipping {yaml_path}: {e}",
+                      file=sys.stderr)
+            continue
+        if warn and configs[-1].config_findings:
+            print(f"  Warning: {yaml_path} has an invalid config: "
+                  f"{configs[-1].config_findings[0]}", file=sys.stderr)
     return configs
+
+
+def warn_config_findings(config: ProjectConfig) -> None:
+    """Print one `⚠ config:` line for a leniently loaded config, else nothing."""
+    findings = getattr(config, "config_findings", None) or []
+    if findings:
+        print(f"⚠ config: {'; '.join(findings)}", file=sys.stderr)
 
 
 def resolve_project_path(ref: str) -> Optional[Path]:
@@ -157,7 +181,7 @@ def resolve_project_path(ref: str) -> Optional[Path]:
     return None
 
 
-def _open_project(yaml_path: Path) -> ProjectConfig:
+def _open_project(yaml_path: Path, *, strict: bool = True) -> ProjectConfig:
     """Load one project THROUGH the format gate.
 
     `load_project_config` refuses a project outside the engine's
@@ -165,10 +189,11 @@ def _open_project(yaml_path: Path) -> ProjectConfig:
     a backup before its config is returned. Listing (`scan_projects`)
     calls the loader in read-only mode instead.
     """
-    return load_project_config(yaml_path)
+    return load_project_config(yaml_path, strict=strict)
 
 
-def get_project(slug: str, root: Path = None) -> ProjectConfig:
+def get_project(slug: str, root: Path = None, *,
+                strict: bool = True) -> ProjectConfig:
     """Load a project by slug or by filesystem path.
 
     Searches PROJECTS_ROOT for a project.yaml with a matching slug.  If
@@ -180,17 +205,38 @@ def get_project(slug: str, root: Path = None) -> ProjectConfig:
     project outside the supported format range refuses, and an older
     supported one migrates with a backup.  Listing (`scan_projects`)
     stays read-only and never migrates.
+
+    Strict (the default) raises `ProjectConfigInvalid` for a config
+    that fails validation, so write verbs refuse with exit 4. Read
+    verbs pass `strict=False` and get the config with its failures on
+    `config.config_findings`, which they report as one `⚠ config:`
+    line (see `warn_config_findings`).
     """
     direct_path = resolve_project_path(slug)
     if direct_path:
-        return _open_project(direct_path)
+        return _open_project(direct_path, strict=strict)
 
     root = root or PROJECTS_ROOT
     configs = scan_projects(root)
 
     for config in configs:
         if config.slug == slug:
-            return _open_project(config.project_root / "project.yaml")
+            if config.config_findings and strict:
+                return _open_project(config.project_root / "project.yaml",
+                                     strict=True)
+            return config
+
+    # Also try direct path lookup: root/slug/project.yaml
+    direct = root / slug / "project.yaml"
+    if direct.exists():
+        return _open_project(direct, strict=strict)
+
+    # Try client-grouped: root/*/slug/project.yaml
+    for entry in root.iterdir():
+        if entry.is_dir():
+            grouped = entry / slug / "project.yaml"
+            if grouped.exists():
+                return _open_project(grouped, strict=strict)
 
     # Also try direct path lookup: root/slug/project.yaml
     direct = root / slug / "project.yaml"
@@ -225,9 +271,16 @@ def list_projects(
     status: Optional[ProjectStatus] = None,
     client: Optional[str] = None,
     root: Path = None,
+    *,
+    warn: bool = False,
 ) -> list[ProjectConfig]:
-    """List projects, optionally filtered by status and/or client."""
-    configs = scan_projects(root)
+    """List projects, optionally filtered by status and/or client.
+
+    `warn=True` (only `ren projects`) prints the one per-call
+    `Warning:` line about each invalid config; every other caller
+    stays silent about projects it was not asked about.
+    """
+    configs = scan_projects(root, warn=warn)
 
     if status:
         configs = [c for c in configs if c.status == status]
@@ -554,12 +607,15 @@ def _write_brief_starter(path: Path, config: ProjectConfig,
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def project_status(slug: str, root: Path = None) -> dict:
+def project_status(slug: str, root: Path = None, *,
+                   strict: bool = True) -> dict:
     """Return a status summary for a project.
 
     Includes pipeline progress, filesystem state, and resolve binding.
+    Lenient (`strict=False`) answers for a project whose config fails
+    validation and reports the failures under `config_findings`.
     """
-    config = get_project(slug, root)
+    config = get_project(slug, root, strict=strict)
     project_dir = config.project_root
 
     # Check directory state
@@ -627,6 +683,8 @@ def project_status(slug: str, root: Path = None) -> dict:
         "resolve_project": config.resolve.project_name,
         "resolve_folder": config.resolve.folder,
         "pipeline_data_exists": config.pipeline_data_path.exists(),
+        "config_findings": list(
+            getattr(config, "config_findings", None) or []),
         "live_run": live_run,
     }
 

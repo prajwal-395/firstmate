@@ -387,7 +387,8 @@ def cmd_init_root(args):
 def cmd_list(args):
     """List all known projects."""
     status_filter = ProjectStatus(args.status) if args.status else None
-    configs = list_projects(status=status_filter, client=args.client)
+    configs = list_projects(status=status_filter, client=args.client,
+                            warn=True)
 
     if not configs:
         print("  No projects found.")
@@ -401,17 +402,21 @@ def cmd_list(args):
     print(f"  {'─'*25} {'─'*30} {'─'*14} {'─'*12} {'─'*40}")
 
     for c in configs:
-        status_icon = {
-            ProjectStatus.DRAFT: "📝",
-            ProjectStatus.IN_PROGRESS: "🔧",
-            ProjectStatus.REVIEW: "👀",
-            ProjectStatus.COMPLETE: "✅",
-            ProjectStatus.ARCHIVED: "📦",
-        }.get(c.status, "  ")
+        if getattr(c, "config_findings", None):
+            status_cell = "⚠ invalid config"
+        else:
+            status_icon = {
+                ProjectStatus.DRAFT: "📝",
+                ProjectStatus.IN_PROGRESS: "🔧",
+                ProjectStatus.REVIEW: "👀",
+                ProjectStatus.COMPLETE: "✅",
+                ProjectStatus.ARCHIVED: "📦",
+            }.get(c.status, "  ")
+            status_cell = f"{status_icon} {c.status.value:<11}"
 
         print(
             f"  {c.slug:<25} {c.name:<30} "
-            f"{status_icon} {c.status.value:<11} {c.client:<12} "
+            f"{status_cell:<14} {c.client:<12} "
             f"{c.project_root}"
         )
 
@@ -593,7 +598,7 @@ def cmd_new(args):
 def cmd_status(args):
     """Show project status."""
     try:
-        info = project_status(args.slug)
+        info = project_status(args.slug, strict=False)
     except FileNotFoundError as e:
         raise RenRefusal(
             f"{e}",
@@ -602,6 +607,9 @@ def cmd_status(args):
             f"to list them, or pass the project's absolute path "
             f"instead of the slug") from e
 
+    if info.get("config_findings"):
+        print(f"⚠ config: {'; '.join(info['config_findings'])}",
+              file=sys.stderr)
     print(f"\n  Project: {info['name']}")
     print(f"  Slug:    {info['slug']}")
     print(f"  Status:  {info['status']}")
@@ -674,7 +682,9 @@ def cmd_notes(args):
                   file=sys.stderr)
             sys.exit(2)
         try:
-            config = get_project(args.slug)
+            config = get_project(args.slug, strict=False)
+            from library.tools.project_registry import warn_config_findings
+            warn_config_findings(config)
             project_folder = str(config.project_root)
         except FileNotFoundError:
             project_folder = args.slug
@@ -693,7 +703,9 @@ def cmd_notes(args):
     from library.tools import marker_routing
 
     try:
-        config = get_project(args.action)
+        config = get_project(args.action, strict=False)
+        from library.tools.project_registry import warn_config_findings
+        warn_config_findings(config)
         project_folder = str(config.project_root)
     except FileNotFoundError:
         project_folder = args.action
@@ -798,7 +810,9 @@ def cmd_round_diff(args):
     from library.tools.versions import rounds
 
     try:
-        config = get_project(args.slug)
+        config = get_project(args.slug, strict=False)
+        from library.tools.project_registry import warn_config_findings
+        warn_config_findings(config)
         project_folder = str(config.project_root)
     except FileNotFoundError:
         project_folder = args.slug
@@ -2169,7 +2183,7 @@ def cmd_archive(args):
 def cmd_info(args):
     """Show project configuration details."""
     try:
-        config = get_project(args.slug)
+        config = get_project(args.slug, strict=False)
     except FileNotFoundError as e:
         raise RenRefusal(
             f"{e}",
@@ -2178,6 +2192,8 @@ def cmd_info(args):
             f"to list them, or pass the project's absolute path "
             f"instead of the slug") from e
 
+    from library.tools.project_registry import warn_config_findings
+    warn_config_findings(config)
     from library.schemas.project_config import project_config_to_dict
     data = project_config_to_dict(config)
     print(json.dumps(data, indent=2))
@@ -3940,9 +3956,18 @@ def _reel_project_folder(project: str) -> str:
     if os.path.isabs(project) and os.path.isdir(project):
         folder = project
     else:
+        from library.schemas.project_config import ProjectConfigInvalid
         from library.tools.project_registry import get_project
         try:
             folder = str(get_project(project).project_root)
+        except ProjectConfigInvalid as invalid:
+            raise RenRefusal(
+                f"this project's config is invalid: "
+                f"{invalid.what}",
+                f"{invalid.why}",
+                f"{invalid.fix}",
+                user_message=invalid.user_message,
+                recovery_class=invalid.recovery_class) from invalid
         except FileNotFoundError as unknown:
             raise RenRefusal(
                 f"{unknown}",

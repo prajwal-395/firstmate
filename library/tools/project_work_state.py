@@ -53,9 +53,11 @@ def project_work_state(project_ref: str) -> dict:
         if match is None:
             raise FileNotFoundError(f"No Ren project found for {project_ref!r}")
         yaml_path = match.project_root / "project.yaml"
-    config = load_project_config(yaml_path, migrate_format=False)
+    config = load_project_config(yaml_path, migrate_format=False,
+                                 strict=False)
     root = Path(config.project_root)
     config_data = project_config_to_dict(config)
+    config_findings = list(getattr(config, "config_findings", None) or [])
 
     ledger = edit_ledger.load_rows(str(root))
     events = event_log.read_events(str(root))
@@ -140,6 +142,7 @@ def project_work_state(project_ref: str) -> dict:
         "open_work": open_work,
         "assignments": assignments,
         "last_requested_change": last_request,
+        "config_findings": config_findings,
     }
     state["summary"] = _summary(state)
     return state
@@ -174,6 +177,10 @@ def main(argv=None) -> int:
         state = project_work_state(args.project)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
+    if state.get("config_findings"):
+        import sys
+        print(f"⚠ config: {'; '.join(state['config_findings'])}",
+              file=sys.stderr)
     print(json.dumps(state, indent=2, ensure_ascii=False) if args.json else state["summary"])
     return 0
 

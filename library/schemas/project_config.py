@@ -25,6 +25,7 @@ from library.tools.project_format import (
     FORMAT_VERSION_KEY,
     PROJECT_FORMAT_VERSION,
 )
+from library.tools.ren_refusal import RenRefusal
 
 # A language code: two or three letters, optional region (`en`,
 # `es`, `pt-BR`). Permissive on purpose - the transcriber, not the
@@ -39,6 +40,52 @@ class ProjectStatus(str, Enum):
     REVIEW = "review"
     COMPLETE = "complete"
     ARCHIVED = "archived"
+
+
+class ProjectConfigInvalid(RenRefusal):
+    """A project.yaml that fails validation.
+
+    Raised by `load_project_config` in strict mode (the default), so a
+    write verb refuses with exit 4 instead of a traceback. Read verbs
+    load with `strict=False` and carry the same findings on the
+    returned config instead. The captain's question - keep the key or
+    drop it - belongs to the captain, so this is `needs_question`.
+    """
+
+    CODE = "REN_PROJECT_CONFIG_INVALID"
+    USER_MESSAGE = ("This project's config needs a fix before Ren can "
+                    "run it. Nothing ran; read verbs still answer.")
+    RECOVERY_CLASS = "needs_question"
+
+
+def _invalid_key(errors: list[str]) -> str:
+    """The dotted key the first validation error is about.
+
+    An unknown-key error (`pipeline.deliver_preset declares
+    ['render_preset'], ...`) names the mapping, so the offending entry
+    is appended. Otherwise the first dotted path in the message.
+    Falls back to `project config` when no key can be read off.
+    """
+    first = errors[0] if errors else ""
+    mapping = re.search(r"([\w]+(?:\.[\w]+)+) declares \[(.*?)\]", first)
+    if mapping:
+        names = re.findall(r"'([^']+)'", mapping.group(2))
+        if names:
+            return f"{mapping.group(1)}.{names[0]}"
+        return mapping.group(1)
+    dotted = re.search(r"[a-z][\w]*(?:\.[\w\[\]'\"-]+)+", first)
+    if dotted:
+        return dotted.group(0)
+    return "project config"
+
+
+def _invalid_takes_clause(errors: list[str]) -> str:
+    """` (it takes [...])` from the first error that states one, else ""."""
+    for error in errors:
+        match = re.search(r"[Ii]t takes (\[.*?\])", error)
+        if match:
+            return f" (it takes {match.group(1)})"
+    return ""
 
 
 @dataclass
@@ -341,6 +388,14 @@ class ProjectConfig:
 
     # Runtime - not serialized to YAML
     _project_root: Path | None = field(default=None, repr=False)
+
+    # Runtime - findings from a lenient (`strict=False`) load. Empty
+    # means the config validated clean; non-empty means the file
+    # carries declarations nothing reads (or otherwise fails
+    # `validate()`), which the read verbs report as one `⚠ config:`
+    # line. Never serialized: it describes the file, not the project.
+    config_findings: list = field(default_factory=list, repr=False,
+                                  compare=False)
 
     @property
     def project_root(self) -> Path:
@@ -828,10 +883,18 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
 
 
 def load_project_config(yaml_path: str | Path, *,
-                        migrate_format: bool = True) -> ProjectConfig:
+                        migrate_format: bool = True,
+                        strict: bool = True) -> ProjectConfig:
     """Load and validate a project.yaml file.
 
     Uses PyYAML if available, falls back to a simple parser for basic YAML.
+
+    Strict (the default) raises `ProjectConfigInvalid` - a refusal with
+    what/why/fix, exit 4 - on the first validation failure, so a write
+    verb never runs on a config it cannot honour. Lenient (`strict=False`)
+    returns the config anyway with the failures on
+    `config.config_findings`, so a read verb still answers and reports
+    them as one `⚠ config:` line.
     """
     yaml_path = Path(yaml_path)
     if not yaml_path.exists():
@@ -857,7 +920,15 @@ def load_project_config(yaml_path: str | Path, *,
 
     errors = config.validate()
     if errors:
-        raise ValueError(f"Invalid project config {yaml_path}: {'; '.join(errors)}")
+        if strict:
+            key = _invalid_key(errors)
+            raise ProjectConfigInvalid(
+                f"project config {yaml_path} declares `{key}`, "
+                f"which failed validation",
+                "; ".join(errors),
+                f"remove `{key}` from `{yaml_path}`"
+                f"{_invalid_takes_clause(errors)} or ask the captain")
+        config.config_findings = list(errors)
 
     # Resolve env vars in pipeline paths
     config.pipeline.resolve_paths()
