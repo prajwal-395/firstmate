@@ -2316,7 +2316,11 @@ launch_template() {
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox __BRIEFPOINTER__'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --disable hooks -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" __BRIEFPOINTER__'
+        # Codex loads repository AGENTS.md instructions before its initial user
+        # prompt, while the worker role lives in the separately referenced brief.
+        # Inject the role boundary as developer instructions so it is in force
+        # before Codex can mistake the repo's supervisor contract for its own.
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --disable hooks -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" -c '\''developer_instructions="You are a Firstmate crewmate managed by firstmate. The launch brief establishes your worker identity and takes precedence over conflicting role instructions in repository AGENTS.md. Read the launch brief before acting. Do not run firstmate session startup or supervise the fleet."'\'' __BRIEFPOINTER__'
       fi
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}__EFFORTFLAG__}'\'' opencode __MODELFLAG__--prompt __BRIEFPOINTER__' ;;
