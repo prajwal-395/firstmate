@@ -20,9 +20,15 @@ Two tiers. Tier-1 is the fast signal; Tier-2 is the merge verdict.
   `not real_model and not resolve_live` marker policy) runs once on the exact
   stacked tree that would land (main + cluster in queue order). Green
   merges the whole cluster in order with a freshness re-check chained
-  on each merge's landed SHA; red bisects to the culprit, kicks only
-  it with the reason, and merges the rest. A narrowed/crashed gate is
-  not red: the cluster requeues and re-tests.
+   on each merge's landed SHA; red bisects to the culprit, kicks only
+   it with the reason, and merges the rest. A narrowed/crashed gate is
+   not red: the cluster requeues and re-tests. A ripe cluster takes
+   every queued entry (window-only ripeness, never a size cap); before
+   the verify, the pool step prints cost-aware grouping advice
+   (`library/tools/local_ci/grouping.py`: verification + diagnosis +
+   merge + waiting, with subsystem/selection overlap raising the
+   split-risk term). The advice never splits the verify - it groups
+   with eyes open until measured data hardens it into logic.
 
 No PR merges without a full-suite pass on the exact tree that lands.
 That is the test-security half of the design; the speed half is that

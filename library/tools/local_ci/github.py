@@ -182,6 +182,22 @@ def get_pr(number: int) -> dict:
     return _shape_pull(records[0])
 
 
+def pr_files(number: int) -> list:
+    """Repo-relative paths the PR touches (the grouping advice input).
+
+    Reads the REST pull-files endpoint (stable JSON filenames),
+    following `list_open_prs`' base64 projection. Raises GitHubError
+    when unreadable - the caller, not this module, decides that
+    unknown files mean eyes-open overlap rather than a refusal.
+    """
+    path = f"repos/{repo_path()}/pulls/{number}/files?per_page=100"
+    payload = _api(path, jq=".[] | {filename} | @base64")
+    records = _decode_jq_objects(payload, path)
+    return sorted(str(record.get("filename", "")) for record in records
+                  if isinstance(record, dict)
+                  and str(record.get("filename", "")))
+
+
 def post_status(head: str, state: str, description: str,
                 target_url: str = "") -> None:
     """Post the check verdict for a head SHA.

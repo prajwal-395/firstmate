@@ -122,6 +122,16 @@ class World:
         hygiene.fetch_pr(mirror, pr)
         return github.get_pr(pr)["head"]
 
+    def pr_files(self, pr: int) -> list:
+        """Repo-relative paths the PR touches, or [] when unreadable.
+
+        The grouping advice (CI-11) reads this; an unreadable diff is
+        unknown overlap (grouped with eyes open), never a refusal, so
+        callers treat [] as "no files seen", not "empty diff".
+        """
+        from library.tools.local_ci import github
+        return github.pr_files(pr)
+
     def test_stack(self, base: str, members: list) -> TestResult:
         """Evaluate main+members stacked: Tier-2 runs the FULL suite once
         on the exact tree the ordered merges would produce.
@@ -926,13 +936,20 @@ def _tested(member: dict, base: str) -> dict:
     return member
 
 
-def process_once(world: World, window: int = 90) -> dict:
+def process_once(world: World, window: int = 90,
+                 select=None) -> dict:
     """One queue pass: ripen a cluster, test it, merge it, persist.
 
     At most ONE cluster per pass: Tier-2 owns the machine alone, and a
     second cluster behind it waits for the next pass rather than
     fighting for cores. An unripe queue reports waiting (with the
     oldest entry's age) instead of testing: the timebox exists to group.
+    A ripe cluster still takes EVERY queued entry (`plan_cluster` is
+    window-only); the cost-aware grouping (CI-11) prints ADVICE with
+    its cost terms before the verify, hardening into grouping logic
+    only with data. `select` is the dependency-graph callable the
+    advice prices overlap with (default the static selector);
+    scripted worlds pass a fake to stay hermetic.
     Returns the summary.
     """
     entries = state.read_queue(world.state_dir)
@@ -966,6 +983,10 @@ def process_once(world: World, window: int = 90) -> dict:
         member["status"] = state.ENTRY_TESTING
         fresh.append(member)
     state.write_queue(entries, world.state_dir)
+    if select is None:
+        from library.tools.local_ci import selection
+        select = selection.dependent
+    _advise_grouping(world, fresh, select=select)
     try:
         green, kicked, requeued_tier2 = resolve_batch(world, base, fresh)
     except Exception as exc:  # noqa: BLE001 - interruption is not a verdict
@@ -1020,6 +1041,34 @@ def process_once(world: World, window: int = 90) -> dict:
             member["status"] = state.ENTRY_QUEUED
     state.write_queue(entries, world.state_dir)
     return summary
+
+
+def _advise_grouping(world: World, fresh: list, select=None) -> None:
+    """Print the CI-11 cost-aware grouping advice for a ripe cluster.
+
+    Advisory only: the cluster below still verifies whole whatever the
+    advice says. File lists come from the entry when a previous pass
+    filed them, else from `world.pr_files` best-effort; anything
+    unreadable stays unknown (eyes-open overlap), never a refusal.
+    Never raises: advice must not fail a verdict that already passed.
+    """
+    try:
+        from library.tools.local_ci import grouping
+        for member in fresh:
+            if member.get("files"):
+                continue
+            try:
+                files = world.pr_files(member["pr"])
+            except Exception:  # noqa: BLE001 - unknown, not unjudgeable
+                continue
+            if files:
+                member["files"] = list(files)
+        for line in grouping.advise_for_cluster(
+                fresh, state_dir=world.state_dir, now=time.time(),
+                select=select):
+            print(line, flush=True)
+    except Exception as exc:  # noqa: BLE001 - advice never fails the run
+        print(f"ren-ci grouping: advice skipped ({exc})", flush=True)
 
 
 def _report(world: World, member: dict, ok: bool) -> None:

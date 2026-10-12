@@ -53,6 +53,11 @@ class FakeWorld(queue.World):
     def pr_head(self, pr):
         return f"head-{pr}"
 
+    def pr_files(self, pr):
+        # Scripted worlds carry no diffs: unknown files group with
+        # eyes open, and no test spawns a real gh-axi read.
+        return []
+
     def test_stack(self, base, members):
         self.tests += 1
         if self.fail_when([m["pr"] for m in members]):
