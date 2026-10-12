@@ -440,6 +440,7 @@ fm-pi-primary-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
 fm-pi-windows-shell-invocation.test.sh windows-gated
+fm-plan-frontier.test.sh pure-contract-unit
 fm-posture-repair-live-e2e.test.sh live-harness-optin
 fm-pr-check-security.test.sh pr-forge
 fm-pr-merge.test.sh pr-forge
