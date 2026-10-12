@@ -16,6 +16,13 @@ resolved interpreter is served when present, and absence REFUSES - never
 a silent stock-interpreter fallback, which fails forty seconds inside a
 step with a traceback about a package nobody mentioned.
 
+LE-04 (`ren` on PATH in every agent shell) extends the same pattern to
+PATH: the hook prepends the shell cwd's worktree `bin`, and
+`.claude/settings.json` registers a SessionStart hook
+(`.claude/hooks/ren-path.sh`) appending the same for Claude Code. Both
+directions again: resolution is proved below, and a cwd outside any
+checkout prepends nothing rather than a `bin` dir with no `ren` in it.
+
 Nothing here writes to a real install location: every resolution runs
 with fixture homes under `tmp_path`, and the one test that reads the
 real durable venv is read-only and skips where none is built.
@@ -35,6 +42,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WRAPPER = REPO_ROOT / "bin" / "vep"
 PLUGIN = REPO_ROOT / ".opencode" / "plugins" / "vep-env.js"
+CLAUDE_SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+CLAUDE_PATH_HOOK = REPO_ROOT / ".claude" / "hooks" / "ren-path.sh"
 
 EXPECTED_API = ("/Library/Application Support/Blackmagic Design"
                 "/DaVinci Resolve/Developer/Scripting")
@@ -231,3 +240,159 @@ def test_the_hook_has_no_stock_interpreter_fallback():
     the exact trap this exists to close."""
     text = PLUGIN.read_text(encoding="utf-8")
     assert "/usr/bin/python3" not in text
+
+
+# ── `ren` on PATH in every agent shell (LE-04) ──────────────────────
+
+def _make_worktree(tmp_path: Path) -> Path:
+    """A fixture worktree: a `bin/ren` stub the hook finds by walking up
+    from the shell's cwd."""
+    stub = tmp_path / "wt" / "bin" / "ren"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text("#!/bin/sh\necho ren-stub \"$@\"\n", encoding="utf-8")
+    stub.chmod(0o755)
+    return tmp_path / "wt"
+
+
+@needs_node
+def test_the_hook_prepends_the_worktree_bin_to_path(tmp_path):
+    """The opencode half of LE-04: the injected PATH starts with the
+    shell cwd's worktree `bin`, exactly once, so `ren` needs no prefix."""
+    wt = _make_worktree(tmp_path)
+    injected = _run_hook(_env(tmp_path), str(wt))
+    entries = injected["PATH"].split(os.pathsep)
+    assert entries[0] == str(wt / "bin")
+    assert entries.count(str(wt / "bin")) == 1
+
+
+@needs_node
+def test_the_hook_prepends_nothing_outside_a_checkout(tmp_path):
+    """No `bin/ren` above the cwd: PATH is left out of the injection
+    rather than gaining a `bin` dir with no `ren` in it."""
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    injected = _run_hook(_env(tmp_path), str(outside))
+    assert "PATH" not in injected
+
+
+@needs_node
+def test_the_hook_moves_an_existing_bin_dir_to_the_front(tmp_path):
+    """Repeated shells stay idempotent: a PATH already carrying the bin
+    dir keeps exactly one occurrence, at the front."""
+    wt = _make_worktree(tmp_path)
+    base = _env(tmp_path)
+    base["PATH"] = os.pathsep.join(
+        [str(wt / "bin"), "/usr/bin", str(wt / "bin"), "/bin"])
+    injected = _run_hook(base, str(wt))
+    entries = injected["PATH"].split(os.pathsep)
+    assert entries[0] == str(wt / "bin")
+    assert entries.count(str(wt / "bin")) == 1
+
+
+@needs_node
+def test_ren_resolves_to_the_worktree_bin_in_a_plugin_test_shell(tmp_path):
+    """LE-04 acceptance, opencode half: in a shell carrying the injected
+    environment, `command -v ren` answers the worktree's `bin/ren`."""
+    wt = _make_worktree(tmp_path)
+    injected = _run_hook(_env(tmp_path), str(wt))
+    env = dict(os.environ)
+    env.update(injected)
+    proc = subprocess.run(["sh", "-c", "command -v ren"],
+                          capture_output=True, encoding="utf-8",
+                          env=env, timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == str(wt / "bin" / "ren")
+
+
+@needs_node
+def test_ren_help_exits_zero_with_the_injected_path(tmp_path):
+    """LE-04 acceptance: `ren --help` exits 0 with no `bin/` prefix. The
+    real worktree answers, under an explicit interpreter so the proof
+    runs the real verb rather than a fixture stub."""
+    injected = _run_hook(
+        _env(tmp_path, {"PIPELINE_PYTHON": sys.executable}), str(REPO_ROOT))
+    assert injected["PATH"].split(os.pathsep)[0] == str(REPO_ROOT / "bin")
+    env = dict(os.environ)
+    env.update(injected)
+    proc = subprocess.run(["sh", "-c", "ren --help"],
+                          capture_output=True, encoding="utf-8",
+                          env=env, timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "usage: ren <verb>" in proc.stdout
+
+
+def test_claude_session_start_registers_the_path_hook():
+    """The Claude half of LE-04: the project's SessionStart hook runs the
+    worktree-PATH script, which exists and is executable."""
+    settings = json.loads(CLAUDE_SETTINGS.read_text(encoding="utf-8"))
+    starts = settings["hooks"]["SessionStart"]
+    commands = [hook.get("command", "")
+                for entry in starts for hook in entry.get("hooks", [])]
+    assert any("ren-path.sh" in cmd for cmd in commands), commands
+    assert CLAUDE_PATH_HOOK.is_file()
+    assert os.access(CLAUDE_PATH_HOOK, os.X_OK)
+
+
+def _run_path_hook(cwd: Path, env: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(["sh", str(CLAUDE_PATH_HOOK)],
+                          capture_output=True, encoding="utf-8",
+                          env=env, timeout=120, check=False, cwd=str(cwd))
+
+
+def test_claude_path_hook_appends_the_worktree_bin(tmp_path):
+    """The hook script appends `PATH=<worktree>/bin:$PATH` to the file
+    Claude Code names. The fixture dir is no git checkout, so this also
+    proves the physical-cwd fallback; the next test proves the git path."""
+    wt = _make_worktree(tmp_path)
+    env_file = tmp_path / "claude-env"
+    proc = _run_path_hook(wt, {"PATH": "/usr/bin:/bin",
+                               "CLAUDE_ENV_FILE": str(env_file)})
+    assert proc.returncode == 0, proc.stderr
+    root = os.path.realpath(str(wt))
+    assert env_file.read_text(encoding="utf-8") == (
+        f"PATH={root}/bin:/usr/bin:/bin\n")
+
+
+def test_claude_path_hook_resolves_a_real_worktree_through_git(tmp_path):
+    """Against this checkout, the script names the worktree git itself
+    reports - one checked-in hook serving every disposable worktree."""
+    env_file = tmp_path / "claude-env"
+    proc = _run_path_hook(REPO_ROOT, {"PATH": "/usr/bin:/bin",
+                                      "CLAUDE_ENV_FILE": str(env_file)})
+    assert proc.returncode == 0, proc.stderr
+    expect = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                            capture_output=True, encoding="utf-8",
+                            timeout=120, check=False, cwd=str(REPO_ROOT))
+    assert expect.returncode == 0, expect.stderr
+    assert env_file.read_text(encoding="utf-8") == (
+        f"PATH={expect.stdout.strip()}/bin:/usr/bin:/bin\n")
+
+
+def test_claude_path_hook_is_idempotent(tmp_path):
+    """Three SessionStarts in one session leave exactly one entry,
+    whether or not the file was sourced between runs."""
+    wt = _make_worktree(tmp_path)
+    env_file = tmp_path / "claude-env"
+    env = {"PATH": "/usr/bin:/bin", "CLAUDE_ENV_FILE": str(env_file)}
+    for _ in range(3):
+        proc = _run_path_hook(wt, env)
+        assert proc.returncode == 0, proc.stderr
+    assert len(env_file.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_claude_path_hook_leaves_a_ready_path_alone(tmp_path):
+    """A session PATH already carrying the bin dir writes nothing."""
+    wt = _make_worktree(tmp_path)
+    root = os.path.realpath(str(wt))
+    env_file = tmp_path / "claude-env"
+    proc = _run_path_hook(wt, {"PATH": f"{root}/bin:/usr/bin:/bin",
+                               "CLAUDE_ENV_FILE": str(env_file)})
+    assert proc.returncode == 0, proc.stderr
+    assert not env_file.exists()
+
+
+def test_claude_path_hook_noops_without_claude_env_file(tmp_path):
+    """Outside Claude Code the script exits 0 and writes nothing."""
+    wt = _make_worktree(tmp_path)
+    proc = _run_path_hook(wt, {"PATH": "/usr/bin:/bin"})
+    assert proc.returncode == 0, proc.stderr

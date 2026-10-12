@@ -14,6 +14,12 @@
 //       A ladder duplicated in a second language drifts the first time
 //       only one side changes (docs/SHARED_ENVIRONMENT.md); a caller
 //       that queries cannot drift.
+//   PATH - the worktree's `bin` PREPENDED, so `ren` resolves with no
+//       prefix (`command -v ren` answers `<worktree>/bin/ren`). The
+//       worktree is found by walking up from the shell's cwd to the
+//       nearest ancestor with an executable `bin/ren`, never hardcoded -
+//       each disposable worktree serves its own `ren` (LE-04: 72
+//       `command not found` in 63 sessions over 10 days).
 //
 // This is the hook, not the wrapper. `bin/vep` is the script a lane calls
 // DELIBERATELY to run under the resolved interpreter - the hook cannot
@@ -33,6 +39,7 @@
 // inside a step. The Resolve variables are constants and are always set.
 import { execFileSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 
 // Exactly what lanes export, character for character - and what
 // `library/tools/paths.py` defaults to. Constants, per machine.
@@ -76,6 +83,23 @@ const queryLadder = (repoRoot) => {
   }
 };
 
+// Nearest ancestor of `start` (itself first) whose `bin/ren` is
+// executable - the worktree whose `ren` the shell should find. A lane
+// shell usually starts at the worktree root, so this is depth 0; a
+// subdirectory still resolves. Returns "" when none is found, so a cwd
+// outside any checkout prepends nothing. Never throws.
+const findWorktreeBin = (start) => {
+  if (!start || typeof start !== "string") return "";
+  let dir = start;
+  for (let depth = 0; depth <= 12; depth += 1) {
+    if (isExecutable(join(dir, "bin", "ren"))) return join(dir, "bin");
+    const parent = join(dir, "..");
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "";
+};
+
 export const VepEnv = async ({ directory }) => {
   // Rung 1 is an explicit choice and wins outright - when the server
   // environment already names something executable, that is the answer
@@ -92,6 +116,17 @@ export const VepEnv = async ({ directory }) => {
       }
       output.env.RESOLVE_SCRIPT_API = RESOLVE_SCRIPT_API;
       output.env.RESOLVE_SCRIPT_LIB = RESOLVE_SCRIPT_LIB;
+      // `ren` on PATH: the worktree's `bin` goes first. The base is the
+      // server's own PATH - the shell inherits it overlaid with these
+      // values. Any earlier occurrence is moved to the front rather than
+      // duplicated, so repeated shells stay idempotent.
+      const binDir = findWorktreeBin(repoRoot);
+      if (binDir) {
+        const base = (output.env.PATH || process.env.PATH || "")
+          .split(delimiter)
+          .filter((entry) => entry && entry !== binDir);
+        output.env.PATH = [binDir, ...base].join(delimiter);
+      }
       // Unset when unanswered: a stock interpreter is not a fallback, it
       // dies inside a step with a traceback about a package nobody
       // mentioned (the trap a previous investigation fell into).
