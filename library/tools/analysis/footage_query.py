@@ -3624,7 +3624,10 @@ def _print_structured(answer):
         print("  (no saved timeline transcript: nothing can be placed)")
     for hit in answer["hits"]:
         name = os.path.basename(hit["source_file"])
-        print(f"  {name} {hit['start']:9.2f}-{hit['end']:9.2f}")
+        quality = hit.get("capture_quality")
+        ordered = (f"  face quality {quality:.2f}"
+                   if isinstance(quality, (int, float)) else "")
+        print(f"  {name} {hit['start']:9.2f}-{hit['end']:9.2f}{ordered}")
         if "verification" in hit:
             print(f"      VLM: {hit['verification']['reason']}")
         for p in hit["placements"]:

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Apple Vision measurement for step 1.04, with a working Haar fallback.
 
-Measures all faces (boxes), face landmarks, body pose, hand pose and a
+Measures all faces (boxes, head-pose yaw/pitch/roll, capture quality),
+face landmarks, body pose, hand pose and a
 person-segmentation summary at the step's face sampling rate, through a
 compiled Swift helper (`vision_helper.swift` beside this file) rather
 than pyobjc: no new pip dependencies, no import-time cost on machines
 without it, and the call path is the harness the eval measured (34 ms
-per frame warm for all five requests). The helper binary is compiled
+per frame warm for the original five requests, plus ~17-27 ms for face
+capture quality). The helper binary is compiled
 once per source revision into a temp cache; anything that fails -
 non-macOS, no swiftc, compile error, run error - returns the fallback
 document, so Vision is never the reason a run goes red.
@@ -415,8 +417,8 @@ def _assemble(docs: list, sample_rate_hz: int, sha: str,
                      if isinstance(seg.get("bbox"), list)
                      and len(seg["bbox"]) == 4 else None),
         })
-        for key in ("face_ms", "landmark_ms", "body_ms", "hand_ms",
-                    "seg_ms"):
+        for key in ("face_ms", "landmark_ms", "quality_ms", "body_ms",
+                    "hand_ms", "seg_ms"):
             value = doc.get(key)
             if isinstance(value, (int, float)):
                 ms_totals[key] = ms_totals.get(key, 0.0) + float(value)

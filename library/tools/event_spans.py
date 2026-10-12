@@ -66,6 +66,12 @@ first to last word). A span outside every recorded extent is reported
 `unplaced`, not "not on the timeline": the transcript records where
 speech is, and an item can run past it.
 
+**Face capture quality orders, never filters.** Every `on_screen` and
+`speaking` span carries the median M3 face capture quality of its
+frames (`capture_quality`, None when no face in the span measured
+one). `query` answers best face first; an unmeasured span keeps time
+order behind every measured one rather than being dropped.
+
     python3 -m library.tools.event_spans build <project>
     python3 -m library.tools.event_spans status <project>
     ren search <project> --person Craig --predicate speaking
@@ -317,15 +323,69 @@ def _track_runs(assignment: List[List[Optional[str]]]
     return out
 
 
+def _median_quality(values: Sequence[float]) -> Optional[float]:
+    """The median face capture quality of a span, or None unmeasured.
+
+    An ORDERING, never a threshold: a span whose faces carry no quality
+    (pre-v2 M3, or a voice turn with no face on screen) keeps its place
+    behind every measured span instead of being dropped. A span is never
+    refused for looking bad.
+    """
+    measured = [float(v) for v in values
+                if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if not measured:
+        return None
+    return round(statistics.median(measured), 3)
+
+
+def _track_frame_qualities(m3: dict, assignment: List[List[Optional[str]]],
+                           track_id: str, first: int, last: int) -> List[float]:
+    """Capture qualities of `track_id`'s faces over frames first..last."""
+    out = []
+    for i in range(first, last + 1):
+        for face, assigned in zip(m3["frames"][i]["faces"], assignment[i]):
+            if assigned == track_id:
+                quality = face.get("capture_quality")
+                if isinstance(quality, (int, float)) \
+                        and not isinstance(quality, bool):
+                    out.append(float(quality))
+    return out
+
+
+def _turn_qualities(m3: dict, assignment: List[List[Optional[str]]],
+                    track_id: str, start: float, end: float) -> List[float]:
+    """Capture qualities of `track_id`'s faces inside [start, end]."""
+    out = []
+    for frame, row in zip(m3["frames"], assignment):
+        if not _inside(frame["t"], [(start, end)]):
+            continue
+        for face, assigned in zip(frame["faces"], row):
+            if assigned != track_id:
+                continue
+            quality = face.get("capture_quality")
+            if isinstance(quality, (int, float)) \
+                    and not isinstance(quality, bool):
+                out.append(float(quality))
+    return out
+
+
 def on_screen_spans(m3: dict, assignment: List[List[Optional[str]]]) -> List[dict]:
-    """Per face track, the runs of frames that track's face is in."""
+    """Per face track, the runs of frames that track's face is in.
+
+    Each span carries the MEDIAN face capture quality of its frames'
+    faces (`capture_quality`, None when no face in the span measured
+    one): the query orders a person's spans by it, best face first.
+    """
     times = [f["t"] for f in m3["frames"]]
     spans = []
     for track_id, track_runs in _track_runs(assignment).items():
         for first, last, count in track_runs:
             start, end = span_bounds(times, first, last)
             spans.append({"face_track": track_id, "start": start, "end": end,
-                          "frames": count})
+                           "frames": count,
+                           "capture_quality": _median_quality(
+                               _track_frame_qualities(m3, assignment,
+                                                      track_id, first, last))})
     return spans
 
 
@@ -458,14 +518,32 @@ def link_voices_to_faces(m3: dict, assignment: List[List[Optional[str]]],
     return links
 
 
-def speaking_spans(identity: dict, links: List[dict]) -> List[dict]:
-    """Every voice turn, carrying the face track it was linked to."""
+def speaking_spans(identity: dict, links: List[dict], m3: Optional[dict] = None,
+                   assignment: Optional[List[List[Optional[str]]]] = None
+                   ) -> List[dict]:
+    """Every voice turn, carrying the face track it was linked to.
+
+    Each span also carries the MEDIAN face capture quality of its
+    linked track's faces inside the turn (`capture_quality`): the face
+    the query orders by. None when the turn's track has no face on
+    screen (a voice with no linked track, or M3/assignment not passed,
+    as in readers that only need the link).
+    """
     face_of = {link["voice_track"]: link["face_track"] for link in links}
-    return [{"voice_track": voice["track_id"],
-             "face_track": face_of.get(voice["track_id"]),
-             "start": round(start, 3), "end": round(end, 3)}
-            for voice in identity.get("voices") or []
-            for start, end in voice.get("spans") or []]
+    out = []
+    for voice in identity.get("voices") or []:
+        for start, end in voice.get("spans") or []:
+            track_id = face_of.get(voice["track_id"])
+            quality = None
+            if m3 is not None and assignment is not None \
+                    and track_id is not None:
+                quality = _median_quality(
+                    _turn_qualities(m3, assignment, track_id, start, end))
+            out.append({"voice_track": voice["track_id"],
+                        "face_track": track_id,
+                        "start": round(start, 3), "end": round(end, 3),
+                        "capture_quality": quality})
+    return out
 
 
 # ── hand-at-mouth CANDIDATES (never an answer on their own) ─────────
@@ -735,11 +813,11 @@ def build_source_events(content_digest: str, source_file: str,
                 "spans": on_screen_spans(m3, assignment)},
             "speaking": {
                 "basis": "M3b diarized voice turns, attributed to a face by "
-                         "lip motion (M3)",
+                          "lip motion (M3)",
                 "voice_face_links": links,
                 "voice_unavailable_reason": (identity.get("instrument") or {}
-                                             ).get("voice_unavailable_reason"),
-                "spans": speaking_spans(identity, links)},
+                                              ).get("voice_unavailable_reason"),
+                "spans": speaking_spans(identity, links, m3, assignment)},
         },
         "candidates": {
             "hand_near_mouth": {
@@ -1118,7 +1196,13 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
 
 def query(project_folder: str, person_query: str, predicate: str,
           root: Optional[Path] = None) -> dict:
-    """person x predicate -> source spans -> every angle -> timeline items."""
+    """person x predicate -> source spans -> every angle -> timeline items.
+
+    Hits carry their span's median face capture quality and come back
+    best face first: measured spans order by quality descending, spans
+    with no measured quality keep time order behind them. An ordering,
+    never a threshold - a span is never dropped for looking bad.
+    """
     if predicate in UNSHIPPED:
         raise RenRefusal(f"predicate {predicate!r} is not answered alone",
                          UNSHIPPED[predicate],
@@ -1149,9 +1233,15 @@ def query(project_folder: str, person_query: str, predicate: str,
     hits = []
     for span in _predicate_spans(person, predicate, root):
         hits.append({**{k: span[k] for k in ("source_file", "start", "end")},
+                     "capture_quality": span.get("capture_quality"),
                      "placements": place(project_folder, span["content_digest"],
                                          span["start"], span["end"], items,
                                          files, root)})
+    # Best face first; unmeasured spans keep their time order behind
+    # every measured one (the sort is stable, and _predicate_spans is
+    # in time order). No span is dropped for its quality.
+    hits.sort(key=lambda h: (h["capture_quality"] is None,
+                             -(h["capture_quality"] or 0.0)))
     placed = [h for h in hits if h["placements"]]
     return {
         "person": person["person_id"], "naming": naming,

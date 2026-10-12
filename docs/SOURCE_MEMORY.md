@@ -205,10 +205,12 @@ python3 -m library.tools.conversation_clock status <project>
 ## M3 `persons.json` (written)
 
 Owner: `library/tools/person_measurements.py`. Apple Vision faces (box,
-inner/outer lips) and hands (21 joints) on every M2 frame, through step
+head-pose yaw/pitch/roll, face capture quality, inner/outer lips) and
+hands (21 joints) on every M2 frame, through step
 1.04's own helper (`vision_measure.measure_frames`, persistence filter
 unchanged) - step 1.04 itself is untouched. Measured 22-27 ms/frame on
-geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project.
+geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project
+(pre-quality; the quality request adds ~17-27 ms/frame warm).
 
 ```json
 {
@@ -217,10 +219,12 @@ geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project.
   "coordinates": "image-normalised, top-left origin",
   "frames": [{"t": 0.521,
               "faces": [{"box": [x1, y1, x2, y2], "confidence": 0.8,
+                         "pose": {"yaw": 0.25, "pitch": 0.21, "roll": 0.01},
+                         "capture_quality": 0.082,
                          "outer_lips": [[x, y]], "inner_lips": [[x, y]]}],
               "hands": [{"chirality": "right", "confidence": 1.0,
                          "joints": {"VNHLKTTIP": [x, y, confidence]}}]}],
-  "instrument": {"method": "vision-helper-v1 over M2", "m2_width": 384,
+  "instrument": {"method": "vision-helper-v2 over M2", "m2_width": 384,
                  "frame_pixels": [384, 216], "ms_per_frame": 22.6,
                  "faces_removed_by_persistence": 0, "persistence_iou": 0.3}
 }

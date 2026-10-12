@@ -212,6 +212,10 @@ def slot_is_fresh(lane: Lane, digest: str, root: Path | None) -> bool:
             from library.tools.expression_classifier import M3C_METHOD
             if doc.get("instrument", {}).get("method") != M3C_METHOD:
                 return False
+        if lane.name == "persons":
+            from library.tools.person_measurements import M3_METHOD
+            if doc.get("instrument", {}).get("method") != M3_METHOD:
+                return False
         if (slot == source_memory.SLOT_FRAMES_INDEX
                 and not source_memory.m2_frames_present(digest, doc, root)):
             return False

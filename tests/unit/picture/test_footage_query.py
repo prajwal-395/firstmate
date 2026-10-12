@@ -27,7 +27,7 @@ from library.tools.ren_refusal import RenRefusal
 from library.tools.analysis import footage_frames
 from library.tools.analysis.footage_frames import FrameIndex
 import os
-from library.tools import footage_analysis, memory_export
+from library.tools import footage_analysis, memory_export, person_measurements
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1275,7 +1275,12 @@ def test_persons_measured_off_a_rebuilt_frame_sample_are_rebuilt(
     lane = next(l for l in footage_analysis.LANES if l.name == "persons")
     digest = "ab" * 32
     sdir = source_memory.source_dir(digest)
-    _write_2(sdir / source_memory.SLOT_PERSONS, {"content_digest": digest})
+    # A current-stamp record: this test names the mtime ordering, not
+    # the slot version (a pre-v2 stamp reads stale whatever the mtimes
+    # say - see test_m3_pose_capture_quality).
+    _write_2(sdir / source_memory.SLOT_PERSONS, {
+        "content_digest": digest,
+        "instrument": {"method": person_measurements.M3_METHOD}})
     _write_2(sdir / source_memory.SLOT_FRAMES_INDEX, {"content_digest": digest})
     old = os.stat(sdir / source_memory.SLOT_FRAMES_INDEX).st_mtime - 60
     os.utime(sdir / source_memory.SLOT_PERSONS, (old, old))

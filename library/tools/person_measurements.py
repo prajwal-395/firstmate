@@ -1,7 +1,8 @@
 """Per-frame person measurements: M3 (`persons.json`) of the per-source
 footage memory (`docs/SOURCE_MEMORY.md`).
 
-Faces (box, lip landmarks) and hands (21 joints each) at the shared M2
+Faces (box, head-pose yaw/pitch/roll, face capture quality, lip
+landmarks) and hands (21 joints each) at the shared M2
 cadence (~2 Hz on the geo-podcast cameras), measured by the SAME Apple
 Vision helper step 1.04 runs (`vision_measure.measure_frames` over
 `vision_helper.swift`, persistence filter included) - this module only
@@ -48,7 +49,13 @@ from typing import List, Optional, Tuple
 from library.tools import source_memory
 
 M3_STATUS_MEASURED = "measured"
-M3_METHOD = "vision-helper-v1 over M2"
+M3_METHOD = "vision-helper-v2 over M2"
+"""What the M3 instrument stamps a record with. v2 adds per-face head
+pose (yaw/pitch/roll, already returned by the face-rectangles request)
+and face capture quality (`VNDetectFaceCaptureQualityRequest`,
+~17-27 ms/frame). `footage_analysis.slot_is_fresh` refuses a record
+stamped anything else, so pre-v2 files rebuild instead of serving
+faceless pose/quality as absent."""
 
 BATCH_FRAMES = 2000
 """Frames per helper process. One process per source would pay cold
@@ -92,9 +99,47 @@ def _boxed_faces(doc: dict) -> List[dict]:
             if len(face.get("box") or []) == 4]
 
 
+def _pose_of(face: dict) -> dict:
+    """A helper face's head pose in radians, or None per missing axis.
+
+    The face-rectangles request already returns yaw/pitch/roll; older
+    helper output (pre-v2) carries no `pose` key at all, which reads as
+    all-None rather than failing - the slot version, not this reader,
+    is what retires those records.
+    """
+    pose = face.get("pose") or {}
+    out = {}
+    for axis in ("yaw", "pitch", "roll"):
+        value = pose.get(axis)
+        out[axis] = (round(float(value), 3)
+                     if isinstance(value, (int, float))
+                     and not isinstance(value, bool) else None)
+    return out
+
+
+def _quality_of(qualities: List[tuple], box: List[float]) -> Optional[float]:
+    """The capture-quality observation pairing best to `box`, or None.
+
+    Same IoU >= `LANDMARK_FACE_MIN_IOU` rule as landmarks: the quality
+    request observes independently, so an unpaired observation is
+    dropped rather than attached to the wrong face.
+    """
+    vm = _vision()
+    best, best_q = 0.0, None
+    for q_box, quality in qualities:
+        overlap = vm._iou(box, q_box)
+        if overlap > best:
+            best, best_q = overlap, quality
+    if best >= LANDMARK_FACE_MIN_IOU and isinstance(best_q, (int, float)) \
+            and not isinstance(best_q, bool):
+        return round(float(best_q), 3)
+    return None
+
+
 def frame_record(doc: dict, keep_faces: List[bool], t: float) -> dict:
-    """One helper document as an M3 frame: kept faces with their lips in
-    image coordinates, and every hand with its joints."""
+    """One helper document as an M3 frame: kept faces with their pose,
+    capture quality and lips in image coordinates, and every hand with
+    its joints."""
     vm = _vision()
     landmarks = []
     for lm in doc.get("landmarks") or []:
@@ -102,13 +147,21 @@ def frame_record(doc: dict, keep_faces: List[bool], t: float) -> dict:
         if len(box) != 4:
             continue
         landmarks.append((box, lm))
+    qualities = []
+    for entry in doc.get("face_quality") or []:
+        box = entry.get("box") or []
+        if len(box) != 4:
+            continue
+        qualities.append((box, entry.get("capture_quality")))
     faces = []
     for face, keep in zip(_boxed_faces(doc), keep_faces):
         box = face["box"]
         if not keep:
             continue
         entry = {"box": _round(box),
-                 "confidence": round(float(face.get("confidence", 0.0)), 3)}
+                  "confidence": round(float(face.get("confidence", 0.0)), 3),
+                  "pose": _pose_of(face),
+                  "capture_quality": _quality_of(qualities, box)}
         best, best_lm = 0.0, None
         for lm_box, lm in landmarks:
             overlap = vm._iou(box, lm_box)

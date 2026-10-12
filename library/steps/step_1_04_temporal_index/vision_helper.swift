@@ -1,7 +1,8 @@
 // vision_helper.swift - Apple Vision measurement for step 1.04.
 //
-// One image list in, one JSON array out. Five requests per image: face
-// rectangles, face landmarks (2D, all regions), human body pose, human
+// One image list in, one JSON array out. Six requests per image: face
+// rectangles (box, confidence, head-pose yaw/pitch/roll), face capture
+// quality, face landmarks (2D, all regions), human body pose, human
 // hand pose (up to 2 hands), person segmentation (coverage + bbox only).
 //
 // Usage: vision_helper --list <path-file>
@@ -55,6 +56,13 @@ func shortKey(_ key: Any) -> String {
     return desc
 }
 
+// A measured number, or null when Vision did not return one (an older
+// OS leaves yaw/pitch/roll nil; a quality observation with no score is
+// recorded, not dropped, so the Python pairing can still place its box).
+func numOrNull(_ value: Double?) -> Any {
+    value ?? NSNull()
+}
+
 func analyze(path: String) -> [String: Any] {
     var doc: [String: Any] = ["image": (path as NSString).lastPathComponent]
     guard let img = cgImage(at: path) else {
@@ -73,9 +81,35 @@ func analyze(path: String) -> [String: Any] {
         doc["faces"] = faces.map { o -> [String: Any] in
             ["box": [o.boundingBox.minX, 1.0 - o.boundingBox.maxY,
                      o.boundingBox.maxX, 1.0 - o.boundingBox.minY],
-             "confidence": Double(o.confidence)]
+             "confidence": Double(o.confidence),
+             "pose": ["yaw": numOrNull(o.yaw?.doubleValue),
+                      "pitch": numOrNull(o.pitch?.doubleValue),
+                      "roll": numOrNull(o.roll?.doubleValue)]]
         }
     } catch { doc["face_error"] = "\(error)" }
+
+    do {
+        let t0 = Date()
+        if #available(macOS 13.0, *) {
+            let req = VNDetectFaceCaptureQualityRequest()
+            try handler.perform([req])
+            let faces: [VNFaceObservation] = req.results ?? []
+            doc["quality_ms"] = Date().timeIntervalSince(t0) * 1000.0
+            // Raw observations, in the request's own order: the caller
+            // pairs them to face rectangles by box overlap (the two
+            // requests observe independently, so counts can differ -
+            // the same reason landmarks pair by overlap below).
+            doc["face_quality"] = faces.map { o -> [String: Any] in
+                ["box": [o.boundingBox.minX, 1.0 - o.boundingBox.maxY,
+                         o.boundingBox.maxX, 1.0 - o.boundingBox.minY],
+                 "capture_quality": numOrNull(
+                     o.faceCaptureQuality.map(Double.init))]
+            }
+        } else {
+            doc["quality_ms"] = Date().timeIntervalSince(t0) * 1000.0
+            doc["face_quality"] = []
+        }
+    } catch { doc["quality_error"] = "\(error)" }
 
     do {
         let t0 = Date()
