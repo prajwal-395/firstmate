@@ -117,6 +117,13 @@ def add_arguments(parser) -> None:
              "when the project resolution differs from the reel. Only "
              "explicit `otio` opts into the project-default resolution "
              "switch for a mismatch.")
+    parser.add_argument(
+        "--json", dest="json", action="store_true",
+        help="Print the end-of-build per-reel digest as JSON - the last "
+             "stdout object - instead of one line per reel. The digest "
+             "is the LE-07 rows for the reels this build touched: "
+             "outcome, final name, verify verdict and owed answers, "
+             "plus the refusal code if any and the full log's path.")
 
 
 def run(project_folder: str, args) -> int:
@@ -126,7 +133,27 @@ def run(project_folder: str, args) -> int:
     stops the run where it happened, names the operation and what it
     refused on, and makes no closing commit: nothing after it ran.
     4 is the refusal code (`library/tools/ren_refusal.py`).
+
+    The run always ends with the per-reel digest on stdout - the
+    LE-07 rows for the reels this build touched (outcome, final
+    name, verify verdict, owed answers), the refusal code if any and
+    the full log's path. `--json` prints the same as the last stdout
+    object, so an agent parses one shape instead of mining the run's
+    own output the way the 50,863-byte log plus 4 JSON reads did.
+    The digest never fails the build: a reader that refuses correct
+    output is worse than no reader (AGENTS.md 10.4).
     """
+    code = _run(project_folder, args)
+    try:
+        print_digest(project_folder, args, code)
+    except Exception as exc:  # noqa: BLE001 - the digest never fails a build
+        print(f"build digest unavailable ({exc!r}) - the reels this "
+              f"run touched are in `ren reels {project_folder}`",
+              file=sys.stderr)
+    return code
+
+
+def _run(project_folder: str, args) -> int:
     # The format gate, before any capability reads project state: a
     # project outside the supported range refuses here, and an older
     # supported one migrates with a backup.  This runner takes a raw
@@ -272,6 +299,110 @@ def _run_capabilities(project_folder: str, args) -> int:
     # capability's commit already covered everything.
     commit_run_tail(project_folder)
     return 0
+
+
+def digest_rows(project_folder: str, only_reels=None) -> list:
+    """The LE-07 rows for the reels this build touched, in reel order.
+
+    Read-only: one `reel_state.reels_state` read, filtered to the
+    `--only-reel` numbers where the build was scoped. A project with
+    no recorded reels digests to `[]`, never a refusal - the closing
+    commit above already said what ran.
+    """
+    from library.tools import reel_state
+
+    try:
+        state = reel_state.reels_state(str(project_folder))
+        rows = list(state.get("reels") or ())
+    except Exception:
+        return []
+    wanted = _digest_wanted(only_reels)
+    if wanted is None:
+        return rows
+    return [row for row in rows
+            if isinstance(row.get("reel"), int) and row["reel"] in wanted]
+
+
+def _digest_wanted(only_reels) -> set | None:
+    """The `--only-reel` numbers as ints, or None for a whole-project run."""
+    if not only_reels:
+        return None
+    if isinstance(only_reels, (str, int)):
+        only_reels = [only_reels]
+    try:
+        return {int(reel) for reel in only_reels}
+    except (TypeError, ValueError):
+        return None
+
+
+def build_digest(project_folder: str, only_reels=None,
+                 exit_code: int = 0) -> dict:
+    """The end-of-build digest as data: one entry per touched reel.
+
+    Per reel: outcome, final name, verify verdict (plus the raw
+    verify record), owed model answers and approval. Plus the
+    refusal code where the run refused, and the path of the full
+    log (`pipeline_output/logs/event_log.jsonl`) for the run's own
+    account of itself.
+    """
+    from library.tools import event_log, reel_state
+
+    reels = []
+    for row in digest_rows(project_folder, only_reels):
+        if not isinstance(row, dict):
+            continue
+        reels.append({
+            "reel": row.get("reel"),
+            "outcome": row.get("outcome"),
+            "final": row.get("final") or row.get("timeline_name"),
+            "verify": row.get("verify"),
+            "verify_verdict": reel_state._verify_word(row.get("verify")),
+            "owed_answers": list(row.get("owed_answers") or ()),
+            "approval": row.get("approval"),
+        })
+    try:
+        log = str(event_log.log_path(str(project_folder)))
+    except Exception:
+        log = ""
+    return {
+        "command": "build",
+        "project": str(project_folder),
+        "exit": exit_code,
+        "refusal_code": exit_code if exit_code else None,
+        "log": log,
+        "reel_count": len(reels),
+        "reels": reels,
+    }
+
+
+def print_digest(project_folder: str, args, exit_code: int) -> None:
+    """End the build with the digest on stdout: text, or `--json`.
+
+    Text is one LE-07 line per touched reel plus one closing line
+    carrying the exit code and the full log's path. `--json` prints
+    the digest as the last stdout object: everything else this run
+    prints goes to stderr, so the tail parses. Read-only and never
+    Resolve: the digest that needs the machine would defeat its
+    own purpose.
+    """
+    only_reels = getattr(args, "only_reel", None)
+    if getattr(args, "json", False):
+        print(json.dumps(
+            build_digest(project_folder, only_reels,
+                         exit_code=exit_code),
+            ensure_ascii=False, default=str))
+        return
+    from library.tools import event_log, reel_state
+
+    for row in digest_rows(project_folder, only_reels):
+        if isinstance(row, dict):
+            print(reel_state.format_line(row))
+    try:
+        log = str(event_log.log_path(str(project_folder)))
+    except Exception:
+        log = "(unknown)"
+    touched = len(digest_rows(project_folder, only_reels))
+    print(f"build: {touched} reel(s), exit {exit_code}, log {log}")
 
 
 def record_project_output(project_folder: str, capability_id: str, payload,
