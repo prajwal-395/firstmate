@@ -176,7 +176,9 @@ def _run(project_folder: str, args) -> int:
         act = assignment_spine.begin_build(
             project_folder, args.only_reel or None)
     except RenRefusal as refused:
+        from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         return REFUSAL_EXIT_CODE
     try:
         code = _run_capabilities(project_folder, args)
@@ -265,9 +267,16 @@ def _run_capabilities(project_folder: str, args) -> int:
                 emit_refusal_result(refused)
                 return REFUSAL_EXIT_CODE
             if result.refused:
-                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+                # A string-path refusal: the operation refused with no
+                # `RenRefusal` object, so without this nothing
+                # machine-readable is emitted (LE-03 leftovers).
+                # `as_refusal` carries the teach site's own fix - never
+                # an invented one.
+                from library.tools.ren_refusal import (
+                    REFUSAL_EXIT_CODE, emit_refusal_result)
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
+                emit_refusal_result(result.as_refusal())
                 return REFUSAL_EXIT_CODE
 
             # RECORD the capability's result the way a run records one, so

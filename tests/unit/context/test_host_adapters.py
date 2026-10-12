@@ -276,6 +276,21 @@ def test_detected_host_gets_json_output_by_default(tmp_path, monkeypatch):
     assert os.environ["REN_OUTPUT"] == "json"
 
 
+def test_codex_only_machine_gets_json_output_by_default(tmp_path,
+                                                         monkeypatch):
+    """Codex has no env channel in `hooks.json` (pinned in
+    `test_setup_hooks`: the install must not invent one), so the
+    runtime default is its whole persistence: a machine with only
+    the codex binary on PATH still defaults `REN_OUTPUT` to `json`
+    (LE-03 leftovers)."""
+    bin_dir = _fake_env(tmp_path, monkeypatch)
+    _fake_codex(bin_dir, "0.159.3", "Logged in as user (ChatGPT)")
+    monkeypatch.delenv("REN_OUTPUT", raising=False)
+
+    assert hosts.ensure_harness_output_env() == "codex"
+    assert os.environ["REN_OUTPUT"] == "json"
+
+
 def test_explicit_output_choice_wins_over_detection(tmp_path, monkeypatch):
     """Presence is a choice: even empty keeps prose-only output on a
     machine with a harness installed."""

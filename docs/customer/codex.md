@@ -51,6 +51,13 @@ sign-in state; `ren doctor` reports it too.
    The merge is idempotent - an entry naming `ren-marker-hook` is left
    alone - and the original file is backed up to `<file>.bak`.
 
+   `hooks.json` carries commands, not environment, so unlike Claude
+   Code there is no persisted `REN_OUTPUT` here: under a Codex session
+   every refusal still ends with one machine-readable `REN_RESULT`
+   line, because `ren` defaults `REN_OUTPUT` to `json` whenever a
+   supported harness binary (including `codex`) is on PATH. An
+   explicit value - even empty - always wins.
+
 ## Verify
 
 ```sh

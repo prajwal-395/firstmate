@@ -740,6 +740,12 @@ def _print_run(record: dict) -> None:
 
 
 def main(argv=None) -> int:
+    # Same default as the front door, for direct `-m` use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--" in argv:
         raise RenRefusal(
@@ -818,8 +824,17 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # ONE place renders every refusal on this verb's path, in the same
+    # shape as the front door. With `REN_OUTPUT=json` both a refusal
+    # and an uncaught error end with one final `REN_RESULT` line (LE-03).
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
     try:
         sys.exit(main())
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        sys.exit(report_unexpected(exc))

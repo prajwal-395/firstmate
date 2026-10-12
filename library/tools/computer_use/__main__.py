@@ -587,6 +587,12 @@ def _recipe_save(name: str, script_path: str, layout: str | None) -> int:
 
 
 def main(argv=None) -> int:
+    # Same default as the front door, for direct `-m` use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     parser = argparse.ArgumentParser(
         prog="ren computer-use", description="Computer use above the native driver."
     )
@@ -821,10 +827,26 @@ def main(argv=None) -> int:
                 *([f"--out={args.out}"] if args.out else []),
             ])
     except RenRefusal as exc:
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, emit_refusal_result)
         print(exc.render(), file=sys.stderr)
-        return 4
+        emit_refusal_result(exc)
+        return REFUSAL_EXIT_CODE
     return 2
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # ONE place renders every refusal on this verb's path, in the same
+    # shape as the front door. With `REN_OUTPUT=json` both a refusal
+    # and an uncaught error end with one final `REN_RESULT` line (LE-03).
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
+    try:
+        sys.exit(main())
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        sys.exit(report_unexpected(exc))

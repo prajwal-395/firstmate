@@ -282,6 +282,12 @@ class OperationResult:
     hollow: tuple[str, ...] = field(default_factory=tuple)
     artifacts: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
+    fix: str = ""
+    """The runnable way out, written by the teach site beside the
+    prose (`_teach` and its siblings return it with the message), so
+    `as_refusal` never invents one. Empty only for results built
+    before this field existed; `as_refusal` then falls back to the
+    prose, which always names the way out."""
 
     def __post_init__(self):
         if self.status not in STATUSES:
@@ -317,6 +323,29 @@ class OperationResult:
         hollow check found something.
         """
         return self.refused or not self.payload or bool(self.hollow)
+
+    def as_refusal(self) -> "RenRefusal":
+        """This refusal as a `RenRefusal`, for the one `REN_RESULT` shape.
+
+        The string paths (`run_reels`' `result.refused` branch, the
+        `operations` CLI, the edit runner's REFUSED summary) carry no
+        `RenRefusal` object, so without this they print prose only and
+        the host parses nothing (LE-03 leftovers). `what` is the
+        structured reason, `why` the teacher's prose, `fix` the runnable
+        way out the teach site wrote - never invented here. Raises
+        `OperationError` when called on a non-refusal, because a
+        completion is not a refusal."""
+        if not self.refused:
+            raise OperationError(
+                f"{self.operation} completed",
+                "only a refusal converts to a RenRefusal",
+                "call as_refusal only when result.refused holds")
+        from library.tools.ren_refusal import RenRefusal
+        reason = self.refusal_reason()
+        detail = self.error.strip() or reason
+        fix = self.fix.strip() or detail
+        return RenRefusal(what=reason, why=detail, fix=fix,
+                          code="REN_OPERATION_REFUSED")
 
     def refusal_reason(self) -> str:
         """Why it refused, naming a producer for each missing requirement."""
@@ -766,11 +795,12 @@ class Operation:
 
         missing = self.unmet(project_folder)
         if missing:
+            message, fix = self._teach(missing)
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 unsatisfied=tuple(entry.requirement for entry in missing),
-                error=self._teach(missing))
+                error=message, fix=fix)
             announce_result(refused, project_folder)
             return refused
 
@@ -783,10 +813,11 @@ class Operation:
         # after the contract check, before the splat - because `run`
         # raises by design rather than returning something to bind.
         if self.is_prompt:
+            message, fix = self._teach_prompt()
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
-                error=self._teach_prompt())
+                error=message, fix=fix)
             announce_result(refused, project_folder)
             return refused
 
@@ -819,16 +850,21 @@ class Operation:
                     f"{owed[0]}=...)` - or run {self.legacy_node} so the "
                     f"runner asks the model for them. Resolving without "
                     f"them would produce a confident answer to a question "
-                    f"nobody was asked."))
+                    f"nobody was asked."),
+                fix=(f"supply the model's missing keys "
+                     f"({', '.join(owed)}) as overrides, or run "
+                     f"{self.legacy_node} so the runner asks the model "
+                     f"for them"))
             announce_result(refused, project_folder)
             return refused
 
         unbound = self.unbound_parameters(arguments)
         if unbound:
+            message, fix = self._teach_unbound(unbound, where)
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
-                error=self._teach_unbound(unbound, where))
+                error=message, fix=fix)
             announce_result(refused, project_folder)
             return refused
 
@@ -839,7 +875,7 @@ class Operation:
         announce_result(completed, project_folder)
         return completed
 
-    def _teach_prompt(self) -> str:
+    def _teach_prompt(self) -> tuple:
         """The refusal for a capability that IS a prompt.
 
         Names the prompt file, says who answers it (the runner asking
@@ -848,6 +884,10 @@ class Operation:
         derived from the owning node like every other operation, so a
         plan may name this capability even though executing it alone
         cannot.
+
+        Returns (message, fix): the prose for stderr, and the runnable
+        way out `as_refusal` carries - written here, beside the prose,
+        so the two cannot drift.
         """
         return (
             f"{self.name} is the PROMPT of {self.legacy_node}: its "
@@ -855,9 +895,11 @@ class Operation:
             f"runner asks a model to answer - and an operation runs "
             f"ALONE, with no model to ask.\n"
             f"\nRun {self.legacy_node} so the runner asks the model for "
-            f"it, or run the DAG.")
+            f"it, or run the DAG.",
+            f"run {self.legacy_node} so the runner asks the model for "
+            f"it, or run the DAG")
 
-    def _teach(self, missing: list) -> str:
+    def _teach(self, missing: list) -> tuple:
         """The refusal, written so the reader can work out their next move.
 
         An operation runs ALONE, so a requirement whose producer would
@@ -871,6 +913,10 @@ class Operation:
         missing audio_spine" is a wall; naming the producer and the two
         ways out is a control surface, which is the point of granular
         operations at all.
+
+        Returns (message, fix): the prose for stderr, and the runnable
+        way out `as_refusal` carries - derived from the same producer
+        data, never invented.
         """
         from library.tools import requirements
 
@@ -883,6 +929,18 @@ class Operation:
             producers = tuple(entry.requirement.produced_by or ())
             if producers:
                 deferrable.append((entry.requirement.name, producers))
+
+        fixes = []
+        for entry in missing:
+            name = entry.requirement.name
+            producers = tuple(entry.requirement.produced_by or ())
+            if producers:
+                who = " or ".join(f"`{p}`" for p in producers)
+                fixes.append(
+                    f"{name}: run {who} first, or run the DAG")
+            else:
+                fixes.append(
+                    f"{name}: no step declares a producer")
 
         if deferrable:
             lines += ["",
@@ -906,7 +964,7 @@ class Operation:
                 lines.append(f"  - {name}: produced by {who}{via} - run "
                              f"{'that step' if len(producers) == 1 else 'one of those steps'} "
                              f"first, or run the DAG.")
-        return "\n".join(lines)
+        return "\n".join(lines), "; ".join(fixes)
 
     def unbound_parameters(self, arguments: dict) -> tuple:
         """The step's own required parameters nothing could fill.
@@ -943,7 +1001,7 @@ class Operation:
                                    inspect.Parameter.KEYWORD_ONLY)
             and name not in arguments)
 
-    def _teach_unbound(self, unbound: tuple, where: Scope = None) -> str:
+    def _teach_unbound(self, unbound: tuple, where: Scope = None) -> tuple:
         """The refusal, written so the reader can supply what is missing.
 
         Names each argument, says the gathered inputs do not carry it,
@@ -952,6 +1010,10 @@ class Operation:
         answer and `props` is one segment of it, and a registry that
         filled either from a plausible-looking place would produce the
         confidently-wrong result this whole layer exists to stop.
+
+        Returns (message, fix): the prose for stderr, and the copyable
+        command `as_refusal` carries - the same command the prose
+        prints, never a second one.
         """
         named = ", ".join(unbound)
         first = unbound[0]
@@ -974,7 +1036,9 @@ class Operation:
             f"  operations.get({self.name!r}).execute(project, "
             f"{first}=...)\n"
             f"\nRefused rather than called, because a step handed a "
-            f"guessed argument answers a question nobody asked.")
+            f"guessed argument answers a question nobody asked.",
+            f"python3 -m library.tools.operations {self.name} "
+            f"--project <p>{at} --set {first}=@{first}.json")
 
     def _arguments(self, inputs: dict, scope: Scope = None,
                    project_folder: str = "") -> dict:
@@ -2481,6 +2545,12 @@ def parse_overrides(pairs: Iterable[str]) -> dict:
 
 
 def main(argv=None) -> int:
+    # Same default as the front door, for direct `-m` use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     parser = argparse.ArgumentParser(
         prog="python3 -m library.tools.operations",
         description=("The named things the pipeline can be asked to do. "
@@ -2531,7 +2601,9 @@ def main(argv=None) -> int:
                 "re-run with --project <slug or project folder>")
         overrides = parse_overrides(args.overrides)
     except RenRefusal as refused:
+        from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         return REFUSAL_EXIT_CODE
 
     # The execution receipt: what this run wrote, under the capability
@@ -2541,8 +2613,10 @@ def main(argv=None) -> int:
         result = op.execute(args.project, scope=where, **overrides)
 
     if result.refused:
+        from library.tools.ren_refusal import emit_refusal_result
         print(f"REFUSED: {op.name}", file=sys.stderr)
         print(result.error, file=sys.stderr)
+        emit_refusal_result(result.as_refusal())
         if args.json:
             print(json.dumps(result.as_record(), indent=2))
         return REFUSAL_EXIT_CODE
@@ -2557,4 +2631,17 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # ONE place renders every refusal on this verb's path, in the same
+    # shape as the front door. With `REN_OUTPUT=json` both a refusal
+    # and an uncaught error end with one final `REN_RESULT` line (LE-03).
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
+    try:
+        raise SystemExit(main())
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        sys.exit(report_unexpected(exc))

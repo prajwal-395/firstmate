@@ -1823,8 +1823,17 @@ class Overridden:
         }
 
 
-class OverrideError(ValueError):
-    """An override that names nothing, or names something closed."""
+class OverrideError(RenRefusal):
+    """An override that names nothing, or names something closed.
+
+    A `RenRefusal` (still a `ValueError`, so every existing `except`
+    keeps catching it): the run reports it in the refusal shape, and
+    with `REN_OUTPUT=json` it ends with the `REN_RESULT` line like
+    every other refusal (LE-03 leftovers). Both raise sites carry
+    what/why/fix because the check knows all three - the name that
+    failed, why no override applies, and the exact correction."""
+
+    CODE = "REN_OVERRIDE_REFUSED"
 
 
 def assert_overrides_are_real(names: Iterable[str],
@@ -1846,14 +1855,19 @@ def assert_overrides_are_real(names: Iterable[str],
         if requirement is None:
             overridable = sorted(r.name for r in pool if r.overridable)
             raise OverrideError(
-                f"--override {name!r} names no requirement. "
-                f"Overridable: {', '.join(overridable) or 'none'}.")
+                f"--override {name!r} names no requirement",
+                "a typo silently disabling nothing is still a lie "
+                "about what the run did",
+                f"drop the flag or fix the name - overridable: "
+                f"{', '.join(overridable) or 'none'}")
         if not requirement.overridable:
             raise OverrideError(
-                f"--override {name!r} is refused: that requirement is "
-                f"not overridable. It exists to stop a run that cannot "
-                f"work, and proceeding past it would move the failure "
-                f"into the run instead of removing it.")
+                f"--override {name!r} is refused",
+                "that requirement is not overridable: it exists to "
+                "stop a run that cannot work, and proceeding past it "
+                "would move the failure into the run instead of "
+                "removing it",
+                f"run without --override {name!r}")
 
 
 @dataclass(frozen=True)

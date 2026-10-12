@@ -2558,7 +2558,9 @@ def run_pipeline(
         else:
             print(f"\n  ✗ REFUSED - pending edit spec\n{reason}\n",
                   file=sys.stderr)
-            summary = {"status": "REFUSED", "reason": reason}
+            summary = {"status": "REFUSED", "reason": reason,
+                       "fix": "translate or resolve every listed note, "
+                              "then rerun `ren edit`"}
             return emit_run_summary(summary, project_dir, state)
     order = topological_sort(dag)
     nodes = {n["id"]: n for n in dag["nodes"]}
@@ -2587,7 +2589,8 @@ def run_pipeline(
         print("\n  ✗ REFUSED - run profile\n", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
-        summary = {"status": "REFUSED", "reason": str(exc)}
+        summary = {"status": "REFUSED", "reason": str(exc),
+                   "refusal": exc.to_dict()}
         return emit_run_summary(summary, project_dir, state)
 
     # A reels request: its count and topic are recorded as briefing
@@ -2632,7 +2635,8 @@ def run_pipeline(
         print("\n  ✗ REFUSED - breakpoints\n", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
-        summary = {"status": "REFUSED", "reason": str(exc)}
+        summary = {"status": "REFUSED", "reason": str(exc),
+                   "refusal": exc.to_dict()}
         return emit_run_summary(summary, project_dir, state)
     # State the captain produced outside the pipeline, VERIFIED once for
     # the whole run: the resolver counts it and `gather_step_inputs`
@@ -2646,7 +2650,8 @@ def run_pipeline(
               file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
-        summary = {"status": "REFUSED", "reason": str(exc)}
+        summary = {"status": "REFUSED", "reason": str(exc),
+                   "refusal": exc.to_dict()}
         return emit_run_summary(summary, project_dir, state)
 
     try:
@@ -2662,10 +2667,11 @@ def run_pipeline(
                       for key, entry in external.items()},
         )
     except run_scope.ScopeError as exc:
-        print(f"\n  \u2717 REFUSED\n", file=sys.stderr)
+        print(f"\n  ✗ REFUSED\n", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
-        summary = {"status": "REFUSED", "reason": str(exc)}
+        summary = {"status": "REFUSED", "reason": str(exc),
+                   "refusal": exc.to_dict()}
         return emit_run_summary(summary, project_dir, state)
 
     # Displays a hand may have touched since the pipeline wrote them.
@@ -2786,10 +2792,11 @@ def run_pipeline(
         requirements.assert_overrides_are_real(
             overrides or (), requirements.all_requirements(dag, manifests))
     except requirements.OverrideError as exc:
-        print(f"\n  \u2717 REFUSED\n", file=sys.stderr)
+        print(f"\n  ✗ REFUSED\n", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
-        summary = {"status": "REFUSED", "reason": str(exc)}
+        summary = {"status": "REFUSED", "reason": str(exc),
+                   "refusal": exc.to_dict()}
         return emit_run_summary(summary, project_dir, state)
 
     verdict = requirements.evaluate(
@@ -2942,9 +2949,12 @@ def run_pipeline(
                 summary = {"status": "REFUSED", "reason": reason,
                            "recovery_class": refusal.recovery_class,
                            "fix": refusal.fix,
-                           "producers": list(refusal.producers)}
+                           "producers": list(refusal.producers),
+                           "refusal": refusal.to_dict()}
             else:
-                summary = {"status": "REFUSED", "reason": reason}
+                summary = {"status": "REFUSED", "reason": reason,
+                           "fix": "satisfy the prerequisites the refusal "
+                                  "above names, then re-run this command"}
             return emit_run_summary(summary, project_dir, state)
 
     # Where this run stops, and - loudly - anywhere it was asked to stop
@@ -4717,7 +4727,39 @@ def _clear_native_refresh_wait(project_dir) -> None:
         pass
 
 
+def _summary_refusal(summary: dict) -> "RenRefusal":
+    """A REFUSED summary as a `RenRefusal`, for the one `REN_RESULT` shape.
+
+    The string path: a refused run returns a summary dict, not a
+    `RenRefusal` object, so without this the exit-4 branch prints prose
+    only (LE-03 leftovers). The fields come from the summary the
+    refusing branch wrote - its `refusal` (`to_dict` of the refusal it
+    caught) or its `fix` beside the `reason` - never invented here.
+    """
+    from library.tools.ren_refusal import RenRefusal
+    info = summary.get("refusal") or {}
+    if info:
+        return RenRefusal(
+            info["what"], info["why"], info["fix"],
+            code=info.get("code") or "",
+            user_message=info.get("user_message") or "",
+            recovery_class=info.get("recovery_class") or "")
+    reason = summary.get("reason") or "the run refused before starting"
+    first_line = (reason.splitlines() or [""])[0].strip() or reason
+    fix = summary.get("fix") or (
+        "address the refusal printed above, then re-run this command")
+    return RenRefusal(what=summary.get("what") or first_line,
+                      why=summary.get("why") or reason,
+                      fix=fix, code="REN_RUN_REFUSED")
+
+
 def main():
+    # Same default as the front door, for direct script use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     parser = build_parser()
     args = parser.parse_args()
     args.full_auto = normalize_full_auto(args.full_auto)
@@ -4771,8 +4813,7 @@ def main():
 
     from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
     summary = None
-    try:
-        # The format gate, before anything reads project state: a
+    try:        # The format gate, before anything reads project state: a
         # project outside the supported range refuses here (the
         # refusal below renders it), and an older supported one
         # migrates with a backup.  This process takes a raw folder,
@@ -4810,13 +4851,21 @@ def main():
         # unexpected error keeps its traceback and exit 1. The run
         # refused before it could end itself, so the completion notice
         # goes out here - exactly once, as on every other REFUSED path.
+        # With `REN_OUTPUT=json` the refusal ends with one final
+        # `REN_RESULT` line (LE-03 leftovers).
+        from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         notify_run_end("REFUSED", project_dir or "")
         sys.exit(REFUSAL_EXIT_CODE)
     # A refused selection never started, and must not look like a run.
     # Exit 4, the refusal code (`library/tools/ren_refusal.py`): the
-    # reason already printed in the refusal shape, with its fix.
+    # reason already printed above, and with `REN_OUTPUT=json` one
+    # final `REN_RESULT` line carries it as data. The summary's own
+    # `refusal` (or `fix`) is the source - never invented here.
     if (summary or {}).get("status") == "REFUSED":
+        from library.tools.ren_refusal import RenRefusal, emit_refusal_result
+        emit_refusal_result(_summary_refusal(summary or {}))
         sys.exit(REFUSAL_EXIT_CODE)
     # A failed run must look failed to whatever invoked us. Printing
     # "Status: FAILED" and exiting 0 is how a hollow timeline shipped as a
@@ -4846,6 +4895,9 @@ if __name__ == "__main__":
             
     try:
         main()
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        from library.tools.ren_refusal import report_unexpected
+        raise SystemExit(report_unexpected(exc))
     finally:
         if pid_file and os.path.exists(pid_file):
             try:

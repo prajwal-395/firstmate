@@ -357,6 +357,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     unknown, rather than previewing nothing. Nothing is written, no
     Resolve, no model.
     """
+    # Same default as the front door, for direct `-m` use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     parser = argparse.ArgumentParser(
         prog="take-pick-preview",
         description="Print one reel's candidate takes, trim "
@@ -381,7 +387,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         report = preview_take(args.project_folder, args.reel, args.threshold)
     except TakePickPreviewError as exc:
+        # Exit 2, this verb's contract for an unanswerable reel - but
+        # the host still gets its machine-readable line, with the exit
+        # the process really leaves by (LE-03 leftovers).
+        from library.tools.ren_refusal import emit_refusal_result
         print(exc.render(), file=sys.stderr)
+        emit_refusal_result(exc, exit_code=2)
         return 2
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True, default=str))
@@ -391,4 +402,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # ONE place renders every refusal on this verb's path, in the same
+    # shape as the front door. With `REN_OUTPUT=json` both a refusal
+    # and an uncaught error end with one final `REN_RESULT` line (LE-03).
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
+    try:
+        raise SystemExit(main())
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        sys.exit(report_unexpected(exc))

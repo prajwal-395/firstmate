@@ -27,7 +27,8 @@ import os
 import sys
 from pathlib import Path
 
-from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+from library.tools.ren_refusal import (
+    REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
 from library.tools.resolve_lock import under_lease
 from ren.commands import for_subcommand, manage_project_subcommands
 
@@ -849,7 +850,8 @@ def _notes_add(args):
     import shlex
 
     from library.tools import delivered_note_anchor as anchor_mod
-    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
 
     if not getattr(args, "slug", "") or not getattr(args, "at", ""):
         print("Error: `ren notes add` needs the project and the moment: "
@@ -867,6 +869,7 @@ def _notes_add(args):
             reel=args.reel or "", file=args.file or "")
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         if args.words:
             print(f"  (the note was not stored; its words: {args.words!r})",
                   file=sys.stderr)
@@ -1067,6 +1070,7 @@ def cmd_sign_off(args):
                                       note=args.note, by=args.by)
     except reel_signoff.UncarriedNotesOpen as owed:
         print(owed.render(), file=sys.stderr)
+        emit_refusal_result(owed)
         sys.exit(REFUSAL_EXIT_CODE)
     assignment_spine.on_sign_off(project_folder, args.reel)
     print(f"Signed off {entry['reel']!r}"
@@ -1105,6 +1109,7 @@ def cmd_purge(args):
     except (retention.PurgeRefused,
             retention.RetentionSettingInvalid) as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     if plan.mode == retention.KEEP:
         print(f"Retention is {retention.KEEP!r}: nothing is purged.")
@@ -1168,6 +1173,7 @@ def cmd_discharge_uncarried(args):
                                by=args.by, note=args.note)
     except (owed.DischargeRefused, owed.UncarriedNoteUnknown) as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     words = " ".join((entry.get("text") or "").split())[:120]
     print(f"Discharged {entry['identity']} on {entry['reel']!r}: "
@@ -1338,6 +1344,7 @@ def cmd_variant(args):
                                   args.earlier, args.later)
         except variants.ChoiceRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
         print(variants.render_comparison(diff))
         return
@@ -1452,6 +1459,7 @@ def cmd_explore_variants(args):
             timeline=args.timeline or "")
     except _vx.VariantRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     print(f"Exploration {record['id'][:12]} off base "
           f"{record['base'][:12]}: {len(record['variants'])} variant(s), "
@@ -1472,6 +1480,7 @@ def cmd_dispatch_variants(args):
             project_folder, args.exploration)
     except _vx.VariantRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     print(f"Dispatched exploration {result['exploration'][:12]}: "
           f"{len(result['states'])} task(s) done.")
@@ -1518,6 +1527,7 @@ def cmd_plan_variants(args):
             timeline=args.timeline or "")
     except _vx.VariantRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     print(f"Planned exploration {record['id'][:12]} off base "
           f"{record['base'][:12]}: {len(record['variants'])} variant(s), "
@@ -1550,6 +1560,7 @@ def cmd_merge_queue(args):
             decided = _journal.evaluate_batch(project_folder, wanted)
         except _journal.QueueRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
         if not decided:
             print("Nothing is queued - evaluate needs a proposal first.")
@@ -1572,6 +1583,7 @@ def cmd_merge_queue(args):
             done = _journal.merge_passing(project_folder, wanted)
         except _journal.QueueRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
         if not done:
             print("Nothing passed evaluation - merge needs a pass first.")
@@ -2166,6 +2178,7 @@ def cmd_check(args):
                     raise ProjectAssetNotFoundError(f"project asset '{font_file}' not found (checked absolute path)")
     except ProjectAssetNotFoundError as e:
         print(e.render(), file=sys.stderr)
+        emit_refusal_result(e)
         sys.exit(REFUSAL_EXIT_CODE)
 
     if len(fps_counts) > 1:
@@ -2652,6 +2665,7 @@ def cmd_drift(args):
             report = drift_check.check_project(project_folder)
     except resolve_lock.ResolveBusy as busy:
         print(busy.render(), file=sys.stderr)
+        emit_refusal_result(busy)
         sys.exit(REFUSAL_EXIT_CODE)
     if report.get("error"):
         print(f"drift: {report['error']}", file=sys.stderr)
@@ -3029,6 +3043,7 @@ def cmd_safe_zones(args):
                                          overlay)
     except resolve_lock.ResolveBusy as busy:
         print(busy.render(), file=sys.stderr)
+        emit_refusal_result(busy)
         sys.exit(REFUSAL_EXIT_CODE)
     except safe_zone_guide.SafeZoneGuideError as exc:
         print(f"safe-zones: {exc}", file=sys.stderr)
@@ -3133,6 +3148,7 @@ def cmd_deliver_all(project_folder: str, args) -> None:
             timeout_seconds=args.timeout)
     except reel_deliver.DeliverRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
 
     jobs = report["jobs"]
@@ -3223,6 +3239,7 @@ def cmd_deliver_reel(args):
     except reel_deliver.DeliverRefused as refused:
         assignment_spine.end_act(act, ok=False, detail=refused.what)
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except KeyboardInterrupt:
         assignment_spine.end_act(act, ok=False, status="interrupted")
@@ -3381,6 +3398,7 @@ def cmd_watch_reel(args):
             render_watch.NothingWasWatched,
             render_watch.NoPictureChanged) as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
 
     record = watch["record"]
@@ -3843,6 +3861,7 @@ def cmd_touch_reel(args):
                 accept_editor_changes=args.accept_editor_changes or None)
         except _touchup.TouchupRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
         except _touchup.TouchupError as failed:
             print(f"FAILED: {failed}", file=sys.stderr)
@@ -3898,6 +3917,7 @@ def cmd_touch_reel(args):
             accept_editor_changes=args.accept_editor_changes or None)
     except _touchup.TouchupRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except _touchup.TouchupError as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
@@ -3989,6 +4009,7 @@ def cmd_touch_master(args):
             accept_editor_changes=args.accept_editor_changes or None)
     except _master_touchup.TouchupRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except (_master_touchup.TouchupError,
             _master_touchup.MasterTouchupError) as failed:
@@ -4048,6 +4069,7 @@ def cmd_replay_ledger(args):
             project_folder, reel_name=reel_name)
     except _replay.ReplayLedgerRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except _replay.ReplayLedgerError as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
@@ -4089,6 +4111,7 @@ def cmd_undo(args):
             final = resolve_final_name(project_folder, args.reel)
         except TouchupRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
     if args.list:
         print(_undo.render_stack(_undo.undo_stack(project_folder, final)))
@@ -4111,6 +4134,7 @@ def cmd_undo(args):
                                   args.accept_editor_changes or None))
     except _undo.UndoRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
@@ -4149,6 +4173,7 @@ def cmd_redo(args):
             final = resolve_final_name(project_folder, args.reel)
         except TouchupRefused as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
     hold = _hold.hold_requested(project_folder)
     if hold is not None:
@@ -4166,6 +4191,7 @@ def cmd_redo(args):
                                   args.accept_editor_changes or None))
     except _undo.UndoRefused as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
     except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
