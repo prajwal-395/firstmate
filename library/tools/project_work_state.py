@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 
@@ -168,17 +169,371 @@ def _summary(state: dict) -> str:
     return f"{project}.{last}{pending}{open_text}{assignment_text}{requested_text}"
 
 
+# ── `ren now`: state plus next actions, in one call (LE-09) ──────────
+#
+# This extends the work-state projection above with the sections an
+# agent otherwise reads directly off the project records (the plan's
+# measured baseline: status + progress + `ls llm_requests` + the
+# proposals JSON, 4 or more calls). `work-state` keeps its output;
+# `now` is a second mode of this same module, never a parallel one.
+
+def _dag_node_ids() -> list:
+    """The edit_video DAG's node ids, in DAG order; [] when unreadable."""
+    from pathlib import Path as _Path
+    try:
+        import json as _json
+        dag = _Path(__file__).resolve().parents[1] / "processes" / "edit_video" / "dag.json"
+        nodes = _json.loads(dag.read_text(encoding="utf-8")).get("nodes") or []
+        return [str(node["id"]) for node in nodes if isinstance(node, dict) and node.get("id")]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def _pipeline_section(root: Path) -> dict:
+    """Completed, failed and pending steps, off the split ledger."""
+    from library.tools import step_ledger
+    state_doc = _json(root / "pipeline_data.json") or {}
+    completed = sorted(step_ledger.all_completed(state_doc))
+    failed_steps = sorted(set(state_doc.get("failed_steps") or []))
+    errors = state_doc.get("step_errors") or {}
+    failed = [{"step": step, "error": str(errors.get(step) or "")}
+              for step in failed_steps]
+    node_ids = _dag_node_ids()
+    done = set(completed) | set(failed_steps)
+    pending = [node for node in node_ids if node not in done]
+    return {"completed": completed, "failed": failed, "pending": pending,
+            "total": len(node_ids)}
+
+
+def _run_section(root: Path) -> dict:
+    """The runner's own account: status, step, pid, hold, lock wait."""
+    from library.tools import run_control
+    status_doc = run_control.read_run_status(str(root)) or {}
+    pid = run_control.running_pid(str(root))
+    hold = run_control.hold_requested(str(root))
+    return {"status": status_doc.get("status"),
+            "current_step": status_doc.get("current_step"),
+            "last_completed_step": status_doc.get("last_completed_step"),
+            "pid": pid, "pid_alive": pid is not None,
+            "hold": hold,
+            "lock_wait": status_doc.get("heavy_work_wait"),
+            "updated_at": status_doc.get("updated_at")}
+
+
+def _asks_section(root: Path) -> dict:
+    """Every `llm_requests/*.json` with no response, reel asks included."""
+    from library.tools import awaiting_model_answers
+    requests_dir = root / "pipeline_output" / "llm_requests"
+    responses_dir = root / "pipeline_output" / "llm_responses"
+    pending = []
+    if requests_dir.is_dir():
+        for path in sorted(requests_dir.glob("*.json")):
+            if (responses_dir / path.name).exists():
+                continue
+            doc = _json(path) or {}
+            pending.append({
+                "id": path.stem,
+                "kind": str(doc.get("kind") or "llm_step"),
+                "step_id": str(doc.get("step_id") or path.stem),
+                "path": str(path),
+                "requested_at": doc.get("timestamp"),
+            })
+    try:
+        owed = awaiting_model_answers.collect(
+            str(root), state=_json(root / "pipeline_data.json"))
+    except Exception:  # noqa: BLE001 - an asks read never fails `now`
+        owed = {"reels": [], "outstanding_answers": 0}
+    owed_reels = (owed or {}).get("reels") or []
+
+    def _digits(value) -> set:
+        import re as _re
+        return set(_re.findall(r"\d+", str(value or "")))
+
+    matched: set = set()
+    for ask in pending:
+        layers = set()
+        for entry in owed_reels:
+            if not isinstance(entry, dict):
+                continue
+            reel_digits = _digits(entry.get("reel"))
+            if reel_digits and reel_digits & _digits(ask["id"]):
+                layers.update(str(layer) for layer in (entry.get("layers") or ()))
+                matched.add(str(entry.get("reel")))
+        ask["owed_layers"] = sorted(layers)
+    for entry in owed_reels:
+        if not isinstance(entry, dict) or str(entry.get("reel")) in matched:
+            continue
+        for layer in (entry.get("layers") or ()):
+            pending.append({
+                "id": f"reel_{layer}_{entry.get('reel')}",
+                "kind": "reel_answer",
+                "step_id": f"reel_{layer}",
+                "path": "",
+                "requested_at": None,
+                "owed_layers": [str(layer)],
+            })
+    return {"pending": pending,
+            "outstanding_answers": (owed or {}).get(
+                "outstanding_answers", sum(len(a.get("owed_layers") or []) for a in pending))}
+
+
+def _reels_section(project_ref: str) -> dict:
+    """Reel counts by state, off LE-07's one read (never re-derived)."""
+    from collections import Counter
+
+    from library.tools import reel_state
+    try:
+        report = reel_state.reels_state(project_ref)
+    except Exception as exc:  # noqa: BLE001 - a reels read never fails `now`
+        return {"total": 0, "by_approval": {}, "by_outcome": {},
+                "owed_answers": 0, "signed_off": 0, "delivered": 0,
+                "proposed": [], "reels": [], "error": str(exc)}
+    rows = report.get("reels") or []
+    by_approval = Counter(str(row.get("approval") or "none") for row in rows)
+    by_outcome = Counter(str(row.get("outcome") or "none") for row in rows)
+    proposed = sorted(row.get("reel") for row in rows
+                      if row.get("approval") == "proposed" and isinstance(row.get("reel"), int))
+    return {"total": len(rows),
+            "by_approval": dict(sorted(by_approval.items())),
+            "by_outcome": dict(sorted(by_outcome.items())),
+            "owed_answers": sum(len(row.get("owed_answers") or []) for row in rows),
+            "signed_off": sum(1 for row in rows if row.get("signoff")),
+            "delivered": sum(1 for row in rows
+                             if isinstance(row.get("delivery"), dict)
+                             and row["delivery"].get("delivered")),
+            "proposed": proposed,
+            "reels": [{"reel": row.get("reel"),
+                       "timeline_name": row.get("timeline_name"),
+                       "approval": row.get("approval"),
+                       "outcome": row.get("outcome")} for row in rows]}
+
+
+def _notes_section(root: Path) -> dict:
+    """Pulled timeline notes no routing record has carried, disk-only."""
+    from library.tools import marker_routing
+    try:
+        routed = marker_routing.route_project(str(root))
+    except Exception as exc:  # noqa: BLE001 - a notes read never fails `now`
+        return {"unrouted": [], "error": f"{type(exc).__name__}: {exc}"}
+    unrouted = [
+        {"note_id": note.note_id, "outcome": note.outcome,
+         "reason": note.reason, "timeline": note.timeline,
+         "steps": list(note.steps or [])}
+        for note in routed
+        if note.outcome != marker_routing.OUTCOME_ROUTED
+    ]
+    return {"unrouted": unrouted}
+
+
+# Next-action ranks, lowest first: a blocking ask outranks a refusal's
+# fix, which outranks an approval, then a resumable run, then whatever
+# pipeline stage is next.
+_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_RESUME, _RANK_NEXT = range(5)
+
+
+def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
+                  run: dict, asks: dict, reels: dict, notes: dict) -> list:
+    """Ranked `{id, why, command, effects}`: what to run, in what order."""
+    actions = []
+    for ask in asks["pending"]:
+        where = ask["path"] or ask["id"]
+        actions.append({
+            "id": f"answer-{ask['id']}",
+            "rank": "blocking ask",
+            "why": (f"model answer owed for {ask['kind']} {ask['step_id']} "
+                    f"({where}); write the response, then resume"),
+            "command": f"ren edit {ref} --resume",
+            "effects": ["project_write", "heavy_lock"],
+            "_rank": _RANK_ASK,
+        })
+    for finding in base.get("config_findings") or []:
+        actions.append({
+            "id": "fix-config",
+            "rank": "refusal to fix",
+            "why": (f"config finding: {finding}; write verbs refuse until "
+                    f"project.yaml is fixed, then verify"),
+            "command": f"ren check {ref}",
+            "effects": ["read"],
+            "_rank": _RANK_FIX,
+        })
+    for failed in pipeline["failed"]:
+        why = f"step {failed['step']} failed"
+        if failed["error"]:
+            why += f": {failed['error'][:200]}"
+        actions.append({
+            "id": f"rerun-{failed['step']}",
+            "rank": "refusal to fix",
+            "why": why,
+            "command": f"ren edit {ref} --rerun {failed['step']}",
+            "effects": ["project_write", "heavy_lock"],
+            "_rank": _RANK_FIX,
+        })
+    for approval in base.get("pending_approvals") or []:
+        if approval.get("kind") == "reel":
+            from library.tools.reel_state import reel_number_of
+            number = reel_number_of(approval.get("reel"))
+            command = (f"ren approve {ref} {number}"
+                       if number is not None else f"ren approve {ref} --all")
+            actions.append({
+                "id": f"approve-reel-{number if number is not None else 'all'}",
+                "rank": "approval waiting",
+                "why": (f"reel {approval.get('reel')} is proposed; "
+                        f"approve it for building"),
+                "command": command,
+                "effects": ["project_write"],
+                "_rank": _RANK_APPROVAL,
+            })
+        elif approval.get("step"):
+            step = approval["step"]
+            actions.append({
+                "id": f"answer-gate-{step}",
+                "rank": "approval waiting",
+                "why": (f"review gate pending for {step}; inspect the "
+                        f"snapshot, then answer"),
+                "command": (f"python3 -m library.tools.review_gate answer "
+                            f"--project {root} --step {step} --approve"),
+                "effects": ["project_write"],
+                "_rank": _RANK_APPROVAL,
+            })
+    status = run.get("status")
+    hold = run.get("hold")
+    if hold is not None or status in {"held", "paused", "waiting"}:
+        reason = ""
+        if isinstance(hold, dict) and hold.get("reason"):
+            reason = f" ({hold['reason']})"
+        actions.append({
+            "id": "resume-run",
+            "rank": "resumable run",
+            "why": f"run is {status or 'held'}{reason}; release it",
+            "command": f"ren resume {ref}",
+            "effects": ["project_write"],
+            "_rank": _RANK_RESUME,
+        })
+    elif status == "running" and not run.get("pid_alive"):
+        actions.append({
+            "id": "resume-run",
+            "rank": "resumable run",
+            "why": ("run record says running but no live pid holds it; "
+                    "continue it"),
+            "command": f"ren edit {ref} --resume",
+            "effects": ["project_write", "heavy_lock"],
+            "_rank": _RANK_RESUME,
+        })
+    if pipeline["pending"] and not asks["pending"] and not pipeline["failed"]:
+        # `--detach` is LE-10's flag, not yet a runner option: the action
+        # names the loop the skill will run (detach, then `ren wait`).
+        actions.append({
+            "id": "run-next-stage",
+            "rank": "next pipeline stage",
+            "why": (f"{len(pipeline['pending'])} steps pending, next: "
+                    f"{pipeline['pending'][0]}"),
+            "command": f"ren edit {ref} --full-auto agent --detach",
+            "effects": ["project_write", "heavy_lock"],
+            "_rank": _RANK_NEXT,
+        })
+    actions.sort(key=lambda action: (action.pop("_rank"), action["id"]))
+    return actions
+
+
+def project_now_state(project_ref: str) -> dict:
+    """State plus ranked next actions, in one call (LE-09)."""
+    base = project_work_state(project_ref)
+    root = Path(base["project"]["path"])
+    pipeline = _pipeline_section(root)
+    run = _run_section(root)
+    asks = _asks_section(root)
+    reels = _reels_section(project_ref)
+    notes = _notes_section(root)
+    state = dict(base)
+    state.update({
+        "pipeline": pipeline,
+        "run": run,
+        "asks": asks,
+        "reels": reels,
+        "notes": notes,
+        "next_actions": _next_actions(
+            ref=project_ref, root=root, base=base, pipeline=pipeline,
+            run=run, asks=asks, reels=reels, notes=notes),
+    })
+    state["summary"] = _now_summary(state)
+    return state
+
+
+def _now_summary(state: dict) -> str:
+    project = state["project"].get("name") or state["project"]["slug"]
+    pipeline = state["pipeline"]
+    run = state["run"]
+    asks = state["asks"]
+    reels = state["reels"]
+    notes = state["notes"]
+    findings = state.get("config_findings") or []
+    parts = [f"{project}: {len(pipeline['completed'])}/{pipeline['total']} steps done"]
+    if pipeline["failed"]:
+        parts.append(f"{len(pipeline['failed'])} failed")
+    if run.get("status"):
+        at = f" at {run['current_step']}" if run.get("current_step") else ""
+        parts.append(f"run {run['status']}{at}")
+    if run.get("lock_wait"):
+        parts.append("waiting on the heavy-work lock")
+    if run.get("hold") is not None:
+        parts.append("held")
+    if asks["pending"]:
+        parts.append(f"{len(asks['pending'])} ask(s) owed")
+    proposed = (reels.get("by_approval") or {}).get("proposed", 0)
+    if proposed:
+        parts.append(f"{proposed} reel(s) proposed")
+    if notes["unrouted"]:
+        parts.append(f"{len(notes['unrouted'])} note(s) unrouted")
+    if findings:
+        parts.append(f"{len(findings)} config finding(s)")
+    actions = state["next_actions"]
+    if actions:
+        parts.append(f"Next: {actions[0]['command']}")
+    else:
+        parts.append("No open work is recorded.")
+    return ". ".join(parts) + "."
+
+
+def _format_now_text(state: dict) -> str:
+    lines = [state["summary"]]
+    for number, action in enumerate(state["next_actions"], start=1):
+        lines.append(f"{number}. [{action['id']}] {action['why']} -> {action['command']}")
+    return "\n".join(lines)
+
+
+def _cmd_now(args) -> int:
+    try:
+        state = project_now_state(args.project)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ren now: {exc}", file=sys.stderr)
+        return 2
+    if state.get("config_findings"):
+        print(f"⚠ config: {'; '.join(state['config_findings'])}",
+              file=sys.stderr)
+    print(json.dumps(state, indent=2, ensure_ascii=False) if args.json else _format_now_text(state))
+    return 0
+
+
 def main(argv=None) -> int:
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    if raw and raw[0] == "now":
+        parser = argparse.ArgumentParser(
+            prog="ren now",
+            description="State plus next actions, in one call (read only)")
+        parser.add_argument("project", help="project slug or path")
+        parser.add_argument("--json", action="store_true",
+                            help="print the whole structure as JSON")
+        args = parser.parse_args(raw[1:])
+        return _cmd_now(args)
     parser = argparse.ArgumentParser(prog="ren work-state", description="Read where a project left off")
     parser.add_argument("project", help="project slug or path")
     parser.add_argument("--json", action="store_true", help="print structured fields as JSON")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw)
     try:
         state = project_work_state(args.project)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
     if state.get("config_findings"):
-        import sys
         print(f"⚠ config: {'; '.join(state['config_findings'])}",
               file=sys.stderr)
     print(json.dumps(state, indent=2, ensure_ascii=False) if args.json else state["summary"])

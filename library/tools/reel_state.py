@@ -74,7 +74,8 @@ def resolve_root(project_ref: str) -> tuple:
         if match is None:
             raise FileNotFoundError(f"No Ren project found for {project_ref!r}")
         yaml_path = match.project_root / "project.yaml"
-    config = load_project_config(yaml_path, migrate_format=False)
+    config = load_project_config(yaml_path, migrate_format=False,
+                                   strict=False)
     config_data = project_config_to_dict(config)
     root = Path(config.project_root)
     return root, config_data.get("slug") or config.slug, config_data.get("name")
