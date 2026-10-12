@@ -76,6 +76,10 @@ The build path REFUSES to delete a timeline carrying uncollected notes:
     python3 -m library.tools.marker_feedback show [--project <p>]
     python3 -m library.tools.marker_feedback check --project <p>
 
+The pull is promoted to a verb: `ren notes pull <p> [--all]`
+collects the same notes through this module's `main`. The `UnpulledMarkers`
+refusal below names that verb, never the module path.
+
 `tests/qualification/test_marker_feedback_against_resolve.py`,
 `tests/unit/resolve/test_markers.py`.
 
@@ -1277,8 +1281,7 @@ def assert_markers_pulled(project_folder, timeline, quiet: bool = False) -> list
         f"{len(notes)} typed note(s) that have not been collected, and "
         f"deleting the timeline deletes them.\n{preview}\n"
         f"  Collect them first:\n"
-        f"    python3 -m library.tools.marker_feedback pull --project "
-        f"{project_folder}\n"
+        f"    ren notes pull {project_folder}\n"
         f"  Or set {DISCARD_ENV}=1 to discard them deliberately.",
         notes,
     )

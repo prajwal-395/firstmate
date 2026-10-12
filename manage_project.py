@@ -625,21 +625,104 @@ def cmd_trace(args):
 def cmd_notes(args):
     """Show which of the captain's timeline notes went to which step.
 
-    Reads the pull files `marker_feedback pull` wrote and routes each
-    note to the step that owns the decision it is about. Nothing here
+    Reads the pull files `ren notes pull` wrote and routes each note
+    to the step that owns the decision it is about. Nothing here
     touches Resolve; nothing is written unless --write is passed. See
     library/tools/marker_routing.py.
     """
+    if getattr(args, "action", "") == "pull":
+        from library.tools import marker_feedback
+
+        if not getattr(args, "slug", ""):
+            print("Error: `ren notes pull` needs the project: "
+                  "`ren notes pull <project> [--all]`.",
+                  file=sys.stderr)
+            sys.exit(2)
+        try:
+            config = get_project(args.slug)
+            project_folder = str(config.project_root)
+        except FileNotFoundError:
+            project_folder = args.slug
+
+        argv = ["pull", "--project", project_folder]
+        if getattr(args, "all", False):
+            argv.append("--all")
+        sys.exit(marker_feedback.main(argv))
+    if getattr(args, "slug", ""):
+        print(f"Error: unknown notes action {args.action!r}; "
+              f"`ren notes <project>` routes, "
+              f"`ren notes pull <project>` pulls.",
+              file=sys.stderr)
+        sys.exit(2)
+
     from library.tools import marker_routing
 
     try:
-        config = get_project(args.slug)
+        config = get_project(args.action)
         project_folder = str(config.project_root)
     except FileNotFoundError:
-        project_folder = args.slug
+        project_folder = args.action
 
     argv = ["write" if args.write else "report", "--project", project_folder]
     sys.exit(marker_routing.main(argv))
+
+
+def cmd_pause(args):
+    """Engage the handbrake: the current step finishes, then the run holds.
+
+    The hold records who asked for it, so a later refusal can name
+    them instead of a file to delete. Release it with `ren resume`.
+    See library/tools/run_control.py.
+    """
+    from library.tools import run_control
+
+    project_folder = _reel_project_folder(args.project)
+    record = run_control.request_hold(
+        project_folder, requested_by=args.by or "captain",
+        reason=args.reason or "")
+    print(f"Paused {args.project}: the current step finishes, then the "
+          f"run holds (asked by {record.get('requested_by', '?')}).")
+    print(f"  Resume with: ren resume {args.project}")
+
+
+def cmd_resume(args):
+    """Disengage the handbrake so the next run proceeds.
+
+    See library/tools/run_control.py.
+    """
+    from library.tools import run_control
+
+    project_folder = _reel_project_folder(args.project)
+    if run_control.release_hold(project_folder):
+        print(f"Resumed {args.project}: the handbrake is released.")
+    else:
+        print(f"{args.project} has no engaged handbrake; nothing to release.")
+
+
+def cmd_holds(args):
+    """Release a staging hold on a timeline awaiting promotion.
+
+    A staged timeline awaiting promotion is HELD against the cleanup
+    sweep until it is promoted or discarded; this verb is the explicit
+    release for a verified staging that will never be promoted.
+    See library/tools/staging_holds.py.
+    """
+    from library.tools import staging_holds
+
+    if args.action != "release":
+        print(f"Error: unknown holds action {args.action!r}; "
+              f"the only one is `release`.",
+              file=sys.stderr)
+        sys.exit(2)
+    if not args.timeline:
+        print("Error: `ren holds release` needs the staging timeline "
+              "name.", file=sys.stderr)
+        sys.exit(2)
+    project_folder = _reel_project_folder(args.project)
+    if staging_holds.release_hold(project_folder, args.timeline):
+        print(f"Released the staging hold on {args.timeline!r}.")
+    else:
+        print(f"No staging hold names {args.timeline!r}; nothing released.")
 
 
 def cmd_take_pick_preview(args):
@@ -2935,7 +3018,7 @@ def cmd_still_overlays(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a still swap under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run") \
             from None
     moments = read_proposal(str(proposal_path(project_folder)))
@@ -3014,7 +3097,7 @@ def cmd_dedupe_stills(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a still dedupe under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run") \
             from None
     moments = read_proposal(str(proposal_path(project_folder)))
@@ -3225,7 +3308,7 @@ def cmd_touch_reel(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a touch-up under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run `ren touch`") \
             from None
 
@@ -3360,7 +3443,7 @@ def cmd_touch_master(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a touch-up under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run "
             "`ren touch-master`") from None
 
@@ -3436,7 +3519,7 @@ def cmd_replay_ledger(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a ledger replay under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run "
             "`ren replay-ledger`") from None
 
@@ -3504,7 +3587,7 @@ def cmd_undo(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "an undo under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run `ren undo`") \
             from None
     try:
@@ -3561,7 +3644,7 @@ def cmd_redo(args):
             f"({hold.get('requested_by', 'unknown')}: "
             f"{hold.get('reason', '')})",
             "a redo under a held project could fight the holder",
-            "delete pipeline.hold at the project root (it records who "
+            f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run `ren redo`") \
             from None
     try:
@@ -4353,15 +4436,52 @@ def main():
     p_archive.set_defaults(func=cmd_archive)
 
     # relink
-    # notes
+    # notes (`ren notes <project>` routes; `ren notes pull <project>` pulls)
     p_notes = _add_command(sub, "notes")
-    p_notes.add_argument("slug", metavar="PROJECT",
-                         help="Project slug, or an absolute path")
+    p_notes.add_argument("action", nargs="?", default="",
+                         help="The project to route, or `pull` to collect "
+                              "new notes off Resolve first (needs Resolve "
+                              "open: `ren notes pull <project> [--all]`)")
+    p_notes.add_argument("slug", metavar="PROJECT", nargs="?", default="",
+                         help="With `pull`: the project slug, or an "
+                              "absolute path")
     p_notes.add_argument(
         "--write", action="store_true",
         help="also write the routing record and ROUTED-NOTES.md into "
              "the project's marker_feedback/ folder")
+    p_notes.add_argument(
+        "--all", action="store_true",
+        help="with `pull`: pull every timeline in the open Resolve "
+             "project, not just the open timeline")
     p_notes.set_defaults(func=cmd_notes)
+
+    # pause / resume (the handbrake, library/tools/run_control.py)
+    p_pause = _add_command(sub, "pause")
+    p_pause.add_argument("project", metavar="PROJECT",
+                         help="Project slug, or an absolute path")
+    p_pause.add_argument("--reason", default="",
+                         help="Why the run should hold (recorded on "
+                              "the hold for whoever resumes it)")
+    p_pause.add_argument("--by", default="captain",
+                         help="Who asked for the hold (recorded on it)")
+    p_pause.set_defaults(func=cmd_pause)
+
+    p_resume = _add_command(sub, "resume")
+    p_resume.add_argument("project", metavar="PROJECT",
+                          help="Project slug, or an absolute path")
+    p_resume.set_defaults(func=cmd_resume)
+
+    # holds (staging holds, library/tools/staging_holds.py)
+    p_holds = _add_command(sub, "holds")
+    p_holds.add_argument("action", metavar="ACTION",
+                         help="The only action is `release`")
+    p_holds.add_argument("project", metavar="PROJECT",
+                         help="Project slug, or an absolute path")
+    p_holds.add_argument("timeline", metavar="TIMELINE", nargs="?",
+                         default="",
+                         help="The staging timeline name whose hold "
+                              "to release")
+    p_holds.set_defaults(func=cmd_holds)
 
     p_take_pick = _add_command(sub, "take-pick-preview")
     p_take_pick.add_argument("slug", metavar="PROJECT",

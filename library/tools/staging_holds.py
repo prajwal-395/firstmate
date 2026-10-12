@@ -43,10 +43,9 @@ Lifecycle (owned by `library/tools/reel_build.py`)
 Abandonment: holds NEVER expire. A timeout would reintroduce timed
 deletion by another name. A hold that outlives its build is clutter,
 and the sweep's refusal names the hold's age so the operator can
-chase the owning lane; the release is then one explicit call:
+chase the owning lane; the release is then one explicit verb:
 
-    python3 -c "from library.tools.staging_holds import release_hold;
-    print(release_hold('<project>', '<staging timeline name>'))"
+    ren holds release <project> '<staging timeline name>'
 
 What the sweep does with a hold
 -------------------------------
@@ -337,9 +336,7 @@ def refusal_message(staging_name: str, entry: dict) -> str:
         "  Promote it, or release the hold explicitly and re-run - "
         "the sweep never takes a pending promotion:")
     lines.append(
-        f"    python3 -c \"from library.tools.staging_holds import "
-        f"release_hold; print(release_hold('.', {staging_name!r}))\" "
-        f"(run in the project folder)")
+        f"    ren holds release <project> {staging_name!r}")
     lines.append("  Nothing was removed.")
     return "\n".join(lines)
 
@@ -495,8 +492,5 @@ def report_pending(project_folder: str, *, timeline_names=None,
                 f"the hold explicitly once the listing is trusted:"
                 f"{ownership}")
             lines.append(
-                f"    python3 -c \"from library.tools.staging_holds "
-                f"import release_hold; "
-                f"print(release_hold('.', {row['staging']!r}))\" "
-                f"(run in the project folder)")
+                f"    ren holds release <project> {row['staging']!r}")
     return "\n".join(lines)

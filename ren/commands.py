@@ -98,6 +98,12 @@ VERBS = (
                 "disjoint tasks. Resolve work happens after finish"),
     Verb("check", "Projects", "Run a project's readiness check", subcommand="check"),
     Verb("edit", "Projects", "Run the editing pipeline on a project", subcommand="run"),
+    Verb("pause", "Projects", "Pause a project's pipeline run at the next step boundary", subcommand="pause",
+         detail="Engage the handbrake: the current step finishes, then the run holds. "
+                "Release it with `ren resume`. Usage: `ren pause <project> [--reason <text>] [--by <who>]`."),
+    Verb("resume", "Projects", "Release a paused pipeline run", subcommand="resume",
+         detail="Disengage the handbrake so the next run proceeds. "
+                "Usage: `ren resume <project>`."),
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
     Verb("profile", "Projects", "Show where a run spent its time, layer by layer (read only)",
          module_argv=("library.tools.perf_ledger",),
@@ -147,6 +153,10 @@ VERBS = (
          detail="Hear a delivered reel against its plan and report what diverged. Renders nothing, gates nothing"),
     Verb("drift", "Reels", "Compare each reel's build snapshot with the live timeline", subcommand="drift",
          detail="Compare each reel's build snapshot against its live timeline and report the per-reel factor"),
+    Verb("holds", "Reels", "Release a staging hold on a timeline awaiting promotion", subcommand="holds",
+         detail="A staged timeline awaiting promotion is held against the cleanup sweep until it is promoted. "
+                "Usage: `ren holds release <project> <staging timeline name>`. "
+                "Promoting or discarding the staging releases its hold; this verb is the explicit release."),
     Verb("post-header", "Reels", "Put each reel's social-post header on its final, as a journaled touch", subcommand="post-header"),
     Verb("shift-rows", "Reels", "Move named rows of each reel up or down by pixels, as a journaled touch", subcommand="shift-rows"),
     Verb("scale-rows", "Reels", "Shrink or grow named rows of each reel about a point, as a journaled touch", subcommand="scale-rows"),
@@ -170,7 +180,9 @@ VERBS = (
          module_argv=("library.tools.creative_history", "revert"),
          detail="`ren revert <project> <commit>` records the commit's inverse standing on the timeline's head, by id or unique prefix. Refuses a commit later commits also changed, one the record cannot invert, or one outside its timeline's line; `--dest-tracks <file>` additionally proves every restored change against the destination's current track reads"),
     Verb("pr-body", "Reels", "Generate the PR-body enumeration for a ledger change (read only)", subcommand="pr-body"),
-    Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes"),
+    Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes",
+         detail="`ren notes <project>` shows which timeline note went to which step. "
+                "`ren notes pull <project> [--all]` pulls new notes off Resolve first (needs Resolve open)."),
     Verb("outcomes", "Reels", "Show feedback notes and their recorded outcomes",
          module_argv=("library.tools.feedback_outcomes",),
          detail="`ren outcomes <project>` shows each pulled note with its action, project-store commits, reel versions and verification state. Filter with `--from-reel N` / `--to-reel N`; use `--html` for a standalone report or `--backfill` to derive entries from existing records."),

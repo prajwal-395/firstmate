@@ -221,7 +221,7 @@ gemma is only the fallback when you cannot:
    only stills come to you.
 
 Answer EVERY request a run raises, including review gates (`--review`
-pauses for a human answer via `python3 -m
+pauses for a human answer via `bin/vep -m
 library.tools.review_gate answer` - same files, same shape) and the
 briefing interview. A run that stops asking has finished or failed;
 `ren status <project>` tells which.
@@ -271,7 +271,7 @@ it lists pulled marker notes no routing record has carried, with the
 notes needs Resolve open:
 
 ```sh
-python3 -m library.tools.marker_feedback pull --project <project>
+ren notes pull <project>          # collect new notes off Resolve
 ren notes <project>              # which note went to which step
 ren-marker-hook work --project <absolute path>   # pending work queue
 ```

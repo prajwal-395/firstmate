@@ -34,10 +34,11 @@ hand. The pipeline never writes there (`project_layout.Kind.INPUT`).
 ### 1. Read before you ask
 
 Run the deterministic half first - it is what keeps an answered
-question from ever being asked:
+question from ever being asked. Run it through `bin/vep`, never a
+bare `python3` (the venv resolves through the ladder there):
 
 ```sh
-python3 -c "
+bin/vep -c "
 from library.tools import grillme
 import json
 project = '<project folder>'
@@ -106,7 +107,7 @@ identity, a caption style, a correction of a past mistake), record it
 as a learning as well as filing it:
 
 ```sh
-python3 -m library.tools.learned_context <project> record \
+bin/vep -m library.tools.learned_context <project> record \
   --kind settled_decision --read-by mesh_spine plan_subtitles \
   --statement "..." --source-note "grillme 2026-09-09"
 ```

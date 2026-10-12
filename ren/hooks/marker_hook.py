@@ -13,7 +13,7 @@ possibly-closed app on every session for every lane). What it does is
 disk-only - it scans the projects root for pulled notes no routing
 record has carried yet, and prints each note with the `ren spec` verb
 that translates it. The typed operation, not a word
-hit, supplies its owner; the pull itself (`ren markers pull`, Resolve
+hit, supplies its owner; the pull itself (`ren notes pull`, Resolve
 open) stays an explicit invocation.
 
 Subcommands (all read-only, exit 0 even when there is work - a hook
@@ -178,9 +178,7 @@ def cmd_check(args) -> int:
     else:
         print(f"ren-marker-hook: {found} pending note(s). "
               f"Pull new notes with Resolve open: "
-              f"`bin/vep manage_project.py` has no pull verb - run "
-              f"`python3 -m library.tools.marker_feedback pull "
-              f"--project <project>` then `ren notes <project>`.")
+              f"`ren notes pull <project>` then `ren notes <project>`.")
     return 0
 
 

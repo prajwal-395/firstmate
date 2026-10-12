@@ -1210,7 +1210,7 @@ def test_verified_unpromoted_scratch_survives_the_plan(project_dir_2):
     assert HELD_FINAL in message
     assert "pending promotion" in message.lower() or "STAGED" in message
     assert "ago" in message
-    assert "release_hold" in message
+    assert "ren holds release" in message
     assert "Nothing was removed" in message
 
 
@@ -1535,7 +1535,7 @@ def test_pending_promotions_reports_ghosts_as_stale_not_pending(project_dir_2):
     assert "STALE HOLDS: 2 hold(s)" in report
     assert GHOST_MFA in report
     assert GHOST_FIXES in report
-    assert "release_hold" in report
+    assert "ren holds release" in report
     # The ghost names appear only past the STALE section - never
     # counted as work awaiting a promotion decision.
     unpromoted, _, stale = report.partition("STALE HOLDS")
