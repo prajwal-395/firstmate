@@ -36,6 +36,8 @@
 #      launch with no model at all carries the free id - pinned to the tmux
 #      transport with the herdr binary refused, so no real backend is ever
 #      reached.
+#  12. A fresh positive quota reading retires the corresponding persisted
+#      cap, while a stale reading leaves that cap in force.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -46,6 +48,8 @@ set -u
 TMP_ROOT=$(fm_test_tmproot fm-opencode-ladder)
 QUOTA_BIN="$TMP_ROOT/quota-bin"
 mkdir -p "$QUOTA_BIN"
+# Default quota fixtures are stale so they represent no current availability
+# evidence; tests that need fresh evidence use QUOTA_AXI_SNAPSHOT explicitly.
 cat > "$QUOTA_BIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 provider=
@@ -61,7 +65,7 @@ case "$provider" in
   codex) remaining=${FM_TEST_CODEX_REMAINING:-100} ;;
   *) exit 1 ;;
 esac
-printf '{"providers":[{"provider":"%s","state":{"stale":false},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s}]}}]}\n' "$provider" "$remaining"
+printf '{"providers":[{"provider":"%s","state":{"stale":true,"status":"stale"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s}]}}]}\n' "$provider" "$remaining"
 SH
 chmod +x "$QUOTA_BIN/quota-axi"
 HELPER="$ROOT/bin/fm-opencode-retry.sh"
@@ -441,6 +445,8 @@ echo "fm-opencode-ladder fixture: real herdr must never be reached" >&2
 exit 1
 SH
   chmod +x "$fakebin/herdr"
+  # Spawn fixtures default to stale quota evidence; cases that exercise
+  # predictive cap updates supply fresh snapshots explicitly.
   cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 provider=
@@ -450,9 +456,9 @@ if [ "${1:-}" = --json ]; then
   go=${FM_TEST_GO_REMAINING:-100}
   cat <<JSON
 {"schemaVersion":5,"providers":[
- {"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$codex,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
- {"provider":"opencode","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$opencode,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
- {"provider":"opencode-go","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$go,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
+ {"provider":"codex","state":{"status":"stale","stale":true},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$codex,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
+ {"provider":"opencode","state":{"status":"stale","stale":true},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$opencode,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
+ {"provider":"opencode-go","state":{"status":"stale","stale":true},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$go,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
 ]}
 JSON
   exit 0
@@ -545,6 +551,19 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
   printf '%s %s %s\n' "$dir/launch.log" "$dir/herdr-calls.log" "$home"
 }
 
+# read_launch: resolve the spawn helper's tmux source-script command to its
+# actual launch text, keeping assertions on the command the worker receives.
+read_launch() {  # <launch-log>
+  local logged source
+  logged=$(cat "$1")
+  source=$(printf '%s\n' "$logged" | sed -n "s/^\\. '\(.*\)'$/\1/p")
+  if [ -n "$source" ] && [ -f "$source" ]; then
+    cat "$source"
+  else
+    printf '%s\n' "$logged"
+  fi
+}
+
 test_spawn_falls_through_on_proven_cap() {
   local dir="$TMP_ROOT/spawn-go" log herdr_calls home launch log_home
   mkdir -p "$dir/home/state"
@@ -555,7 +574,7 @@ test_spawn_falls_through_on_proven_cap() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes the real launch to Codex Plus"
   assert_contains "$launch" "model_reasoning_effort=\"xhigh\"" "Codex Plus defaults to xhigh effort"
   assert_not_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus must not use max without that config declaration"
@@ -572,7 +591,7 @@ test_spawn_uses_configured_codex_plus_effort() {
   log_home=$(spawn_opencode "$dir" task-plus-configured "$FREE" opencode '' high)
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-effort spawn wrote no launch command"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes to Codex Plus"
   assert_contains "$launch" 'model_reasoning_effort="high"' "Codex Plus uses the configured Codex profile effort"
   assert_not_contains "$launch" 'model_reasoning_effort="max"' "configured high effort must not be replaced with max"
@@ -587,7 +606,7 @@ test_codex_dispatch_branch_uses_configured_max_effort() {
   log_home=$(spawn_opencode "$dir" task-codex-plus "$FREE" opencode '' max)
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-max spawn wrote no launch command"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "codex --model 'gpt-6-luna'" "the Codex dispatch branch routes the capped free rung to Plus"
   assert_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus accepts max when the default profile declares it"
   pass "the Codex dispatch branch preserves a configured max effort"
@@ -603,7 +622,7 @@ test_spawn_switches_to_codex_when_go_is_exhausted() {
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "opencode --model '$GO'" "capped Codex Plus must launch on Go"
   assert_not_contains "$launch" "codex --model" "the Go rung stays on OpenCode"
   assert_contains "$(cat "$home/state/task-plus.meta")" "harness=opencode" "the task record must identify the Go harness"
@@ -619,7 +638,7 @@ test_spawn_defaults_to_free() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "$FREE" "a modelless opencode spawn carries the free id"
   assert_contains "$(cat "$home/state/task-free.meta")" "model=$FREE" "the durable record names the free model"
   pass "a modelless opencode spawn dispatches free end to end"
@@ -638,7 +657,7 @@ test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted() {
   assert_absent "$herdr_calls" "fallback launch must never reach Herdr"
   assert_absent "$dir/agy-calls.log" "the agy ladder must remain a last resort while LongCat is eligible"
   [ -f "$log" ] || fail "declared fallback wrote no launch command: $(cat "$dir/spawn.log")"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" 'opencode-go/longcat-2.5-preview-free' "the declared use profile must take priority over an eligible agy last resort"
   assert_not_contains "$launch" "$FREE" "the exhausted free rung must not be launched"
   assert_contains "$(cat "$home/state/task-fallback.meta")" 'dispatch_fallback=opencode/opencode-go/longcat-2.5-preview-free' \
@@ -673,7 +692,7 @@ test_explicit_dispatch_override_keeps_its_profile() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the override launch must never reach Herdr"
   [ -f "$log" ] || fail "explicit override wrote no launch command: $(cat "$dir/spawn.log")"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "opencode --model 'opencode-go/longcat-2.5-preview-free'" \
     "the authorized explicit model must not be replaced by the configured default ladder"
   assert_contains "$(cat "$home/state/task-explicit-override.meta")" \
@@ -689,7 +708,7 @@ test_default_resolver_codex_profile_still_enters_ladder_gate() {
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
-  launch=$(cat "$log")
+  launch=$(read_launch "$log")
   assert_contains "$launch" "opencode --model '$FREE'" "the resolver's Codex profile must pass through the shared gate"
   assert_contains "$(cat "$home/state/resolver-codex.meta")" "harness=opencode" "the routed task record must follow the free rung"
   pass "a default-array Codex profile is gated through the OpenCode ladder"
@@ -792,6 +811,35 @@ JSON
   [ -f "$state/.opencode-cap-plus" ] || fail "fresh Codex zero quota with resetAt must create the shared plus cap record"
   [ -f "$state/.opencode-cap-go" ] || fail "fresh Go zero quota with its window reset must create the shared go cap record"
   pass "rung records skip Codex until reset and use it again afterward"
+}
+
+test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not() {
+  local state fresh stale out
+  state=$(fresh_state early-reset)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go cap"
+
+  fresh="$TMP_ROOT/early-reset-fresh.json"
+  cat > "$fresh" <<'JSON'
+{"providers":[{"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100}]}},{"provider":"opencode-go","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100}]}}]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$fresh" run_gate "$state" "$FREE") || fail "a fresh quota snapshot must leave dispatch eligible"
+  split_gate "$out"
+  [ "$GOT" = gpt-6-luna ] || fail "fresh 100% Codex quota must retire its future cap and dispatch on Codex Plus, got '$GOT'"
+  [ ! -e "$state/.opencode-cap-plus" ] || fail "fresh Codex availability must retire the Plus cap"
+  [ ! -e "$state/.opencode-cap-go" ] || fail "fresh main Go availability must retire the Go cap"
+
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused replacement Plus cap"
+  stale="$TMP_ROOT/early-reset-stale.json"
+  cat > "$stale" <<'JSON'
+{"providers":[{"provider":"codex","state":{"status":"stale","stale":true},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100}]}},{"provider":"opencode-go","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":100}]}}]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$stale" run_gate "$state" "$FREE") || fail "a stale reading must leave dispatch eligible on Go"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a stale Codex reading must leave the recorded cap in force and skip Plus, got '$GOT'"
+  [ -f "$state/.opencode-cap-plus" ] || fail "stale Codex availability must leave the Plus cap intact"
+  pass "fresh quota availability retires rung caps while stale evidence preserves them"
 }
 
 # --- second Go workspace (fourth rung) -----------------------------------------
@@ -1211,6 +1259,7 @@ test_default_resolver_codex_profile_still_enters_ladder_gate
 test_preserved_rung_cap_falls_through_to_go
 test_expired_rung_cap_climbs_back_to_free
 test_free_then_codex_cap_skips_to_go_and_returns_after_reset
+test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not
 test_go_capped_routes_to_second_workspace
 test_fourth_rung_exhaustion_refuses
 test_second_rung_cap_never_marks_main_go
