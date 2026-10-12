@@ -27,6 +27,7 @@ copy it; nothing goes into `pipeline_data.json`.
   regions.json + regions.masks.<sha256>.json.gz
                                  # M3d - written (library/tools/person_regions.py)
   saliency.json                  # M3e - written (library/tools/attention_saliency.py)
+  region_stats.json              # M3f - written (library/tools/region_stats.py)
   scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
                                  #   library/tools/analysis/vision_pipeline_v3.py)
   sound.json                     # M5  - written (step 1.04 via write_sound_memory in
@@ -473,6 +474,53 @@ chosen on; a whole-source wall time has not been measured yet.
 ```sh
 python3 -m library.tools.attention_saliency build <project>
 python3 -m library.tools.attention_saliency status <project>
+```
+
+## M3f `region_stats.json` (written)
+
+Owner: `library/tools/region_stats.py` (the module docstring holds what
+each reading is and is not). Arithmetic over the M2 thumbnails and the
+M3d masks stored on their grid - no decode, no model. Per M3d sample,
+one reading per person instance and one for OUTSIDE (every cell no
+person instance holds): Rec.709 luma median, mean RGB, the
+`shot_colour` skin vector, and the 4-neighbour Laplacian variance over
+the cells whose whole stencil lies in the region.
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "status": "measured",
+  "grid": [384, 216],
+  "outside": "cells no person instance holds",
+  "frame_count": 8191,
+  "samples_measured": 8191,
+  "tracks": [{"track_id": "region_001", "face_track": "face_001"}],
+  "samples": [{"t": 0.083,
+    "outside": {"cells": 70000, "luma_p50": 0.0, "rgb_mean": [r, g, b],
+                "skin_rgb": null, "skin_fraction": 0.0,
+                "sharpness": 0.0, "sharpness_cells": 68000},
+    "regions": [{"track": "region_001", "mask": 0,
+                 "inside": {"cells": 12000, "luma_p50": 0.0, "...": "..."}}]}],
+  "instrument": {"method": "region-stats-v1-m2",
+                 "input": "m2-thumbnail + m3d masks", "luma": "rec709",
+                 "m3d_sidecar_sha256": "sha256 hex", "wall_seconds": 0.0}
+}
+```
+
+- `regions: null` on a sample means M3d did not measure it or its
+  thumbnail is gone; `[]` means measured and nobody there.
+- Readers: step 5.01's bridge (`clip_region_stats`, over the source
+  seconds each clip plays; it measures the samples it needs in memory
+  when this slot was not measured off the current M3d sidecar), and
+  `project_model_evidence`, which migrates every reading into
+  `Observation(modality="region_stats")`.
+- Freshness: the lane (`footage_analysis.LANES`, `region_stats`)
+  rebuilds a record whose `instrument.method` is not the current slot
+  version or that is older than its M2 or M3d input.
+
+```sh
+python3 -m library.tools.region_stats build <project>
+python3 -m library.tools.region_stats status <project>
 ```
 
 ## M7 `events.json` (written)

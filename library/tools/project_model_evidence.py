@@ -40,6 +40,10 @@ Identity policy (fail-closed, never guessed):
   entity with its named reason and NO identity link: ambiguity
   (two faces in one mask) or absence (a limb whose owner is out of
   frame) is reported, never guessed.
+- M3f region stats (subject against outside, per sample) become
+  ``region_stats`` observations that name their region track and carry
+  no identity link of their own: the track's ``face_in_region`` link is
+  the only road from a reading to a person.
 - Confidences are measured, never defaulted: the ArcFace cosine of a
   face track against its person's centroid (``face_embedding_cluster``),
   the diarization silhouette of the chosen k (``diarization``), the
@@ -79,6 +83,7 @@ try:
         person_regions,
         project_model_masks,
         region_query,
+        region_stats,
         source_memory,
         span_verification,
     )
@@ -93,6 +98,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         person_regions,
         project_model_masks,
         region_query,
+        region_stats,
         source_memory,
         span_verification,
     )
@@ -1097,6 +1103,47 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
         })
 
 
+REGION_STATS_PRODUCER = "library.tools.region_stats"
+REGION_STATS_MODALITY = "region_stats"
+
+
+def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
+                          clock_id: str, root: Path | None) -> None:
+    """M3f: one ``Observation(modality="region_stats")`` per region per
+    measured sample - luma median, mean RGB, skin vector and Laplacian
+    sharpness inside the region against outside every region, at the
+    sample's own time with the M3 point-sample neighbourhood. The payload
+    names the region track (``track-region-{digest}-{track}``), whose
+    own observation carries the identity link: a reading is about a
+    region, and a region reaches a person only through ``face_in_region``.
+    """
+    doc = region_stats.read_m3f(digest, root)
+    if doc is None:
+        builder.notes.append(f"{digest[:12]}: M3f absent; no region stats")
+        return
+    for sample in doc.get("samples") or []:
+        if not isinstance(sample, dict) or sample.get("regions") is None:
+            continue
+        try:
+            t = float(sample["t"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        for region in sample["regions"]:
+            if not isinstance(region, dict) or not region.get("track"):
+                continue
+            builder.observation(
+                digest, "m3f", asset_id, clock_id,
+                max(0.0, t - M3_POINT_RADIUS_S), t + M3_POINT_RADIUS_S,
+                REGION_STATS_MODALITY,
+                {"region_track": str(region["track"]),
+                 "track_id": f"track-region-{digest}-{region['track']}",
+                 "mask_index": region.get("mask"),
+                 "inside": region.get("inside"),
+                 "outside": sample.get("outside"),
+                 "outside_is": doc.get("outside")},
+                None, REGION_STATS_PRODUCER)
+
+
 def migrate_project_evidence(project_folder: str, *,
                              memory_root: str | Path | None = None,
                              catalog: list | None = None,
@@ -1163,6 +1210,8 @@ def migrate_project_evidence(project_folder: str, *,
     for digest in seen:
         _migrate_regions(builder, digest, _asset_id(digest),
                          _clock_id(digest), roster, root)
+        _migrate_region_stats(builder, digest, _asset_id(digest),
+                              _clock_id(digest), root)
     for digest in seen:
         _migrate_speech_face_links(builder, digest, roster, root)
     _migrate_voice_matches(builder, roster)
@@ -1219,6 +1268,7 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "m3": person_measurements.read_m3(digest, root) is not None,
             "m3b": _identity is not None,
             "m3d": person_regions.read_m3d(digest, root) is not None,
+            "m3f": region_stats.read_m3f(digest, root) is not None,
             "m4": source_memory.read_scenes(digest, root) is not None,
             "m5": source_memory.read_sound(digest, root) is not None,
             "m6": None,

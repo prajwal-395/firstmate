@@ -316,6 +316,10 @@ def collect_entries(input_data: dict) -> list:
     One entry per PLACEMENT, not per clip: a clip used twice is two
     entries, because what sits either side of a cut is a placement and
     the neighbour table is built off this order.
+
+    `video_in` / `video_out` are the source seconds the placement plays,
+    or None where the assignment does not state them: the region reading
+    (`played_spans`) is taken over exactly those seconds.
     """
     entries = []
 
@@ -330,6 +334,8 @@ def collect_entries(input_data: dict) -> list:
                     "entry_id": seg.get("segment_id", seg.get("clip_id", f"{assignment.get('spine_block_position')}_seg{seg_idx}")),
                     "source_file": seg.get("source_file", ""),
                     "timeline_start": start,
+                    "video_in": seg.get("video_in"),
+                    "video_out": seg.get("video_out"),
                 })
         else:
             entries.append({
@@ -348,6 +354,8 @@ def collect_entries(input_data: dict) -> list:
             "entry_id": broll.get("clip_id", ""),
             "source_file": broll.get("source_file", ""),
             "timeline_start": broll.get("timeline_start"),
+            "video_in": broll.get("video_in"),
+            "video_out": broll.get("video_out"),
         })
 
     for interj in input_data.get("b_roll_interjections", []):
@@ -358,6 +366,8 @@ def collect_entries(input_data: dict) -> list:
             "entry_id": assigned.get("clip_id", ""),
             "source_file": assigned.get("source_file", ""),
             "timeline_start": interj.get("timeline_start"),
+            "video_in": assigned.get("video_in"),
+            "video_out": assigned.get("video_out"),
         })
 
     return entries
@@ -520,6 +530,33 @@ def add_camera_identity(rows: list, clip_catalog) -> list:
         row["camera_identity"] = (
             {"make": make, "model": model} if make and model else None)
     return rows
+
+
+def played_spans(entries: list) -> dict:
+    """`{clip_id: [[in, out], ...]}` - the source seconds each clip's
+    placements play, where every placement of it states them. A clip
+    with one placement that does not is `[]`: its region reading is then
+    taken over the whole source, and says so, rather than over the part
+    some placements happened to name."""
+    spans: dict = {}
+    for entry in entries:
+        clip_id = entry.get("clip_id")
+        if not clip_id:
+            continue
+        start, end = entry.get("video_in"), entry.get("video_out")
+        known = spans.setdefault(clip_id, [])
+        if known is None:
+            continue
+        try:
+            start, end = float(start), float(end)
+        except (TypeError, ValueError):
+            spans[clip_id] = None
+            continue
+        if end < start:
+            spans[clip_id] = None
+            continue
+        known.append([start, end])
+    return {clip_id: (value or []) for clip_id, value in spans.items()}
 
 
 def cut_adjacency(entries: list, rows: list) -> list:

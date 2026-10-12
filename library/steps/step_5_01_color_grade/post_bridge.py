@@ -42,8 +42,8 @@ from library.tools.color_correction import (
 )
 from library.tools.delivery_format import resolve_output_transform
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.region_stats import resolve_measured_basis
 from library.tools.series_look import effective_series_look
-
 
 # The subject-grade entry keys `subject_grade.parse_plan_entry` reads.
 # Anything else on an entry is REFUSED, never dropped: an unread key is
@@ -57,6 +57,9 @@ SUBJECT_ENTRY_KEYS = frozenset({
     "scope",
     "target",
     "grade",
+    # The `region_exposure` row the grade rests on; resolved against the
+    # pre-bridge's `region_stats` and carried into the spec verbatim.
+    "measured_basis",
 })
 
 
@@ -79,6 +82,12 @@ def resolve_color_grade(data: dict) -> dict:
     refuse_unknown_keys(data.get("subject_grades") or [],
                          SUBJECT_ENTRY_KEYS, step="color_grade",
                          plan="subject_grades")
+
+    # A subject grade on a clip the region reading measured cites the row
+    # it rests on; the row's numbers travel onto the entry. An uncited or
+    # wrongly cited entry is refused the same way an unread key is.
+    subject_grades = resolve_measured_basis(
+        data.get("subject_grades") or [], data.get("region_stats") or [])
 
     # The pre-bridge's own measurement, carried through by the runner.
     # Re-measuring here would run ffprobe a second time over every source
@@ -117,7 +126,7 @@ def resolve_color_grade(data: dict) -> dict:
         # judged no-correction from an absent decision.
         decided=True,
         assessment=str(data.get(ASSESSMENT_FIELD) or "").strip(),
-        subject_grades=data.get("subject_grades") or [],
+        subject_grades=subject_grades,
         output_transform=output_transform,
     )
     for drop in (result["color_grade_spec"].get("subject_grade_drops")

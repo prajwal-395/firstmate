@@ -48,6 +48,15 @@ slope, copy its three numbers into a `color_correction` entry with a
 `why`; to OVERRIDE, write your own. Verify the angles share the set
 before accepting - two angles that never meet cost nothing.
 
+`region_exposure` is the picture INSIDE each person against OUTSIDE
+every person, over the seconds each clip plays: one row per clip and
+tracked person region, with the subject's and the surround's luma
+median, `subject_minus_outside_stops`, mean RGB, the subject's skin
+vector and sharpness on both sides. It is the only reading that can say
+"the speaker sits a stop under the wall behind them" - the whole-frame
+numbers above average the two together. Its legend defines every
+column; `not_read` names each clip it could not read and why.
+
 The `cut_adjacency` table has one row per cut where the clip changes,
 with the gap between the two shots in stops. These are the pairs a
 viewer sees back to back.
@@ -68,6 +77,14 @@ for each, and the exact order they compose in.
   it out. Each entry carries `clip_id`, the terms you are moving, and
   `why` in your own words. An entry with no `why` is dropped, and so is
   one whose terms are all neutral.
+* `subject_grades` - region grades, "lift the speaker, hold the room".
+  Each entry names the `clip_id`, the target and scope its schema
+  states, the `grade` terms, and `measured_basis`: the `basis_id` of the
+  `region_exposure` row it rests on. Where `region_exposure` carries a
+  row for that clip, the entry MUST cite one of that clip's rows - an
+  uncited or wrongly cited subject grade is refused and comes back to
+  you. Where it carries none (the clip is under `not_read`), set
+  `measured_basis` to null. An empty list means no region grade.
 * `grade_assessment` - what you saw across the cut as a whole and why
   the corrections are what they are. Write this whether or not you
   correct anything: an empty `color_correction` is recorded as your

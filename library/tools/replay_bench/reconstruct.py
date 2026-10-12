@@ -248,7 +248,17 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             saved["project_folder"] = inputs.get("project_folder", "")
             inputs = _restore_globals(
                 api["project_fields"](inputs, projected_paths), saved)
-        dropped = sorted(bridge_supplied & (before - set(inputs)))
+        # A table a declared view reads is delivered AS that view, not
+        # dropped; a tree without the view types has none to subtract.
+        try:
+            from library.tools.context_views import VIEW_TYPES, is_view, view_name
+            read_by_views = {s for p in projected_paths if is_view(p)
+                             for s in VIEW_TYPES.get(view_name(p),
+                                                     (None, ()))[1]}
+        except ImportError:
+            read_by_views = set()
+        dropped = sorted(bridge_supplied & (before - set(inputs))
+                         - read_by_views)
         if dropped:
             notes.append(
                 "this tree's runner drops a pre-bridge table the handoff "

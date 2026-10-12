@@ -215,8 +215,18 @@ def project_context(inputs: dict, declared, bridge_supplied: set | None = None) 
     # four more allow-list entries, is deliberate: a new hybrid step
     # gets this for free and it cannot go stale the way four lists
     # can. See AGENTS.md 10.1 on key-name mismatches.
+    #
+    # The one exception is a bridge key a DECLARED VIEW reads: the view
+    # is that table's reading, and restoring the table beside it would
+    # send the summary and the structure it was rendered from
+    # (AGENTS.md 10.1). Step 5.01's `region_stats` is read only through
+    # `view:region_exposure`.
+    from library.tools.context_views import VIEW_TYPES, is_view, view_name
+    view_sources = {source for path in declared if is_view(path)
+                    for source in VIEW_TYPES.get(view_name(path),
+                                                 (None, ()))[1]}
     saved_bridge = {k: inputs[k] for k in (bridge_supplied or set())
-                    if k in inputs}
+                    if k in inputs and k not in view_sources}
 
     from library.tools.context_projector import project_fields
     inputs = project_fields(inputs, declared)

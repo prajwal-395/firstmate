@@ -61,6 +61,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - `view:sectiongrid` is what a step reads to address a musical section by LABEL instead of by seconds: one row per measured section (label, span, first-downbeat seconds) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions` and `plan_vfx`; the boundary series stays withheld and the post-bridge resolves every `anchor: {section}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model - a section it cannot give stays absent, never guessed.
 - `view:soundevents` is what a step reads to address a non-speech sound by LABEL instead of by seconds: one row per block with a source clip, carrying the measured event spans inside the block's own source range (label, timeline span, confidence) plus the measurement's provenance. Declared by `plan_transitions`, `plan_vfx` and `plan_sfx`; the frame series stays withheld and the post-bridge resolves every `anchor: {event}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model's own AudioSet vocabulary - voiced speech withheld, a label no clip measured stays absent, never guessed.
+- `view:region_exposure` is what step 5.01 reads instead of its own `region_stats` bridge output: per clip and person region, the subject's luma median, colour, skin vector and sharpness against OUTSIDE every person, over the seconds the clip plays, with the difference in stops. A clip it could not read is one line under `not_read`. The bridge output it reads is NOT restored beside it - a bridge key a declared view reads is the view's source (`model_task.project_context`). A `subject_grades` entry cites a row's `basis_id` (`library/tools/region_stats.py`).
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
@@ -1329,6 +1330,30 @@ def _soundevents(data: dict) -> dict:
 # an `llm_only` step is projected twice on every run - once by
 # `gather_step_inputs` and again by `present_llm_step` - and the second
 # pass sees a tree the first one already stripped the source out of.
+def _region_exposure(data: dict) -> dict:
+    """The subject against its surround, per clip and person region.
+
+    Built from step 5.01's own `region_stats` bridge output (one record
+    per clip: per M3d region track, medians of the M3f readings over the
+    seconds the clip plays - `library/tools/region_stats.py`). The
+    reading flattens it to one row per (clip, region) with the
+    difference in stops, carries the legend beside it, and folds every
+    clip it could not read into one line each under `not_read`. The
+    per-track structure it was read from never reaches the prompt beside
+    it (AGENTS.md 10.1: never send a summary and its source).
+    """
+    from library.tools.region_stats import REGION_EXPOSURE_LEGEND, exposure_rows
+
+    stats = data.get("region_stats")
+    if not isinstance(stats, list) or not stats:
+        return {}
+    rows, absent = exposure_rows(stats)
+    view = {"legend": REGION_EXPOSURE_LEGEND, "rows": rows}
+    if absent:
+        view["not_read"] = absent
+    return {"region_exposure": view}
+
+
 CONTEXT_VIEWS = {
     "transcript": _transcript,
     "spoken_lines": _spoken_lines,
@@ -1341,6 +1366,7 @@ CONTEXT_VIEWS = {
     "emphasis": _emphasis,
     "motion": _motion,
     "soundevents": _soundevents,
+    "region_exposure": _region_exposure,
 }
 
 
@@ -1374,6 +1400,7 @@ VIEW_TYPES = {
     "emphasis": (FACT, ("prosody_analysis", "timed_spine")),
     "motion": (FACT, ("temporal_event_indices", "timed_spine")),
     "soundevents": (FACT, ("temporal_event_indices", "timed_spine")),
+    "region_exposure": (FACT, ("region_stats",)),
 }
 
 

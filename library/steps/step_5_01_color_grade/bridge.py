@@ -32,6 +32,13 @@ and one of the two axes is the one the old step never produced.
   camera (library/tools/camera_match.py). STATED, never applied: the
   colourist accepts by copying a slope into `color_correction` with a
   `why`, or overrides with their own.
+* `region_stats` - per clip and person region, the picture INSIDE the
+  person against OUTSIDE every person, over the source seconds the clip
+  plays (library/tools/region_stats.py: M3f, arithmetic over the M2
+  thumbnails and M3d masks, measured now where the slot is not current).
+  The model never reads this structure: it reads `view:region_exposure`,
+  the flat subject-vs-surround rows, and a `subject_grades` entry cites
+  one row's `basis_id`. A clip with no region reading says why.
 * `grade_terms_legend` - what each correction term IS and how it composes
   with a declared look. The `MEASUREMENT_LEGEND` route: it defines the
   vocabulary and never says what to conclude.
@@ -59,8 +66,10 @@ from library.steps.step_5_01_color_grade.grade import (
     collect_entries,
     cut_adjacency,
     measure_clips,
+    played_spans,
     resolved_source,
 )
+from library.tools import region_stats as region_reading
 from library.tools import still_vision as still_router
 from library.tools.camera_match import derive_camera_match
 from library.tools.color_correction import term_legend
@@ -73,9 +82,9 @@ from library.tools.series_look import (
 from library.tools.shot_colour import (
     CHROMA_FRAMES,
     CHROMA_SAMPLE_SECONDS,
+    COLOUR_SCOPE,
     CONTRAST_P_HI,
     CONTRAST_P_LO,
-    COLOUR_SCOPE,
     SATURATION_MIN_LUMA,
     SKIN_MAX_RG,
     SKIN_MIN_SPREAD,
@@ -235,6 +244,35 @@ def observe_shot_stills(paths: list, project_folder: str) -> dict:
     return {"observed_by": observed_by, "text": text}
 
 
+def measure_regions(rows: list, entries: list, clip_catalog,
+                    project_folder: str) -> list:
+    """The region reading per measured clip, over the seconds it plays.
+
+    The clip is addressed through the catalog (its content digest is what
+    the footage memory is keyed by), with the source resolved the way the
+    whole-frame measurement resolves it. Every clip gets a record, and a
+    clip with no M3d, no M2 or no person in its played seconds says which.
+    """
+    by_clip = {c.get("clip_id"): c for c in clip_catalog or []
+               if isinstance(c, dict) and c.get("clip_id")}
+    spans = played_spans(entries)
+    records = []
+    for row in rows:
+        clip_id = row["clip_id"]
+        clip = dict(by_clip.get(clip_id) or {"clip_id": clip_id})
+        source = row.get("source_file") or resolved_source(
+            {"source_file": clip.get("source_file") or clip.get("path", "")},
+            project_folder)
+        if source:
+            clip["source_file"] = source
+        records.append(region_reading.clip_region_stats(
+            project_folder, clip, spans.get(clip_id) or []))
+    read = sum(1 for r in records if r["status"] == "measured")
+    print(f"  Region reading: {read} of {len(records)} clip(s) carry a "
+          f"subject-vs-outside measurement", file=sys.stderr)
+    return records
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -252,6 +290,8 @@ def main():
     attach_sources(rows, entries, project_folder)
 
     stills_block, still_paths = draw_shot_stills(rows, project_folder)
+    regions = measure_regions(rows, entries, data.get("clip_catalog"),
+                              project_folder)
 
     style = (data.get("brand_template") or {}).get("style", {})
     look = resolve_look(effective_series_look(
@@ -265,11 +305,14 @@ def main():
         "still_colour_notes": observe_shot_stills(
             still_paths, project_folder),
         "camera_match": derive_camera_match(rows, look=look),
+        "region_stats": regions,
         "grade_terms_legend": {
             "luma": (
                 f"{LUMA_SCOPE}. It does not know where the light is in the "
                 f"frame, whether the subject is the lit part, or what "
-                f"colour the light was - read it with the `scene` column. "
+                f"colour the light was - read it with the `scene` column, "
+                f"and with `region_exposure` for the subject against the "
+                f"set around them. "
                 f"A null luma with a `luma_unmeasured_because` is an "
                 f"admitted absence and never a measurement of darkness."),
             "mean_rgb": (

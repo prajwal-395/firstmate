@@ -134,6 +134,12 @@ def parse_plan_entry(entry: dict) -> tuple[dict | None, dict | None]:
                         "role": GROUNDED_TARGET_ROLE},
              "scope": SUBJECT_ONLY_SCOPE,
              "grade": values}
+    # The measured row the colourist cited (5.01 post-bridge,
+    # `region_stats.resolve_measured_basis`), forwarded so the spec
+    # records what the grade was sourced from. Grounding never reads it.
+    for key in ("measured_basis", "measured_basis_absent_because"):
+        if key in entry:
+            clean[key] = entry[key]
     return clean, None
 
 

@@ -110,6 +110,11 @@
         "description": "Bridge output: the measured camera-match proposal - per-camera neutral balances on the shared set, the reference camera (nearest true neutral), one slope triple per other camera, the level half in stops, the predicted after, the chroma half (saturation factor, skin slope, stated contrast ratio - each absent with its reason where a side did not measure), and the declared look's words and slope direction beside the gap's. STATED, never applied: the colourist accepts by copying a slope, a saturation factor or a skin slope into color_correction with a why, or overrides with their own. See library/tools/camera_match.py."
       },
       {
+        "name": "region_stats",
+        "type": "array",
+        "description": "Bridge output: one record per measured clip - per M3d person region track, medians over the M2 samples inside the source seconds the clip plays of the M3f reading (luma median, mean RGB, skin vector, stencil-interior Laplacian sharpness) inside the region and OUTSIDE every person, or the stated reason a clip has none. Read by the prompt ONLY through view:region_exposure (never restored beside it), and by post_bridge.py to resolve each subject_grades entry's measured_basis. See library/tools/region_stats.py."
+      },
+      {
         "name": "color_grade_spec",
         "type": "object",
         "description": "State output: color_grade_spec. Carries the per-clip CDL, the declared look's Fusion half, and `correction_basis` - which of the four absences an ungraded run is (library/tools/color_correction.py)."
@@ -121,7 +126,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Subject-scoped grades - 'warm the speaker, leave the room'. Each: clip_id (exactly as clip_exposure spells it), target {kind: 'person', role: 'speaker'} (the ONLY target that grounds - a generic object such as 'the laptop' resolves to nothing and is dropped, never guessed at), scope 'subject-only' (the only drawable region scope), and grade with any of gain (neutral 1.0), contrast (neutral 0.0), saturation (neutral 1.0). A grade with every term neutral is dropped: leaving the subject alone is said by not naming it. There is no bound on any value and nothing is substituted for a term you leave out - neutral means that axis is not moved. An empty list is a legitimate answer and means no region grade. Grounding happens at compile time against the clip's tracked subject masks: an entry whose clip holds no face-seeded subject is dropped there, and the grade is never applied whole-frame in its place."
+        "description": "Subject-scoped grades - 'warm the speaker, leave the room'. Each: clip_id (exactly as clip_exposure spells it), target {kind: 'person', role: 'speaker'} (the ONLY target that grounds - a generic object such as 'the laptop' resolves to nothing and is dropped, never guessed at), scope 'subject-only' (the only drawable region scope), grade with any of gain (neutral 1.0), contrast (neutral 0.0), saturation (neutral 1.0), and measured_basis: the basis_id of the region_exposure row the grade rests on (e.g. 'clip_002/region_001'). Where region_exposure carries a row for the clip, measured_basis MUST name one of that clip's rows - an uncited or wrongly cited entry is refused back to you; where the clip is under not_read, measured_basis is null. A grade with every term neutral is dropped: leaving the subject alone is said by not naming it. There is no bound on any value and nothing is substituted for a term you leave out - neutral means that axis is not moved. An empty list is a legitimate answer and means no region grade. Grounding happens at compile time against the clip's tracked subject masks: an entry whose clip holds no face-seeded subject is dropped there, and the grade is never applied whole-frame in its place."
       },
       {
         "name": "color_correction",
@@ -178,6 +183,7 @@
     "shot_stills",
     "still_colour_notes",
     "camera_match",
+    "view:region_exposure",
     "creative_direction"
   ]
 }

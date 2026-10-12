@@ -194,12 +194,19 @@ def _sample_dimensions(width, height, short_side=SAMPLE_SHORT_SIDE_PX):
     return even(out_w), even(out_h)
 
 
+def laplacian(frame):
+    """The 4-neighbour Laplacian of one greyscale frame, `(h-2, w-2)`.
+
+    Public because `library/tools/region_stats.py` reads the same
+    operator inside a region mask rather than over the whole frame."""
+    return (-4.0 * frame[1:-1, 1:-1]
+            + frame[:-2, 1:-1] + frame[2:, 1:-1]
+            + frame[1:-1, :-2] + frame[1:-1, 2:])
+
+
 def _laplacian_variance(frame):
     """Variance of the 4-neighbour Laplacian over one greyscale frame."""
-    lap = (-4.0 * frame[1:-1, 1:-1]
-           + frame[:-2, 1:-1] + frame[2:, 1:-1]
-           + frame[1:-1, :-2] + frame[1:-1, 2:])
-    return round(float(lap.var()), 3)
+    return round(float(laplacian(frame).var()), 3)
 
 
 def sample_sharpness(video_path, rate_hz=SAMPLE_RATE_HZ,
