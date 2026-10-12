@@ -622,7 +622,7 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M10 absent; no relationship "
                              f"candidates")
         return
-    for name in ("holding", "pointing"):
+    for name in ("holding", "pointing", "looking_at"):
         for span in ((m10.get("relationships") or {}).get(name, {})
                      .get("spans") or []):
             if not isinstance(span, dict):

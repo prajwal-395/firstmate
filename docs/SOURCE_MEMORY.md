@@ -35,7 +35,8 @@ copy it; nothing goes into `pipeline_data.json`.
   verdicts.json                  # M8  - written (library/tools/span_verification.py)
   world_model.json               # M9  - written (library/tools/world_model.py,
                                  #   via its own build command, not a ren analyze lane)
-  relationships.json             # M10 - written (library/tools/relationships.py)
+  relationships.json             # M10 - written (library/tools/relationships.py,
+                                 #   the `relationships` lane of ren analyze)
 <root>/transcripts/<pcm_sha256>.json   # the canonical transcript measurement
 ```
 
@@ -596,11 +597,12 @@ into the footage graph's scenes and transcript segments.
 
 ## M10 `relationships.json` (written)
 
-Owner: `library/tools/relationships.py`. Light: built from M3 + M3b, no
-decode, no model, no lock. Gap 3 + Gap 7 of the world-model gap map
-(`data/vep-gapmap-a-world-model/report.md` in firstmate's home): the
-review's `Relationships` level - "person holding object, looking at
-person, referring to visible object".
+Owner: `library/tools/relationships.py`; the `relationships` lane of
+`ren analyze` (`footage_analysis.LANES`), after M7. Light: built from
+M3 + M3b + M3d, no decode, no model, no lock. Gap 3 + Gap 7 of the
+world-model gap map (`data/vep-gapmap-a-world-model/report.md` in
+firstmate's home): the review's `Relationships` level - "person holding
+object, looking at person, referring to visible object".
 
 ```json
 {
@@ -617,16 +619,24 @@ person, referring to visible object".
                             "start": 40.25, "end": 41.75,
                             "frames": [{"index": 80, "t": 40.5,
                                         "angle": 4.2, "extension": 0.41,
-                                        "hand": "right"}]}]}
+                                        "hand": "right"}]}]},
+    "looking_at": {"basis": "...",
+                   "spans": [{"owners": ["face_001", "face_002"],
+                              "start": 60.0, "end": 63.25,
+                              "frames": [{"index": 120, "t": 60.0,
+                                          "yaw": 0.9, "d": 0.671,
+                                          "reach": 1.03,
+                                          "region": "region_002"}]}]}
   },
-  "unmeasured": {"looking_at": "<the refusal, verbatim>"}
+  "instrument": {"method": "relationships-v2 over M3 pose + M3d regions",
+                 "reads": ["persons.json", "identity.json", "regions.json"]}
 }
 ```
 
 - `holding` - a confident joint of one hand within
   `HOLDING_MAX_JOINT_DISTANCE` (0.5) face widths of another hand's, for
   at least `HOLDING_MIN_FRAMES` (2) frames. The review's form is "hand
-  joints near OBJECT box"; M3 carries no object boxes (nothing tracks
+  joints near OBJECT box"; no lane carries object boxes (nothing tracks
   objects yet), so the detector measures the other half of every hold:
   the two hands that meet - a clasp, a handshake, a handoff, a
   two-handed grip. The two hands may share an owner.
@@ -636,36 +646,51 @@ person, referring to visible object".
   widths past its wrist, for at least `POINTING_MIN_FRAMES` (2) frames.
   A fist does not point; pointing at one's own face is M7's
   hand-at-mouth rule, not a relationship.
-- Both are geometric CANDIDATES for VLM verification, never answers -
-  the same standing decision as M7's `hand_near_mouth`. Each frame
-  carries its measured distance (`d`) or angle and extension so a
-  verifier can judge the span without re-reading M3.
-- `looking_at` is REFUSED BY NAME under `unmeasured`, with the reason:
-  the review's detector is "face orientation (from landmarks) toward
-  another face's centre", and M3 persists no orientation -
-  `person_measurements.frame_record` writes only the lip regions of the
-  helper's landmark observations (the helper measures
-  leftEye/rightEye/nose/faceContour; they are dropped at persist time),
-  and an axis-aligned face box carries no facing direction. The unlock
-  is persisting the eye landmarks in M3.
+- `looking_at` - a head-pose ray meeting another person's region. A
+  face turned at least `LOOKING_MIN_YAW_RAD` (0.35) of M3 yaw off the
+  camera casts a ray from its face box's edge along the face centre's
+  image row, toward the side it faces; the first other M3d region the
+  ray meets on the mask grid is the target, for at least
+  `LOOKING_AT_MIN_FRAMES` (2) frames. Positive yaw faces image +x -
+  measured on the MU-03 fixture (`tests/fixtures/mu03/turned-face.jpg`:
+  +0.715, mirrored -0.723), not assumed. Pitch is unused: its sign has
+  no measurement here. A ray stops at the first region whoever it is: a
+  look meeting an unowned region names nobody, never the person behind.
+  `d` is `pi/2 - |yaw|`, the head's offset from the straight-across
+  bearing to a partner at the looker's own depth; `reach` the distance
+  to the target in face widths.
+- All three are geometric CANDIDATES for VLM verification, never
+  answers - the same standing decision as M7's `hand_near_mouth`. Each
+  frame carries its measured distance (`d`), angle and extension, or yaw
+  so a verifier can judge the span without re-reading the lanes;
+  `holding` and `looking_at` frames carry the `d`
+  `span_verification.select_frames` ranks by.
 - Who is who: faces take M3b ArcFace tracks by position
-  (`event_spans.assign_face_tracks`); a hand belongs to the tracked
-  face its wrist is nearest. A hand or target no track claims is left
-  out of named relationships, not guessed into one.
+  (`event_spans.assign_face_tracks`). A hand belongs to the person
+  REGION its wrist lies in (the region track's owning face track), not
+  to the nearest face - an off-frame owner's hand is its own faceless
+  region, which the nearest-face rule handed to whoever sat closest. A
+  hand or target no track claims is left out of named relationships,
+  not guessed into one.
 - Distances are measured in pixels (x scales by the frame width, y by
   its height; the unit is the frame's mean face width) - the
   coordinate contract `person_measurements` documents. A frame with no
   face carries no scale, and a distance without a scale is not a
-  measurement.
+  measurement; a frame whose M3d sample was not decoded carries no
+  regions and is not measured either.
+- Stale when its `instrument.method` is not the current slot version
+  (a v1 record owned hands by nearest face and refused looking-at), or
+  when it is older than the M3, M3b or M3d it read.
 
 ```sh
 python3 -m library.tools.relationships build <project>
 python3 -m library.tools.relationships status <project>
 ```
 
-The build refuses (raises) without M3 or M3b, per source, and reports
-the failure without aborting the project - an unbuilt source would
-read as "no relationships here".
+The build refuses (raises) without M3, M3b or M3d, or with an M3d
+measured on another sample than M3, per source, and reports the failure
+without aborting the project - an unbuilt source would read as "no
+relationships here".
 
 ## Staleness
 
@@ -753,14 +778,12 @@ ren eval-search <project> --out-json F    # the pre-registered set by default
   each requires - never object segmentation, OCR only with `--with
   ocr.extract`. Results land in `capability_outputs` and the preflight ledger, so
   `ren edit` continues with preflight done. Then the lanes in
-  `footage_analysis.LANES` fill M0-M3c, M6 and M7 and build the text and
-  frame indexes (the `identity` lane writes M1b `speakers.json` beside
+  `footage_analysis.LANES` fill M0-M3d, M6, M7 and M10 and build the
+  text and frame indexes (the `identity` lane writes M1b `speakers.json` beside
   M3b via `source_memory.write_speakers`); M9 (`world_model.json`) is
   built by `world_model.build_project_world_model` through its own
-  `build` command, and M10 (`relationships.json`) by
-  `relationships.build_project_relationships` through its own `build`
-  command - neither is a `footage_analysis.LANES` lane, so `ren analyze`
-  writes neither slot. `--memory-only` runs scan and catalog alone.
+  `build` command - not a `footage_analysis.LANES` lane, so `ren analyze`
+  does not write it. `--memory-only` runs scan and catalog alone.
 - **A fresh record is reused, never rebuilt**: a per-source lane runs only
   for sources whose slot is missing, names another digest, or is older than
   a slot it reads (an M3 measured off an M2 that was since re-sampled).

@@ -31,7 +31,8 @@ query at time T is one array index:
           "sound": {"events": [...]},
           "events": {"on_screen": [...], "speaking": [...],
                      "hand_near_mouth": [...]},
-          "relationships": {"holding": [...], "pointing": [...]}
+          "relationships": {"holding": [...], "pointing": [...],
+                            "looking_at": [...]}
         },
         ...
       ],
@@ -53,9 +54,9 @@ query at time T is one array index:
 - M7: on_screen, speaking and hand_near_mouth spans -> `events`.
 - M8: VLM verdicts on candidate spans -> `events.hand_near_mouth`
   verdicts.
-- M10: holding and pointing candidate spans -> `relationships`
-  (geometric candidates from `relationships.py`, never answers;
-  looking_at is refused there for lack of orientation in M3).
+- M10: holding, pointing and looking_at candidate spans ->
+  `relationships` (geometric candidates from `relationships.py`, never
+  answers).
 
 A lane that was never built is ABSENT from `lanes`, never defaulted:
 the world model joins what exists and says what it joined.
@@ -209,11 +210,10 @@ def _relationships_at(m10: Optional[dict], lo: float, hi: float) -> dict:
     """M10 relationship candidate spans overlapping [lo, hi).
 
     The geometric candidates `relationships.py` measured (holding,
-    pointing) - never answers, the same standing decision as M7's
-    hand_near_mouth. `looking_at` is absent by refusal, not by an
-    empty list: the record's `unmeasured` section says why.
+    pointing, looking_at) - never answers, the same standing decision as
+    M7's hand_near_mouth.
     """
-    measured = {"holding": [], "pointing": []}
+    measured = {"holding": [], "pointing": [], "looking_at": []}
     if not m10:
         return measured
     for name in measured:

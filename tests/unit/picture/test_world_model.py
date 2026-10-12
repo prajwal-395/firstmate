@@ -7,9 +7,10 @@ instead of absent. No test asserts a schema or count.
 """
 import json
 from pathlib import Path
+
 import pytest
-from library.tools import source_memory, world_model
-from library.tools import span_verification
+
+from library.tools import source_memory, span_verification, world_model
 
 
 @pytest.fixture
@@ -147,7 +148,8 @@ def _m8_verdict(statement: str, frame_times: list, answer: str) -> dict:
     }
 
 
-def _m10_doc(digest: str, holding: list, pointing: list) -> dict:
+def _m10_doc(digest: str, holding: list, pointing: list,
+             looking_at: list) -> dict:
     """An M10 record with relationship candidate spans."""
     return {
         "content_digest": digest, "size_bytes": 12345,
@@ -156,8 +158,8 @@ def _m10_doc(digest: str, holding: list, pointing: list) -> dict:
         "relationships": {
             "holding": {"basis": "test", "spans": holding},
             "pointing": {"basis": "test", "spans": pointing},
+            "looking_at": {"basis": "test", "spans": looking_at},
         },
-        "unmeasured": {"looking_at": "refused: no orientation in M3"},
     }
 
 
@@ -187,10 +189,12 @@ def _build_all_lanes(root: Path, digest: str, **kwargs) -> None:
             verdicts[key] = verdict
         _write(target / source_memory.SLOT_VERDICTS,
                {"content_digest": digest, "verdicts": verdicts})
-    if "m10_holding" in kwargs or "m10_pointing" in kwargs:
+    if any(key in kwargs for key in ("m10_holding", "m10_pointing",
+                                     "m10_looking_at")):
         _write(target / source_memory.SLOT_RELATIONSHIPS, _m10_doc(
             digest, kwargs.get("m10_holding", []),
-            kwargs.get("m10_pointing", [])))
+            kwargs.get("m10_pointing", []),
+            kwargs.get("m10_looking_at", [])))
 
 
 # ── The join ──────────────────────────────────────────────────────
@@ -336,7 +340,7 @@ def test_hand_near_mouth_candidates_are_joined_with_verdicts(
 
 def test_relationship_candidates_are_joined_per_second(
         tmp_path, memory_root):
-    """M10 holding and pointing spans appear in the timeline's
+    """M10 holding, pointing and looking-at spans appear in the timeline's
     `relationships` at the second they overlap, and `m10` joins
     `lanes`.
 
@@ -349,8 +353,11 @@ def test_relationship_candidates_are_joined_per_second(
                 "end": 3.0}]
     pointing = [{"owners": ["face_001", "face_002"], "start": 4.0,
                 "end": 4.5}]
+    looking_at = [{"owners": ["face_002", "face_001"], "start": 5.0,
+                   "end": 5.75}]
     _build_all_lanes(memory_root, digest, duration=6.0,
-                     m10_holding=holding, m10_pointing=pointing)
+                     m10_holding=holding, m10_pointing=pointing,
+                     m10_looking_at=looking_at)
     record = world_model.build_source_world_model(digest,
                                                   "/nowhere/FILE.MXF",
                                                   memory_root)
@@ -365,8 +372,10 @@ def test_relationship_candidates_are_joined_per_second(
                                                           "face_001"]
     assert len(world_model.query_at_time(model, 4.0)["relationships"]
                ["pointing"]) == 1
+    assert world_model.query_at_time(model, 5.0)["relationships"][
+        "looking_at"][0]["owners"] == ["face_002", "face_001"]
     assert world_model.query_at_time(model, 0.0)["relationships"] == {
-        "holding": [], "pointing": []}
+        "holding": [], "pointing": [], "looking_at": []}
 
 
 def test_a_missing_lane_is_absent_from_lanes_not_defaulted(

@@ -19,7 +19,8 @@ Two halves, in order:
 2. **The memory lanes** (`LANES`), per source, into the per-machine memory
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
    faces and hands, M3b person identity, M3c expressions, M3d person
-   regions, M6 conversation clock, M7 event spans, then the text and frame search indexes over them. A lane whose
+   regions, M6 conversation clock, M7 event spans, M10 relationship
+   candidates, then the text and frame search indexes over them. A lane whose
    record is already FRESH for a source is reused, never rebuilt: a
    re-run over the same folder costs the fingerprints and nothing else.
 
@@ -143,6 +144,11 @@ def _build_events(project, _clip_ids, root):
     return event_spans.build_project_events(project, root)
 
 
+def _build_relationships(project, clip_ids, root):
+    from library.tools import relationships
+    return relationships.build_project_relationships(project, clip_ids, root)
+
+
 def _build_text_index(project, _clip_ids, _root):
     from library.tools.analysis import footage_query
     return footage_query.build_index(project)
@@ -179,6 +185,10 @@ LANES: tuple = (
     Lane("events", "M7", "on-screen and speaking spans per person",
          (SM.SLOT_EVENTS,), (SM.SLOT_PERSONS, SM.SLOT_IDENTITY), False,
          False, _build_events),
+    Lane("relationships", "M10", "holding, pointing and looking-at candidates",
+         (SM.SLOT_RELATIONSHIPS,),
+         (SM.SLOT_PERSONS, SM.SLOT_IDENTITY, SM.SLOT_REGIONS), False, True,
+         _build_relationships, "relationships-v2 over M3 pose + M3d regions"),
     Lane("text_index", "index", "the speech/vision text index `ren search` reads",
          (), (SM.SLOT_TRANSCRIPT,), True, False, _build_text_index),
     Lane("frame_index", "index", "the CLIP frame index `ren search --visual` reads",

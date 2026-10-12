@@ -57,9 +57,9 @@ M7       `events.json`                DERIVED per-person spans      `library/too
 M9       `world_model.json`           joined per-second timeline   `library/tools/
                                        (M0-M8 in, one model out)     world_model.py`
 M10      `relationships.json`         relationship CANDIDATES       `library/tools/
-                                       (holding, pointing;           relationships.py`
-                                       looking_at refused - no
-                                       orientation in M3)
+                                       (holding, pointing,           relationships.py`
+                                       looking_at; over M3 + M3b
+                                       + M3d)
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
