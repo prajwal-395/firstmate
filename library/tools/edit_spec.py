@@ -477,6 +477,50 @@ def _planner_run_rows(spec: dict) -> list[dict]:
     return rows
 
 
+def routes_for(spec: dict, actions: list | None = None) -> list[dict]:
+    """Where each recorded operation of a resolved spec goes next.
+
+    A replayed direct edit rides the next build; any other clause's owner
+    re-runs first. A program is one row (`ledger_rows`): an `edit_program`
+    executes on the reel itself, a `planner_run` re-runs each plan op's
+    owner. `actions` are the ledger's per-row actions, when recorded.
+    """
+    rows = ledger_rows(spec)
+    actions = list(actions or [None] * len(rows))
+    program = spec.get("program")
+    if program is not None and program["kind"] == "edit_program":
+        return [{"clause_id": "program", "op": "edit_program",
+                 "owner": None, "rerun": False,
+                 "ledger_action": actions[0],
+                 "next": ("executes on the reel itself (`ren revise`); "
+                          "ren build replays what it can")}]
+    routes = []
+    items = (program["ops"] if program is not None else spec["clauses"])
+    for index, (item, action) in enumerate(zip(items, actions)):
+        op = item["op"]
+        owner = owner_for_op(op)
+        replayed_directly = (op in edit_ledger.REPLAYED_OPS
+                             or op == "transform_override")
+        routes.append({
+            "clause_id": item.get("id") or f"op-{index + 1}",
+            "op": op,
+            "owner": owner,
+            "rerun": not replayed_directly,
+            "ledger_action": action,
+            "next": ("ren build replays this direct edit"
+                     if replayed_directly else
+                     f"ren edit <project> --rerun {owner}, "
+                     "then ren build <project>"),
+        })
+    return routes
+
+
+def rerun_steps(routes: list[dict]) -> list[str]:
+    """The owners a recorded spec re-runs, once each, in clause order."""
+    return list(dict.fromkeys(route["owner"] for route in routes
+                              if route["rerun"]))
+
+
 def record_spec(project_folder: str, spec: dict) -> list[tuple[dict, str]]:
     """Record every resolved clause together or refuse the whole spec."""
     rows = ledger_rows(spec)
@@ -553,8 +597,7 @@ def _resolve_project_name(project_folder: str) -> str:
     """The Resolve project name for a project folder, from project.yaml."""
     from library.tools.project_layout import ProjectLayout
 
-    layout = ProjectLayout(project_folder)
-    config_path = layout.project_path / "project.yaml"
+    config_path = ProjectLayout(project_folder).project_config_path
     if not config_path.is_file():
         raise EditSpecError(
             f"no project.yaml in {project_folder}; cannot resolve the "
@@ -1008,6 +1051,10 @@ def _expected_schema() -> str:
             "program": program,
             "clauses": {"type": "array", "minItems": 1,
                          "items": clause},
+            "implicated": {"type": "array", "items": {
+                "type": "object", "required": ["node_id", "why"],
+                "properties": {"node_id": {"type": "string"},
+                               "why": {"type": "string", "minLength": 1}}}},
         },
         "anyOf": [{"required": ["program"]},
                    {"required": ["clauses"]}],
@@ -1038,6 +1085,7 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
         facts["project_facts_note"] = (
             "No pipeline_data.json exists yet. Do not infer footage, "
             "transcript, brand or reel facts.")
+        facts["reel_timeline"] = _reel_timeline(project_folder, reel)
         return facts
     try:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1105,6 +1153,10 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
                       (build_record.get("timelines_built") or [])
                       if isinstance(name, str) and name.strip())
     facts["available_reels"] = list(dict.fromkeys(reel_names))
+    facts["reel_timeline"] = _reel_timeline(
+        project_folder, reel or (facts["available_reels"][0]
+                                 if len(facts["available_reels"]) == 1
+                                 else ""))
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 128_000:
         facts["footage_observations"] = [
             {"clip_id": observation.get("clip_id"),
@@ -1118,6 +1170,55 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
             "Do not infer an unlisted shot or brand value; ask if the "
             "remaining evidence does not identify the referent.")
     return facts
+
+
+def _reel_timeline(project_folder: str, reel: str) -> dict:
+    """The reel's picture rows as its newest recorded generation holds them.
+
+    A change to something already on the reel - a caption's size, an
+    overlay switched off, a marker - is an `edit_program` over these
+    items by `unique_id`, based on `generation`. Read off the shadow
+    store, never Resolve; a reel nobody has observed lists nothing and
+    says why, so such a change asks rather than guessing an item.
+    """
+    from library.tools import timeline_shadow
+
+    if not reel:
+        return {"available": False,
+                "reason": "no single reel is named, so no reel's items "
+                          "are listed"}
+    try:
+        project_name = _resolve_project_name(project_folder)
+        store = timeline_shadow.ShadowStore()
+        timeline_id = store.resolve_timeline(project_name, reel)
+        head = store.head(project_name, timeline_id)
+        if head is None:
+            raise timeline_shadow.ShadowError(
+                f"no generation recorded for {reel!r}")
+        snapshot = store.snapshot(head)
+    except Exception as exc:  # noqa: BLE001 - an unread reel lists nothing
+        return {"available": False, "reel": reel,
+                "reason": f"the reel's items are not recorded: {exc}"}
+    rows = []
+    for track in snapshot.get("tracks") or []:
+        if not str(track.get("type") or "").lower().startswith("v"):
+            continue
+        rows.append({
+            "row": f"V{int(track['index'])}",
+            "name": track.get("name") or "",
+            "items": [{key: clip.get(key) for key in (
+                "unique_id", "name", "record_in", "record_out", "enabled",
+                "transform")} for clip in track.get("clips") or []],
+        })
+    return {"available": True, "reel": reel,
+            "generation": str(head.generation),
+            "fps": snapshot.get("fps"),
+            "start_frame": snapshot.get("start_frame"),
+            "rows": rows,
+            "timeline_markers": [
+                {key: marker.get(key) for key in ("frame", "color", "name")}
+                for marker in (snapshot.get("markers") or {}).get(
+                    "timeline") or []]}
 
 
 def _current_edit(outputs: dict) -> list:
@@ -1201,8 +1302,16 @@ def _write_request_note(project_folder: str, request: str,
 
 
 def prepare_request(project_folder: str, request: str, reel: str = "",
-                    note_id: str = "") -> tuple[str, str, str]:
-    """Write a translation request; return id, request path and note id."""
+                    note_id: str = "",
+                    decision_candidates: list | None = None
+                    ) -> tuple[str, str, str]:
+    """Write a translation request; return id, request path and note id.
+
+    `decision_candidates` are the recorded edit decisions the note's own
+    placement touches (`decision_implication.candidates_for_note`). The
+    same translation judges them: the response names the implicated ones
+    in `implicated`, so no second model call is made for it.
+    """
     from library.tools import llm_handshake
     from library.tools.project_layout import Area, ProjectLayout
 
@@ -1226,6 +1335,8 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
             project_folder, request, request_id, reel=reel)
     facts = _project_context(project_folder, request, reel)
     facts["source_note_id"] = note_id
+    if decision_candidates:
+        facts["decision_candidates"] = decision_candidates
     if note_path:
         facts["source_note_path"] = note_path
     prompt = (
@@ -1264,6 +1375,19 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "the speech sequence and chooses its passage position. A resolved "
         "plan operation with no typed values is refused; ask if its spoken "
         "anchor cannot be identified. "
+        "A change to items already on the reel - a caption's or an "
+        "overlay's size or position, an overlay switched off, a marker - "
+        "is a `program` of kind `edit_program` over `reel_timeline`: name "
+        "each item by its `unique_id`, use the algebra ops "
+        "`clip.set_property` (params `unique_id`, `key`, `value`), "
+        "`clip.set_enabled` or the marker ops, set `reel` to the reel and "
+        "`base_generation` to `reel_timeline.generation`. A size or a "
+        "position the editor did not state is the model's decision: say "
+        "so in the op's `text`. If `reel_timeline` lists no items, ask "
+        "which reel. "
+        "When `decision_candidates` is present, also return `implicated`: "
+        "a list of {node_id, why} naming each candidate decision this note "
+        "is about, and an empty list when it is about none. "
         "Return JSON "
         "only, with the exact request in `request`. "
         "The code derives the owner from the op type; do not invent a route.\n\n"
@@ -1617,30 +1741,11 @@ def main(argv=None) -> int:
                                  ensure_ascii=False))
                 return 4
             recorded = record_spec(args.project, spec)
-            routes = []
-            rerun_steps = []
-            for clause, (_row, action) in zip(spec["clauses"], recorded):
-                op = clause["op"]
-                owner = owner_for_op(op)
-                replayed_directly = (
-                    op in edit_ledger.REPLAYED_OPS
-                    or op == "transform_override")
-                if not replayed_directly:
-                    rerun_steps.append(owner)
-                routes.append({
-                    "clause_id": clause["id"],
-                    "op": op,
-                    "owner": owner,
-                    "ledger_action": action,
-                    "next": ("ren build replays this direct edit"
-                             if replayed_directly else
-                             f"ren edit <project> --rerun {owner}, "
-                             "then ren build <project>"),
-                })
+            routes = routes_for(spec, [action for _row, action in recorded])
             print(json.dumps({
                 "status": "recorded",
                 "routes": routes,
-                "rerun_steps": list(dict.fromkeys(rerun_steps)),
+                "rerun_steps": rerun_steps(routes),
                 "proxy_preview": PROXY_PREVIEW,
             }, indent=2, ensure_ascii=False))
             return 0

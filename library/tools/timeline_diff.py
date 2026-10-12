@@ -271,6 +271,32 @@ def summarize(changes: Sequence[Mapping]) -> dict:
     return dict(sorted(counts.items()))
 
 
+CATEGORIES = ("dialogue", "sequence", "captions", "graphics", "color", "audio")
+"""The creator-facing categories a change summary speaks in, in order."""
+
+
+def row_categories(row: str) -> set:
+    """The categories a change on this timeline row establishes.
+
+    Conservative by design: an audio row is audio and a video row is
+    picture/sequence; the rest only where the row's own name says so.
+    """
+    label = str(row or "").lower()
+    found = set()
+    if label.startswith("a"):
+        found.add("audio")
+    elif label.startswith("v"):
+        found.add("sequence")
+    for category, words in {
+            "captions": ("caption", "subtitle"),
+            "graphics": ("graphic", "overlay", "title"),
+            "color": ("color", "colour", "grade"),
+            "dialogue": ("dialogue", "speech", "voice")}.items():
+        if any(word in label for word in words):
+            found.add(category)
+    return found
+
+
 def creative_summary(changes: Sequence[Mapping], *, fps: float | None = None) -> dict:
     """Describe one recorded revision in creator-facing timeline terms.
 
@@ -294,18 +320,7 @@ def creative_summary(changes: Sequence[Mapping], *, fps: float | None = None) ->
                       if isinstance(state, Mapping)
                       and isinstance(state.get("end"), (int, float))]
         row = str(change.get("row") or "")
-        label = row.lower()
-        if label.startswith("a"):
-            changed_categories.add("audio")
-        elif label.startswith("v"):
-            changed_categories.add("sequence")
-        for category, words in {
-                "captions": ("caption", "subtitle"),
-                "graphics": ("graphic", "overlay", "title"),
-                "color": ("color", "colour", "grade"),
-                "dialogue": ("dialogue", "speech", "voice")}.items():
-            if any(word in label for word in words):
-                changed_categories.add(category)
+        changed_categories.update(row_categories(row))
         record = {"op": op, "row": row, "item": change.get("item") or ""}
         if start_values:
             record["start_frame"] = min(start_values)
@@ -316,12 +331,11 @@ def creative_summary(changes: Sequence[Mapping], *, fps: float | None = None) ->
             if fps:
                 record["end_timecode"] = _timecode(max(end_values), fps)
         rows.append(record)
-    categories = ("dialogue", "sequence", "captions", "graphics", "color", "audio")
     category_status = {c: ("changed" if c in changed_categories else "unknown")
-                       for c in categories}
+                       for c in CATEGORIES}
     return {
         "changes": rows,
-        "changed_categories": [c for c in categories if c in changed_categories],
+        "changed_categories": [c for c in CATEGORIES if c in changed_categories],
         "untouched_categories": [],
         "category_status": category_status,
         "summary": _creative_sentence(rows),

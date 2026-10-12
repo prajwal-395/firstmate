@@ -150,7 +150,7 @@ it whenever the goal is about what is IN the footage.
 |---|---|
 | Find a moment in the footage | `ren search` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act |
-| An editor's natural-language request | `ren spec prepare` / `ren spec resolve` (section 7) |
+| An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"` (section 7) |
 | Reel candidates for approval | `ren propose <project>` |
 | Rule on the proposed reels | After `ren propose`, show the list in chat and approve what the person says: `ren approve <project> 1 3` (or `--all`), `ren reject <project> 2 --note "why"` |
 | Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |
@@ -276,10 +276,39 @@ ren notes <project>              # which note went to which step
 ren-marker-hook work --project <absolute path>   # pending work queue
 ```
 
-The old word-based route shown by `ren notes` is diagnostic only. Translate
-each natural-language request before running the pipeline. Link the existing
-note id for a pulled marker; a direct chat or CLI request creates its own
-durable note id:
+The old word-based route shown by `ren notes` is diagnostic only. A note -
+typed in chat or pulled off a marker - becomes a change through ONE verb:
+
+```sh
+ren revise <project> "<the note's exact words>" [--reel "<timeline name>"]
+ren revise <project> --note-id <id from ren notes>     # a pulled marker
+ren revise <project>               # continue the newest open revision
+```
+
+It prints JSON; relay its `reply` line to the person. `status` says what
+happened next:
+
+| `status` | What you do |
+|---|---|
+| `awaiting_translation` | Answer the `LLM_REQUEST_READY` file exactly as below, then run `ren revise <project>` again |
+| `question` | Ask the person `reply` (it is exactly one question), then `ren revise <project> --answer "<their words>"` |
+| `patched` / `touched` | Done: the reel was changed in place; `reply` names the reel, rows and seconds |
+| `rebuilt` | Done: the owning steps re-ran and only that reel was rebuilt |
+| `incomplete` | The rebuild stopped; fix what it printed, then `ren revise <project>` |
+| `refused` | Nothing changed; tell the person `reply` |
+
+A change to things already on a reel (a caption's or overlay's size or
+position, an overlay off, a marker) translates as an `edit_program` over the
+`reel_timeline` items the request carries; Ren generates the patch and its
+scope, applies it guarded (on Ren Qualification) or as a `ren touch`
+elsewhere, and records the verified outcome. A change to what plays or in
+what order translates as clauses, and Ren re-runs only their owners and
+rebuilds only that reel. `--plan` stops after showing what would change.
+Changing a signed-off reel asks first (`needs_question`), like a rebuild.
+
+The steps `ren revise` composes remain available one by one. Link the
+existing note id for a pulled marker; a direct chat or CLI request creates
+its own durable note id:
 
 ```sh
 ren spec prepare <project> --request "<the note's exact text>" \

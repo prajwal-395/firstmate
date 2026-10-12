@@ -1046,3 +1046,53 @@ def test_a_note_the_current_edit_answers_is_released_only_while_it_holds(
     other = marker_routing.edit_link_id(note, "Edit", str(pull))
     assert "keyword routing is not used" in edit_spec.pending_note_states(
         str(project))[other]["reason"]
+
+
+def test_a_recorded_timeline_program_does_not_break_the_project(
+        tmp_path, capsys):
+    """A program spec records through `ren spec resolve`, and every later
+    routing of the project survives it.
+
+    Catches: `ren spec resolve` raising KeyError on a program spec (it
+    walked `spec["clauses"]`), and every `route_project` of the project
+    raising afterwards - an `edit_program` row has no owning step, so
+    `owner_for_row` refused it for every note on every run.
+    """
+    from library.tools import llm_handshake, marker_routing
+
+    project = _project(tmp_path)
+    request_id, _path, note_id = edit_spec.prepare_request(
+        str(project), "switch the lower third off", reel="Reel 01 - a")
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps({"format": edit_spec.FORMAT,
+                    "request": "switch the lower third off",
+                    "program": {"kind": "edit_program", "reel": "Reel 01 - a",
+                                "base_generation": "3",
+                                "idempotency_key": "lt-off",
+                                "ops": [{"op": "clip.set_enabled",
+                                         "text": "switch it off",
+                                         "params": {"unique_id": "lt-1",
+                                                    "enabled": False}}]}}),
+        encoding="utf-8")
+
+    assert edit_spec.main(["resolve", str(project), "--id", request_id]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert [route["op"] for route in printed["routes"]] == ["edit_program"]
+    assert printed["rerun_steps"] == []
+
+    [note] = [n for n in marker_routing.route_project(str(project))
+              if n.edit_link_id == note_id]
+    assert note.basis == marker_routing.BASIS_EDIT_SPEC
+    assert note.outcome == marker_routing.OUTCOME_UNROUTED
+    assert note.steps == []
+    assert "timeline program" in note.reason
+
+
+def test_the_resolve_project_name_is_read_from_project_yaml(tmp_path):
+    """Catches: the name lookup reading a ProjectLayout attribute that does
+    not exist, so `ren spec preview` and the reel's items in the
+    translation context could never be read."""
+    project = _project(tmp_path)
+    (project / "project.yaml").write_text(
+        'resolve:\n  project: "Pricing Show"\n', encoding="utf-8")
+    assert edit_spec._resolve_project_name(str(project)) == "Pricing Show"

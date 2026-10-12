@@ -148,3 +148,37 @@ def test_every_routable_step_is_in_exactly_one_table():
     assert (feedback_patch.PATCH_STEPS | feedback_patch.REBUILD_STEPS
             == routable)
     assert not (feedback_patch.PATCH_STEPS & feedback_patch.REBUILD_STEPS)
+
+
+# ── A typed spec places itself; a program is a patch or refused ──────
+
+def test_a_typed_chat_note_needs_no_marker_frame():
+    """Catches: a note typed in chat (no marker, so no frame) always
+    rebuilding, though its typed operations stay inside existing items."""
+    routed = _edit_spec_note(["plan_subtitles"])
+    routed["frame"] = None
+    assert (feedback_patch.decide(routed)["verdict"]
+            == feedback_patch.VERDICT_PATCH)
+
+
+def _program_note(ops: list) -> dict:
+    return {"basis": marker_routing.BASIS_EDIT_SPEC,
+            "outcome": marker_routing.OUTCOME_UNROUTED, "steps": [],
+            "frame": None, "evidence": {"edit_spec_ops": [
+                {"op": op, "owner": None, "ledger_op": "edit_program"}
+                for op in ops]}}
+
+
+def test_a_program_over_existing_items_is_a_patch():
+    verdict = feedback_patch.decide(
+        _program_note(["clip.set_property", "clip.set_enabled"]))
+    assert verdict["verdict"] == feedback_patch.VERDICT_PATCH
+
+
+def test_a_program_the_patch_path_cannot_restore_is_refused_not_rebuilt():
+    """Catches: a timeline program falling to the rebuild default, where
+    nothing re-chooses its ops - they would silently never happen."""
+    verdict = feedback_patch.decide(
+        _program_note(["clip.set_property", "clip.delete"]))
+    assert verdict["verdict"] == feedback_patch.VERDICT_REFUSED
+    assert "clip.delete" in verdict["reason"]

@@ -182,6 +182,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "organize", group: "Projects", summary: "Bring a project folder onto the standard layout" },
     Verb { name: "archive", group: "Projects", summary: "Archive a finished project" },
     Verb { name: "spec", group: "Projects", summary: "Translate, clarify and record a natural-language edit spec" },
+    Verb { name: "revise", group: "Projects", summary: "Turn an editor's note into a verified change, in one verb" },
     Verb { name: "reindex", group: "Projects", summary: "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)" },
     Verb { name: "propose", group: "Reels", summary: "Publish the chosen moments as the reel review file" },
     Verb { name: "approve", group: "Reels", summary: "Approve proposed reels for building" },

@@ -51,7 +51,13 @@ The default is rebuild (today's behaviour): anything the classifier
 cannot place - ambiguous, unrouted, unknown-step, unplaced, or a step
 outside both tables - rebuilds, with the reason saying why no patch was
 claimed. A patch is claimed only for a note routed to exactly one step
-whose decision is about existing items.
+whose decision is about existing items, or for a typed edit spec whose
+operations all stay inside them - a spec places itself by its own
+anchors, so a note typed in chat needs no marker frame. A typed
+timeline program (an `edit_program` over the reel's items) is a patch
+when every op is one the guarded path restores, and REFUSED otherwise:
+no rebuild re-chooses an op that names an item by id. `ren revise`
+(`library/tools/revise.py`) is the caller that acts on the verdict.
 
 `python3 -m library.tools.feedback_patch report --project <dir>` prints
 the verdict for every routed note of a project (read-only).
@@ -71,6 +77,8 @@ from library.tools import marker_routing  # noqa: E402
 
 VERDICT_PATCH = "patch"
 VERDICT_REBUILD = "rebuild"
+VERDICT_REFUSED = "refused"
+"""Only for a timeline program whose ops nothing here can execute."""
 
 #: Steps whose decision is about the properties of things already on the
 #: timeline - a fix stays inside existing items/overlays/captions/markers.
@@ -133,18 +141,64 @@ def _edit_spec_owners(evidence: dict) -> list:
     return owners
 
 
+def _decide_program(operations: list, steps: list) -> dict:
+    """A timeline program: a patch when every op is one the guarded
+    patch path can restore (`feedback_patch_apply.SUPPORTED_OPS`).
+
+    Its ops name items already on the reel by unique id, so there is no
+    plan for a rebuild to re-choose; a program with an op outside the
+    restorable families is refused by naming it, never rebuilt around.
+    """
+    from library.tools.feedback_patch_apply import SUPPORTED_OPS
+
+    ops = [operation.get("op") or "" for operation in operations]
+    outside = sorted({op for op in ops if op not in SUPPORTED_OPS})
+    if not outside:
+        return {
+            "verdict": VERDICT_PATCH,
+            "reason": (
+                "the typed timeline program edits only items already on "
+                f"the reel ({', '.join(dict.fromkeys(ops))}) - nothing in "
+                f"it re-chooses the plan's selection or order"),
+            "steps": steps,
+        }
+    return {
+        "verdict": VERDICT_REFUSED,
+        "reason": (
+            f"the timeline program carries {', '.join(outside)}, which the "
+            f"patch path cannot restore and no rebuild re-chooses - state "
+            f"it as a touch-up (`ren touch`) instead"),
+        "steps": steps,
+    }
+
+
 def decide(note) -> dict:
     """Patch-in-place or rebuild for one routed note, with the reason.
 
     `note` is a `marker_routing.RoutedNote` (or its `asdict`), i.e. it
     carries `outcome`, `basis`, `steps`, `frame` and `evidence`. Returns
     `{"verdict", "reason", "steps"}`; the reason is the record of why.
+
+    A typed edit spec places itself: each operation carries its own
+    anchor (the words, the reel or the items), so it needs no marker
+    frame - a note typed in chat has none and is still a patch when its
+    operations stay inside existing items. A timeline program is a patch
+    or is `VERDICT_REFUSED` (`_decide_program`), never a rebuild.
     """
     raw = _as_dict(note)
     outcome = raw.get("outcome") or marker_routing.OUTCOME_UNROUTED
     basis = raw.get("basis") or ""
     steps = list(raw.get("steps") or ())
     frame = raw.get("frame")
+
+    if basis == marker_routing.BASIS_EDIT_SPEC:
+        operations = list((raw.get("evidence") or {}).get(
+            "edit_spec_ops") or ())
+        if any(operation.get("ledger_op") == "edit_program"
+               for operation in operations):
+            return _decide_program(operations, steps)
+        if outcome == marker_routing.OUTCOME_ROUTED:
+            return _decide_edit_spec(raw, steps)
 
     if outcome != marker_routing.OUTCOME_ROUTED:
         return {
@@ -162,28 +216,6 @@ def decide(note) -> dict:
                 "note has no placed frame - a patch edits the timeline at "
                 "the note's position, and there is none to edit at, so the "
                 "rebuild path stands"),
-            "steps": steps,
-        }
-    if basis == marker_routing.BASIS_EDIT_SPEC:
-        owners = _edit_spec_owners(raw.get("evidence") or {})
-        rebuild_owners = [owner for owner in owners
-                          if owner not in PATCH_STEPS]
-        if owners and not rebuild_owners:
-            return {
-                "verdict": VERDICT_PATCH,
-                "reason": (
-                    "the typed edit spec's operations all stay inside "
-                    f"existing items ({', '.join(owners)}) - no operation "
-                    f"re-chooses the plan's selection or order"),
-                "steps": steps,
-            }
-        return {
-            "verdict": VERDICT_REBUILD,
-            "reason": (
-                "the typed edit spec reaches "
-                f"{', '.join(rebuild_owners) if rebuild_owners else 'no known owner'} - "
-                f"an operation there changes the plan's selection or order, "
-                f"so the rebuild path stands"),
             "steps": steps,
         }
     if len(steps) == 1 and steps[0] in REBUILD_STEPS:
@@ -211,6 +243,29 @@ def decide(note) -> dict:
             f"note names {steps or 'no step'} outside the two tables - a "
             f"patch is claimed only for exactly one known step, so the "
             f"rebuild path stands"),
+        "steps": steps,
+    }
+
+
+def _decide_edit_spec(raw: dict, steps: list) -> dict:
+    owners = _edit_spec_owners(raw.get("evidence") or {})
+    rebuild_owners = [owner for owner in owners if owner not in PATCH_STEPS]
+    if owners and not rebuild_owners:
+        return {
+            "verdict": VERDICT_PATCH,
+            "reason": (
+                "the typed edit spec's operations all stay inside "
+                f"existing items ({', '.join(owners)}) - no operation "
+                f"re-chooses the plan's selection or order"),
+            "steps": steps,
+        }
+    return {
+        "verdict": VERDICT_REBUILD,
+        "reason": (
+            "the typed edit spec reaches "
+            f"{', '.join(rebuild_owners) if rebuild_owners else 'no known owner'} - "
+            f"an operation there changes the plan's selection or order, "
+            f"so the rebuild path stands"),
         "steps": steps,
     }
 

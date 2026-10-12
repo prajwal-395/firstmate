@@ -22,9 +22,12 @@ The classifier (`feedback_patch.decide`) and the applier
 both are injected for tests and lazily imported as defaults - this
 module takes plain dicts and never imports either at module scope.
 
-`python3 -m library.tools.feedback_patch_flow apply --project <folder>
+`ren revise` (`library/tools/revise.py`) is the caller: it generates
+the operations and the scope from the note's typed timeline program and
+the reel's recorded generation. `python3 -m
+library.tools.feedback_patch_flow apply --project <folder>
 --timeline <exact name> --note <note_id> --operations @ops.json --scope
-@scope.json --idempotency-key <key>` is the operator entry: it routes
+@scope.json --idempotency-key <key>` is the hand-fed operator entry: it routes
 the project's notes, finds the note, and handles it. Live Resolve only;
 read-only until the guarded apply runs.
 """
@@ -43,6 +46,7 @@ if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
 
 ACTION_PATCHED = "patched"
 ACTION_REBUILD = "rebuild"
+ACTION_REFUSED = "refused"
 
 
 class FlowNotReady(RuntimeError):
@@ -195,13 +199,17 @@ def handle_note(*, routed_note: dict, project_folder: str,
                 operations: list, scope: dict, idempotency_key: str,
                 project=None, timeline=None, decide=None,
                 apply_patch=None, record=None,
-                write_reply=None, record_outcome=None) -> dict:
+                write_reply=None, record_outcome=None,
+                change_summary: str = "") -> dict:
     """Patch this note in place, or hand it back for the rebuild.
 
     `operations`/`scope` are the fix the author computed; `project` and
     `timeline` are the live Resolve handles the patch writes through
-    (required only when the verdict is a patch). Returns
-    `{"action": "patched", ...}` or `{"action": "rebuild", ...}`.
+    (required only when the verdict is a patch). `change_summary` is the
+    reviewer-facing account of the change when the caller can name more
+    than the operations do (the region they land in). Returns
+    `{"action": "patched", ...}`, `{"action": "rebuild", ...}` or, for a
+    program nothing can execute, `{"action": "refused", ...}`.
     """
     from library.tools import marker_resolution, feedback_outcomes
 
@@ -221,6 +229,13 @@ def handle_note(*, routed_note: dict, project_folder: str,
             project_folder, note, reason=reason, action_kind="blocked",
             outcome_id=outcome_id)
         raise FlowNotReady(reason)
+    if verdict.get("verdict") == ACTION_REFUSED:
+        reason = str(verdict.get("reason", ""))
+        outcome = outcome_writer.record_blocked(
+            project_folder, note, reason=reason, action_kind="blocked",
+            outcome_id=outcome_id)
+        return {"action": ACTION_REFUSED, "reason": reason,
+                "outcome": outcome}
     if verdict.get("verdict") != "patch":
         reason = str(verdict.get("reason", ""))
         outcome = outcome_writer.record_plan(
@@ -286,7 +301,7 @@ def handle_note(*, routed_note: dict, project_folder: str,
     }
     outcome_details = {
         "action_kind": "patch",
-        "change_summary": _change_summary(operations),
+        "change_summary": change_summary or _change_summary(operations),
         "verification_state": "timeline_readback",
         "reel_versions": version_refs,
     }

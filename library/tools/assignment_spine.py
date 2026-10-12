@@ -9,8 +9,8 @@ the record.
 Where an assignment is CREATED
 ------------------------------
 Only by the act that starts a request: `ren propose` (a reels request),
-`ren edit` (a full edit) and, once it exists, `ren revise`
-(`open_request`). Each attaches to the project's open assignment of its
+`ren edit` (a full edit) and `ren revise` (`attach_revision`, as its
+change lands) when no request owns the reel its note is about. Each attaches to the project's open assignment of its
 kind while that is still being planned (`brief`/`draft`) and opens a new
 one otherwise. Build, sign-off and deliver never create one: a reel no
 assignment owns (a project that predates this, or a hand-made proposal) is
@@ -26,6 +26,7 @@ history reads as the sequence of verbs that happened:
     build     draft -> review     every approved reel is on a timeline
     sign_off  review -> approved  every built reel is signed off
     deliver   approved -> delivered  every signed-off reel is a file
+    revise    -> review           a note changed a built reel in place
 
 Approving a proposal does not make the assignment `approved`. `approved`
 is the D2 word for work the creator has accepted, and a plan with no
@@ -425,10 +426,25 @@ def end_act(act: Act | None, *, ok: bool, status: str = "",
                 continue
             _finish_checkpoint(record, key, "completed", detail)
             numbers = []
+            if act.verb == "revise" and record.get("kind") != KIND_REELS:
+                lifecycle.save(act.project, record)
+                target = ("review" if record["state"] in
+                          ("approved", "delivered") else record["state"])
+                lifecycle.transition(act.project, assignment_id, target,
+                                     event="revise",
+                                     detail={"detail": detail} if detail
+                                     else None)
+                continue
             for moment_id in moment_ids:
                 reel = record["reels"][moment_id]
                 numbers.append(reel["number"])
-                if act.verb == "build":
+                if act.verb == "revise":
+                    # Changed work is unapproved work: a signed-off or
+                    # delivered reel goes back to waiting for a sign-off.
+                    reel["revised_at"] = _now()
+                    if reel["status"] in APPROVED_WORK:
+                        reel["status"] = "built"
+                elif act.verb == "build":
                     reel["status"] = "built"
                     reel["built_at"] = _now()
                 elif act.verb == "deliver":
@@ -559,6 +575,81 @@ def end_edit(act: Act, *, returncode: int, summary_status: str | None) -> None:
             detail=f"run exited {returncode} ({summary_status or 'no summary'})")
 
 
+# ── Revise ──────────────────────────────────────────────────────────
+
+
+def revision_owner(project, reel: str = "") -> dict | None:
+    """The assignment a revision note on `reel` belongs to, if one does.
+
+    A note on a reel some request owns revises THAT request - it is the
+    same work, asked again. A note naming no owned reel belongs to the
+    project's open request of its kind. Read only.
+    """
+    root = _root(project)
+    moment = _moment_for_timeline(root, reel) if reel else None
+    if moment is not None:
+        owner = _owner(lifecycle.list_records(root), moment.moment_id)
+        if owner is not None:
+            return owner
+    return current(root, KIND_REELS if _moments(root) else KIND_EDIT)
+
+
+def attach_revision(project, reel: str = "", *, request: str) -> dict:
+    """The assignment a revision that is about to change work joins.
+
+    Called when the change is made, never when the note arrives: a note
+    that only asks a question changes no assignment. Joining an owner
+    writes no history entry - the entry is the revision itself, when it
+    lands (`end_act`). A note no request owns opens one, which is an act
+    and is recorded as `revise`.
+    """
+    owner = revision_owner(project, reel)
+    if owner is not None:
+        return owner
+    root = _root(project)
+    return open_request(root, KIND_REELS if _moments(root) else KIND_EDIT,
+                        event="revise", request=request)
+
+
+def begin_revision(project, assignment_id: str, reel: str = "") -> Act:
+    """Gate and checkpoint a change made to built work in place.
+
+    Revising a signed-off or delivered reel (or an approved edit) changes
+    approved work, so it goes through D2 exactly as a rebuild does.
+    """
+    root = _root(project)
+    recover_interrupted(root)
+    record = lifecycle.load(root, assignment_id)
+    if record is None:
+        raise RenRefusal(
+            f"assignment {assignment_id} has no record",
+            "a revision is checkpointed on the assignment it revises",
+            "run `ren revise` again so it attaches the note first")
+    moment = _moment_for_timeline(root, reel) if reel else None
+    entry = ((record.get("reels") or {}).get(moment.moment_id)
+             if moment is not None else None)
+    approved = (entry["status"] in APPROVED_WORK if entry is not None
+                else record.get("kind") != KIND_REELS
+                and record["state"] in ("approved", "delivered"))
+    if approved:
+        name = moment.timeline_name if moment is not None else "This edit"
+        _require_decision(
+            root, record, "reel.touchup",
+            f"revising would change approved work: {name}",
+            f"{name} is already approved. Change it anyway?",
+            {"replace_approved_work": True})
+    act = Act(root, "revise", "reel.touchup")
+    with lifecycle.assignment_lock(root, _SPINE_LOCK):
+        record = lifecycle.load(root, assignment_id)
+        _refuse_concurrent(record)
+        numbers = [int(entry["number"])] if entry is not None else []
+        key = _begin(root, record, "revise", act.operation_id, numbers)
+        act.checkpoints.append(
+            (assignment_id, key,
+             [moment.moment_id] if entry is not None else []))
+    return act
+
+
 # ── Where the host reads it ─────────────────────────────────────────
 
 
@@ -580,6 +671,8 @@ def resume_point(project, record: dict) -> dict:
                            f"not finish; resubmit its recorded request"}
         if verb == "deliver" and reels:
             command = f"ren deliver {quoted} {reels[0]}"
+        elif verb == "revise":
+            command = f"ren revise {quoted}"
         elif verb == "build":
             command = f"ren build {quoted}" + "".join(
                 f" --only-reel {n}" for n in reels)

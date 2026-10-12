@@ -1018,25 +1018,20 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
     typed_rows = [row for row in (edit_rows or [])
                   if row.get("source_note_id") == routed.edit_link_id]
     if typed_rows:
-        from library.tools.edit_operations import owner_for_row
-        operations = []
-        for row in typed_rows:
-            params = row["params"]
-            op = (params["operation_type"] if row["op"] == "plan_change"
-                  else row["op"])
-            owner = owner_for_row(row)
-            op_params = (params["values"] if row["op"] == "plan_change"
-                         else params)
-            operations.append({"op": op, "owner": owner,
-                               "ledger_op": row["op"],
-                               "anchor": row["anchor"],
-                               "params": op_params,
-                               "value_units": row.get("value_units", {}),
-                               "value_sources": row.get("value_sources", {}),
-                               "carry_stated_numbers_in":
-                                   _stated_number_fields(row, owner)})
+        operations = edit_spec_operations(typed_rows)
         routed.basis = BASIS_EDIT_SPEC
         routed.evidence = {"edit_spec_ops": operations}
+        if any(op["ledger_op"] == "edit_program" for op in operations):
+            # A program edits items already on the reel, by unique id,
+            # through `ren revise` (the reel.touchup capability) - no
+            # planning step decides it, so none is handed it.
+            routed.outcome = OUTCOME_UNROUTED
+            routed.reason = (
+                "the resolved edit spec is a timeline program ("
+                + ", ".join(op["op"] for op in operations)
+                + "): it executes on the reel itself, never through a "
+                  "planning step")
+            return routed
         routed.steps = list(dict.fromkeys(op["owner"] for op in operations))
         unknown = [step for step in routed.steps if step not in BY_NODE_ID]
         if unknown:
@@ -1137,6 +1132,44 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
                 + ". Add a line `step: <name>` to the marker to route it."
             )
     return routed
+
+
+def edit_spec_operations(rows) -> list:
+    """The typed operations a note's ledger rows carry, with their owners.
+
+    A `plan_change` row carries its operation type and typed values; a
+    direct row is its own operation. An `edit_program` row is ONE atomic
+    decision over algebra ops on the reel's items: each op is listed with
+    no owning step, because no planning step decides it.
+    """
+    from library.tools.edit_operations import owner_for_row
+
+    operations = []
+    for row in rows:
+        params = row["params"]
+        if row["op"] == "edit_program":
+            for program_op in params.get("ops") or []:
+                operations.append({"op": program_op["op"], "owner": None,
+                                   "ledger_op": "edit_program",
+                                   "anchor": row["anchor"],
+                                   "params": program_op.get("params") or {},
+                                   "value_units": {}, "value_sources": {},
+                                   "carry_stated_numbers_in": {}})
+            continue
+        op = (params["operation_type"] if row["op"] == "plan_change"
+              else row["op"])
+        owner = owner_for_row(row)
+        op_params = (params["values"] if row["op"] == "plan_change"
+                     else params)
+        operations.append({"op": op, "owner": owner,
+                           "ledger_op": row["op"],
+                           "anchor": row["anchor"],
+                           "params": op_params,
+                           "value_units": row.get("value_units", {}),
+                           "value_sources": row.get("value_sources", {}),
+                           "carry_stated_numbers_in":
+                               _stated_number_fields(row, owner)})
+    return operations
 
 
 # ── Every note this project has collected ───────────────────────────
