@@ -243,12 +243,12 @@ _LAST_RENDER = ("render_qa_findings",)
 _TIMELINE_TRANSCRIPT = ("timeline_transcript",)
 
 ROUTE_TIMELINE_TRANSCRIPT = "timeline transcript"
-"""`run_pipeline.TIMELINE_TRANSCRIPT_INPUT` - the per-speaker timeline
-transcript, produced by `library/tools/timeline_transcript.py` outside
-the pipeline (it needs Resolve open; the hearing is the hybrid seam
-`timeline_transcript.transcribe_audio`, not WhisperX).  Injected only if the
-step's own manifest declares it, and read from the project's scratch
-directory.  Required inputs raise when the file is absent."""
+"""`run_pipeline.TIMELINE_TRANSCRIPT_INPUT` - the per-speaker transcript,
+written by `library/tools/timeline_transcript.py` off a Resolve cut, or
+heard from the footage by the runner when none is on file
+(`library/tools/source_transcript.py`).  Injected only if the step's own
+manifest declares it.  A required input raises when neither exists - a
+project with no footage to hear."""
 
 
 # ── Who refuses ──────────────────────────────────────────────────────

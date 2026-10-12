@@ -12753,6 +12753,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
         transcript_bytes = f.read()
     transcript = json.loads(transcript_bytes.decode("utf-8"))
+    # Reels chosen off the footage's own clock (no Resolve cut) cannot be
+    # placed on a master timeline: refuse by name, before anything moves.
+    from library.tools.source_transcript import refuse_build_from_source
+    refuse_build_from_source(transcript)
     transcript_source_digest = hashlib.sha256(transcript_bytes).hexdigest()
     from library.tools.timeline_transcript import (
         resolve_document_mic_bleed,

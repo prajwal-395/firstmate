@@ -2114,6 +2114,9 @@ def cmd_run(args):
                   file=sys.stderr)
     if getattr(args, "llm_timeout", None):
         cmd.extend(["--llm-timeout", str(args.llm_timeout)])
+    # A reels request (library/tools/reel_request.py): forwarded as typed.
+    from library.tools import reel_request
+    cmd.extend(reel_request.forward(reel_request.from_args(args)))
 
     print(f"  Running pipeline for: {config.name}")
     print(f"  Project: {config.project_root}")
@@ -4770,6 +4773,8 @@ def main():
     from library.tools.breakpoints import add_breakpoint_arguments
     add_profile_arguments(p_run)
     add_breakpoint_arguments(p_run)
+    from library.tools.reel_request import add_request_arguments
+    add_request_arguments(p_run)
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
     p_run.add_argument(

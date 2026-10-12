@@ -161,6 +161,7 @@ it whenever the goal is about what is IN the footage.
 | Find a moment in the footage | `ren search` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"` (section 7) |
+| "N reels about X" from footage | `ren edit <project> --full-auto agent --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
 | Reel candidates for approval | `ren propose <project>` |
 | Rule on the proposed reels | After `ren propose`, show the list in chat and approve what the person says: `ren approve <project> 1 3` (or `--all`), `ren reject <project> 2 --note "why"` |
 | Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |

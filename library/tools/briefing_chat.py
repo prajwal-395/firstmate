@@ -251,14 +251,21 @@ def context_block(answers) -> str:
 
 
 def answers_for(project_folder: str) -> list:
-    """This run's interview answers, off the state file (best-effort)."""
+    """This run's briefing answers, off the state file (best-effort).
+
+    A reels request's count and topic (`library/tools/reel_request.py`)
+    come first - they are what the person asked for in so many words -
+    then the interview's answers.
+    """
     import json as _json
-    import os as _os
     try:
         from library.tools.project_layout import ProjectLayout as _Layout
+        from library.tools import reel_request as _reel_request
         state_path = str(_Layout(project_folder).pipeline_data_path)
         with open(state_path, encoding="utf-8") as handle:
-            return _json.load(handle).get("brief_answers") or []
+            state = _json.load(handle)
+        return (_reel_request.briefing_answers(state)
+                + (state.get("brief_answers") or []))
     except Exception:  # noqa: BLE001 - no answers is a normal run
         return []
 

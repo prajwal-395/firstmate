@@ -210,10 +210,10 @@ def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
     """`--only` is documented as "run this step and whatever it cannot
     run without", and across a default-off producer it did not.
 
-    `judge_reels` reads `reel_selection` from `select_reels`; both are
-    off by default. Before 2026-09-06 `--only judge_reels` left the
-    producer excluded and then refused the selection for the gap it had
-    just made, so the step was reachable only by running the whole
+    `judge_reels` reads `reel_selection` from `select_reels`; both were
+    off by default until T14. Before 2026-09-06 `--only judge_reels` left
+    the producer excluded and then refused the selection for the gap it
+    had just made, so the step was reachable only by running the whole
     pipeline with `--with select_reels --with judge_reels`.
     """
     summary = _dry_run(bare_project, only=["judge_reels"])

@@ -505,15 +505,16 @@ def _state_key_requirement(need) -> Requirement:
 # inputs have no producing edge:
 #
 #     scan.project_folder             a whitelisted global, never absent
-#     select_reels.timeline_transcript  READ OFF DISK, and absent by default
+#     select_reels.timeline_transcript  READ OFF DISK, or HEARD FROM SOURCE
 #
-# The second is the real one, and until now nothing derived a requirement
-# for it - so `select_reels` had ZERO requirements while being the one
-# step in the pipeline that cannot run without a file no step writes.
-# The runner raised for it mid-run instead, which is exactly the crash
-# this module exists to move to before the run starts.
-# `tests/unit/context/test_operations.py` re-measures the enumeration, so a third
-# input of this shape cannot appear unnoticed.
+# The second is the real one.  Until T14 (2026-10-12) only a Resolve
+# timeline could produce it, so the requirement refused every run that
+# had none.  The runner now hears it from the footage itself when the
+# file is absent (`library/tools/source_transcript.py`), so the
+# requirement is met by the transcript on file OR by footage to hear it
+# from - and still refuses a project with neither, before the run starts.
+# `tests/unit/context/test_operations.py` re-measures the enumeration, so
+# a third input of this shape cannot appear unnoticed.
 
 TIMELINE_TRANSCRIPT_INPUT = "timeline_transcript"
 """The input name, which must agree with
@@ -526,26 +527,50 @@ _TRANSCRIPT_WITNESS: List[str] = []
 
 
 def _timeline_transcript_on_file(ctx: Context) -> Satisfaction:
-    """Is the transcript on disk for this project?
+    """Is the transcript on disk, or is there footage to hear it from?
 
     PRESENCE, not content, and deliberately: the runner reads the file
     and json-loads it without judging what is in it, so a content check
     here would refuse a run the runner accepts - vacuously strict, which
     is no more coverage than a gate that cannot fail (AGENTS.md 10.4).
+    With no file, the runner hears the footage
+    (`source_transcript.ensure`), so footage on disk is what it needs.
     """
     from library.tools.timeline_transcript import transcript_path
 
     folder = ctx.project_folder
     if folder and transcript_path(folder).is_file():
         return SATISFIED(SUPPLIED)
+    if folder and _footage_present(folder):
+        return SATISFIED(MEASURED)
+    if not folder and SCAN_STEP in ctx.run_set:
+        # A run with no project to look at yet, that schedules the scan:
+        # footage is the scan's to refuse, and it runs first.
+        return SATISFIED(MEASURED)
     where = str(transcript_path(folder)) if folder else "the project"
     return UNSATISFIED(
-        f"there is no timeline transcript at {where}, and NO STEP MAKES "
-        f"ONE - it is written by `python3 -m library.tools."
-        f"timeline_transcript <project> --write`, which needs Resolve "
-        f"open on the project's own timeline. Nothing in this run will "
-        f"produce it while it waits.",
+        f"there is no transcript at {where}, and NO STEP MAKES ONE: it is "
+        f"written off a Resolve cut by `python3 -m library.tools."
+        f"timeline_transcript <project> --write`, or heard from the "
+        f"project's footage by the runner - and this project has no "
+        f"footage either. Put the episode under raw/ (or declare "
+        f"source.footage_root in project.yaml).",
         missing=TIMELINE_TRANSCRIPT_INPUT)
+
+
+SCAN_STEP = "scan"
+"""The step that refuses a project with no footage (step 1.01)."""
+
+
+def _footage_present(folder: str) -> bool:
+    """At least one footage file the catalog would enumerate."""
+    from library.tools import footage_identity
+
+    try:
+        files, _skipped = footage_identity.enumerate_footage(folder)
+    except (FileNotFoundError, OSError):
+        return False
+    return bool(files)
 
 
 def _project_without_a_transcript() -> Context:
@@ -586,11 +611,12 @@ def derive_runner_injected_keys(dag: Optional[dict] = None,
     runner injects is the runner's own enumeration and there is one.
 
     `produced_by` is EMPTY and stays empty.  That is the truth - no step
-    writes this file - and it is load-bearing twice over:
-    `_producer_will_make_it` never defers a requirement with no producer,
-    so this is asked on every run that schedules a consumer; and
-    `describe_refusal` prints no "run the producers" line for it, because
-    there is no step to run.  The remedy is in the reason instead.
+    writes this file; the RUNNER hears it from source when it is absent
+    - and it is load-bearing twice over: `_producer_will_make_it` never
+    defers a requirement with no producer, so this is asked on every run
+    that schedules a consumer; and `describe_refusal` prints no "run the
+    producers" line for it, because there is no step to run.  The remedy
+    is in the reason instead.
     """
     dag, manifests = _graph(dag, manifests)
 
@@ -606,8 +632,8 @@ def derive_runner_injected_keys(dag: Optional[dict] = None,
     return [Requirement(
         name="timeline_transcript.on_file", kind=KIND_STATE_KEY,
         consumed_key=TIMELINE_TRANSCRIPT_INPUT,
-        describe=("the project has a timeline transcript on file, which "
-                  "no step produces"),
+        describe=("the project has a transcript on file, or footage the "
+                  "runner can hear one from"),
         produced_by=(), consumers=consumers,
         check=_timeline_transcript_on_file,
         refuting_context=_project_without_a_transcript,
@@ -1138,7 +1164,7 @@ def _reel_plan_approved(ctx: Context) -> Satisfaction:
     if not path.is_file():
         return UNSATISFIED(
             f"there is no reel plan at {path}. Run step 3.04 "
-            f"(`--with select_reels`, which needs a timeline transcript), "
+            f"(`ren edit <project> --reels N --about \"<topic>\"`), "
             f"then publish its chosen moments for review with "
             f"`python3 manage_project.py propose-reels <project>`.",
             missing="reel_proposals_v2.json")

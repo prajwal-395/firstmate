@@ -166,10 +166,13 @@ missing. A refusal is the answer, not a prompt to go read `reel_build.py`:
 - **No APPROVED moments.** Only APPROVED builds; PROPOSED fails the
   gate as REJECTED does (AGENTS.md 10.4). The approval is the captain's
   act - no flag overrides it.
-- **No `timeline_transcript`.** NO STEP MAKES ONE. It is written by
-  `bin/vep -m library.tools.timeline_transcript <project> --write`,
-  which needs Resolve open on the project's own timeline. The keep
-  ranges, the retake scan and the captions are all cut from it.
+- **No `timeline_transcript`.** NO STEP MAKES ONE. A build needs the
+  cut's: `bin/vep -m library.tools.timeline_transcript <project> --write`,
+  with Resolve open on the project's own timeline. The keep ranges, the
+  retake scan and the captions are all cut from it. Reel SELECTION runs
+  without one (the runner hears the footage, `source_transcript.py`), but
+  a build refuses that source-clock transcript by name
+  (`REN_BUILD_NEEDS_A_TIMELINE`): hear the cut, re-select, then build.
 - **No `resolve` binding.** `project.yaml` must name the exact Resolve
   project and master timeline. A reel is cut FROM a master timeline and
   a near match lands on another project (AGENTS.md 5).

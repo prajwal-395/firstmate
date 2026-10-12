@@ -68,7 +68,7 @@ from library.tools import (brief_attachment, briefing_interview,
                            decided_value,
                            direction_contradiction, nothing_to_decide,
                            operations, post_bridge_retry, progress,
-                           run_restart,
+                           reel_request, run_restart,
                            second_pass, undetermined)
 from library.tools import run_control
 from library.tools import model_task
@@ -248,13 +248,12 @@ requirement actually refused with, which is the half a later reader
 needs and cannot reconstruct.
 """
 
-# The timeline transcript, produced by `library/tools/timeline_transcript.py`
-# running outside the pipeline (it needs Resolve open; the hearing is
-# the hybrid `transcribe_audio` seam, not WhisperX).
-# Like qa_findings, it is not DAG-routable: the producer is a CLI tool,
-# not a step, so an edge cannot carry it.  It reaches a step because the
-# step's manifest declares it, and `gather_step_inputs` reads it from
-# the project's scratch directory.
+# The timeline transcript: written by `library/tools/timeline_transcript.py`
+# off a Resolve cut, or heard from the footage by the runner itself when
+# no cut exists (`library/tools/source_transcript.py`).  Like
+# qa_findings, it is not DAG-routable: the producer is not a step, so an
+# edge cannot carry it.  It reaches a step because the step's manifest
+# declares it, and `gather_step_inputs` supplies it.
 TIMELINE_TRANSCRIPT_INPUT = "timeline_transcript"
 
 
@@ -1397,28 +1396,44 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         inputs[QA_FINDINGS_INPUT] = _qa_findings.findings_for_review(
             _qa_findings.load_findings(state.get("project_folder", ""), state))
 
-    # The timeline transcript, produced by
-    # `python3 -m library.tools.timeline_transcript <project> --write`
-    # outside the pipeline.  It cannot be a DAG step: it needs Resolve
-    # open and WhisperX loaded.  Like qa_findings above, it reaches a
-    # step because the manifest declares it, and the file is read from
-    # the project's scratch directory.
+    # The timeline transcript.  Written off a Resolve cut by
+    # `python3 -m library.tools.timeline_transcript <project>`, or - when
+    # there is none - heard here from the footage itself
+    # (`library/tools/source_transcript.py`, T14), so reel selection no
+    # longer needs a hand-placed timeline.  It cannot be a DAG edge:
+    # its producer is not a step.  Like qa_findings above, it reaches a
+    # step because the manifest declares it.
     if manifest and TIMELINE_TRANSCRIPT_INPUT in {
             inp.get("name") for inp in
             manifest.get("interface", {}).get("inputs", [])}:
         if TIMELINE_TRANSCRIPT_INPUT not in inputs:
             project_folder = state.get("project_folder", "")
             if project_folder:
-                # One spelling of where it lands, owned by the module
-                # that writes it - `timeline_transcript.transcript_path`.
-                from library.tools.timeline_transcript import (
-                    transcript_path as _transcript_path,
-                )
-                transcript_path = _transcript_path(project_folder)
-                if transcript_path.is_file():
-                    import json as _json
-                    inputs[TIMELINE_TRANSCRIPT_INPUT] = _json.loads(
-                        transcript_path.read_text(encoding="utf-8"))
+                from library.tools import source_transcript as _source_transcript
+                # Whether the input is required.
+                _required = True
+                for inp in manifest.get("interface", {}).get("inputs", []):
+                    if inp.get("name") == TIMELINE_TRANSCRIPT_INPUT:
+                        _required = inp.get("required", True)
+                        break
+                if _required:
+                    # The cut's transcript when one is on file; else
+                    # the footage's, heard now or reused while the
+                    # footage is unchanged.
+                    inputs[TIMELINE_TRANSCRIPT_INPUT] = (
+                        _source_transcript.ensure(project_folder))
+                else:
+                    # An optional reader is handed what is on file and
+                    # never pays for a hearing it did not ask for.
+                    from library.tools.timeline_transcript import (
+                        transcript_path as _transcript_path,
+                    )
+                    _path = _transcript_path(project_folder)
+                    if _path.is_file():
+                        import json as _json
+                        inputs[TIMELINE_TRANSCRIPT_INPUT] = _json.loads(
+                            _path.read_text(encoding="utf-8"))
+                if TIMELINE_TRANSCRIPT_INPUT in inputs:
                     # Corrections recorded since this transcript was
                     # written apply at READ time, so a stale on-disk
                     # file never reaches a step uncorrected - and a
@@ -1434,21 +1449,6 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                         print(f"Warning: transcript corrections could not "
                               f"apply ({_exc}); continuing uncorrected.",
                               file=sys.stderr)
-                else:
-                    # Check whether the input is required.
-                    _required = True
-                    for inp in manifest.get("interface", {}).get("inputs", []):
-                        if inp.get("name") == TIMELINE_TRANSCRIPT_INPUT:
-                            _required = inp.get("required", True)
-                            break
-                    if _required:
-                        raise RuntimeError(
-                            f"Step '{node_id}' declares required input "
-                            f"'{TIMELINE_TRANSCRIPT_INPUT}' but no transcript "
-                            f"file exists at {transcript_path}. Run "
-                            f"'python3 -m library.tools.timeline_transcript "
-                            f"<project> --write' first."
-                        )
 
     if manifest and manifest.get("state", {}).get("reads"):
         import sys
@@ -2486,6 +2486,8 @@ def run_pipeline(
     profile: str = None,
     break_at: list = None,
     no_break_at: list = None,
+    reels: int = None,
+    about: str = "",
 ):
     """Execute the pipeline DAG.
 
@@ -2504,6 +2506,10 @@ def run_pipeline(
     `break_at`/`no_break_at` arm and disarm the review gate PER STEP.
     `review_mode` is the special case "every step".  See
     library/tools/breakpoints.py.
+
+    `reels`/`about` are a reels request: its count and topic reach the
+    steps that read the brief as briefing answers, and with no scope of
+    its own it runs reel selection only.  See library/tools/reel_request.py.
     """
     # LE-12: the dry-run plan prints ONCE. JSON on stdout when stdout
     # is not a TTY or `dry_run_json` is set; human text otherwise.
@@ -2593,6 +2599,16 @@ def run_pipeline(
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
         return emit_run_summary(summary, project_dir, state)
+
+    # A reels request: its count and topic are recorded as briefing
+    # answers before any step reads the brief, and with no scope of its
+    # own it runs reel selection only (library/tools/reel_request.py).
+    request = reel_request.ReelRequest(count=reels, about=(about or "").strip())
+    only = reel_request.scope(request, target=target, only=only,
+                              single_step=single_step, from_step=from_step)
+    if request and not dry_run:
+        reel_request.record(state, request)
+        save_pipeline_state(project_dir, state)
 
     # The scope, resolved first.  --rerun below DELETES artifacts, and
     # apply_source_identity WRITES state, so a selection that cannot be
@@ -4616,6 +4632,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_scope.add_scope_arguments(parser)
     run_profile.add_profile_arguments(parser)
     run_breakpoints.add_breakpoint_arguments(parser)
+    reel_request.add_request_arguments(parser)
     parser.add_argument(
         "--full-auto", type=_parse_full_auto_backend, metavar="BACKEND",
         help="Run full pipeline autonomously with the agent backend")
@@ -4779,6 +4796,8 @@ def main():
             profile=args.profile,
             break_at=args.break_at,
             no_break_at=args.no_break_at,
+            reels=args.reels,
+            about=args.about,
         )
     except RenRefusal as refused:
         # ONE place renders every refusal on `ren edit`'s path, in the

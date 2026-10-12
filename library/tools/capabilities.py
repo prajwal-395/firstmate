@@ -105,6 +105,11 @@ UNCAPABLE_LOCK_SITES: dict = {
         "starter, a driver session starting) - process infrastructure "
         "that takes the lock only to rebuild a stale or missing part, "
         "never a registered capability's execution",
+    "library.tools.source_transcript:_hear":
+        "the runner hearing the footage for the transcript input "
+        "`select_reels`/`judge_reels` read when no Resolve cut's is on file "
+        "- input gathering (`run_pipeline.gather_step_inputs`), not a "
+        "registered capability's execution",
 }
 
 @dataclass(frozen=True)

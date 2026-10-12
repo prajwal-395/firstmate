@@ -199,34 +199,11 @@ DESELECTED_BY_DEFAULT: Dict[str, str] = {
         "ocr_extraction."
     ),
 
-    # select_reels requires a timeline_transcript, which is produced
-    # by `python3 -m library.tools.timeline_transcript <project> --write`
-    # outside the pipeline (it needs Resolve open; the hearing itself is
-    # the hybrid seam `timeline_transcript.transcribe_audio`, on-device
-    # text through MFA - the WhisperX arms left on 2026-09-24).  Running
-    # it by default would crash any pipeline run that hasn't produced one.
-    # Turn on with --with select_reels once the transcript exists.
-    "select_reels": (
-        "Requires a timeline_transcript produced outside the pipeline "
-        "(needs Resolve open; heard through the hybrid seam "
-        "timeline_transcript.transcribe_audio, not WhisperX). Running "
-        "it by default would "
-        "crash on the missing transcript. Build the transcript first, "
-        "then turn on with --with select_reels."
-    ),
-
-    # `judge_reels` reads step 3.04's chosen moments and the same
-    # transcript, so it is off for exactly the reason 3.04 is: a default
-    # run has no transcript and there would be no reels to read either.
-    # `--only judge_reels` pulls 3.04 in with it (it cannot run without
-    # it); `--with select_reels --with judge_reels` runs the pair.
-    "judge_reels": (
-        "Reads the reels select_reels chose, from the same "
-        "timeline_transcript produced outside the pipeline. A default "
-        "run has neither. Turn on with --with judge_reels beside "
-        "--with select_reels, or --only judge_reels, which pulls the "
-        "selector in with it."
-    ),
+    # select_reels and judge_reels were here until 2026-10-12 (T14): they
+    # needed a timeline_transcript only a hand-placed Resolve timeline
+    # could produce.  The runner now hears one from the footage when no
+    # cut's transcript is on file (library/tools/source_transcript.py),
+    # so a default run can always feed them and they run by default.
 }
 
 
