@@ -141,7 +141,7 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
             "briefing_interview.json"
         while time.time() < deadline:
             if req.exists():
-                request = json.loads(req.read_text(encoding="utf-8"))
+                request = llm_handshake.read_request(req)
                 assert request["kind"] == "briefing_interview"
                 assert request["footage_inventory"] == [
                     "1 video clip(s) cataloged.", "first-steps.mp4 (18 seconds)"]

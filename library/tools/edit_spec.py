@@ -538,7 +538,7 @@ def preview_spec(project_folder: str, spec_id: str) -> dict:
     No Resolve read. The editor approves or revises before the program
     executes.
     """
-    from library.tools import llm_handshake, timeline_shadow
+    from library.tools import timeline_shadow
 
     project_folder = os.path.abspath(project_folder)
     spec = load_response_spec(project_folder, spec_id)
@@ -878,9 +878,8 @@ def prepare_intent(project_folder: str, spec_id: str,
     layout = ProjectLayout(project_folder)
     layout.write_dir(Area.LLM_REQUESTS)
     layout.write_dir(Area.LLM_RESPONSES)
-    request_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+    llm_handshake.write_request_file(
+        request_path, payload, ensure_ascii=False, trailing_newline=True)
     return request_id, str(request_path)
 
 
@@ -891,7 +890,7 @@ def resolve_intent(project_folder: str, intent_id: str) -> dict:
     request_path = Path(llm_handshake.request_path(project_folder, intent_id))
     response_path = Path(llm_handshake.response_path(project_folder, intent_id))
     try:
-        request = json.loads(request_path.read_text(encoding="utf-8"))
+        request = llm_handshake.read_request(request_path)
         context = json.loads(request["context"])
         response = json.loads(response_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -1411,8 +1410,8 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
     layout = ProjectLayout(project_folder)
     layout.write_dir(Area.LLM_REQUESTS)
     layout.write_dir(Area.LLM_RESPONSES)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8")
+    llm_handshake.write_request_file(
+        path, payload, ensure_ascii=False, trailing_newline=True)
     return step_id, str(path), note_id
 
 
@@ -1433,9 +1432,7 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
     request_path = Path(llm_handshake.request_path(
         project_folder, request_id))
     try:
-        request = json.loads(request_path.read_text(encoding="utf-8"))
-        if not isinstance(request, dict):
-            raise TypeError("request must be a JSON object")
+        request = llm_handshake.read_request(request_path)
         context = request.get("context") or "{}"
         if isinstance(context, str):
             context = json.loads(context)
@@ -1522,9 +1519,7 @@ def pending_note_states(project_folder: str, rows: list | None = None,
                      if request_dir.is_dir() else [])
     for path in request_paths:
         try:
-            request = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(request, dict):
-                raise ValueError("request must be a JSON object")
+            request = llm_handshake.read_request(path)
             context = request.get("context") or "{}"
             if isinstance(context, str):
                 context = json.loads(context)

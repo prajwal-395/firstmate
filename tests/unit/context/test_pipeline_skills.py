@@ -27,7 +27,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
-from library.tools import pipeline_skills  # noqa: E402
+from library.tools import llm_handshake, pipeline_skills  # noqa: E402
 from library.tools import model_task  # noqa: E402
 
 
@@ -386,9 +386,8 @@ def test_skill_block_reaches_the_archived_request(tmp_path, monkeypatch):
         {"project_folder": str(project)},
         node_id, manifest, full_auto="agent", llm_timeout=5)
 
-    prompt = json.loads(
-        (layout.read_dir(Area.LLM_REQUESTS)
-         / f"{node_id}.json").read_text())["prompt"]
+    prompt = llm_handshake.read_request(
+        layout.read_dir(Area.LLM_REQUESTS) / f"{node_id}.json")["prompt"]
     assert "verify_render" in prompt
     assert "GATING" in prompt
     assert "SENTINEL_HANDOFF_BODY" in prompt

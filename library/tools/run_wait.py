@@ -182,7 +182,9 @@ def poll_once(project_ref: str, project_root: str) -> dict | None:
                 "next_command": f"ren wait {project_ref}",
                 "detail": (
                     f"step {first['step']} asks ({first['kind']}): "
-                    f"read {first['request']}, write its response, "
+                    f"read it with `ren asks {project_ref}` (each shared "
+                    f"prompt once; the raw {first['request']} carries the "
+                    f"prompt only by reference), write its response, "
                     f"then `ren wait {project_ref}` again"
                 ),
             }

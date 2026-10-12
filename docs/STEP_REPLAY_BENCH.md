@@ -14,6 +14,7 @@ answer "did that change the edit" costs a full run plus a Resolve render.
     python3 -m library.tools.replay_bench compare <snapshot> <step> --rev-a A --rev-b B
                                                   [--answer-a f.json --answer-b g.json]
     python3 -m library.tools.replay_bench verify  <snapshot> [--rev REV]
+    python3 -m library.tools.replay_bench requests <project | llm_requests dir>
 
 `--rev` takes a git revision or the literal `WORKTREE`, which is this
 checkout as it stands, uncommitted edits included. A revision that is not
@@ -174,6 +175,22 @@ of the archive itself and both reported per step:
 
 A step that matches only after an explanation is reported as
 `EXACT (explained)` and never as a clean pass.
+
+### A request is compared as the model was shown it
+
+Since LE-11 a request file is a WIRE form: its prompt is `prompt_ref`, a
+content-addressed `llm_requests/prompts/<sha256>.md` shared by every
+request asking the same thing, and constant context sections are cut out
+into `context_refs` (`library/tools/llm_handshake.py`, "Shared text").
+`verify` therefore compares against `llm_handshake.read_request` of the
+archived file - the request rebuilt from its refs - never the raw JSON,
+and reports `prompt_exact` per step beside the context verdict. Snapshots
+and run archives copy `prompts/` beside the requests they copy.
+
+`requests` is the other half: for every request in a project it rebuilds
+the full request from ref plus context, re-derives the wire form from
+that, and passes only when the round trip returns the file's own content.
+It reads only; it exits non-zero when any request does not rebuild.
 
 ### The recorded result, on 001
 

@@ -139,7 +139,6 @@ def bridge_context(reel_spine: dict, project_folder: str, fps: float) -> dict:
     """
     from library.tools import motion_graphics_plan as plan
     from library.tools import motion_graphics_vocabulary as vocabulary
-    from library.tools.brand_palette import roles_from_palette
     from library.tools.delivery_format import resolve_delivery_format
     from library.tools.safe_area import resolve_safe_area
 
@@ -227,6 +226,46 @@ def _brand_slots(project_folder: str) -> Tuple[dict, dict]:
         return {}, {}
 
 
+#: The context sections every reel's semantic ask carries unchanged:
+#: the roster and its axes (constant tables), and the project's brand
+#: refinement and transcript corrections (constant per project). The
+#: request stores each as shared text once per batch, not once per reel
+#: (`llm_handshake.share_request`, LE-11), as is the frame below its
+#: first key. The reel's own timeline rows stay inline, and so does the
+#: frame's first key, its duration (`_shared_sections`).
+SHARED_CONTEXT_SECTIONS = ("motion_elements_toon", "motion_axes_toon",
+                           "brand_refinement", "transcript_corrections")
+
+
+def _shared_sections(context: dict, context_text: str, to_toon) -> tuple:
+    """The constant stretches of a semantic ask's context, in order.
+
+    Each `SHARED_CONTEXT_SECTIONS` section whole, and the body of
+    `motion_graphics_frame` below its first key - the reel's duration,
+    the one per-reel value in the frame. A stretch that does not occur
+    verbatim in `context_text` is left inline rather than guessed at.
+    """
+    stretches = []
+    for key in context:
+        if key in SHARED_CONTEXT_SECTIONS:
+            stretches.append(to_toon({key: context[key]}))
+        elif key == "motion_graphics_frame":
+            frame = dict(context[key])
+            first = next(iter(frame), None)
+            rest = {k: v for k, v in frame.items() if k != first}
+            if rest:
+                text = to_toon({key: rest})
+                stretches.append(text.split("\n", 1)[1]
+                                 if "\n" in text else "")
+    found, cursor = [], 0
+    for stretch in stretches:
+        at = context_text.find(stretch, cursor) if stretch else -1
+        if at >= 0:
+            found.append(stretch)
+            cursor = at + len(stretch)
+    return tuple(found)
+
+
 def handoff_text() -> str:
     """The ask, in step 4.06's own words.
 
@@ -277,9 +316,12 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
             pass
         return ""
     context = bridge_context(spine, project_folder, fps)
+    shared_sections = ()
     try:
         from library.tools.toon_serializer import json_to_toon
         context_text = json_to_toon(context)
+        shared_sections = _shared_sections(context, context_text,
+                                           json_to_toon)
     except Exception:
         context_text = json.dumps(context, indent=1, default=str)
     request = {
@@ -312,10 +354,11 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
         "timestamp": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
     }
+    from library.tools import llm_handshake
     out_dir = ProjectLayout(project_folder).write_dir(Area.LLM_REQUESTS)
     path = os.path.join(str(out_dir), request_stem(reel_number) + ".json")
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(request, handle, indent=2)
+    llm_handshake.write_request_file(
+        path, request, context_shared=shared_sections)
     # The ask, logged AT THE ASK: this file is rewritten on every build,
     # so its mtime is the last rewrite and not the ask - the phase log
     # carries its own timestamp instead (`reel_phase_log`).
@@ -972,10 +1015,10 @@ def write_span_request(moment, transcript: dict, ranges, project_folder: str,
         "timestamp": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
     }
+    from library.tools import llm_handshake
     out_dir = ProjectLayout(project_folder).write_dir(Area.LLM_REQUESTS)
     path = os.path.join(str(out_dir), span_request_stem(reel_number) + ".json")
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(request, handle, indent=2)
+    llm_handshake.write_request_file(path, request)
     # The ask, logged AT THE ASK - see `write_request` above.
     try:
         from library.tools import reel_phase_log as _phase_log

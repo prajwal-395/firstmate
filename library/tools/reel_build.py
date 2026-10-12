@@ -5702,9 +5702,9 @@ def read_visual_asks(project_folder: str, reel_number: int) -> dict:
     blind. The stems stay spelled once each, in the module that owns
     the ask - nothing here duplicates them.
     """
-    import json
     import os
 
+    from library.tools import llm_handshake
     from library.tools import reel_look as _look
     from library.tools import reel_semantic_visual as sem_vis
     from library.tools.project_layout import Area, ProjectLayout
@@ -5720,8 +5720,9 @@ def read_visual_asks(project_folder: str, reel_number: int) -> dict:
         if not os.path.isfile(path):
             asks[key] = None
             continue
-        with open(path, "r", encoding="utf-8") as handle:
-            asks[key] = json.load(handle)
+        # Materialized: the ask as the model reads it, shared prompt and
+        # roster spliced back in (`llm_handshake.read_request`).
+        asks[key] = llm_handshake.read_request(path)
     return asks
 
 

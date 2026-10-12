@@ -406,6 +406,17 @@ def capture(project_folder: str, snapshot_id: str | None = None, store: Path | N
                           "sha256": _sha256(dst / f.name),
                           "bytes": (dst / f.name).stat().st_size,
                           "source": str(f)})
+        if Path(rel).name == "llm_requests":
+            # The shared prompts the requests name (LE-11): without them
+            # an archived request cannot be rebuilt.
+            from library.tools import llm_handshake
+            for copied in llm_handshake.copy_shared(src, dst):
+                files.append({
+                    "path": (f"archive/llm_requests/"
+                             f"{llm_handshake.SHARED_SUBDIR}/{copied.name}"),
+                    "sha256": _sha256(copied),
+                    "bytes": copied.stat().st_size,
+                    "source": str(llm_handshake.shared_dir(src) / copied.name)})
 
     manifest = {
         "snapshot_id": snapshot_id,

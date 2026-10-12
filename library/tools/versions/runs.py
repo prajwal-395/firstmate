@@ -75,6 +75,11 @@ def archive_previous_run(
         dst.mkdir(parents=True, exist_ok=True)
         for f in files:
             shutil.copy2(f, dst / f.name)
+        if area is Area.LLM_REQUESTS:
+            # The shared prompts the requests name, so the archived
+            # copy rebuilds on its own (`llm_handshake`, LE-11).
+            from library.tools import llm_handshake
+            llm_handshake.copy_shared(src, dst)
         copied_anything = True
 
     if copied_anything:

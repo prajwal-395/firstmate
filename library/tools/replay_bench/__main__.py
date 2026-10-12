@@ -207,6 +207,26 @@ def _cmd_verify(args) -> int:
     return 0 if r["unaccounted"] == 0 else 1
 
 
+def _cmd_requests(args) -> int:
+    target = Path(args.path)
+    if (target / "pipeline_output" / "llm_requests").is_dir():
+        target = target / "pipeline_output" / "llm_requests"
+    r = bench.rebuild_requests(target)
+    if args.json:
+        json.dump(r, sys.stdout, indent=2)
+        print()
+    else:
+        for row in r["rows"]:
+            state = "REBUILT" if row["rebuilt"] else "DIFFERS"
+            detail = row.get("error") or (
+                f"{row['wire_bytes']:,} B on disk -> {row['full_bytes']:,} B "
+                f"rebuilt" + ("" if row["shared"] else " (inline, pre-LE-11)"))
+            print(f"{row['request']:32s} {state}  {detail}")
+        print(f"{r['rebuilt']} of {r['total']} requests rebuilt from ref "
+              f"plus context")
+    return 0 if r["rebuilt"] == r["total"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="python3 -m library.tools.replay_bench",
@@ -235,6 +255,13 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--manifest-out", default=None,
                    help="also write the manifest here, to be committed")
     c.set_defaults(func=_cmd_capture)
+
+    c = sub.add_parser(
+        "requests", help="rebuild every request in a project (or a "
+                         "requests dir) from its shared refs plus context")
+    c.add_argument("path", help="a project folder or an llm_requests dir")
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(func=_cmd_requests)
 
     c = sub.add_parser("list", help="snapshots in the store")
     c.set_defaults(func=_cmd_list)

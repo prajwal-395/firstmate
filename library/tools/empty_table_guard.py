@@ -56,7 +56,6 @@ CLI, over a project's archived requests:
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
 from dataclasses import dataclass
@@ -165,14 +164,15 @@ def scan_archived_requests(project_folder) -> list:
     this answers the same question the live report answers, for a run
     that already happened.
     """
+    from library.tools import llm_handshake
     from library.tools.project_layout import Area, ProjectLayout
 
     requests = ProjectLayout(project_folder).read_dir(Area.LLM_REQUESTS)
     results = []
     for path in sorted(Path(requests).glob("*.json")):
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            payload = llm_handshake.read_request(path)
+        except (OSError, ValueError) as exc:
             results.append((path.stem, path, [], str(exc)))
             continue
         empties = find_empty_tables(

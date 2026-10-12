@@ -230,10 +230,12 @@ def verify_archive(snapshot_ref: str, rev: str = trees.WORKTREE,
     before = _staleness(snap)
 
     rows = []
+    from library.tools import llm_handshake
     for step in (steps or snap.archived_steps()):
         req_path = snap.archive_dir / f"{step}.json"
-        with open(req_path, encoding="utf-8") as fh:
-            archived = json.load(fh)
+        # Materialized: a request's prompt is shared text on disk, and
+        # what is compared is what the model was SHOWN (LE-11).
+        archived = llm_handshake.read_request(req_path)
         archived_context = archived.get("context", "")
         _, qa_block = diffing.split_qa_retry(archived_context)
 
@@ -252,6 +254,10 @@ def verify_archive(snapshot_ref: str, rev: str = trees.WORKTREE,
         row["project_folder_substitutions"] = raw["project_folder_substitutions"]
         row["delta_bytes"] = row["reconstructed_bytes"] - row["archived_bytes"]
         row["exact"] = raw["context"] == archived_context
+        # Reported beside the context verdict, not folded into it: the
+        # gate stays the context, and this says whether the rebuilt
+        # prompt is the archived one too.
+        row["prompt_exact"] = raw["prompt"] == archived.get("prompt")
         row["explanations"] = []
         row["verdict"] = "EXACT" if row["exact"] else "DIFFERS"
 
@@ -312,3 +318,50 @@ def verify_archive(snapshot_ref: str, rev: str = trees.WORKTREE,
         "unaccounted": len(rows) - exact - explained,
         "rows": rows,
     }
+
+
+def rebuild_requests(requests_dir) -> dict:
+    """Rebuild every request in a requests dir from its refs plus context.
+
+    The other half of LE-11's licence. A request file is a wire form:
+    its prompt and shared context sections live once under `prompts/`.
+    For each file this rebuilds the full request
+    (`llm_handshake.read_request`), re-derives the wire form from that
+    rebuilt request, and compares it with the file - a request is
+    `rebuilt` only when the round trip returns the file's own content,
+    so nothing a writer recorded is lost or invented by sharing.
+
+    Reads only: re-deriving names shared files without writing one.
+    """
+    from library.tools import llm_handshake
+
+    def _pathless(value):
+        if isinstance(value, dict):
+            return {k: _pathless(v) for k, v in value.items() if k != "path"}
+        if isinstance(value, list):
+            return [_pathless(v) for v in value]
+        return value
+
+    requests_dir = Path(requests_dir)
+    rows = []
+    for path in sorted(requests_dir.glob("*.json")):
+        row = {"request": path.stem, "path": str(path)}
+        try:
+            wire = json.loads(path.read_text(encoding="utf-8"))
+            full = llm_handshake.materialize(wire, requests_dir)
+            sections = [llm_handshake.read_shared(ref, requests_dir)
+                        for ref in wire.get("context_refs") or ()]
+            again = llm_handshake.share_request(
+                full, requests_dir, context_shared=sections, write=False)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            row.update({"rebuilt": False, "error": f"{type(exc).__name__}: {exc}"})
+            rows.append(row)
+            continue
+        row["shared"] = "prompt_ref" in wire
+        row["rebuilt"] = _pathless(again) == _pathless(wire)
+        row["wire_bytes"] = path.stat().st_size
+        row["full_bytes"] = len(json.dumps(full, indent=2).encode("utf-8"))
+        rows.append(row)
+    return {"requests_dir": str(requests_dir), "total": len(rows),
+            "rebuilt": sum(1 for r in rows if r["rebuilt"]),
+            "rows": rows}

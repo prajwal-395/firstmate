@@ -712,7 +712,7 @@ def test_intent_handshake_reviews_the_built_artifacts_and_saves_revision(
 
     intent_id, intent_path = edit_spec.prepare_intent(
         str(project), request_id, str(readback), str(export))
-    intent_request = json.loads(Path(intent_path).read_text(encoding="utf-8"))
+    intent_request = llm_handshake.read_request(intent_path)
     context = json.loads(intent_request["context"])
     assert intent_request["kind"] == "edit_spec_intent"
     assert context["artifacts"]["timeline_readback"]["path"] == \
@@ -903,8 +903,7 @@ def test_story_pacing_cold_open_translates_and_reaches_mesh_spine(tmp_path):
 
     request_id, request_path, note_id = edit_spec.prepare_request(
         str(project), request)
-    translator_request = json.loads(
-        Path(request_path).read_text(encoding="utf-8"))
+    translator_request = llm_handshake.read_request(request_path)
     translator_context = json.loads(translator_request["context"])
     assert translator_context["operation_owners"]["story_pacing"] == \
         "mesh_spine"

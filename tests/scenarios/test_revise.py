@@ -302,8 +302,8 @@ def test_an_ambiguous_note_asks_exactly_one_question_and_changes_nothing(
                               answer="the price reveal")
     assert answered["status"] == revise.STATUS_AWAITING
     assert answered["note_id"] == started["note_id"]
-    request = json.loads(Path(answered["llm_request"]).read_text(
-        encoding="utf-8"))
+    from library.tools import llm_handshake
+    request = llm_handshake.read_request(answered["llm_request"])
     assert "Answered: the price reveal" in request["prompt"]
 
 

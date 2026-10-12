@@ -1485,13 +1485,13 @@ def _load_motion_request(project_folder: str,
                          reel_number: int) -> Optional[dict]:
     from library.tools.project_layout import Area
 
+    from library.tools import llm_handshake
+
     path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            request = json.load(handle)
+        return llm_handshake.read_request(path)
     except (OSError, ValueError):
         return None
-    return request if isinstance(request, dict) else None
 
 
 def bind_motion_answer(project_folder: str, reel_number: int,
@@ -1611,13 +1611,8 @@ def _invalidate_motion_answer(response_path: str, reel_number: int,
 def locked_closing_positions(project_folder: str,
                              reel_number: int) -> set[int]:
     """The request's closing/CTA blocks whose existing plan is protected."""
-    from library.tools.project_layout import Area
-
-    path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            request = json.load(handle)
-    except (OSError, ValueError):
+    request = _load_motion_request(project_folder, reel_number)
+    if request is None:
         return set()
     return {
         int(position)
@@ -1665,7 +1660,7 @@ def write_motion_request(reel_number: int, reel_name: str,
     question, a model writes the answer beside it, and an unanswered ask
     builds the reel without motion and SAYS so.
     """
-    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.project_layout import Area
     from library.tools.frame_utils import seconds_to_frame, frame_to_seconds
     frame_rate = spine.get("frame_rate")
 
@@ -1807,11 +1802,9 @@ def write_motion_request(reel_number: int, reel_name: str,
         "expected_schema": MOTION_EXPECTED_SCHEMA,
         "project_folder": project_folder,
     }
-    directory = str(ProjectLayout(project_folder).read_dir(Area.LLM_REQUESTS))
-    os.makedirs(directory, exist_ok=True)
+    from library.tools import llm_handshake
     path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+    llm_handshake.write_request_file(path, payload)
     # The ask, logged AT THE ASK: request files are rewritten on every
     # build, so their mtime is the last rewrite and not the ask - the
     # phase log carries its own timestamp instead (`reel_phase_log`).

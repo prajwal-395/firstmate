@@ -23,7 +23,8 @@ Request (`llm_requests/briefing_interview.json`):
   questions - a short starter set (who this is for, what it must do,
   what to avoid).
 * `prompt`: how to conduct it (one question at a time, in the user's
-  words, then write the answers back).
+  words, then write the answers back). On disk it is `prompt_ref`,
+  shared text like every request's (`llm_handshake.read_request`).
 
 Response (`llm_responses/briefing_interview.json`): a JSON object with
 `brief_answers`: list of `{question, answer}`. An empty list means the
@@ -382,8 +383,7 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
     _os.makedirs(_os.path.dirname(res_path), exist_ok=True)
     if _os.path.exists(res_path):
         _os.unlink(res_path)
-    with open(req_path, "w", encoding="utf-8") as handle:
-        _json.dump(payload, handle, indent=2)
+    _handshake.write_request_file(req_path, payload)
     print(f"{_handshake.READY_MARKER}: {req_path}", flush=True)
     print(f"  Briefing interview: ask the user in chat, then write "
           f"{res_path} "
@@ -404,8 +404,8 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
     if answers is None:
         # No host answered: proceed brief-less, exactly as today. The
         # collected questions still land in the summary downstream.
-        print(f"  Briefing interview unanswered - continuing without "
-              f"a brief.", file=_sys.stderr)
+        print("  Briefing interview unanswered - continuing without "
+              "a brief.", file=_sys.stderr)
         state["brief_answers"] = []
     else:
         state["brief_answers"] = answers

@@ -24,9 +24,17 @@ schema - `run_pipeline.py`'s agent backend and
 A request file carries:
 
 * `step_id`: the DAG node id (e.g. `creative_direction`).
-* `prompt`: the full prompt text, brand constraints included.
-* `constraints`: the brand-constraint text on its own (also archived).
-* `context`: the rendered context the model decides from.
+* `prompt_ref`: `{sha256, path}` of the prompt text, written ONCE as a
+  content-addressed `llm_requests/prompts/<sha256>.md` that every
+  request asking the same thing shares (see "Shared text" below).
+* `constraints`: the brand-constraint text. The prompt the model reads
+  is the `prompt_ref` text FOLLOWED BY this, so the brand's words sit
+  between the handoff and the context, and are on disk once.
+* `context`: the rendered context the model decides from - the
+  per-item part, inline.
+* `context_refs` (optional): `[{sha256, path, offset}]`, constant
+  context tables (the motion roster, the axes) cut out of `context`
+  and shared the same way; each is spliced back in at its `offset`.
 * `expected_schema`: the JSON schema text the answer must satisfy.
 * `project_folder`: absolute path of the project.
 * `timestamp`: UTC ISO-8601 creation time.
@@ -46,11 +54,40 @@ strings, empty files and unparseable JSON are malformed and REFUSE with
 the fix (paths, what was wrong, the resume command) - never silently
 accepted, never retried without the model being told.
 
-`tests/unit/context/test_llm_handshake.py` pins the refusal.
+Shared text (LE-11)
+-------------------
+**A request is a WIRE form; its MATERIALIZED form is the request the
+model answers, and only the second is ever read.** A batch of reels
+once sent the same 22.6 KB prompt and 20 KB roster in every one of 31
+requests (2.38 MB, 20% unique). `share_request` turns a full request
+into its wire form - the prompt and declared constant context sections
+written once under `llm_requests/prompts/`, by content hash - and
+`materialize` / `read_request` rebuild the full request from it, byte
+for byte: the same keys in the same order, `prompt` as prompt plus
+constraints, `context` with each shared section spliced back. So:
+
+* Every reader of a request file goes through `read_request`, never
+  `json.load` - a raw read sees `prompt_ref`, not the prompt.
+* A shared text whose bytes do not hash to its name REFUSES
+  (`SharedTextMissing`), as does a missing one: a request the model
+  cannot rebuild is a question it must not answer blind.
+* Shared files are never deleted or rewritten: a content address is
+  stable, so an archived request still resolves through its `path`.
+  Archivers copy `prompts/` beside the requests they copy.
+* What a step decides from is still its OWN materialized context
+  (AGENTS.md 10.1); the replay bench materializes the archived request
+  before it compares, so a reconstruction is checked against exactly
+  what the model was shown.
+* `ren asks <project>` (`library/tools/pending_asks.py`) is the reading
+  surface: it lists what is owed and prints each shared text once.
+
+`tests/unit/context/test_llm_handshake.py` pins the refusal;
+`tests/unit/context/test_shared_prompts.py` pins the round trip.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -64,6 +101,9 @@ from pathlib import Path
 REQUESTS_SUBDIR = os.path.join("pipeline_output", "llm_requests")
 RESPONSES_SUBDIR = os.path.join("pipeline_output", "llm_responses")
 
+#: Where shared prompt and context text lives, under the requests dir.
+SHARED_SUBDIR = "prompts"
+
 #: Marker printed on stdout when a request is ready. One spelling, here.
 READY_MARKER = "LLM_REQUEST_READY"
 
@@ -72,12 +112,253 @@ READY_MARKER = "LLM_REQUEST_READY"
 KINDS = ("llm_step", "briefing_interview", "edit_spec",
          "edit_spec_intent")
 
-#: Keys every request file carries. `kind` is optional (default
-#: `llm_step`); the rest are required.
+#: Keys every MATERIALIZED request carries (`read_request`). `kind` is
+#: optional (default `llm_step`); the rest are required. On disk
+#: `prompt` is `prompt_ref` (see "Shared text").
 REQUEST_KEYS = (
     "step_id", "prompt", "constraints", "context",
     "expected_schema", "project_folder", "timestamp",
 )
+
+
+class SharedTextMissing(ValueError):
+    """A request names shared text that is absent or not what it hashed."""
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def shared_dir(requests_dir) -> Path:
+    """Where a requests directory's shared texts live."""
+    return Path(requests_dir) / SHARED_SUBDIR
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Replace `path` with `text` in one step, at the umask's file mode.
+
+    A temporary file is created 0600; the request a host reads with its
+    own tools gets the mode a plain `open(path, "w")` would have given.
+    """
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent,
+                prefix=f".{path.name}.", suffix=".tmp",
+                delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(temp_path, 0o666 & ~umask)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def store_shared(requests_dir, text: str, *, write: bool = True) -> dict:
+    """Write `text` once, by content, and return its `{sha256, path}`.
+
+    An existing file whose bytes already hash to its name is left
+    alone; one that does not (a torn or edited write) is replaced.
+    `write=False` only names it (a reader checking a wire form).
+    """
+    digest = _sha256(text)
+    path = shared_dir(requests_dir) / f"{digest}.md"
+    if not write:
+        return {"sha256": digest, "path": str(path)}
+    try:
+        current = path.read_bytes()
+    except OSError:
+        current = None
+    if current is None or hashlib.sha256(current).hexdigest() != digest:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(path, text)
+    return {"sha256": digest, "path": str(path)}
+
+
+def read_shared(ref: dict, requests_dir) -> str:
+    """The text a `{sha256, path}` names, or refuse.
+
+    Looked up beside the request first (`<requests_dir>/prompts/`), so
+    a copied or archived request resolves inside its own copy; then at
+    the recorded `path`. The bytes must hash to `sha256`.
+    """
+    try:
+        digest = str(ref["sha256"])
+    except (KeyError, TypeError) as exc:
+        raise SharedTextMissing(
+            f"shared-text reference {ref!r} names no sha256") from exc
+    candidates = [shared_dir(requests_dir) / f"{digest}.md"]
+    if isinstance(ref, dict) and ref.get("path"):
+        candidates.append(Path(str(ref["path"])))
+    for candidate in candidates:
+        try:
+            raw = candidate.read_bytes()
+        except OSError:
+            continue
+        if hashlib.sha256(raw).hexdigest() == digest:
+            return raw.decode("utf-8")
+    raise SharedTextMissing(
+        f"shared text {digest[:12]} is missing or altered: looked in "
+        f"{', '.join(str(c) for c in candidates)}. The request cannot be "
+        f"rebuilt - re-run the step (or the reel build) that wrote it, "
+        f"which writes the shared text again")
+
+
+def share_request(request: dict, requests_dir, *,
+                  context_shared=(), write: bool = True) -> dict:
+    """The wire form of a full request: shared text written once.
+
+    `request` is the request as the model must read it (`prompt` the
+    full text, constraints included). Its `prompt` becomes `prompt_ref`
+    (the prompt WITHOUT the trailing constraints, which stay inline in
+    `constraints` - on disk once). Each string in `context_shared` must
+    occur in a string `context`, in order; it is cut out and recorded
+    in `context_refs` with the offset it is spliced back at.
+
+    A request with no string `prompt` (an assignment envelope) is
+    returned unchanged. The result is checked to materialize back to
+    `request` exactly, so a wire form that loses a byte never lands.
+    `write=False` writes nothing and skips that check (it needs the
+    shared files on disk): the replay bench re-derives a wire form to
+    compare with the one a writer left.
+    """
+    if not isinstance(request.get("prompt"), str):
+        return dict(request)
+    prompt = request["prompt"]
+    constraints = request.get("constraints")
+    body = prompt
+    if isinstance(constraints, str) and constraints:
+        if not prompt.endswith(constraints):
+            raise ValueError(
+                f"request for {request.get('step_id')!r}: `prompt` does not "
+                f"end with its `constraints`, so the two cannot be stored "
+                f"once each - build the prompt as handoff + constraints")
+        body = prompt[:len(prompt) - len(constraints)]
+    refs = []
+    remainder = request.get("context")
+    if context_shared:
+        if not isinstance(remainder, str):
+            raise ValueError(
+                f"request for {request.get('step_id')!r}: shared context "
+                f"sections need a text context")
+        full, pieces, cursor = remainder, [], 0
+        for section in context_shared:
+            at = full.find(section, cursor) if section else -1
+            if at < 0:
+                raise ValueError(
+                    f"request for {request.get('step_id')!r}: a shared "
+                    f"context section ({section[:40]!r}...) is not in the "
+                    f"context after offset {cursor}")
+            pieces.append(full[cursor:at])
+            refs.append(dict(store_shared(requests_dir, section,
+                                          write=write), offset=at))
+            cursor = at + len(section)
+        pieces.append(full[cursor:])
+        remainder = "".join(pieces)
+    wire = {}
+    for key, value in request.items():
+        if key == "prompt":
+            wire["prompt_ref"] = store_shared(requests_dir, body, write=write)
+        elif key == "context" and refs:
+            wire["context_refs"] = refs
+            wire["context"] = remainder
+        else:
+            wire[key] = value
+    if write and materialize(wire, requests_dir) != request:
+        raise ValueError(
+            f"request for {request.get('step_id')!r}: its shared form does "
+            f"not rebuild the request it came from")
+    return wire
+
+
+def materialize(request: dict, requests_dir) -> dict:
+    """The full request a wire form names, keys in their original order.
+
+    A request already carrying `prompt` inline (written before shared
+    text existed) is returned as it is.
+    """
+    if "prompt_ref" not in request and "context_refs" not in request:
+        return dict(request)
+    out = {}
+    for key, value in request.items():
+        if key == "prompt_ref":
+            constraints = request.get("constraints")
+            out["prompt"] = read_shared(value, requests_dir) + (
+                constraints if isinstance(constraints, str) else "")
+        elif key == "context_refs":
+            continue
+        elif key == "context" and request.get("context_refs"):
+            text, cursor = "", 0
+            for ref in request["context_refs"]:
+                take = int(ref["offset"]) - len(text)
+                if take < 0 or cursor + take > len(value):
+                    raise SharedTextMissing(
+                        f"context_refs offset {ref['offset']} does not fit "
+                        f"the inline context of {request.get('step_id')!r}")
+                text += value[cursor:cursor + take]
+                cursor += take
+                text += read_shared(ref, requests_dir)
+            out["context"] = text + value[cursor:]
+        else:
+            out[key] = value
+    return out
+
+
+def read_request(path) -> dict:
+    """A request file, materialized: what the model is asked.
+
+    The ONE way to read a request file. Raises `OSError`/`ValueError`
+    like `json.load` for a missing or unparseable file, and
+    `SharedTextMissing` (a `ValueError`) when its shared text is gone.
+    """
+    path = Path(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return materialize(payload, path.parent)
+
+
+def write_request_file(path, request: dict, *, context_shared=(),
+                       ensure_ascii: bool = True,
+                       trailing_newline: bool = False) -> dict:
+    """Write a request's wire form atomically; return the wire form.
+
+    For writers whose answer slot outlives the request (the reel asks
+    are rewritten on every build while their answers stand), so it
+    does not touch the response the way `publish_request` does.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wire = share_request(request, path.parent, context_shared=context_shared)
+    text = json.dumps(wire, indent=2, ensure_ascii=ensure_ascii)
+    _atomic_write(path, text + ("\n" if trailing_newline else ""))
+    return wire
+
+
+def copy_shared(src_requests_dir, dst_requests_dir) -> list:
+    """Copy a requests dir's shared texts beside a copy of its requests.
+
+    Archivers copy request files flat; this carries the `prompts/` they
+    name, so the copy rebuilds without the original. Returns the
+    destination paths written.
+    """
+    import shutil
+    src = shared_dir(src_requests_dir)
+    if not src.is_dir():
+        return []
+    dst = shared_dir(dst_requests_dir)
+    dst.mkdir(parents=True, exist_ok=True)
+    written = []
+    for item in sorted(src.iterdir()):
+        if item.is_file() and item.suffix == ".md":
+            shutil.copy2(item, dst / item.name)
+            written.append(dst / item.name)
+    return written
 
 
 class HandshakeRefusal(RuntimeError):
@@ -121,6 +402,8 @@ def response_path(project_folder: str, step_id: str) -> str:
 def publish_request(request: Path, response: Path, payload: dict) -> None:
     """Publish a fresh request without exposing the preceding turn.
 
+    The payload is the FULL request; it lands in its wire form
+    (`share_request`), so the prompt is shared text on disk.
     The request filename is stable across bounded retries. Remove its old
     contents before clearing the old response, then atomically replace it
     with the new payload. A polling host can therefore never pair the
@@ -131,21 +414,9 @@ def publish_request(request: Path, response: Path, payload: dict) -> None:
     response = Path(response)
     request.unlink(missing_ok=True)
     response.unlink(missing_ok=True)
-
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=request.parent,
-                prefix=f".{request.name}.", suffix=".tmp",
-                delete=False) as handle:
-            temp_path = Path(handle.name)
-            json.dump(payload, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, request)
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    request.parent.mkdir(parents=True, exist_ok=True)
+    payload = share_request(payload, request.parent)
+    _atomic_write(request, json.dumps(payload, indent=2))
 
 
 def publish_operation_request(request: Path, response: Path,
@@ -201,6 +472,12 @@ def build_request(step_id: str, prompt: str, constraints: str,
                    kind: str = "llm_step",
                    images: list | None = None) -> dict:
     """Build the request payload the runner writes to disk.
+
+    This is the MATERIALIZED request: `prompt` is the prompt followed by
+    `constraints`, and `constraints` the brand's text on its own. On
+    disk the two are not duplicated - `write_request_file` /
+    `publish_request` store the prompt (without the constraints) once
+    as shared text and keep `constraints` inline.
 
     `images` is the still-vision contract: absolute paths of stills
     the host must look at with its own vision (`still_vision.py`).

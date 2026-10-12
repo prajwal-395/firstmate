@@ -185,12 +185,18 @@ is `ren edit <project> --full-auto agent --only <step>` (or `--rerun`,
 The runner prints `LLM_REQUEST_READY: <path>` on stdout and waits. For
 each request, in order:
 
-1. **Read** `<project>/pipeline_output/llm_requests/<step>.json`. It
-   carries `step_id`, `prompt` (brand constraints included),
-   `constraints`, `context` (the ONLY material you may decide from),
-   `expected_schema` (the shape your answer must satisfy),
-   `project_folder`, `timestamp`, and `kind` (`llm_step`,
-   `briefing_interview`, or `edit_spec`).
+1. **Read** it with `ren asks <project>`: every owed request, grouped
+   by prompt, each shared text printed ONCE (a reels batch asks the
+   same prompt and roster of every reel). Do not read the request JSON
+   raw: on disk a request carries `prompt_ref` (`{sha256, path}` of a
+   shared `llm_requests/prompts/<sha256>.md`), not the prompt, and
+   constant context tables are cut out into `context_refs`. What you
+   answer is the prompt, then `constraints`, then `context` with every
+   `<<shared HASH>>` read as that text - exactly
+   `llm_handshake.read_request`. A request also names its
+   `expected_schema` (the shape your answer must satisfy), `step_id`,
+   `project_folder`, `timestamp` and `kind` (`llm_step`,
+   `briefing_interview`, or `edit_spec`). `--json` gives the same.
 2. **Do the work** the prompt asks, from `context` alone. Never invent
    footage, timings, or measurements; a step that cannot decide from
    its own context says so in the shape its schema allows.

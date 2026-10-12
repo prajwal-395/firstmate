@@ -82,7 +82,7 @@ def test_now_returns_ask_reel_and_failed_step_with_commands(tmp_path):
     assert [action["id"] for action in state["next_actions"]] == [
         "answer-plan_sfx", "rerun-music_analysis", "approve-reel-2"]
     assert state["next_actions"][0]["command"] == (
-        f"ren edit {project} --resume")
+        f"ren asks {project}")
     assert state["next_actions"][1]["command"] == (
         f"ren edit {project} --rerun music_analysis")
     assert state["next_actions"][2]["command"] == (

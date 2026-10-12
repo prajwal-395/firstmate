@@ -77,10 +77,12 @@ A reel takes two passes, and the first one is free:
    (`reel_look`) only where the project declares the TV-frame look.
 2. **Answer beside the asks.** The answers stay the model's creative
    work - nothing tools the choosing (AGENTS.md 10.5). What is derivable
-   is the I/O around them: read all three asks in as few calls as you
-   can, write all three answers together, do not re-read one to check
-   it. The ask/answer round trip cost ~10 calls per reel where 2
-   suffice.
+   is the I/O around them: read every reel's asks in ONE call with
+   `ren asks <project>` (the shared prompt, roster and schema print
+   once for the whole batch, not once per reel; the raw request files
+   carry them only by `prompt_ref`/`context_refs`), write all three
+   answers together, do not re-read one to check it. The ask/answer
+   round trip cost ~10 calls per reel where 2 suffice.
 3. **Build.** The real `reel.build` stages each reel onto a staging
    timeline, verifies, then promotes over the final name. A build holds
    Resolve's exclusive cursor lease for its whole body (measured mean

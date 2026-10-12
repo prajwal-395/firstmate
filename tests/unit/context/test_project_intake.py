@@ -389,10 +389,10 @@ def test_a_declared_task_reaches_a_model_with_its_role_attached(
     assert result["reel_selection"] == {"moments": [], "considered": []}
 
     from library.tools.project_layout import Area, layout_for
-    prompt = json.loads(
-        (layout_for(str(project)).read_dir(Area.LLM_REQUESTS)
-         / f"{creative_tasks.task_key('reel_pick')}.json"
-         ).read_text(encoding="utf-8"))["prompt"]
+    from library.tools import llm_handshake
+    prompt = llm_handshake.read_request(
+        layout_for(str(project)).read_dir(Area.LLM_REQUESTS)
+        / f"{creative_tasks.task_key('reel_pick')}.json")["prompt"]
 
     # The role the PROJECT declared, rendered by the shared renderer -
     # expected values derived from the expressions the code uses, not

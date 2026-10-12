@@ -24,8 +24,12 @@ def _json(path: Path):
 def _latest_request(root: Path):
     requests = root / "pipeline_output" / "llm_requests"
     candidates = sorted(requests.glob("*.json"), key=lambda p: (p.stat().st_mtime_ns, p.name)) if requests.is_dir() else []
+    from library.tools import llm_handshake
     for path in reversed(candidates):
-        request = _json(path)
+        try:
+            request = llm_handshake.read_request(path)
+        except (OSError, ValueError):
+            request = None
         if request and request.get("kind") in {"edit_spec", "briefing_interview"}:
             return {"id": path.stem, "kind": request["kind"],
                     "requested_at": request.get("timestamp"),
@@ -222,22 +226,17 @@ def _run_section(root: Path) -> dict:
 
 def _asks_section(root: Path) -> dict:
     """Every `llm_requests/*.json` with no response, reel asks included."""
-    from library.tools import awaiting_model_answers
-    requests_dir = root / "pipeline_output" / "llm_requests"
-    responses_dir = root / "pipeline_output" / "llm_responses"
+    from library.tools import awaiting_model_answers, pending_asks
     pending = []
-    if requests_dir.is_dir():
-        for path in sorted(requests_dir.glob("*.json")):
-            if (responses_dir / path.name).exists():
-                continue
-            doc = _json(path) or {}
-            pending.append({
-                "id": path.stem,
-                "kind": str(doc.get("kind") or "llm_step"),
-                "step_id": str(doc.get("step_id") or path.stem),
-                "path": str(path),
-                "requested_at": doc.get("timestamp"),
-            })
+    for path in pending_asks.pending_request_paths(root):
+        doc = _json(path) or {}
+        pending.append({
+            "id": path.stem,
+            "kind": str(doc.get("kind") or "llm_step"),
+            "step_id": str(doc.get("step_id") or path.stem),
+            "path": str(path),
+            "requested_at": doc.get("timestamp"),
+        })
     try:
         owed = awaiting_model_answers.collect(
             str(root), state=_json(root / "pipeline_data.json"))
@@ -341,9 +340,12 @@ def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
             "id": f"answer-{ask['id']}",
             "rank": "blocking ask",
             "why": (f"model answer owed for {ask['kind']} {ask['step_id']} "
-                    f"({where}); write the response, then resume"),
-            "command": f"ren edit {ref} --resume",
-            "effects": ["project_write", "heavy_lock"],
+                    f"({where}); read every owed ask (each shared prompt "
+                    f"once) and write the responses - a waiting run picks "
+                    f"them up, a stopped one resumes with `ren edit {ref} "
+                    f"--resume`"),
+            "command": f"ren asks {ref}",
+            "effects": ["read"],
             "_rank": _RANK_ASK,
         })
     for finding in base.get("config_findings") or []:

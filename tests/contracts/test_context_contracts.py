@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 from library.processes.edit_video.run_pipeline import (  # noqa: E402
     get_step_implementation, project_step_context,
 )
+from library.tools import llm_handshake  # noqa: E402
 
 STEPS = REPO / "library" / "steps"
 DAG = json.loads(
@@ -914,9 +915,8 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
         full_auto="agent", llm_timeout=30,
     )
 
-    request = json.loads(
-        (project / "pipeline_output" / "llm_requests" / f"{node_id}.json").read_text()
-    )
+    request = llm_handshake.read_request(
+        project / "pipeline_output" / "llm_requests" / f"{node_id}.json")
     expected = TemplateLoader(str(project)).get_brand_constraints(
         "synthetic_default", node_id)
     assert expected.strip()
@@ -962,9 +962,8 @@ def test_a_project_that_selected_no_brand_contributes_no_brand_text(tmp_path):
         full_auto="agent", llm_timeout=30,
     )
 
-    request = json.loads(
-        (project / "pipeline_output" / "llm_requests" / f"{node_id}.json").read_text()
-    )
+    request = llm_handshake.read_request(
+        project / "pipeline_output" / "llm_requests" / f"{node_id}.json")
     assert request["constraints"] == ""
     assert "Brand Constraints" not in request["prompt"]
     assert "Transition Duration MS" not in request["prompt"]
@@ -1270,9 +1269,8 @@ def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
         {"interface": {"outputs": [{"name": "sfx_creative", "type": "list"}]}},
         full_auto="agent", llm_timeout=5)
 
-    prompt = json.loads(
-        (layout.read_dir(Area.LLM_REQUESTS)
-         / f"{node_id}.json").read_text())["prompt"]
+    prompt = llm_handshake.read_request(
+        layout.read_dir(Area.LLM_REQUESTS) / f"{node_id}.json")["prompt"]
 
     role = craft_role.ROLES[node_id]
     assert role.addressed_as in prompt

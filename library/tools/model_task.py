@@ -731,7 +731,9 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
         # Recorded separately too, so the archive shows what
         # the brand contributed to a call - the answering agent
         # once never saw them, and the separate field is what
-        # proves it does now.
+        # proves it does now. On disk they are stored once:
+        # `publish_request` writes the prompt as shared text and
+        # keeps `constraints` inline (`llm_handshake`, LE-11).
         "prompt": prompt + constraints,
         "constraints": constraints,
         "context": current_context,
