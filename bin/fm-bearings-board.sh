@@ -8,6 +8,7 @@
 # agent never authors board UI at invocation time.
 #
 # Usage:
+#   fm-bearings-board.sh validate <data.json>
 #   fm-bearings-board.sh build <data.json>
 #   fm-bearings-board.sh path
 #
@@ -34,6 +35,9 @@
 #            line, so a rebuild states what it removed instead of quietly
 #            shrinking Captain's Call.
 # path       Print the stable board path for this home.
+# validate   Validate an fm-bearings-board.v1 payload without publishing a
+#            board, establishing a Lavish session, binding answers, or arming a
+#            source.
 #
 # A LIVE SESSION IS PROVED, NEVER ASSUMED. `lavish-axi <file>` exits 0 even
 # when it refuses to reopen a session the captain ended from the browser,
@@ -457,7 +461,18 @@ command_build() {
   fi
 }
 
+command_validate() {
+  local data=${1-}
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  command -v jq >/dev/null 2>&1 || fail "jq is required"
+  [ -f "$data" ] || fail "board data does not exist: $data"
+  jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
+  validate_payload "$data" || fail "board data does not satisfy $BOARD_SCHEMA: $data"
+  printf 'valid: %s\n' "$BOARD_SCHEMA"
+}
+
 case "${1-}" in
+  validate) shift; command_validate "$@" ;;
   build) shift; command_build "$@" ;;
   path) board_path ;;
   -h|--help|help) usage ;;

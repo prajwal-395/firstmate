@@ -18,7 +18,7 @@ For a fresh crewmate or scout with that file present, `fm-spawn.sh` calls `fm-di
 `harness-adapters` owns harness verification, model/provider discovery, and effort fallback.
 `quota-axi` remains data-only: it publishes `spendPriority` as a comparable scalar and never recommends, selects, ranks, or infers a route.
 Do not add a daemon, opaque composite score, routing wrapper, hard-coded model-specific policy, or producer-side route recommendation.
-The [worker helper](../../../bin/fm-quota-choose.sh) and [typed resolver](../../../docs/configuration.md#typed-dispatch-resolution-env-typesafe_api_key) own their deterministic mapping boundaries.
+The [worker helper](../../../bin/fm-quota-choose.sh) and [typed resolver](../../../docs/configuration.md#typed-dispatch-resolution-env-typesafe_api_key-env-ai_gateway_api_key) own their deterministic mapping boundaries.
 
 ## Worker-side quota helper
 
