@@ -253,7 +253,42 @@ def _questions(project: str, timelines: set) -> list[dict]:
                       or note.timecode or ""),
             "command": (f"ren revise {quoted} --note-id "
                         f"{shlex.quote(note.edit_link_id)}")})
+    # Post-delivery creative QA (T17) asks here, never on the timeline:
+    # a subjective observation is an editorial call, so it becomes a
+    # question with no edit behind it. Delivered reels need no preview
+    # for their questions to show - delivery is the stronger signal.
+    for entry in _qa_questions(project):
+        questions.append({
+            "kind": "creative_qa", "reel": entry["timeline"],
+            "note": entry["question"],
+            "where": entry.get("where") or "",
+            "command": entry["command"]})
     return questions
+
+
+def _qa_questions(project: str) -> list[dict]:
+    """The open creative-QA questions, with their file-time span."""
+    from library.tools import post_delivery_qa
+
+    try:
+        found = post_delivery_qa.open_questions(project)
+    except Exception:  # noqa: BLE001 - questions never sink the page
+        return []
+    shaped = []
+    for entry in found:
+        span = entry.get("span") or {}
+        where = ""
+        try:
+            if "start" in span and "end" in span:
+                where = (f"{float(span['start']):.2f}-"
+                         f"{float(span['end']):.2f}s")
+        except (TypeError, ValueError):
+            where = ""
+        shaped.append({"timeline": entry.get("timeline") or "",
+                       "question": entry.get("question") or "",
+                       "where": where,
+                       "command": entry.get("command") or ""})
+    return [entry for entry in shaped if entry["question"]]
 
 
 def _round_notes(project: str, opened_by: list) -> dict:

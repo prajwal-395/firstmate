@@ -214,6 +214,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "round-page", group: "Reels", summary: "Write this review round's page: previews, what changed, what waits on you, notes at a moment" },
     Verb { name: "watch", group: "Reels", summary: "Have a model watch a delivered reel" },
     Verb { name: "hear", group: "Reels", summary: "Hear a delivered reel against its plan" },
+    Verb { name: "qa", group: "Reels", summary: "Creative QA after delivery: one bounded repair, then questions" },
     Verb { name: "drift", group: "Reels", summary: "Compare each reel's build snapshot with the live timeline" },
     Verb { name: "holds", group: "Reels", summary: "Release a staging hold on a timeline awaiting promotion" },
     Verb { name: "post-header", group: "Reels", summary: "Put each reel's social-post header on its final, as a journaled touch" },

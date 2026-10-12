@@ -228,6 +228,7 @@ it whenever the goal is about what is IN the footage.
 | Two versions of one reel | `ren variant <project> new` / `build` / `diff` / `choose` |
 | Record approval | `ren sign-off <project> "<reel timeline name>"` (built reels only; `PROPOSED` fails as `REJECTED` does) |
 | Render reels to files | `ren deliver <project>` (every signed-off reel, with a receipt and QC; the folder is revealed) or `ren deliver <project> <n>` for one |
+| Creative QA after delivery | `ren qa <project>` (one reversible repair for a measurable defect through `ren revise`, then re-QC; editorial calls land on the review page as questions; clean passes untouched) |
 | Pause or release a run | `ren pause <project>` / `ren resume <project>`; a staged timeline held from the sweep: `ren holds release <project> <timeline>` |
 | Redo one stage, step or clip | `ren edit <project>` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
 | Tidy the Resolve pool | `ren pool-organize`, `ren pool-prune`, `ren relink` |

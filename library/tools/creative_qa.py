@@ -13,7 +13,16 @@ from typing import Any
 
 DETERMINISTIC = "deterministic"
 SUBJECTIVE = "subjective"
-AUTO_REPAIRABLE = frozenset({"caption_legibility", "caption_obscuring"})
+# A finding is auto-repairable only when the fix is mechanical and the
+# target is declared, never taste: caption geometry against the measured
+# safe area, and loudness against the delivery spec's own target (the
+# repair normalizes to that number and records the prior gain as its
+# inverse, the same mastering `delivery_normalize` plans). Duration and
+# black frames stay out: an over-long render asks what to cut and a black
+# stretch asks which beat declared it, and both answers belong to the
+# creator on the review page, never to a repair.
+AUTO_REPAIRABLE = frozenset({"caption_legibility", "caption_obscuring",
+                             "lufs"})
 GATING_METRICS = frozenset({"duration", "black_frames", "loudness"})
 DEFAULT_REPAIR_BUDGET = 1
 
