@@ -221,6 +221,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "notes", group: "Reels", summary: "Show which timeline note went to which step" },
     Verb { name: "outcomes", group: "Reels", summary: "Show feedback notes and their recorded outcomes" },
     Verb { name: "take-pick", group: "Reels", summary: "Print one reel's takes, freshness, snap deltas and boundary words in one read" },
+    Verb { name: "reels", group: "Reels", summary: "Read every reel's state in one call (read only)" },
     Verb { name: "commits", group: "Reels", summary: "Show a project's creative commits: what each touch-up changed and why" },
     Verb { name: "branches", group: "Reels", summary: "Show a project's creative branches: what each branch stands on" },
     Verb { name: "tag", group: "Reels", summary: "Name a creative commit a version (or list the names given)" },
