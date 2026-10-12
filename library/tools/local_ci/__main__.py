@@ -5,6 +5,8 @@
 - ready <pr>: mark a PR ready for the queue (adds the label).
 - process-once: one queue pass (test + merge in order), for the
   throwaway-PR proof and for manual operation before install.
+- shadow: re-run the full suite on one tree and diff it against an
+  incremental claim (shadow validation - findings only, never verdicts).
 - daemon: serve until killed (what launchd runs).
 - install / uninstall: the launchd agent (install only after merge).
 - replay: run the historical regression replay benchmark (CI-09)
@@ -115,6 +117,21 @@ def cmd_status(args) -> int:
                        if pin.get("candidate_sha") else "current")
         print(f"  {name}: qualified={pin['qualified_sha'][:12]} "
               f"last-seen={pin['last_seen_upstream_sha'][:12]} {state_label}")
+    from library.tools.local_ci import config, shadow
+    findings_state = args.state or config.state_dir()
+    findings = shadow.summarize_findings(findings_state)
+    if findings:
+        print(f"shadow findings: "
+              f"{len(shadow.read_findings(findings_state))} "
+              "recorded, newest first:")
+        for finding in findings:
+            missed = finding.get("missed", [])
+            print(f"  {finding.get('sha', '')[:12]} "
+                  f"missed {len(missed)} edge(s)"
+                  + (f": {', '.join(missed[:3])}"
+                     if missed else ""))
+    else:
+        print("shadow findings: none recorded")
     return 0
 
 
@@ -187,6 +204,42 @@ def cmd_upstream(args) -> int:
     return 0
 
 
+def cmd_shadow(args) -> int:
+    """Re-run the full suite on one tree and diff it against a claim.
+
+    Exit 0 when the shadow judged the tree (a filed defect is a
+    product, not a command failure - its missed edges print here);
+    exit 2 when it refused before spending anything (busy machine,
+    bad claim) the way `check` exits 2 with no free slot.
+    """
+    import json
+
+    from library.tools.local_ci import config, shadow
+    try:
+        with open(args.claim, encoding="utf-8") as handle:
+            claim = json.load(handle)
+    except (OSError, ValueError) as exc:
+        print(f"ren-ci shadow refused: cannot read claim {args.claim}: {exc}")
+        return 2
+    result = shadow.run_shadow(args.state or config.state_dir(),
+                               args.sha, claim)
+    if not result.get("ok"):
+        print(f"ren-ci shadow refused: {result.get('reason', 'unknown')}")
+        return 2
+    print(f"ren-ci shadow {result['sha'][:12]}: "
+          f"gate {result.get('verdict', 'missing')}, log {result['log']}")
+    finding = result.get("finding")
+    if finding is None:
+        print("ren-ci shadow: claim confirmed - files nothing")
+        return 0
+    missed = finding.get("missed", [])
+    print(f"ren-ci shadow DEFECT: incremental evidence claimed green but "
+          f"the gate is red - missed edge(s): "
+          f"{', '.join(missed) if missed else '(no per-file report)'}" +
+          ("" if finding.get("per_file") else " [no gate per-file report]"))
+    return 0
+
+
 def cmd_replay(args) -> int:
     from library.tools.local_ci import replay
     try:
@@ -235,6 +288,13 @@ def main(argv=None) -> int:
     expedite = upstream_sub.add_parser("expedite")
     expedite.add_argument("engine", choices=("filmcraft", "effectcraft"))
     expedite.add_argument("--reason", required=True)
+    shadow_p = sub.add_parser(
+        "shadow", help="re-run the full suite on one tree and diff it "
+                       "against an incremental claim")
+    shadow_p.add_argument("sha", help="the tree to shadow-gate")
+    shadow_p.add_argument("--claim", required=True,
+                          help="path to the incremental claim JSON "
+                               "({verdict, executed, reused})")
     replay_p = sub.add_parser(
         "replay", help="replay the regression benchmark corpus")
     replay_p.add_argument("--corpus", default="",
@@ -246,7 +306,8 @@ def main(argv=None) -> int:
                 "ready": cmd_ready, "process-once": cmd_process_once,
                 "daemon": cmd_daemon, "install": cmd_install,
                 "uninstall": cmd_uninstall, "upstream": cmd_upstream,
-                "replay": cmd_replay}
+                "shadow": cmd_shadow}
+    commands["replay"] = cmd_replay
     return commands[args.verb](args)
 
 

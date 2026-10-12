@@ -501,7 +501,8 @@ def _tier2_cache_line(consulted: dict, stored: int, outcomes: int) -> str:
 
 def run_gate(checkout: str, log_path: str,
              timeout: int | None = None,
-             cache: dict | None = None) -> dict:
+             cache: dict | None = None,
+             junit_out: str = "") -> dict:
     """Tier-2: the FULL suite on the exact tree that would land.
 
     The timeout SCALES from the measured full-suite wall time times
@@ -532,6 +533,15 @@ def run_gate(checkout: str, log_path: str,
     `state_dir` disables the hook, so direct callers without a state
     dir stay hermetic and file nothing.
 
+    `junit_out` is the read-only twin of that hook for callers that
+    must see per-file outcomes without filing any (CI-10 shadow
+    validation): when given AND no cache hook is active, the gate
+    script's JUnit handoff is pointed at this path through the same
+    `REN_CI_JUNIT_OUT` env var, and nothing is written to the shared
+    cache. With a cache hook active the hook owns the handoff path
+    and `junit_out` is ignored, so one run never files through two
+    identities.
+
     The returned dict always carries `failed_tests`: the test files
     with any failure/error in the gate's JUnit report (CI-12's "which
     tests failed" read). Empty on green, on requeue, and whenever no
@@ -558,6 +568,8 @@ def run_gate(checkout: str, log_path: str,
             hook["consulted"] = consulted
         junit_path = log_path + ".junit.xml"
         child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_path}
+    elif junit_out:
+        child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_out}
     result = _run_logged(
         ["bash", "scripts/full_suite_gate.sh", "--exclude-real-model",
          "-n", "2"], checkout, log_path, timeout, env=child_env)

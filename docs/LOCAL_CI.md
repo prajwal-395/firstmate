@@ -202,6 +202,23 @@ doubled across the reload; an interrupted weekly run retries at
 startup. Pinned by
 `tests/unit/tools/test_local_ci_self_update.py`.
 
+## Shadow validation (the full suite, after the verdict)
+
+Once incremental evidence starts judging trees, a second full-suite
+run checks its homework: `ren ci shadow <sha> --claim <file>`
+re-runs `scripts/full_suite_gate.sh` on that tree when the machine is
+idle (no Tier-1 job, no gate in flight, no Tier-2 member under test -
+a busy machine refuses with the reason) and diffs the outcomes
+against the claim's green (`{verdict, executed, reused}` JSON, until
+the incremental verdict produces it). A red gate files a defect in
+`~/.ren-ci/shadow_findings.json` naming the missed edge(s) - red
+files the evidence never executed; a matching green files nothing.
+Shadows never block merges and never change verdicts: they write only
+their findings ledger (plus the gate log), never the queue, the
+checks, the baselines, or the shared cache. `ren ci status` shows the
+newest findings. Pinned by
+`tests/unit/tools/test_local_ci_shadow.py`.
+
 ## End-to-end proof (post-merge, on throwaway PRs)
 
 1. Open a trivial PR, watch Tier-1 post pending->success, `ren ci
