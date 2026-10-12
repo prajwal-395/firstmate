@@ -137,19 +137,29 @@ FM_OPENCODE_LADDER_PLUS_RUNG='plus'
 # shellcheck disable=SC2034
 FM_OPENCODE_LADDER_GO_SECOND_RUNG='go-second'
 
-# quota-axi exhaustion is deliberately strict: fresh known zero availability
-# plus a valid future reset records a durable cap. Unknown or stale readings do
-# not cap a rung.
-# Refresh predictive rung records from one quota-axi snapshot. The record-cap
-# helper remains the only durable store; only fresh, known zero availability
-# with a valid future reset is authoritative enough to write one.
+# quota-axi availability is deliberately strict: a fresh known zero reading
+# plus a valid future reset records a durable cap, while a fresh known positive
+# reading retires it. Unknown or stale readings leave the rung record alone.
+# Refresh predictive rung records from one quota-axi snapshot. The retry helper
+# remains the only durable store and owns both recording and retiring caps.
 fm_opencode_ladder_quota_caps() {  # <state-dir>
-  local state_dir=$1 report provider reset_s reset_ms rung
+  local state_dir=$1 report provider reset_s reset_ms rung available
   [ -d "$state_dir" ] || return 0
   command -v quota-axi >/dev/null 2>&1 || return 0
   command -v jq >/dev/null 2>&1 || return 0
   report=$(quota-axi --json 2>/dev/null) || return 0
   for provider in codex opencode-go; do
+    available=$(printf '%s' "$report" | jq -r --arg provider "$provider" '
+      .providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))
+      | .quotaSemantics.effectiveAvailability[]?
+      | select(.scope == "all_models" and .status == "known" and (.effectivePercentRemaining | type == "number" and . > 0))
+      | "available"' 2>/dev/null | head -n 1)
+    if [ "$available" = available ]; then
+      rung=plus
+      [ "$provider" = opencode-go ] && rung=go
+      "$_FM_OPENCODE_LADDER_RETRY" clear-cap "$state_dir" "$rung" 2>/dev/null || true
+      continue
+    fi
     reset_s=$(printf '%s' "$report" | jq -r --arg provider "$provider" '
       .providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))
       | . as $p | .quotaSemantics.effectiveAvailability[]?

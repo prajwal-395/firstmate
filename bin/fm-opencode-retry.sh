@@ -130,6 +130,10 @@
 #       outside the token charset, is refused (exit 1). Always exits 0 once
 #       the record is stored or a newer-or-equal incumbent already holds it.
 #
+#   clear-cap <state-dir> <rung>
+#       Retire a rung cap when fresh known quota evidence proves availability
+#       has returned. The rung must be one of the ladder's own keys.
+#
 #   check-cap <state-dir> <rung>
 #       Classify the preserved rung cap. Prints one line:
 #         status=blocked horizon_s=<s> reset_at=<epoch-s>
@@ -204,6 +208,7 @@ usage:
   fm-opencode-retry.sh clear <state-dir> <id>
   fm-opencode-retry.sh check <state-dir> <id> [--text-file <path>]
   fm-opencode-retry.sh record-cap <state-dir> <rung> <next-ms>
+  fm-opencode-retry.sh clear-cap <state-dir> <rung>
   fm-opencode-retry.sh check-cap <state-dir> <rung>
   fm-opencode-retry.sh verdict-cap <state-dir> <rung>
   fm-opencode-retry.sh scan-text [--file <path>]
@@ -256,7 +261,7 @@ scan_stream() {
 
 CMD=${1:-}
 case "$CMD" in
-  record|clear|check|verdict|scan-text|record-cap|check-cap|verdict-cap) shift ;;
+  record|clear|check|verdict|scan-text|record-cap|clear-cap|check-cap|verdict-cap) shift ;;
   *) usage ;;
 esac
 
@@ -281,7 +286,7 @@ fi
 # Per-task STATE/ID parsing below does not apply here: the record belongs to
 # the rung, so it takes a rung key instead of a task id. Handled and exited
 # before that parsing, exactly like scan-text above.
-if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]; then
+if [ "$CMD" = record-cap ] || [ "$CMD" = clear-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]; then
   CAP_STATE=${1:-}
   CAP_RUNG=${2:-}
   [ -n "$CAP_STATE" ] && [ -n "$CAP_RUNG" ] || usage
@@ -362,6 +367,12 @@ rung_cap_check() {  # <path>
   RUNG_STATUS=$status
   printf 'status=%s horizon_s=%s reset_at=%s\n' "$status" "$horizon_s" "$((next / 1000))"
 }
+
+if [ "$CMD" = clear-cap ]; then
+  [ -z "${3:-}" ] || usage
+  rm -f "$CAP_REC"
+  exit 0
+fi
 
 if [ "$CMD" = record-cap ]; then
   CAP_NEXT=${3:-}
