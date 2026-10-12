@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # titles wiring only; resolved by the caller
 
 try:
     from library.tools.project_model import SCHEMA_VERSION, validate_project_model
+    from library.tools import project_model_masks
     from library.tools.project_model_effectcraft_moves import (
         MOVE_CLASS_IDS,
         UnprojectableMove,
@@ -84,6 +85,7 @@ try:
     )
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools.project_model import SCHEMA_VERSION, validate_project_model
+    from tools import project_model_masks
     from tools.project_model_effectcraft_moves import (
         MOVE_CLASS_IDS,
         UnprojectableMove,
@@ -278,8 +280,12 @@ Ren effect family lands either here (with its measured reason) or in
 the native projection (with its conversion proof).
 """
 
-MASK_SHAPES = ("ellipse", "rect")
-"""Mask representation kinds passed through to ``layer.addMask``."""
+MASK_SHAPES = project_model_masks.MASK_SHAPES
+"""Mask representation kinds passed through to ``layer.addMask``.
+
+Canonical definition lives in :mod:`project_model_masks`; this alias
+stays so existing importers keep reading the same tuple.
+"""
 
 
 def refusal_reason(class_id: str) -> str | None:
@@ -1044,7 +1050,7 @@ def _bbox_states(representation: dict[str, Any], mask_id: str,
         return sorted(states, key=lambda s: s[0])
     raise UnprojectableMask(
         f"mask {mask_id!r} kind {kind!r} has no matte rasterization "
-        f"(expected one of {MASK_SHAPES} or face_bbox_track)"
+        f"(expected one of {project_model_masks.MASK_KINDS})"
     )
 
 
@@ -1079,55 +1085,28 @@ def _lerp_box(states: list[tuple[int, list[float]]], tick: int,
 def _decode_rle(rle: str, width: int, height: int, mask_id: str) -> bytes:
     """Decode Ren's ``"start length,..."`` RLE into alpha bytes.
 
-    The same flat format ``analysis.object_segmentation.decode_rle``
-    reads for 1.06 subject masks, decoded here without the analysis
-    dependency: runs outside the frame are refused, never clipped.
+    Delegates to the mask-kind registry; runs outside the frame are
+    refused, never clipped.
     """
-    total = width * height
-    flat = bytearray(total)
-    if rle:
-        for part in rle.split(","):
-            try:
-                start_s, length_s = part.strip().split()
-                start, length = int(start_s), int(length_s)
-            except ValueError as exc:
-                raise UnprojectableMask(
-                    f"mask {mask_id!r} RLE run {part!r} is not "
-                    "'start length'") from exc
-            if start < 0 or length < 0 or start + length > total:
-                raise UnprojectableMask(
-                    f"mask {mask_id!r} RLE run {part!r} leaves the "
-                    f"{width}x{height} frame; refusing rather than clipping"
-                )
-            flat[start:start + length] = b"\x01" * length
-    return bytes(b * 255 for b in flat)
+    try:
+        return project_model_masks.decode_rle_to_alpha(
+            rle, width, height, mask_id)
+    except project_model_masks.UnresolvableMask as exc:
+        raise UnprojectableMask(str(exc)) from exc
 
 
 def _rasterize_box(kind: str, box: list[float], width: int,
                    height: int) -> bytes:
-    """Binary alpha for one normalized box: pixel centers decide."""
-    x, y, w, h = box
-    alpha = bytearray(width * height)
-    if kind == "rect":
-        for py in range(height):
-            center_y = (py + 0.5) / height
-            if not (y <= center_y < y + h):
-                continue
-            for px in range(width):
-                center_x = (px + 0.5) / width
-                if x <= center_x < x + w:
-                    alpha[py * width + px] = 255
-    else:
-        cx, cy, rx, ry = x + w / 2.0, y + h / 2.0, w / 2.0, h / 2.0
-        for py in range(height):
-            center_y = (py + 0.5) / height
-            dy = (center_y - cy) / ry
-            for px in range(width):
-                center_x = (px + 0.5) / width
-                dx = (center_x - cx) / rx
-                if dx * dx + dy * dy <= 1.0:
-                    alpha[py * width + px] = 255
-    return bytes(alpha)
+    """Binary alpha for one normalized box: pixel centers decide.
+
+    Delegates to the mask-kind registry.
+    """
+    try:
+        return project_model_masks.rasterize_box(
+            kind, box, width, height)
+    except (project_model_masks.UnknownMaskKind,
+            project_model_masks.UnresolvableMask) as exc:
+        raise UnprojectableMask(str(exc)) from exc
 
 
 def _write_rgba_png(path: Path, width: int, height: int,
@@ -1166,17 +1145,20 @@ def write_matte_sequence(
     out_dir: str | Path,
     *,
     stem: str | None = None,
+    project_folder: str | Path | None = None,
 ) -> MatteSequence:
     """Rasterize a non-static mask into a lossless matte PNG sequence.
 
     One file per comp frame the mask interval touches, at the comp's
     width, height and frame clock, so EffectCraft can carry the mask as
     a track matte with no approximation. Animated boxes interpolate
-    linearly between keyframes; RLE frames hold Ren's own held-matte
-    semantic (latest frame at or before the sample). Any frame the
-    model cannot cover - outside the keyframe span, before the first
-    RLE frame, RLE dims off the comp, pixel-space boxes - is refused
-    with :class:`UnprojectableMask`, not filled by a guess.
+    linearly between keyframes; RLE frames - inline ``rle`` or a
+    ``sam2_rle_track`` resolved through its referenced 1.06 file
+    (``project_folder`` locates the reference) - hold Ren's own
+    held-matte semantic (latest frame at or before the sample). Any
+    frame the model cannot cover - outside the keyframe span, before
+    the first RLE frame, RLE dims off the comp, pixel-space boxes - is
+    refused with :class:`UnprojectableMask`, not filled by a guess.
     """
     validate_project_model(model)
     mask_id = mask["id"]
@@ -1201,39 +1183,60 @@ def write_matte_sequence(
             representation.get("normalized_bbox"), mask_id)
         box = _rasterize_box(kind, base, comp.width, comp.height)
         alphas = [box for _ in range(first, last + 1)]
-    elif kind == "rle":
-        try:
-            width, height = int(representation["width"]), int(
-                representation["height"])
-        except (TypeError, ValueError, KeyError) as exc:
-            raise UnprojectableMask(
-                f"mask {mask_id!r} RLE frame has no integer dimensions"
-            ) from exc
-        if width != comp.width or height != comp.height:
-            raise UnprojectableMask(
-                f"mask {mask_id!r} RLE is {width}x{height} but the comp is "
-                f"{comp.width}x{comp.height}; resampling would approximate, "
-                "so it is refused"
-            )
-        raw_frames = representation.get("frames") or []
-        if not raw_frames:
-            raise UnprojectableMask(
-                f"mask {mask_id!r} RLE carries no frames")
-        frames = sorted(
-            ((_key_tick(item, mask_id),
-              _rle_string(item, mask_id)) for item in raw_frames),
-            key=lambda f: f[0])
+    elif kind == "rle" or kind == project_model_masks.SAM2_RLE_TRACK_KIND:
+        if kind == project_model_masks.SAM2_RLE_TRACK_KIND:
+            try:
+                width, height, frames = (
+                    project_model_masks.sam2_track_frames(
+                        representation, project_folder=project_folder,
+                        mask_id=mask_id))
+            except (project_model_masks.UnresolvableMask,
+                    project_model_masks.UnknownMaskKind) as exc:
+                raise UnprojectableMask(str(exc)) from exc
+            if width != comp.width or height != comp.height:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} SAM mask is {width}x{height} but "
+                    f"the comp is {comp.width}x{comp.height}; resampling "
+                    "would approximate, so it is refused"
+                )
+            if not frames:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} SAM track carries no frames")
+        else:
+            try:
+                width, height = int(representation["width"]), int(
+                    representation["height"])
+            except (TypeError, ValueError, KeyError) as exc:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} RLE frame has no integer dimensions"
+                ) from exc
+            if width != comp.width or height != comp.height:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} RLE is {width}x{height} but the comp is "
+                    f"{comp.width}x{comp.height}; resampling would approximate, "
+                    "so it is refused"
+                )
+            raw_frames = representation.get("frames") or []
+            if not raw_frames:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} RLE carries no frames")
+            frames = sorted(
+                ((_key_tick(item, mask_id),
+                  _rle_string(item, mask_id)) for item in raw_frames),
+                key=lambda f: f[0])
         alphas = []
         for frame in range(first, last + 1):
             tick = _sample_tick(frame, tps, fps)
-            covered = [run for run in frames if run[0] <= tick]
-            if not covered:
+            try:
+                held = project_model_masks.rle_frame_at(
+                    frames, tick, mask_id)
+            except (project_model_masks.UnresolvableMask,
+                    project_model_masks.UnknownMaskKind) as exc:
                 raise UnprojectableMask(
                     f"mask {mask_id!r} has no RLE frame at or before tick "
                     f"{tick} (comp frame {frame}); refusing rather than "
-                    "inventing one"
-                )
-            alphas.append(_decode_rle(covered[-1][1], width, height, mask_id))
+                    "inventing one") from exc
+            alphas.append(_decode_rle(held, width, height, mask_id))
     elif isinstance(kind, str):
         states = _bbox_states(representation, mask_id, tps)
         alphas = [
@@ -1245,7 +1248,8 @@ def write_matte_sequence(
         ]
     else:
         raise UnprojectableMask(
-            f"mask {mask_id!r} kind {kind!r} has no matte rasterization"
+            f"mask {mask_id!r} kind {kind!r} has no matte rasterization "
+            f"(expected one of {project_model_masks.MASK_KINDS})"
         )
 
     directory = Path(out_dir)
@@ -1842,6 +1846,9 @@ def main(argv: list[str] | None = None) -> int:
     matte.add_argument("--out-dir", type=Path, required=True)
     matte.add_argument("--sidecar", type=Path, required=True)
     matte.add_argument("--stem", default=None)
+    matte.add_argument("--project-folder", default=None,
+                       help="project root holding the referenced 1.06 "
+                            "segmentation file for sam2_rle_track masks")
     matte.add_argument("--comp", default="Main")
     matte.add_argument("--width", type=int, default=96)
     matte.add_argument("--height", type=int, default=64)
@@ -1912,7 +1919,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise EffectCraftAdapterError(
                     f"model has no mask {args.mask!r}")
             sequence = write_matte_sequence(mask, model, comp, args.out_dir,
-                                            stem=args.stem)
+                                            stem=args.stem,
+                                            project_folder=args.project_folder)
             args.sidecar.write_text(json.dumps(
                 {"matte": sequence.as_json()}, indent=2,
                 ensure_ascii=False) + "\n", encoding="utf-8")
