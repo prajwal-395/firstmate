@@ -7,13 +7,16 @@ Just push and mark ready. The Mac does the rest, for free.
 Two tiers. Tier-1 is the fast signal; Tier-2 is the merge verdict.
 
 - **Tier-1, per PR, immediate and parallel.** Every new head (push)
-  runs the static gate (enforcing ruff config, compile sweep, AGENTS.md
-  size gate) plus its dependent selection for the changed files plus
-  the always-run cross-cutting set (`tests/contracts/`, the parallel
-  lane routing, composer, ren-core parity, resolve guard wiring). As
-  many PRs at once as the machine can take right now - a quiet machine
-  runs three jobs, a loaded one serialises to one. Tier-1 green is the
-  GATE into the queue, not a merge verdict.
+   runs the static gate (enforcing ruff config, compile sweep, AGENTS.md
+   size gate) plus its dependent selection for the changed files plus
+   the mandatory set: the tiny universal half (parallel lane routing,
+   composer, ren-core parity, resolve guard wiring) always, and the
+   global `tests/contracts/` suite when the change signals structural
+   reach (shared prefixes, registries, or wide subsystem fan-out -
+   see the selection budget below). As
+   many PRs at once as the machine can take right now - a quiet machine
+   runs three jobs, a loaded one serialises to one. Tier-1 green is the
+   GATE into the queue, not a merge verdict.
 - **Tier-2, integration in a timebox.** Ready PRs cluster within an
   adaptive window (short on a quiet machine, long on a busy one) and
   the FULL suite (`scripts/full_suite_gate.sh`, under the required
@@ -110,12 +113,26 @@ daemon.
 ## Tier-1 selection budget (why hub PRs stay quick)
 
 Tier-1 runs the static gate plus the tests that directly exercise the
-changed files, bounded at 40 dependent files: above the budget the run
-keeps only the direct tests (same-stem test files plus changed test
-files) and leaves breadth to the Tier-2 batched full suite, which
-already runs everything on the exact stacked tree before any merge. A
-capped run records the cap on its Tier-1 status
-(`[capped, breadth to Tier-2]`), so it never reads as full coverage.
+changed files, bounded by 300 s of estimated dependent test time
+(filled from historical per-test durations, direct tests first, then
+by import distance, then by failure rate): above the budget the run
+keeps the highest-priority tests and leaves breadth to the Tier-2
+batched full suite, which already runs everything on the exact
+stacked tree before any merge. A capped run records the cap on its
+Tier-1 status (`[capped, breadth to Tier-2]`), so it never reads as
+full coverage.
+
+The mandatory set beside the dependent selection is two tiers. A tiny
+universal half - the compiles/parity/wiring files that cost seconds
+(parallel lane routing, composer, ren-core parity, resolve guard
+wiring) - runs on every check, outside the budget. The global
+`tests/contracts/` suite runs only when the change signals structural
+reach: it touches `library/tools/`, `native/ren-protocol/`,
+`tests/layers.py`, the contract suite itself, a capability/execution
+registry, or the selector maps the change to 4 or more `unit/`
+subsystems (the fan-out floor, measured across the `library/tools/`
+tree). The status/report line names which mandatory half ran and why,
+so a contracts-skipped run never reads as a contracts-passed run.
 
 ## Replay benchmark (why incremental evidence cannot replace the gate yet)
 

@@ -1,11 +1,12 @@
-"""What a PR's check runs: its dependent selection plus the always-run set.
+"""What a PR's check runs: its dependent selection plus the mandatory set.
 
 The dependent half is COMPUTED, not judged
 (`scripts/select_dependent_tests.py`: backward what the change uses,
-forward what uses the change). The always-run half is the cross-cutting
-contract suite no filename predicts (Firstmate spec 1). A PR whose diff
-touches nothing testable still runs the always-run half: "no selection"
-is never "no check".
+forward what uses the change). The mandatory half is TWO TIERS: a
+tiny universal set runs on every check, and `tests/contracts/` runs
+only when the change signals structural reach (`mandatory_for`). A PR
+whose diff touches nothing testable still runs the universal half:
+"no selection" is never "no check".
 """
 
 from __future__ import annotations
@@ -98,6 +99,106 @@ def dependent_distances(paths: list, repo: str = REPO_ROOT) -> dict:
     return distances
 
 
+def loop_subsystems(paths: list, repo: str = REPO_ROOT) -> list:
+    """The `unit/` subsystems a change reaches, sorted and deduped.
+
+    One `--loop` subprocess over the whole change (not one per file):
+    a single file reaching N subsystems necessarily trips the union,
+    and a change whose files jointly cover N is broad enough to count
+    (erring WIDE runs contracts more often, never less). Empty for an
+    empty diff or for changes the selector maps nowhere (docs-only).
+    """
+    if not paths:
+        return []
+    result = subprocess.run(
+        ["python3", SELECT_SCRIPT, "--loop", *paths],
+        capture_output=True, encoding="utf-8", check=False, timeout=300,
+        cwd=repo, env={**os.environ, "REN_SELECT_ROOT": repo})
+    if result.returncode != 0:
+        raise RuntimeError("select_dependent_tests --loop failed: "
+                           f"{result.stderr.strip()}")
+    subsystems = set()
+    for line in result.stdout.splitlines():
+        entry = line.strip().rstrip("/")
+        parts = entry.split("/")
+        if len(parts) == 3 and parts[0] == "tests" and parts[1] == "unit":
+            subsystems.add(parts[2])
+    return sorted(subsystems)
+
+
+def mandatory_for(paths: list, repo: str = REPO_ROOT) -> dict:
+    """The mandatory two tiers for a change: universal always, contracts
+    when the change signals structural reach.
+
+    Returns {entries, contracts, reason}: entries is what the check
+    must run beyond its dependent selection; contracts names whether
+    the contract suite is among them; reason is the recorded why, so a
+    contracts-skipped run never reads as a contracts-passed run. The
+    signals, cheapest first: the change touches the contract suite or
+    the test-layout contract itself; a capability/execution registry by
+    name; a structurally shared prefix (`library/tools/`,
+    `native/ren-protocol/`); or the selector maps the change to
+    >= config.STRUCTURAL_FANOUT_SUBSYSTEMS `unit/` subsystems.
+    """
+    universal = list(config.ALWAYS_RUN_UNIVERSAL)
+    for path in paths:
+        normalized = path.strip()
+        for owned in config.STRUCTURAL_FILES:
+            if (normalized == owned.rstrip("/")
+                    or (owned.endswith("/")
+                        and normalized.startswith(owned))):
+                return {"entries": universal + [config.CONTRACTS_DIR],
+                        "contracts": True,
+                        "reason": (f"change touches the contract suite "
+                                   f"itself ({path})")}
+        for registry in config.STRUCTURAL_REGISTRIES:
+            if (normalized == registry.rstrip("/")
+                    or (registry.endswith("/")
+                        and normalized.startswith(registry))):
+                return {"entries": universal + [config.CONTRACTS_DIR],
+                        "contracts": True,
+                        "reason": (f"change touches capability/execution "
+                                   f"registry {path}")}
+        for prefix in config.STRUCTURAL_PREFIXES:
+            if normalized.startswith(prefix):
+                return {"entries": universal + [config.CONTRACTS_DIR],
+                        "contracts": True,
+                        "reason": (f"change touches structurally shared "
+                                   f"prefix {prefix} ({path})")}
+    if not paths:
+        return {"entries": universal, "contracts": False,
+                "reason": "empty diff - no structural signal"}
+    try:
+        subsystems = loop_subsystems(paths, repo)
+    except RuntimeError as exc:
+        # A selection the index cannot map is not evidence of a narrow
+        # change: fail CLOSED toward running the contract suite.
+        return {"entries": universal + [config.CONTRACTS_DIR],
+                "contracts": True,
+                "reason": f"fan-out unmeasurable ({exc}) - running contracts"}
+    if len(subsystems) >= config.STRUCTURAL_FANOUT_SUBSYSTEMS:
+        return {"entries": universal + [config.CONTRACTS_DIR],
+                "contracts": True,
+                "reason": (f"change reaches {len(subsystems)} unit "
+                           f"subsystems ({', '.join(subsystems)}) - "
+                           f"at the {config.STRUCTURAL_FANOUT_SUBSYSTEMS} "
+                           f"fan-out floor")}
+    reached = ", ".join(subsystems) if subsystems else "nothing testable"
+    return {"entries": universal, "contracts": False,
+            "reason": (f"no structural signal: change reaches "
+                       f"{len(subsystems)} subsystem(s) ({reached})")}
+
+
+def mandatory_description(mandatory: dict) -> str:
+    """The report line's mandatory half: which tier ran and why."""
+    entries = ", ".join(mandatory["entries"])
+    if mandatory["contracts"]:
+        return (f"mandatory(universal+contracts: {entries}; "
+                f"contracts included - {mandatory['reason']})")
+    return (f"mandatory(universal only: {entries}; contracts skipped - "
+            f"{mandatory['reason']})")
+
+
 def direct_tests_for(paths: list, repo: str = REPO_ROOT) -> list:
     """The uncapped floor of a selection: changed test files themselves
     plus each changed module's same-stem test file, when the checkout
@@ -141,19 +242,24 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
     historical failure rate (flaky-before-quiet when distances tie).
     Costs come from historical per-test durations; files with no
     measurement cost the unknown-file estimate, never zero. The
-    always-run cross-cutting set stays mandatory OUTSIDE the budget:
-    no filename predicts those failures, so the budget must not eat
-    them.
+    universal mandatory half stays OUTSIDE the budget: no filename
+    predicts those failures, so the budget must not eat them. The
+    contract suite rides along only when the change signals structural
+    reach (`mandatory_for`); a contracts-skipped run records its reason
+    instead of reading as a contracts-passed run.
 
     Returns {paths, capped, dependent_total, dependent_kept, budget,
     budget_seconds, estimated_seconds, deferred, deferred_paths,
-    tier2_only, tier2_only_deferred}: capped is True exactly when the
-    dependent half was cut; the daemon records it on the Tier-1 status
+    tier2_only, tier2_only_deferred, mandatory_entries,
+    mandatory_contracts, mandatory_reason}: capped is True exactly when
+    the dependent half was cut; the daemon records it on the Tier-1 status
     so a budgeted run reads as partial, never as full coverage.
     `budget` carries the seconds for readers of the older file-count
     shape. `tier2_only` names the configured Tier-2-only files and
     `tier2_only_deferred` the dependent ones cut for that reason (not
     for budget), so the status line can name what Tier-1 skipped.
+    `mandatory_contracts`/`mandatory_reason` name which mandatory half
+    ran and why.
     Files in `config.TIER1_TIER2_ONLY` never run in Tier-1 - not even
     as a direct test of their own change, and not via the always-run
     directory expansion (the runner also ignores them): the Tier-2
@@ -221,7 +327,8 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
             spent += cost(path)
     capped = bool(deferred)
     selected = list(kept)
-    for entry in config.ALWAYS_RUN:
+    mandatory = mandatory_for(paths, repo)
+    for entry in mandatory["entries"]:
         if entry in tier2_only or entry in selected:
             continue
         selected.append(entry)
@@ -233,19 +340,23 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
             "deferred": len(deferred),
             "deferred_paths": deferred,
             "tier2_only": sorted(tier2_only),
-            "tier2_only_deferred": sorted(tier2_only_deferred)}
+            "tier2_only_deferred": sorted(tier2_only_deferred),
+            "mandatory_entries": [e for e in mandatory["entries"]
+                                  if e not in tier2_only],
+            "mandatory_contracts": mandatory["contracts"],
+            "mandatory_reason": mandatory["reason"]}
 
 
 def selection_for(paths: list, repo: str = REPO_ROOT) -> list:
-    """The PR check's full selection: dependent plus always-run, deduped.
+    """The PR check's full selection: dependent plus mandatory, deduped.
 
-    Always-run entries are kept even when the file is absent from this
+    Mandatory entries are kept even when the file is absent from this
     checkout (a PR that DELETES a cross-cutting test still answers for
     the suite that remains): the runner, not the selection, decides what
     exists on disk.
     """
     selected = list(dependent(paths, repo))
-    for entry in config.ALWAYS_RUN:
+    for entry in mandatory_for(paths, repo)["entries"]:
         if entry not in selected:
             selected.append(entry)
     return selected

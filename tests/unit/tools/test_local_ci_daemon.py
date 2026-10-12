@@ -556,3 +556,37 @@ def test_success_status_names_the_tier2_only_files(tmp_path, faked_github):
     assert "contract-audit" in description
     assert "gate-smoke" in description
     assert len(description) <= 140
+
+
+def test_success_status_names_which_mandatory_half_ran(
+        tmp_path, faked_github):
+    # A contracts-skipped success must never read as a
+    # contracts-passed one: the status names the half and the why.
+    pr = _pr(39)
+    skipped = {**_outcome(pr),
+               "selection_detail": {"mandatory_contracts": False,
+                                    "mandatory_reason": "docs-only change"}}
+    daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr,
+                        skipped, seen_at=1.0, slot=0)
+    description = faked_github.posts[-1][2]
+    assert "no-contracts: docs-only change" in description
+    pr = _pr(40)
+    included = {**_outcome(pr),
+                "selection_detail": {"mandatory_contracts": True,
+                                     "mandatory_reason": "registry"}}
+    daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr,
+                        included, seen_at=1.0, slot=0)
+    assert " [+contracts]" in faked_github.posts[-1][2]
+
+
+def test_legacy_records_keep_the_legacy_description(
+        tmp_path, faked_github):
+    # Records written before the two-tier policy carry no mandatory
+    # key: the description stays exactly as posted then, rather than
+    # guessing which half ran.
+    pr = _pr(41)
+    daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr,
+                        _outcome(pr), seen_at=1.0, slot=0)
+    description = faked_github.posts[-1][2]
+    assert "[+contracts]" not in description
+    assert "no-contracts" not in description

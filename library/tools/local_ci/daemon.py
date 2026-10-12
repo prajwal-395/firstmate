@@ -116,9 +116,14 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "on a fresh fetch") from exc
         capped = selection.capped_selection_for(files, checkout)
         paths = capped["paths"]
-        command = (selection.selection_command(files) + " + always-run(" +
-                   ", ".join(config.ALWAYS_RUN) + ") "
-                   + tier2_only_marker())
+        command = (selection.selection_command(files) + " + "
+                   + selection.mandatory_description(
+                       {"entries": capped.get("mandatory_entries", []),
+                        "contracts": capped.get("mandatory_contracts",
+                                                False),
+                        "reason": capped.get("mandatory_reason",
+                                             "unrecorded")})
+                   + " " + tier2_only_marker())
         if capped["capped"]:
             command += (f" [time-budget: {capped['dependent_kept']} of "
                         f"{capped['dependent_total']} dependent "
@@ -293,13 +298,27 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
     # the report line and the slugs live here.
     tier2_suffix = (" [tier2-only to Tier-2: "
                     + ", ".join(tier2_only_slugs()) + "]")
+    # Which mandatory half ran, and why: a contracts-skipped success
+    # must never read as a contracts-passed one. The full reason lives
+    # on the report line; the description carries the compact form.
+    # Records written before the two-tier policy carry no key and keep
+    # the legacy description byte-for-byte: silence over a guess.
+    detail = record.get("selection_detail") or {}
+    if "mandatory_contracts" not in detail:
+        mandatory_suffix = ""
+    elif detail["mandatory_contracts"]:
+        mandatory_suffix = " [+contracts]"
+    else:
+        why = str(detail.get("mandatory_reason") or "unrecorded")
+        mandatory_suffix = f" [no-contracts: {why[:40]}]"
     if record.get("static_failed"):
         first = record["static_failed"].splitlines()[0] or "failed"
         status, description = "failure", f"ren-ci static gate: {first}"
     elif record.get("ok"):
         status = "success"
         description = f"ren-ci: {record.get('passed', 0)} passed"
-        description += capped_suffix + tier2_suffix + reuse_suffix
+        description += (capped_suffix + mandatory_suffix + tier2_suffix
+                        + reuse_suffix)
     elif record.get("timed_out") and int(
             record.get("timeout_retries", 0) or 0) <= (
                 config.TIER1_TIMEOUT_MAX_RETRIES):

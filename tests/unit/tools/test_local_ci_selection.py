@@ -1,8 +1,10 @@
-"""The PR check selection: computed dependent tests plus the always-run set.
+"""The PR check selection: computed dependent tests plus the mandatory set.
 
 Defects caught: a PR that runs only its dependent selection and skips
-the contract suite (the 34% global-invariant shape no filename
-predicts), and a report line that cannot be pasted to reproduce the run.
+the universal compiles/parity/wiring files; a contracts-skipped run
+that reads as a contracts-passed run (the report line must name which
+mandatory half ran and why); and a report line that cannot be pasted
+to reproduce the run.
 """
 
 from library.tools.local_ci import config, hygiene, runner, selection
@@ -23,10 +25,94 @@ def _sequence(values):
     return lambda: next(iterator)
 
 
-def test_selection_always_contains_the_cross_cutting_set():
+def _full_mandatory(paths, repo=None):
+    return {"entries": list(config.ALWAYS_RUN_UNIVERSAL)
+            + [config.CONTRACTS_DIR],
+            "contracts": True, "reason": "test-only full set"}
+
+
+def test_selection_always_contains_the_universal_set():
     paths = selection.selection_for(["library/tools/beat_grid.py"])
-    for entry in config.ALWAYS_RUN:
-        assert entry in paths, f"always-run {entry} missing from selection"
+    for entry in config.ALWAYS_RUN_UNIVERSAL:
+        assert entry in paths, f"universal {entry} missing from selection"
+
+
+def test_a_docs_only_change_selects_only_the_universal_set():
+    # CI-03 acceptance: on main a docs-only change still selected
+    # `tests/contracts/`. After, it selects only the universal half
+    # with the reason recorded.
+    paths = selection.selection_for(["docs/LOCAL_CI.md"])
+    assert config.CONTRACTS_DIR not in paths
+    for entry in config.ALWAYS_RUN_UNIVERSAL:
+        assert entry in paths
+    mandatory = selection.mandatory_for(["docs/LOCAL_CI.md"])
+    assert mandatory["contracts"] is False
+    assert mandatory["reason"] != ""
+
+
+def test_a_capability_registry_change_pulls_contracts():
+    # CI-03 acceptance: a change to a capability registry still pulls
+    # the contract suite, naming the registry in the reason.
+    mandatory = selection.mandatory_for(
+        ["library/tools/capabilities.py"])
+    assert mandatory["contracts"] is True
+    assert config.CONTRACTS_DIR in mandatory["entries"]
+    assert "capabilities.py" in mandatory["reason"]
+
+
+def test_structural_prefixes_pull_contracts():
+    for changed in ["library/tools/beat_grid.py",
+                    "native/ren-protocol/src/lib.rs"]:
+        mandatory = selection.mandatory_for([changed])
+        assert mandatory["contracts"] is True, changed
+        assert config.CONTRACTS_DIR in mandatory["entries"], changed
+
+
+def test_contract_suite_and_layer_changes_pull_contracts():
+    for changed in ["tests/layers.py",
+                    "tests/contracts/test_capabilities.py"]:
+        mandatory = selection.mandatory_for([changed])
+        assert mandatory["contracts"] is True, changed
+        assert config.CONTRACTS_DIR in mandatory["entries"], changed
+
+
+def test_wide_fan_out_pulls_contracts_narrow_does_not(monkeypatch):
+    monkeypatch.setattr(
+        selection, "loop_subsystems",
+        lambda paths, repo=None: ["audio", "picture", "resolve", "tools"])
+    mandatory = selection.mandatory_for(["library/steps/step_9/f.py"])
+    assert mandatory["contracts"] is True
+    assert "4" in mandatory["reason"]
+    monkeypatch.setattr(selection, "loop_subsystems",
+                        lambda paths, repo=None: ["tools"])
+    mandatory = selection.mandatory_for(["library/steps/step_9/f.py"])
+    assert mandatory["contracts"] is False
+    assert mandatory["reason"] != ""
+
+
+def test_an_unmeasurable_fan_out_fails_closed_toward_contracts(
+        monkeypatch):
+    def boom(paths, repo=None):
+        raise RuntimeError("index unreadable")
+
+    monkeypatch.setattr(selection, "loop_subsystems", boom)
+    mandatory = selection.mandatory_for(["library/steps/step_9/f.py"])
+    assert mandatory["contracts"] is True
+
+
+def test_mandatory_description_names_the_half_and_the_why():
+    included = selection.mandatory_description(
+        {"entries": list(config.ALWAYS_RUN_UNIVERSAL)
+         + [config.CONTRACTS_DIR],
+         "contracts": True, "reason": "registry touched"})
+    assert "contracts included" in included
+    assert "registry touched" in included
+    skipped = selection.mandatory_description(
+        {"entries": list(config.ALWAYS_RUN_UNIVERSAL),
+         "contracts": False, "reason": "docs-only change"})
+    assert "contracts skipped" in skipped
+    assert "docs-only change" in skipped
+    assert f"universal only: {', '.join(config.ALWAYS_RUN_UNIVERSAL)}" in skipped
 
 
 def test_selection_is_empty_of_duplicates():
@@ -34,9 +120,15 @@ def test_selection_is_empty_of_duplicates():
     assert len(paths) == len(set(paths))
 
 
-def test_an_empty_diff_still_runs_the_always_run_set():
-    # "No selection" is never "no check": the contracts always run.
-    assert selection.selection_for([]) == list(config.ALWAYS_RUN)
+def test_an_empty_diff_still_runs_the_universal_set():
+    # "No selection" is never "no check": the universal half always
+    # runs. The contract suite does not: an empty diff carries no
+    # structural signal, and the reason says so.
+    assert (selection.selection_for([])
+            == list(config.ALWAYS_RUN_UNIVERSAL))
+    mandatory = selection.mandatory_for([])
+    assert mandatory["contracts"] is False
+    assert "empty diff" in mandatory["reason"]
 
 
 def test_pytest_argv_excludes_markers_and_drive_live_resolve():
@@ -154,6 +246,7 @@ def test_a_hub_selection_fills_the_time_budget_by_priority(
                         lambda paths, repo: dict(distances))
     monkeypatch.setattr(selection, "direct_tests_for",
                         lambda paths, repo: ["tests/unit/x/test_hub.py"])
+    monkeypatch.setattr(selection, "mandatory_for", _full_mandatory)
     result = selection.capped_selection_for(
         ["library/hub.py"], str(tmp_path), budget_seconds=15.0,
         durations=durations, failure_rates={})
@@ -165,8 +258,10 @@ def test_a_hub_selection_fills_the_time_budget_by_priority(
     assert "tests/unit/x/test_near_0.py" in result["paths"]
     assert "tests/unit/x/test_far_0.py" not in result["paths"]
     assert result["estimated_seconds"] == 15.0
-    for entry in config.ALWAYS_RUN:
+    for entry in config.ALWAYS_RUN_UNIVERSAL + (config.CONTRACTS_DIR,):
         assert entry in result["paths"]
+    assert result["mandatory_contracts"] is True
+    assert result["mandatory_reason"] != ""
     assert len(result["deferred_paths"]) == 6
 
 
@@ -248,7 +343,7 @@ def test_direct_tests_run_even_when_they_alone_exceed_the_budget(
 
 def test_always_run_stays_mandatory_outside_the_budget(
         monkeypatch, tmp_path):
-    # No filename predicts the cross-cutting contract failures, so the
+    # No filename predicts the universal failures, so the
     # budget must not eat them: they ride along whatever the dependent
     # half costs.
     distances = {"tests/unit/x/test_a.py": 1}
@@ -256,12 +351,13 @@ def test_always_run_stays_mandatory_outside_the_budget(
                         lambda paths, repo: dict(distances))
     monkeypatch.setattr(selection, "direct_tests_for",
                         lambda paths, repo: [])
+    monkeypatch.setattr(selection, "mandatory_for", _full_mandatory)
     result = selection.capped_selection_for(
         ["library/a.py"], str(tmp_path), budget_seconds=1.0,
         durations={"tests/unit/x/test_a.py": 1.0}, failure_rates={})
     assert result["capped"] is False
     assert result["estimated_seconds"] == 1.0
-    for entry in config.ALWAYS_RUN:
+    for entry in config.ALWAYS_RUN_UNIVERSAL + (config.CONTRACTS_DIR,):
         assert entry in result["paths"]
 
 

@@ -107,16 +107,65 @@ RESOLVE_DRIVING = (
     "tests/qualification/test_resolve_qualification.py",
 )
 
-# The dependent selection plus these, always: the cross-cutting suites
-# no filename predicts (Firstmate spec 1: contracts always run because
-# 34% of the suite is global-invariant shape - docs/CI_LAYERS.md).
-ALWAYS_RUN = (
-    "tests/contracts",
+# The mandatory selection is TWO TIERS, not one unconditional set
+# (CI-03): a tiny universal half runs on every check, and the global
+# contract suite runs only when the change signals structural reach
+# (`selection.mandatory_for` owns the signal; the status/report line
+# names which half ran and why, so a contracts-skipped run never reads
+# as a contracts-passed run).
+#
+# The universal half is the compiles/parity/wiring files that cost
+# seconds: measured serial durations on this machine's telemetry
+# (`~/.cache/ren/pytest-file-durations.json`, 541 files, 2026-10-12)
+# are lane_routing 3.7s, composer 1.6s, ren_core_parity 0.3s,
+# resolve_guard_wiring 15.7s - ~21s serial together (~10s wall at
+# -n 2), so they stay mandatory OUTSIDE the dependent time budget.
+ALWAYS_RUN_UNIVERSAL = (
     "tests/tooling/test_parallel_lane_routing.py",
     "tests/unit/resolve/test_composer.py",
     "tests/unit/resolve/test_ren_core_parity.py",
     "tests/contracts/test_resolve_guard_wiring.py",
 )
+
+# The conditional half: the global contract suite - the
+# registry/schema/capability/source-policy invariants over the whole
+# engine no filename predicts (34% of the suite is global-invariant
+# shape - docs/CI_LAYERS.md). It runs when the change signals
+# structural reach, never unconditionally.
+CONTRACTS_DIR = "tests/contracts"
+
+# Path signals of structural reach: shared tool modules every
+# subsystem imports, the worker-protocol boundary, the test-layout
+# contract itself, and the capability/execution registries by name (a
+# registry change names the registry in the reason, even though the
+# `library/tools/` prefix below already covers those paths).
+STRUCTURAL_PREFIXES = (
+    "library/tools/",
+    "native/ren-protocol/",
+)
+STRUCTURAL_FILES = (
+    "tests/layers.py",
+    "tests/contracts/",
+)
+STRUCTURAL_REGISTRIES = (
+    "library/tools/capabilities.py",
+    "library/tools/operations.py",
+    "library/tools/dag_adapter.py",
+    "library/tools/capability_outputs.py",
+    "library/tools/execution/",
+)
+
+# The fan-out signal: a change the selector maps to this many `unit/`
+# subsystems (or more) counts as structurally reaching even when no
+# path above names it. Measured 2026-10-12 with
+# `scripts/select_dependent_tests.py --loop`: all 507
+# `library/tools/*.py` files reach a median of 2 subsystems (26 at 0,
+# 136 at 1, 118 at 2, 75 at 3, 47 at 4, 26 at 5, 14 at 6, 64 at 7, one
+# each at 8 and 9); pipeline step files reach 6-7; docs/config-only
+# changes reach 0. Four subsystems is the top-30% tail: leaf-module
+# changes (1-3) stay on the universal half alone, while step-level and
+# shared-module breadth still pulls the contract suite.
+STRUCTURAL_FANOUT_SUBSYSTEMS = 4
 
 # Tier-1 never runs these files; the Tier-2 batched full suite always
 # does. Each dominates the time budget alone (measured serial seconds

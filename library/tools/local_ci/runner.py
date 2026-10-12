@@ -63,8 +63,8 @@ def pytest_argv(paths: list, workers: int = 2, checkout: str = "") -> list:
     workers follows the machine (load.targets): one job may fan out to
     -n 2, three jobs run -n 1 each. Never above 2 (spec 3's per-run
     bound stands - the parallelism the refinement adds is ACROSS PRs).
-    The Tier-2-only files ride as `--ignore` so the always-run
-    `tests/contracts` directory cannot re-admit the audit through
+    The Tier-2-only files ride as `--ignore` so the conditional
+    `tests/contracts` mandatory entry cannot re-admit the audit through
     directory expansion; `checkout` (the tree under test) filters the
     ignores to files it has, because `--ignore` on a path a PR deleted
     fails the run for somebody else's deletion. Without a checkout
