@@ -2530,7 +2530,19 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     behind_segments = behind_data.get("segments", []) or []
     behind_mattes: list = []
     behind_composites: list = []
-    if behind_segments:
+    # ── Behind-object composites (MU-16 layered mode) ──
+    # The same punch under a tracked foreground object that is not
+    # the person (library/tools/behind_subject.apply_behind_object).
+    # The planner names these through `behind_object_overlays`; today
+    # nothing plans one, so this reads empty until a plan does - an
+    # absent layer reads as above the picture, never as a quiet
+    # behind, the same rule the subject mode keeps.
+    object_data = (motion_graphics_overlay_data.get(
+        "behind_object_overlays", {}) or {})
+    object_segments = object_data.get("segments", []) or []
+    behind_object_mattes: list = []
+    behind_object_composites: list = []
+    if behind_segments or object_segments:
         from library.tools.behind_subject import apply_behind_subject
         # 1.06's segmentation files live in THAT step's directory -
         # resolved through the layout, never composed by hand. A raw
@@ -2615,6 +2627,36 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                 _seg["lane"] = _lanes.index(_row)
             _mg_overlay["available"] = True
             _mg_overlay["total_segments"] = len(_mg_list)
+        if object_segments:
+            from library.tools.behind_subject import apply_behind_object
+            _placed_object, _object_mattes, behind_object_composites = (
+                apply_behind_object(
+                    object_segments, _seg_by_clip, clip_at=_clip_at,
+                    matte_dir=_matte_dir, precomp_dir=_precomp_dir,
+                    timeline_fps=float(fps),
+                    clip_metadata=clip_metadata,
+                    matte_stems={(cid, clip["label"]):
+                                 f"{cid}_{clip['label']}"
+                                 for clip in _placed
+                                 for cid in [_source_to_cid.get(
+                                     clip.get("source_file"))]
+                                 if cid is not None}))
+            behind_object_mattes.extend(_object_mattes)
+            subject_mattes.extend(_object_mattes)
+            _mg_overlay = motion_graphics_overlay_data.setdefault(
+                "motion_graphics_overlay", {})
+            _mg_list = _mg_overlay.setdefault("segments", [])
+            _mg_list.extend(_placed_object)
+            if _placed_object:
+                _spans = [(round(float(s.get("timeline_start", 0)) * fps),
+                           round(float(s.get("timeline_end", 0)) * fps))
+                          for s in _mg_list]
+                _packed = allocate_non_overlapping_rows(_spans, base_index=0)
+                _lanes = sorted({row for _, row in _packed})
+                for _seg, (_, _row) in zip(_mg_list, _packed):
+                    _seg["lane"] = _lanes.index(_row)
+                _mg_overlay["available"] = True
+                _mg_overlay["total_segments"] = len(_mg_list)
 
     # ── The subject-safe conform's own comp (§10.3) ──
     # `_conform_fields` decided the geometry; this is the only thing that
@@ -2655,11 +2697,11 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     # from under them. The combination refuses by name here - all
     # per-clip effects are final at this point - rather than building
     # a misaligned title (library/tools/behind_subject.py).
-    if behind_composites:
+    if behind_composites or behind_object_composites:
         from library.tools.behind_subject import (
             assert_no_geometric_overlap)
         _behind_by_label: dict = {}
-        for _comp in behind_composites:
+        for _comp in behind_composites + behind_object_composites:
             for _pre in _comp.get("precomps", []):
                 _behind_by_label.setdefault(
                     _pre.get("label", ""), []).append(
@@ -3891,6 +3933,11 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # is a precomp that verified.
         "behind_subject_mattes": behind_mattes,
         "behind_subject_composites": behind_composites,
+        # Behind-object composites (MU-16): same shape, same validator -
+        # a title layered under a tracked foreground object that is not
+        # the person.
+        "behind_object_mattes": behind_object_mattes,
+        "behind_object_composites": behind_object_composites,
         # What step 1.06 was asked to segment and why - the trigger
         # stated on the run, carried so the mattes above trace to the
         # plans that wanted them.
@@ -3909,6 +3956,10 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # placeable form travels inside `motion_graphics_overlay`.
         "behind_subject_overlays": motion_graphics_overlay_data.get(
             "behind_subject_overlays", {}),
+        # Behind-object title segments, as rendered - carried so each
+        # object precomp above is traceable to the title it punched.
+        "behind_object_overlays": motion_graphics_overlay_data.get(
+            "behind_object_overlays", {}),
         # Timed text moments the brand template declared, already
         # rendered by 4.06. Carried here so the segments are inside
         # manifest validation and the renderer can place them on V6 -

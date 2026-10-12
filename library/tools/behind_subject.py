@@ -75,6 +75,14 @@ class BehindSubjectRefused(RenRefusal):
 #: plan entry that asked for it.
 PRECOMPOSED_LAYER = "behind_subject"
 
+#: The layer value a title layered under a foreground OBJECT carries.
+#: Same carriage as a behind-subject precomp (premultiplied ``qtrle``
+#: on a normal overlay row, the holes doing the work, not the row);
+#: the matte is a 1.06 tracked object that is not the person, so a
+#: title passes behind a laptop, a dish, a barbell - whatever the
+#: foreground holds - instead of behind the speaker (MU-16).
+PRECOMPOSED_OBJECT_LAYER = "behind_object"
+
 
 #: Per-clip effect keys that move the picture's pixels. A behind
 #: precomp punches its holes at the source pixels, so any of these on
@@ -193,6 +201,57 @@ def ground_segment(segment: dict, seg_result: dict | None, *,
         }
     return {**segment, "clip_id": clip_id,
             "object_id": obj["object_id"]}, None
+
+
+def ground_object_segment(segment: dict, seg_result: dict | None, *,
+                          clip_id: str) -> tuple[dict | None, dict | None]:
+    """The grounding half for the behind-OBJECT mode: one behind segment
+    meets a real tracked foreground object that is NOT the person.
+
+    `segment` is one `behind_object_overlays` segment; `seg_result` is
+    that clip's 1.06 segmentation JSON, as loaded. The object is the
+    first tracked entry carrying `masks_rle` whose label is not the
+    face-seeded subject - a laptop, a dish, a barbell, whatever 1.06
+    tracked. Returns `(grounded, None)` or `(None, refusal)`; the
+    refusal is terminal for the same reason the subject one's is: a
+    behind request that cannot be delivered must refuse the run, never
+    draw on top. In particular a clip whose only tracked object IS the
+    person refuses here - that placement is behind_subject's, wearing
+    this mode's name if it were built.
+    """
+    label = str(segment.get("segment_id") or segment.get("index", "?"))
+    if not seg_result:
+        return None, {
+            "reason": "no_segmentation",
+            "detail": (
+                f"Behind-object segment {label} plays over clip "
+                f"{clip_id}, and no 1.06 segmentation reached the "
+                f"compile for it - so the object resolves to nothing. "
+                f"Not composited rather than composited on top."),
+        }
+    obj = next(
+        (o for o in (seg_result or {}).get("objects", []) or []
+         if o.get("label") != FACE_SEED_LABEL and o.get("masks_rle")),
+        None)
+    if obj is None:
+        tracked = [o.get("label") for o in
+                   (seg_result or {}).get("objects", []) or []]
+        only_person = (len(tracked) == 1 and tracked[0] == FACE_SEED_LABEL)
+        return None, {
+            "reason": "object_not_tracked",
+            "detail": (
+                f"Behind-object segment {label} plays over clip "
+                f"{clip_id}, and no foreground object is tracked there - "
+                f"so there is no object matte to composite under"
+                + (" (the only tracked object is the person - that "
+                   "placement is behind_subject's)" if only_person else
+                   " (tracked: "
+                   + (", ".join(repr(t) for t in tracked)
+                      if tracked else "nothing") + ")") + "."),
+        }
+    return {**segment, "clip_id": clip_id,
+            "object_id": obj["object_id"],
+            "object_label": obj.get("label")}, None
 
 
 def precomposite_title_under_matte(
@@ -524,6 +583,152 @@ def apply_behind_subject(segments: list[dict],
                 "clip_id": cid,
                 "label": clip_label,
                 "matte_route": matte_route(record),
+                "overlay_path": precomp_path,
+                "timeline_start": overlap_in,
+                "timeline_end": overlap_out,
+            })
+            hit_clips.append(cid)
+        per_segment.append({
+            "segment_id": label,
+            "timeline_start": start,
+            "timeline_end": end,
+            "clips": hit_clips,
+            "precomps": seg_precomps,
+        })
+    return placed, mattes, per_segment
+
+
+def apply_behind_object(segments: list[dict],
+                        seg_by_clip: dict[str, dict | None], *,
+                        clip_at: Any,
+                        matte_dir: str,
+                        precomp_dir: str,
+                        timeline_fps: float,
+                        clip_metadata: dict,
+                        matte_stems: dict[str, str] | None = None,
+                        ) -> tuple[list[dict], list[dict], list[dict]]:
+    """Ground behind_OBJECT segments and precomposite each under its object.
+
+    The layered mode of MU-16: the same punch as a behind-subject title
+    (per frame ``overlay_alpha = title_alpha x (1 - object_matte)``,
+    premultiplied ``qtrle`` on a normal overlay row), but the matte is
+    a tracked foreground object that is not the person - grounded by
+    `ground_object_segment` from the clip's 1.06 SAM 2 segmentation,
+    written by `write_subject_matte` over that object's samples. There
+    is no delivery-tier person route here: objects have no M3d region
+    track, so the 2 fps held matte is the route, and a fast-moving
+    object under a behind title is a plan the mode refuses by
+    measurement, never by silence - `validate_matte` covers the window.
+
+    `clip_at`, `clip_metadata` and the return shape are
+    `apply_behind_subject`'s: `(placed, mattes, per_segment)`, with
+    `placed` carrying layer `PRECOMPOSED_OBJECT_LAYER`. Raises
+    `BehindSubjectRefused` naming the first segment that cannot be
+    delivered - no segmentation, no tracked object, only the person
+    tracked, no clip under the span, a matte at the wrong size, a title
+    disk does not have, or a precomposite that does not verify.
+    """
+    matte_stems = matte_stems or {}
+    placed: list[dict] = []
+    mattes: list[dict] = []
+    per_segment: list[dict] = []
+
+    def _refuse(detail: str) -> None:
+        raise BehindSubjectRefused(
+            "a behind_object title has no usable matte",
+            detail,
+            "Either segment a matte for the clip the span plays over "
+            "(step 1.06 runs wherever a behind plan names a "
+            "clip - check its trigger record on the run), or re-plan "
+            "the entry with layer above.")
+
+    for seg_index, segment in enumerate(segments or []):
+        label = str(segment.get("segment_id")
+                    or segment.get("index", "?"))
+        try:
+            fps = float(timeline_fps)
+        except (TypeError, ValueError):
+            fps = 30.0
+        start = float(segment.get("timeline_start", 0.0))
+        end = float(segment.get("timeline_end", start))
+        clips = clip_at(start, end) or []
+        if not clips:
+            _refuse(
+                f"Behind-object segment {label} spans {start}s to "
+                f"{end}s and no placed picture clip covers that span - "
+                f"so there is no picture to composite the title into.")
+        seg_precomps: list[dict] = []
+        hit_clips: list[str] = []
+        for clip in clips:
+            cid = clip.get("clip_id", "")
+            meta = (clip_metadata or {}).get(cid, {})
+            width, height = meta.get("width"), meta.get("height")
+            overlap_in = max(float(clip.get("timeline_in", 0.0)), start)
+            overlap_out = min(float(clip.get("timeline_out", 0.0)), end)
+            dur = max(int(round((overlap_out - overlap_in) * fps)), 0)
+            if dur <= 0:
+                _refuse(
+                    f"Behind-object segment {label} meets clip "
+                    f"{cid} over no frames - so there is no played "
+                    f"window to write a matte for.")
+            seg = seg_by_clip.get(cid) or {}
+            sample_fps = float(seg.get("sample_fps") or 2.0)
+            clip_label = str(clip.get("label", ""))
+            stem = matte_stems.get(
+                (cid, clip_label),
+                matte_stems.get(cid, f"{cid}_{clip_label}"))
+            window_stem = f"{stem}_behind_object_s{seg_index}"
+            clip_offset = max(0.0, overlap_in
+                              - float(clip.get("timeline_in", 0.0)))
+            window_in = float(clip.get("source_in", 0.0)) + clip_offset
+            resolution = (height, width) if width and height else None
+            grounded, refusal = ground_object_segment(
+                segment, seg, clip_id=cid)
+            if refusal is not None:
+                _refuse(refusal["detail"])
+            try:
+                record = write_subject_matte(
+                    seg, grounded["object_id"], matte_dir,
+                    window_stem,
+                    timeline_fps=fps, played_frames=dur,
+                    resolution=resolution,
+                    start_sample=int(window_in * sample_fps))
+            except UnknownSubjectObject as exc:
+                _refuse(str(exc))
+            record["object_label"] = grounded.get("object_label")
+            errors = validate_matte(
+                record, played_frames=dur,
+                source_resolution=((height, width)
+                                   if width and height else None))
+            if errors:
+                _refuse("; ".join(errors))
+            mattes.append(record)
+            trim_in = max(0, int(round((overlap_in - start) * fps)))
+            title_paths, title_refusal = _title_window(
+                segment, trim_in, dur)
+            if title_refusal is not None:
+                _refuse(title_refusal)
+            precomp_path = os.path.join(
+                precomp_dir, f"{window_stem}_precomp.mov")
+            precomposite_title_under_matte(
+                title_paths, record["files"], precomp_path,
+                fps=fps, segment_id=label, clip_id=cid)
+            placed.append({
+                "segment_id": label,
+                "layer": PRECOMPOSED_OBJECT_LAYER,
+                "overlay_path": precomp_path,
+                "timeline_start": overlap_in,
+                "timeline_end": overlap_out,
+                "total_frames": dur,
+                "format": OVERLAY_FORMAT_NAME,
+                "has_alpha": True,
+                "fps": fps,
+            })
+            seg_precomps.append({
+                "clip_id": cid,
+                "label": clip_label,
+                "matte_route": matte_route(record),
+                "object_label": grounded.get("object_label"),
                 "overlay_path": precomp_path,
                 "timeline_start": overlap_in,
                 "timeline_end": overlap_out,

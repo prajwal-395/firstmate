@@ -148,6 +148,11 @@ def _build_region_stats(project, clip_ids, root):
     return region_stats.build_project_region_stats(project, clip_ids, root)
 
 
+def _build_depth(project, clip_ids, root):
+    from library.tools import depth
+    return depth.build_project_depth(project, clip_ids, root)
+
+
 def _build_clock(project, _clip_ids, root):
     from library.tools import conversation_clock
     return conversation_clock.build_project(project, root)
@@ -206,6 +211,10 @@ LANES: tuple = (
          "luma, colour, skin and sharpness inside each person region",
          (SM.SLOT_REGION_STATS,), (SM.SLOT_FRAMES_INDEX, SM.SLOT_REGIONS),
          False, True, _build_region_stats, "region-stats-v1-m2"),
+    Lane("depth", "M3g",
+         "relative-depth medians inside each person region",
+         (SM.SLOT_DEPTH,), (SM.SLOT_FRAMES_INDEX, SM.SLOT_REGIONS),
+         True, True, _build_depth, "depth-v1-m2"),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
     Lane("events", "M7", "on-screen and speaking spans per person",

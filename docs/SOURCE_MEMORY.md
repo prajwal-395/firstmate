@@ -28,6 +28,7 @@ copy it; nothing goes into `pipeline_data.json`.
                                  # M3d - written (library/tools/person_regions.py)
   saliency.json                  # M3e - written (library/tools/attention_saliency.py)
   region_stats.json              # M3f - written (library/tools/region_stats.py)
+  depth.json                     # M3g - written (library/tools/depth.py)
   scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
                                  #   library/tools/analysis/vision_pipeline_v3.py)
   sound.json                     # M5  - written (step 1.04 via write_sound_memory in
@@ -521,6 +522,22 @@ the cells whose whole stencil lies in the region.
 ```sh
 python3 -m library.tools.region_stats build <project>
 python3 -m library.tools.region_stats status <project>
+```
+
+## M3g `depth.json` (written)
+
+Owner: `library/tools/depth.py` (the module docstring holds what each
+reading is and is not). Per M3d sample, one median relative depth per
+person region (brighter is nearer), on the source's pooled 2nd-98th
+percentile normalisation; the maps themselves are estimated on demand
+and never stored. Readers: `project_model_evidence`, which migrates
+every median into `Observation(modality="depth")`, and
+`behind_subject.apply_behind_object`, which layers a title under a
+tracked foreground object.
+
+```sh
+python3 -m library.tools.depth build <project>
+python3 -m library.tools.depth status <project>
 ```
 
 ## M7 `events.json` (written)

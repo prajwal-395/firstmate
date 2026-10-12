@@ -161,6 +161,7 @@ SLOT_EXPRESSIONS = "expressions.json"          # M3c - written by expression_cla
 SLOT_REGIONS = "regions.json"                  # M3d - written by person_regions.py
 SLOT_SALIENCY = "saliency.json"                # M3e - written by attention_saliency.py
 SLOT_REGION_STATS = "region_stats.json"        # M3f - written by region_stats.py
+SLOT_DEPTH = "depth.json"                      # M3g - written by depth.py
 SLOT_SCENES = "scenes.json"                    # M4 - written by vision_pipeline_v3.py
 SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
@@ -179,7 +180,8 @@ SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships
 # SLOT_EXPRESSIONS (M3c) (`expression_classifier.py`), SLOT_REGIONS (M3d)
 # (`person_regions.py`, plus its content-addressed mask sidecar),
 # SLOT_SALIENCY (M3e) (`attention_saliency.py`),
-# SLOT_REGION_STATS (M3f) (`region_stats.py`),
+# SLOT_REGION_STATS (M3f) (`region_stats.py`), SLOT_DEPTH (M3g)
+# (`depth.py`),
 # SLOT_WORLD_MODEL (M9) (`world_model.py`) and SLOT_RELATIONSHIPS (M10)
 # (`relationships.py`).
 

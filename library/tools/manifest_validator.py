@@ -328,18 +328,20 @@ def _check_subject_mattes_cover_windows(manifest: dict) -> list[str]:
     from library.tools.subject_grade import validate_matte
 
     errors = []
-    for key in ("subject_mattes", "behind_subject_mattes"):
+    for key in ("subject_mattes", "behind_subject_mattes",
+                "behind_object_mattes"):
         for record in (manifest.get(key, []) or []):
             for error in validate_matte(
                     record, played_frames=record.get("frame_count", 0)):
                 errors.append(f"{key}: {error}")
-    for segment in _overlay_segments(manifest, "behind_subject_overlays"):
-        path = segment.get("overlay_path", "")
-        if path and not os.path.exists(path):
-            errors.append(
-                f"behind_subject_overlays: segment at "
-                f"{segment.get('timeline_start')}s names title file "
-                f"{path!r} and disk does not have it.")
+    for key in ("behind_subject_overlays", "behind_object_overlays"):
+        for segment in _overlay_segments(manifest, key):
+            path = segment.get("overlay_path", "")
+            if path and not os.path.exists(path):
+                errors.append(
+                    f"{key}: segment at "
+                    f"{segment.get('timeline_start')}s names title file "
+                    f"{path!r} and disk does not have it.")
     return errors
 
 
