@@ -1,0 +1,248 @@
+{
+ "manifest_version": 1,
+ "harness_version": 1,
+ "created_at": "2026-10-12T16:49:22+00:00",
+ "measured_head_sha": "ad27452656d9445e5336f533f731d793704e7be1",
+ "tolerance": {
+  "rel": 1e-09,
+  "abs": 1e-12,
+  "basis": "float64 JSON round-trip noise; bounds the mechanical reproduction check only, not an evaluation bar (captain call C1 stays open)"
+ },
+ "categories": [
+  {
+   "key": "static_classroom",
+   "footage_type": "Static classroom",
+   "tests": "Sparse events and low information density",
+   "status": "absent",
+   "reason": "no classroom footage under the declared projects root, podcast media folder or shared assets (scout survey at a3cd2dd)",
+   "sources": []
+  },
+  {
+   "key": "street",
+   "footage_type": "Times Square/street footage",
+   "tests": "Continuous movement and high novelty",
+   "status": "absent",
+   "reason": "no continuous high-motion street footage under the declared roots (scout survey at a3cd2dd)",
+   "sources": []
+  },
+  {
+   "key": "podcast",
+   "footage_type": "Podcast/interview",
+   "tests": "Speech, faces, retakes, reactions",
+   "status": "covered",
+   "reason": "7 GEO podcast MXF with M1 transcripts (2854 utterances), M3 faces and M7/M8 events on this machine",
+   "sources": [
+    {
+     "clip_id": "LCATL0013",
+     "digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+     "duration_seconds": 4099.5955,
+     "size_bytes": 50216119344,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0013.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0012",
+     "digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+     "duration_seconds": 288.955333,
+     "size_bytes": 3514985520,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LC4930",
+     "digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "duration_seconds": 225.225,
+     "size_bytes": 2721983536,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4931",
+     "digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+     "duration_seconds": 287.620667,
+     "size_bytes": 3485794864,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LCATL0011",
+     "digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+     "duration_seconds": 214.547667,
+     "size_bytes": 2622977072,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4932",
+     "digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+     "duration_seconds": 4941.102833,
+     "size_bytes": 59972918320,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4932.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0014",
+     "digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+     "duration_seconds": 838.003833,
+     "size_bytes": 10275455024,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    }
+   ]
+  },
+  {
+   "key": "multicam_podcast",
+   "footage_type": "Multicamera podcast",
+   "tests": "Clock synchronization and alternate coverage",
+   "status": "covered",
+   "reason": "3 measured M6 clock groups: 82532ce9 (LCATL0013/LC4932/LCATL0014), daa4bb0d (LCATL0012/LC4931), 71933672 (LC4930/LCATL0011)",
+   "sources": [
+    {
+     "clip_id": "LCATL0013",
+     "digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+     "duration_seconds": 4099.5955,
+     "size_bytes": 50216119344,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0013.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0012",
+     "digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+     "duration_seconds": 288.955333,
+     "size_bytes": 3514985520,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LC4930",
+     "digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "duration_seconds": 225.225,
+     "size_bytes": 2721983536,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4931",
+     "digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+     "duration_seconds": 287.620667,
+     "size_bytes": 3485794864,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LCATL0011",
+     "digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+     "duration_seconds": 214.547667,
+     "size_bytes": 2622977072,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4932",
+     "digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+     "duration_seconds": 4941.102833,
+     "size_bytes": 59972918320,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4932.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0014",
+     "digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+     "duration_seconds": 838.003833,
+     "size_bytes": 10275455024,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    }
+   ]
+  },
+  {
+   "key": "product",
+   "footage_type": "Product footage",
+   "tests": "Object recognition and changing visual focus",
+   "status": "absent",
+   "reason": "no object-rich product footage under the declared roots; only incidental objects in podcast frames (scout survey at a3cd2dd)",
+   "sources": []
+  },
+  {
+   "key": "cinematic_broll",
+   "footage_type": "Cinematic B-roll",
+   "tests": "Motion, composition, exposure and visual filtering",
+   "status": "absent",
+   "reason": "no B-roll library on the machine; shared assets hold sfx/music/remotion, not footage (scout survey at a3cd2dd)",
+   "sources": []
+  },
+  {
+   "key": "noisy_audio",
+   "footage_type": "Noisy or quiet audio",
+   "tests": "VAD, acoustic activity and transcription coverage",
+   "status": "partly",
+   "reason": "partly: near-silent ISO channel measured on all 7 sources (CH2 -71..-75 dB vs program CH1 -29..-34 dB); no noisy-environment material on the machine",
+   "sources": [
+    {
+     "clip_id": "LCATL0013",
+     "digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+     "duration_seconds": 4099.5955,
+     "size_bytes": 50216119344,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0013.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0012",
+     "digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+     "duration_seconds": 288.955333,
+     "size_bytes": 3514985520,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LC4930",
+     "digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "duration_seconds": 225.225,
+     "size_bytes": 2721983536,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4931",
+     "digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+     "duration_seconds": 287.620667,
+     "size_bytes": 3485794864,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+     "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+    },
+    {
+     "clip_id": "LCATL0011",
+     "digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+     "duration_seconds": 214.547667,
+     "size_bytes": 2622977072,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+     "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+     "clip_id": "LC4932",
+     "digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+     "duration_seconds": 4941.102833,
+     "size_bytes": 59972918320,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4932.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    },
+    {
+     "clip_id": "LCATL0014",
+     "digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+     "duration_seconds": 838.003833,
+     "size_bytes": 10275455024,
+     "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+     "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+    }
+   ]
+  },
+  {
+   "key": "complex_action",
+   "footage_type": "Complex action",
+   "tests": "Brief events and temporal understanding",
+   "status": "absent",
+   "reason": "no fast brief-event footage under the declared roots; podcast gestures are the closest proxy (scout survey at a3cd2dd)",
+   "sources": []
+  }
+ ]
+}

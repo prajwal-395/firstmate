@@ -1,0 +1,1279 @@
+{
+ "harness_version": 1,
+ "measured_at": "2026-10-12T16:49:54+00:00",
+ "measured_head_sha": "ad27452656d9445e5336f533f731d793704e7be1",
+ "memory_root": "/Users/prajwal/.local/share/vep/source_memory",
+ "sources": [
+  {
+   "clip_id": "LCATL0013",
+   "digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+   "duration_seconds": 4099.5955,
+   "size_bytes": 50216119344,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0013.MXF",
+   "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+  },
+  {
+   "clip_id": "LCATL0012",
+   "digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+   "duration_seconds": 288.955333,
+   "size_bytes": 3514985520,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+   "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+  },
+  {
+   "clip_id": "LC4930",
+   "digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "duration_seconds": 225.225,
+   "size_bytes": 2721983536,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+  },
+  {
+   "clip_id": "LC4931",
+   "digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+   "duration_seconds": 287.620667,
+   "size_bytes": 3485794864,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+   "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+  },
+  {
+   "clip_id": "LCATL0011",
+   "digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+   "duration_seconds": 214.547667,
+   "size_bytes": 2622977072,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+  },
+  {
+   "clip_id": "LC4932",
+   "digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+   "duration_seconds": 4941.102833,
+   "size_bytes": 59972918320,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4932.MXF",
+   "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+  },
+  {
+   "clip_id": "LCATL0014",
+   "digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+   "duration_seconds": 838.003833,
+   "size_bytes": 10275455024,
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+  }
+ ],
+ "absent_categories": [
+  {
+   "key": "static_classroom",
+   "footage_type": "Static classroom",
+   "reason": "no classroom footage under the declared projects root, podcast media folder or shared assets (scout survey at a3cd2dd)"
+  },
+  {
+   "key": "street",
+   "footage_type": "Times Square/street footage",
+   "reason": "no continuous high-motion street footage under the declared roots (scout survey at a3cd2dd)"
+  },
+  {
+   "key": "product",
+   "footage_type": "Product footage",
+   "reason": "no object-rich product footage under the declared roots; only incidental objects in podcast frames (scout survey at a3cd2dd)"
+  },
+  {
+   "key": "cinematic_broll",
+   "footage_type": "Cinematic B-roll",
+   "reason": "no B-roll library on the machine; shared assets hold sfx/music/remotion, not footage (scout survey at a3cd2dd)"
+  },
+  {
+   "key": "complex_action",
+   "footage_type": "Complex action",
+   "reason": "no fast brief-event footage under the declared roots; podcast gestures are the closest proxy (scout survey at a3cd2dd)"
+  }
+ ],
+ "coverage": {
+  "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "measured",
+    "reason": "scenes.json present"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "unmeasured",
+    "reason": "verdicts.json not on disk"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  },
+  "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+   "source.json": {
+    "state": "measured",
+    "reason": "source.json present"
+   },
+   "transcript.words.json": {
+    "state": "measured",
+    "reason": "transcript.words.json present"
+   },
+   "speakers.json": {
+    "state": "unmeasured",
+    "reason": "speakers.json not on disk"
+   },
+   "frames.index.json": {
+    "state": "measured",
+    "reason": "frames.index.json present"
+   },
+   "persons.json": {
+    "state": "measured",
+    "reason": "persons.json present"
+   },
+   "identity.json": {
+    "state": "measured",
+    "reason": "identity.json present"
+   },
+   "expressions.json": {
+    "state": "unmeasured",
+    "reason": "expressions.json not on disk"
+   },
+   "regions.json": {
+    "state": "unmeasured",
+    "reason": "regions.json not on disk"
+   },
+   "saliency.json": {
+    "state": "unmeasured",
+    "reason": "saliency.json not on disk"
+   },
+   "region_stats.json": {
+    "state": "unmeasured",
+    "reason": "region_stats.json not on disk"
+   },
+   "scenes.json": {
+    "state": "unmeasured",
+    "reason": "scenes.json not on disk"
+   },
+   "sound.json": {
+    "state": "unmeasured",
+    "reason": "sound.json not on disk"
+   },
+   "clock.json": {
+    "state": "measured",
+    "reason": "clock.json present"
+   },
+   "events.json": {
+    "state": "measured",
+    "reason": "events.json present"
+   },
+   "verdicts.json": {
+    "state": "measured",
+    "reason": "verdicts.json present"
+   },
+   "world_model.json": {
+    "state": "unmeasured",
+    "reason": "world_model.json not on disk"
+   },
+   "relationships.json": {
+    "state": "unmeasured",
+    "reason": "relationships.json not on disk"
+   }
+  }
+ },
+ "fidelity": {
+  "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+   "clip_id": "LCATL0013",
+   "events": {
+    "m7_candidate_spans": 213,
+    "m8_verdicts": 639,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.048513302034428794,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 213,
+    "mean_boundary_error_s": 2.671677419354861,
+    "boundary_error_n": 31,
+    "iou_values": [
+     0.1224514761050417,
+     0.1224514761050417,
+     0.1224514761050417,
+     0.1481536298379312,
+     0.1481536298379312,
+     0.1481536298379312,
+     0.291732578469729,
+     0.291732578469729,
+     0.291732578469729,
+     0.5003331112591906,
+     0.5003331112591906,
+     0.5714285714285529,
+     0.5714285714285529,
+     0.5714285714285529,
+     0.5715101341706718,
+     0.5715101341706718,
+     0.5715101341706718,
+     0.6003197442046287,
+     0.6003197442046287,
+     0.6003197442046287,
+     0.6666868491160036,
+     0.6666868491160036,
+     0.6666868491160036,
+     0.7501249375312314,
+     0.7501249375312314,
+     0.7501249375312314,
+     0.7501249375312314,
+     0.7501249375312314,
+     0.7501249375312314,
+     0.8334721065778549,
+     0.8334721065778549
+    ]
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 2,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.994384765625,
+    "speaking_spans": 169,
+    "speaking_spans_with_face": 0.9881656804733728,
+    "voices_with_face_link": 0.5
+   }
+  },
+  "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+   "clip_id": "LCATL0012",
+   "events": {
+    "m7_candidate_spans": 13,
+    "m8_verdicts": 39,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.0,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 13,
+    "mean_boundary_error_s": null,
+    "boundary_error_n": 0,
+    "iou_values": []
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 2,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.9982698961937716,
+    "speaking_spans": 10,
+    "speaking_spans_with_face": 0.9,
+    "voices_with_face_link": 1.0
+   }
+  },
+  "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+   "clip_id": "LC4930",
+   "events": {
+    "m7_candidate_spans": 26,
+    "m8_verdicts": 26,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.07692307692307693,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 26,
+    "mean_boundary_error_s": 0.375,
+    "boundary_error_n": 2,
+    "iou_values": [
+     0.7145304025121325,
+     0.8572652012560662
+    ]
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 2,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.9866369710467706,
+    "speaking_spans": 17,
+    "speaking_spans_with_face": 0.35294117647058826,
+    "voices_with_face_link": 1.0
+   }
+  },
+  "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+   "clip_id": "LC4931",
+   "events": {
+    "m7_candidate_spans": 33,
+    "m8_verdicts": 33,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.06060606060606061,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 33,
+    "mean_boundary_error_s": 0.3752500000000012,
+    "boundary_error_n": 2,
+    "iou_values": [
+     0.7142449329146432,
+     0.7502497502497479
+    ]
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 2,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.9773123909249564,
+    "speaking_spans": 25,
+    "speaking_spans_with_face": 0.48,
+    "voices_with_face_link": 1.0
+   }
+  },
+  "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+   "clip_id": "LCATL0011",
+   "events": {
+    "m7_candidate_spans": 0,
+    "m8_verdicts": 0,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": null,
+    "m8_judgment_coverage_of_m7": null,
+    "judged_spans": 0,
+    "mean_boundary_error_s": null,
+    "boundary_error_n": 0,
+    "iou_values": []
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 1,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 1.0,
+    "speaking_spans": 11,
+    "speaking_spans_with_face": 1.0,
+    "voices_with_face_link": 1.0
+   }
+  },
+  "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+   "clip_id": "LC4932",
+   "events": {
+    "m7_candidate_spans": 323,
+    "m8_verdicts": 323,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.04643962848297214,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 323,
+    "mean_boundary_error_s": 3.5699999999999705,
+    "boundary_error_n": 15,
+    "iou_values": [
+     0.0,
+     0.0,
+     0.04672007170467411,
+     0.11907140478568737,
+     0.16662966252221179,
+     0.4000799360511708,
+     0.4444937833036279,
+     0.45454545454544515,
+     0.5001665001664584,
+     0.5004995004993752,
+     0.5999200639489337,
+     0.6668887408394352,
+     0.7000699370566542,
+     0.7272821630598518,
+     0.8334443704197239
+    ]
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 2,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.9883438070139874,
+    "speaking_spans": 247,
+    "speaking_spans_with_face": 0.7206477732793523,
+    "voices_with_face_link": 1.0
+   }
+  },
+  "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+   "clip_id": "LCATL0014",
+   "events": {
+    "m7_candidate_spans": 31,
+    "m8_verdicts": 93,
+    "m8_verdicts_without_frames": 0,
+    "m8_orphan_verdicts": 0,
+    "m7_precision_vs_m8": 0.11827956989247312,
+    "m8_judgment_coverage_of_m7": 1.0,
+    "judged_spans": 31,
+    "mean_boundary_error_s": 0.3181818181818182,
+    "boundary_error_n": 11,
+    "iou_values": [
+     0.6668887408394352,
+     0.6668887408394352,
+     0.6668887408394352,
+     0.6668887408394403,
+     0.6668887408394403,
+     0.6668887408394403,
+     0.6668887408394403,
+     0.6668887408394403,
+     0.6668887408394403,
+     0.8001598721023143,
+     0.8001598721023143
+    ]
+   },
+   "identity": {
+    "m3b_lane": "identity",
+    "face_tracks": 1,
+    "voice_tracks": 1,
+    "faces_with_embedding": 1,
+    "m7_face_assignment_rate": 0.9904134212103056,
+    "speaking_spans": 33,
+    "speaking_spans_with_face": 1.0,
+    "voices_with_face_link": 1.0
+   }
+  }
+ },
+ "reproducibility": {
+  "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+   "n": 10621,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+   "n": 865,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+   "n": 627,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+   "n": 853,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+   "n": 583,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+   "n": 13156,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  },
+  "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+   "n": 2449,
+   "max_abs_diff": 0.0,
+   "mean_abs_diff": 0.0
+  }
+ },
+ "retrieval": {
+  "probes": 21,
+  "testable_probes": 21,
+  "untestable_probes": 0,
+  "cross_camera_recall": 0.5714285714285714,
+  "detail": [
+   {
+    "probe": "the",
+    "source": "157522998320",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "that",
+    "source": "157522998320",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "and",
+    "source": "157522998320",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "you",
+    "source": "4fa282cea147",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "so",
+    "source": "4fa282cea147",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "okay",
+    "source": "4fa282cea147",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "you",
+    "source": "9b7fd11e02e5",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "is",
+    "source": "9b7fd11e02e5",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "it",
+    "source": "9b7fd11e02e5",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": false,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "you",
+    "source": "c11218156a07",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "okay",
+    "source": "c11218156a07",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "so",
+    "source": "c11218156a07",
+    "m6_group": "daa4bb0d27d1",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "you",
+    "source": "d19007c31379",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "is",
+    "source": "d19007c31379",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "so",
+    "source": "d19007c31379",
+    "m6_group": "71933672a432",
+    "group_mates": 1,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "that",
+    "source": "dca969b8ed90",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "the",
+    "source": "dca969b8ed90",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "and",
+    "source": "dca969b8ed90",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "that",
+    "source": "f683a9759e06",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "you",
+    "source": "f683a9759e06",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   },
+   {
+    "probe": "the",
+    "source": "f683a9759e06",
+    "m6_group": "82532ce9b7eb",
+    "group_mates": 2,
+    "hit": true,
+    "top": [
+     "157522998320",
+     "4fa282cea147",
+     "9b7fd11e02e5"
+    ]
+   }
+  ]
+ },
+ "efficiency": {
+  "wall_seconds": 0.3,
+  "video_minutes": 181.58,
+  "wall_seconds_per_source_minute": 0.0017662519720097864,
+  "model_calls_per_source_hour": {
+   "m8_verdict_calls": 380.9803243347566,
+   "m4_scene_windows_per_hour": 7.2693557115044625
+  },
+  "decode_seconds": null,
+  "decode_basis": "measured only around a harness-driven decode pass; lane builds record no decode split",
+  "peak_rss_mb": 58.469,
+  "cache_hit_rate": null,
+  "cache_basis": "no analysis_run.json at hand: unmeasured, not zero",
+  "bytes_per_source_hour": 247028466.0488284,
+  "total_bytes": 747607693,
+  "per_digest": {
+   "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+    "model_calls": {
+     "m8_verdict_calls": 639,
+     "m8_verdict_seconds": 2577.6,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 1366,
+     "events.json": 290602,
+     "frames/": 109197998,
+     "frames.index.json": 521532,
+     "identity.json": 41353,
+     "persons.json": 29612019,
+     "program.16k.wav": 131187154,
+     "source.json": 1533,
+     "transcript.words.json": 1002931,
+     "verdicts.json": 358765
+    }
+   },
+   "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+    "model_calls": {
+     "m8_verdict_calls": 39,
+     "m8_verdict_seconds": 162.8,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 795,
+     "events.json": 24135,
+     "frames/": 7497061,
+     "frames.index.json": 36554,
+     "identity.json": 20211,
+     "persons.json": 2000188,
+     "program.16k.wav": 9246668,
+     "source.json": 1531,
+     "transcript.words.json": 82700,
+     "verdicts.json": 22328
+    }
+   },
+   "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+    "model_calls": {
+     "m8_verdict_calls": 26,
+     "m8_verdict_seconds": 112.3,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 792,
+     "events.json": 53165,
+     "frames/": 6708365,
+     "frames.index.json": 28501,
+     "identity.json": 19556,
+     "persons.json": 1698548,
+     "program.16k.wav": 7207298,
+     "source.json": 1525,
+     "transcript.words.json": 59347,
+     "verdicts.json": 14692
+    }
+   },
+   "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+    "model_calls": {
+     "m8_verdict_calls": 33,
+     "m8_verdict_seconds": 149.2,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 1293,
+     "events.json": 54037,
+     "frames/": 8395782,
+     "frames.index.json": 36362,
+     "identity.json": 21182,
+     "persons.json": 1892724,
+     "program.16k.wav": 9203960,
+     "source.json": 1528,
+     "transcript.words.json": 82282,
+     "verdicts.json": 19437
+    }
+   },
+   "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+    "model_calls": {
+     "m8_verdict_calls": 0,
+     "m8_verdict_seconds": 0,
+     "m4_scene_windows": 22
+    },
+    "bytes": {
+     "clock.json": 1303,
+     "events.json": 2479,
+     "frames/": 5734534,
+     "frames.index.json": 27185,
+     "identity.json": 15920,
+     "persons.json": 1496996,
+     "program.16k.wav": 6865624,
+     "scenes.json": 5532,
+     "source.json": 1531,
+     "transcript.words.json": 55300
+    }
+   },
+   "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+    "model_calls": {
+     "m8_verdict_calls": 323,
+     "m8_verdict_seconds": 1405.5,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 862,
+     "events.json": 1328574,
+     "frames/": 149813255,
+     "frames.index.json": 628991,
+     "identity.json": 48411,
+     "persons.json": 37453742,
+     "program.16k.wav": 158115388,
+     "source.json": 1532,
+     "transcript.words.json": 1245967,
+     "verdicts.json": 187992
+    }
+   },
+   "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+    "model_calls": {
+     "m8_verdict_calls": 93,
+     "m8_verdict_seconds": 394.1,
+     "m4_scene_windows": null
+    },
+    "bytes": {
+     "clock.json": 1383,
+     "events.json": 45200,
+     "frames/": 24012030,
+     "frames.index.json": 105545,
+     "identity.json": 26763,
+     "persons.json": 6644173,
+     "program.16k.wav": 26816220,
+     "source.json": 1533,
+     "transcript.words.json": 223437,
+     "verdicts.json": 52491
+    }
+   }
+  }
+ },
+ "tolerance": {
+  "rel": 1e-09,
+  "abs": 1e-12,
+  "basis": "float64 JSON round-trip noise; bounds the mechanical reproduction check only, not an evaluation bar (captain call C1 stays open)"
+ }
+}
