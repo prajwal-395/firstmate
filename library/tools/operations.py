@@ -354,6 +354,63 @@ class OperationResult:
         }
 
 
+def announce_result(result: OperationResult, project_folder: str,
+                    run_id: str | None = None) -> list:
+    """Announce what an operation did on the project's own hook layer.
+
+    The firing site the hook vocabulary's operation conditions were
+    waiting for (`library/tools/hooks.py`, Gap 4): a completion
+    dispatches `operation_completed`; a refusal dispatches
+    `operation_refused` UNCONDITIONALLY - an environment refusal names
+    no requirement, so looping `unsatisfied` alone would leave that
+    whole class silent - plus one `requirement_unsatisfied` per
+    requirement the refusal names, which is the one-to-many case the
+    hook tests pin as a `for` loop at the site.
+
+    Every runner funnels through `Operation.execute` - the reels loop,
+    the `operations` CLI, the broker - so announcing here announces at
+    every run's end with no second site and no double-fire.
+
+    Best-effort: a hook layer that cannot read its own declaration, or
+    a payload that cannot be announced, is reported on stderr and never
+    fails the operation it announces.
+    """
+    import sys as _sys
+
+    from library.tools import hooks
+    from library.tools import run_id as run_identity
+
+    rid = run_id or run_identity.current() or run_identity.mint_run_id()
+    payload = {
+        "operation": result.operation,
+        "legacy_node": result.legacy_node,
+        "scope": str(result.scope),
+        "status": result.status,
+        "error": result.error,
+        "unsatisfied": [getattr(r, "name", repr(r))
+                        for r in result.unsatisfied],
+    }
+    fired: list = []
+    try:
+        if result.completed:
+            fired.extend(hooks.dispatch(
+                project_folder, "operation_completed", payload, rid))
+        else:
+            fired.extend(hooks.dispatch(
+                project_folder, "operation_refused", payload, rid))
+            for requirement in result.unsatisfied:
+                fired.extend(hooks.dispatch(
+                    project_folder, "requirement_unsatisfied",
+                    {"operation": result.operation,
+                     "name": getattr(requirement, "name",
+                                     repr(requirement))},
+                    rid))
+    except Exception as exc:  # noqa: BLE001 - announcing never fails a run
+        print(f"  WARNING: the operation's hook announcement did not fire: "
+              f"{exc}", file=_sys.stderr)
+    return fired
+
+
 # ── Loading a step body ─────────────────────────────────────────────
 #
 # Eight step files import a sibling by bare name (`from
@@ -708,11 +765,13 @@ class Operation:
 
         missing = self.unmet(project_folder)
         if missing:
-            return OperationResult(
+            refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 unsatisfied=tuple(entry.requirement for entry in missing),
                 error=self._teach(missing))
+            announce_result(refused, project_folder)
+            return refused
 
         inputs = self.gather(project_folder)
         inputs.update(overrides)
@@ -723,10 +782,12 @@ class Operation:
         # after the contract check, before the splat - because `run`
         # raises by design rather than returning something to bind.
         if self.is_prompt:
-            return OperationResult(
+            refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=self._teach_prompt())
+            announce_result(refused, project_folder)
+            return refused
 
         # The step's own function, its own signature. Bound here so the
         # unbindable case below is asked of the SAME dict that would have
@@ -742,7 +803,7 @@ class Operation:
         # run the step so the runner asks the model for them.
         owed = self.missing_model_answer(inputs)
         if owed:
-            return OperationResult(
+            refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=(
@@ -758,18 +819,24 @@ class Operation:
                     f"runner asks the model for them. Resolving without "
                     f"them would produce a confident answer to a question "
                     f"nobody was asked."))
+            announce_result(refused, project_folder)
+            return refused
 
         unbound = self.unbound_parameters(arguments)
         if unbound:
-            return OperationResult(
+            refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=self._teach_unbound(unbound, where))
+            announce_result(refused, project_folder)
+            return refused
 
         payload = self.run(**arguments)
-        return OperationResult(
+        completed = OperationResult(
             operation=self.name, legacy_node=self.legacy_node,
             scope=where, status=COMPLETED, payload=payload)
+        announce_result(completed, project_folder)
+        return completed
 
     def _teach_prompt(self) -> str:
         """The refusal for a capability that IS a prompt.

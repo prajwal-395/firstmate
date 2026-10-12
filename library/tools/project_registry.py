@@ -583,6 +583,32 @@ def project_status(slug: str, root: Path = None) -> dict:
     if config.exports_dir.exists():
         exports = [f.name for f in config.exports_dir.iterdir() if not f.name.startswith(".")]
 
+    # The live run, when `pipeline_run.json` says one is up. `ren
+    # status` never polled it - it read only the settled ledgers - so a
+    # run that was mid-flight read exactly like no run at all.
+    live_run = None
+    try:
+        from library.tools import progress as _progress
+        from library.tools import run_control as _run_control
+        _record = _run_control.read_run_status(str(project_dir))
+        if _record.get("status") == "running":
+            live_run = {
+                "mode": _record.get("mode") or "",
+                "started_at": _record.get("started_at") or "",
+                "updated_at": _record.get("updated_at") or "",
+                "current_step": _record.get("current_step"),
+                "current_step_name": _record.get("current_step_name"),
+                "last_completed_step": _record.get("last_completed_step"),
+                "steps_to_run": list(_record.get("steps_to_run") or []),
+            }
+            try:
+                live_run["message"] = _progress.progress_report(
+                    str(project_dir)).get("message", "")
+            except Exception:  # noqa: BLE001 - the record stands alone
+                live_run["message"] = ""
+    except Exception:  # noqa: BLE001 - status never fails for a live read
+        live_run = None
+
     return {
         "slug": config.slug,
         "name": config.name,
@@ -596,6 +622,7 @@ def project_status(slug: str, root: Path = None) -> dict:
         "resolve_project": config.resolve.project_name,
         "resolve_folder": config.resolve.folder,
         "pipeline_data_exists": config.pipeline_data_path.exists(),
+        "live_run": live_run,
     }
 
 

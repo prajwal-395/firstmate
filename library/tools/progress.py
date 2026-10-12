@@ -16,6 +16,16 @@ from pathlib import Path
 
 from library.tools import perf_ledger, run_control
 
+#: The run-record key `record_progress_event` appends to. The runner
+#: writes one event per step boundary, so `ren status` and any later
+#: reader can say what happened without re-deriving it.
+PROGRESS_EVENTS_KEY = "progress_events"
+
+#: A run that re-ran steps without bound would grow this list without
+#: bound, and every boundary rewrites the record. Oldest-first drop is
+#: honest here: the newest boundaries are what a reader asks about.
+MAX_PROGRESS_EVENTS = 500
+
 
 def _dag() -> list[dict]:
     path = Path(__file__).resolve().parents[1] / "processes" / "edit_video" / "dag.json"
@@ -126,6 +136,49 @@ def progress_report(project: str, *, broker_reader=_broker) -> dict:
         "resolve": broker_reader(),
         "updated_at": status.get("updated_at"),
     }
+
+
+def record_progress_event(project: str, step_id: str, outcome: str) -> dict | None:
+    """Append one plain-language progress event to the run record.
+
+    The runner calls this at each step boundary, AFTER it has written
+    the boundary's own status, so `progress_report` reads the run as
+    the step left it. `outcome` is the boundary in one word -
+    `completed`, `reused`, `failed`, `awaiting_llm`, `paused` or `held`.
+
+    Best-effort like every other status write: a progress line must
+    never take down a real run. When the report itself cannot be built,
+    the event still lands with a fallback message rather than nothing -
+    a boundary with no record is how a step "ran" and nobody can say
+    when.
+    """
+    try:
+        report = progress_report(project)
+        message = str(report.get("message") or "")
+        done = len(report.get("done") or [])
+        remaining = int(report.get("remaining_steps") or 0)
+    except Exception:  # noqa: BLE001 - the event matters more than the prose
+        message = f"Step {step_id} {outcome}."
+        done = 0
+        remaining = 0
+    event = {
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "step": step_id,
+        "outcome": outcome,
+        "message": message,
+        "steps_done": done,
+        "steps_remaining": remaining,
+    }
+    try:
+        current = run_control.read_run_status(str(project))
+        events = list(current.get(PROGRESS_EVENTS_KEY) or [])
+        events.append(event)
+        del events[:-MAX_PROGRESS_EVENTS]
+        run_control.write_run_status(str(project),
+                                     **{PROGRESS_EVENTS_KEY: events})
+        return event
+    except Exception:  # noqa: BLE001 - a progress write never fails a run
+        return None
 
 
 def main(argv=None) -> int:

@@ -47,6 +47,7 @@ The run summary reports `SUCCESS` only when the whole DAG is complete and `faile
 """
 import json
 import os
+import shutil
 import sys
 import subprocess
 import threading
@@ -66,7 +67,8 @@ from library.tools import (brief_attachment, briefing_interview,
                            briefing_chat,
                            decided_value,
                            direction_contradiction, nothing_to_decide,
-                           operations, post_bridge_retry, run_restart,
+                           operations, post_bridge_retry, progress,
+                           run_restart,
                            second_pass, undetermined)
 from library.tools import run_control
 from library.tools import model_task
@@ -2315,6 +2317,118 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
 
 # ── Main Runner ─────────────────────────────────────────────────────
 
+#: The run endings that push a macOS completion notification. `PARTIAL`
+#: (a scoped run that deliberately left work out), `held` and the
+#: gate-pending pause are not endings, so they stay silent.
+NOTIFIABLE_STATUSES = ("SUCCESS", "FAILED", "REFUSED", "AWAITING_LLM")
+
+#: How long the notification itself may take before the run stops
+#: waiting for it. Posting is instant; a wedged notification server
+#: must not wedge a run's ending.
+NOTIFY_TIMEOUT_S = 10
+
+
+def notify_run_end(status: str, project_dir: str) -> bool:
+    """Push a macOS completion notice naming the run's status.
+
+    `osascript -e 'display notification ...'`, exactly once per call.
+    `REN_NOTIFY=0` opts out, and off macOS (or with no `osascript` on
+    PATH) it is a silent no-op. Best-effort throughout: a notice that
+    cannot be posted must never fail the run it announces. Returns
+    whether a notification was posted.
+    """
+    if os.environ.get("REN_NOTIFY") == "0":
+        return False
+    if sys.platform != "darwin":
+        return False
+    if shutil.which("osascript") is None:
+        return False
+    project = os.path.basename(os.path.abspath(project_dir or "")) or (
+        str(project_dir) or "(unknown project)")
+    text = f"Ren run {status}: {project}".replace("\\", "\\\\").replace(
+        '"', '\\"')
+    try:
+        subprocess.run(
+            ["osascript", "-e",
+             f'display notification "{text}" with title "Ren"'],
+            capture_output=True, timeout=NOTIFY_TIMEOUT_S, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+def artifact_summary_line(project_dir: str, state: dict) -> str:
+    """The run summary's last line: the produced artifact paths.
+
+    Names the timeline the build produced, the exports on disk, and the
+    first-value artifact - then the run's own record, which always
+    exists, so the line always names at least one real path. Anything
+    absent is said as absent rather than dropped: a missing export the
+    line does not mention reads as an export that was never looked for.
+    """
+    state = state or {}
+    parts = []
+    try:
+        timeline = None
+        try:
+            timeline = capability_outputs.value(
+                state, "render.build", "timeline_name")
+        except Exception:  # noqa: BLE001 - best-effort naming only
+            timeline = None
+        parts.append(f"timeline {timeline!r}" if timeline
+                     else "timeline (none built)")
+    except Exception:  # noqa: BLE001 - the line must always render
+        parts.append("timeline (unknown)")
+    try:
+        exports_dir = Path(project_dir) / "exports" if project_dir else None
+        produced = sorted(p for p in exports_dir.iterdir()
+                          if p.is_file() and not p.name.startswith(".")
+                          ) if exports_dir and exports_dir.is_dir() else []
+        parts.append("exports " + " ".join(str(p) for p in produced)
+                     if produced else "exports (none)")
+    except Exception:  # noqa: BLE001 - the line must always render
+        parts.append("exports (unknown)")
+    try:
+        first_value = None
+        if project_dir:
+            candidate = (ProjectLayout(project_dir).step_dir("catalog")
+                         / "first_value.json")
+            if candidate.is_file():
+                first_value = candidate
+        parts.append(f"first value {first_value}"
+                     if first_value is not None
+                     else "first value (not published)")
+    except Exception:  # noqa: BLE001 - the line must always render
+        parts.append("first value (unknown)")
+    try:
+        record = (ProjectLayout(project_dir).pipeline_data_path
+                  if project_dir else None)
+        if record is not None and Path(record).is_file():
+            parts.append(f"run record {record}")
+    except Exception:  # noqa: BLE001 - the line must always render
+        pass
+    return "Artifacts: " + "; ".join(parts)
+
+
+def emit_run_summary(summary: dict, project_dir: str,
+                     state: dict | None = None) -> dict:
+    """Print the run summary JSON, name the artifacts, notify.
+
+    The artifact line is stdout's LAST line, so whatever polls the run
+    can read the file to watch off it. The notification fires for the
+    terminal statuses in `NOTIFIABLE_STATUSES` and stays silent for
+    anything else. Returns the summary it was handed.
+    """
+    json.dump(summary, sys.stdout, indent=2)
+    print()
+    print(artifact_summary_line(project_dir, state or {}))
+    sys.stdout.flush()
+    if str(summary.get("status", "")) in NOTIFIABLE_STATUSES:
+        notify_run_end(str(summary.get("status", "")), project_dir or "")
+    return summary
+
+
 def run_pipeline(
     project_dir: str,
     from_step: str = None,
@@ -2400,8 +2514,7 @@ def run_pipeline(
             print(f"\n  ✗ REFUSED - pending edit spec\n{reason}\n",
                   file=sys.stderr)
             summary = {"status": "REFUSED", "reason": reason}
-            json.dump(summary, sys.stdout, indent=2)
-            return summary
+            return emit_run_summary(summary, project_dir, state)
     order = topological_sort(dag)
     nodes = {n["id"]: n for n in dag["nodes"]}
 
@@ -2430,8 +2543,7 @@ def run_pipeline(
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
-        json.dump(summary, sys.stdout, indent=2)
-        return summary
+        return emit_run_summary(summary, project_dir, state)
 
     # The scope, resolved first.  --rerun below DELETES artifacts, and
     # apply_source_identity WRITES state, so a selection that cannot be
@@ -2466,8 +2578,7 @@ def run_pipeline(
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
-        json.dump(summary, sys.stdout, indent=2)
-        return summary
+        return emit_run_summary(summary, project_dir, state)
     # State the captain produced outside the pipeline, VERIFIED once for
     # the whole run: the resolver counts it and `gather_step_inputs`
     # hands the step the same value, so the two cannot disagree. A file
@@ -2481,8 +2592,7 @@ def run_pipeline(
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
-        json.dump(summary, sys.stdout, indent=2)
-        return summary
+        return emit_run_summary(summary, project_dir, state)
 
     try:
         scope = run_scope.resolve(
@@ -2501,8 +2611,7 @@ def run_pipeline(
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
-        json.dump(summary, sys.stdout, indent=2)
-        return summary
+        return emit_run_summary(summary, project_dir, state)
 
     # Displays a hand may have touched since the pipeline wrote them.
     # Print-only and fully guarded: a stale display must announce
@@ -2624,8 +2733,7 @@ def run_pipeline(
         print(str(exc), file=sys.stderr)
         print("", file=sys.stderr)
         summary = {"status": "REFUSED", "reason": str(exc)}
-        json.dump(summary, sys.stdout, indent=2)
-        return summary
+        return emit_run_summary(summary, project_dir, state)
 
     verdict = requirements.evaluate(
         steps_to_run,
@@ -2729,8 +2837,7 @@ def run_pipeline(
             print(reason, file=sys.stderr)
             print("", file=sys.stderr)
             summary = {"status": "REFUSED", "reason": reason}
-            json.dump(summary, sys.stdout, indent=2)
-            return summary
+            return emit_run_summary(summary, project_dir, state)
 
     # Where this run stops, and - loudly - anywhere it was asked to stop
     # and will not reach.  Printed against `steps_to_run` rather than the
@@ -3047,6 +3154,7 @@ def run_pipeline(
         dependency_complete.add(node_id)
         run_control.write_run_status(
             project_dir, last_completed_step=node_id, **active_run_fields())
+        progress.record_progress_event(project_dir, node_id, "reused")
 
     def conduct_briefing_after_inventory():
         """Ask after the cheap catalog is committed, before analysis starts."""
@@ -3243,6 +3351,7 @@ def run_pipeline(
                     project_dir, status="held", held_before_step=node_id,
                     hold=hold, **active_run_fields(),
                 )
+                progress.record_progress_event(project_dir, node_id, "held")
                 continue
             if held_before_step is None:
                 held_before_step = next((candidate for candidate in
@@ -3350,6 +3459,8 @@ def run_pipeline(
                     state, node_id, "rejected by reviewer at review gate",
                     project_dir=project_dir)
                 save_pipeline_state(project_dir, state)
+                progress.record_progress_event(
+                    project_dir, node_id, "failed")
                 break
             elif verdict == "revised":
                 feedback = load_gate_feedback(project_dir, node_id)
@@ -3405,6 +3516,7 @@ def run_pipeline(
                 run_control.write_run_status(
                     project_dir, last_completed_step=node_id,
                     **active_run_fields())
+                progress.record_progress_event(project_dir, node_id, "reused")
                 continue
         
         run_control.write_run_status(
@@ -3516,6 +3628,8 @@ def run_pipeline(
                     save_pipeline_state(project_dir, state)
                     settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
+                    progress.record_progress_event(
+                        project_dir, node_id, "failed")
                     print("     Dependents are blocked; completing "
                           "independent siblings.", file=sys.stderr)
                     continue
@@ -3564,6 +3678,8 @@ def run_pipeline(
                     save_pipeline_state(project_dir, state)
                     settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
+                    progress.record_progress_event(
+                        project_dir, node_id, "failed")
                     print("     Dependents are blocked; completing "
                           "independent siblings.", file=sys.stderr)
                     continue
@@ -3572,6 +3688,8 @@ def run_pipeline(
                 awaiting_llm.append(node_id)
                 dependency_blocked.add(node_id)
                 print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                progress.record_progress_event(
+                    project_dir, node_id, "awaiting_llm")
                 continue
                 
             # Success logic
@@ -3638,6 +3756,8 @@ def run_pipeline(
                 save_pipeline_state(project_dir, state)
                 settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
+                progress.record_progress_event(
+                    project_dir, node_id, "failed")
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 continue
 
@@ -3657,6 +3777,8 @@ def run_pipeline(
                 save_pipeline_state(project_dir, state)
                 settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
+                progress.record_progress_event(
+                    project_dir, node_id, "failed")
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 continue
 
@@ -3794,6 +3916,7 @@ def run_pipeline(
                     last_completed_step=node_id, paused_at_gate=node_id,
                     **active_run_fields(),
                 )
+                progress.record_progress_event(project_dir, node_id, "paused")
                 break
 
             completed.append(node_id)
@@ -3803,6 +3926,7 @@ def run_pipeline(
                 last_completed_step=node_id,
                 **active_run_fields(),
             )
+            progress.record_progress_event(project_dir, node_id, "completed")
 
                 
         except Exception as e:
@@ -3816,6 +3940,7 @@ def run_pipeline(
                                  project_dir=project_dir)
             save_pipeline_state(project_dir, state)
             failed.append(node_id)
+            progress.record_progress_event(project_dir, node_id, "failed")
             dependency_blocked.add(node_id)
             continue
         finally:
@@ -4269,8 +4394,7 @@ def run_pipeline(
         print(f"  WARNING: could not write the run traceback: {exc}",
               file=sys.stderr)
 
-    json.dump(summary, sys.stdout, indent=2)
-    return summary
+    return emit_run_summary(summary, project_dir, state)
 
 
 def _export_step_for_review(project_dir, step_id, step_name, output, state=None):
@@ -4415,8 +4539,11 @@ def main():
     except RenRefusal as refused:
         # ONE place renders every refusal on `ren edit`'s path, in the
         # same shape the front door (`manage_project.py`) renders. An
-        # unexpected error keeps its traceback and exit 1.
+        # unexpected error keeps its traceback and exit 1. The run
+        # refused before it could end itself, so the completion notice
+        # goes out here - exactly once, as on every other REFUSED path.
         print(refused.render(), file=sys.stderr)
+        notify_run_end("REFUSED", project_dir or "")
         sys.exit(REFUSAL_EXIT_CODE)
     # A refused selection never started, and must not look like a run.
     # Exit 4, the refusal code (`library/tools/ren_refusal.py`): the

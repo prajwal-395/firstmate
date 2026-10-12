@@ -593,6 +593,18 @@ def cmd_status(args):
             print(f"    ✓ {step}")
     print(f"  Exports:         {len(info['exports'])} files")
     print(f"")
+    live = info.get("live_run")
+    if live:
+        print(f"  Live run: {live.get('mode') or 'running'} "
+              f"since {live.get('started_at') or '(unknown start)'}")
+        current = live.get("current_step_name") or live.get("current_step")
+        if current:
+            print(f"    Now: {current}")
+        if live.get("last_completed_step"):
+            print(f"    Last completed: {live['last_completed_step']}")
+        if live.get("message"):
+            print(f"    {live['message']}")
+        print(f"")
     print(f"  Resolve project: {info['resolve_project']}")
     print(f"  Resolve folder:  {info['resolve_folder'] or '(root)'}")
 
