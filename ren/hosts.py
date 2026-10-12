@@ -102,6 +102,55 @@ ADAPTERS = (
 BY_NAME = {adapter.name: adapter for adapter in ADAPTERS}
 
 
+REN_HOST_ENV_VAR = "REN_HOST"
+"""Explicit override naming the chat harness driving this process.
+
+Set to the harness name (e.g. `opencode`) when Ren runs under a chat
+harness whose own marker below is unknown. Any non-empty value counts
+as "a host drives" - `ren edit` then defaults to `--full-auto agent`.
+"""
+
+#: Subprocess markers meaning "this process was spawned by <host>".
+#: Only markers the harness documents for exactly this purpose are
+#: listed: installed-but-idle is not driving. `CLAUDECODE` is set to 1
+#: in subprocesses Claude Code spawns, for detecting exactly this
+#: (https://code.claude.com/docs/en/env-vars). Codex and OpenCode
+#: expose no such documented runtime marker, so under them the
+#: explicit `REN_HOST` override above is how Ren knows.
+HOST_RUNTIME_MARKERS = (
+    ("claude-code", ("CLAUDECODE",)),
+)
+"""(adapter name, env vars) whose presence means that host drives."""
+
+
+def _env_truthy(name: str) -> bool:
+    """Whether an env marker is present and switched on."""
+    return os.environ.get(name, "").strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def driving_host() -> str | None:
+    """The chat harness driving this process, or None when none does.
+
+    The explicit `REN_HOST` override wins: any non-empty value is
+    returned (canonicalized to the adapter name when it names a
+    supported host by name or binary). Otherwise each supported
+    host's documented runtime markers are checked. A host merely
+    installed on PATH (`detected()`) does NOT count - Ren must not
+    change its default on a machine where a harness sits idle.
+    """
+    forced = os.environ.get(REN_HOST_ENV_VAR, "").strip()
+    if forced:
+        lowered = forced.lower()
+        for adapter in ADAPTERS:
+            if lowered in (adapter.name.lower(), adapter.binary.lower()):
+                return adapter.name
+        return forced
+    for name, markers in HOST_RUNTIME_MARKERS:
+        if any(_env_truthy(marker) for marker in markers):
+            return name
+    return None
+
+
 @dataclass
 class AuthState:
     """What a host's sign-in check found. `detail` is safe to print."""

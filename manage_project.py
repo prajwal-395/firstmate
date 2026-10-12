@@ -70,9 +70,31 @@ ML_DEPENDENT_COMMANDS = ("run", "build-reels")
 
 def _full_auto_backend(value: str) -> str:
     """Validate backend spellings without advertising retired ones."""
-    if value in {"agent", "agy", "api"}:
+    if value in {"agent", "agy", "api", "none"}:
         return value
-    raise argparse.ArgumentTypeError("expected 'agent'")
+    raise argparse.ArgumentTypeError(
+        "expected 'agent' (or 'none' to opt out of the host default)")
+
+
+def _resolve_full_auto(explicit: str | None) -> tuple:
+    """The `--full-auto` backend this run actually uses, plus the driver.
+
+    Returns `(backend, host)`. An explicit value always wins, and
+    `none` opts out (backend None). With nothing explicit, a chat
+    harness driving this process (`ren.hosts.driving_host`) selects
+    the agent backend; otherwise the run stays manual. The import is
+    local: `ren.hosts` is stdlib-only, but this module's import time
+    is on every verb's path.
+    """
+    if explicit == "none":
+        return None, None
+    if explicit:
+        return explicit, None
+    from ren import hosts
+    host = hosts.driving_host()
+    if host is not None:
+        return "agent", host
+    return None, None
 
 # Every subcommand main() registers, read off the one command registry so
 # the message above can say which ones still work. main() asserts the
@@ -552,7 +574,8 @@ def cmd_new(args):
               f"style.yaml, video.yaml")
         print(f"\n  Next steps:")
         print(f"    1. Copy raw footage to: {config.raw_dir}")
-        print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug}")
+        print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug} --full-auto agent")
+        print(f"       or just tell your chat what you want.")
 
     except FileExistsError as e:
         raise RenRefusal(
@@ -2033,8 +2056,14 @@ def cmd_run(args):
         cmd.extend(["--break", step_id])
     for step_id in getattr(args, "no_break_at", None) or []:
         cmd.extend(["--no-break", step_id])
-    if getattr(args, "full_auto", None):
-        cmd.extend(["--full-auto", args.full_auto])
+    explicit = getattr(args, "full_auto", None)
+    full_auto, host = _resolve_full_auto(explicit)
+    if full_auto:
+        cmd.extend(["--full-auto", full_auto])
+        if host is not None:
+            print(f"  Host {host} drives this run: defaulting to "
+                  f"--full-auto agent (pass --full-auto none to opt out)",
+                  file=sys.stderr)
     if getattr(args, "llm_timeout", None):
         cmd.extend(["--llm-timeout", str(args.llm_timeout)])
 
@@ -4643,7 +4672,9 @@ def main():
                        help="Resume pipeline from pending gates")
     p_run.add_argument(
         "--full-auto", type=_full_auto_backend, metavar="BACKEND",
-        help="Run full pipeline autonomously with the agent backend")
+        help="Run full pipeline autonomously with the agent backend "
+             "(default 'agent' when a chat host drives the run - "
+             "see ren/hosts.py; 'none' opts out)")
     p_run.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agent backend")
     p_run.set_defaults(func=cmd_run)
