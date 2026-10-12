@@ -45,6 +45,10 @@ relaunch_cleanup() {
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
+  # Spawn leaves state/<id>.git-hooks read-only (teardown re-permissions it
+  # before removal); make the scratch tree writable first so a green run is
+  # not misreported red by its own cleanup.
+  chmod -R u+w "$TMP_ROOT" 2>/dev/null || true
   rm -rf "$TMP_ROOT"
 }
 trap relaunch_cleanup EXIT
