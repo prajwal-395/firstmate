@@ -2380,3 +2380,224 @@ def test_ren_transcript_converts_timecode_rows(offline_index, tmp_path,
          "--resolve-fps", "25", "--resolve-start-tc", "01:00:00:00"]) == 0
     out = capsys.readouterr().out
     assert "1 in agreement" in out
+
+
+# --------------------------------------------------------------------------
+# LE-06: `ren search --json` on every mode
+#
+# One stable hit shape - {source_digest, clip_id, file, start_s, end_s,
+# kind, score, dense, band, text} - whatever lane answered, so an agent
+# parses one schema.  `source_digest` is the clip's content digest
+# (stable across renames); `band` is the floor verdict per row.  An
+# answer with no strong row carries `abstained: true` plus the floor,
+# so "not in this footage" is a field and not prose.
+# --------------------------------------------------------------------------
+
+_HIT_KEYS = {"source_digest", "clip_id", "file", "start_s", "end_s",
+             "kind", "score", "dense", "band", "text"}
+
+
+def _stub_loader():
+    def encode(texts):
+        rows = []
+        for text in texts:
+            vector = np.zeros(26, dtype="float32")
+            for char in (text or "").lower():
+                if "a" <= char <= "z":
+                    vector[ord(char) - 97] += 1.0
+            norm = np.linalg.norm(vector) or 1.0
+            rows.append(vector / norm)
+        return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
+    return encode, "test-stub"
+
+
+@pytest.fixture
+def json_text_index(project_2, tmp_path, monkeypatch):
+    """A text index over a project whose media files exist, so the live
+    content digest resolves and the hit's `source_digest` is checkable."""
+    root, digest_1, digest_2 = project_2
+    monkeypatch.setattr(footage_query, "load_embedder", _stub_loader)
+    index_dir = tmp_path / "json-index"
+    build_index(root, index_dir=index_dir)
+    return root, index_dir, digest_1, digest_2
+
+
+def test_search_json_text_hit_matches_the_index(json_text_index, capsys):
+    """`ren search <tmp> "<word in fixture>" --json` parses, and the
+    first hit's `source_digest` and times match the index."""
+    root, index_dir, digest_1, _digest_2 = json_text_index
+    assert footage_query.main(
+        ["search", str(root), "parking", "--json", "--mode", "lexical",
+         "--index-dir", str(index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["abstained"] is False
+    assert answer["floor"] is not None
+    top = answer["hits"][0]
+    assert set(top) == _HIT_KEYS
+    assert top["source_digest"] == digest_1
+    assert top["clip_id"] == "clip_001"
+    assert top["file"] == "IMG_0001.MOV"
+    assert (top["start_s"], top["end_s"]) == (1.0, 3.0)
+    assert top["band"] == "strong"
+    assert "parking" in top["text"]
+
+
+def test_search_json_nonsense_query_abstains_with_empty_hits(
+        json_text_index, capsys):
+    """A nonsense query returns `abstained: true` with `hits: []` -
+    plus the floor, so the reader knows what judged it absent."""
+    root, index_dir, _digest_1, _digest_2 = json_text_index
+    assert footage_query.main(
+        ["search", str(root), "zxqvkjwobble", "--json", "--mode", "lexical",
+         "--index-dir", str(index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["abstained"] is True
+    assert answer["hits"] == []
+    assert answer["floor"] is not None
+
+
+def test_search_json_keeps_the_weak_band(json_text_index):
+    """Rows below the floor still arrive - with `band: weak` - so an
+    abstain names its near miss in the same schema, not in prose."""
+    root, index_dir, _digest_1, _digest_2 = json_text_index
+    idx = FootageIndex(root, index_dir=index_dir)
+    unfloored = idx.search_report("parking", top_k=len(idx.segments), floor=0)
+    best = max(r["dense_score"] for r in unfloored["results"])
+    answer = footage_query.search_json(
+        str(root), "parking", top_k=5, floor=best + 0.01,
+        index_dir=index_dir)
+    assert answer["abstained"] is True
+    assert answer["floor"] == pytest.approx(best + 0.01)
+    assert answer["hits"], "the best row sits in the weak band, not nowhere"
+    assert all(hit["band"] == "weak" for hit in answer["hits"])
+    assert all(answer["weak_floor"] <= hit["dense"] < answer["floor"]
+               for hit in answer["hits"])
+
+
+def test_search_json_sound_lane_shares_the_hit_shape(
+        sound_index, project_2, memory_root, capsys):
+    """`--sound --json` returns the same hit shape: a measured label is
+    strong evidence with no dense cosine and no floor."""
+    root, digest_1, _digest_2 = project_2
+    assert footage_query.main(
+        ["search", str(root), "--sound", "laughter", "--json",
+         "--index-dir", str(sound_index.index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["mode"] == "sound"
+    assert answer["abstained"] is False
+    hit = answer["hits"][0]
+    assert set(hit) == _HIT_KEYS
+    assert hit["source_digest"] == digest_1
+    assert hit["clip_id"] == "clip_001"
+    assert hit["kind"] == "sound"
+    assert hit["band"] == "strong"
+    assert (hit["start_s"], hit["end_s"]) == (2.0, 4.5)
+    assert hit["text"] == "Laughter"
+    assert hit["score"] == 0.87
+    assert hit["dense"] is None
+
+
+def test_search_json_ocr_lane_shares_the_hit_shape(
+        ocr_index, project_2, capsys):
+    """`--ocr --json` returns the same hit shape: an exact on-screen
+    match is strong, scored by the reader's confidence."""
+    root, digest_1, _digest_2 = project_2
+    assert footage_query.main(
+        ["search", str(root), "--ocr", "scufflewa", "--json",
+         "--index-dir", str(ocr_index.index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["mode"] == "ocr"
+    assert answer["abstained"] is False
+    hit = answer["hits"][0]
+    assert set(hit) == _HIT_KEYS
+    assert hit["source_digest"] == digest_1
+    assert hit["clip_id"] == "clip_001"
+    assert hit["kind"] == "ocr"
+    assert hit["band"] == "strong"
+    assert (hit["start_s"], hit["end_s"]) == (2.0, 5.5)
+    assert hit["text"] == "SCUFFLEWA BREWING CO"
+    assert hit["score"] == 0.91
+    assert hit["dense"] is None
+
+
+def test_search_json_visual_lane_shares_the_hit_shape(
+        project_2, tmp_path, monkeypatch, capsys):
+    """`--visual --json` returns the same hit shape.  The frame lane has
+    no floor and no abstain - it ranks whatever stills it holds - so
+    every range is strong, scored by its best CLIP cosine.  No model is
+    loaded: the stills and their vectors are written by hand and only
+    the text side is stubbed."""
+    root, digest_1, _digest_2 = project_2
+    index_dir = tmp_path / "vindex"
+    index_dir.mkdir()
+    _write(index_dir / footage_frames.FRAME_INDEX_FILE, {
+        "clip_model": "test-stub", "embed_backend": "test-stub",
+        "frames": [
+            {"clip_id": "clip_001", "filename": "IMG_0001.MOV", "t": 2.0},
+            {"clip_id": "clip_001", "filename": "IMG_0001.MOV", "t": 2.5},
+            {"clip_id": "clip_002", "filename": "IMG_0002.MOV", "t": 1.0},
+        ]})
+    matrix = np.zeros((3, 4), dtype="float32")
+    matrix[0, 0] = 1.0
+    matrix[1, 0] = 0.9
+    matrix[2, 1] = 1.0
+    np.save(index_dir / footage_frames.FRAME_EMBEDDINGS_FILE, matrix)
+    monkeypatch.setattr(
+        FrameIndex, "_encode_text",
+        lambda self, query: np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+    assert footage_query.main(
+        ["search", str(root), "red bicycle", "--visual", "--json",
+         "--index-dir", str(index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["mode"] == "visual"
+    assert answer["abstained"] is False
+    top = answer["hits"][0]
+    assert set(top) == _HIT_KEYS
+    assert top["source_digest"] == digest_1
+    assert top["clip_id"] == "clip_001"
+    assert top["file"] == "IMG_0001.MOV"
+    assert (top["start_s"], top["end_s"]) == (2.0, 2.5)
+    assert top["kind"] == "visual"
+    assert top["band"] == "strong"
+    assert top["score"] == pytest.approx(1.0)
+
+
+def test_search_json_chunk_rows_carry_dense_and_band():
+    """Video-chunk rows: the score IS the raw cosine, results are
+    strong and the floor band is weak."""
+    sources = {"clip_001": {"source_digest": "d1", "file": "IMG_0001.MOV"}}
+    report = {
+        "results": [{"chunk_id": "clip_001#vchunk#000", "clip_id": "clip_001",
+                     "filename": "IMG_0001.MOV", "start": 0.0, "end": 8.0,
+                     "timecode": "00:00.000-00:08.000", "dense_score": 0.5}],
+        "weak": [{"chunk_id": "clip_001#vchunk#001", "clip_id": "clip_001",
+                  "filename": "IMG_0001.MOV", "start": 8.0, "end": 16.0,
+                  "timecode": "00:08.000-00:16.000", "dense_score": 0.3}],
+    }
+    hits = footage_query._chunk_json_hits(report, sources)
+    assert [hit["band"] for hit in hits] == ["strong", "weak"]
+    assert all(set(hit) == _HIT_KEYS for hit in hits)
+    assert hits[0]["dense"] == hits[0]["score"] == 0.5
+    assert hits[0]["kind"] == "video_chunk"
+    assert hits[1]["source_digest"] == "d1"
+
+
+def test_search_json_unified_rows_carry_band():
+    """Unified-anchor rows keep their window kind and description; weak
+    rows without a recorded filename fall back to the catalog file."""
+    sources = {"clip_001": {"source_digest": "d1", "file": "IMG_0001.MOV"}}
+    report = {
+        "results": [{"anchor_id": "clip_001#u#000", "clip_id": "clip_001",
+                     "filename": "IMG_0001.MOV", "kind": "window",
+                     "start": 0.0, "end": 8.0, "description_text": "a lot",
+                     "score": 0.7, "dense_score": 0.6}],
+        "weak": [{"anchor_id": "clip_001#u#001", "clip_id": "clip_001",
+                  "start": 8.0, "end": 16.0, "dense_score": 0.3,
+                  "description_text": "a glimpse"}],
+    }
+    hits = footage_query._unified_json_hits(report, sources)
+    assert [hit["band"] for hit in hits] == ["strong", "weak"]
+    assert hits[0]["text"] == "a lot"
+    assert hits[0]["dense"] == 0.6
+    assert hits[1]["file"] == "IMG_0001.MOV"
+    assert hits[1]["source_digest"] == "d1"

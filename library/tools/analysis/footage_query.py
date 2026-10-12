@@ -3700,6 +3700,296 @@ def _print_ocr_report(report):
         print(f"  text this footage carries: {', '.join(report['available_texts'])}")
 
 
+# ─── Machine-readable answers (`--json` on every mode) ───
+#
+# LE-06: `ren search --json` works for text, --sound, --ocr and --visual
+# queries, not only --predicate.  Every lane returns the same answer
+# shape - one list of hits, each a `{source_digest, clip_id, file,
+# start_s, end_s, kind, score, dense, band, text}` row - so an agent
+# parses one schema whatever it asked.  `source_digest` is the clip's
+# content digest (stable across renames and moves); `band` is the floor
+# verdict per row (`strong` cleared the floor, `weak` sits in the band
+# between `weak_floor` and `floor`).  An answer with no strong row
+# carries `abstained: true` plus the floor, so "not in this footage" is
+# a field and not prose.  This is the hit shape MU-09's `ren where`
+# reuses.
+
+
+def clip_sources(project_folder) -> dict:
+    """`{clip_id: {"source_digest": ..., "file": ...}}` for one project.
+
+    The digest is the clip's content identity (`digest_for_clip`: the
+    live file first, the runner's recorded fingerprint when the media
+    is offline).  A clip with no resolvable digest is ABSENT, not
+    present and null: a reader cannot place a sourceless row, so the
+    hit mapper leaves its `source_digest` unset rather than invent one.
+    """
+    catalog = load_catalog(project_folder)
+    try:
+        recorded = source_memory.load_recorded_fingerprints(project_folder)
+    except (OSError, ValueError):
+        recorded = {}
+    sources = {}
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        if digest is None:
+            continue
+        filename = (clip.get("filename")
+                    or os.path.basename(
+                        clip.get("source_file") or clip.get("path") or "")
+                    or clip_id)
+        sources[clip_id] = {"source_digest": digest, "file": filename}
+    return sources
+
+
+def _num(value):
+    """A JSON-safe number, or None when the lane measured nothing."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
+              score, dense, band, text) -> dict:
+    """One stable hit row, whatever lane produced it."""
+    return {
+        "source_digest": source_digest,
+        "clip_id": clip_id,
+        "file": file,
+        "start_s": _num(start_s),
+        "end_s": _num(end_s),
+        "kind": kind,
+        "score": _num(score),
+        "dense": _num(dense),
+        "band": band,
+        "text": text if text is not None else "",
+    }
+
+
+def _text_json_hits(report, sources) -> list:
+    """`search_report` rows as stable hits: results are strong, `weak`
+    rows carry the floor band.  The score is the fused rank; `dense` is
+    the raw cosine the floor judged on (None on a lexical-only answer,
+    which has no cosine to judge)."""
+    hits = []
+    for band, rows in (("strong", report.get("results") or []),
+                       ("weak", report.get("weak") or [])):
+        for row in rows:
+            src = sources.get(row.get("clip_id", ""), {})
+            hits.append(_json_hit(
+                source_digest=src.get("source_digest"),
+                clip_id=row.get("clip_id"),
+                file=row.get("filename") or src.get("file", ""),
+                start_s=row.get("start"), end_s=row.get("end"),
+                kind=row.get("kind"),
+                score=row.get("score"), dense=row.get("dense_score"),
+                band=band, text=row.get("text", "")))
+    return hits
+
+
+def _sound_json_hits(report, sources) -> list:
+    """`sound_search` rows as stable hits.  Every row matched a measured
+    label, so every row is strong; there is no dense cosine and no
+    floor on this lane, and the score is the PANNs confidence."""
+    hits = []
+    for row in report.get("hits") or []:
+        src = sources.get(row.get("clip_id", ""), {})
+        hits.append(_json_hit(
+            source_digest=src.get("source_digest"),
+            clip_id=row.get("clip_id"),
+            file=src.get("file", ""),
+            start_s=row.get("start"), end_s=row.get("end"),
+            kind="sound",
+            score=row.get("confidence"), dense=None,
+            band="strong", text=row.get("label", "")))
+    return hits
+
+
+def _ocr_json_hits(report, sources) -> list:
+    """`ocr_search` rows as stable hits.  Same terms as sound: an exact
+    on-screen match is strong, scored by the reader's confidence."""
+    hits = []
+    for row in report.get("hits") or []:
+        src = sources.get(row.get("clip_id", ""), {})
+        hits.append(_json_hit(
+            source_digest=src.get("source_digest"),
+            clip_id=row.get("clip_id"),
+            file=src.get("file", ""),
+            start_s=row.get("start"), end_s=row.get("end"),
+            kind="ocr",
+            score=row.get("confidence"), dense=None,
+            band="strong", text=row.get("text", "")))
+    return hits
+
+
+def _chunk_json_hits(report, sources) -> list:
+    """`search_chunks` rows as stable hits.  The score IS the raw
+    cross-modal cosine, so it doubles as `dense`; results are strong,
+    the band rows are weak."""
+    hits = []
+    for band, rows in (("strong", report.get("results") or []),
+                       ("weak", report.get("weak") or [])):
+        for row in rows:
+            src = sources.get(row.get("clip_id", ""), {})
+            hits.append(_json_hit(
+                source_digest=src.get("source_digest"),
+                clip_id=row.get("clip_id"),
+                file=row.get("filename") or src.get("file", ""),
+                start_s=row.get("start"), end_s=row.get("end"),
+                kind="video_chunk",
+                score=row.get("dense_score"), dense=row.get("dense_score"),
+                band=band, text=""))
+    return hits
+
+
+def _unified_json_hits(report, sources) -> list:
+    """Unified-anchor rows as stable hits.  Results are strong, the band
+    rows are weak; `dense` is present only when a dense anchor answered
+    (a lexical-only answer has no cosine)."""
+    hits = []
+    for band, rows in (("strong", report.get("results") or []),
+                       ("weak", report.get("weak") or [])):
+        for row in rows:
+            src = sources.get(row.get("clip_id", ""), {})
+            hits.append(_json_hit(
+                source_digest=src.get("source_digest"),
+                clip_id=row.get("clip_id"),
+                file=row.get("filename") or src.get("file", ""),
+                start_s=row.get("start"), end_s=row.get("end"),
+                kind=row.get("kind", "window"),
+                score=row.get("score"), dense=row.get("dense_score"),
+                band=band,
+                text=row.get("description_text")
+                or row.get("transcript_text", "")))
+    return hits
+
+
+def _frame_json_hits(report, sources) -> list:
+    """Frame-index ranges as stable hits.  The frame lane has no floor
+    and no abstain - it ranks whatever stills it holds, every range
+    unverified - so every row is strong, scored by its best CLIP
+    cosine.  A range is picture evidence with no text; `text` is empty
+    rather than invented."""
+    hits = []
+    for span in report.get("ranges") or []:
+        src = sources.get(span.get("clip_id", ""), {})
+        hits.append(_json_hit(
+            source_digest=src.get("source_digest"),
+            clip_id=span.get("clip_id"),
+            file=span.get("filename") or src.get("file", ""),
+            start_s=span.get("start"), end_s=span.get("end"),
+            kind="visual",
+            score=span.get("best_score"), dense=None,
+            band="strong", text=""))
+    return hits
+
+
+def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
+                hits=(), error=None, extra=None) -> dict:
+    """The one `--json` envelope every search lane returns."""
+    answer = {
+        "query": query,
+        "mode": mode,
+        "floor": _num(floor),
+        "weak_floor": _num(weak_floor),
+        "abstained": bool(abstained),
+        "hits": list(hits),
+    }
+    if error is not None:
+        answer["error"] = error
+    if extra:
+        answer.update(extra)
+    return answer
+
+
+def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
+                signal_merge=False, person=None, lane="text",
+                include_actions=False, index_dir=None,
+                external_hits=None, filters=None) -> dict:
+    """One machine-readable answer for every `ren search` lane.
+
+    `lane` is `text` (the default index), `sound`, `ocr`, `visual`
+    (frame ranges), `chunks` or `unified`.  The `--predicate` lane is
+    not here: it already prints its own JSON.  A refused visual query
+    (an action the frame signal cannot resolve) raises `RenRefusal`
+    the same way the human path does - a refusal is not an answer.
+    """
+    sources = clip_sources(project_folder)
+    if lane == "sound":
+        idx = FootageIndex(project_folder, index_dir=index_dir)
+        report = idx.sound_search(query, top_k=top_k)
+        return json_answer(
+            query=query, mode="sound", abstained=report["abstained"],
+            hits=_sound_json_hits(report, sources),
+            error=report.get("error"),
+            extra={"available_labels": report.get("available_labels", [])})
+    if lane == "ocr":
+        idx = FootageIndex(project_folder, index_dir=index_dir)
+        report = idx.ocr_search(query, top_k=top_k)
+        return json_answer(
+            query=query, mode="ocr", abstained=report["abstained"],
+            hits=_ocr_json_hits(report, sources),
+            error=report.get("error"),
+            extra={"available_texts": report.get("available_texts", [])})
+    if lane == "visual":
+        from library.tools.analysis import footage_frames
+        vidx = footage_frames.FrameIndex(project_folder, index_dir=index_dir)
+        report = vidx.search_ranges(query, top_ranges=top_k,
+                                    include_actions=include_actions)
+        if report["refused"] is not None:
+            raise RenRefusal(
+                f"frame search refused {report['query']!r}",
+                report["refused"]["reason"],
+                report["refused"]["hint"])
+        return json_answer(
+            query=query, mode="visual",
+            abstained=not report["ranges"],
+            hits=_frame_json_hits(report, sources),
+            error=report.get("error"))
+    if lane == "chunks":
+        idx = FootageIndex(project_folder, index_dir=index_dir)
+        report = idx.search_chunks(query, top_k=top_k, floor=floor)
+        answer = json_answer(
+            query=query, mode="video_chunks", floor=report["floor"],
+            weak_floor=report["weak_floor"], abstained=report["abstained"],
+            hits=_chunk_json_hits(report, sources),
+            error=report.get("error"))
+        return answer
+    if lane == "unified":
+        from library.tools.analysis.unified_anchors import UnifiedIndex
+        uidx = UnifiedIndex(project_folder, index_dir=index_dir)
+        report = uidx.search_unified(query, top_k=top_k, mode=mode,
+                                     floor=floor)
+        return json_answer(
+            query=query, mode="unified", floor=report.get("floor"),
+            weak_floor=report.get("weak_floor"),
+            abstained=report["abstained"],
+            hits=_unified_json_hits(report, sources),
+            error=report.get("error"))
+    idx = FootageIndex(project_folder, index_dir=index_dir)
+    report = idx.search_report(
+        query, top_k=top_k, mode=mode, floor=floor,
+        signal_merge=signal_merge,
+        filters={"person": person} if filters is None else filters,
+        external_hits=external_hits)
+    answer = json_answer(
+        query=query, mode=mode, floor=report["floor"],
+        weak_floor=report["weak_floor"], abstained=report["abstained"],
+        hits=_text_json_hits(report, sources),
+        error=report.get("error"))
+    for key in ("external_source", "external_evidence", "external_rejected"):
+        if report.get(key) is not None:
+            answer[key] = report[key]
+    return answer
+
+
 def _load_external_hits(path):
     """The Resolve-side collector's JSON list, or a refusal naming the file."""
     try:
@@ -3804,7 +4094,13 @@ def main(argv=None):
                                "with his hand\") and return only the spans "
                                "it verifies, each with its reason")
     p_search.add_argument("--json", action="store_true",
-                          help="with --predicate: print the whole answer as JSON")
+                          help="print the whole answer as JSON: one hit "
+                               "list on every mode (text, --sound, --ocr, "
+                               "--visual, --chunks, --unified), each hit a "
+                               "{source_digest, clip_id, file, start_s, "
+                               "end_s, kind, score, dense, band, text} row, "
+                               "with abstained and the floor when nothing "
+                               "cleared it")
     p_search.add_argument("--external-hits", metavar="JSON",
                            help="merge Resolve IntelliSearch rows from this JSON "
                                 "list file as EXTRA evidence beside Ren's "
@@ -3864,6 +4160,12 @@ def main(argv=None):
                            help="merge Resolve IntelliSearch rows from this JSON "
                                 "list file as EXTRA evidence beside Ren's "
                                 "answer; never replaces Ren search")
+    p_hybrid.add_argument("--json", action="store_true",
+                          help="print the whole answer as JSON: one hit "
+                               "list, each hit a {source_digest, clip_id, "
+                               "file, start_s, end_s, kind, score, dense, "
+                               "band, text} row, with abstained and the "
+                               "floor when nothing cleared it")
     p_hybrid.add_argument("--index-dir")
 
     p_detail = sub.add_parser("detail", help="Full record for one segment")
@@ -3993,7 +4295,11 @@ def main(argv=None):
                 f"(e.g. --sound laughter)")
         idx = FootageIndex(args.project, index_dir=args.index_dir)
         started = time.perf_counter()
-        answer = idx.sound_search(args.query, top_k=args.top_k)
+        if args.json:
+            answer = search_json(args.project, args.query, top_k=args.top_k,
+                                 index_dir=args.index_dir, lane="sound")
+        else:
+            answer = idx.sound_search(args.query, top_k=args.top_k)
         elapsed = time.perf_counter() - started
         if args.json:
             print(json.dumps(answer, indent=2))
@@ -4034,7 +4340,11 @@ def main(argv=None):
                 f"(e.g. --ocr \"SCUFFLEWA BREWING CO\")")
         idx = FootageIndex(args.project, index_dir=args.index_dir)
         started = time.perf_counter()
-        answer = idx.ocr_search(args.query, top_k=args.top_k)
+        if args.json:
+            answer = search_json(args.project, args.query, top_k=args.top_k,
+                                 index_dir=args.index_dir, lane="ocr")
+        else:
+            answer = idx.ocr_search(args.query, top_k=args.top_k)
         elapsed = time.perf_counter() - started
         if args.json:
             print(json.dumps(answer, indent=2))
@@ -4057,8 +4367,14 @@ def main(argv=None):
                          f"--person <name> --predicate <what they do>")
 
     if args.command == "search" and args.visual:
-        from library.tools.analysis import footage_frames
         started = time.perf_counter()
+        if args.json:
+            answer = search_json(args.project, args.query, top_k=args.top_k,
+                                 include_actions=args.include_actions,
+                                 index_dir=args.index_dir, lane="visual")
+            print(json.dumps(answer, indent=2))
+            return 0
+        from library.tools.analysis import footage_frames
         vidx = footage_frames.FrameIndex(args.project, index_dir=args.index_dir)
         report = vidx.search_ranges(args.query, top_ranges=args.top_k,
                                     include_actions=args.include_actions)
@@ -4075,8 +4391,14 @@ def main(argv=None):
     idx = FootageIndex(args.project, index_dir=args.index_dir)
 
     if args.command == "search" and args.unified:
-        from library.tools.analysis.unified_anchors import UnifiedIndex
         started = time.perf_counter()
+        if args.json:
+            answer = search_json(args.project, args.query, top_k=args.top_k,
+                                 mode=args.mode, floor=args.floor,
+                                 index_dir=args.index_dir, lane="unified")
+            print(json.dumps(answer, indent=2))
+            return 0
+        from library.tools.analysis.unified_anchors import UnifiedIndex
         uidx = UnifiedIndex(args.project, index_dir=args.index_dir)
         report = uidx.search_unified(args.query, top_k=args.top_k,
                                      mode=args.mode, floor=args.floor)
@@ -4087,6 +4409,12 @@ def main(argv=None):
 
     if args.command == "search" and args.chunks:
         started = time.perf_counter()
+        if args.json:
+            answer = search_json(args.project, args.query, top_k=args.top_k,
+                                 floor=args.floor,
+                                 index_dir=args.index_dir, lane="chunks")
+            print(json.dumps(answer, indent=2))
+            return 0
         report = idx.search_chunks(args.query, top_k=args.top_k,
                                    floor=args.floor)
         elapsed = time.perf_counter() - started
@@ -4096,6 +4424,15 @@ def main(argv=None):
 
     if args.command == "search":
         started = time.perf_counter()
+        if args.json:
+            answer = search_json(
+                args.project, args.query, mode=args.mode, top_k=args.top_k,
+                floor=args.floor, signal_merge=args.signal_merge,
+                person=args.person, index_dir=args.index_dir, lane="text",
+                external_hits=_load_external_hits(args.external_hits)
+                if args.external_hits else None)
+            print(json.dumps(answer, indent=2))
+            return 0
         report = idx.search_report(args.query, top_k=args.top_k, mode=args.mode,
                                    floor=args.floor,
                                    signal_merge=args.signal_merge,
@@ -4105,6 +4442,7 @@ def main(argv=None):
         elapsed = time.perf_counter() - started
         _print_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
 
     elif args.command == "filter":
         results = idx.filter(
@@ -4127,6 +4465,21 @@ def main(argv=None):
 
     elif args.command == "hybrid":
         started = time.perf_counter()
+        if args.json:
+            answer = search_json(
+                args.project, args.query, mode=args.mode, top_k=args.top_k,
+                floor=args.floor, signal_merge=args.signal_merge,
+                index_dir=args.index_dir, lane="text",
+                filters={"kind": args.kind, "clip_id": args.clip_id,
+                         "framing": args.framing,
+                         "min_face_presence": args.min_face_presence,
+                         "max_face_presence": args.max_face_presence,
+                         "max_motion": args.max_motion,
+                         "person": args.person},
+                external_hits=_load_external_hits(args.external_hits)
+                if args.external_hits else None)
+            print(json.dumps(answer, indent=2))
+            return 0
         report = idx.search_report(
             args.query, top_k=args.top_k, mode=args.mode, floor=args.floor,
             signal_merge=args.signal_merge,
