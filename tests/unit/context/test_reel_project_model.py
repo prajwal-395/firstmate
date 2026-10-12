@@ -153,6 +153,161 @@ def test_carry_move_effects_verbatim_and_invalid_dropped():
     assert len(out["skipped"]) == 2
 
 
+def test_face_only_person_reaches_a_roll_and_renders():
+    """MU-07: a face-only person with no transcript speaker reaches
+    A-roll clip uses and rendered ranges through M7 on-screen cover.
+
+    On main the no-speaker placement mints a use with empty
+    ``entity_links``, so ``resolve_person`` finds no clip use and no
+    rendered range.
+    """
+    from library.tools import project_model_evidence as evidence
+    model = rpm.blank_model("project-mu07")
+    model["entities"].append({"id": "person_001", "kind": "person",
+                              "label": None, "object_class_id": None})
+    rpm.ensure_provenance(model)
+    asset = rpm.asset_for_source(model, "/m/face.MXF", "video")
+    assert asset is not None
+    asset_id, source_clock = asset
+    model["observations"].append({
+        "id": "obs-face-1", "asset_id": asset_id,
+        "interval": {"clock_id": source_clock,
+                     "start": 10000, "end": 11000},
+        "modality": "face", "payload": {"face_track": "track-1"},
+        "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+    })
+    model["identity_links"].append({
+        "id": "link-person_001-face",
+        "entity_id": "person_001", "observation_id": "obs-face-1",
+        "method": "face_embedding_cluster", "status": "verified",
+        "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+    })
+    model["observations"].append({
+        "id": "obs-on-screen-1", "asset_id": asset_id,
+        "interval": {"clock_id": source_clock,
+                     "start": 10000, "end": 15000},
+        "modality": "event_span",
+        "payload": {"predicate": "on_screen", "face_track": "track-1",
+                    "voice_track": None},
+        "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+    })
+    placements = [{
+        "source_file": "/m/face.MXF", "source_in": 10.0,
+        "source_out": 15.0, "record_start": 0.0, "record_frame": 0,
+        "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+        "master_start": 10.0, "master_end": 15.0,
+    }]
+    out = rpm.clip_uses_from_placements(
+        model, "reel-01", "Reel 01", placements,
+        {("video", 1): "a_roll"}, None)
+    assert out["use_ids"] == ["use:reel-01:0000"]
+    use = next(row for row in model["clip_uses"]
+               if row["id"] == "use:reel-01:0000")
+    assert use["role"] == "a_roll"
+    assert use["entity_links"] == ["person_001"]
+    assert "obs-on-screen-1" in out["evidence_ids"]
+    link = next(row for row in model["identity_links"]
+                if row.get("observation_id") == "obs-on-screen-1")
+    assert link["entity_id"] == "person_001"
+    assert link["status"] == "candidate"
+    assert link["confidence"] == 1.0
+    map_id = rpm.frame_map_for_reel(
+        model, "reel-01", "clock:reel:reel-01", out["use_ids"])
+    model["assets"].append({
+        "id": "asset:render:reel-01", "kind": "render",
+        "uri": "/out/reel01.mp4", "content_digest": None,
+        "metadata": {}, "provenance": [rpm.PROVENANCE_ID],
+    })
+    model["receipts"].append({
+        "id": "receipt:reel-01", "status": "ok", "renderer": "resolve",
+        "input_revision": "rev-1", "output_asset_id": "asset:render:reel-01",
+        "details": {},
+    })
+    model["renders"].append({
+        "id": "render:reel-01", "input_revision": "rev-1",
+        "output_asset_id": "asset:render:reel-01",
+        "receipt_id": "receipt:reel-01", "frame_map_id": map_id,
+        "settings": {"expected_frames": 120},
+    })
+    validate_project_model(model)
+    resolved = evidence.resolve_person(model, "person_001")
+    assert resolved is not None
+    assert [row["id"] for row in resolved["clip_uses"]] == [
+        "use:reel-01:0000"]
+    assert len(resolved["rendered_ranges"]) == 1
+    assert (resolved["rendered_ranges"][0]["clip_use_id"]
+            == "use:reel-01:0000")
+
+
+def test_ambiguous_on_screen_cover_links_both_persons():
+    """MU-07: two persons covering one speaker-less use are linked as
+    both, with their covered fractions, never collapsed to one."""
+    model = rpm.blank_model("project-mu07-ambiguous")
+    for person_id, track in (("person_001", "track-1"),
+                             ("person_002", "track-2")):
+        model["entities"].append({"id": person_id, "kind": "person",
+                                  "label": None, "object_class_id": None})
+        model["observations"].append({
+            "id": f"obs-face-{track}", "asset_id": "asset-x",
+            "interval": {"clock_id": "clock-x",
+                         "start": 10000, "end": 11000},
+            "modality": "face", "payload": {"face_track": track},
+            "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+        })
+        model["identity_links"].append({
+            "id": f"link-{person_id}-face",
+            "entity_id": person_id,
+            "observation_id": f"obs-face-{track}",
+            "method": "face_embedding_cluster", "status": "verified",
+            "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+        })
+    asset = rpm.asset_for_source(model, "/m/two.MXF", "video")
+    assert asset is not None
+    asset_id, source_clock = asset
+    for obs in model["observations"]:
+        if obs["modality"] == "face":
+            obs["asset_id"] = asset_id
+            obs["interval"]["clock_id"] = source_clock
+    # Each person covers half of the 10-15 s use.
+    model["observations"].append({
+        "id": "obs-on-screen-1", "asset_id": asset_id,
+        "interval": {"clock_id": source_clock,
+                     "start": 10000, "end": 12500},
+        "modality": "event_span",
+        "payload": {"predicate": "on_screen", "face_track": "track-1",
+                    "voice_track": None},
+        "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+    })
+    model["observations"].append({
+        "id": "obs-on-screen-2", "asset_id": asset_id,
+        "interval": {"clock_id": source_clock,
+                     "start": 12500, "end": 15000},
+        "modality": "event_span",
+        "payload": {"predicate": "on_screen", "face_track": "track-2",
+                    "voice_track": None},
+        "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
+    })
+    placements = [{
+        "source_file": "/m/two.MXF", "source_in": 10.0,
+        "source_out": 15.0, "record_start": 0.0, "record_frame": 0,
+        "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+        "master_start": 10.0, "master_end": 15.0,
+    }]
+    out = rpm.clip_uses_from_placements(
+        model, "reel-01", "Reel 01", placements,
+        {("video", 1): "a_roll"}, None)
+    use = next(row for row in model["clip_uses"]
+               if row["id"] == "use:reel-01:0000")
+    assert sorted(use["entity_links"]) == ["person_001", "person_002"]
+    assert sorted(out["evidence_ids"]) == [
+        "obs-on-screen-1", "obs-on-screen-2"]
+    confidences = sorted(
+        row["confidence"] for row in model["identity_links"]
+        if row.get("method") == "on_screen_coverage")
+    assert confidences == [0.5, 0.5]
+    validate_project_model(model)
+
+
 def test_maintain_commits_one_revision_and_partial_rebuild_keeps_siblings(tmp_path):
     project = tmp_path / "proj"
     project.mkdir()

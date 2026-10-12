@@ -240,22 +240,139 @@ def person_for_speaker(model: dict[str, Any], speaker: str) -> str | None:
 
 
 def _link(model: dict[str, Any], entity_id: str, observation_id: str,
-          method: str) -> None:
+          method: str, confidence: float | None = None,
+          status: str = "candidate") -> None:
     link_id = f"link:{_sha16(entity_id, observation_id, method)}"
     for link in model.get("identity_links") or []:
         if isinstance(link, dict) and link.get("id") == link_id:
             return
     # Diarization labels are candidates, never verified: only a
     # measured speech-face link (Unit 3) verifies a person.
+    # MU-07 on-screen coverage links are likewise candidates; the
+    # confidence is the fraction of the clip use the span covers.
     model.setdefault("identity_links", []).append({
         "id": link_id,
         "entity_id": entity_id,
         "observation_id": observation_id,
         "method": method,
-        "status": "candidate",
-        "confidence": None,
+        "status": status,
+        "confidence": confidence,
         "provenance_id": PROVENANCE_ID,
     })
+
+
+def _face_track_owners(model: dict[str, Any]) -> dict[str, set[str]]:
+    """Face track to roster-person owners, read off the migrated model.
+
+    M7 ``on_screen`` spans name a face track, not a person; the track's
+    owner is whichever person the evidence migration linked (face
+    embedding cluster) to a face observation carrying that track.
+    A track with no linked face observation has no owner here, never
+    a guessed one.
+    """
+    track_of_obs: dict[str, str] = {}
+    for obs in model.get("observations") or []:
+        if not isinstance(obs, dict):
+            continue
+        if obs.get("modality") != "face":
+            continue
+        payload = obs.get("payload") or {}
+        track = payload.get("face_track") if isinstance(payload, dict) else None
+        if track:
+            track_of_obs[str(obs.get("id"))] = str(track)
+    owners: dict[str, set[str]] = {}
+    for link in model.get("identity_links") or []:
+        if not isinstance(link, dict):
+            continue
+        track = track_of_obs.get(str(link.get("observation_id")))
+        if track is None:
+            continue
+        entity_id = link.get("entity_id")
+        if entity_id:
+            owners.setdefault(track, set()).add(str(entity_id))
+    return owners
+
+
+def _on_screen_candidates(model: dict[str, Any], asset_id: str,
+                          source_clock: str, start: int, end: int,
+                          ) -> list[dict[str, Any]]:
+    """Persons whose on-screen presence overlaps a use's source interval.
+
+    Reads M7 ``on_screen`` event-span observations on the use's own
+    asset and clock (the join is exact: a span on another asset or
+    clock is never evidence about this use). Each candidate carries
+    the covered fraction of the use (overlap over use length) as its
+    confidence. Ambiguous overlap links every covering person, never
+    collapsed to one.
+
+    MU-05 region spans plug in beside M7 here once that lane lands:
+    person-owned tracks with ``geometry.kind == "region"`` overlapping
+    the interval contribute their entity (they carry no observation
+    id, so no evidence row). Until then this branch is inert.
+    """
+    use_length = end - start
+    if use_length <= 0:
+        return []
+    persons = {entity["id"] for entity in model.get("entities") or []
+               if isinstance(entity, dict) and entity.get("kind") == "person"
+               and entity.get("id")}
+    owners = _face_track_owners(model)
+    candidates: list[dict[str, Any]] = []
+    for obs in model.get("observations") or []:
+        if not isinstance(obs, dict):
+            continue
+        if obs.get("modality") != "event_span":
+            continue
+        payload = obs.get("payload") or {}
+        if not isinstance(payload, dict) or payload.get("predicate") != "on_screen":
+            continue
+        if obs.get("asset_id") != asset_id:
+            continue
+        interval = obs.get("interval") or {}
+        if interval.get("clock_id") != source_clock:
+            continue
+        try:
+            obs_start, obs_end = int(interval["start"]), int(interval["end"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        overlap = min(end, obs_end) - max(start, obs_start)
+        if overlap <= 0:
+            continue
+        track = payload.get("face_track")
+        for person_id in sorted(owners.get(str(track), set())):
+            if person_id not in persons:
+                continue
+            fraction = round(overlap / use_length, 6)
+            candidates.append({
+                "entity_id": person_id,
+                "observation_id": str(obs.get("id")),
+                "confidence": min(max(fraction, 0.0), 1.0),
+            })
+    for track in model.get("tracks") or []:
+        if not isinstance(track, dict):
+            continue
+        entity_id = track.get("entity_id")
+        if entity_id not in persons or track.get("clock_id") != source_clock:
+            continue
+        samples = track.get("samples") or []
+        ticks = [s.get("tick") for s in samples
+                 if isinstance(s, dict)
+                 and isinstance(s.get("geometry"), dict)
+                 and s["geometry"].get("kind") == "region"
+                 and isinstance(s.get("tick"), int)]
+        if not ticks:
+            continue
+        overlap = min(end, max(ticks)) - max(start, min(ticks))
+        if overlap <= 0:
+            continue
+        if any(c["entity_id"] == entity_id for c in candidates):
+            continue
+        candidates.append({
+            "entity_id": str(entity_id),
+            "observation_id": None,
+            "confidence": min(max(round(overlap / use_length, 6), 0.0), 1.0),
+        })
+    return candidates
 
 
 def speech_observations(model: dict[str, Any], transcript: dict | None,
@@ -369,6 +486,23 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
                     model, transcript, str(speaker),
                     str(place.get("source_file") or ""),
                     asset_id, source_clock, entity_id))
+        if not entity_links:
+            # MU-07: no speaker label resolved, so a face-only person
+            # would never reach A-roll or a render. Link every person
+            # whose M7 on-screen span (or MU-05 region span, once
+            # present) overlaps this use's source interval, as
+            # candidates with the covered fraction as confidence.
+            for candidate in _on_screen_candidates(
+                    model, asset_id, source_clock, source[0], source[1]):
+                if candidate["entity_id"] not in entity_links:
+                    entity_links.append(candidate["entity_id"])
+                obs_id = candidate.get("observation_id")
+                if obs_id is not None:
+                    if obs_id not in evidence_ids:
+                        evidence_ids.append(obs_id)
+                    _link(model, candidate["entity_id"], obs_id,
+                          "on_screen_coverage",
+                          confidence=candidate.get("confidence"))
         use_id = f"use:{reel_slug}:{index:04d}"
         present = {row["id"] for row in model.get("clip_uses") or []
                    if isinstance(row, dict) and "id" in row}
