@@ -3482,6 +3482,53 @@ out=$(read_out) || fail "read failed on a capture with an unparsable content hea
 assert_contains "$out" "complete: no" "a body the reader cannot parse was certified as complete"
 pass "read presents every YAML prompts-list item and never certifies an unparsable body"
 
+# A freeform message carrying image attachments is presented with its prompt,
+# not refused as malformed; a genuinely malformed attachment table still is.
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+prompts[1]:
+  - uid: ""
+    prompt: "synthetic revision request"
+    selector: ""
+    tag: message
+    text: Freeform message
+    attachments[1]{id,type,path,mime,bytes,width,height,name}:
+      abc123.png,image,/tmp/synthetic/abc123.png,image/png,12345,800,600,photo.png
+EOF
+out=$(read_out) || fail "read failed on a message carrying image attachments"
+assert_contains "$out" "CAPTAIN MESSAGE" "a message carrying attachments lost its labeled field"
+assert_contains "$out" "| synthetic revision request" "a message carrying attachments dropped its prompt"
+assert_contains "$out" "attachment_type: image" "an attachment row lost its type"
+assert_contains "$out" "attachment_path: /tmp/synthetic/abc123.png" "an attachment row lost its path"
+assert_contains "$out" "attachment_mime: image/png" "an attachment row lost its mime"
+assert_contains "$out" "attachment_name: photo.png" "an attachment row lost its name"
+assert_contains "$out" "declared_items: 1" "a message carrying attachments hid its declared count"
+assert_contains "$out" "presented_items: 1" "a message carrying attachments was refused instead of presented"
+assert_contains "$out" "malformed_items: 0" "a well-formed attachment table was reported malformed"
+assert_contains "$out" "complete: yes" "a complete attachment-carrying capture was not marked complete"
+assert_contains "$out" "captain_message_count: 1" "a message carrying attachments was not counted"
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+prompts[1]:
+  - uid: ""
+    prompt: "synthetic revision request"
+    selector: ""
+    tag: message
+    text: Freeform message
+    attachments[1]{id,type,path,mime,bytes,width,height,name}:
+      only,two,columns
+EOF
+out=$(read_out) || fail "read failed on a capture with a malformed attachment table"
+assert_contains "$out" "declared_items: 1" "a malformed attachment capture lost its declared count"
+assert_contains "$out" "presented_items: 0" "a malformed attachment table was certified as presented"
+assert_contains "$out" "malformed_items: 1" "a malformed attachment table was not reported"
+assert_contains "$out" "complete: no" "a malformed attachment table was certified as complete"
+pass "read presents a message carrying image attachments and still refuses a malformed attachment table"
+
 # The runner's silence seam is generic and closed by default: an adapter with no
 # `silent` command must keep announcing, so adding the seam changed nothing for
 # every adapter that has no notion of a no-op.
