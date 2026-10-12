@@ -23,9 +23,16 @@ stored; failures and all-skipped files delete any stored row; a missing
 or unparseable junit report stores nothing; an unhashable input
 (unreadable file) makes the key unmatchable, never empty.
 
-Store: one SQLite row per test path under the state dir (bounded by the
-suite size, not by history), guarded by a lock file so the daemon's
-parallel Tier-1 workers have one writer. Stdlib only.
+Store: a multiversion SQLite store under the state dir, one row per
+(test path, verification key): parallel branches verifying the same
+file under different keys coexist (the AAA/BBB case), and `lookup`
+hits whichever key this run computed regardless of later writes by
+other branches. History per path is bounded (`REN_CI_CACHE_VERSIONS`,
+default above); past the bound the least-recently-used key goes
+first. The table as a whole stays bounded by the measured suite size
+(distinct paths in the store) times the per-path bound - never by a
+fixed row count. Guarded by a lock file so the daemon's parallel
+Tier-1 workers have one writer. Stdlib only.
 """
 
 from __future__ import annotations
@@ -41,6 +48,14 @@ import threading
 
 CACHE_FILENAME = "tier1_result_cache.sqlite3"
 LOCK_FILENAME = "tier1_result_cache.lock"
+
+# Successful verdicts kept per test path. Two parallel branches (the
+# AAA/BBB case) need two rows to coexist; one spare covers a third
+# writer landing between a store and its lookup. Overridable via
+# REN_CI_CACHE_VERSIONS (tests pin eviction through it); values below
+# 1 are refused and fall back to the default - a bound of zero rows
+# would store nothing and read as a miss everywhere.
+_DEFAULT_VERSIONS_PER_PATH = 3
 
 # Files over this size hash by (name, size, head+tail sample) instead of
 # full content: a qualification media file beside a test must not cost a
@@ -405,18 +420,92 @@ def compute_key(checkout: str, test_rel: str,
     return _hash_bytes("\n".join(components).encode("utf-8"))
 
 
+def _versions_per_path() -> int:
+    """History rows kept per test path (see `_DEFAULT_VERSIONS_PER_PATH`)."""
+    try:
+        configured = int(os.environ.get("REN_CI_CACHE_VERSIONS", "")
+                         or _DEFAULT_VERSIONS_PER_PATH)
+    except ValueError:
+        return _DEFAULT_VERSIONS_PER_PATH
+    if configured < 1:
+        return _DEFAULT_VERSIONS_PER_PATH
+    return configured
+
+
 def _connect(state_dir: str) -> sqlite3.Connection:
     os.makedirs(state_dir or ".", exist_ok=True)
     connection = sqlite3.connect(cache_path(state_dir), timeout=30)
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS tier1_results ("
-        " test_path TEXT PRIMARY KEY,"
-        " key TEXT NOT NULL,"
-        " passed INTEGER NOT NULL,"
-        " total INTEGER NOT NULL,"
-        " head TEXT NOT NULL DEFAULT '',"
-        " recorded_at REAL NOT NULL)")
+    _ensure_schema(connection)
     return connection
+
+
+_MULTIVERSION_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS tier1_results ("
+    " test_path TEXT NOT NULL,"
+    " key TEXT NOT NULL,"
+    " passed INTEGER NOT NULL,"
+    " total INTEGER NOT NULL,"
+    " head TEXT NOT NULL DEFAULT '',"
+    " recorded_at REAL NOT NULL,"
+    " last_used REAL NOT NULL,"
+    " PRIMARY KEY (test_path, key))")
+
+
+def _ensure_schema(connection: sqlite3.Connection) -> None:
+    """Create the multiversion store, migrating legacy databases.
+
+    Databases written before the multiversion store hold one row per
+    path (`test_path PRIMARY KEY`, no `last_used`). Their verdicts
+    carry over one-to-one - each legacy row already names its key -
+    so no stored PASS is wiped or stranded by the upgrade.
+    """
+    columns = [row[1] for row in connection.execute(
+        "PRAGMA table_info(tier1_results)").fetchall()]
+    if not columns:
+        connection.execute(_MULTIVERSION_SCHEMA)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tier1_results_lru"
+            " ON tier1_results (test_path, last_used)")
+        connection.commit()
+        return
+    if "last_used" in columns:
+        return
+    connection.execute(
+        "ALTER TABLE tier1_results RENAME TO tier1_results_legacy")
+    connection.execute(_MULTIVERSION_SCHEMA)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tier1_results_lru"
+        " ON tier1_results (test_path, last_used)")
+    connection.execute(
+        "INSERT INTO tier1_results"
+        " (test_path, key, passed, total, head, recorded_at, last_used)"
+        " SELECT test_path, key, passed, total, head, recorded_at,"
+        " recorded_at FROM tier1_results_legacy")
+    connection.execute("DROP TABLE tier1_results_legacy")
+    connection.commit()
+
+
+def _lookup_row(connection: sqlite3.Connection, test_rel: str,
+                key: str):
+    """The stored row for this exact (path, key), or None.
+
+    A hit refreshes `last_used`: use recency is what eviction orders
+    by, so a reused verdict is not evicted as stale. Rows carrying no
+    passed tests are never evidence (fail closed) and refresh nothing.
+    """
+    import time
+    row = connection.execute(
+        "SELECT key, passed, total, head, recorded_at"
+        " FROM tier1_results WHERE test_path = ? AND key = ?",
+        (test_rel, key)).fetchone()
+    if row is None or (row[1] or 0) <= 0:
+        return None
+    connection.execute(
+        "UPDATE tier1_results SET last_used = ?"
+        " WHERE test_path = ? AND key = ?",
+        (time.time(), test_rel, key))
+    connection.commit()
+    return row
 
 
 def lookup(state_dir: str, checkout: str, test_rel: str,
@@ -424,8 +513,10 @@ def lookup(state_dir: str, checkout: str, test_rel: str,
     """The stored PASS for this exact key, or None (miss - run the test).
 
     A row under a DIFFERENT key is a miss, never a hit: the inputs moved,
-    so the old verdict proves nothing. Failures are never stored, so a
-    hit always carries passed > 0.
+    so the old verdict proves nothing. Rows stored later by other
+    branches under their own keys never disturb this run's row: the
+    lookup matches (path, key), not the path's latest write. Failures
+    are never stored, so a hit always carries passed > 0.
     """
     key = compute_key(checkout, test_rel, builder, **overrides)
     with _lock:
@@ -440,10 +531,7 @@ def lookup(state_dir: str, checkout: str, test_rel: str,
                 try:
                     connection = _connect(state_dir)
                     try:
-                        row = connection.execute(
-                            "SELECT key, passed, total, head, recorded_at"
-                            " FROM tier1_results WHERE test_path = ?",
-                            (test_rel,)).fetchone()
+                        row = _lookup_row(connection, test_rel, key)
                     finally:
                         connection.close()
                 finally:
@@ -451,13 +539,10 @@ def lookup(state_dir: str, checkout: str, test_rel: str,
         except ImportError:  # pragma: no cover - non-posix fallback
             connection = _connect(state_dir)
             try:
-                row = connection.execute(
-                    "SELECT key, passed, total, head, recorded_at"
-                    " FROM tier1_results WHERE test_path = ?",
-                    (test_rel,)).fetchone()
+                row = _lookup_row(connection, test_rel, key)
             finally:
                 connection.close()
-    if row is None or row[0] != key or (row[1] or 0) <= 0:
+    if row is None:
         return None
     import time
     return {"key": row[0], "passed": row[1], "total": row[2],
@@ -465,26 +550,65 @@ def lookup(state_dir: str, checkout: str, test_rel: str,
             "checked_at": time.time()}
 
 
+def _enforce_bounds(connection: sqlite3.Connection,
+                    test_rel: str) -> None:
+    """Evict least-recently-used rows past the history bound.
+
+    Per path, only the most recently used `_versions_per_path()` rows
+    survive; ties break toward the later write. The table as a whole
+    then stays within the measured suite size (distinct paths in the
+    store) times the per-path bound - a safety net for a bound lowered
+    between runs, since per-path enforcement alone already implies it.
+    """
+    versions = _versions_per_path()
+    connection.execute(
+        "DELETE FROM tier1_results WHERE test_path = ?"
+        " AND rowid NOT IN (SELECT rowid FROM tier1_results"
+        " WHERE test_path = ? ORDER BY last_used DESC, rowid DESC"
+        " LIMIT ?)",
+        (test_rel, test_rel, versions))
+    measured = connection.execute(
+        "SELECT COUNT(DISTINCT test_path) FROM tier1_results").fetchone()
+    bound = (measured[0] or 0) * versions
+    connection.execute(
+        "DELETE FROM tier1_results WHERE rowid NOT IN"
+        " (SELECT rowid FROM tier1_results"
+        " ORDER BY last_used DESC, rowid DESC LIMIT ?)",
+        (bound,))
+
+
 def store(state_dir: str, test_rel: str, key: str, passed: int,
           total: int, head: str = "") -> None:
-    """Record one PASS verdict under its key. One row per path: the table
-    is bounded by the suite size, never by history."""
+    """Record one PASS verdict under its key.
+
+    One row per (path, key): a branch's store never overwrites another
+    branch's row for the same path. Re-recording the same key refreshes
+    its verdict. History past the bound evicts least-recently-used
+    first, so the table stays bounded by measured suite size, never by
+    an unbounded per-path history."""
     import time
+    now = time.time()
     with _lock:
         connection = _connect(state_dir)
         try:
             connection.execute(
                 "INSERT OR REPLACE INTO tier1_results"
-                " (test_path, key, passed, total, head, recorded_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (test_rel, key, passed, total, head, time.time()))
+                " (test_path, key, passed, total, head, recorded_at,"
+                " last_used)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (test_rel, key, passed, total, head, now, now))
+            _enforce_bounds(connection, test_rel)
             connection.commit()
         finally:
             connection.close()
 
 
 def drop(state_dir: str, test_rel: str) -> None:
-    """Forget a path: failures and empty runs leave no reusable verdict."""
+    """Forget a path: failures and empty runs leave no reusable verdict.
+
+    Every stored version for the path goes: a failure under the
+    current key must not leave an older key's PASS reusable as if the
+    path still verified."""
     with _lock:
         connection = _connect(state_dir)
         try:

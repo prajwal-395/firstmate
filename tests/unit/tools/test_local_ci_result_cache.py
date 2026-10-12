@@ -288,6 +288,112 @@ def test_expand_selection_expands_dirs_and_skips_conftest(checkout):
     assert expanded == ["tests/unit/foo/test_widget.py"]
 
 
+def _store_key(state_dir, checkout, rel, passed, **overrides):
+    """Store under an explicitly computed key (one parallel branch)."""
+    merged = dict(PINNED)
+    merged.update(overrides)
+    builder = result_cache.KeyBuilder(str(checkout))
+    key = result_cache.compute_key(str(checkout), rel, builder, **merged)
+    result_cache.store(state_dir, rel, key, passed, passed)
+    return key
+
+
+def test_parallel_branch_keys_coexist(checkout, state_dir):
+    # CI-01 pin, half one: two branches verify the same path under
+    # different keys (AAA vs BBB). On main the second store OVERWROTE
+    # the first (`INSERT OR REPLACE` on `test_path PRIMARY KEY`), so
+    # the loser's lookup missed. After: both rows coexist and each
+    # lookup hits only under its own exact key.
+    rel = "tests/unit/foo/test_widget.py"
+    key_a = _store_key(state_dir, checkout, rel, 3,
+                       interpreter="python-branch-AAA")
+    key_b = _store_key(state_dir, checkout, rel, 5,
+                       interpreter="python-branch-BBB")
+    assert key_a != key_b
+    hit_a = _lookup(state_dir, checkout, rel,
+                    interpreter="python-branch-AAA")
+    hit_b = _lookup(state_dir, checkout, rel,
+                    interpreter="python-branch-BBB")
+    assert hit_a is not None and hit_a["key"] == key_a
+    assert hit_a["passed"] == 3
+    assert hit_b is not None and hit_b["key"] == key_b
+    assert hit_b["passed"] == 5
+    assert _lookup(state_dir, checkout, rel,
+                   interpreter="python-branch-CCC") is None
+
+
+def test_lookup_aaa_hits_after_bbb_stored(checkout, state_dir):
+    # CI-01 pin, half two: the exact AAA/BBB ordering from the item -
+    # AAA stored first, BBB stored later by another branch, and a
+    # lookup under AAA still hits (on main it missed: row overwritten).
+    rel = "tests/unit/foo/test_widget.py"
+    _store_key(state_dir, checkout, rel, 3,
+               interpreter="python-branch-AAA")
+    _store_key(state_dir, checkout, rel, 5,
+               interpreter="python-branch-BBB")
+    hit = _lookup(state_dir, checkout, rel,
+                  interpreter="python-branch-AAA")
+    assert hit is not None and hit["passed"] == 3
+
+
+def test_eviction_drops_least_recently_used_first(checkout, state_dir,
+                                                  monkeypatch):
+    # CI-01 pin, half three: history per path is bounded, and past the
+    # bound the LEAST-recently-used key goes first - not the oldest
+    # stored. BBB is stored after AAA but AAA is looked up (used) more
+    # recently, so storing CCC must evict BBB and keep AAA + CCC.
+    monkeypatch.setenv("REN_CI_CACHE_VERSIONS", "2")
+    rel = "tests/unit/foo/test_widget.py"
+    _store_key(state_dir, checkout, rel, 3,
+               interpreter="python-branch-AAA")
+    _store_key(state_dir, checkout, rel, 5,
+               interpreter="python-branch-BBB")
+    assert _lookup(state_dir, checkout, rel,
+                   interpreter="python-branch-AAA") is not None
+    _store_key(state_dir, checkout, rel, 7,
+               interpreter="python-branch-CCC")
+    assert _lookup(state_dir, checkout, rel,
+                   interpreter="python-branch-AAA") is not None
+    assert _lookup(state_dir, checkout, rel,
+                   interpreter="python-branch-CCC") is not None
+    assert _lookup(state_dir, checkout, rel,
+                   interpreter="python-branch-BBB") is None
+
+
+def test_legacy_single_row_db_migrates_without_losing_verdicts(
+        checkout, state_dir):
+    # Pre-CI-01 databases hold one row per path (`test_path PRIMARY
+    # KEY`). Opening one must keep its verdict and serve it under the
+    # matching key - never wipe or strand it.
+    import sqlite3
+    rel = "tests/unit/foo/test_widget.py"
+    builder = result_cache.KeyBuilder(str(checkout))
+    key = result_cache.compute_key(str(checkout), rel, builder, **PINNED)
+    db = __import__("os").path.join(
+        state_dir, result_cache.CACHE_FILENAME)
+    connection = sqlite3.connect(db)
+    try:
+        connection.execute(
+            "CREATE TABLE tier1_results ("
+            " test_path TEXT PRIMARY KEY,"
+            " key TEXT NOT NULL,"
+            " passed INTEGER NOT NULL,"
+            " total INTEGER NOT NULL,"
+            " head TEXT NOT NULL DEFAULT '',"
+            " recorded_at REAL NOT NULL)")
+        connection.execute(
+            "INSERT INTO tier1_results"
+            " (test_path, key, passed, total, head, recorded_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (rel, key, 3, 3, "head-old", 1.0))
+        connection.commit()
+    finally:
+        connection.close()
+    hit = _lookup(state_dir, checkout, rel)
+    assert hit is not None and hit["passed"] == 3
+    assert hit["head"] == "head-old"
+
+
 def test_tier1_status_line_reports_reuse(tmp_path, monkeypatch):
     # The brief's contract: `reused N/M` on the Tier-1 status line.
     from library.tools.local_ci import github
