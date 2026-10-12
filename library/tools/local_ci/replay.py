@@ -27,12 +27,10 @@ Corpus sampling: `rank_candidates` orders historical stacks for
 inclusion from measured data (`history.test_durations` for cost,
 `history.failure_rates` for signal) - known-red batches first, since
 a corpus without a red case cannot measure the metric. The shipped
-manifest (`replay_corpus.json`) carries the two-PR fixture corpus
-from the acceptance check; sampled historical cases (with their
-`source` provenance, including at least one red batch / kicked PR)
-are appended by the same `build_manifest` validation. Real historical
-entries arrive with CI-10's outcome ledger - until then the fixture
-corpus proves the mechanics, not the verdict on main.
+manifest keeps the two-PR acceptance fixtures under scripted selection
+and adds documented historical red outcomes under the live hybrid
+selector. Per-case selector declarations let one report retain both
+the deterministic harness fixtures and measured historical cases.
 
 Trust: `trust_verdict` renders "incremental NOT YET TRUSTWORTHY" by
 construction while no shadow runs are recorded (CI-10 has not
@@ -187,7 +185,12 @@ def build_manifest(cases: list, *, selector: str = "scripted") -> dict:
                             "reason": f"manifest refused: case '{ident}' "
                                       f"outcome for '{test}' on '{tree}' "
                                       f"is not pass/fail"}
-        if selector == "scripted":
+        case_selector = case.get("selector", selector)
+        if case_selector not in ("scripted", "hybrid"):
+            return {"ok": False,
+                    "reason": f"manifest refused: case '{ident}' has "
+                              f"unknown selector '{case_selector}'"}
+        if case_selector == "scripted":
             selection = case.get("selection")
             if not isinstance(selection, dict):
                 return {"ok": False,
@@ -205,7 +208,7 @@ def build_manifest(cases: list, *, selector: str = "scripted") -> dict:
     stamped = []
     for case in cases:
         entry = dict(case)
-        entry["_selector"] = selector
+        entry["_selector"] = entry.get("selector", selector)
         stamped.append(entry)
     return {"ok": True,
             "manifest": {"schema_version": SCHEMA_VERSION,

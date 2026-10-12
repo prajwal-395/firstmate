@@ -1,1 +1,234 @@
-{"cases": [{"base": "main@two-green-prs", "id": "two-green-prs", "known": {"kicked": [], "source": "fixture: two independent green PRs stacked stay green", "verdict": "PASS"}, "members": [{"changed": ["fixture/module_a.py"], "head": "fixture-pr101", "pr": 101}, {"changed": ["fixture/module_b.py"], "head": "fixture-pr102", "pr": 102}], "outcomes": {"fixture/test_module_a.py": {"base": true, "pr:101": true, "pr:102": true, "stack": true}, "fixture/test_module_b.py": {"base": true, "pr:101": true, "pr:102": true, "stack": true}}, "selection": {"base": {"incomplete": [], "selected": []}, "pr:101": {"incomplete": [], "selected": ["fixture/test_module_a.py"]}, "pr:102": {"incomplete": [], "selected": ["fixture/test_module_b.py"]}, "stack": {"incomplete": [], "selected": ["fixture/test_module_a.py", "fixture/test_module_b.py"]}}}, {"base": "main@cross-pr-interaction", "id": "cross-pr-interaction", "known": {"kicked": [], "source": "fixture in the style of queue.resolve_batch interaction (queue.py:495-503): halves pass alone, whole fails; the second half re-tests on the new main rather than merging blind", "verdict": "FAIL"}, "members": [{"changed": ["fixture/module_a.py"], "head": "fixture-pr201", "pr": 201}, {"changed": ["fixture/module_b.py"], "head": "fixture-pr202", "pr": 202}], "outcomes": {"fixture/test_interaction.py": {"base": true, "pr:201": true, "pr:202": true, "stack": false}, "fixture/test_module_a.py": {"base": true, "pr:201": true, "pr:202": true, "stack": true}, "fixture/test_module_b.py": {"base": true, "pr:201": true, "pr:202": true, "stack": true}}, "selection": {"base": {"incomplete": [], "selected": []}, "pr:201": {"incomplete": [], "selected": ["fixture/test_interaction.py", "fixture/test_module_a.py"]}, "pr:202": {"incomplete": [], "selected": ["fixture/test_interaction.py", "fixture/test_module_b.py"]}, "stack": {"incomplete": [], "selected": ["fixture/test_interaction.py", "fixture/test_module_a.py", "fixture/test_module_b.py"]}}}], "schema_version": 1, "selector": "scripted"}
+{
+  "cases": [
+    {
+      "base": "main@two-green-prs",
+      "id": "two-green-prs",
+      "known": {
+        "kicked": [],
+        "source": "fixture: two independent green PRs stacked stay green",
+        "verdict": "PASS"
+      },
+      "members": [
+        {
+          "changed": [
+            "fixture/module_a.py"
+          ],
+          "head": "fixture-pr101",
+          "pr": 101
+        },
+        {
+          "changed": [
+            "fixture/module_b.py"
+          ],
+          "head": "fixture-pr102",
+          "pr": 102
+        }
+      ],
+      "outcomes": {
+        "fixture/test_module_a.py": {
+          "base": true,
+          "pr:101": true,
+          "pr:102": true,
+          "stack": true
+        },
+        "fixture/test_module_b.py": {
+          "base": true,
+          "pr:101": true,
+          "pr:102": true,
+          "stack": true
+        }
+      },
+      "selection": {
+        "base": {
+          "incomplete": [],
+          "selected": []
+        },
+        "pr:101": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_module_a.py"
+          ]
+        },
+        "pr:102": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_module_b.py"
+          ]
+        },
+        "stack": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_module_a.py",
+            "fixture/test_module_b.py"
+          ]
+        }
+      },
+      "selector": "scripted"
+    },
+    {
+      "base": "main@cross-pr-interaction",
+      "id": "cross-pr-interaction",
+      "known": {
+        "kicked": [],
+        "source": "fixture in the style of queue.resolve_batch interaction (queue.py:495-503): halves pass alone, whole fails; the second half re-tests on the new main rather than merging blind",
+        "verdict": "FAIL"
+      },
+      "members": [
+        {
+          "changed": [
+            "fixture/module_a.py"
+          ],
+          "head": "fixture-pr201",
+          "pr": 201
+        },
+        {
+          "changed": [
+            "fixture/module_b.py"
+          ],
+          "head": "fixture-pr202",
+          "pr": 202
+        }
+      ],
+      "outcomes": {
+        "fixture/test_interaction.py": {
+          "base": true,
+          "pr:201": true,
+          "pr:202": true,
+          "stack": false
+        },
+        "fixture/test_module_a.py": {
+          "base": true,
+          "pr:201": true,
+          "pr:202": true,
+          "stack": true
+        },
+        "fixture/test_module_b.py": {
+          "base": true,
+          "pr:201": true,
+          "pr:202": true,
+          "stack": true
+        }
+      },
+      "selection": {
+        "base": {
+          "incomplete": [],
+          "selected": []
+        },
+        "pr:201": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_interaction.py",
+            "fixture/test_module_a.py"
+          ]
+        },
+        "pr:202": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_interaction.py",
+            "fixture/test_module_b.py"
+          ]
+        },
+        "stack": {
+          "incomplete": [],
+          "selected": [
+            "fixture/test_interaction.py",
+            "fixture/test_module_a.py",
+            "fixture/test_module_b.py"
+          ]
+        }
+      },
+      "selector": "scripted"
+    },
+    {
+      "base": "main@78b092255824a6bcc433f4115aad687bea8ac124",
+      "id": "ocr-static-check-heavy-import",
+      "known": {
+        "kicked": [],
+        "source": "https://github.com/prajwal-395/video_editing_pilot/pull/2286 records the Tier-2 main red reproduced after https://github.com/prajwal-395/video_editing_pilot/pull/1944 wired the OCR step: tests/tooling/test_gate_smoke.py failed when static_check imported EasyOCR without the ML environment.",
+        "verdict": "FAIL"
+      },
+      "members": [
+        {
+          "changed": [
+            "library/steps/step_1_07_ocr_extraction/step.py",
+            "library/tools/code_identity.py",
+            "tests/unit/picture/test_ocr_extraction.py"
+          ],
+          "head": "0b4f84a21406a5f8a67a5b9c70124d2031941b2d",
+          "pr": 1944
+        }
+      ],
+      "outcomes": {
+        "tests/tooling/test_gate_smoke.py": {
+          "base": true,
+          "pr:1944": false,
+          "stack": false
+        }
+      }
+    },
+    {
+      "base": "main@4ea23e8f2f499c538daa4da612e14de3c9d4c9ee",
+      "id": "moment-identity-pooled-inventory",
+      "known": {
+        "kicked": [],
+        "source": "https://github.com/prajwal-395/video_editing_pilot/pull/2286 records that tests/tooling/test_tests_never_reach_real_projects.py failed on the stacked tree containing https://github.com/prajwal-395/video_editing_pilot/pull/2273, with mint_moment_id/moment_key ImportErrors.",
+        "verdict": "FAIL"
+      },
+      "members": [
+        {
+          "changed": [
+            "library/steps/step_3_04_select_reels/post_bridge.py",
+            "library/tools/reel_build.py",
+            "library/tools/reel_proposal.py",
+            "library/tools/reel_spine.py",
+            "library/tools/timeline_decisions.py",
+            "tests/unit/reels/test_moment_id_cascade.py"
+          ],
+          "head": "4d774c91fed40d81519bc4f8404707fb08a7340a",
+          "pr": 2273
+        }
+      ],
+      "outcomes": {
+        "tests/tooling/test_tests_never_reach_real_projects.py": {
+          "base": true,
+          "pr:2273": false,
+          "stack": false
+        }
+      }
+    },
+    {
+      "base": "main@16a0af596c1677eb6e5aff83e8218f43210e1ad6",
+      "id": "depth-producer-inventory-pooled-red",
+      "known": {
+        "kicked": [],
+        "source": "The task launch brief identifies a pooled-run depth-on-demand inventory failure for https://github.com/prajwal-395/video_editing_pilot/pull/2384. tests/contracts/test_producer_inventory.py is the contract that compares footage_analysis.LANE_NAMES with the producer inventory roster.",
+        "verdict": "FAIL"
+      },
+      "members": [
+        {
+          "changed": [
+            "library/steps/step_5_04_compile_manifest/step.py",
+            "library/tools/behind_subject.py",
+            "library/tools/depth.py",
+            "library/tools/footage_analysis.py",
+            "library/tools/manifest_validator.py",
+            "library/tools/project_model_evidence.py",
+            "library/tools/source_memory.py",
+            "tests/unit/picture/test_depth.py"
+          ],
+          "head": "a67d632513ca16e5636d446a8741dbace3d8cbc3",
+          "pr": 2384
+        }
+      ],
+      "outcomes": {
+        "tests/contracts/test_producer_inventory.py": {
+          "base": true,
+          "pr:2384": false,
+          "stack": false
+        }
+      }
+    }
+  ],
+  "schema_version": 1,
+  "selector": "hybrid"
+}

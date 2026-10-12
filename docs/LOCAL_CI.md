@@ -143,7 +143,11 @@ shared cache + certified baselines) and reports missed regressions
 per policy (`library/tools/local_ci/replay.py`). The verdict is
 "incremental NOT YET TRUSTWORTHY" until shadow validation (CI-10)
 records data; the CI-08 promotion bar the report states is the
-captain's C4 call.
+captain's C4 call. The corpus keeps scripted harness fixtures and
+records historical red outcomes using the live hybrid selector; each
+historical case names its changed PR files, catching test and source
+PR record. These cases measure selection misses and do not execute the
+recorded tests or gate.
 
 ## Hygiene (the four scratch-script failures, retired)
 

@@ -73,10 +73,21 @@ def _interaction_case():
 def test_shipped_corpus_carries_the_two_pr_fixture():
     manifest = replay.load_manifest()
     assert manifest["schema_version"] == replay.SCHEMA_VERSION
-    assert [case["id"] for case in manifest["cases"]] == [
-        "two-green-prs", "cross-pr-interaction"]
-    for case in manifest["cases"]:
+    cases = {case["id"]: case for case in manifest["cases"]}
+    assert {"two-green-prs", "cross-pr-interaction"} <= set(cases)
+    for case_id in ("two-green-prs", "cross-pr-interaction"):
+        case = cases[case_id]
         assert len(case["members"]) == 2
+        assert case["_selector"] == "scripted"
+
+
+def test_shipped_corpus_includes_historical_hybrid_cases():
+    manifest = replay.load_manifest()
+    cases = {case["id"]: case for case in manifest["cases"]}
+    assert cases["ocr-static-check-heavy-import"]["_selector"] == "hybrid"
+    assert cases["moment-identity-pooled-inventory"]["_selector"] == "hybrid"
+    assert cases["depth-producer-inventory-pooled-red"]["_selector"] == "hybrid"
+    assert manifest["selector"] == "hybrid"
 
 
 def test_full_gate_catches_the_planted_interaction():
@@ -181,12 +192,12 @@ def test_hybrid_selector_path_records_a_miss_when_it_cannot_see(
     assert result["missed_incremental"] is True
 
 
-def test_fixture_replay_agrees_with_known_outcomes(tmp_path):
+def test_shipped_replay_agrees_with_known_full_gate_outcomes(tmp_path):
     manifest = replay.load_manifest(_shipped_corpus(tmp_path))
     result = replay.replay_corpus(manifest)
-    assert result["total"] == 2
+    assert result["total"] == 5
     assert result["missed_full"] == 0
-    assert result["missed_incremental"] == 0
+    assert result["missed_incremental"] == 2
     by_id = {item["id"]: item for item in result["cases"]}
     assert by_id["two-green-prs"]["full"]["ok"] is True
     assert by_id["two-green-prs"]["incremental"]["ok"] is True
@@ -197,7 +208,7 @@ def test_fixture_replay_agrees_with_known_outcomes(tmp_path):
 def test_report_states_the_c4_bar_and_not_yet_trustworthy(tmp_path):
     manifest = replay.load_manifest(_shipped_corpus(tmp_path))
     report = replay.render_report(replay.replay_corpus(manifest))
-    assert "missed regressions: full-gate 0/2, incremental 0/2" in report
+    assert "missed regressions: full-gate 0/5, incremental " in report
     assert "CI-08 promotion bar (C4" in report
     assert "incremental NOT YET TRUSTWORTHY" in report
 
@@ -304,14 +315,34 @@ def test_build_manifest_accepts_a_valid_case():
     assert result["missed_incremental"] == 0
 
 
+def test_build_manifest_allows_a_hybrid_case_in_a_scripted_corpus():
+    case = _one_member_case()
+    case.pop("selection")
+    case["selector"] = "hybrid"
+    checked = replay.build_manifest([case], selector="scripted")
+    assert checked["ok"] is True
+    assert checked["manifest"]["cases"][0]["_selector"] == "hybrid"
+
+
+def test_build_manifest_refuses_an_unknown_case_selector():
+    case = _one_member_case()
+    case["selector"] = "guessed"
+    checked = replay.build_manifest([case])
+    assert checked["ok"] is False
+    assert "unknown selector 'guessed'" in checked["reason"]
+
+
 def test_replay_cli_reports_the_fixture_corpus(tmp_path, capsys):
     code = local_ci_cli.cmd_replay(Namespace(
         corpus=_shipped_corpus(tmp_path), shadow_runs=0))
-    assert code == 0
+    assert code == 1
     output = capsys.readouterr().out
     assert "[two-green-prs] known=PASS" in output
     assert "[cross-pr-interaction] known=FAIL" in output
-    assert "incremental 0/2" in output
+    assert "missed regressions: full-gate 0/5, incremental 2/5" in output
+    assert "[ocr-static-check-heavy-import] known=FAIL" in output
+    assert "[moment-identity-pooled-inventory] known=FAIL" in output
+    assert "[depth-producer-inventory-pooled-red] known=FAIL" in output
     assert "incremental NOT YET TRUSTWORTHY" in output
 
 
