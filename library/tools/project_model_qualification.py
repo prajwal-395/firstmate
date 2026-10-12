@@ -127,8 +127,12 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _filmcraft_cli() -> Path:
-    cached = (Path.home() / ".cache/ren/filmcraft" / FILMCRAFT_REVISION
-              / "bin" / "filmcraft-cli")
+    from library.tools import filmcraft_patches
+
+    # The digest-keyed cache the runtime install and the intake share:
+    # revision plus the fork-patch-set key, so an unpatched binary is
+    # never reused once the patch set changes.
+    cached = filmcraft_patches.filmcraft_cli_path(Path.home(), FILMCRAFT_REVISION)
     if cached.is_file():
         return cached
     raise Pm9Refused(what="pinned FilmCraft CLI is absent",

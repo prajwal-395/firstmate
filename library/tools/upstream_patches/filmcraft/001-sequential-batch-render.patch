@@ -1,0 +1,119 @@
+From: Ren <ren@localhost>
+Subject: [ren-fork] Render export batches in ascending frame order
+
+Upstream file: crates/export/src/job.rs
+Upstream revision: 0800a8b0aa4a703ba42172f415b45a61f8d8a5e1 (FilmCraft CLI 0.6.0)
+Ren lane: vep-mxf-ingest-profile (2026-10-11); re-based onto 0800a8b by
+vep-mxf-decode-patch (2026-10-11, hunks identical, apply-check clean on both pins)
+
+Rationale
+---------
+
+GOP-aware video sources (MXF Long-GOP via GopCache) restart their decoder at
+the preceding sync sample on any out-of-order frame request, then decode
+forward to the wanted frame. Reel 22 media index tables flag one sync
+sample per 14,400 frames (measured key_positions on both A-roll files:
+LCATL0013.MXF 7 keyframes / 98,292 samples; LC4932.MXF 9 / 118,468), while
+the stream itself carries I-frames roughly every 12 frames (ffprobe) - so
+every restart re-decodes up to a ~14k-frame preroll that a true-sync seek
+would not need (follow-up lead, not this patch).
+
+`render_batch` dispatched each batch's frames over rayon (`into_par_iter`),
+so every batch issued out-of-order requests against one shared running
+decoder. Measured on the pinned revision (perf.stats diffs around
+file.exportMedia, same machine, read-only sources):
+
+- 24 frames placed at source frame 87030 (630 frames past flagged sync
+  86400): 10 seeks, 6,463 samples decoded for 24 requested (269x
+  amplification), render stage 157.7 s of a 158.6 s export (99.4%).
+- 120 frames placed at source frame 0: 10 seeks, 274 samples for 120
+  requested (2.3x), render stage 23.9 s of a 29.1 s export.
+
+Rendering the batch sequentially in ascending order keeps one running
+decoder per source: ~1 seek per flagged-sync entry plus the wanted frames
+(~674 samples for the deep case above, ~9.6x fewer decodes).
+
+What changes: request order only. Batches are still cut exactly as before,
+frames are still encoded in order, and the batch-level render/encode overlap
+(`overlapping`, `in_place_scope`) is untouched - so the output bytes are
+unchanged (deterministic per-frame render; `determinism_tests` still apply).
+No pixel or container change: fidelity-neutral by construction; the standard
+intake corpus re-verifies at promotion.
+
+Expected saving (bounded from the measured counts x measured per-sample
+CPU: 66 ms shallow / 215 ms deep thread-time over 10 h264 threads):
+deep-24 export render stage ~158 s -> ~20 s (~8x: 674 x 215 ms / 10 plus
+unchanged per-frame overhead and encode). Shallow-120 is NOT decode-bound
+(decode thread-time 18.2 s is ~8% of the 23.9 s render wall; the rest is
+per-frame pipeline overhead this patch does not touch), so its bounded
+saving is only the 154 excess samples (~1 s wall) plus whatever lock
+contention the parallel requests were adding - re-measure at promotion,
+do not quote ~1.7x. Full-reel effect scales with the restart rate of
+longer exports; the bound is per restart avoided, not a whole-reel
+re-measurement.
+
+Remove this patch when upstream orders batch frame requests (or otherwise
+avoids GOP restarts from parallel batch rendering); re-measure
+samplesDecoded/requests at each pin move.
+
+diff --git a/crates/export/src/job.rs b/crates/export/src/job.rs
+index 1154f99..6a4be7d 100644
+--- a/crates/export/src/job.rs
++++ b/crates/export/src/job.rs
+@@ -19,10 +19,11 @@
+ //!
+ //! # Overlapping render and encode
+ //!
+-//! Rendering a batch is parallel (rayon); encoding, muxing and the audio are serial and own the
+-//! encoder, the container writer and the audio state. Run one after the other the wall time was
+-//! `render + encode + audio + mux`. A step now renders batch *k+1* on the rayon pool
+-//! ([`rayon::in_place_scope`] + `spawn`) while the *calling* thread encodes, muxes and mixes the
++//! Rendering a batch is ordered (ascending frames, on the calling thread); encoding, muxing and
++//! the audio are serial and own the encoder, the container writer and the audio state. Run one
++//! after the other the wall time was `render + encode + audio + mux`. A step now renders batch
++//! *k+1* on the rayon pool ([`rayon::in_place_scope`] + `spawn`) while the *calling* thread
++//! encodes, muxes and mixes the
+ //! audio of batch *k*, and keeps the finished frames in `ahead` for the next step: the wall time
+ //! is about `max(render, encode + audio + mux)`. Design points:
+ //!
+@@ -37,7 +38,7 @@
+ //! * **Pending media.** [`filmcraft_media::pending`] is a thread-local flag, set by web readers
+ //!   (whose export never overlaps: wasm has no threads, so [`Exporter::overlapping`] is false and
+ //!   every step is the sequential render-then-encode of before). The render of a batch takes the
+-//!   flag after every frame, on whatever thread drew it, and a batch that saw it is discarded:
++//!   flag after every frame, in order, and a batch that saw it is discarded:
+ //!   a prefetched batch that hit pending is dropped and rendered again by the next step, and
+ //!   nothing is ever encoded from it. The audio pull checks the flag on the encoding thread right
+ //!   after pulling, before a frame is encoded (the batch is then not encoded; its audio is not
+@@ -67,7 +68,6 @@
+ use filmcraft_project::{ItemId, Project};
+ use filmcraft_render::SourceProvider;
+ use filmcraft_time::FrameRate;
+-use rayon::prelude::*;
+ 
+ use crate::audio_out::AudioOut;
+ use crate::mxf_out::{MxfMux, MxfSetup};
+@@ -110,13 +110,19 @@
+     frames: Vec<Frame>,
+ }
+ 
+-/// Render frames `f..end` in parallel. `None` when a source was not ready for one of them (the
+-/// pending flag, taken after every frame because it is per thread): the batch is incomplete and
+-/// must be rendered again.
++/// Render frames `f..end` in ascending order on this thread. `None` when a source was not ready
++/// for one of them (the pending flag, taken after every frame): the batch is incomplete and must
++/// be rendered again.
++///
++/// Ren fork: no `into_par_iter` here. GOP-aware sources restart their decoder at the preceding
++/// sync sample on any out-of-order request; with ~14k-frame GOPs (Reel 22 MXF, measured 7-9
++/// keyframes per 98-118k frames) parallel batch threads re-decoded thousand-frame prerolls per
++/// batch (measured: 6,463 samples for 24 frames). Ascending order keeps one running decoder per
++/// source; the batch-level render/encode overlap is unchanged, and the output is byte-identical
++/// (frames are encoded in order either way).
+ fn render_batch(pipe: &Pipeline, f: i64, end: i64, sources: &dyn SourceProvider) -> Option<Vec<Frame>> {
+     let pending = AtomicBool::new(false);
+     let frames: Vec<Frame> = (f..end)
+-        .into_par_iter()
+         .map(|fi| {
+             let frame = pipe.frame(fi, sources);
+             if filmcraft_media::pending::take() {

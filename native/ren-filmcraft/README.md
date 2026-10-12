@@ -4,8 +4,14 @@ Ren's headless FilmCraft adapter. It invokes only `filmcraft-cli`, never the des
 crate graph. The pin lives in `src/lib.rs` as one immutable SHA (`FILMCRAFT_REVISION`);
 that constant is the sole pin source and `library/tools/upstream_engines.json` mirrors it,
 enforced by `assert_pins_match_crates` (`library/tools/local_ci/upstream.py`). The CLI is located from `REN_FILMCRAFT_CLI` or
-`FILMCRAFT_CLI`; otherwise it is installed on demand into a revision-addressed directory under
-`~/.cache/ren/filmcraft/` using the exact Git revision and Cargo's lockfile.
+`FILMCRAFT_CLI`; otherwise it is installed on demand into a revision-and-patch-set-addressed directory under
+`~/.cache/ren/filmcraft/` (`<revision>-p<patch-set-key>`): the pinned revision is cloned, Ren's fork-patch
+series (`library/tools/upstream_patches/filmcraft/*.patch`, embedded at build time by `build.rs`) is replayed
+in order with `git apply`, and the CLI package is `cargo install --path`'d - the same replay the intake gate
+performs, so the runtime binary is exactly what the gate qualified. The key (`FILMCRAFT_PATCH_SET_KEY`)
+moves with the patch set, so an unpatched pre-patch binary is never reused; the Python resolvers
+(`library/tools/project_model_cli.py`, `library/tools/project_model_qualification.py`) and the intake's
+post-qualification install resolve the same directory through `library/tools/filmcraft_patches.py`.
 
 The public API is a versioned typed request and receipt. `.fcproj` remains an engine projection,
 and the adapter checks its explicit format identifier and schema version before accepting it.

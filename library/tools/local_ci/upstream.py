@@ -18,6 +18,7 @@ import uuid
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
+from library.tools import filmcraft_patches
 from library.tools.local_ci import config
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -420,6 +421,19 @@ def _qualify_engine(name: str, engine: dict, qualified_sha: str,
     details["steps"].append({"name": "headless_render_corpus",
                               "status": "passed",
                               "cases": sorted(details["corpus"]["cases"])})
+    if name == "filmcraft":
+        # The qualified binary is the installed binary: land it in the
+        # digest-keyed cache the runtimes resolve (revision plus the
+        # replayed patch-set key), so Ren runs exactly what the gate
+        # passed - never an unpatched binary from the bare-revision
+        # directory. Fail-closed: an install failure fails the intake.
+        try:
+            installed = filmcraft_patches.install_cli_to_cache(
+                cli_binary, Path.home(), candidate_sha)
+        except OSError as exc:
+            details["error"] = f"{name} cache install failed: {exc}"
+            return details
+        details["installed_cli"] = str(installed)
     return details
 
 

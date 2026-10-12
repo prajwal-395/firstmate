@@ -240,6 +240,23 @@ belong in Ren-owned crates, not here. Upstream source is checked out detached
 at an immutable SHA. Engine UI crates are never built: qualification builds
 the CLI and named test packages only.
 
+## Patched runtime install (FilmCraft, 2026-10-11)
+
+The CLI Ren actually runs is the patched one: `native/ren-filmcraft`
+installs it on demand into `~/.cache/ren/filmcraft/<revision>-p<key>`
+by cloning the pinned revision, replaying
+`library/tools/upstream_patches/filmcraft/*.patch` in order with
+`git apply` (refusing when a patch no longer applies), and
+`cargo install --path`ing the CLI package - the same replay the gate
+performs. The intake installs the binary it just qualified into that
+same directory on promotion, so the cached binary is exactly what the
+gate passed. The key moves with the patch set
+(`library/tools/filmcraft_patches.py`, mirrored as
+`FILMCRAFT_PATCH_SET_KEY` in the adapter), so a pre-patch binary under
+the old bare-revision directory is never reused. Fidelity outranks
+speed: a replay failure refuses the install and the build rather than
+falling back to unpatched sources.
+
 ## Edition and license closure (Unit 8, measured 2026-10-10)
 
 Both headless integrations are public components: `engine.filmcraft_cli`

@@ -573,10 +573,14 @@ pin         : 0800a8b0aa4a703ba42172f415b45a61f8d8a5e1
               (native/ren-filmcraft/src/lib.rs)
 source      : https://github.com/storytold/filmcraft
 license     : MIT OR Apache-2.0
-fetched     : downloaded-at-first-use (pinned cargo install into the
+fetched     : downloaded-at-first-use (pinned revision cloned,
+              Ren's fork-patch series replayed in order, CLI package
+              cargo-installed into the revision-and-patch-set-keyed
               user cache)
 commercial  : ok
-hash-verified: yes (cargo install pins the immutable revision)
+hash-verified: yes (cargo install pins the immutable revision; the
+              patch set is replayed from the Ren tree and keyed into
+              the cache directory)
 note        : Cargo.lock at the pinned source revision identifies its
               transitive Rust dependencies. Measured 2026-10-11 over
               `cargo tree -p filmcraft-cli` at the pinned revision

@@ -550,6 +550,8 @@ def execute_preconform(planned: dict, resolved: dict[str, Path],
 def _filmcraft_cli() -> Path:
     import os
 
+    from library.tools import filmcraft_patches
+
     override = os.environ.get("REN_FILMCRAFT_CLI") or os.environ.get("FILMCRAFT_CLI")
     if override:
         candidate = Path(override).expanduser()
@@ -559,8 +561,10 @@ def _filmcraft_cli() -> Path:
                       "the override must point at the pinned CLI",
                       "point REN_FILMCRAFT_CLI at the pinned filmcraft-cli, or unset it for the cache lookup",
                       code="REN_PM_CLI_ENGINE_ABSENT")
-    cached = (Path.home() / ".cache/ren/filmcraft" / FILMCRAFT_REVISION
-              / "bin" / "filmcraft-cli")
+    # The digest-keyed cache the runtime install and the intake share:
+    # revision plus the fork-patch-set key, so an unpatched binary is
+    # never reused once the patch set changes.
+    cached = filmcraft_patches.filmcraft_cli_path(Path.home(), FILMCRAFT_REVISION)
     if cached.is_file():
         return cached
     raise _refuse("pinned FilmCraft CLI is absent",
