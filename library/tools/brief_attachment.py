@@ -75,6 +75,8 @@ Captain's ruling, 2026-09-02: *"this should be like an optional attachment we ca
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -91,6 +93,11 @@ DECLINED = "declined"
 NONE_DECLARED = "none_declared"
 
 READINGS = (ATTACHED, DECLINED, NONE_DECLARED)
+
+#: Where `ren new` records the starter brief's sha256: `<project>/.ren/`
+#: holds machine records beside the project, never user declarations.
+STARTER_RECORD_DIR = ".ren"
+STARTER_RECORD_NAME = "brief_starter.json"
 
 
 class BriefAttachmentError(ValueError):
@@ -164,6 +171,103 @@ def _as_bool(value, where: str) -> Optional[bool]:
     )
 
 
+def starter_record_path(project_folder: str) -> str:
+    """Where `ren new` records the starter brief's digest."""
+    return os.path.join(str(project_folder), STARTER_RECORD_DIR,
+                        STARTER_RECORD_NAME)
+
+
+def record_starter_sha(project_folder: str, brief_path: str) -> str:
+    """Record the starter brief's sha256 at `ren new` time. Never raises.
+
+    Returns the recorded digest, or "" when the brief could not be read.
+    Compared by byte digest, never by heading pattern-matching: any edit
+    the project makes changes the bytes and the brief counts as filled.
+    """
+    try:
+        with open(brief_path, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+    except OSError:
+        return ""
+    try:
+        record_path = starter_record_path(project_folder)
+        os.makedirs(os.path.dirname(record_path), exist_ok=True)
+        with open(record_path, "w", encoding="utf-8") as handle:
+            json.dump({"sha256": digest}, handle)
+    except OSError:
+        pass
+    return digest
+
+
+def _recorded_starter_sha(project_folder: str) -> Optional[str]:
+    """The digest `ren new` recorded, or None when there is none."""
+    try:
+        with open(starter_record_path(project_folder), "r",
+                  encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        # Older record spelling: the file holds the bare hex digest.
+        try:
+            with open(starter_record_path(project_folder), "r",
+                      encoding="utf-8") as handle:
+                text = handle.read().strip()
+        except OSError:
+            return None
+        return text or None
+    if isinstance(data, dict) and isinstance(data.get("sha256"), str):
+        return data["sha256"] or None
+    if isinstance(data, str) and data.strip():
+        return data.strip()
+    return None
+
+
+def _file_sha256(path: str) -> Optional[str]:
+    """The sha256 of a file's bytes, or None when unreadable."""
+    try:
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _resolve_brief_file(path: str, project_folder: str) -> str:
+    """The filesystem path a brief declaration names, resolved the way
+    the runner reads it: portable tokens expanded, relative anchored at
+    the project folder, absolute as given."""
+    resolved = path
+    if project_folder:
+        try:
+            from library.tools.portable_paths import expand
+            resolved = expand(path, project_folder)
+        except Exception:  # noqa: BLE001 - fall back to the raw spelling
+            resolved = path
+    if not os.path.isabs(resolved) and project_folder:
+        resolved = os.path.join(project_folder, resolved)
+    return resolved
+
+
+def _scaffold_or_missing(path: str, project_folder: str) -> Optional[Attachment]:
+    """NONE_DECLARED when the declared brief file is missing or is still
+    byte-identical to the starter `ren new` wrote; None when it is a
+    real brief the run should attach. Never raises - an unreadable
+    record is absence of evidence, not evidence of a scaffold."""
+    resolved = _resolve_brief_file(path, project_folder) if project_folder else path
+    if not resolved or not os.path.isfile(resolved):
+        return Attachment(
+            NONE_DECLARED, path=path,
+            basis=(f"the declared {PATH_KEY} {path!r} points at a "
+                   f"missing file, so there is no brief to attach"))
+    recorded = _recorded_starter_sha(project_folder) if project_folder else None
+    if recorded:
+        current = _file_sha256(resolved)
+        if current is not None and current == recorded:
+            return Attachment(
+                NONE_DECLARED, path=path,
+                basis=(f"{path!r} is the unfilled scaffold ren new "
+                       f"wrote (sha256 {recorded[:12]}...), so Ren will ask"))
+    return None
+
+
 def read_declaration(project_folder: str) -> Attachment:
     """What this project declared about attaching a brief.
 
@@ -191,8 +295,9 @@ def read_declaration(project_folder: str) -> Attachment:
     if not isinstance(data, dict):
         return Attachment(NONE_DECLARED,
                           basis="project.yaml is not a mapping")
-    attachment = read_declaration_from(data, where=project_yaml)
-    if attachment.path:
+    attachment = read_declaration_from(data, where=project_yaml,
+                                       project_folder=project_folder)
+    if attachment.path and attachment.attached:
         # A portable declaration (`$HOME/...`, `$PROJECT/...`) resolves
         # against this project on this machine; relative stays relative
         # for the consumer to anchor at the project folder.
@@ -204,9 +309,17 @@ def read_declaration(project_folder: str) -> Attachment:
     return attachment
 
 
-def read_declaration_from(data: dict, where: str = "project.yaml"
-                          ) -> Attachment:
-    """The reading, off an already-loaded project.yaml mapping."""
+def read_declaration_from(data: dict, where: str = "project.yaml",
+                           project_folder: str = "") -> Attachment:
+    """The reading, off an already-loaded project.yaml mapping.
+
+    `project_folder` is where the declared brief file is looked up: a
+    declared path whose file is missing, or whose bytes are still
+    identical to the starter `ren new` wrote, reads as NONE_DECLARED so
+    the run interviews instead of planning off a scaffold. An explicit
+    `attach_creative_brief: true` keeps the attached reading. Without a
+    folder the declaration alone is read, exactly as before.
+    """
     path = _declared(data, PATH_KEY)
     path = str(path).strip() if isinstance(path, (str, os.PathLike)) else ""
     declared = _as_bool(_declared(data, DECLARATION_KEY), where)
@@ -228,6 +341,10 @@ def read_declaration_from(data: dict, where: str = "project.yaml"
         return Attachment(ATTACHED, path=path,
                           basis=f"{DECLARATION_KEY} is true")
     if path:
+        if project_folder:
+            unfilled = _scaffold_or_missing(path, project_folder)
+            if unfilled is not None:
+                return unfilled
         return Attachment(
             ATTACHED, path=path,
             basis=(f"{DECLARATION_KEY} is not declared, so the declared "
@@ -252,6 +369,12 @@ def describe(attachment: Attachment) -> str:
                 f"({attachment.basis}). The planning steps will be asked "
                 "what they would need to know instead - see the briefing "
                 "questions in the run summary.")
+    if "unfilled scaffold" in attachment.basis:
+        return ("Creative brief: NONE DECLARED "
+                f"({attachment.basis}). {attachment.path or 'brief.md'} "
+                "is the unfilled scaffold, so Ren will ask. The planning "
+                "steps will be asked what they would need to know instead "
+                "- see the briefing questions in the run summary.")
     return ("Creative brief: NONE DECLARED "
             f"({attachment.basis}). The planning steps will be asked what "
             "they would need to know instead - see the briefing questions "

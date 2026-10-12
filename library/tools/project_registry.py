@@ -361,6 +361,15 @@ def create_project(
                          brand_series or slug)
     _write_brief_starter(project_dir / "brief.md", config,
                          brief_title or name)
+    # The starter's digest, so a run can tell an unfilled scaffold from
+    # a brief the project actually wrote (library/tools/brief_attachment
+    # compares bytes, never headings). Best-effort: a record that
+    # cannot be written leaves today's attached reading in place.
+    try:
+        from library.tools.brief_attachment import record_starter_sha
+        record_starter_sha(str(project_dir), str(project_dir / "brief.md"))
+    except Exception:  # noqa: BLE001 - the scaffold itself is complete
+        pass
     _write_style_starter(project_dir / "style.yaml")
     _write_video_starter(project_dir / "video.yaml")
 
