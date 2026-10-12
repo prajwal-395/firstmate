@@ -323,8 +323,11 @@ VERBS = (
          effects=("read",), subcommand="pr-body"),
     Verb("notes", "Reels", "Show which timeline note went to which step",
          effects=("read", "project_write", "resolve_read"), subcommand="notes",
-         detail="`ren notes <project>` shows which timeline note went to which step. "
-                "`ren notes pull <project> [--all]` pulls new notes off Resolve first (needs Resolve open)."),
+          detail="`ren notes <project>` shows which timeline note went to which step. "
+                 "`ren notes pull <project> [--all]` pulls new notes off Resolve first (needs Resolve open). "
+                 "`ren notes import <project> <export.csv|fiojson|edl> --reel N` ingests a Frame.io comment "
+                 "export into the same note store, mapping file time through the delivery record; "
+                 "unmappable comments are listed, never guessed."),
     Verb("outcomes", "Reels", "Show feedback notes and their recorded outcomes",
          effects=("read", "project_write"), json=True,
          module_argv=("library.tools.feedback_outcomes",),

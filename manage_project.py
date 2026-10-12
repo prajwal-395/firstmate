@@ -787,10 +787,32 @@ def cmd_notes(args):
         if getattr(args, "all", False):
             argv.append("--all")
         sys.exit(marker_feedback.main(argv))
+    if getattr(args, "action", "") == "import":
+        from library.tools import frameio_import
+
+        if not getattr(args, "slug", "") or not getattr(args, "file", ""):
+            print("Error: `ren notes import` needs the project and the "
+                  "export: `ren notes import <project> <export.csv|"
+                  "fiojson|edl> --reel N`.",
+                  file=sys.stderr)
+            sys.exit(2)
+        try:
+            config = get_project(args.slug, strict=False)
+            from library.tools.project_registry import warn_config_findings
+            warn_config_findings(config)
+            project_folder = str(config.project_root)
+        except FileNotFoundError:
+            project_folder = args.slug
+
+        argv = [project_folder, args.file, "--reel", args.reel or ""]
+        if getattr(args, "json", False):
+            argv.append("--json")
+        sys.exit(frameio_import.main(argv))
     if getattr(args, "slug", ""):
         print(f"Error: unknown notes action {args.action!r}; "
               f"`ren notes <project>` routes, "
-              f"`ren notes pull <project>` pulls.",
+              f"`ren notes pull <project>` pulls, "
+              f"`ren notes import <project> <export> --reel N` imports.",
               file=sys.stderr)
         sys.exit(2)
 
@@ -4935,15 +4957,29 @@ def main():
     p_archive.set_defaults(func=cmd_archive)
 
     # relink
-    # notes (`ren notes <project>` routes; `ren notes pull <project>` pulls)
+    # notes (`ren notes <project>` routes; `ren notes pull <project>` pulls;
+    # `ren notes import <project> <export> --reel N` imports Frame.io comments)
     p_notes = _add_command(sub, "notes")
     p_notes.add_argument("action", nargs="?", default="",
-                         help="The project to route, or `pull` to collect "
+                         help="The project to route, `pull` to collect "
                               "new notes off Resolve first (needs Resolve "
-                              "open: `ren notes pull <project> [--all]`)")
+                              "open: `ren notes pull <project> [--all]`), "
+                              "or `import` to ingest a Frame.io comment "
+                              "export (`ren notes import <project> "
+                              "<export.csv|fiojson|edl> --reel N`)")
     p_notes.add_argument("slug", metavar="PROJECT", nargs="?", default="",
                          help="With `pull`: the project slug, or an "
-                              "absolute path")
+                              "absolute path. With `import`: the project")
+    p_notes.add_argument("file", metavar="EXPORT", nargs="?", default="",
+                         help="With `import`: the exported comment file "
+                              "(.csv, .fiojson or .edl)")
+    p_notes.add_argument(
+        "--reel", default="",
+        help="with `import`: the reel number or exact timeline name "
+             "the comments review")
+    p_notes.add_argument(
+        "--json", action="store_true",
+        help="with `import`: print the import record as JSON")
     p_notes.add_argument(
         "--write", action="store_true",
         help="also write the routing record and ROUTED-NOTES.md into "
