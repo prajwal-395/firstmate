@@ -147,6 +147,28 @@ def test_plan_refuses_a_shorter_render_even_with_no_keys():
 
 # ── Map semantics ────────────────────────────────────────────────────
 
+def test_multi_clock_map_resolves_per_segment_clock():
+    """MU-21 (mirror of ren-core): a tick maps only on the source
+    clock that measured it. On main the map's ``from_clock`` (the
+    first source) answered for every segment's ticks."""
+    def seg(clock, a, b, c, d):
+        out = _segment(a, b, c, d)
+        out["from"]["clock_id"] = clock
+        return out
+    frame_map = {"id": "map-two", "from_clock": "source-a",
+                 "to_clock": "reel",
+                 "segments": [seg("source-a", 10000, 15000, 0, 5000),
+                              seg("source-b", 20000, 25000, 5000, 10000)]}
+    assert swap.map_tick(frame_map, "source-b", 20000) == 5000
+    assert swap.map_tick(frame_map, "source-a", 10000) == 0
+    with pytest.raises(swap.SwapbackRefused) as exc:
+        swap.map_tick(frame_map, "source-a", 20000)
+    assert exc.value.code == "REN_SWAPBACK_UNCOVERED"
+    with pytest.raises(swap.SwapbackRefused) as exc:
+        swap.map_tick(frame_map, "no-such-clock", 20000)
+    assert exc.value.code == "REN_SWAPBACK_CLOCK_MISMATCH"
+
+
 def test_generated_segments_are_never_guessed():
     old = _map("map-old", "old-render",
                [_segment(0, 412, 0, 412, kind="generated")])

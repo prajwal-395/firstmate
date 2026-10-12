@@ -393,3 +393,84 @@ def test_note_deliver_refuses_without_clip_uses(tmp_path):
     assert "no Project Model" in out["reason"]
     out = rpm.note_deliver(str(project), 1, "Reel 01", "/no/such/file.mp4")
     assert out["status"] == "refused"
+
+
+def _two_source_placements():
+    return [
+        {"source_file": "/m/a.MXF", "source_in": 10.0,
+         "source_out": 15.0, "record_start": 0.0, "record_frame": 0,
+         "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+         "master_start": 10.0, "master_end": 15.0},
+        {"source_file": "/m/b.MXF", "source_in": 20.0,
+         "source_out": 25.0, "record_start": 5.0, "record_frame": 120,
+         "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+         "master_start": 20.0, "master_end": 25.0},
+    ]
+
+
+def test_two_source_frame_map_resolves_per_segment_clock():
+    """MU-21: a two-source reel maps a tick on the second source to
+    the second render range, and refuses a tick asked on a clock that
+    does not carry it.
+
+    On main ``map_tick`` checks only ``map["from_clock"]`` (the first
+    source), so the second source's tick maps against the wrong clock
+    instead of refusing, and the second clock itself is a mismatch.
+    """
+    from library.tools import resolve_swapback as swap
+    model = rpm.blank_model("project-mu21")
+    out = rpm.clip_uses_from_placements(
+        model, "reel-01", "Reel 01", _two_source_placements(),
+        {("video", 1): "a_roll"}, None)
+    assert out["use_ids"] == ["use:reel-01:0000", "use:reel-01:0001"]
+    map_id = rpm.frame_map_for_reel(
+        model, "reel-01", "clock:reel:reel-01", out["use_ids"])
+    frame_map = next(row for row in model["frame_maps"]
+                     if row["id"] == map_id)
+    first, second = frame_map["segments"]
+    assert first["from"]["clock_id"] != second["from"]["clock_id"]
+    assert frame_map["from_clock"] == first["from"]["clock_id"]
+    assert (first["from"]["start"], first["from"]["end"]) == (10000, 15000)
+    assert (second["from"]["start"], second["from"]["end"]) == (20000, 25000)
+    assert (first["to"]["start"], first["to"]["end"]) == (0, 5000)
+    assert (second["to"]["start"], second["to"]["end"]) == (5000, 10000)
+    # The second source's tick lands on the second render range.
+    assert swap.map_tick(
+        frame_map, second["from"]["clock_id"], 20000) == 5000
+    assert swap.map_tick(
+        frame_map, second["from"]["clock_id"], 24999) == 9999
+    # Asked on the first clock, that tick refuses: on main it
+    # answered with the second range against the wrong clock.
+    with pytest.raises(swap.SwapbackRefused):
+        swap.map_tick(frame_map, first["from"]["clock_id"], 20000)
+    with pytest.raises(swap.SwapbackRefused):
+        swap.map_tick(frame_map, "clock:src:no-such-source", 20000)
+    validate_project_model(model)
+
+
+def test_same_tick_on_two_sources_answers_per_clock():
+    """MU-21: two sources covering the same numeric tick each answer
+    their own render range. On main the shared tick is ambiguous
+    across clocks instead of resolving per segment."""
+    from library.tools import resolve_swapback as swap
+    model = rpm.blank_model("project-mu21-overlap")
+    placements = [_two_source_placements()[0],
+                  dict(_two_source_placements()[0],
+                       source_file="/m/b.MXF",
+                       record_start=5.0, record_frame=120)]
+    out = rpm.clip_uses_from_placements(
+        model, "reel-01", "Reel 01", placements,
+        {("video", 1): "a_roll"}, None)
+    map_id = rpm.frame_map_for_reel(
+        model, "reel-01", "clock:reel:reel-01", out["use_ids"])
+    frame_map = next(row for row in model["frame_maps"]
+                     if row["id"] == map_id)
+    first, second = frame_map["segments"]
+    assert first["from"]["clock_id"] != second["from"]["clock_id"]
+    assert (first["from"]["start"], first["from"]["end"]) == (10000, 15000)
+    assert (second["from"]["start"], second["from"]["end"]) == (10000, 15000)
+    assert swap.map_tick(
+        frame_map, first["from"]["clock_id"], 12000) == 2000
+    assert swap.map_tick(
+        frame_map, second["from"]["clock_id"], 12000) == 7000
+    validate_project_model(model)

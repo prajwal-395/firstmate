@@ -164,15 +164,35 @@ def _segments_covering(frame_map: dict, side: str, tick: int) -> list:
 
 
 def map_tick(frame_map: dict, clock_id: str, tick: int) -> int:
-    """One anchor tick onto the render clock, exactly or refused."""
-    if frame_map["from_clock"] != clock_id:
+    """One anchor tick onto the render clock, exactly or refused.
+
+    Clocks are honoured PER SEGMENT (MU-21): a reel map over several
+    sources carries one segment per clip use, each on its own source
+    clock, while ``from_clock`` names only the first. The tick is
+    judged against the segments carrying the caller's clock - a tick
+    from another source is never mapped against this clock. Mirrors
+    ``native/ren-core/src/frame_map.rs`` exactly.
+    """
+    if not any(segment.get("from", {}).get("clock_id") == clock_id
+               for segment in frame_map["segments"]):
+        if frame_map["from_clock"] == clock_id:
+            raise _refuse(
+                "REN_SWAPBACK_UNCOVERED",
+                f"anchor frame {tick} is covered by no segment of map "
+                f"{frame_map['id']!r}",
+                "a key with no mapped anchor has nowhere to land",
+                "extend the render's frame map over the played range or "
+                "drop the key from the binding")
         raise _refuse(
             "REN_SWAPBACK_CLOCK_MISMATCH",
-            f"frame map {frame_map['id']!r} starts on "
-            f"{frame_map['from_clock']!r}, not {clock_id!r}",
-            "both maps must share the anchor clock the keys hang from",
-            "pass maps from the same project revision")
-    matches = _segments_covering(frame_map, "from", tick)
+            f"frame map {frame_map['id']!r} carries no segment on "
+            f"{clock_id!r} (its first clock is "
+            f"{frame_map['from_clock']!r})",
+            "a tick maps only on the source clock that measured it",
+            "pass the tick on its own segment clock")
+    matches = [segment for segment in frame_map["segments"]
+               if segment.get("from", {}).get("clock_id") == clock_id
+               and int(segment["from"]["start"]) <= tick < int(segment["from"]["end"])]
     if not matches:
         raise _refuse(
             "REN_SWAPBACK_UNCOVERED",
@@ -276,9 +296,13 @@ def translate_range(old_map: dict, new_map: dict, span: dict) -> dict:
     anchor_start = _affine(start, old_segment["to"], old_segment["from"],
                            old_d, old_n)
     anchor_end = _affine(end, old_segment["to"], old_segment["from"],
-                         old_d, old_n)
+                          old_d, old_n)
+    # The anchor ticks live on the covering segment's source clock, so
+    # the new map is searched on that clock only (MU-21).
     new_cover = [segment for segment in new_map["segments"]
-                 if int(segment["from"]["start"]) <= anchor_start
+                 if segment.get("from", {}).get("clock_id")
+                 == old_segment.get("from", {}).get("clock_id")
+                 and int(segment["from"]["start"]) <= anchor_start
                  and anchor_end <= int(segment["from"]["end"])]
     if len(new_cover) != 1:
         raise _refuse(

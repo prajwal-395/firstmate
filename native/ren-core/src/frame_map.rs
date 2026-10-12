@@ -129,14 +129,27 @@ fn usable(segment: &FrameMapSegment, inverse: bool) -> Result<(), FrameMapError>
 }
 
 /// Map a tick. At a shared boundary the half-open segment beginning there owns it.
+///
+/// Clocks are honoured PER SEGMENT (MU-21): a reel map over several
+/// sources carries one segment per clip use, each on its own source
+/// clock, while `map.from_clock` names only the first. The tick is
+/// judged against the segments carrying the caller's clock - a tick
+/// from another source is never mapped against this clock, and two
+/// sources covering the same numeric tick do not make each other
+/// ambiguous. A clock no segment carries is a mismatch; a carried
+/// clock covering no segment at the tick is uncovered.
 pub fn map_tick(map: &FrameMap, clock_id: &str, tick: i64) -> Result<i64, FrameMapError> {
-    if map.from_clock.0 != clock_id {
-        return Err(FrameMapError::ClockMismatch);
+    if !map.segments.iter().any(|s| s.from.clock_id.0 == clock_id) {
+        return Err(if map.from_clock.0 == clock_id {
+            FrameMapError::Uncovered
+        } else {
+            FrameMapError::ClockMismatch
+        });
     }
     let matches: Vec<_> = map
         .segments
         .iter()
-        .filter(|s| s.from.start <= tick && tick < s.from.end)
+        .filter(|s| s.from.clock_id.0 == clock_id && s.from.start <= tick && tick < s.from.end)
         .collect();
     if matches.is_empty() {
         return Err(FrameMapError::Uncovered);
@@ -215,10 +228,17 @@ pub fn translate_range(
         old_n,
     )?;
     let anchor_end = affine(range.end, &old_segment.to, &old_segment.from, old_d, old_n)?;
+    // The anchor ticks live on the covering segment's source clock, so
+    // the new map is searched on that clock only (MU-21): a same-valued
+    // tick on another source is not the same moment.
     let new_matches: Vec<_> = new
         .segments
         .iter()
-        .filter(|s| s.from.start <= anchor_start && anchor_end <= s.from.end)
+        .filter(|s| {
+            s.from.clock_id == old_segment.from.clock_id
+                && s.from.start <= anchor_start
+                && anchor_end <= s.from.end
+        })
         .collect();
     if new_matches.len() != 1 {
         return Err(if new_matches.is_empty() {
@@ -454,12 +474,12 @@ mod tests {
     fn shorter_replacement_remaps_or_refuses_all_three_keys() {
         let prior = map(
             vec![segment(0, 412, 0, 412, MappingKind::OneToOne)],
-            "anchor",
+            "source",
             "old-render",
         );
         let shorter = map(
             vec![segment(0, 200, 0, 200, MappingKind::OneToOne)],
-            "anchor",
+            "source",
             "new-render",
         );
         assert_eq!(translate_keyframe(&prior, &shorter, 0), Ok(0));
@@ -539,19 +559,82 @@ mod tests {
     fn generated_and_overlap_are_never_guessed() {
         let generated = map(
             vec![segment(0, 10, 0, 10, MappingKind::Generated)],
-            "a",
-            "b",
+            "source",
+            "render",
         );
-        assert_eq!(map_tick(&generated, "a", 0), Err(FrameMapError::Generated));
+        assert_eq!(
+            map_tick(&generated, "source", 0),
+            Err(FrameMapError::Generated)
+        );
         let overlap = map(
             vec![
                 segment(0, 10, 0, 10, MappingKind::OneToOne),
                 segment(5, 15, 10, 20, MappingKind::OneToOne),
             ],
-            "a",
-            "b",
+            "source",
+            "render",
         );
-        assert_eq!(map_tick(&overlap, "a", 6), Err(FrameMapError::Ambiguous));
+        assert_eq!(
+            map_tick(&overlap, "source", 6),
+            Err(FrameMapError::Ambiguous)
+        );
+    }
+
+    #[test]
+    fn multi_clock_map_resolves_per_segment_clock() {
+        // MU-21: a two-source reel map carries one segment per source
+        // clock. A tick on the second source maps to the second render
+        // range; the same numeric tick on the first clock answers from
+        // the first segment; a tick asked on a clock that does not
+        // carry it refuses instead of mapping against the wrong clock.
+        let seg = |from_clock: &str, a: i64, b: i64, c: i64, d: i64| FrameMapSegment {
+            from: Interval {
+                clock_id: ClockId(from_clock.into()),
+                start: a,
+                end: b,
+            },
+            to: Interval {
+                clock_id: ClockId("reel".into()),
+                start: c,
+                end: d,
+            },
+            mapping_kind: MappingKind::OneToOne,
+            rate: None,
+            source_clip_use: None,
+        };
+        let two_source = map(
+            vec![
+                seg("source-a", 10000, 15000, 0, 5000),
+                seg("source-b", 20000, 25000, 5000, 10000),
+            ],
+            "source-a",
+            "reel",
+        );
+        assert_eq!(map_tick(&two_source, "source-b", 20000), Ok(5000));
+        assert_eq!(map_tick(&two_source, "source-b", 24999), Ok(9999));
+        assert_eq!(map_tick(&two_source, "source-a", 10000), Ok(0));
+        // Asked on the first clock, the second source's tick refuses -
+        // on main it mapped against the wrong clock's segment.
+        assert_eq!(
+            map_tick(&two_source, "source-a", 20000),
+            Err(FrameMapError::Uncovered)
+        );
+        assert_eq!(
+            map_tick(&two_source, "no-such-clock", 20000),
+            Err(FrameMapError::ClockMismatch)
+        );
+        // Same numeric tick on both sources: each clock answers its
+        // own segment, never ambiguous across clocks.
+        let overlapping = map(
+            vec![
+                seg("source-a", 10000, 15000, 0, 5000),
+                seg("source-b", 10000, 15000, 5000, 10000),
+            ],
+            "source-a",
+            "reel",
+        );
+        assert_eq!(map_tick(&overlapping, "source-a", 12000), Ok(2000));
+        assert_eq!(map_tick(&overlapping, "source-b", 12000), Ok(7000));
     }
 
     #[test]

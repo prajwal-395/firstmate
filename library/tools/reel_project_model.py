@@ -682,6 +682,13 @@ def frame_map_for_reel(model: dict[str, Any], reel_slug: str,
     measured rate where a placement played at speed), so the map is
     the edit decision the build placed, readable by the FilmCraft
     adapter without re-deriving it.
+
+    A reel cut from several sources carries one segment per source
+    clock; ``from_clock`` names the first segment's clock only, and
+    readers judge a tick against the segments carrying its own clock
+    (MU-21: ``frame_map.rs::map_tick`` and the ``resolve_swapback``
+    mirror match per segment, so a tick from one source never maps
+    against another's).
     """
     map_id = f"map:{reel_slug}"
     model["frame_maps"] = [row for row in model.get("frame_maps") or []
