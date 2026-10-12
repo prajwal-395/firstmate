@@ -18,7 +18,7 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M1b, M4, M5, M6, M7, M9 and M10 are
+**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M1b, M4, M5, M6, M7, M9 and M10 are
 written now; every later lane writes into its named slot without
 inventing its own shape:
 
@@ -42,6 +42,9 @@ M3b      `identity.json`              face/voice identity tracks,   `library/too
                                        speech-face links (face-only  person_entity.py`
                                        cross-source identity - see
                                        that module's docstring for why)
+M3d      `regions.json` +             person instance masks at the  `library/tools/
+         `regions.masks.<sha>.json.gz` M2 times, region tracks,     person_regions.py`
+                                       face-track links
 M4       `scenes.json`                scene observations (VLM) +    `library/tools/
                                        ffmpeg scene boundaries       analysis/
                                                                 vision_pipeline_v3.py`
@@ -154,6 +157,7 @@ SLOT_FRAMES_INDEX = "frames.index.json"        # M2
 SLOT_PERSONS = "persons.json"                  # M3 - written by person_measurements.py
 SLOT_IDENTITY = "identity.json"                # M3b - written by person_entity.py
 SLOT_EXPRESSIONS = "expressions.json"          # M3c - written by expression_classifier.py
+SLOT_REGIONS = "regions.json"                  # M3d - written by person_regions.py
 SLOT_SCENES = "scenes.json"                    # M4 - written by vision_pipeline_v3.py
 SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
@@ -169,7 +173,8 @@ SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships
 # SLOT_PERSONS (M3) (`person_measurements.py`), SLOT_EVENTS (M7)
 # (`event_spans.py`), SLOT_SCENES (M4) (`vision_pipeline_v3.py`),
 # SLOT_SOUND (M5) (`step_1_04_temporal_index/step.py`),
-# SLOT_EXPRESSIONS (M3c) (`expression_classifier.py`),
+# SLOT_EXPRESSIONS (M3c) (`expression_classifier.py`), SLOT_REGIONS (M3d)
+# (`person_regions.py`, plus its content-addressed mask sidecar),
 # SLOT_WORLD_MODEL (M9) (`world_model.py`) and SLOT_RELATIONSHIPS (M10)
 # (`relationships.py`).
 

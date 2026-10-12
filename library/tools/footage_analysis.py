@@ -18,8 +18,8 @@ Two halves, in order:
    adjust the selection (a legacy node name is accepted too).
 2. **The memory lanes** (`LANES`), per source, into the per-machine memory
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
-   faces and hands, M3b person identity, M6 conversation clock, M7 event
-   spans, then the text and frame search indexes over them. A lane whose
+   faces and hands, M3b person identity, M3c expressions, M3d person
+   regions, M6 conversation clock, M7 event spans, then the text and frame search indexes over them. A lane whose
    record is already FRESH for a source is reused, never rebuilt: a
    re-run over the same folder costs the fingerprints and nothing else.
 
@@ -89,7 +89,9 @@ class Lane:
     reads, so a record older than its own input is stale even when its
     digest matches (an M3 measured off an M2 that was since rebuilt).
     `per_source` lanes are asked only for the sources that need them;
-    the rest are project-wide and cheap, and always rebuild.
+    the rest are project-wide and cheap, and always rebuild. `method` is
+    the slot version a record's `instrument.method` must carry: a record
+    stamped by an older producer is stale even when its digest matches.
     """
 
     name: str
@@ -100,6 +102,7 @@ class Lane:
     heavy: bool
     per_source: bool
     build: Callable
+    method: str | None = None
 
 
 def _build_transcripts(project, clip_ids, root):
@@ -123,6 +126,11 @@ def _build_identity(project, clip_ids, root):
 def _build_expressions(project, clip_ids, root):
     from library.tools import expression_classifier
     return expression_classifier.build_project_expressions(project, clip_ids, root)
+
+
+def _build_regions(project, clip_ids, root):
+    from library.tools import person_regions
+    return person_regions.build_project_regions(project, clip_ids, root)
 
 
 def _build_clock(project, _clip_ids, root):
@@ -161,7 +169,11 @@ LANES: tuple = (
     Lane("expressions", "M3c", "expression labels per face per frame",
          (SM.SLOT_EXPRESSIONS,), (SM.SLOT_PERSONS, SM.SLOT_FRAMES_INDEX),
          True, True,
-         _build_expressions),
+         _build_expressions, "expression-classifier-v2-m2-crops"),
+    Lane("regions", "M3d", "person instance masks and region tracks",
+         (SM.SLOT_REGIONS,),
+         (SM.SLOT_FRAMES_INDEX, SM.SLOT_PERSONS, SM.SLOT_IDENTITY),
+         True, True, _build_regions, "person-instance-mask-v1"),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
     Lane("events", "M7", "on-screen and speaking spans per person",
@@ -189,6 +201,12 @@ def _record(digest: str, slot: str, root: Path | None) -> dict | None:
     return doc if isinstance(doc, dict) else None
 
 
+def _regions_sidecar_present(digest: str, doc: dict,
+                             root: Path | None) -> bool:
+    from library.tools.person_regions import sidecar_present
+    return sidecar_present(digest, doc, root)
+
+
 def slot_is_fresh(lane: Lane, digest: str, root: Path | None) -> bool:
     """Whether every slot `lane` writes is current for `digest`.
 
@@ -207,6 +225,12 @@ def slot_is_fresh(lane: Lane, digest: str, root: Path | None) -> bool:
     for slot in lane.slots:
         doc = _record(digest, slot, root)
         if doc is None or doc.get("content_digest") != digest:
+            return False
+        if (lane.method is not None
+                and (doc.get("instrument") or {}).get("method") != lane.method):
+            return False
+        if (slot == source_memory.SLOT_REGIONS
+                and not _regions_sidecar_present(digest, doc, root)):
             return False
         if lane.name == "expressions":
             from library.tools.expression_classifier import M3C_METHOD

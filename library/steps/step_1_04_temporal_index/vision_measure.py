@@ -79,20 +79,24 @@ class VisionUnavailable(Exception):
     """The helper cannot run here; the message is the fallback reason."""
 
 
-def _helper_cache_dir() -> str:
+def _helper_cache_dir(source: str = SWIFT_SOURCE) -> str:
     """Where the compiled helper lives, keyed by Swift source hash.
 
     System temp, outside every project and checkout: one compile per
     machine per source revision. A cleaned temp just recompiles.
+    `source` names another helper that speaks the same `--list`
+    protocol (M3d's `person_regions_helper.swift`); its hash keys its
+    own directory, so two helpers never share a cache slot.
     """
-    with open(SWIFT_SOURCE, "rb") as handle:
+    with open(source, "rb") as handle:
         digest = hashlib.sha1(handle.read()).hexdigest()[:12]
     path = os.path.join(tempfile.gettempdir(), "ren-vision", digest)
     os.makedirs(path, exist_ok=True)
     return path
 
 
-def helper_available() -> tuple:
+def helper_available(source: str = SWIFT_SOURCE,
+                     name: str = "vision_helper") -> tuple:
     """Whether the helper can run on this machine, and why not.
 
     Returns `(True, None)` or `(False, reason)`. Needs macOS and either
@@ -100,7 +104,7 @@ def helper_available() -> tuple:
     """
     if sys.platform != "darwin":
         return False, f"unavailable: platform {sys.platform} has no Vision"
-    cached = os.path.join(_helper_cache_dir(), "vision_helper")
+    cached = os.path.join(_helper_cache_dir(source), name)
     if os.path.isfile(cached) and os.access(cached, os.X_OK):
         return True, None
     if shutil.which("swiftc") is None:
@@ -108,24 +112,25 @@ def helper_available() -> tuple:
     return True, None
 
 
-def ensure_helper() -> tuple:
+def ensure_helper(source: str = SWIFT_SOURCE,
+                  name: str = "vision_helper") -> tuple:
     """A runnable helper binary path, compiling on first use.
 
     Returns `(path, None)` or `(None, reason)`. Never raises: a failed
     compile is a fallback, not a failed run.
     """
     try:
-        ok, reason = helper_available()
+        ok, reason = helper_available(source, name)
         if not ok:
             return None, reason
-        bindir = _helper_cache_dir()
-        binary = os.path.join(bindir, "vision_helper")
+        bindir = _helper_cache_dir(source)
+        binary = os.path.join(bindir, name)
         if os.path.isfile(binary) and os.access(binary, os.X_OK):
             return binary, None
         if shutil.which("swiftc") is None:
             return None, "unavailable: no swiftc to compile the helper"
         result = subprocess.run(
-            ["swiftc", "-O", SWIFT_SOURCE, "-o", binary],
+            ["swiftc", "-O", source, "-o", binary],
             capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=300, check=False,
         )
@@ -139,12 +144,14 @@ def ensure_helper() -> tuple:
         return None, f"unavailable: helper setup failed: {e}"
 
 
-def measure_frames(image_paths: list, helper_path: str) -> list:
+def measure_frames(image_paths: list, helper_path: str,
+                   extra_args: tuple = ()) -> list:
     """One helper process over the whole batch; first frame pays cold.
 
     Returns the helper's per-image docs in input order. Raises
     `VisionUnavailable` on any failure - the caller converts that into
-    the fallback document.
+    the fallback document. `extra_args` follow `--list <file>` for a
+    helper that takes more (M3d's `--grid w h`).
     """
     if not image_paths:
         raise VisionUnavailable("unavailable: no frames to measure")
@@ -154,7 +161,7 @@ def measure_frames(image_paths: list, helper_path: str) -> list:
         list_path = handle.name
     try:
         result = subprocess.run(
-            [helper_path, "--list", list_path],
+            [helper_path, "--list", list_path, *extra_args],
             capture_output=True, text=True, encoding="utf-8",
             errors="replace",
             timeout=max(120.0, float(len(image_paths))),

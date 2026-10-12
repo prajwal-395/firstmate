@@ -24,6 +24,8 @@ copy it; nothing goes into `pipeline_data.json`.
   persons.json                   # M3  - written (library/tools/person_measurements.py)
   identity.json                  # M3b - entity lane (library/tools/person_entity.py)
   expressions.json               # M3c - written (library/tools/expression_classifier.py)
+  regions.json + regions.masks.<sha256>.json.gz
+                                 # M3d - written (library/tools/person_regions.py)
   scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
                                  #   library/tools/analysis/vision_pipeline_v3.py)
   sound.json                     # M5  - written (step 1.04 via write_sound_memory in
@@ -360,6 +362,70 @@ bin/vep -m library.tools.heavy_work_lock run \
   --owner expressions -- python3 -m library.tools.expression_classifier build <project>
 python3 -m library.tools.expression_classifier status <project>
 ```
+
+## M3d `regions.json` + mask sidecar (written)
+
+Owner: `library/tools/person_regions.py` (the module docstring holds
+every design decision and its measurement). Apple Vision's
+`VNGeneratePersonInstanceMaskRequest`, through
+`library/tools/person_regions_helper.swift`, at every M2 sample time.
+The model is fed a 1152 px I-frame decode of its own, not the 384 px
+M2 thumbnail: at 384 px the masks swallow the glass table's reflection
+and drop the subject on some samples. Masks are STORED on the M2 grid.
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "status": "measured",
+  "coordinates": "image-normalised, top-left origin",
+  "grid": [384, 216],
+  "sidecar": {"file": "regions.masks.<sha256>.json.gz", "sha256": "...",
+              "codec": "runs-rowmajor-v1", "bytes": 1556905, "masks": 12007},
+  "faces": {"with_face_track": 8145, "inside_exactly_one_instance": 8116,
+            "inside_no_instance": 29, "inside_several_instances": 0,
+            "fraction_inside_exactly_one": 0.9964},
+  "tracks": [{"track_id": "region_001", "start": 0.083, "end": 59.6,
+              "samples": 120, "face_track": "face_001",
+              "face_track_fraction": 0.98},
+             {"track_id": "region_002", "start": 60.1, "end": 61.1,
+              "samples": 3, "face_track": null,
+              "unassigned": "no_face_inside"}],
+  "samples": [{"t": 0.083, "instances": [
+      {"track": "region_001", "bbox": [x1, y1, x2, y2],
+       "centroid": [x, y], "interior_point": [x, y], "area": 0.09,
+       "mask": 0, "face": 0, "face_track": "face_001",
+       "containment": 0.97}]}],
+  "instrument": {"method": "person-instance-mask-v1", "decode_width": 1152,
+                 "face_inside_min_fraction": 0.5,
+                 "track_link_min_iou": 0.2,
+                 "decode_seconds": 239.1, "vision_seconds": 220.5,
+                 "ms_per_frame": 26.9, "wall_seconds": 489.4}
+}
+```
+
+- `instances: null` on a sample means the decode did not reach it; `[]`
+  means measured and nobody there.
+- `mask` indexes the sidecar's `masks`; `read_mask` refuses bytes that
+  do not hash to `sidecar.sha256`. Runs alternate background-first over
+  the row-major grid.
+- A region is a PERSON only through a face inside it (majority of the
+  face box) whose M3b face track `event_spans.assign_face_tracks`
+  resolved; otherwise `unassigned` names why (`UNASSIGNED_REASONS`). A
+  limb whose owner is out of frame is segmented by Vision and stays
+  unowned.
+- Freshness: the lane (`footage_analysis.LANES`, `regions`) rebuilds a
+  record whose `instrument.method` is not the current slot version or
+  whose sidecar is missing.
+
+```sh
+bin/vep -m library.tools.heavy_work_lock run \
+  --owner <lane> -- python3 -m library.tools.person_regions build <project>
+python3 -m library.tools.person_regions status <project>
+python3 -m library.tools.person_regions window <project> --clip clip_002 \
+  --start 60 --end 90
+```
+
+Cost: `docs/benchmarks/2026-10-11-person-regions-m3d.md`.
 
 ## M7 `events.json` (written)
 
