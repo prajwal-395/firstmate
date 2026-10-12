@@ -2506,7 +2506,13 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         color_data.get("color_grade_spec", {}).get("subject_grades", [])
         or [])
     if subject_entries:
-        _seg_dir = os.path.join(out_dir, "1_06_object_segmentation")
+        # 1.06's segmentation files live in THAT step's directory -
+        # resolved through the layout, never composed by hand. A raw
+        # join onto out_dir points at pipeline_output/ root, where no
+        # step writes, so every lookup missed (MU-01: the same defect
+        # the behind-subject block below already fixed).
+        _seg_dir = str(ProjectLayout(os.path.dirname(
+            os.path.abspath(out_dir))).step_dir("object_segmentation"))
         _matte_dir = os.path.join(out_dir, "subject_mattes")
         _source_to_cid = {path: cid
                           for cid, path in clip_lookup.items()}

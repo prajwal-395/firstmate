@@ -1492,8 +1492,11 @@ class TestCompileMerge:
 
         from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
-        seg_dir = tmp_path / "1_06_object_segmentation"
-        seg_dir.mkdir()
+        # A real project: out_dir is <project>/pipeline_output and the
+        # 1.06 result lives in THAT step's directory.
+        out_dir = tmp_path / "pipeline_output"
+        seg_dir = out_dir / "steps" / "1_06_object_segmentation"
+        seg_dir.mkdir(parents=True)
         seg = _seg_result(frames=4, shape=(24, 32))
         (seg_dir / "c1_segmentation.json").write_text(_json.dumps(seg))
 
@@ -1507,7 +1510,7 @@ class TestCompileMerge:
                 "library.steps.step_5_04_compile_manifest.step.load",
                 side_effect=lambda out_dir, filename: inputs):
             manifest = compile_manifest(
-                str(tmp_path), object_segmentation=[{"clip_id": "c1"}])
+                str(out_dir), object_segmentation=[{"clip_id": "c1"}])
 
         per_clip = manifest["fusion_effects"]["per_clip"]
         assert per_clip, "the subject grade reached no clip"
@@ -1525,8 +1528,9 @@ class TestCompileMerge:
 
         from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
-        seg_dir = tmp_path / "1_06_object_segmentation"
-        seg_dir.mkdir()
+        out_dir = tmp_path / "pipeline_output"
+        seg_dir = out_dir / "steps" / "1_06_object_segmentation"
+        seg_dir.mkdir(parents=True)
         seg = _seg_result(frames=4, shape=(24, 32))
         (seg_dir / "c1_segmentation.json").write_text(_json.dumps(seg))
 
@@ -1539,7 +1543,7 @@ class TestCompileMerge:
         with _patch(
                 "library.steps.step_5_04_compile_manifest.step.load",
                 side_effect=lambda out_dir, filename: inputs):
-            manifest = compile_manifest(str(tmp_path), object_segmentation=[])
+            manifest = compile_manifest(str(out_dir), object_segmentation=[])
 
         assert manifest["fusion_effects"]["per_clip"] == {}
         assert len(manifest["subject_grade_drops"]) == 1
