@@ -191,3 +191,223 @@ def test_corrupt_cache_is_a_cold_start(monkeypatch, tmp_path):
         handle.write("not json {{{")
     module._MEMO.clear()
     assert module.select(["library/mod_x.py"]) == ["tests/test_mod_x.py"]
+
+
+_COV_PIN = {"sha": "sha-ci06-fixture", "interpreter": "python-ci06",
+            "native": "native-ci06"}
+
+
+def _cov_module(monkeypatch, tmp_path, name):
+    """The hybrid selector against a fixture tree with a pinned index.
+
+    Every marker the coverage path reads is set here, so the tests
+    below are hermetic: no host index, cache, or interpreter stamp
+    leaks in.
+    """
+    monkeypatch.setenv("REN_SELECT_ROOT", str(tmp_path / name))
+    monkeypatch.setenv("REN_SELECTOR_CACHE_DIR",
+                       str(tmp_path / "cache"))
+    monkeypatch.delenv("REN_SELECTOR_NO_CACHE", raising=False)
+    monkeypatch.setenv("VEP_COVERAGE_INDEX_FILE",
+                       str(tmp_path / "coverage.json"))
+    monkeypatch.setenv("VEP_COVERAGE_TREE_SHA", _COV_PIN["sha"])
+    monkeypatch.setenv("VEP_COVERAGE_INTERPRETER",
+                       _COV_PIN["interpreter"])
+    monkeypatch.setenv("VEP_COVERAGE_NATIVE", _COV_PIN["native"])
+    return _load_selector()
+
+
+def _write_cov_index(checkout, destination, tests_map):
+    from library.tools.local_ci import coverage_index
+    return coverage_index.write_index(
+        destination, str(checkout), tests_map,
+        {"collected_at": 0, "wall_seconds": 10.0,
+         "baseline_seconds": None, "overhead_seconds": None,
+         "overhead_ratio": None, "selection": ["tests/unit"],
+         "pytest": ["pytest"]},
+        sha=_COV_PIN["sha"], interpreter=_COV_PIN["interpreter"],
+        native=_COV_PIN["native"])
+
+
+def _leaf_tree(root):
+    (root / "library").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "library" / "leaf.py").write_text("VALUE = 1\n",
+                                              encoding="utf-8")
+    (root / "tests" / "test_a_leaf.py").write_text(
+        "import leaf\n\n\ndef test_runs():\n    assert leaf.VALUE == 1\n",
+        encoding="utf-8")
+    (root / "tests" / "test_b_leaf.py").write_text(
+        "import leaf\n\n\ndef test_other():\n"
+        "    assert leaf.VALUE is not None\n",
+        encoding="utf-8")
+
+
+def _leaf_index():
+    return {
+        "tests/test_a_leaf.py::test_runs": {
+            "files": ["library/leaf.py", "tests/test_a_leaf.py"],
+            "lines": {"library/leaf.py": [1],
+                      "tests/test_a_leaf.py": [1, 4]}},
+        "tests/test_b_leaf.py::test_other": {
+            "files": ["tests/test_b_leaf.py"],
+            "lines": {"tests/test_b_leaf.py": [1, 4]}},
+    }
+
+
+def test_coverage_narrows_a_leaf_change_but_keeps_the_executing_test(
+        monkeypatch, tmp_path):
+    """CI-06 acceptance, narrowing half: on a fixture tree with a
+    fresh index, a leaf-module change selects strictly fewer files
+    than the static selector while still selecting the test that
+    executes it. `test_b_leaf` imports the leaf but the index shows
+    it never executed it, so it is dropped; the report says so."""
+    _leaf_tree(tmp_path / "tree")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     _leaf_index())
+    changed = ["library/leaf.py"]
+    static = module.select(changed, use_coverage=False)
+    assert static == ["tests/test_a_leaf.py", "tests/test_b_leaf.py"]
+    narrowed = module.select(changed)
+    assert narrowed == ["tests/test_a_leaf.py"]
+    selected, info = module.select_with_coverage_info(changed)
+    assert selected == narrowed
+    assert info["static_count"] == 2
+    assert info["narrowed_count"] == 1
+    assert info["strictly_narrower"] is True
+    assert info["subset"] is True
+    assert info["added"] == []
+    assert info["dropped"] == ["tests/test_b_leaf.py"]
+    distances = module.select_with_distances(changed)
+    assert distances == {"tests/test_a_leaf.py": 1}
+
+
+def test_uncovered_but_importable_edge_still_selects(
+        monkeypatch, tmp_path):
+    """CI-06 conservatism as code: a change to a file no indexed test
+    executed falls back to the wide selection, so the static importer
+    still selects even though coverage never saw the edge."""
+    _leaf_tree(tmp_path / "tree")
+    (tmp_path / "tree" / "library" / "hidden.py").write_text(
+        "SECRET = 1\n", encoding="utf-8")
+    (tmp_path / "tree" / "tests" / "test_hidden.py").write_text(
+        "import hidden\n\n\ndef test_sees():\n"
+        "    assert hidden.SECRET == 1\n",
+        encoding="utf-8")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     _leaf_index())
+    changed = ["library/hidden.py"]
+    static = module.select(changed, use_coverage=False)
+    assert static == ["tests/test_hidden.py"]
+    assert module.select(changed) == static
+
+
+def test_deleting_the_index_restores_the_static_selection(
+        monkeypatch, tmp_path, capsys):
+    """CI-06 acceptance, fallback half: deleting the index restores
+    the exact current selection byte-for-byte - the list and the CLI
+    stdout both match `--no-coverage`."""
+    import os
+    _leaf_tree(tmp_path / "tree")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     _leaf_index())
+    changed = ["library/leaf.py"]
+    assert module.select(changed) == ["tests/test_a_leaf.py"]
+    assert module.main(changed) == 0
+    narrowed_out = capsys.readouterr().out
+    assert module.main(["--no-coverage", *changed]) == 0
+    static_out = capsys.readouterr().out
+    assert narrowed_out != static_out
+    os.unlink(tmp_path / "coverage.json")
+    assert module.select(changed) == ["tests/test_a_leaf.py",
+                                      "tests/test_b_leaf.py"]
+    assert module.main(changed) == 0
+    assert capsys.readouterr().out == static_out
+    assert module.select(changed) == module.select(
+        changed, use_coverage=False)
+
+
+def test_dynamic_import_signal_falls_back_wide(monkeypatch, tmp_path):
+    """A changed file that reaches modules its stems do not name
+    (`importlib`) cannot be narrowed: the runtime edge is invisible
+    to both the static stems and the last coverage run."""
+    _leaf_tree(tmp_path / "tree")
+    (tmp_path / "tree" / "library" / "dynmod.py").write_text(
+        "import importlib\n\nmod = importlib.import_module(\"os\")\n"
+        "VALUE = 1\n",
+        encoding="utf-8")
+    for name in ("test_dyn_a.py", "test_dyn_b.py"):
+        (tmp_path / "tree" / "tests" / name).write_text(
+            "import dynmod\n\n\ndef test_it():\n"
+            "    assert dynmod.VALUE == 1\n",
+            encoding="utf-8")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    tests_map = _leaf_index()
+    tests_map["tests/test_dyn_a.py::test_it"] = {
+        "files": ["library/dynmod.py", "tests/test_dyn_a.py"],
+        "lines": {"library/dynmod.py": [1, 3, 4]}}
+    tests_map["tests/test_dyn_b.py::test_it"] = {
+        "files": ["tests/test_dyn_b.py"],
+        "lines": {"tests/test_dyn_b.py": [1, 4]}}
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     tests_map)
+    changed = ["library/dynmod.py"]
+    static = module.select(changed, use_coverage=False)
+    assert static == ["tests/test_dyn_a.py", "tests/test_dyn_b.py"]
+    assert module.select(changed) == static
+
+
+def test_one_wide_change_poisons_the_whole_selection(
+        monkeypatch, tmp_path):
+    """Any fixture/config/native/env change falls back to the wide
+    selection - even beside a narrowable leaf change that would narrow
+    on its own."""
+    _leaf_tree(tmp_path / "tree")
+    (tmp_path / "tree" / "tests" / "conftest.py").write_text(
+        "VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tree" / "pyproject.toml").write_text(
+        "[tool.pytest]\n", encoding="utf-8")
+    (tmp_path / "tree" / "native").mkdir()
+    (tmp_path / "tree" / "native" / "x.rs").write_text(
+        "fn main() {}\n", encoding="utf-8")
+    (tmp_path / "tree" / "Dockerfile").write_text(
+        "FROM python:3.12\n", encoding="utf-8")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     _leaf_index())
+    assert module.select(["library/leaf.py"]) == ["tests/test_a_leaf.py"]
+    for wide in ("tests/conftest.py", "pyproject.toml",
+                 "native/x.rs", "Dockerfile"):
+        changed = ["library/leaf.py", wide]
+        assert module.select(changed) == module.select(
+            changed, use_coverage=False), wide
+
+
+def test_stale_index_falls_back_wide(monkeypatch, tmp_path):
+    """An index versioned for another tree never narrows: staleness
+    refuses exactly like a missing index."""
+    _leaf_tree(tmp_path / "tree")
+    module = _cov_module(monkeypatch, tmp_path, "tree")
+    _write_cov_index(tmp_path / "tree", tmp_path / "coverage.json",
+                     _leaf_index())
+    monkeypatch.setenv("VEP_COVERAGE_TREE_SHA", "sha-some-other-tree")
+    changed = ["library/leaf.py"]
+    assert module.select(changed) == module.select(
+        changed, use_coverage=False)
+
+
+def test_narrowing_report_counts_are_exact():
+    """The precision/recall report is arithmetic over the two sets:
+    coverage only ever removes, so `added` is empty by construction."""
+    module = _load_selector()
+    info = module.coverage_narrowing_report(
+        ["tests/test_a_leaf.py", "tests/test_b_leaf.py"],
+        ["tests/test_a_leaf.py"])
+    assert (info["static_count"], info["narrowed_count"]) == (2, 1)
+    assert info["subset"] is True
+    assert info["strictly_narrower"] is True
+    assert info["added"] == []
+    assert info["dropped"] == ["tests/test_b_leaf.py"]

@@ -6,8 +6,24 @@ directions: BACKWARD (what the changed module uses) and FORWARD (what
 uses the changed module, plus one hop through re-exporters).
 `tests/tooling/test_select_dependent_tests.py` pins the incident edges.
 
+Hybrid selector (CI-06): runtime coverage evidence NARROWS the static
+selection only when the CI-05 index is fresh for the exact tree under
+test. Any change to a file outside the index, any dynamic-import
+signal, any fixture/config/native/env change falls back to the wide
+static selection below. Coverage never adds a test, only removes
+forward fan-out the index proves independent; the changed test itself,
+same-stem and backward entries, and contract-set expansions are always
+kept, so an uncovered-but-importable edge still selects.
+
+The index is read from `VEP_COVERAGE_INDEX_FILE` (else the shared
+cache path beside the timing telemetry). `VEP_COVERAGE_TREE_SHA`,
+`VEP_COVERAGE_INTERPRETER` and `VEP_COVERAGE_NATIVE` override the
+freshness stamps the index is checked against (hermetic fixture
+trees); unset means the checkout's own stamps.
+
 Usage: `python3 scripts/select_dependent_tests.py <changed-file> ...`
 prints test paths relative to the repo root, one per line.
+`--no-coverage` forces the wide static selection.
 
 `--distances` prints `<hops> <path>` instead: the import distance
 from the change to each selected test (0 the changed test itself, 1
@@ -285,22 +301,250 @@ def _load_index() -> tuple:
     return lib_imports, lib_reexport, test_imports, test_files
 
 
-def select(changed):
-    """Test paths (repo-relative) covering the changed files."""
-    return sorted(_select_with_distances(changed))
+def select(changed, use_coverage=True):
+    """Test paths (repo-relative) covering the changed files.
+
+    With coverage enabled (default) a fresh CI-05 index narrows the
+    static selection as documented above; without one the exact static
+    selection is returned.
+    """
+    return sorted(_select_with_distances(changed, use_coverage=use_coverage))
 
 
-def select_with_distances(changed):
+def select_with_distances(changed, use_coverage=True):
     """Test paths mapped to import distance from the changed files.
 
     0 is the changed test itself, 1 a direct importer or same-stem
     test, 2 a hop through a re-exporter or a contract-set entry.
     The minimum wins when several changed files reach one test.
     """
-    return dict(_select_with_distances(changed))
+    return dict(_select_with_distances(changed, use_coverage=use_coverage))
 
 
-def _select_with_distances(changed):
+def select_with_coverage_info(changed):
+    """The hybrid selection plus the narrowing report.
+
+    Returns `(selection, info)` where `info` is
+    `coverage_narrowing_report(static, narrowed)`: counts, the dropped
+    paths, and whether the result is a strict subset. The report is
+    the precision/recall read for a fixture tree - coverage only ever
+    removes, so precision against the static selector is exact by
+    construction and the report shows what was removed.
+    """
+    static = sorted(_select_with_distances(changed, use_coverage=False))
+    narrowed = sorted(_select_with_distances(changed, use_coverage=True))
+    return narrowed, coverage_narrowing_report(static, narrowed)
+
+
+def coverage_narrowing_report(static, narrowed):
+    """Precision/recall of a narrowed selection vs the static one."""
+    static_set = set(static)
+    narrowed_set = set(narrowed)
+    return {
+        "static_count": len(static_set),
+        "narrowed_count": len(narrowed_set),
+        "dropped": sorted(static_set - narrowed_set),
+        "added": sorted(narrowed_set - static_set),
+        "subset": narrowed_set <= static_set,
+        "strictly_narrower": bool(static_set) and narrowed_set < static_set,
+    }
+
+
+# Markers for a dynamic-import signal: the static stems of a file using
+# one of these cannot be trusted, because the modules it really loads
+# are chosen at runtime. Any such signal in a changed file falls back
+# to the wide selection.
+_DYNAMIC_IMPORT_MARKERS = (
+    "__import__", "importlib", "import_module", "pkgutil", "exec(", "eval(",
+)
+
+# Index roots mirror the coverage index (`coverage_index.INDEX_ROOTS`):
+# only tree code the index records can ever narrow.
+_FALLBACK_INDEX_ROOTS = ("library", "tests", "ren")
+
+# Basename/suffix classes whose change invalidates evidence the index
+# cannot see: shared fixtures, configuration, native artifacts and the
+# surrounding environment. Any such change falls back wide.
+_FIXTURE_BASENAMES = ("conftest.py",)
+_CONFIG_BASENAMES = (
+    "pytest.ini", "setup.cfg", "pyproject.toml", "tox.ini", ".coveragerc",
+    "coverage.rc", "mypy.ini", "ruff.toml", ".ruff.toml", "Cargo.toml",
+    "Cargo.lock",
+)
+_CONFIG_SUFFIXES = (".cfg", ".toml", ".ini", ".yaml", ".yml")
+_ENV_BASENAMES = (
+    "Dockerfile", "docker-compose.yml", "requirements.txt",
+    "environment.yml", "Pipfile", "Pipfile.lock", "poetry.lock",
+    "Makefile",
+)
+_NATIVE_SUFFIXES = (".rs", ".so", ".dylib", ".a")
+
+
+def _coverage_module():
+    """The CI-05 index reader, loaded from this checkout's own tree.
+
+    Loaded by path (not by `REN_SELECT_ROOT`, which points at the tree
+    under test and may be a fixture without the module): coverage only
+    ever reads JSON beside the tree, so a second copy of the reader is
+    stateless. None when the reader itself cannot load - fail closed.
+    """
+    global _COVERAGE_READER
+    try:
+        return _COVERAGE_READER
+    except NameError:
+        pass
+    reader = None
+    try:
+        import importlib.util
+        script_root = os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))
+        candidate = os.path.join(
+            script_root, "library", "tools", "local_ci",
+            "coverage_index.py")
+        spec = importlib.util.spec_from_file_location(
+            "_ren_coverage_index", candidate)
+        if spec is not None and spec.loader is not None:
+            reader = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(reader)
+    except (OSError, ImportError, SyntaxError):
+        reader = None
+    _COVERAGE_READER = reader
+    return reader
+
+
+def _coverage_overrides():
+    """Freshness-stamp overrides for hermetic fixture trees."""
+    def clean(name):
+        value = os.environ.get(name, "").strip()
+        return value or None
+    return (clean("VEP_COVERAGE_TREE_SHA"),
+            clean("VEP_COVERAGE_INTERPRETER"),
+            clean("VEP_COVERAGE_NATIVE"))
+
+
+def _is_indexable_path(rel_posix, roots):
+    """Whether the index could record this tree-relative path."""
+    if not rel_posix.endswith(".py"):
+        return False
+    return any(rel_posix == root or rel_posix.startswith(root + "/")
+               for root in roots)
+
+
+def _wide_change_reason(rel_posix):
+    """Why a changed path invalidates coverage evidence, or None."""
+    basename = rel_posix.rsplit("/", 1)[-1]
+    segments = rel_posix.split("/")
+    if basename in _FIXTURE_BASENAMES or basename.startswith("conftest"):
+        return "fixture"
+    if (any(segment in ("fixtures", "fixture") for segment in segments)
+            and basename.endswith(".py")):
+        return "fixture"
+    if basename in _CONFIG_BASENAMES or rel_posix.endswith(_CONFIG_SUFFIXES):
+        return "config"
+    if (rel_posix.startswith("native/")
+            or rel_posix.endswith(_NATIVE_SUFFIXES)):
+        return "native"
+    if (basename in _ENV_BASENAMES
+            or basename.startswith(("requirements", ".env"))):
+        return "env"
+    return None
+
+
+def _has_dynamic_import_signal(abs_path):
+    """Whether a changed file reaches modules its stems do not name."""
+    try:
+        with open(abs_path, encoding="utf-8") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError):
+        # An unreadable changed file proves nothing about what it
+        # loads: fail closed.
+        return True
+    return any(marker in text for marker in _DYNAMIC_IMPORT_MARKERS)
+
+
+def _apply_coverage_narrowing(changed, static, protected):
+    """Narrow a static selection with the fresh coverage index.
+
+    Returns the exact static selection whenever independence cannot be
+    established: no reader, no fresh index, a changed file outside the
+    index, a dynamic-import signal, a fixture/config/native/env change,
+    or a changed file no indexed test executed. Otherwise keeps the
+    protected entries plus the forward fan-out the index shows
+    executing a changed file - a strict subset of the input.
+    """
+    if not static:
+        return dict(static)
+    module = _coverage_module()
+    if module is None:
+        return dict(static)
+    sha, interpreter, native = _coverage_overrides()
+    try:
+        tests_map, _reason = module.load(
+            REPO_ROOT, None, sha=sha, interpreter=interpreter,
+            native=native)
+    except (OSError, ValueError, ImportError, AttributeError, TypeError,
+            KeyError):
+        return dict(static)
+    if not isinstance(tests_map, dict):
+        return dict(static)
+    roots = getattr(module, "INDEX_ROOTS", _FALLBACK_INDEX_ROOTS)
+    changed_rels = []
+    for path in changed:
+        abs_path = (path if os.path.isabs(path)
+                    else os.path.join(REPO_ROOT, path))
+        try:
+            rel = os.path.relpath(os.path.abspath(abs_path), REPO_ROOT)
+        except ValueError:
+            return dict(static)
+        rel_posix = rel.replace(os.sep, "/")
+        changed_rels.append(rel_posix)
+        if _wide_change_reason(rel_posix) is not None:
+            return dict(static)
+        if not _is_indexable_path(rel_posix, roots):
+            return dict(static)
+        if _has_dynamic_import_signal(os.path.abspath(abs_path)):
+            return dict(static)
+    covered: set = set()
+    for entry in tests_map.values():
+        if isinstance(entry, dict) and isinstance(entry.get("files"), list):
+            covered.update(name for name in entry["files"]
+                           if isinstance(name, str))
+    for rel_posix in changed_rels:
+        if rel_posix not in covered:
+            # Uncovered but importable: the static edge still selects.
+            return dict(static)
+    executed_by_test_file: dict = {}
+    for test_id, entry in tests_map.items():
+        if not isinstance(test_id, str) or not isinstance(entry, dict):
+            continue
+        files = entry.get("files")
+        if not isinstance(files, list):
+            continue
+        head = test_id.split("::")[0].strip().replace("\\", "/")
+        while head.startswith("./"):
+            head = head[2:]
+        if os.path.isabs(head):
+            try:
+                head = os.path.relpath(head, REPO_ROOT).replace(
+                    os.sep, "/")
+            except ValueError:
+                continue
+        executed_by_test_file.setdefault(head, set()).update(
+            name for name in files if isinstance(name, str))
+    wanted = set(changed_rels)
+    narrowed = {}
+    for path, distance in static.items():
+        if path in protected:
+            narrowed[path] = distance
+            continue
+        executed = executed_by_test_file.get(
+            path.replace(os.sep, "/"), set())
+        if executed & wanted:
+            narrowed[path] = distance
+    return narrowed
+
+
+def _select_with_distances(changed, use_coverage=True):
     # One index per invocation: every module's imported stems, parsed
     # once. A per-changed-file rescan would reparse the whole tree
     # once per file. The index is cached across invocations
@@ -311,11 +555,21 @@ def _select_with_distances(changed):
         ((os.path.relpath(path, REPO_ROOT), path)
          for path in test_imports))
     selected: dict = {}
+    # Entries coverage must never narrow away: the changed test itself,
+    # the changed module's same-stem test, backward entries (a used
+    # module's own test), and contract-set expansions. Only forward
+    # fan-out (importers of the changed stem) is narrowable.
+    protected: set = set()
+
     def add(path, distance):
         if path in selected:
             selected[path] = min(selected[path], distance)
         else:
             selected[path] = distance
+
+    def keep(path, distance):
+        add(path, distance)
+        protected.add(path)
     for path in changed:
         abs_path = (path if os.path.isabs(path)
                     else os.path.join(REPO_ROOT, path))
@@ -328,7 +582,7 @@ def _select_with_distances(changed):
         if (os.path.commonpath([absolute, TESTS]) == TESTS
                 and os.path.basename(absolute).startswith("test_")
                 and absolute.endswith(".py") and os.path.isfile(absolute)):
-            add(os.path.relpath(absolute, REPO_ROOT), 0)
+            keep(os.path.relpath(absolute, REPO_ROOT), 0)
 
         resolvers = set()
         if stem in CONTRACT_SETS:
@@ -343,7 +597,7 @@ def _select_with_distances(changed):
                 resolvers.add(used)
             same = "test_" + used + ".py"
             if same in test_files:
-                add(os.path.relpath(test_files[same], REPO_ROOT), 1)
+                keep(os.path.relpath(test_files[same], REPO_ROOT), 1)
 
         # FORWARD: what uses the changed module. Only RE-EXPORTERS
         # extend the carrier set: a module that re-exports a name is
@@ -371,23 +625,27 @@ def _select_with_distances(changed):
         for dotted, test_abs in test_modules:
             rel = os.path.relpath(test_abs, REPO_ROOT)
             if os.path.basename(test_abs) == "test_" + stem + ".py":
-                add(rel, 1)
+                keep(rel, 1)
             elif stem in test_imports.get(test_abs, set()):
                 add(rel, 1)
 
         for resolver in resolvers:
             for entry in CONTRACT_SETS[resolver]:
-                add(entry, 2)
+                keep(entry, 2)
 
     # Pytest treats conftest.py as configuration, not a test module. It can
     # enter the import graph as a carrier, but passing it as a path causes
     # module-name collisions when another subsystem has its own conftest.
-    return {path: distance for path, distance in selected.items()
-            if os.path.basename(path).startswith("test_")
-            and path.endswith(".py")}
+    static = {path: distance for path, distance in selected.items()
+              if os.path.basename(path).startswith("test_")
+              and path.endswith(".py")}
+    protected = {path for path in protected if path in static}
+    if not use_coverage:
+        return static
+    return _apply_coverage_narrowing(changed, static, protected)
 
 
-def loop(changed):
+def loop(changed, use_coverage=True):
     """The per-change loop: reached `unit/` subsystems plus `contracts/`."""
     def absolute(path):
         return os.path.realpath(os.path.join(REPO_ROOT, path))
@@ -398,7 +656,8 @@ def loop(changed):
     modules = [p for p in changed
                if not absolute(p).startswith(tests_root)]
     subsystems = set()
-    for path in [*changed, *(select(modules) if modules else [])]:
+    for path in [*changed, *(select(modules, use_coverage=use_coverage)
+                            if modules else [])]:
         subsystem = layers.subsystem_of(absolute(path))
         if subsystem is not None:
             subsystems.add(subsystem)
@@ -408,21 +667,27 @@ def loop(changed):
 
 
 def main(argv):
-    if not argv or argv[0] in ("-h", "--help"):
+    args = list(argv)
+    use_coverage = True
+    while args and args[0] == "--no-coverage":
+        use_coverage = False
+        args = args[1:]
+    if not args or args[0] in ("-h", "--help"):
         print(__doc__.strip().splitlines()[0])
-        print("usage: select_dependent_tests.py [--loop] [--distances] "
-              "<changed-file> ...")
+        print("usage: select_dependent_tests.py [--no-coverage] "
+              "[--loop] [--distances] <changed-file> ...")
         return 0
-    if argv[0] == "--loop":
-        for path in loop(argv[1:]):
+    if args[0] == "--loop":
+        for path in loop(args[1:], use_coverage=use_coverage):
             print(path)
         return 0
-    if argv[0] == "--distances":
-        distances = select_with_distances(argv[1:])
+    if args[0] == "--distances":
+        distances = select_with_distances(
+            args[1:], use_coverage=use_coverage)
         for path in sorted(distances):
             print(f"{distances[path]} {path}")
         return 0
-    for path in select(argv):
+    for path in select(args, use_coverage=use_coverage):
         print(path)
     return 0
 
