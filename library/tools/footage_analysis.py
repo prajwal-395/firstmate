@@ -20,8 +20,11 @@ Two halves, in order:
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
    faces and hands, M3b person identity, M3c expressions, M3d person
    regions, M3e attention saliency, M3f region stats, M6 conversation
-   clock, M7 event spans, M9 joined world model, M10 relationship
-   candidates, then the text and frame search indexes over them. A lane whose
+   clock, M7 event spans, M10 relationship candidates, M9 joined world
+   model over M0-M8 and M10, then the text and frame search indexes
+   over them. Lanes run in producer order from their declared input
+   and output slots (`order_lanes`), never in table order, so a lane
+   sees every producer of its inputs before it builds. A lane whose
    record is already FRESH for a source is reused, never rebuilt: a
    re-run over the same folder costs the fingerprints and nothing else.
 
@@ -208,10 +211,12 @@ LANES: tuple = (
     Lane("events", "M7", "on-screen and speaking spans per person",
          (SM.SLOT_EVENTS,), (SM.SLOT_PERSONS, SM.SLOT_IDENTITY), False,
          False, _build_events),
-    Lane("world_model", "M9", "joined per-second timeline over M1/M3/M3b/M7",
+    Lane("world_model", "M9", "joined per-second timeline over M0-M8 and M10",
          (SM.SLOT_WORLD_MODEL,),
-         (SM.SLOT_TRANSCRIPT, SM.SLOT_PERSONS, SM.SLOT_IDENTITY,
-          SM.SLOT_EVENTS),
+         (SM.SLOT_SOURCE, SM.SLOT_TRANSCRIPT, SM.SLOT_PERSONS,
+          SM.SLOT_IDENTITY, SM.SLOT_EXPRESSIONS, SM.SLOT_SCENES,
+          SM.SLOT_SOUND, SM.SLOT_CLOCK, SM.SLOT_EVENTS,
+          SM.SLOT_VERDICTS, SM.SLOT_RELATIONSHIPS),
          False, False, _build_world_model),
     Lane("relationships", "M10", "holding, pointing and looking-at candidates",
          (SM.SLOT_RELATIONSHIPS,),
@@ -224,6 +229,52 @@ LANES: tuple = (
 )
 LANE_NAMES = tuple(lane.name for lane in LANES)
 _BY_NAME = {lane.name: lane for lane in LANES}
+
+
+def order_lanes(lanes=LANES) -> tuple:
+    """Lanes in producer order: a lane runs only after every producer
+    of its input slots, never by list position.
+
+    The table order is the stable tie-break, not the schedule: two
+    lanes with no producer relationship keep their table order, so a
+    fresh table edit does not reschedule unrelated work. A dependency
+    cycle is refused, never run half - it is a programmer error in the
+    lane table, and running half would write records off stale inputs.
+    """
+    ordered_lanes = tuple(lanes)
+    by_name = {lane.name: lane for lane in ordered_lanes}
+    producers: dict = {}
+    for lane in ordered_lanes:
+        for slot in lane.slots:
+            producers.setdefault(slot, []).append(lane.name)
+    deps: dict[str, set] = {}
+    for lane in ordered_lanes:
+        needs: set = set()
+        for slot in lane.reads:
+            for producer in producers.get(slot, ()):
+                if producer != lane.name:
+                    needs.add(producer)
+        deps[lane.name] = needs
+    ordered: list = []
+    remaining = [lane.name for lane in ordered_lanes]
+    while remaining:
+        for name in list(remaining):
+            if not (deps[name] & set(remaining)):
+                ordered.append(by_name[name])
+                remaining.remove(name)
+                break
+        else:
+            cycle = ", ".join(sorted(remaining))
+            raise ValueError(
+                f"memory lanes have a dependency cycle: {cycle}")
+    return tuple(ordered)
+
+
+def order_lane_names(names) -> list:
+    """Requested lane names in producer order (see `order_lanes`)."""
+    wanted = list(names)
+    lanes = [_BY_NAME[name] for name in wanted]
+    return [lane.name for lane in order_lanes(lanes)]
 
 
 # ── Freshness ───────────────────────────────────────────────────────
@@ -602,8 +653,12 @@ def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
     else:
         # These lanes still share a machine-wide admission while they
         # read/write per-source memory and may launch external engines.
+        # Lanes run in producer order, never in the requested order: a
+        # lane sees every producer of its inputs before it builds, so a
+        # fresh M9 joins the M10 that just built rather than the one
+        # that was there when the run started.
         with heavy_work_lock(LOCK_OWNER):
-            for name in lanes:
+            for name in order_lane_names(lanes):
                 lane = _BY_NAME[name]
                 print(f"[analyze] {lane.label} {lane.name}: {lane.summary}",
                       file=sys.stderr, flush=True)
@@ -717,7 +772,7 @@ def main(argv=None) -> int:
                         help="leave an analysis capability out")
     parser.add_argument("--lanes", nargs="+", choices=LANE_NAMES,
                         default=list(LANE_NAMES),
-                        help="which memory lanes to run, in table order")
+                        help="which memory lanes to run, in producer order")
     parser.add_argument("--memory-root", help="override the memory root "
                         "(default: $PIPELINE_SOURCE_MEMORY_ROOT or vep home)")
     parser.add_argument("--status", action="store_true",
@@ -745,7 +800,8 @@ def main(argv=None) -> int:
     if created:
         print(f"[analyze] made collection {project} over {args.target}",
               file=sys.stderr)
-    ordered = [n for n in LANE_NAMES if n in set(args.lanes)]
+    ordered = order_lane_names(
+        [n for n in LANE_NAMES if n in set(args.lanes)])
     if args.json:
         # Keep the JSON stdout channel parseable while preserving progress.
         with redirect_stdout(sys.stderr):
