@@ -779,7 +779,9 @@ cmd_reconciles() { cmd_choice_rows reconciles "$@"; }
 # either as CSV rows under a `prompts[N]{field,...}:`, `feedback[N]{field,...}:`,
 # or `annotations[N]{field,...}:` header, or as a YAML list under a bare
 # `prompts[N]:`, `feedback[N]:`, or `annotations[N]:` header with
-# `uid`/`prompt`/`selector`/`tag`/`text` entries. A body the reader cannot parse
+# `uid`/`prompt`/`selector`/`tag`/`text` entries. A YAML list entry may carry
+# a nested `attachments[N]{field,...}:` table whose rows present the entry's
+# image attachments as type, path, mime, and name beside its prompt. A body the reader cannot parse
 # is never reported complete.
 cmd_read() {
   local file=${1-} lifecycle session_ended
@@ -887,6 +889,63 @@ cmd_read() {
             $i++;
             next;
           }
+          if ($l =~ /^(\s*)attachments\[(\d+)\](\{([^}]*)\})?:\s*$/) {
+            my ($ind, $acount, $afieldstr) = (length($1), $2, $4);
+            if (!defined($cur)) { $unparsable = 1; $i++; next; }
+            if ($broken) { $i++; next; }
+            if ($ind <= $cur_indent) { $flush->(); $i++; next; }
+            my @afields = defined($afieldstr) ? split(/,/, $afieldstr) : ();
+            my %af = map { $_ => 1 } @afields;
+            if (!@afields || !$af{type} || !$af{path} || !$af{mime} || !$af{name}) {
+              ($cur, $broken) = (undef, 1);
+              $i++;
+              next;
+            }
+            my @att;
+            my $abroken = 0;
+            my $j = $i + 1;
+            while ($j <= $#lines && @att < $acount) {
+              my $rl = $lines[$j];
+              if ($rl =~ /^\s*$/) { $j++; next; }
+              last unless $rl =~ /^\s/;
+              if ($rl =~ /^(\s*)\S/ && length($1) <= $ind) { last; }
+              chomp $rl;
+              $rl =~ s/^\s+//;
+              my @vals;
+              my $tmp = $rl;
+              while (length $tmp) {
+                if ($tmp =~ s/^"((?:[^"\\]|\\.)*)"//) {
+                  push @vals, $1;
+                } else {
+                  $tmp =~ s/^([^,]*)//;
+                  push @vals, $1;
+                }
+                last unless $tmp =~ s/^,//;
+              }
+              if (@vals != @afields) { $abroken = 1; $j++; last; }
+              s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge for @vals;
+              my %a;
+              $a{$afields[$_]} = $vals[$_] for 0 .. $#afields;
+              push @att, \%a;
+              $j++;
+            }
+            if (!$abroken && @att == $acount) {
+              my $k = $j;
+              while ($k <= $#lines && $lines[$k] =~ /^\s*$/) { $k++; }
+              if ($k <= $#lines && $lines[$k] =~ /^\s/ && $lines[$k] =~ /^(\s*)\S/ && length($1) > $ind
+                && $lines[$k] !~ /^\s*-\s/ && $lines[$k] !~ /^\s*\w+:/ && $lines[$k] !~ /^\s*attachments\[/) {
+                $abroken = 1;
+                $j = $k + 1;
+              }
+            }
+            if ($abroken || @att != $acount) {
+              ($cur, $broken) = (undef, 1);
+            } else {
+              push @{$cur->{attachments} ||= []}, @att;
+            }
+            $i = $j;
+            next;
+          }
           if ($l =~ /^(\s*)(\w+):\s?(.*)$/) {
             my ($ind, $k, $v) = (length($1), $2, $3);
             if (!defined($cur)) { $i++; next; }
@@ -931,6 +990,20 @@ cmd_read() {
       return if !@lines || (@lines == 1 && $lines[0] eq "");
       print "| $_\n" for @lines;
     }
+    sub emit_attachments {
+      my ($list) = @_;
+      return unless ref($list) eq "ARRAY" && @$list;
+      my $n = 0;
+      for my $a (@$list) {
+        $n++;
+        print "ATTACHMENT $n of ", scalar(@$list), "\n";
+        for my $k (qw(type path mime name)) {
+          my $v = defined $a->{$k} ? $a->{$k} : "";
+          $v =~ s/[\x00-\x1f\x7f]/ /g;
+          print "attachment_$k: $v\n";
+        }
+      }
+    }
     my $ended = $session_ended =~ /^(?:true|True|TRUE)$/;
     if (@messages) {
       my $message_label = $ended ? "SESSION-ENDING MESSAGE" : "CAPTAIN MESSAGE";
@@ -941,6 +1014,7 @@ cmd_read() {
           ? $messages[$i]{prompt}
           : (defined $messages[$i]{text} ? $messages[$i]{text} : "");
         emit_body($body);
+        emit_attachments($messages[$i]{attachments});
       }
       print "END $message_label\n";
     } else {
@@ -978,6 +1052,7 @@ cmd_read() {
           print "prompt:\n";
           emit_body($comment);
         }
+        emit_attachments($f->{attachments});
       }
       print "END ANNOTATIONS\n";
     } else {
