@@ -249,44 +249,91 @@ def write_index(destination: Path | str, checkout: str,
 
 def load(checkout: str, path: Path | str | None = None,
          sha: str | None = None, interpreter: str | None = None,
-         native: str | None = None) -> tuple[dict | None, str | None]:
+         native: str | None = None, *, state_dir: str = "",
+         with_metadata: bool = False):
     """Read a fresh index, or refuse with the reason.
 
     Returns `(tests, None)` when the index at `path` (default
     `index_path()`) versions exactly this checkout, else `(None,
     reason)`: missing, unparseable, wrong version, or a stale
-    tree/interpreter/native stamp. Every refusal names what mismatched
-    so the operator knows whether to re-collect or investigate.
+    tree/interpreter/native stamp. A certified CI-07 baseline index may
+    also be reused when its tree is an ancestor and environment stamps
+    match; with `with_metadata`, the third return value names files
+    changed since that baseline. Callers must use static selection for
+    those paths. Every refusal names what mismatched.
     """
+    def result(tests, reason, invalidated=()):
+        return ((tests, reason, sorted(invalidated)) if with_metadata
+                else (tests, reason))
     source = Path(path) if path is not None else index_path()
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
     except OSError:
-        return None, (
+        return result(None, (
             f"no coverage index at {source} - collect one with "
-            f"scripts/collect_coverage_index.py --checkout {checkout}")
+            f"scripts/collect_coverage_index.py --checkout {checkout}"))
     except ValueError as exc:
-        return None, (
+        return result(None, (
             f"coverage index at {source} is unparseable ({exc}) - "
-            f"refusing; re-collect to replace it")
+            f"refusing; re-collect to replace it"))
     if not isinstance(payload, dict) or payload.get("version") != INDEX_VERSION:
-        return None, (
+        return result(None, (
             f"coverage index at {source} has version "
             f"{payload.get('version') if isinstance(payload, dict) else '?'} "
-            f"(want {INDEX_VERSION}) - refusing; re-collect to replace it")
+            f"(want {INDEX_VERSION}) - refusing; re-collect to replace it"))
     expected = _version_envelope(checkout, sha, interpreter, native)
-    for key in ("tree_sha", "interpreter", "native"):
+    for key in ("interpreter", "native"):
         if payload.get(key) != expected[key]:
-            return None, (
+            return result(None, (
                 f"coverage index at {source} is stale: {key} "
                 f"{payload.get(key)!r} != {expected[key]!r} - refusing; "
-                f"re-collect on this checkout to replace it")
+                f"re-collect on this checkout to replace it"))
+    invalidated = set()
+    if payload.get("tree_sha") != expected["tree_sha"]:
+        # Reuse only a fully certified CI-07 baseline, and only when its
+        # environment is identical and its commit is an ancestor.
+        try:
+            from library.tools.local_ci import config, state
+            baseline_sha = payload.get("tree_sha")
+            certification = state.certified_baseline(
+                baseline_sha, state_dir or config.state_dir())
+            same_environment = (
+                payload.get("interpreter") == expected["interpreter"]
+                == (certification or {}).get("interpreter")
+                and payload.get("native") == expected["native"]
+                == (certification or {}).get("native"))
+            ancestor = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", str(baseline_sha),
+                 str(expected["tree_sha"])], cwd=checkout,
+                capture_output=True, encoding="utf-8", check=False,
+                timeout=30)
+            if certification and same_environment and ancestor.returncode == 0:
+                delta = subprocess.run(
+                    ["git", "diff", "--name-only", "-z",
+                     f"{baseline_sha}..{expected['tree_sha']}"], cwd=checkout,
+                    capture_output=True, encoding="utf-8", check=False,
+                    timeout=30)
+                if delta.returncode == 0:
+                    invalidated = {name for name in delta.stdout.split("\0")
+                                   if name}
+                else:
+                    invalidated = {"<unknown>"}
+            else:
+                invalidated = {"<unknown>"}
+        except (OSError, subprocess.SubprocessError, ImportError,
+                AttributeError, TypeError, ValueError):
+            invalidated = {"<unknown>"}
+        if "<unknown>" in invalidated:
+            return result(None, (
+                f"coverage index at {source} is stale: tree_sha "
+                f"{payload.get('tree_sha')!r} != {expected['tree_sha']!r} "
+                "and no compatible certified baseline was established"))
     tests = payload.get("tests")
     if not isinstance(tests, dict):
-        return None, (
+        return result(None, (
             f"coverage index at {source} carries no test mapping - "
-            f"refusing; re-collect to replace it")
-    return tests, None
+            f"refusing; re-collect to replace it"))
+    return result(tests, None, invalidated)
 
 
 def collection_argv(python: str, selection: list[str], checkout: str,

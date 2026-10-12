@@ -479,9 +479,9 @@ def _apply_coverage_narrowing(changed, static, protected):
         return dict(static)
     sha, interpreter, native = _coverage_overrides()
     try:
-        tests_map, _reason = module.load(
+        tests_map, _reason, baseline_changed = module.load(
             REPO_ROOT, None, sha=sha, interpreter=interpreter,
-            native=native)
+            native=native, with_metadata=True)
     except (OSError, ValueError, ImportError, AttributeError, TypeError,
             KeyError):
         return dict(static)
@@ -504,6 +504,33 @@ def _apply_coverage_narrowing(changed, static, protected):
             return dict(static)
         if _has_dynamic_import_signal(os.path.abspath(abs_path)):
             return dict(static)
+    # The baseline index says nothing trustworthy about files changed
+    # since certification. Keep their complete static selection, while
+    # still allowing compatible evidence to narrow other changed files.
+    invalidated = set(baseline_changed)
+    if any(_wide_change_reason(path) is not None
+           or not _is_indexable_path(path, roots)
+           for path in invalidated):
+        return dict(static)
+    static_invalidated = {}
+    for path, distance in static.items():
+        if any(path == candidate or
+               path.replace(os.sep, "/") == candidate
+               for candidate in invalidated):
+            static_invalidated[path] = distance
+    if invalidated:
+        static_invalidated = _select_with_distances(
+            [path for path in changed
+             if path.replace(os.sep, "/") in invalidated],
+            use_coverage=False)
+    active_changed = [path for path in changed
+                      if path.replace(os.sep, "/") not in invalidated]
+    if invalidated and not active_changed:
+        return {**static, **static_invalidated}
+    changed_rels = [path for path in changed_rels
+                    if path not in invalidated]
+    if not changed_rels:
+        return {**static, **static_invalidated}
     covered: set = set()
     for entry in tests_map.values():
         if isinstance(entry, dict) and isinstance(entry.get("files"), list):
@@ -532,7 +559,7 @@ def _apply_coverage_narrowing(changed, static, protected):
         executed_by_test_file.setdefault(head, set()).update(
             name for name in files if isinstance(name, str))
     wanted = set(changed_rels)
-    narrowed = {}
+    narrowed = dict(static_invalidated)
     for path, distance in static.items():
         if path in protected:
             narrowed[path] = distance
@@ -616,9 +643,8 @@ def _select_with_distances(changed, use_coverage=True):
             hop = 1 if carrier == stem else 2
             for dotted, test_abs in test_modules:
                 rel = os.path.relpath(test_abs, REPO_ROOT)
-                if os.path.basename(test_abs) == "test_" + carrier + ".py":
-                    add(rel, hop)
-                elif carrier in test_imports.get(test_abs, set()):
+                if (os.path.basename(test_abs) == "test_" + carrier + ".py"
+                        or carrier in test_imports.get(test_abs, set())):
                     add(rel, hop)
             if carrier in CONTRACT_SETS:
                 resolvers.add(carrier)

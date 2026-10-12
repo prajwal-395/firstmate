@@ -16,6 +16,7 @@ any machine. The live `--cov-context=test` leg runs only on demand via
 """
 
 import json
+import subprocess
 
 import pytest
 
@@ -109,6 +110,72 @@ def test_stale_interpreter_and_native_are_refused(checkout, tmp_path):
     assert loaded is None and "interpreter" in reason
     loaded, reason = _load(checkout, destination, native="native-other")
     assert loaded is None and "native" in reason
+
+
+def test_certified_ancestor_index_loads_and_reports_changed_files(
+        checkout, tmp_path):
+    from library.tools.local_ci import state
+    state_dir = str(tmp_path / "state")
+    repo = subprocess.run(["git", "init", "-q", str(checkout)],
+                          capture_output=True, encoding="utf-8", check=True)
+    del repo
+    subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Test",
+                    "-c", "user.email=test@example.com", "add", "."],
+                   check=True, capture_output=True, encoding="utf-8")
+    subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Test",
+                    "-c", "user.email=test@example.com", "commit", "-qm",
+                    "baseline"], check=True, capture_output=True,
+                   encoding="utf-8")
+    baseline = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], check=True,
+        capture_output=True, encoding="utf-8").stdout.strip()
+    tests = coverage_index.build_index(_contexts(), str(checkout))
+    destination = tmp_path / "index.json"
+    _write(checkout, destination, tests, sha=baseline)
+    state.certify_baseline(
+        baseline, verdict="PASS", inventory=["tests/unit/foo/test_widget.py"],
+        keys={"tests/unit/foo/test_widget.py": "test-key"},
+        interpreter=PINNED["interpreter"], native=PINNED["native"],
+        state=state_dir)
+    (checkout / "library" / "mod_a.py").write_text(
+        "from library.mod_b import MID\nVALUE = MID + 1\n",
+        encoding="utf-8")
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True,
+                   capture_output=True, encoding="utf-8")
+    subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Test",
+                    "-c", "user.email=test@example.com", "commit", "-qm",
+                    "pr change"], check=True, capture_output=True,
+                   encoding="utf-8")
+
+    loaded, reason, invalidated = coverage_index.load(
+        str(checkout), destination, interpreter=PINNED["interpreter"],
+        native=PINNED["native"], state_dir=state_dir, with_metadata=True)
+
+    assert reason is None
+    assert loaded == tests
+    assert invalidated == ["library/mod_a.py"]
+    refused, reason, _ = coverage_index.load(
+        str(checkout), destination, interpreter="python-other",
+        native=PINNED["native"], state_dir=state_dir, with_metadata=True)
+    assert refused is None and "interpreter" in reason
+    refused, reason, _ = coverage_index.load(
+        str(checkout), destination, interpreter=PINNED["interpreter"],
+        native="native-other", state_dir=state_dir, with_metadata=True)
+    assert refused is None and "native" in reason
+
+
+def test_certified_ancestor_index_refuses_fingerprint_mismatch(
+        checkout, tmp_path):
+    from library.tools.local_ci import state
+    # An uncertified tree is deliberately not enough to permit the
+    # cross-revision path; the ordinary exact-stamp checks remain below.
+    destination = tmp_path / "index.json"
+    _write(checkout, destination,
+           coverage_index.build_index(_contexts(), str(checkout)))
+    loaded, reason = _load(checkout, destination,
+                           interpreter="python-other")
+    assert loaded is None and "interpreter" in reason
+    assert state.certified_baseline("unknown-sha", str(tmp_path)) is None
 
 
 def test_missing_and_malformed_index_is_refused(checkout, tmp_path):
