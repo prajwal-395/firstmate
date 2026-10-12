@@ -2856,6 +2856,27 @@ def run_pipeline(
                                                steps=steps_to_run)
         print(f"    ({estimate['selected']}s of estimated work selected, "
               f"{estimate['skipped']}s skipped)", file=sys.stderr)
+        # Native freshness is lock-free hashing, so a dry run can REPORT
+        # it without taking the heavy-work lock it refuses to wait on
+        # (LE-01: `main` skips `ensure_current` for dry runs). One line
+        # per stale or missing part; a real run rebuilds it first.
+        native_stale = []
+        try:
+            from pathlib import Path as _Path
+            from library.tools import native_refresh as _native_refresh
+            _repo_root = _Path(__file__).resolve().parent.parent.parent.parent
+            for _part in _native_refresh.PARTS:
+                try:
+                    _state, _detail = _native_refresh.status(
+                        _repo_root, _part)
+                except Exception:  # noqa: BLE001 - one part never hides the rest
+                    continue
+                if _state in ("stale", "missing"):
+                    native_stale.append(_part)
+                    print(f"native: {_part} {_state}; "
+                          f"a real run rebuilds it first", file=sys.stderr)
+        except Exception:  # noqa: BLE001 - a staleness report never breaks a dry run
+            native_stale = []
         summary = {
             "status": "DRY_RUN",
             "profile": active_profile.name,
@@ -2875,6 +2896,10 @@ def run_pipeline(
             "not_run_because_supplied": {
                 k: list(v) for k, v in scope.supplied.items()},
             "estimated_seconds": estimate,
+            # Native parts this tree has not built (LE-01). Lock-free
+            # `status()` only - a dry run never rebuilds, and never
+            # waits for the slot a rebuild would take.
+            "native_stale": native_stale,
         }
         json.dump(summary, sys.stdout, indent=2)
         return summary
@@ -4471,21 +4496,120 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_NATIVE_REFRESH_LOCK_TIMEOUT_S = 600.0
+"""How long a real run waits for the heavy-work slot to rebuild a stale
+native part before continuing on the previous build (LE-01).
+
+Finite, so a run never parks behind another lane forever; long (10
+minutes), so a rebuild still happens behind an ordinary render hold
+(measured holds run 4.6-8.4 minutes) rather than being skipped. A wait
+that gives up is REPORTED (`rebuild pending (heavy-work slot busy)`),
+never silent. Dry runs never wait at all - they skip the refresh."""
+
+
+def _current_heavy_holders() -> list:
+    """`[(owner, pid)]` of the heavy-work jobs running now, else []."""
+    try:
+        from library.tools import heavy_work_lock
+        jobs = heavy_work_lock._scheduler().jobs()
+    except Exception:  # noqa: BLE001 - holder reporting never breaks a run
+        return []
+    holders = []
+    for job in jobs or []:
+        try:
+            if job.get("state") == "running":
+                holders.append((str(job.get("owner")), int(job.get("pid"))))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return holders
+
+
+def _announce_native_refresh_wait(project_dir) -> None:
+    """Name the heavy-work holder on stdout and in `pipeline_run.json`.
+
+    Called BEFORE a real run waits for the rebuild slot, so an agent
+    piping through `| tail` sees the line within a second and `ren now`
+    reads the same record off the status file. Best-effort throughout:
+    reporting a wait must never break the run that waits.
+    """
+    holders = _current_heavy_holders()
+    if not holders:
+        return
+    described = "; ".join(
+        f"running {owner} (pid {pid})" for owner, pid in holders)
+    line = (f"heavy-work: waiting for {described} - "
+            f"native refresh rebuilds after it finishes")
+    print(line, flush=True)
+    if not project_dir:
+        return
+    try:
+        from library.tools import run_control
+        run_control.write_run_status(
+            project_dir,
+            heavy_work_wait={
+                "message": line,
+                "holders": [{"owner": owner, "pid": pid}
+                            for owner, pid in holders],
+            },
+        )
+    except Exception:  # noqa: BLE001 - a status write never breaks a run
+        pass
+
+
+def _clear_native_refresh_wait(project_dir) -> None:
+    """Drop the wait record once the refresh is no longer waiting."""
+    if not project_dir:
+        return
+    try:
+        from library.tools import run_control
+        run_control.write_run_status(project_dir, heavy_work_wait=None)
+    except Exception:  # noqa: BLE001 - a status write never breaks a run
+        pass
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
     args.full_auto = normalize_full_auto(args.full_auto)
 
-    # The engine draws with compiled parts; a missing or stale build
-    # silently fell back on desks where native/target was never built.
-    # Refresh first, while no render is in flight: freshness is
-    # lock-free hashing, and only a rebuild takes the heavy-work lock.
-    try:
-        from pathlib import Path
-        from library.tools import native_refresh
-        native_refresh.ensure_current(Path(__file__).resolve().parent.parent.parent)
-    except Exception:  # noqa: BLE001 - refresh never breaks a run
+    # Resolve project directory from slug if provided. This happens
+    # BEFORE the native refresh so a real run waiting on the
+    # heavy-work lock can say WHO it waits on, on stdout and in
+    # `pipeline_run.json` (LE-01: `| tail` and `ren now` see it).
+    project_dir = args.project
+    if args.slug:
+        try:
+            from tools.paths import project_root
+            project_dir = str(project_root(args.slug))
+        except (ImportError, FileNotFoundError) as e:
+            print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if args.dry_run:
+        # A dry run never takes the heavy-work lock: it only PLANS,
+        # so a stale native part must not park it behind a render.
+        # Staleness is reported lock-free inside `run_pipeline()`.
         pass
+    else:
+        # The engine draws with compiled parts; a missing or stale build
+        # silently fell back on desks where native/target was never built.
+        # Refresh first, while no render is in flight: freshness is
+        # lock-free hashing, and only a rebuild takes the heavy-work lock.
+        # The wait is FINITE (a rebuild that cannot get the slot is
+        # reported as pending and the run continues on the previous
+        # build), and a busy slot is named BEFORE waiting so an agent
+        # piping through `| tail` sees it within a second.
+        _announce_native_refresh_wait(project_dir)
+        try:
+            from pathlib import Path
+            from library.tools import native_refresh
+            native_refresh.ensure_current(
+                Path(__file__).resolve().parent.parent.parent,
+                lock_timeout=_NATIVE_REFRESH_LOCK_TIMEOUT_S)
+        except Exception:  # noqa: BLE001 - refresh never breaks a run
+            pass
+        finally:
+            _clear_native_refresh_wait(project_dir)
 
     # Carry the driving harness into code that never sees argv: the
     # still-vision route (`library/tools/still_vision.py`) reads
@@ -4495,15 +4619,6 @@ def main():
     # on gemma, exactly as before.
     os.environ["PIPELINE_HOST_HARNESS"] = args.full_auto or ""
 
-    # Resolve project directory from slug if provided
-    project_dir = args.project
-    if args.slug:
-        try:
-            from tools.paths import project_root
-            project_dir = str(project_root(args.slug))
-        except (ImportError, FileNotFoundError) as e:
-            print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
-            sys.exit(1)
     from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
     summary = None
     try:
