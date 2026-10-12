@@ -2635,6 +2635,19 @@ def cmd_build_reels(args):
     _gc_report(project_folder)
     if code:
         sys.exit(code)
+    from library.schemas.project_config import load_project_config
+    # This is an optional build preference. Reels that already built from
+    # a caller-supplied folder may carry a minimal legacy config, so an
+    # unrelated config finding must not turn a successful build into a
+    # post-build refusal.
+    config = load_project_config(
+        Path(project_folder) / "project.yaml", migrate_format=False,
+        strict=False)
+    if getattr(args, "preview", False) or config.pipeline.preview_after_build:
+        from library.tools import reel_preview
+        preview_code = reel_preview.main([project_folder])
+        if preview_code:
+            sys.exit(preview_code)
 
 
 

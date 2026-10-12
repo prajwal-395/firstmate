@@ -124,6 +124,9 @@ def add_arguments(parser) -> None:
              "is the LE-07 rows for the reels this build touched: "
              "outcome, final name, verify verdict and owed answers, "
              "plus the refusal code if any and the full log's path.")
+    parser.add_argument(
+        "--preview", action="store_true",
+        help="Render the existing watchable preview after a successful build")
 
 
 def run(project_folder: str, args) -> int:

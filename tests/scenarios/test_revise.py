@@ -260,6 +260,34 @@ def test_a_shot_order_note_becomes_a_scoped_rebuild(project, monkeypatch):
     assert outcome["action"]["summary"] == result["change"]["summary"]
 
 
+def test_preview_flag_reaches_the_scoped_build(project, monkeypatch):
+    """A one-build request survives revise's scoped rebuild routing."""
+    from library.tools import revise
+
+    started = revise.start(
+        project, "put the pricing answer before the intro story", reel=REEL,
+        preview=True)
+    _answer(project, started, {
+        "request": "put the pricing answer before the intro story",
+        "clauses": [{
+            "id": "order", "status": "resolved",
+            "text": "play the pricing answer before the intro story",
+            "op": "speech_selection", "op_source": "model",
+            "anchor": {"kind": "words", "phrase": "we doubled the price"},
+            "anchor_source": "requester", "reel": REEL,
+            "reel_source": "requester",
+            "values": {"order": {
+                "value": "the pricing answer plays before the intro story",
+                "unit": "passage order", "stated_by": "requester"}}}]})
+    ran = []
+    result = revise.advance(
+        project, started["revise_id"], run=lambda argv: ran.append(argv) or 0)
+
+    assert result["status"] == revise.STATUS_REBUILT
+    assert ran[-1] == ["build-reels", str(project), "--only-reel", "2",
+                       "--preview"]
+
+
 def test_an_ambiguous_note_asks_exactly_one_question_and_changes_nothing(
         project, live):
     """Catches: a note whose referent is unclear being guessed into an edit,

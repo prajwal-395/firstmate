@@ -267,6 +267,7 @@ def start(project, note: str = "", *, note_id: str = "", reel: str = "",
         "request_path": request_path,
         "decision_candidates": candidates,
         "decision_candidates_reason": why_none,
+        "preview_requested": bool(options.get("preview", False)),
         "clarifications": [],
         "created_at": _now(),
     }
@@ -679,7 +680,8 @@ def _addressed(project: str, note: dict, action: str, rationale: str,
     return out["record"]
 
 
-def rebuild_commands(project: str, record: dict, spec: dict) -> list[list]:
+def rebuild_commands(project: str, record: dict, spec: dict, *,
+                     preview: bool = False) -> list[list]:
     """The scoped rebuild: the owners the spec names, then the one reel."""
     from library.tools import assignment_spine as spine
     from library.tools import edit_spec
@@ -694,8 +696,12 @@ def rebuild_commands(project: str, record: dict, spec: dict) -> list[list]:
         commands.append(["run", project,
                          *[arg for step in steps for arg in ("--rerun", step)]])
     if spine._moments(project):
-        commands.append(["build-reels", project, *(
-            ["--only-reel", str(int(moment.number))] if moment else [])])
+        command = ["build-reels", project]
+        if moment:
+            command.extend(["--only-reel", str(int(moment.number))])
+        if preview:
+            command.append("--preview")
+        commands.append(command)
     elif not steps:
         commands.append(["run", project, "--rerun", "render"])
     return commands
@@ -712,7 +718,8 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
     from library.tools import assignment_spine as spine
     from library.tools import edit_spec, feedback_outcomes
 
-    commands = rebuild_commands(project, record, spec)
+    commands = rebuild_commands(project, record, spec,
+                                preview=bool(options.get("preview")))
     anchors = [(clause.get("anchor") or {}).get("stated")
                or (clause.get("anchor") or {}).get("phrase") or ""
                for clause in spec.get("clauses") or ()]
@@ -794,6 +801,9 @@ def advance(project, revise_id: str, *, answer: str = "",
 
     project = _root(project)
     record = load(project, revise_id)
+    preview = bool(options.get("preview") or record.get("preview_requested"))
+    if preview:
+        record["preview_requested"] = True
     if record["status"] in FINISHED:
         return _result(project, record)
     if answer:
@@ -834,11 +844,14 @@ def advance(project, revise_id: str, *, answer: str = "",
     if plan_only:
         if classification["route"] == ROUTE_REBUILD:
             record["commands"] = [_shown(argv) for argv in
-                                  rebuild_commands(project, record, spec)]
+                                  rebuild_commands(
+                                      project, record, spec,
+                                      preview=preview)]
         _status(record, STATUS_PROPOSED)
         return _result(project, _save(project, record))
     act = (_patch if classification["route"] == ROUTE_PATCH else _rebuild)
     try:
+        options["preview"] = preview
         outcome = act(project, record, spec, classification["verdict"],
                       options)
     except RenRefusal as refused:
@@ -886,12 +899,15 @@ def main(argv=None) -> int:
                              "it is now")
     parser.add_argument("--plan", action="store_true", dest="plan_only",
                         help="stop after showing what would change")
+    parser.add_argument(
+        "--preview", action="store_true",
+        help="render a watchable preview after a successful rebuild")
     args = parser.parse_args(argv)
     try:
         if args.note or args.note_id or args.at:
             result = start(args.project, args.note, note_id=args.note_id,
                            reel=args.reel, at=args.at,
-                           plan_only=args.plan_only)
+                           plan_only=args.plan_only, preview=args.preview)
         else:
             revise_id = args.revise_id
             if not revise_id:
@@ -905,7 +921,8 @@ def main(argv=None) -> int:
                 revise_id = newest["revise_id"]
             result = advance(args.project, revise_id, answer=args.answer,
                              plan_only=args.plan_only,
-                             retranslate=args.retranslate)
+                             retranslate=args.retranslate,
+                             preview=args.preview)
     except RenRefusal as refused:
         from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)

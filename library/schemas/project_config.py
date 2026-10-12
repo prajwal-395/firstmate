@@ -355,6 +355,9 @@ class PipelineConfig:
     # mapping - see library/tools/creative_tasks.py, which is the one
     # place that reads them. Empty means the project declares none.
     creative_tasks: list[dict] = field(default_factory=list)
+    # Watchable low-cost reel previews after successful builds. Opt-in
+    # per project; the independent `ren preview` verb remains available.
+    preview_after_build: bool = False
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
 
@@ -543,6 +546,10 @@ class ProjectConfig:
             errors.append(
                 f"pipeline.deliver_naming must be a string, got "
                 f"{type(self.pipeline.deliver_naming).__name__}.")
+        if not isinstance(self.pipeline.preview_after_build, bool):
+            errors.append(
+                "pipeline.preview_after_build must be a boolean, got "
+                f"{type(self.pipeline.preview_after_build).__name__}.")
         if self.pipeline.framing_intent is not None:
             from library.tools.framing_intent import validate_framing_intent
             try:
@@ -797,6 +804,7 @@ def _dict_to_project_config(data: dict,
         max_duration_seconds=pipeline_data.get("max_duration_seconds"),
         creative_tasks=list(
             pipeline_data.get("creative_tasks", []) or []),
+        preview_after_build=pipeline_data.get("preview_after_build", False),
         sfx_library=_expand_path(pipeline_data.get("sfx_library", "")),
         music_library=_expand_path(pipeline_data.get("music_library", "")),
     )
@@ -956,6 +964,8 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if not config.pipeline.creative_tasks
                else {"creative_tasks":
                      [dict(t) for t in config.pipeline.creative_tasks]}),
+            **({} if not config.pipeline.preview_after_build
+               else {"preview_after_build": True}),
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,
         },
