@@ -49,7 +49,11 @@ def cmd_status(args) -> int:
                 reverse=True)[:5]:
             verdict = "PASS" if record.get("ok") else "FAIL"
             reason = f" - {record['reason']}" if record.get("reason") else ""
-            print(f"  {sha[:12]} {verdict}{reason}")
+            certified = ""
+            if state.is_certified(record):
+                certified = (f" certified "
+                             f"{len(record.get('inventory', []))} files")
+            print(f"  {sha[:12]} {verdict}{certified}{reason}")
     running = hygiene.running_jobs(args.state)
     gates = hygiene.running_gate_jobs()
     if running or gates:

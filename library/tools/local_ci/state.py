@@ -31,6 +31,17 @@ MAIN_BASELINE_FILENAME = "main_baseline.json"
 # the ledger cannot grow with every main advance.
 MAIN_BASELINE_KEEP = 20
 
+# What a CERTIFIED baseline carries beyond the judged verdict ({ok,
+# reason, log, recorded_at}): the gate's verdict line, the test
+# inventory the gate ran over, the per-file verification keys (CI-01)
+# later evidence reuses against, the environment fingerprints those
+# keys were computed under, and which executor certified it. A green
+# record WITHOUT these is judged, never certified - the pre-CI-07
+# shape judge_main still writes for verdicts with no checkout in hand.
+CERTIFIED_FIELDS = ("verdict", "verdict_line", "inventory", "keys",
+                    "env", "interpreter", "native", "config",
+                    "source")
+
 # Queue entry statuses. queued -> testing -> green -> merged is the
 # happy path; testing can also return to queued when a runner is
 # interrupted, or become kicked when the stack proves a PR is red.
@@ -205,10 +216,20 @@ def main_baseline_green(sha: str, state: str = "") -> dict | None:
 
 def record_main_baseline(sha: str, ok: bool, reason: str = "",
                          state: str = "", log: str = "") -> dict:
-    """Store one main-baseline verdict, keyed by main SHA."""
+    """Store one main-baseline verdict, keyed by main SHA.
+
+    A later verdict never strips a certification: when the stored
+    record for this SHA already carries a certified baseline (CI-07),
+    its inventory, keys, fingerprints and verdict line survive - the
+    same SHA is the same tree, so the baseline still describes it.
+    """
     data = read_main_baseline(state)
+    previous = data.get(sha)
     record = {"ok": bool(ok), "reason": reason or "", "log": log or "",
               "recorded_at": time.time()}
+    if is_certified(previous):
+        for field in CERTIFIED_FIELDS:
+            record[field] = previous[field]
     data[sha] = record
     while len(data) > MAIN_BASELINE_KEEP:
         oldest = min(data, key=lambda key: float(
@@ -217,3 +238,90 @@ def record_main_baseline(sha: str, ok: bool, reason: str = "",
         del data[oldest]
     _write(MAIN_BASELINE_FILENAME, data, state)
     return dict(record)
+
+
+def is_certified(record: dict | None) -> bool:
+    """Whether a baseline record is a full certified baseline.
+
+    Certified means green AND carrying the inventory + per-file keys +
+    fingerprints a later incremental verdict (CI-08) can reuse against.
+    A bare green verdict (judged, e.g. from a scripted world with no
+    checkout) is evidence the SHA passed, never a baseline.
+    """
+    return (isinstance(record, dict) and record.get("ok") is True
+            and isinstance(record.get("inventory"), list)
+            and bool(record.get("inventory"))
+            and isinstance(record.get("keys"), dict)
+            and bool(record.get("keys")))
+
+
+def certified_baseline(sha: str, state: str = "") -> dict | None:
+    """The certified baseline for this main SHA, if one was recorded.
+
+    Returns None for unknown SHAs AND for judged-but-uncertified
+    verdicts: callers deciding what evidence to reuse must not read a
+    bare green verdict as a baseline.
+    """
+    if not sha:
+        return None
+    record = read_main_baseline(state).get(sha)
+    if is_certified(record):
+        return dict(record)
+    return None
+
+
+def certify_baseline(sha: str, *, verdict: str = "",
+                     verdict_line: str = "",
+                     inventory: list | None = None,
+                     keys: dict | None = None, env: str = "",
+                     interpreter: str = "", native: str = "",
+                     config_text: str = "", reason: str = "",
+                     log: str = "", source: str = "",
+                     state: str = "") -> dict:
+    """Certify this main SHA's full-suite baseline, or refuse with the reason.
+
+    Certifies only on a full `FULL-SUITE GATE: PASS` - the same
+    predicate merges use (`runner.certifiable_verdict`): a NARROWED
+    PASS names an incomplete machine, never a passing tree, so it is
+    refused and stores nothing, as is a FAIL or a missing verdict.
+    An empty inventory or key map is also refused: a baseline with no
+    test evidence certifies nothing. Never raises on a refusal - the
+    caller reports the reason and the SHA stays uncertified.
+
+    Returns {"ok": True, "record": ...} on success, {"ok": False,
+    "reason": ...} on refusal. Shares the main-baseline ledger and its
+    bound, so `main_baseline_green` keeps answering for certified
+    SHAs and `record_main_baseline` never strips a certification.
+    """
+    from library.tools.local_ci import runner
+    if not sha:
+        return {"ok": False,
+                "reason": "certify refused: no main sha to certify"}
+    if not runner.certifiable_verdict(verdict):
+        return {"ok": False,
+                "reason": (f"certify refused: gate verdict "
+                           f"'{verdict or 'missing'}' is not a full PASS - "
+                           f"a baseline certifies only on "
+                           f"FULL-SUITE GATE: PASS")}
+    inventory = list(inventory or [])
+    keys = dict(keys or {})
+    if not inventory or not keys:
+        return {"ok": False,
+                "reason": ("certify refused: no test evidence - a "
+                           "baseline without inventory and keys "
+                           "certifies nothing")}
+    data = read_main_baseline(state)
+    record = {"ok": True, "reason": reason or "", "log": log or "",
+              "recorded_at": time.time(), "verdict": verdict,
+              "verdict_line": verdict_line or f"FULL-SUITE GATE: {verdict}",
+              "inventory": inventory, "keys": keys, "env": env or "",
+              "interpreter": interpreter or "", "native": native or "",
+              "config": config_text or "", "source": source or ""}
+    data[sha] = record
+    while len(data) > MAIN_BASELINE_KEEP:
+        oldest = min(data, key=lambda key: float(
+            data[key].get("recorded_at", 0)
+            if isinstance(data[key], dict) else 0))
+        del data[oldest]
+    _write(MAIN_BASELINE_FILENAME, data, state)
+    return {"ok": True, "record": dict(record)}

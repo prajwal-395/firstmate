@@ -25,6 +25,22 @@ import time
 
 from library.tools.local_ci import config, history, hygiene
 
+# Gate verdicts that may CERTIFY a main baseline (CI-07): only a full
+# PASS. NARROWED PASS names missing environment, not a passing tree -
+# run_gate already refuses it for merges below, and certification uses
+# this same predicate so an incomplete machine can never bless a sha.
+CERTIFIABLE_VERDICTS = ("PASS",)
+
+
+def certifiable_verdict(verdict: str) -> bool:
+    """Whether a gate verdict may certify a main baseline.
+
+    Only `PASS` qualifies: NARROWED PASS / DID NOT RUN / FAIL (or a
+    missing verdict line) refuse with the reason at the caller.
+    """
+    return verdict in CERTIFIABLE_VERDICTS
+
+
 # Pytest's terminal summary is surrounded by `=` characters. Anchor the
 # parse to that line: an unanchored regex with optional groups matched the
 # empty string before the counts and turned a real run into 0/0.
@@ -554,7 +570,7 @@ def run_gate(checkout: str, log_path: str,
                     len(summary["outcomes"])))
         except OSError:
             pass
-    if verdict == "PASS" and result["group_clean"]:
+    if certifiable_verdict(verdict) and result["group_clean"]:
         return {"ok": True, "requeue": False, "verdict": verdict,
                 "reason": "", "timed_out": False, "log": log_path}
     if (verdict in ("NARROWED PASS", "DID NOT RUN") or timed_out
@@ -584,6 +600,24 @@ def _read_verdict(log_path: str) -> str:
             match = _GATE_VERDICT.match(detail)
             return match.group(1) if match else detail.partition("|")[0].strip()
     return "DID NOT RUN"
+
+
+def gate_verdict_line(log_path: str) -> str:
+    """The gate's own one-line verdict, verbatim for baseline records.
+
+    Returns the full `FULL-SUITE GATE: ...` line (including any summary
+    columns the gate prints), or "" when the log carries none - a timed
+    out or crashed gate judged nothing, so there is no line to certify.
+    """
+    try:
+        with open(log_path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.startswith("FULL-SUITE GATE:"):
+            return line.strip()
+    return ""
 
 
 def _read_summary(log_path: str) -> tuple[int, int, int]:

@@ -180,6 +180,25 @@ class World:
                 cache={"state_dir": self.state_dir, "source": "batch",
                        "builder": builder, "interpreter": interpreter,
                        "consulted": consulted})
+            if (gate["ok"] and not gate["requeue"]
+                    and getattr(self, "_state_explicit", False)):
+                # A green main judgement generalizes to a certified
+                # baseline (CI-07): the checkout that just passed is
+                # still in hand, so file its inventory + keys + env now.
+                # Best effort only - a refused or failed certification
+                # never fails the verdict that already passed.
+                try:
+                    certified = certify_main_baseline(
+                        checkout, self.state_dir, base, gate,
+                        interpreter=interpreter, builder=builder,
+                        source="batch")
+                except OSError as exc:
+                    print(f"ren-ci baseline: certify deferred for "
+                          f"{base[:12]}: {exc}", flush=True)
+                else:
+                    if not certified.get("ok"):
+                        print(f"ren-ci baseline: "
+                              f"{certified.get('reason')}", flush=True)
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"])
 
@@ -248,6 +267,60 @@ def plan_cluster(entries: list, now: float, window: int) -> tuple:
     if now - oldest >= window:
         return list(queued), []
     return [], queued
+
+
+def certify_main_baseline(checkout: str, state_dir: str, sha: str,
+                          gate: dict, interpreter: str = "",
+                          builder=None, source: str = "") -> dict:
+    """Certify main's full-suite baseline from a checkout the gate passed.
+
+    The certified record is what later incremental verdicts (CI-08)
+    reuse against: the main sha, the test inventory the gate ran over,
+    the per-file verification keys (CI-01) computed under the same
+    interpreter the Tier-2 consult used, the environment fingerprints,
+    and the gate's own verdict line. Only a full `FULL-SUITE GATE:
+    PASS` certifies - the same predicate merges use
+    (`runner.certifiable_verdict`): a NARROWED verdict is refused with
+    the reason and stores nothing, as is a verdict without test
+    evidence. A falsy state dir refuses too, so scripted worlds and
+    direct callers without a ledger stay hermetic and never reach the
+    machine's real `~/.ren-ci`. Never raises: certification must not
+    fail a verdict that already passed.
+    """
+    if not state_dir:
+        return {"ok": False,
+                "reason": ("certify refused: no state dir - a baseline "
+                           "without a ledger certifies nothing")}
+    verdict = (gate or {}).get("verdict", "")
+    if not runner.certifiable_verdict(verdict):
+        return {"ok": False,
+                "reason": (f"certify refused: gate verdict "
+                           f"'{verdict or 'missing'}' is not a full PASS - "
+                           f"a baseline certifies only on "
+                           f"FULL-SUITE GATE: PASS")}
+    from library.tools.local_ci import result_cache
+    try:
+        own = builder or result_cache.KeyBuilder(checkout)
+        resolved = interpreter or runner._tier2_interpreter(checkout)
+        inventory = runner.tier2_inventory(checkout)
+        keys = {rel: result_cache.compute_key(
+            checkout, rel, own, interpreter=resolved)
+            for rel in inventory}
+        return state.certify_baseline(
+            sha, verdict=verdict,
+            verdict_line=runner.gate_verdict_line(
+                (gate or {}).get("log", "")),
+            inventory=inventory, keys=keys,
+            env=result_cache.env_fingerprint(),
+            interpreter=resolved,
+            native=result_cache.native_fingerprint(checkout),
+            config_text=result_cache.config_fingerprint(checkout),
+            reason=(gate or {}).get("reason", ""),
+            log=(gate or {}).get("log", ""),
+            source=source or "batch", state=state_dir)
+    except OSError as exc:
+        return {"ok": False,
+                "reason": f"certify refused: could not record it ({exc})"}
 
 
 def judge_main(world: World, base: str) -> TestResult:
