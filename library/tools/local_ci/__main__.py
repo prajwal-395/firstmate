@@ -7,6 +7,8 @@
   throwaway-PR proof and for manual operation before install.
 - daemon: serve until killed (what launchd runs).
 - install / uninstall: the launchd agent (install only after merge).
+- replay: run the historical regression replay benchmark (CI-09)
+  over the corpus manifest and report missed regressions per policy.
 
 Standard library only: status must work before any environment exists.
 """
@@ -185,6 +187,25 @@ def cmd_upstream(args) -> int:
     return 0
 
 
+def cmd_replay(args) -> int:
+    from library.tools.local_ci import replay
+    try:
+        manifest = replay.load_manifest(args.corpus or "")
+    except replay.ReplayRefused as exc:
+        print(f"ren-ci replay refused: {exc}")
+        return 2
+    result = replay.replay_corpus(manifest)
+    print(replay.render_report(result,
+                               shadow_clean_runs=args.shadow_runs),
+          end="")
+    if result["missed_full"] or result["missed_incremental"]:
+        print(f"ren-ci replay: {result['missed_incremental']} "
+              f"incremental miss(es), {result['missed_full']} "
+              f"full-gate miss(es)")
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
@@ -214,11 +235,18 @@ def main(argv=None) -> int:
     expedite = upstream_sub.add_parser("expedite")
     expedite.add_argument("engine", choices=("filmcraft", "effectcraft"))
     expedite.add_argument("--reason", required=True)
+    replay_p = sub.add_parser(
+        "replay", help="replay the regression benchmark corpus")
+    replay_p.add_argument("--corpus", default="",
+                          help="corpus manifest (default: shipped fixture)")
+    replay_p.add_argument("--shadow-runs", type=int, default=0,
+                          help="recorded clean shadow runs (CI-10 input)")
     args = parser.parse_args(argv)
     commands = {"status": cmd_status, "check": cmd_check,
                 "ready": cmd_ready, "process-once": cmd_process_once,
                 "daemon": cmd_daemon, "install": cmd_install,
-                "uninstall": cmd_uninstall, "upstream": cmd_upstream}
+                "uninstall": cmd_uninstall, "upstream": cmd_upstream,
+                "replay": cmd_replay}
     return commands[args.verb](args)
 
 

@@ -111,6 +111,17 @@ already runs everything on the exact stacked tree before any merge. A
 capped run records the cap on its Tier-1 status
 (`[capped, breadth to Tier-2]`), so it never reads as full coverage.
 
+## Replay benchmark (why incremental evidence cannot replace the gate yet)
+
+`ren ci replay` replays the corpus in
+`library/tools/local_ci/replay_corpus.json` under both the full-gate
+policy and the simulated incremental policy (hybrid selection +
+shared cache + certified baselines) and reports missed regressions
+per policy (`library/tools/local_ci/replay.py`). The verdict is
+"incremental NOT YET TRUSTWORTHY" until shadow validation (CI-10)
+records data; the CI-08 promotion bar the report states is the
+captain's C4 call.
+
 ## Hygiene (the four scratch-script failures, retired)
 
 Disposable worktree checkouts, deleted on exit even when the run fails
