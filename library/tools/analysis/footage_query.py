@@ -337,17 +337,28 @@ def load_embedder():
     is used where it exists, then plain `transformers` with mean pooling
     over the same checkpoint, which produces the same vectors.
 
+    Cached models load offline: each checkpoint is tried with
+    ``local_files_only=True`` first, so a warm cache never revalidates
+    against the Hub (LE-05).  Only on a cache miss does the load fall
+    back to the network, printing one line naming the model fetched.
+
     Shared by footage search and the ML worker so the two never drift.
     """
     first_failure = ""
     try:
         from sentence_transformers import SentenceTransformer
 
-        model = SentenceTransformer(EMBED_MODEL)
+        try:
+            model = SentenceTransformer(EMBED_MODEL, local_files_only=True)
+        except Exception:
+            print(f"footage search: fetching {EMBED_MODEL} from the Hub "
+                  f"(not in local cache) ...", file=sys.stderr)
+            model = SentenceTransformer(EMBED_MODEL)
 
         def encode(texts):
             return np.asarray(
-                model.encode(list(texts), normalize_embeddings=True), dtype="float32"
+                model.encode(list(texts), normalize_embeddings=True,
+                             show_progress_bar=False), dtype="float32"
             )
 
         return encode, "sentence-transformers"
@@ -358,8 +369,16 @@ def load_embedder():
         import torch
         from transformers import AutoModel, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL)
-        model = AutoModel.from_pretrained(EMBED_MODEL)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                EMBED_MODEL, local_files_only=True)
+            model = AutoModel.from_pretrained(
+                EMBED_MODEL, local_files_only=True)
+        except Exception:
+            print(f"footage search: fetching {EMBED_MODEL} from the Hub "
+                  f"(not in local cache) ...", file=sys.stderr)
+            tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL)
+            model = AutoModel.from_pretrained(EMBED_MODEL)
         model.eval()
 
         def encode(texts):
@@ -425,7 +444,12 @@ def load_eg2_multimodal_embedder():
     if not _st_version_ok(version):
         return None, f"no EmbeddingGemma embedder: sentence-transformers {version} < 6.1.0"
     try:
-        model = SentenceTransformer(EG2_TEXT_MODEL)
+        try:
+            model = SentenceTransformer(EG2_TEXT_MODEL, local_files_only=True)
+        except Exception:
+            print(f"footage search: fetching {EG2_TEXT_MODEL} from the Hub "
+                  f"(not in local cache) ...", file=sys.stderr)
+            model = SentenceTransformer(EG2_TEXT_MODEL)
     except Exception as exc:  # noqa: BLE001 - load failure
         return None, (f"no EmbeddingGemma embedder: could not load "
                       f"{EG2_TEXT_MODEL} ({type(exc).__name__}: {exc})")

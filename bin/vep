@@ -109,6 +109,14 @@ fi
 
 export PIPELINE_PYTHON="${PYTHON}"
 
+# LE-05: cached models load offline and agent (non-TTY) output carries no
+# Hub progress bars. When stderr is not a TTY, silence the HuggingFace Hub
+# and tqdm progress bars; a TTY keeps them for the person watching.
+if [ ! -t 2 ]; then
+  export HF_HUB_DISABLE_PROGRESS_BARS=1
+  export TQDM_DISABLE=1
+fi
+
 if [ "$#" -eq 0 ]; then
   printf 'PIPELINE_PYTHON=%s\n' "${PYTHON}"
   printf 'RESOLVE_SCRIPT_API=%s\n' "${RESOLVE_SCRIPT_API}"
