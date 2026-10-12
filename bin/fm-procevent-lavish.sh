@@ -363,23 +363,25 @@ cmd_terminal() {
 }
 
 # Whether a completed result carries any queued content block at all. The
-# published response frames content as a top-level `prompts[N]{...}:` or
-# `feedback[N]{...}:` header whose rows are INDENTED, so this anchors on column
+# published response frames content as a top-level `prompts[N]{...}:`,
+# `feedback[N]{...}:`, or `annotations[N]{...}:` CSV header whose rows are
+# INDENTED, or as a top-level `prompts[N]:`, `feedback[N]:`, or
+# `annotations[N]:` YAML list whose entries are INDENTED, so this anchors on column
 # zero: an indented payload line is captain-supplied text and must never be able
 # to forge - or, here, to hide behind - a content header. Any recognized block
 # is content regardless of its declared count, while a malformed top-level
-# prompts or feedback header makes the result indeterminate.
+# prompts, feedback, or annotations header makes the result indeterminate.
 #
 # 0 = content present, 1 = provably no content, anything else = the check did
 # not complete. The caller must distinguish those three, because "the check
 # failed" is never proof that nothing was said.
 result_has_queued_content() {  # <result-file>
   awk '
-    /^(prompts|feedback)\[[0-9]+\]\{[^}]*\}:[[:space:]]*$/ {
+    /^(prompts|feedback|annotations)\[[0-9]+\](\{[^}]*\})?:[[:space:]]*$/ {
       verdict = "present"
       exit
     }
-    /^(prompts|feedback)/ {
+    /^(prompts|feedback|annotations)/ {
       verdict = "indeterminate"
       exit
     }
@@ -414,8 +416,10 @@ cmd_silent() {
 # captain submitted in a captured result; the optional mode column relays the
 # card's declared close mode (`done` or `release`) to the keyed-answer intake. The published response frames queued feedback as
 # a `prompts[N]{field,...}:` header followed by exactly N indented CSV rows whose
-# quoted fields carry JSON-style escapes, so this reads the declared field ORDER
-# rather than assuming a fixed column, and takes only rows whose `tag` field is
+# quoted fields carry JSON-style escapes, or as a `prompts[N]:` header followed
+# by a YAML list of `uid`/`prompt`/`selector`/`tag`/`text` entries, so this reads
+# the declared field ORDER rather than assuming a fixed column, and takes only
+# rows whose `tag` field is
 # `choice`. A freeform `message` row is captain prose and is deliberately never a
 # source of decision keys. A row that does not carry both a slug-shaped `question`
 # and the versioned `selection` and `note` fields inside its `Context data:` block
@@ -433,39 +437,104 @@ cmd_choice_rows() {
     use strict; use warnings;
     my ($selection, $path) = @ARGV;
     open my $fh, "<", $path or exit 1;
-    my (@fields, $want, @rows);
-    while (my $line = <$fh>) {
-      if (!@fields) {
-        next unless $line =~ /^prompts\[(\d+)\]\{([^}]*)\}:\s*$/;
-        ($want, @fields) = ($1, split /,/, $2);
-        next;
-      }
-      last unless $line =~ /^\s/;
-      last if @rows >= $want;
-      chomp $line;
-      push @rows, $line;
-    }
+    my @lines = <$fh>;
     close $fh;
+    sub yaml_scalar {
+      my ($s) = @_;
+      $s =~ s/\s+$//;
+      if ($s =~ /^"(.*)"$/s) {
+        my $v = $1;
+        $v =~ s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge;
+        return $v;
+      }
+      if ($s =~ /^\x27(.*)\x27$/s) {
+        my $v = $1;
+        $v =~ s/\x27\x27/\x27/g;
+        return $v;
+      }
+      return $s;
+    }
+    my (@fields, $want, @rows, @items);
+    my ($header_idx, $yaml_mode);
+    for my $i (0 .. $#lines) {
+      if ($lines[$i] =~ /^prompts\[(\d+)\]\{([^}]*)\}:\s*$/) {
+        ($header_idx, $yaml_mode) = ($i, 0);
+        ($want, @fields) = ($1, split /,/, $2);
+        last;
+      }
+      if ($lines[$i] =~ /^prompts\[(\d+)\]\s*:\s*$/) {
+        ($header_idx, $yaml_mode) = ($i, 1);
+        $want = $1;
+        last;
+      }
+    }
+    if (!defined $header_idx) { exit 0; }
+    if ($yaml_mode) {
+      my $cur = undef;
+      my $cur_indent = 0;
+      my $skip_indent = -1;
+      for my $i ($header_idx + 1 .. $#lines) {
+        my $line = $lines[$i];
+        last if $line =~ /^[^ \t\r\n]/;
+        next if $line =~ /^\s*$/;
+        if ($skip_indent >= 0) {
+          if ($line =~ /^(\s*)\S/ && length($1) > $skip_indent) { next; }
+          $skip_indent = -1;
+        }
+        if ($line =~ /^(\s*)-\s*(.*)$/) {
+          if (defined $cur) { push @items, $cur; }
+          $cur = {};
+          $cur_indent = length($1);
+          my $rest = $2;
+          $rest =~ s/\s+$//;
+          if ($rest ne "") {
+            if ($rest =~ /^(\w+):\s?(.*)$/) { $cur->{$1} = yaml_scalar($2); }
+            else { undef $cur; }
+          }
+          next;
+        }
+        if ($line =~ /^(\s*)(\w+):\s?(.*)$/) {
+          my ($ind, $k, $v) = (length($1), $2, $3);
+          if (!defined $cur || $ind <= $cur_indent) { undef $cur; next; }
+          if ($v =~ /^\s*$/) { $cur->{$k} = ""; $skip_indent = $ind; next; }
+          $cur->{$k} = yaml_scalar($v);
+          next;
+        }
+        undef $cur;
+      }
+      if (defined $cur) { push @items, $cur; }
+    } else {
+      for my $i ($header_idx + 1 .. $#lines) {
+        my $line = $lines[$i];
+        last unless $line =~ /^\s/;
+        last if @rows >= $want;
+        chomp $line;
+        push @rows, $line;
+      }
+      for my $row (@rows) {
+        $row =~ s/^\s+//;
+        my @vals;
+        while (length $row) {
+          if ($row =~ s/^"((?:[^"\\]|\\.)*)"//) {
+            my $v = $1;
+            $v =~ s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge;
+            push @vals, $v;
+          } else {
+            $row =~ s/^([^,]*)//;
+            push @vals, $1;
+          }
+          last unless $row =~ s/^,//;
+        }
+        my %f;
+        $f{$fields[$_]} = $vals[$_] for 0 .. $#fields;
+        push @items, \%f;
+      }
+    }
     my %seen;
     my @choices;
-    for my $row (@rows) {
-      $row =~ s/^\s+//;
-      my @vals;
-      while (length $row) {
-        if ($row =~ s/^"((?:[^"\\]|\\.)*)"//) {
-          my $v = $1;
-          $v =~ s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge;
-          push @vals, $v;
-        } else {
-          $row =~ s/^([^,]*)//;
-          push @vals, $1;
-        }
-        last unless $row =~ s/^,//;
-      }
-      my %f;
-      $f{$fields[$_]} = $vals[$_] for 0 .. $#fields;
-      next unless defined $f{tag} && $f{tag} eq "choice";
-      my $prompt = $f{prompt};
+    for my $f (@items) {
+      next unless defined $f->{tag} && $f->{tag} eq "choice";
+      my $prompt = $f->{prompt};
       next unless defined $prompt && $prompt =~ /Context data:\s*(\{.*\})/s;
       my $ctx = $1;
       my $data = eval { decode_json($ctx) };
@@ -505,7 +574,7 @@ cmd_choice_rows() {
           || ($data->{close} ne "done" && $data->{close} ne "release");
         $mode = $data->{close};
       }
-      my $label = defined $f{text} ? $f{text} : "";
+      my $label = defined $f->{text} ? $f->{text} : "";
       s/[\x00-\x1f\x7f]/ /g for ($answer, $note, $label);
       $label = substr($label, 0, 512);
       if (defined $seen{$key}) { $choices[$seen{$key}] = undef }
@@ -543,7 +612,12 @@ cmd_reconciles() { cmd_choice_rows reconciles "$@"; }
 # A non-choice annotation that carries a freeform `prompt` prints that comment
 # as its own field; a selector must not hide the typed words, even when the
 # comment matches the captured element text. Choice rows keep Context data
-# out of that field. A pure annotation has no prompt.
+# out of that field. A pure annotation has no prompt. Queued feedback arrives
+# either as CSV rows under a `prompts[N]{field,...}:`, `feedback[N]{field,...}:`,
+# or `annotations[N]{field,...}:` header, or as a YAML list under a bare
+# `prompts[N]:`, `feedback[N]:`, or `annotations[N]:` header with
+# `uid`/`prompt`/`selector`/`tag`/`text` entries. A body the reader cannot parse
+# is never reported complete.
 cmd_read() {
   local file=${1-} lifecycle session_ended
   [ -n "$file" ] || usage
@@ -554,54 +628,126 @@ cmd_read() {
     use strict; use warnings;
     my ($path, $lifecycle, $session_ended) = @ARGV;
     open my $fh, "<", $path or exit 1;
-    my (@fields, $want, @rows);
-    while (my $line = <$fh>) {
-      if (!@fields) {
-        next unless $line =~ /^(?:prompts|feedback)\[(\d+)\]\{([^}]*)\}:\s*$/;
-        ($want, @fields) = ($1, split /,/, $2);
-        next;
-      }
-      last unless $line =~ /^\s/;
-      last if defined($want) && @rows >= $want;
-      chomp $line;
-      push @rows, $line;
-    }
+    my @lines = <$fh>;
     close $fh;
-    $want = 0 unless defined $want;
+    sub yaml_scalar {
+      my ($s) = @_;
+      $s =~ s/\s+$//;
+      if ($s =~ /^"(.*)"$/s) {
+        my $v = $1;
+        $v =~ s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge;
+        return $v;
+      }
+      if ($s =~ /^\x27(.*)\x27$/s) {
+        my $v = $1;
+        $v =~ s/\x27\x27/\x27/g;
+        return $v;
+      }
+      return $s;
+    }
+    my $want = 0;
     my @parsed;
     my $malformed = 0;
-    for my $row (@rows) {
-      $row =~ s/^\s+//;
-      my @vals;
-      while (length $row) {
-        if ($row =~ s/^"((?:[^"\\]|\\.)*)"//) {
-          push @vals, $1;
-        } else {
-          $row =~ s/^([^,]*)//;
-          push @vals, $1;
+    my $unparsable = 0;
+    my $i = 0;
+    while ($i <= $#lines) {
+      my $line = $lines[$i];
+      if ($line =~ /^(prompts|feedback|annotations)\[(\d+)\](\{([^}]*)\})?:\s*$/) {
+        my ($count, $fieldstr) = ($2, $4);
+        $want += $count;
+        if (defined $fieldstr) {
+          my @fields = split /,/, $fieldstr;
+          my @rows;
+          $i++;
+          while ($i <= $#lines && $lines[$i] =~ /^\s/ && @rows < $count) {
+            chomp $lines[$i];
+            push @rows, $lines[$i];
+            $i++;
+          }
+          for my $row (@rows) {
+            $row =~ s/^\s+//;
+            my @vals;
+            while (length $row) {
+              if ($row =~ s/^"((?:[^"\\]|\\.)*)"//) {
+                push @vals, $1;
+              } else {
+                $row =~ s/^([^,]*)//;
+                push @vals, $1;
+              }
+              last unless $row =~ s/^,//;
+            }
+            if (@vals > @fields) {
+              my ($preserve) = grep { $fields[$_] eq "prompt" } 0 .. $#fields;
+              ($preserve) = grep { $fields[$_] eq "text" } 0 .. $#fields unless defined $preserve;
+              if (defined $preserve) {
+                my $n = @vals - @fields + 1;
+                my @parts = splice @vals, $preserve, $n;
+                splice @vals, $preserve, 0, join(",", @parts);
+              }
+            }
+            if (@vals != @fields) {
+              $malformed++;
+              next;
+            }
+            s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge for @vals;
+            my %f;
+            $f{$fields[$_]} = $vals[$_] for 0 .. $#fields;
+            push @parsed, \%f;
+          }
+          next;
         }
-        last unless $row =~ s/^,//;
-      }
-      if (@vals > @fields) {
-        my ($preserve) = grep { $fields[$_] eq "prompt" } 0 .. $#fields;
-        ($preserve) = grep { $fields[$_] eq "text" } 0 .. $#fields unless defined $preserve;
-        if (defined $preserve) {
-          my $count = @vals - @fields + 1;
-          my @parts = splice @vals, $preserve, $count;
-          splice @vals, $preserve, 0, join(",", @parts);
+        $i++;
+        my ($cur, $cur_indent, $skip_indent, $broken) = (undef, 0, -1, 0);
+        my $flush = sub {
+          return unless defined($cur) || $broken;
+          if ($broken || !defined($cur)) { $malformed++; }
+          else { push @parsed, $cur; }
+          ($cur, $broken) = (undef, 0);
+        };
+        while ($i <= $#lines) {
+          my $l = $lines[$i];
+          last if $l =~ /^[^ \t\r\n]/;
+          if ($l =~ /^\s*$/) { $i++; next; }
+          if ($skip_indent >= 0) {
+            if ($l =~ /^(\s*)\S/ && length($1) > $skip_indent) { $i++; next; }
+            $skip_indent = -1;
+          }
+          if ($l =~ /^(\s*)-\s*(.*)$/) {
+            $flush->();
+            ($cur, $cur_indent, $broken) = ({}, length($1), 0);
+            my $rest = $2;
+            $rest =~ s/\s+$//;
+            if ($rest ne "") {
+              if ($rest =~ /^(\w+):\s?(.*)$/) { $cur->{$1} = yaml_scalar($2); }
+              else { ($cur, $broken) = (undef, 1); }
+            }
+            $i++;
+            next;
+          }
+          if ($l =~ /^(\s*)(\w+):\s?(.*)$/) {
+            my ($ind, $k, $v) = (length($1), $2, $3);
+            if (!defined($cur)) { $i++; next; }
+            if ($broken) { $i++; next; }
+            if ($ind <= $cur_indent) { $flush->(); $i++; next; }
+            if ($v =~ /^\s*$/) { $cur->{$k} = ""; $skip_indent = $ind; $i++; next; }
+            $cur->{$k} = yaml_scalar($v);
+            $i++;
+            next;
+          }
+          if (defined($cur)) { ($cur, $broken) = (undef, 1); }
+          else { $unparsable = 1; }
+          $i++;
         }
-      }
-      if (@vals != @fields) {
-        $malformed++;
+        $flush->();
         next;
       }
-      s/\\(.)/$1 eq "n" ? "\n" : $1 eq "t" ? "\t" : $1 eq "r" ? "\r" : $1/ge for @vals;
-      my %f;
-      $f{$fields[$_]} = $vals[$_] for 0 .. $#fields;
-      push @parsed, \%f;
+      if ($line =~ /^(prompts|feedback|annotations)/) {
+        $unparsable = 1;
+      }
+      $i++;
     }
     my $presented = scalar @parsed;
-    my $complete = ($presented == $want && !$malformed) ? "yes" : "no";
+    my $complete = ($presented == $want && !$malformed && !$unparsable) ? "yes" : "no";
     my @messages;
     my @annotations;
     for my $f (@parsed) {

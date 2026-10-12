@@ -2479,6 +2479,100 @@ assert_contains "$out" "SESSION-ENDING MESSAGE: (none)" \
 assert_contains "$out" "ANNOTATIONS: (none)" "an empty board close invented annotations"
 pass "read distinguishes a feedback capture from an ended-with-nothing close"
 
+# The published poll can frame queued feedback as a bare `prompts[N]:` YAML
+# list instead of CSV rows, with per-element tags and a trailing tag=message
+# freeform entry. A synthetic capture with that shape, including a nested
+# mapping under one entry, must read every item with its tag, text, selector,
+# and prompt body, while a body the reader cannot parse is never complete.
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+  session_ended: true
+  ended_by: user
+prompts[8]:
+  - uid: "1"
+    prompt: "Confirmed facts\n\nContext data:\n{\"question\": \"confirm-facts\", \"answer\": \"yes\"}"
+    selector: "html > body > main > section:nth-of-type(8) > form"
+    tag: choice
+    text: Confirmed facts
+  - uid: "2"
+    prompt: "a freeform comment on an element"
+    selector: "body > main > section:nth-of-type(7) > form > div:nth-of-type(1)"
+    tag: div
+    text: "Some element text"
+  - uid: "5"
+    prompt: "batch prompt body"
+    selector: "html > body > main > section:nth-of-type(7) > form"
+    tag: tracked-batch
+    text: Projects and links
+  - uid: "6"
+    prompt: this is more in the awards section no? because it is a fellowship
+    selector: "div:nth-of-type(1) > table > tbody > tr:nth-of-type(5) > td:nth-of-type(2)"
+    tag: td
+    text: "Fellow, Startup Exchange"
+    target:
+      type: table-cell
+      selector: "div:nth-of-type(1) > table > tbody > tr:nth-of-type(5) > td:nth-of-type(2)"
+      rowLabel: ""
+      columnLabel: Role
+      text: "Fellow, Startup Exchange"
+  - uid: "7"
+    prompt: let's also add a position and research the visibility system
+    selector: "body > main > section:nth-of-type(6) > form > p"
+    tag: p
+    text: "Taken from your profile. Ten are ticked."
+  - uid: "8"
+    prompt: "Fill entries with exactly these IDs"
+    selector: "html > body > main > section:nth-of-type(6) > form"
+    tag: tracked-batch
+    text: "Work experience: 9 entries"
+  - uid: "9"
+    prompt: "Quick picks\n\nContext data:\n{\"question\": \"quick-picks\", \"answer\": \"proto\"}"
+    selector: "html > body > main > section:nth-of-type(1) > form"
+    tag: choice
+    text: Quick picks
+  - uid: ""
+    prompt: take these into account and update all the info so we can continue iterating
+    selector: ""
+    tag: message
+    text: Freeform message
+EOF
+out=$(read_out) || fail "read failed on a YAML prompts-list capture"
+assert_contains "$out" "declared_items: 8" "a YAML prompts list hid its declared count"
+assert_contains "$out" "presented_items: 8" "a YAML prompts list dropped queued items"
+assert_contains "$out" "complete: yes" "a complete YAML prompts list was not marked complete"
+assert_contains "$out" "annotation_count: 7" "YAML list annotations were not counted separately from the message"
+assert_contains "$out" "session_ending_message_count: 1" "the YAML list freeform message was not counted"
+assert_contains "$out" "| take these into account and update all the info so we can continue iterating" \
+  "the YAML list freeform message was not presented"
+assert_contains "$out" "tag: choice" "a YAML list choice row lost its type"
+assert_contains "$out" "tag: div" "a YAML list element tag was dropped"
+assert_contains "$out" "tag: tracked-batch" "a YAML list batch tag was dropped"
+assert_contains "$out" "tag: td" "a YAML list cell tag was dropped"
+assert_contains "$out" "tag: p" "a YAML list paragraph tag was dropped"
+assert_contains "$out" "element_selector: div:nth-of-type(1) > table > tbody > tr:nth-of-type(5) > td:nth-of-type(2)" \
+  "a YAML list cell lost its selector"
+assert_contains "$out" "| Fellow, Startup Exchange" "a YAML list cell dropped its element text"
+assert_contains "$out" "| this is more in the awards section no? because it is a fellowship" \
+  "an unquoted YAML list comment was dropped"
+assert_not_contains "$out" "type: table-cell" "a nested YAML mapping leaked into the presentation"
+assert_not_contains "$out" "tag: message" \
+  "the YAML list freeform message was presented as just another annotation"
+
+cat > "$READ" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+  session_ended: true
+  ended_by: user
+prompts[many]{uid,prompt,selector,tag,text}:
+  "el-a","","section#call",note,"Something"
+EOF
+out=$(read_out) || fail "read failed on a capture with an unparsable content header"
+assert_contains "$out" "complete: no" "a body the reader cannot parse was certified as complete"
+pass "read presents every YAML prompts-list item and never certifies an unparsable body"
+
 # The runner's silence seam is generic and closed by default: an adapter with no
 # `silent` command must keep announcing, so adding the seam changed nothing for
 # every adapter that has no notion of a no-op.
