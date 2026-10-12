@@ -111,6 +111,12 @@ VERBS = (
     Verb("resume", "Projects", "Release a paused pipeline run", subcommand="resume",
          detail="Disengage the handbrake so the next run proceeds. "
                 "Usage: `ren resume <project>`."),
+    Verb("wait", "Projects", "Wait for the next thing a pipeline run needs (read only)",
+         module_argv=("library.tools.run_wait",),
+         detail="`ren wait <project> [--timeout 100] [--json]` blocks until the run asks, "
+                "a review gate pends, the handbrake engages, the run ends or a lock wait "
+                "starts; it prints one JSON object with `next_command` and exits 0. "
+                "The default timeout sits under the 120 s harness default. No model call or Resolve access."),
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
     Verb("profile", "Projects", "Show where a run spent its time, layer by layer (read only)",
          module_argv=("library.tools.perf_ledger",),

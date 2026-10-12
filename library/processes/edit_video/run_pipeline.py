@@ -3111,10 +3111,24 @@ def run_pipeline(
     # see library/tools/run_id.py). Minted BEFORE `begin_run_status` so
     # the status file carries it from its first write, and exported
     # BEFORE any step subprocess spawns so the whole tree inherits it.
-    _run_id = run_identity.mint_run_id()
+    # A `--detach` launch (LE-10) already minted the id in the parent
+    # so it could name the log file and answer at once: the child's
+    # run id is then the exported one, never a second mint, and the
+    # log path it was given rides onto the status record beside the
+    # pid. An unrelated shell that happens to export REN_RUN_ID must
+    # not capture a foreground run, so the export is honoured only
+    # with the detach marker beside it.
+    _detached_log = os.environ.get(run_control.DETACHED_LOG_ENV) or ""
+    _run_id = None
+    if _detached_log:
+        _run_id = os.environ.get(run_identity.ENV_VAR) or None
+    if not _run_id:
+        _run_id = run_identity.mint_run_id()
     os.environ[run_identity.ENV_VAR] = _run_id
     _sidecar = run_control.read_restart_cause(project_dir)
     _restart = run_restart.classify(_previous_status, state, sidecar=_sidecar)
+    _detached = ({"run_id": _run_id, "pid": os.getpid(), "log": _detached_log}
+                 if _detached_log else None)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
                                  argv=sys.argv[1:],
                                  profile=active_profile,
@@ -3122,7 +3136,8 @@ def run_pipeline(
                                  state=state,
                                  carry_run_group=bool(resume_mode),
                                  sidecar=_sidecar,
-                                 run_id=_run_id)
+                                 run_id=_run_id,
+                                 detached=_detached)
     if auto_recovered:
         # The run record names what the agent backend added, so a later
         # reader can tell a requested step from a recovered producer.

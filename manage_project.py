@@ -2053,6 +2053,65 @@ def cmd_check(args):
     print("\nReadiness check PASS.")
 
 
+def _cmd_run_detached(config, args, cmd):
+    """Start the runner in its own session and return at once (LE-10).
+
+    Stdout and stderr go to `pipeline_output/logs/<run_id>.log`. The
+    parent mints the run id (so it can name the log and answer at
+    once), passes it as `REN_RUN_ID` beside `REN_DETACHED_LOG`, and
+    writes `pipeline.pid` so `ren wait` sees a live run before the
+    child writes its own record. The pid, log path and run id land on
+    `pipeline_run.json` through `run_control.begin_run_status` when
+    the runner starts there - the parent deliberately writes nothing
+    else to the status file, because a provisional "running" record
+    here would classify as an INTERRUPTED predecessor when the child
+    replaces it seconds later. Prints `{run_id, pid, log, wait}` as
+    JSON and returns.
+
+    The edit-assignment act opens and closes at launch: the detached
+    runner never returns to close it, and an act left open would make
+    the next `ren edit` refuse as concurrent. The run's own completion
+    therefore does not move the assignment - the checkpoints close as
+    "run ended detached", which the record says aloud.
+    """
+    import json
+    import subprocess
+    from pathlib import Path
+
+    from library.tools import run_control
+    from library.tools import run_id as run_identity
+
+    project_root = str(config.project_root)
+    logs_dir = Path(project_root) / "pipeline_output" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    run_id_value = run_identity.mint_run_id()
+    log_path = logs_dir / f"{run_id_value}.log"
+
+    from library.tools import assignment_spine
+    act = assignment_spine.begin_edit(project_root)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PILOT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    env[run_identity.ENV_VAR] = run_id_value
+    env[run_control.DETACHED_LOG_ENV] = str(log_path)
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(cmd, env=env, stdout=log_file,
+                                stderr=subprocess.STDOUT,
+                                start_new_session=True)
+    try:
+        (Path(project_root) / run_control.PID_FILE).write_text(
+            str(proc.pid), encoding="utf-8")
+    except OSError:
+        pass
+    assignment_spine.end_edit(act, returncode=0, summary_status="detached")
+    print(json.dumps({"run_id": run_id_value, "pid": proc.pid,
+                      "log": str(log_path),
+                      "wait": f"ren wait {args.slug}"}))
+    print(f"  Detached run {run_id_value} (pid {proc.pid}); "
+          f"waiting with `ren wait {args.slug}`",
+          file=sys.stderr)
+
+
 def cmd_run(args):
     """Run the pipeline for a project."""
     try:
@@ -2123,6 +2182,16 @@ def cmd_run(args):
     print(f"  Command: {' '.join(cmd)}")
     print(f"")
 
+    if getattr(args, "detach", False):
+        if args.dry_run:
+            raise RenRefusal(
+                "--detach with --dry-run plans nothing to detach",
+                "a dry run prints the plan and exits; there is no "
+                "runner to leave behind",
+                "drop --detach to see the plan, or drop --dry-run to "
+                "start a detached run")
+        _cmd_run_detached(config, args, cmd)
+        return
     # A real run is an act of the project's edit assignment
     # (library/tools/assignment_spine.py): it opens one on the first
     # run, asks before replacing an approved edit, and moves to review
@@ -4783,7 +4852,12 @@ def main():
              "(default 'agent' when a chat host drives the run - "
              "see ren/hosts.py; 'none' opts out)")
     p_run.add_argument("--llm-timeout", type=int, default=300,
-                       help="Timeout for LLM response in agent backend")
+                        help="Timeout for LLM response in agent backend")
+    p_run.add_argument("--detach", action="store_true",
+                       help="Start the run in its own session and return "
+                            "at once (stdout/stderr to "
+                            "pipeline_output/logs/<run_id>.log); prints "
+                            "{run_id, pid, log, wait} as JSON")
     p_run.set_defaults(func=cmd_run)
 
     # archive

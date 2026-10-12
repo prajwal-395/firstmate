@@ -49,6 +49,11 @@ HOLD_FILE = "pipeline.hold"
 RUN_STATUS_FILE = "pipeline_run.json"
 RESTART_CAUSE_FILE = "restart_cause.json"
 
+#: The environment name a `--detach` launch passes its log path to the
+#: runner through. The runner records it on the run status beside the
+#: pid and run id, so `ren wait` can name the log without guessing it.
+DETACHED_LOG_ENV = "REN_DETACHED_LOG"
+
 
 # ── Paths ───────────────────────────────────────────────────────────
 
@@ -280,9 +285,10 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      breakpoints: Optional[Dict[str, Any]] = None,
                      state: Optional[Dict[str, Any]] = None,
                      carry_run_group: bool = False,
-                     sidecar: Optional[dict] = None,
-                     run_id: Optional[str] = None,
-                     ) -> Dict[str, Any]:
+                      sidecar: Optional[dict] = None,
+                      run_id: Optional[str] = None,
+                      detached: Optional[dict] = None,
+                      ) -> Dict[str, Any]:
     """Replace the run status wholesale at the start of a run.
 
     `profile` and `breakpoints` are this run's CONFIGURATION - which
@@ -345,6 +351,14 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         from library.tools import run_id as run_identity
         run_id = run_identity.current()
 
+    # A `--detach` launch (LE-10): the pid, log path and run id the
+    # parent recorded when it spawned this runner in its own session.
+    # Carried here rather than merged later because this record
+    # REPLACES whatever the parent wrote at launch - a merge after the
+    # fact would read as a second run, and a merge before would be
+    # wiped by this one.
+    detached_record = dict(detached) if detached else None
+
     # Edit-step input digests (library/tools/edit_input_digest.py): one
     # stamp per step from the run that just ended becomes the baseline
     # this run compares against. Carried forward the way run_history is -
@@ -396,6 +410,8 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         # This invocation's own wall lands in `record_run_total`.
         "run_group": run_group,
     }
+    if detached_record is not None:
+        record["detached"] = detached_record
     try:
         from library.tools.runtime_backends import snapshot
         record["runtime_backends"] = snapshot(project_dir)

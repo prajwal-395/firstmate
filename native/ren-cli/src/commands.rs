@@ -178,6 +178,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "edit", group: "Projects", summary: "Run the editing pipeline on a project" },
     Verb { name: "pause", group: "Projects", summary: "Pause a project's pipeline run at the next step boundary" },
     Verb { name: "resume", group: "Projects", summary: "Release a paused pipeline run" },
+    Verb { name: "wait", group: "Projects", summary: "Wait for the next thing a pipeline run needs (read only)" },
     Verb { name: "trace", group: "Projects", summary: "Regenerate the run traceback and artifact index" },
     Verb { name: "profile", group: "Projects", summary: "Show where a run spent its time, layer by layer (read only)" },
     Verb { name: "progress", group: "Projects", summary: "Read plain-language progress and currently available capabilities" },
