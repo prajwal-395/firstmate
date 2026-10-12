@@ -302,10 +302,14 @@ class Parser(argparse.ArgumentParser):
             # so anything else in that slot is a reel-name attempt
             # (`markers --reel "Reel 29"`, or a bare name that missed
             # the rewrite). Name the working shape, not the manual.
+            # (`--reel` itself is spelled on the recorded-read
+            # commands, so this fires for the verbs that do not take
+            # it - the writes.)
             lines.append(
                 f"help: timelines take --timeline \"<name>\" (exact or "
                 f"unique prefix), or a bare name: {TOOL} markers "
-                f"\"Reel 29\"")
+                f"\"Reel 29\" - or, on a recorded read, --reel 7 "
+                f"--project-folder <project>")
         else:
             lines.append(f"help: {self.prog} --help lists the valid flags")
         emit(lines)
@@ -632,10 +636,18 @@ def cmd_timeline_list(args) -> int:
 
 
 def cmd_timeline_get(args) -> int:
+    scope_error = _resolve_reel_scope(args, "timeline get")
+    if scope_error is not None:
+        return fail(*scope_error)
+    if not args.name:
+        return fail("timeline get needs a timeline name or --reel N.",
+                    f"{TOOL} timeline get \"<exact-name>\" or {TOOL} "
+                    f"timeline get --reel 7 --project-folder <project>")
     try:
         view, note = _timeline_view(
             args.name, args.project, caller="resolve_axi.timeline.get",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     snapshot = view.snapshot
@@ -676,12 +688,14 @@ def cmd_timeline_get(args) -> int:
 
 
 def _timeline_view(timeline_name: str, project_name: str = "", *, caller: str,
-                   refresh_live: bool = False):
+                   refresh_live: bool = False, exact: bool = False):
     """Read one latest generation, or explicitly refresh the current reel.
 
     The name and snapshot are resolved by `timeline_read`; only a live
     refresh consults Resolve's current-timeline handle. It never switches
-    the cursor to satisfy a query.
+    the cursor to satisfy a query. A reel number already resolved to its
+    recorded exact name passes `exact=True`, so the lookup never falls
+    back to a prefix match (AGENTS.md 5).
     """
     from library.tools import timeline_read
     from library.tools.marker_feedback import current_timeline
@@ -707,11 +721,11 @@ def _timeline_view(timeline_name: str, project_name: str = "", *, caller: str,
     try:
         if project_name:
             view = timeline_read.read(
-                project_name, timeline_name, allow_prefix=True,
+                project_name, timeline_name, allow_prefix=not exact,
                 caller=caller)
         else:
             view = timeline_read.read_any(
-                timeline_name, allow_prefix=True, caller=caller)
+                timeline_name, allow_prefix=not exact, caller=caller)
     except timeline_read.ShadowError as exc:
         raise AxiError(
             str(exc),
@@ -763,6 +777,9 @@ def _note_rows(notes, full: bool, plane: str) -> list:
 
 
 def cmd_markers(args) -> int:
+    scope_error = _resolve_reel_scope(args, "markers")
+    if scope_error is not None:
+        return fail(*scope_error)
     if args.plane and args.plane not in ("timeline_marker", "clip_marker",
                                          "media_pool_marker",
                                          "clip_comment"):
@@ -773,7 +790,8 @@ def cmd_markers(args) -> int:
     try:
         view, note = _timeline_view(
             args.timeline, args.project, caller="resolve_axi.markers",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     timeline_name = view.generation.timeline_name
@@ -1311,10 +1329,14 @@ def cmd_markers_audit_replies(args) -> int:
 
 
 def cmd_items(args) -> int:
+    scope_error = _resolve_reel_scope(args, "items")
+    if scope_error is not None:
+        return fail(*scope_error)
     try:
         view, note = _timeline_view(
             args.timeline, args.project, caller="resolve_axi.items",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     timeline_name = view.generation.timeline_name
@@ -1376,10 +1398,14 @@ def cmd_fusion(args) -> int:
     eight reels, 2026-09-12) - `uncovered` names the reason per comp,
     or `no` when every comp covers every played frame. Read-only.
     """
+    scope_error = _resolve_reel_scope(args, "fusion")
+    if scope_error is not None:
+        return fail(*scope_error)
     try:
         view, note = _timeline_view(
             args.timeline, args.project, caller="resolve_axi.fusion",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     timeline_name = view.generation.timeline_name
@@ -1418,10 +1444,14 @@ def cmd_fusion(args) -> int:
 
 
 def cmd_captions(args) -> int:
+    scope_error = _resolve_reel_scope(args, "captions")
+    if scope_error is not None:
+        return fail(*scope_error)
     try:
         view, note = _timeline_view(
             args.timeline, args.project, caller="resolve_axi.captions",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     from library.tools.caption_swap import SUBTITLES_TRACK_NAME
@@ -2643,10 +2673,14 @@ def cmd_cursor(args) -> int:
 
 
 def cmd_frames(args) -> int:
+    scope_error = _resolve_reel_scope(args, "frames")
+    if scope_error is not None:
+        return fail(*scope_error)
     try:
         view, note = _timeline_view(
             args.timeline, args.project, caller="resolve_axi.frames",
-            refresh_live=getattr(args, "refresh_live", False))
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     snapshot = view.snapshot
@@ -7504,6 +7538,85 @@ def _add_scope(parser, what: str) -> None:
                              "An ambiguous prefix is refused.")
 
 
+def _add_reel_scope(parser) -> None:
+    """Address a recorded read by reel number (LE-14).
+
+    `--reel N` plus `--project-folder` resolves the reel's recorded
+    exact final timeline (`--staging` for its staging sibling)
+    through the Ren project's own records, instead of
+    `--project/--timeline`. Only on the recorded-read commands;
+    writes keep their explicit timeline flags.
+    """
+    parser.add_argument("--reel", default=None,
+                        help="the reel number (e.g. 7): read the reel's "
+                             "recorded exact final timeline - with "
+                             "--staging, its staging sibling. Needs "
+                             "--project-folder, instead of "
+                             "--project/--timeline.")
+    parser.add_argument("--staging", action="store_true",
+                        help="with --reel N, read the (rebuild staging) "
+                             "sibling instead of the final")
+    parser.add_argument("--project-folder", default="",
+                        help="Ren project folder: with --reel N, resolve "
+                             "the reel's exact timeline name from its "
+                             "records")
+
+
+def _resolve_reel_scope(args, what: str):
+    """Apply `--reel N` to a recorded read. None when applied, else `(message, fix)`.
+
+    On success the resolved binding lands on `args.project` and the
+    exact timeline name on `args.timeline` (or `args.name` for
+    `timeline get`), with `args._reel_exact` set so the lookup below
+    never falls back to a prefix match (AGENTS.md 5).
+    """
+    reel = getattr(args, "reel", None)
+    staging = bool(getattr(args, "staging", False))
+    if reel is None:
+        if staging:
+            return ("--staging refines --reel N - pass both, or neither.",
+                    f"{TOOL} {what} --help lists the addressing flags")
+        return None
+    timeline = getattr(args, "timeline", "") or ""
+    name = getattr(args, "name", "") or ""
+    if timeline or name:
+        return ("--reel N addresses the reel through the Ren project's "
+                "own records - pass --project-folder instead of "
+                "--timeline, not as well.",
+                f"{TOOL} {what} --reel {reel} "
+                "--project-folder <project>")
+    if getattr(args, "refresh_live", False):
+        return ("--reel N reads the recorded generation - drop "
+                "--refresh-live, or pass --timeline for a live refresh.",
+                f"{TOOL} {what} --reel {reel} --project-folder <project>")
+    project_folder = getattr(args, "project_folder", "") or ""
+    if not project_folder:
+        return ("--reel N needs --project-folder <Ren project> - the "
+                "reel number resolves through its records.",
+                f"{TOOL} {what} --reel {reel} --project-folder <project>")
+    if getattr(args, "project", ""):
+        return ("--reel N carries its own Resolve project binding - "
+                "pass --project-folder instead of --project, not as well.",
+                f"{TOOL} {what} --reel {reel} "
+                "--project-folder <project>")
+    from library.tools import reel_address
+    from library.tools.ren_refusal import RenRefusal
+    try:
+        resolved = reel_address.resolve_reel_timeline(
+            project_folder, reel, staging=staging)
+    except RenRefusal as refused:
+        return (refused.render(),
+                f"{TOOL} timeline list, or ren reels "
+                f"{project_folder} to list the recorded reels")
+    args.project = resolved["resolve_project"]
+    if hasattr(args, "timeline"):
+        args.timeline = resolved["timeline"]
+    if hasattr(args, "name"):
+        args.name = resolved["timeline"]
+    args._reel_exact = True
+    return None
+
+
 def build_parser() -> Parser:
     parser = Parser(prog=TOOL, description=DESCRIPTION,
                     formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -7555,14 +7668,16 @@ def build_parser() -> Parser:
     pl.set_defaults(func=cmd_timeline_list)
     pg = tsubs.add_parser("get", help="one recorded timeline by name or id - "
                                       "exact or unique prefix; collisions refused")
-    pg.add_argument("name", help="the timeline's exact name, unique "
-                                 "prefix, or timeline id")
+    pg.add_argument("name", nargs="?", default="",
+                    help="the timeline's exact name, unique "
+                         "prefix, or timeline id (omit with --reel N)")
     pg.add_argument("--project", default="",
                     help="select this project when the timeline name "
                          "appears in more than one project")
     pg.add_argument("--refresh-live", action="store_true",
                     help="refresh from Resolve; the exact timeline must "
                          "already be current")
+    _add_reel_scope(pg)
     pg.set_defaults(func=cmd_timeline_get)
     pd = tsubs.add_parser("duplicate", help="version a reel under a new "
                                             "exact name; --apply writes")
@@ -7756,6 +7871,7 @@ def build_parser() -> Parser:
                                         "generation; --refresh-live reads "
                                         "Resolve")
     _add_scope(p, "markers")
+    _add_reel_scope(p)
     p.add_argument("--refresh-live", action="store_true",
                    help="refresh from Resolve; the exact timeline must "
                         "already be current")
@@ -7833,6 +7949,7 @@ def build_parser() -> Parser:
     p = subs.add_parser("fusion", help="recorded clips carrying Fusion "
                                        "comps and their media coverage")
     _add_scope(p, "fusion")
+    _add_reel_scope(p)
     p.add_argument("--refresh-live", action="store_true",
                    help="refresh from Resolve; the exact timeline must "
                         "already be current")
@@ -7841,6 +7958,7 @@ def build_parser() -> Parser:
     p = subs.add_parser("items", help="recorded clips with record/source "
                                       "spans and source paths")
     _add_scope(p, "items")
+    _add_reel_scope(p)
     p.add_argument("--refresh-live", action="store_true",
                    help="refresh from Resolve; the exact timeline must "
                         "already be current")
@@ -7852,6 +7970,7 @@ def build_parser() -> Parser:
     p = subs.add_parser("captions", help="Subtitles-row cards with file "
                                          "paths")
     _add_scope(p, "captions")
+    _add_reel_scope(p)
     p.add_argument("--refresh-live", action="store_true",
                    help="refresh from Resolve; the exact timeline must "
                         "already be current")
@@ -7866,6 +7985,7 @@ def build_parser() -> Parser:
     p = subs.add_parser("frames", help="recorded frame counts for drift "
                                        "checks")
     _add_scope(p, "frames")
+    _add_reel_scope(p)
     p.add_argument("--refresh-live", action="store_true",
                    help="refresh from Resolve; the exact timeline must "
                         "already be current")

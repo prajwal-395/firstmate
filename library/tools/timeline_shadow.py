@@ -74,6 +74,14 @@ write precondition.
     python3 -m library.tools.timeline_shadow markers --project P --timeline T [--generation N]
     python3 -m library.tools.timeline_shadow diff    --project P --timeline T --since N [--to M]
 
+    A reel by number (LE-14): the Ren project folder plus `--reel N`
+    resolves the reel's recorded exact final timeline - `--staging`
+    for its `(rebuild staging)` sibling - through the project's own
+    records (`reel_address`), never a prefix match:
+
+    python3 -m library.tools.timeline_shadow clips <project> --reel 7
+    python3 -m library.tools.timeline_shadow clips <project> --reel 7 --staging
+
 None of these touch Resolve. `tests/unit/resolve/test_timeline_shadow.py`.
 """
 
@@ -1015,7 +1023,49 @@ def diff(earlier: dict, later: dict) -> dict:
     }
 
 
+def _resolve_scope(args, parser) -> tuple:
+    """`(Resolve project, exact timeline)` for this invocation.
+
+    `--reel N` plus the Ren project folder resolves through the
+    project's own records (`reel_address`: the binding plus LE-07's
+    recorded exact final/staging name) - never a prefix match. Without
+    it, `--project`/`--timeline` behave exactly as before. Mixing the
+    two addressings, or a project path without `--reel`, is a usage
+    error (exit 2); an unresolvable reel is a refusal (exit 4).
+    """
+    if getattr(args, "reel", None) is not None:
+        if args.project or args.timeline:
+            parser.error("--reel N addresses the reel through the Ren "
+                         "project's own records - pass the project folder "
+                         "instead of --project/--timeline, not as well")
+        if not args.project_ref:
+            parser.error("--reel N needs the Ren project folder, e.g. "
+                         "timeline_shadow clips <project> --reel 7")
+        from library.tools import reel_address
+
+        resolved = reel_address.resolve_reel_timeline(
+            args.project_ref, args.reel,
+            staging=bool(args.staging))
+        return resolved["resolve_project"], resolved["timeline"]
+    if args.project_ref:
+        parser.error("a project folder addresses a reel by number - "
+                     "pass --reel N with it, or use "
+                     "--project/--timeline without it")
+    if getattr(args, "staging", False):
+        parser.error("--staging refines --reel N - pass both, or neither")
+    if not args.project or not args.timeline:
+        parser.error("pass --project/--timeline, or the Ren project folder "
+                     "with --reel N")
+    return args.project, args.timeline
+
+
 def _main(argv=None) -> int:
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+    )
+
     parser = argparse.ArgumentParser(
         prog="timeline_shadow",
         description="Answer timeline questions from recorded generations. "
@@ -1028,10 +1078,25 @@ def _main(argv=None) -> int:
                        ("markers", "every marker of one generation"),
                        ("diff", "what changed since a generation")):
         sub = subs.add_parser(name, help=text)
-        sub.add_argument("--project", required=True,
-                         help="the Resolve project's EXACT name")
-        sub.add_argument("--timeline", required=True,
-                         help="the timeline's exact name, or its id")
+        sub.add_argument("project_ref", nargs="?",
+                         help="Ren project folder (or slug): with --reel N, "
+                              "resolve the reel's exact timeline name from "
+                              "the project's own records instead of "
+                              "--project/--timeline")
+        sub.add_argument("--project", required=False, default="",
+                         help="the Resolve project's EXACT name "
+                              "(omit with --reel N)")
+        sub.add_argument("--timeline", required=False, default="",
+                         help="the timeline's exact name, or its id "
+                              "(omit with --reel N)")
+        sub.add_argument("--reel", default=None,
+                         help="the reel number (e.g. 7): read the reel's "
+                              "recorded exact final timeline - with "
+                              "--staging, its staging sibling. Needs the "
+                              "Ren project folder, never a prefix match.")
+        sub.add_argument("--staging", action="store_true",
+                         help="with --reel N, read the (rebuild staging) "
+                              "sibling instead of the final")
         if name == "diff":
             sub.add_argument("--since", type=int, required=True)
             sub.add_argument("--to", type=int, default=None,
@@ -1040,22 +1105,28 @@ def _main(argv=None) -> int:
             sub.add_argument("--generation", type=int, default=None,
                              help="default: the head")
     args = parser.parse_args(argv)
+    try:
+        project, timeline = _resolve_scope(args, parser)
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        return REFUSAL_EXIT_CODE
     store = ShadowStore(args.db)
     try:
-        timeline_id = store.resolve_timeline(args.project, args.timeline)
-        head = store.head(args.project, timeline_id)
+        timeline_id = store.resolve_timeline(project, timeline)
+        head = store.head(project, timeline_id)
         if args.command == "log":
-            out = [g.summary() for g in store.history(args.project,
+            out = [g.summary() for g in store.history(project,
                                                       timeline_id)]
         elif args.command == "diff":
-            earlier = store.get(args.project, timeline_id, args.since)
-            later = (store.get(args.project, timeline_id, args.to)
+            earlier = store.get(project, timeline_id, args.since)
+            later = (store.get(project, timeline_id, args.to)
                      if args.to is not None else head)
             out = {"from": earlier.summary(), "to": later.summary(),
                    "diff": diff(store.snapshot(earlier),
                                 store.snapshot(later))}
         else:
-            generation = (store.get(args.project, timeline_id,
+            generation = (store.get(project, timeline_id,
                                     args.generation)
                           if args.generation is not None else head)
             snap = store.snapshot(generation)
@@ -1065,9 +1136,9 @@ def _main(argv=None) -> int:
     except ShadowError as missing:
         print(f"timeline_shadow: {missing}", file=sys.stderr)
         return 2
-    store.answered(args.command, args.project, timeline_id)
+    store.answered(args.command, project, timeline_id)
     store.record_read_request(f"timeline_shadow.{args.command}",
-                              args.project, timeline_id, "shadow_hit")
+                              project, timeline_id, "shadow_hit")
     print(json.dumps(out, indent=2, sort_keys=True, default=str))
     return 0
 
