@@ -327,7 +327,8 @@ def _notes_section(root: Path) -> dict:
 # Next-action ranks, lowest first: a blocking ask outranks a refusal's
 # fix, which outranks an approval, then a resumable run, then whatever
 # pipeline stage is next.
-_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_RESUME, _RANK_NEXT = range(5)
+(_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_RESUME, _RANK_BUILD,
+ _RANK_NEXT) = range(6)
 
 
 def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
@@ -420,6 +421,23 @@ def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
             "command": f"ren edit {ref} --resume",
             "effects": ["project_write", "heavy_lock"],
             "_rank": _RANK_RESUME,
+        })
+    unbuilt = [row["reel"] for row in reels.get("reels") or []
+               if row.get("approval") == "approved" and not row.get("outcome")]
+    if unbuilt:
+        # Approved reels are the person's own yes: building them is what
+        # comes next, ahead of the edit pipeline's remaining stages.
+        from ren.commands import VERBS
+        build = next(verb for verb in VERBS if verb.name == "build")
+        actions.append({
+            "id": "build-reels",
+            "rank": "approved, not built",
+            "why": (f"{len(unbuilt)} approved reel(s) not built yet "
+                    f"({', '.join(str(reel) for reel in unbuilt)}); build "
+                    f"them with Resolve open on this project"),
+            "command": f"ren build {ref}",
+            "effects": list(build.effects),
+            "_rank": _RANK_BUILD,
         })
     if pipeline["pending"] and not asks["pending"] and not pipeline["failed"]:
         # `--detach` is LE-10's flag, not yet a runner option: the action

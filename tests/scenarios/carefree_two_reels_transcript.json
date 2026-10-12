@@ -1,0 +1,67 @@
+{
+  "about": "A person asks a chat host for two reels about pricing from an episode they drop into the chat. The person speaks outcomes only; the host runs every ren verb, reading the ren-co-editor skill's intent table. tests/scenarios/test_carefree_transcript.py replays the host's commands on test doubles.",
+  "harness": "claude-code",
+  "slug": "pricing-reels",
+  "attachments": {
+    "footage": "the folder holding the episode, dropped into the chat"
+  },
+  "turns": [
+    {
+      "person": "Can you make two short reels about pricing from this episode?",
+      "attaches": "footage",
+      "intent": "Reels about X"
+    },
+    {
+      "host": [
+        "ren new pricing-reels --footage {footage}",
+        "ren edit pricing-reels --reels 2 --about pricing",
+        "ren propose pricing-reels"
+      ],
+      "says": "I found two moments about pricing. 1: why pricing scared the guest, and how they finally raised it. 2: the advice to charge more than feels comfortable. Keep both?",
+      "proposes": 2
+    },
+    {
+      "person": "Hang on before you go any further, I want to run these past the client first.",
+      "intent": "Hold on / carry on"
+    },
+    {
+      "host": [
+        "ren pause pricing-reels"
+      ],
+      "says": "Paused. Nothing more runs until you tell me to carry on.",
+      "held": true
+    },
+    {
+      "person": "The client is happy, carry on.",
+      "intent": "Hold on / carry on"
+    },
+    {
+      "host": [
+        "ren resume pricing-reels"
+      ],
+      "says": "Carrying on.",
+      "held": false
+    },
+    {
+      "person": "Keep both of them.",
+      "intent": "Pick reels"
+    },
+    {
+      "host": [
+        "ren approve pricing-reels --all"
+      ],
+      "says": "Both reels are approved.",
+      "approved": [1, 2]
+    },
+    {
+      "person": "Where are we at?",
+      "intent": "How is it going"
+    },
+    {
+      "host": [
+        "ren now pricing-reels"
+      ],
+      "says": "Two reels about pricing are approved and ready to cut. Say the word and I will build them so you can watch."
+    }
+  ]
+}

@@ -253,6 +253,10 @@ os.environ[_resolve_lock.LOCK_DIR_ENV] = _SESSION_RESOLVE_DIR
 import library.tools.shadow_watcher as _shadow_watcher
 
 os.environ[_shadow_watcher.HOSTED_ENV] = "0"
+# A run that ends posts a macOS notification (`completion_notice.py`); on
+# the captain's Mac every scenario that ends a run would pop one. Off for
+# the session; the notice's own test stubs `osascript` and unsets this.
+os.environ["REN_NOTIFY"] = "0"
 
 
 def _restore_session_resolve_dir():

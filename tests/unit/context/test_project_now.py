@@ -176,6 +176,23 @@ def test_now_held_run_offers_resume_first(tmp_path):
     assert state["next_actions"][0]["command"] == f"ren resume {project}"
 
 
+def test_now_offers_building_approved_reels_before_the_next_stage(tmp_path):
+    """After "keep both", `ren now` pointed at the edit pipeline's next
+    stage (`ren edit --full-auto agent --detach`) - not at building the
+    reels the person had just approved."""
+    project = _write_project(tmp_path / "show")
+    _write_proposal(project, approval="approved")
+    _write_state(project, preflight_completed={"scan": {}})
+
+    state = project_now_state(str(project))
+
+    ids = [action["id"] for action in state["next_actions"]]
+    assert ids[0] == "build-reels", ids
+    assert "run-next-stage" in ids
+    assert state["next_actions"][0]["command"] == f"ren build {project}"
+    assert "Next: ren build" in state["summary"]
+
+
 def test_now_reports_lock_wait_from_the_run_record(tmp_path):
     project = _write_project(tmp_path / "show")
     (project / "pipeline_run.json").write_text(json.dumps({

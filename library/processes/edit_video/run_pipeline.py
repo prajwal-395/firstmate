@@ -2351,10 +2351,24 @@ def _project_ref(project_dir: str) -> str:
     return os.path.abspath(project_dir)
 
 
-#: The run endings that push a macOS completion notification. `PARTIAL`
-#: (a scoped run that deliberately left work out), `held` and the
-#: gate-pending pause are not endings, so they stay silent.
+#: The run endings that push a macOS completion notification. `held` and
+#: the gate-pending pause are not endings, so they stay silent.
 NOTIFIABLE_STATUSES = ("SUCCESS", "FAILED", "REFUSED", "AWAITING_LLM")
+
+
+def is_notifiable(summary: dict) -> bool:
+    """Whether this run's ending pushes a completion notification.
+
+    A `PARTIAL` run that finished the scope it was given (`ren edit <p>
+    --reels 2 --about pricing` runs reel selection only) is the ending
+    the person asked for, so it notifies. A `PARTIAL` that stopped at a
+    breakpoint or the handbrake is waiting, not ended, and stays silent.
+    """
+    status = str(summary.get("status", ""))
+    if status in NOTIFIABLE_STATUSES:
+        return True
+    return (status == "PARTIAL" and not summary.get("paused_at_gate")
+            and not summary.get("held_before_step"))
 
 def notify_run_end(status: str, project_dir: str) -> bool:
     """Push a macOS completion notice naming the run's status.
@@ -2429,14 +2443,14 @@ def emit_run_summary(summary: dict, project_dir: str,
 
     The artifact line is stdout's LAST line, so whatever polls the run
     can read the file to watch off it. The notification fires for the
-    terminal statuses in `NOTIFIABLE_STATUSES` and stays silent for
-    anything else. Returns the summary it was handed.
+    endings `is_notifiable` names and stays silent for anything else.
+    Returns the summary it was handed.
     """
     json.dump(summary, sys.stdout, indent=2)
     print()
     print(artifact_summary_line(project_dir, state or {}))
     sys.stdout.flush()
-    if str(summary.get("status", "")) in NOTIFIABLE_STATUSES:
+    if is_notifiable(summary):
         notify_run_end(str(summary.get("status", "")), project_dir or "")
     return summary
 

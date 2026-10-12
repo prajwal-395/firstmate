@@ -201,6 +201,32 @@ def test_ren_notify_zero_opts_out_of_the_notification(
     assert _calls(stubbed_osascript) == [], "REN_NOTIFY=0 must stay silent"
 
 
+def test_a_scoped_run_that_finished_its_scope_notifies_once(
+        runner, project, stubbed_osascript, capsys):
+    """`ren edit <p> --reels 2 --about pricing` runs reel selection only
+    and ends PARTIAL; that ending is the one the person waits on."""
+    summary = runner.run(only=["scan"])
+
+    assert summary["status"] == "PARTIAL"
+    calls = _calls(stubbed_osascript)
+    assert len(calls) == 1, (
+        f"a finished scoped run notifies exactly once, got "
+        f"{len(calls)}: {calls!r}")
+    assert "PARTIAL" in calls[0], calls[0]
+    assert project.name in calls[0], calls[0]
+
+
+def test_a_held_run_is_waiting_and_stays_silent(
+        runner, project, stubbed_osascript, capsys):
+    run_control.request_hold(str(project), requested_by="captain")
+    summary = runner.run()
+
+    assert summary["status"] == "PARTIAL"
+    assert summary["held_before_step"]
+    assert _calls(stubbed_osascript) == [], (
+        "a run stopped by the handbrake has not ended; it must not notify")
+
+
 def test_a_refused_run_notifies_once_and_still_names_a_file(
         runner, project, stubbed_osascript, capsys):
     summary = runner.run(break_at=["not_a_step"])

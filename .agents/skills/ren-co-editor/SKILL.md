@@ -1,44 +1,89 @@
 ---
 name: ren-co-editor
 description: >
-  Work a Ren video project as the co-editor, goal first: inspect the
-  project's state, search its footage and read Resolve, pick the ren
-  capability that does the job, run it, and verify the result. Covers
-  the file handshake, the briefing interview, touch-ups and undo,
-  sign-off, timeline notes and resolve-axi. Use when asked to use Ren,
-  edit a video, change a reel, or start a new project.
+  Work a Ren video project as the co-editor, intent first: the person
+  says an outcome in chat ("make 2 reels about pricing from this
+  episode", "the captions are too small", "ship it") and you run the
+  ren verbs that deliver it, then answer with what changed and the file
+  to watch. Covers new projects from footage, reels, notes and
+  revisions, undo, variants, delivery, footage search, the file
+  handshake, the briefing interview and resolve-axi. Use when asked to
+  use Ren, edit a video, change a reel, or start a new project.
 ---
 
 # ren-co-editor - the host's job on a Ren project
 
 You are the co-editor: an LLM with a shell, driving Ren (the `ren`
 front door in this checkout) on behalf of the person beside you in
-chat. Ren never calls an LLM API on this path - **OAuth harnesses
-only** (Claude Code, Codex, opencode); direct API mode is out of
-scope - **you** are the model. When Ren needs a judgement it hands you
-a prompt as a file and you hand back JSON as a file (section 5).
+chat. The person speaks outcomes and watches files. You own every
+command, file, app and convention between the two. Ren never calls an
+LLM API on this path - **OAuth harnesses only** (Claude Code, Codex,
+opencode) - **you** are the model. When Ren needs a judgement it hands
+you a prompt as a file and you hand back JSON as a file (section 5).
+
+## What the person says -> what you do
+
+Find the row for what the person asked, run its verbs, and reply in
+their words. `<p>` is the project's slug (or its absolute path).
+
+| What the person says | What you do |
+|---|---|
+| **New video** - "make a video from this footage" | `ren new <slug> --footage <the folder they gave>`, then `ren edit <slug>`; ask the briefing interview's questions in chat (section 5) |
+| **Reels about X** - "make 2 reels about pricing from this episode" | `ren new <slug> --footage <the file or folder>` (skip it if the project exists), `ren edit <slug> --reels 2 --about "pricing"`, then `ren propose <slug>` and list the reels in chat: number, what each says, length |
+| **Pick reels** - "keep both", "drop the second one" | `ren approve <p> 1 3` (or `--all`); `ren reject <p> 2 --note "<their reason>"` |
+| **Let me see it** - "show me", "can I watch it?" | `ren build <p>` (Resolve open on the exact project; `reel_build` skill), then `ren preview <p>` and hand over the `Watch:` path |
+| **A note at a time** - "the captions are too small", "at 0:12 the cut is early" | `ren revise <p> "<their exact words>"`; with a time, `ren revise <p> --at 0:12 --reel <N> "<their words>"` (section 7) |
+| **Undo** - "undo that", "actually, bring it back" | `ren undo <p>` reverses the newest act; `ren redo <p> --act <id>` re-applies a reversed one (`ren undo <p> --list` shows the ids) |
+| **Two versions** - "give me two versions of the opening" | `ren variant <p> new <N> --suffix ' (NAME)'`, `ren variant <p> build`, `ren variant <p> diff`; "go with the second" is `ren variant <p> choose <N> ' (NAME)' --why "<their words>"` |
+| **Ship it** - "ship it", "that's the one" | `ren sign-off <p> "<reel timeline name>"` for each reel they approved (`ren reels <p>` names them), then `ren deliver <p>` (every signed-off reel) and name each file it wrote |
+| **Where is X** - "where does she talk about pricing?", "where is Craig?" | `ren search <p> "pricing"`; for a person, `ren where <p> Craig` (section 3). Below the floor means "not in this footage" - say so |
+| **Where is my file** - "where did it go?" | `ren reels <p>` (each reel's last delivery and build), and the `Watch:` path `ren preview <p>` prints |
+| **How is it going** - "is it done?", "where are we at?" | `ren now <p>` (state plus the next action); during a run `ren progress <p>`, or `ren wait <p>` for the next thing it needs |
+| **Hold on / carry on** - "hang on", "OK, carry on" | `ren pause <p>` / `ren resume <p>` |
+| **An episode of a series** - "edit Night 12 of 4th Wall" | `ren series list`, then `ren new <slug> --series <id> --episode <n>` (section 1) |
+| **Where were we** - a fresh chat on an old project | `ren work-state <p>`, then `ren now <p>` |
+
+How you talk while doing it:
+
+- **The person never types a verb, edits a file, opens a JSON or learns a
+  step id or flag.** You run the verbs; anything a verb writes (the reel
+  proposals, `project.yaml`, a response file) is never theirs to edit.
+  A file to watch is the one path you hand over.
+- **Reply with the outcome**: what changed, what to watch, and at most one
+  question - with the default you will take if they do not mind.
+- **Never ask what the footage, the series documents or the history
+  already answer**; read them (`ren now`, `ren work-state`, `ren search`).
+- **A refusal is relayed, not pasted**: its first line in plain words,
+  then act on its recovery class (section 8).
+- Under a chat harness `ren edit` already runs the agent backend (the
+  interview fires, the handshake is yours); pass `--full-auto none` only
+  when the person wants a manual run. A run that ends posts one macOS
+  notification, and its last stdout line names the files it made.
+
+The rest of this skill is the reference: the loop, every verb by goal,
+and the handshake.
 
 Run EVERYTHING through `bin/vep`, never a bare `python3` (the venv and
 Resolve variables resolve through the ladder there). Every verb is a row
 in one registry, `ren/commands.py`; `ren <verb>` execs it under `bin/vep`,
 so `ren <verb> --help` prints that verb's own options. `ren --help` lists
-every verb. Use `ren`, not `manage_project.py`, which is no longer the
-user-facing entry point.
+every verb (`ren --help --json`: the catalog, each verb's effects).
 
 When a pipeline run is active, poll its host-facing progress with
-`ren progress <project>` through `bin/vep`. Relay the returned `message`,
-completed work, current work, any history-backed estimate, and
-`available_capabilities` in plain language. Poll at meaningful intervals
-while the run is active; stop polling when it ends. The call reads run
-state, the performance ledger, the footage-index file and the broker ping.
-Do not infer an estimate when the report omits one.
+`ren progress <project>`, or block on `ren wait <project>` (one JSON
+event: an ask, a gate, a hold, the end) instead of sleeping. Relay the
+returned `message`, completed work, current work, any history-backed
+estimate, and `available_capabilities` in plain language. Do not infer an
+estimate when the report omits one. `ren edit <project> --detach` starts a
+run in the background and returns; `ren wait` then picks it up.
 
 ## 0. The loop
 
 Work from the person's GOAL, not from the pipeline's step list:
 
 1. **Work state** - at the start of every fresh host session, run
-   `ren work-state <project>` before asking what the person wants. This
+   `ren work-state <project>` before asking what the person wants, and
+   `ren now <project>` for the ranked next actions. This
    read-only command gives a plain-language summary; use
    `ren work-state <project> --json` when the structured fields are
    useful. It composes existing project records and makes no model call
@@ -59,9 +104,9 @@ Work from the person's GOAL, not from the pipeline's step list:
 6. **Execute** - run it, answering any handshake it raises (section 5).
 7. **Verify** - read back what changed, against the goal (section 6).
 
-A whole-pipeline `ren edit --full-auto agent` run is the compatibility
-path (section 5), not the default: use it for a brand-new edit from raw
-footage, or when the person asks for one.
+A whole-pipeline `ren edit` run is the compatibility path (section 5),
+not the default: use it for a brand-new edit from raw footage, or when
+the person asks for one.
 
 The contracts live in code; what is written here is them stated for
 chat, and the module wins when they disagree:
@@ -74,9 +119,16 @@ chat, and the module wins when they disagree:
 ```sh
 ren doctor                        # no required FAIL; lists what each capability can do
 ren doctor --for <capability>     # what ONE operation needs (e.g. footage.search, render.build)
-ren new <slug> --name "..."       # create the project, then copy footage into raw/
+ren new <slug> --footage <path>   # create the project; footage is read where it lies
 ren check <project>               # readiness: footage found, layout ok
 ```
+
+`--footage` takes the files or folders the person handed you
+(repeatable) and nothing is copied. Shape, language and speakers are
+then measured from the footage, not asked. A missing projects root is
+created. The `brief.md` that `ren new` scaffolds counts as no brief
+until something is written into it, so the first run interviews in
+chat (section 5) rather than planning blind.
 
 When the person names a series or an episode ("episode 12 of 4th Wall"),
 run `ren series list`, then `ren new <slug> --series <id> --episode <n>`:
@@ -95,6 +147,9 @@ one of theirs.
 
 ## 2. Inspect state
 
+- `ren now <project>` - state plus ranked next actions in one read;
+  `ren reels <project>` - every reel's approval, build, sign-off and
+  delivery.
 - `ren projects` / `ren status <project>` / `ren info <project>` - which
   projects exist, which pipeline steps have run or failed, the project's
   configuration.
@@ -121,6 +176,9 @@ it whenever the goal is about what is IN the footage.
   "..."` finds where in the footage something happens; `--person`
   restricts to one person's spans, `--visual` ranks sampled frames. A
   ranking cannot say "not here": below the dense floor is not-in-footage.
+- `ren where <project> <person>` lists that person's region tracks
+  (`--at <seconds>`: the region at that moment), so "where is Craig?"
+  is answered off the footage memory, never a guess.
 - `ren export-memory <project>` writes the path-portable footage memory;
   `ren eval-search <project>` scores search on the pre-registered set
   (docs/SOURCE_MEMORY.md, "The analysis-only run").
@@ -154,22 +212,24 @@ it whenever the goal is about what is IN the footage.
   `resolve-axi` command, including the measured `pool` and `captions`
   reads.
 
-## 4. Choose a capability
+## 4. Verb reference: choose a capability
 
 | Goal | Capability |
 |---|---|
-| Find a moment in the footage | `ren search` (section 3) |
-| Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act |
-| An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"` (section 7) |
-| "N reels about X" from footage | `ren edit <project> --full-auto agent --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
+| State plus the next action, in one read | `ren now <project>` (`--json` for the structure); `ren reels <project>` for every reel's approval, build, sign-off and delivery |
+| Find a moment in the footage | `ren search` / `ren where` (section 3) |
+| Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
+| An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
+| "N reels about X" from footage | `ren edit <project> --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
 | Reel candidates for approval | `ren propose <project>` |
 | Rule on the proposed reels | After `ren propose`, show the list in chat and approve what the person says: `ren approve <project> 1 3` (or `--all`), `ren reject <project> 2 --note "why"` |
 | Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |
-| Two versions of one reel | `ren variant new` / `build` / `diff` / `choose` |
-| Redo one stage, step or clip | `ren edit <project> --full-auto agent` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
 | "Let me see it" after a build or a revision | `ren preview <project>` (renders only when asked; an unchanged reel is a cache hit) and hand the person the `Watch:` path it prints |
-| Render a reel to a file | `ren deliver <project> <n>` |
-| Record approval | `ren sign-off <project>` (built reels only; `PROPOSED` fails as `REJECTED` does) |
+| Two versions of one reel | `ren variant <project> new` / `build` / `diff` / `choose` |
+| Record approval | `ren sign-off <project> "<reel timeline name>"` (built reels only; `PROPOSED` fails as `REJECTED` does) |
+| Render reels to files | `ren deliver <project>` (every signed-off reel, with a receipt and QC; the folder is revealed) or `ren deliver <project> <n>` for one |
+| Pause or release a run | `ren pause <project>` / `ren resume <project>`; a staged timeline held from the sweep: `ren holds release <project> <timeline>` |
+| Redo one stage, step or clip | `ren edit <project>` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
 | Tidy the Resolve pool | `ren pool-organize`, `ren pool-prune`, `ren relink` |
 
 `pipeline_operations` lists the named operations a scoped run can do and
@@ -178,9 +238,12 @@ goal; a full run redoes work the goal did not ask for.
 
 ## 5. Execute: answer every handshake
 
-`--full-auto agent` selects the file-handshake backend, so a scoped run
-is `ren edit <project> --full-auto agent --only <step>` (or `--rerun`,
-`--step`, `--target`). Any such run may stop for a judgement:
+`--full-auto agent` selects the file-handshake backend, and it is the
+default whenever a chat harness drives `ren edit` (the run says so on
+stderr). A scoped run is `ren edit <project> --only <step>` (or
+`--rerun`, `--step`, `--target`). A missing producer is added to the
+run and named in one line, so you do not chase step ids. Any such run
+may stop for a judgement:
 
 The runner prints `LLM_REQUEST_READY: <path>` on stdout and waits. For
 each request, in order:
@@ -300,6 +363,7 @@ typed in chat or pulled off a marker - becomes a change through ONE verb:
 
 ```sh
 ren revise <project> "<the note's exact words>" [--reel "<timeline name>"]
+ren revise <project> --at 0:12 --reel <N> "<the note>"  # a moment in a delivered file
 ren revise <project> --note-id <id from ren notes>     # a pulled marker
 ren revise <project>               # continue the newest open revision
 ```
@@ -354,13 +418,12 @@ show the proposal again before `ren spec resolve` or a build. Then run
 ask them in chat, update that same response file with the user's answer,
 show the proposal again, and resolve again. A linked note blocks `ren edit`
 until every clause is resolved and recorded in `external/edit_ledger.json`.
-The route to each planning step comes from the operation type. Proxy preview
-is out of scope for this rung today. After the
+The route to each planning step comes from the operation type. After the
 revision, report the result and its `ren commits <project> --show <commit>`
 creative summary: changed regions, jump timecodes when the history has a
 recorded frame rate, and category status. Unknown means the timeline history
-cannot prove that category stayed untouched. Before/after playback is a
-follow-up unless an existing render or proxy can provide it cheaply.
+cannot prove that category stayed untouched. For something to watch, run
+`ren preview <project> --reel <N>` and hand over its `Watch:` path.
 
 After the build, check the exact timeline readback and final export against
 the recorded spec:
@@ -373,8 +436,7 @@ ren spec intent resolve <project> --id <edit intent id>
 
 Inspect both artifact paths named in the intent request. If the result is
 `revise`, ask the editor the returned question before changing or recording
-the spec. This check uses the final export; proxy preview remains out of
-scope.
+the spec. This check uses the final export, never a preview.
 
 ## 8. What you never do
 
