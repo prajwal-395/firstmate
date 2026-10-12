@@ -1,17 +1,20 @@
 """One mask-kind registry shared by every Project Model mask producer/consumer.
 
 Today's kinds are ``ellipse``, ``rect``, ``face_bbox_track``, inline
-``rle`` and ``sam2_rle_track``. Each kind has a rasterizer here, so a
-producer cannot write a kind a consumer cannot read (the drift that left
-migrated SAM masks refused by EffectCraft's matte writer).
+``rle``, ``sam2_rle_track`` and ``region_rle``. Each kind has a rasterizer
+here, so a producer cannot write a kind a consumer cannot read (the drift
+that left migrated SAM masks refused by EffectCraft's matte writer).
 
 ``sam2_rle_track`` resolves the referenced 1.06 segmentation file and
-decodes its ``encode_rle`` blobs; the other kinds rasterize inline.
+decodes its ``encode_rle`` blobs; ``region_rle`` resolves the referenced
+M3d regions sidecar in source memory and decodes its ``runs-rowmajor-v1``
+blobs; the other kinds rasterize inline.
 Box rasterization and RLE decoding live here once: consumers delegate
 rather than reimplement them.
 
-Read-only on live project data: the only file this module opens is the
-referenced 1.06 segmentation JSON, and never for writing.
+Read-only on live project data: the only files this module opens are the
+referenced 1.06 segmentation JSON and the referenced M3d sidecar, and
+never for writing.
 """
 
 from __future__ import annotations
@@ -26,6 +29,21 @@ RECT_KIND = "rect"
 FACE_BBOX_TRACK_KIND = "face_bbox_track"
 RLE_KIND = "rle"
 SAM2_RLE_TRACK_KIND = "sam2_rle_track"
+REGION_RLE_KIND = "region_rle"
+"""M3d person-region track: one instance's masks across its samples.
+
+The bytes stay in the source-memory sidecar; the model carries the
+reference (content digest, sidecar name and hash, grid, track id and
+the per-sample ticks with their sidecar indices). Written by the M3d
+evidence migration, read by the matte writer.
+"""
+
+REGION_RUNS_CODEC = "runs-rowmajor-v1"
+"""The codec M3d sidecars are written in
+(:mod:`library.tools.person_regions` ``CODEC``): alternating run lengths
+over the row-major grid, background first. Named here so the registry
+that reads the bytes and the lane that writes them cannot drift apart.
+"""
 
 MASK_SHAPES = (ELLIPSE_KIND, RECT_KIND)
 """Mask kinds drawn as one normalized box (static or keyframed)."""
@@ -36,6 +54,7 @@ MASK_KINDS = (
     FACE_BBOX_TRACK_KIND,
     RLE_KIND,
     SAM2_RLE_TRACK_KIND,
+    REGION_RLE_KIND,
 )
 """Every mask representation kind a producer may write.
 
@@ -218,6 +237,151 @@ def rle_frame_at(frames: list[tuple[int, str]], tick: int,
     if not covered:
         raise UnresolvableMask(
             f"mask {mask_id!r} has no RLE frame at or before tick "
+            f"{tick}; refusing rather than inventing one"
+        )
+    return covered[-1][1]
+
+
+def decode_region_runs(runs: Any, width: int, height: int,
+                       mask_id: str = "mask") -> bytes:
+    """Decode M3d ``runs-rowmajor-v1`` run lengths into alpha bytes.
+
+    Alternating run lengths over the row-major grid, background first.
+    A payload that does not cover the grid exactly is refused, never
+    padded: a truncated mask is not a mask.
+    """
+    total = width * height
+    if total <= 0:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} has no frame to decode into: "
+            f"{width}x{height}")
+    try:
+        lengths = [int(v) for v in (runs or [])]
+    except (TypeError, ValueError) as exc:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region runs are not integers: "
+            f"{runs!r}") from exc
+    if sum(lengths) != total:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region runs cover {sum(lengths)} cells, "
+            f"grid {width}x{height} has {total}")
+    flat = bytearray(total)
+    pos, foreground = 0, False
+    for length in lengths:
+        if length < 0 or pos + length > total:
+            raise UnresolvableMask(
+                f"mask {mask_id!r} region run leaves the "
+                f"{width}x{height} frame; refusing rather than clipping"
+            )
+        if foreground:
+            flat[pos:pos + length] = b"\x01" * length
+        pos += length
+        foreground = not foreground
+    return bytes(b * 255 for b in flat)
+
+
+def region_track_frames(representation: dict[str, Any], *,
+                        memory_root: str | Path | None = None,
+                        mask_id: str = "mask"
+                        ) -> tuple[int, int, list[tuple[int, list[int]]]]:
+    """Resolve a ``region_rle`` into ``(width, height, frames)``.
+
+    ``frames`` are ``(tick, runs)`` pairs for the one region track the
+    representation names, read off its M3d sidecar in source memory
+    (content digest + sidecar name, verified against the sha256 the
+    migration recorded). The mask bytes stay in the sidecar; only the
+    reference travels in the model.
+    """
+    digest = representation.get("content_digest")
+    if not isinstance(digest, str) or not digest:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region track names no content digest")
+    ref = representation.get("sidecar_file")
+    if not isinstance(ref, str) or not ref:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region track names no sidecar file")
+    want_sha = representation.get("sidecar_sha256")
+    if representation.get("codec", REGION_RUNS_CODEC) != REGION_RUNS_CODEC:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region codec "
+            f"{representation.get('codec')!r} is not {REGION_RUNS_CODEC!r}")
+    try:
+        grid = list(representation.get("grid") or [])
+        width, height = int(grid[0]), int(grid[1])
+    except (TypeError, ValueError, IndexError):
+        width, height = 0, 0
+    if width <= 0 or height <= 0:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region track has no usable grid: "
+            f"{representation.get('grid')!r}")
+    ticks = representation.get("sample_ticks")
+    indices = representation.get("mask_indices")
+    if (not isinstance(ticks, list) or not isinstance(indices, list)
+            or len(ticks) != len(indices) or not ticks):
+        raise UnresolvableMask(
+            f"mask {mask_id!r} region track carries no aligned "
+            f"sample_ticks/mask_indices")
+    try:
+        from library.tools import source_memory
+    except ImportError:  # imported as `tools.*` from inside library/
+        from tools import source_memory  # type: ignore[no-redef]
+    root = Path(memory_root).expanduser() if memory_root else None
+    path = source_memory.source_dir(digest, root) / ref
+    try:
+        import gzip as _gzip
+        import hashlib as _hashlib
+        import json as _json
+        raw = _gzip.decompress(path.read_bytes())
+    except (OSError, EOFError) as exc:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} cannot read its M3d sidecar "
+            f"{path}: {exc}") from exc
+    if _hashlib.sha256(raw).hexdigest() != want_sha:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} sidecar {ref} does not hash to the sha256 "
+            f"its migration names; rebuild M3d")
+    try:
+        payload = _json.loads(raw)
+    except ValueError as exc:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} sidecar {ref} holds no document") from exc
+    if payload.get("codec") != REGION_RUNS_CODEC:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} sidecar codec {payload.get('codec')!r} is "
+            f"not {REGION_RUNS_CODEC!r}")
+    if list(payload.get("grid") or []) != [width, height]:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} sidecar grid {payload.get('grid')!r} is not "
+            f"the migrated grid {[width, height]}")
+    stored = payload.get("masks") or []
+    frames = []
+    for tick, index in zip(ticks, indices):
+        try:
+            tick_int, index_int = int(tick), int(index)
+            runs = stored[index_int]
+        except (TypeError, ValueError, IndexError) as exc:
+            raise UnresolvableMask(
+                f"mask {mask_id!r} region sample tick {tick!r} names no "
+                f"sidecar mask") from exc
+        if not isinstance(runs, list):
+            raise UnresolvableMask(
+                f"mask {mask_id!r} region sample tick {tick!r} carries no "
+                f"run list")
+        frames.append((tick_int, [int(v) for v in runs]))
+    return width, height, sorted(frames, key=lambda f: f[0])
+
+
+def region_frame_at(frames: list[tuple[int, list[int]]], tick: int,
+                    mask_id: str = "mask") -> list[int]:
+    """The held region runs at a tick: the latest sample at or before it.
+
+    Ren's held-matte semantic, shared with the RLE kinds: a tick before
+    the first sample is refused, never filled by a guess.
+    """
+    covered = [run for run in frames if run[0] <= tick]
+    if not covered:
+        raise UnresolvableMask(
+            f"mask {mask_id!r} has no region sample at or before tick "
             f"{tick}; refusing rather than inventing one"
         )
     return covered[-1][1]

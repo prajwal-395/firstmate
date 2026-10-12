@@ -528,11 +528,24 @@ def measure_voice_tracks(wav_path: str,
             wav_path, num_speakers=num_speakers, device=device)
     except diarization.DiarizationUnavailable as refused:
         return [], str(refused)
+    # The silhouette of the chosen k is the measurement's own account of
+    # how cleanly the voices separate (MU-08: it becomes the diarization
+    # link confidence in the Project Model). None when the count was
+    # declared or a single voice left nothing to score - an absent score
+    # stays absent, never a default.
+    k_scores = result.k_scores or {}
+    silhouette = k_scores.get(result.speakers_estimated)
+    try:
+        silhouette = (round(float(silhouette), 4)
+                      if silhouette is not None else None)
+    except (TypeError, ValueError):
+        silhouette = None
     out = []
     for i, cluster in enumerate(result.clusters):
         out.append({"track_id": f"voice_{i + 1:03d}",
-                   "embedding": list(cluster.centroid),
-                   "spans": [list(turn) for turn in cluster.turns]})
+                    "embedding": list(cluster.centroid),
+                    "spans": [list(turn) for turn in cluster.turns],
+                    "silhouette": silhouette})
     return out, None
 
 

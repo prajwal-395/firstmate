@@ -33,6 +33,18 @@ Identity policy (fail-closed, never guessed):
   sample; otherwise it stays on its per-clip object entity and the
   ambiguity is reported. Blob-seeded (category ``unknown``) objects get
   no ``ObjectClass``: an ``auto_object_N`` label is not a semantic class.
+- An M3d person-region track reaches the roster Person holding its
+  majority face track (``IdentityLink`` method ``face_in_region``,
+  confidence the track's face-track share). A track with no majority
+  face track stays on an explicit ``unassigned-{digest}-{track}``
+  entity with its named reason and NO identity link: ambiguity
+  (two faces in one mask) or absence (a limb whose owner is out of
+  frame) is reported, never guessed.
+- Confidences are measured, never defaulted: the ArcFace cosine of a
+  face track against its person's centroid (``face_embedding_cluster``),
+  the diarization silhouette of the chosen k (``diarization``), the
+  containment share (``face_in_region``). Where a lane stored no score,
+  the link carries None.
 - M9 (the joined per-second world model) is a compatibility/query view
   over these same lanes, not new evidence, so it is inventoried in
   coverage but not re-migrated as observations. M2 (the shared frame
@@ -64,6 +76,7 @@ try:
         mask_seed,
         person_entity,
         person_measurements,
+        person_regions,
         project_model_masks,
         region_query,
         source_memory,
@@ -77,6 +90,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         mask_seed,
         person_entity,
         person_measurements,
+        person_regions,
         project_model_masks,
         region_query,
         source_memory,
@@ -134,6 +148,26 @@ def _confidence(value: Any) -> float | None:
     if not (0.0 <= number <= 1.0):
         return None
     return number
+
+
+def _embedding_cosine(a: Any, b: Any) -> float | None:
+    """Cosine similarity of two embedding vectors, or None when either
+    is not a usable vector. Pure arithmetic (no numpy): the migration
+    must run wherever the model is read, not only where the ML stack
+    is installed."""
+    try:
+        xs = [float(v) for v in a]
+        ys = [float(v) for v in b]
+    except (TypeError, ValueError):
+        return None
+    if len(xs) != len(ys) or not xs:
+        return None
+    dot = sum(x * y for x, y in zip(xs, ys))
+    nx = math.sqrt(sum(x * x for x in xs))
+    ny = math.sqrt(sum(y * y for y in ys))
+    if nx <= 0.0 or ny <= 0.0 or not math.isfinite(dot):
+        return None
+    return dot / (nx * ny)
 
 
 def _asset_id(digest: str) -> str:
@@ -399,7 +433,9 @@ def _migrate_identity(builder: _Builder, digest: str, asset_id: str,
             if obs_id is not None:
                 builder.link(speaker_id, obs_id, "diarization",
                              digest, voice_lane,
-                             "library.tools.person_entity")
+                             "library.tools.person_entity",
+                             confidence=_confidence(
+                                 voice.get("silhouette")))
 
 
 def _face_person(builder_persons: list[dict], digest: str,
@@ -410,6 +446,24 @@ def _face_person(builder_persons: list[dict], digest: str,
                     and track.get("track_id") == track_id):
                 return person["person_id"]
     return None
+
+
+def _face_cluster_confidence(roster: list[dict], digest: str,
+                             track_id: str,
+                             track_embedding: Any) -> float | None:
+    """The ArcFace cosine of one face track against its roster person's
+    centroid: the clustering's own score for the link. None when the
+    track has no roster person or either embedding is unusable - an
+    absent score stays absent, never a default."""
+    person_id = _face_person(roster, digest, track_id)
+    if person_id is None:
+        return None
+    person = next((p for p in roster if p.get("person_id") == person_id),
+                  None)
+    if person is None:
+        return None
+    return _confidence(_embedding_cosine(track_embedding,
+                                         person.get("face_embedding")))
 
 
 def _migrate_faces(builder: _Builder, digest: str, asset_id: str,
@@ -440,7 +494,10 @@ def _migrate_faces(builder: _Builder, digest: str, asset_id: str,
                 span.get("det_score"), "library.tools.person_entity")
             if obs_id is not None and person_id is not None:
                 builder.link(person_id, obs_id, "face_embedding_cluster",
-                             digest, "m3b", "library.tools.person_entity")
+                             digest, "m3b", "library.tools.person_entity",
+                             confidence=_face_cluster_confidence(
+                                 roster, digest, track_id,
+                                 face.get("embedding")))
             try:
                 midpoint = (float(span["start"]) + float(span["end"])) / 2.0
             except (TypeError, ValueError, KeyError):
@@ -863,6 +920,183 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         })
 
 
+REGION_TRACK_PRODUCER = "library.tools.person_regions"
+REGION_SOURCE_MODEL = "apple_vision_person_instance_mask"
+REGION_OBSERVATION_MODALITY = "region_track"
+FACE_IN_REGION_METHOD = "face_in_region"
+STALE_REGION_FACE_TRACK_REASON = "face_track_without_roster_person"
+
+
+def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
+                     clock_id: str, roster: list[dict],
+                     root: Path | None) -> None:
+    """M3d person-region tracks: region geometry, region masks and
+    face-in-region identity links.
+
+    One ``tracks[]`` entry per M3d region track, with one sample per M2
+    frame the instance was measured on (``geometry.kind == "region"``:
+    bbox, centroid, interior point and area, plus the sidecar index a
+    renderer decodes - the inline summary answers geometry without
+    reading mask bytes). One ``masks[]`` entry per track with the
+    registry's ``region_rle`` kind (a reference to the content-addressed
+    sidecar, never the bytes). A track whose face track holds most
+    samples links to its roster person with method ``face_in_region``
+    and the track's face-track share as confidence; a track with no
+    roster owner stays on an explicit ``unassigned-{digest}-{track}``
+    entity with its named reason and NO identity link.
+    """
+    doc = person_regions.read_m3d(digest, root)
+    if doc is None:
+        builder.notes.append(f"{digest[:12]}: M3d absent; no region tracks")
+        return
+    sidecar = doc.get("sidecar") or {}
+    grid = doc.get("grid") or []
+    try:
+        grid_pair = [int(grid[0]), int(grid[1])]
+    except (TypeError, ValueError, IndexError):
+        grid_pair = []
+    if len(grid_pair) != 2 or min(grid_pair) <= 0:
+        builder.dropped.append({"digest": digest, "lane": "m3d",
+                                "reason": "unusable-grid",
+                                "grid": doc.get("grid")})
+        return
+    if not isinstance(sidecar.get("file"), str) or not sidecar.get("file"):
+        builder.dropped.append({"digest": digest, "lane": "m3d",
+                                "reason": "sidecar-unresolved"})
+        return
+    by_track: dict[str, list[tuple[float, dict]]] = {}
+    for sample in doc.get("samples") or []:
+        if not isinstance(sample, dict) or "t" not in sample:
+            continue
+        try:
+            t = float(sample["t"])
+        except (TypeError, ValueError):
+            continue
+        for inst in sample.get("instances") or []:
+            if not isinstance(inst, dict) or not inst.get("track"):
+                continue
+            by_track.setdefault(str(inst["track"]), []).append((t, inst))
+    for track in doc.get("tracks") or []:
+        if not isinstance(track, dict) or not track.get("track_id"):
+            continue
+        track_id = str(track["track_id"])
+        members = sorted(by_track.get(track_id, []), key=lambda m: m[0])
+        if not members:
+            builder.dropped.append({"digest": digest, "lane": "m3d",
+                                    "track": track_id,
+                                    "reason": "track-has-no-samples"})
+            continue
+        samples = []
+        valid = True
+        for t, inst in members:
+            summary = {k: inst.get(k) for k in
+                       ("bbox", "centroid", "interior_point", "area",
+                        "mask")}
+            if (not isinstance(summary["bbox"], list)
+                    or not isinstance(summary["centroid"], list)
+                    or not isinstance(summary["interior_point"], list)
+                    or not isinstance(summary["area"], (int, float))
+                    or not isinstance(summary["mask"], int)):
+                valid = False
+                break
+            samples.append({
+                "tick": round(t * TICKS_PER_SECOND),
+                "geometry": {
+                    "kind": "region",
+                    "bbox": summary["bbox"],
+                    "centroid": summary["centroid"],
+                    "interior_point": summary["interior_point"],
+                    "area": summary["area"],
+                    "mask_ref": {"mask_index": summary["mask"]},
+                },
+                "confidence": _confidence(inst.get("containment")),
+                "coordinate_space": "source-normalised-tl",
+            })
+        if not valid:
+            builder.dropped.append({"digest": digest, "lane": "m3d",
+                                    "track": track_id,
+                                    "reason": "track-has-no-geometry"})
+            continue
+        owner_face = track.get("face_track")
+        person_id = (_face_person(roster, digest, owner_face)
+                     if isinstance(owner_face, str) and owner_face else None)
+        entity_id = person_id or f"unassigned-{digest}-{track_id}"
+        if person_id is None:
+            reason = (track.get("unassigned")
+                      or STALE_REGION_FACE_TRACK_REASON)
+            if not any(e["id"] == entity_id
+                       for e in builder.model["entities"]):
+                builder.model["entities"].append({
+                    "id": entity_id, "kind": "object", "label": None,
+                    "object_class_id": None,
+                })
+            builder.notes.append(
+                f"{digest[:12]}/{track_id}: region track has no roster "
+                f"owner ({reason}); mask stays on {entity_id} with no "
+                f"identity link")
+        else:
+            reason = None
+        builder.model["tracks"].append({
+            "id": f"track-region-{digest}-{track_id}",
+            "entity_id": entity_id,
+            "clock_id": clock_id,
+            "samples": samples,
+            "provenance_id": builder.provenance(
+                digest, "m3d", REGION_TRACK_PRODUCER),
+        })
+        first_t = members[0][0]
+        last_t = members[-1][0]
+        ticks = sec_to_ticks(first_t,
+                             last_t if last_t > first_t else first_t + 0.001)
+        if ticks is None:  # unreachable: last_t >= first_t >= 0 by read_m3d
+            builder.dropped.append({"digest": digest, "lane": "m3d",
+                                    "track": track_id,
+                                    "reason": "non-positive-interval"})
+            builder.model["tracks"].pop()
+            continue
+        payload: dict[str, Any] = {
+            "track_id": track_id,
+            "face_track": owner_face,
+            "face_track_fraction": track.get("face_track_fraction"),
+            "sample_count": len(members),
+            "grid": grid_pair,
+        }
+        if reason is not None:
+            payload["unassigned"] = reason
+        obs_id = builder.observation(
+            digest, "m3d", asset_id, clock_id, first_t,
+            last_t if last_t > first_t else first_t + 0.001,
+            REGION_OBSERVATION_MODALITY, payload,
+            track.get("face_track_fraction") if person_id else None,
+            REGION_TRACK_PRODUCER)
+        if obs_id is not None and person_id is not None:
+            builder.link(person_id, obs_id, FACE_IN_REGION_METHOD,
+                         digest, "m3d", REGION_TRACK_PRODUCER,
+                         confidence=track.get("face_track_fraction"))
+        builder.model["masks"].append({
+            "id": f"mask-region-{digest}-{track_id}",
+            "entity_id": entity_id,
+            "interval": {"clock_id": clock_id,
+                         "start": ticks[0], "end": ticks[1]},
+            "representation": {
+                "kind": project_model_masks.REGION_RLE_KIND,
+                "content_digest": digest,
+                "sidecar_file": sidecar.get("file"),
+                "sidecar_sha256": sidecar.get("sha256"),
+                "codec": sidecar.get("codec",
+                                     project_model_masks.REGION_RUNS_CODEC),
+                "grid": grid_pair,
+                "track_id": track_id,
+                "sample_ticks": [s["tick"] for s in samples],
+                "mask_indices": [s["geometry"]["mask_ref"]["mask_index"]
+                                 for s in samples],
+            },
+            "source_model": REGION_SOURCE_MODEL,
+            "provenance_id": builder.provenance(
+                digest, "m3d", REGION_TRACK_PRODUCER),
+        })
+
+
 def migrate_project_evidence(project_folder: str, *,
                              memory_root: str | Path | None = None,
                              catalog: list | None = None,
@@ -927,6 +1161,9 @@ def migrate_project_evidence(project_folder: str, *,
         _migrate_faces(builder, digest, _asset_id(digest),
                        _clock_id(digest), roster, root)
     for digest in seen:
+        _migrate_regions(builder, digest, _asset_id(digest),
+                         _clock_id(digest), roster, root)
+    for digest in seen:
         _migrate_speech_face_links(builder, digest, roster, root)
     _migrate_voice_matches(builder, roster)
     for clip_id, digest in clip_digest.items():
@@ -981,6 +1218,7 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "m2": source_memory.read_m2(digest, root) is not None,
             "m3": person_measurements.read_m3(digest, root) is not None,
             "m3b": _identity is not None,
+            "m3d": person_regions.read_m3d(digest, root) is not None,
             "m4": source_memory.read_scenes(digest, root) is not None,
             "m5": source_memory.read_sound(digest, root) is not None,
             "m6": None,
@@ -1025,7 +1263,8 @@ def resolve_person(model: dict[str, Any], ref: str) -> dict[str, Any] | None:
     never None - absence of measurement, not absence of the key.
 
     ``ref`` is an entity id or a declared label; anything else returns
-    None, never a best-effort neighbour.
+    None, never a best-effort neighbour. Only this person's tracks are
+    returned - never another person's, never an unassigned track.
     """
     want = str(ref).strip()
     entity = None

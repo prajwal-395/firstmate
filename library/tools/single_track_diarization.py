@@ -160,6 +160,12 @@ class Diarization:
     device: str = "cpu"
     """The torch device the embeddings were measured on."""
 
+    k_scores: dict | None = None
+    """Silhouette per candidate k from the count estimate
+    (``estimate_speaker_count``), or None when the count was declared
+    rather than estimated. A single voice has no silhouette (the score
+    is undefined for one cluster), so it carries none either."""
+
 
 def _read_wav16_mono(path: str) -> tuple[int, np.ndarray]:
     """16-bit PCM mono samples in [-1, 1]. Multi-channel is averaged -
@@ -494,8 +500,9 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
     if num_speakers is not None:
         # A declared count cannot ask for more clusters than windows.
         speakers = max(1, min(num_speakers, len(embeddings)))
+        k_scores = None
     else:
-        speakers, _ = estimate_speaker_count(embeddings)
+        speakers, k_scores = estimate_speaker_count(embeddings)
     if len(embeddings) < 2:
         # sklearn refuses to cluster one sample; one kept window is one
         # voice by construction, not a clustering question.
@@ -538,7 +545,8 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
                 "energy VAD(peak-20dB,>=30%) + agglomerative-cosine "
                 "silhouette-k"),
         weights=weights,
-        device=device)
+        device=device,
+        k_scores=k_scores)
 
 
 def segment_voice_embeddings(segment_spans: list[tuple[float, float]],

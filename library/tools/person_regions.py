@@ -98,6 +98,7 @@ from pathlib import Path
 import numpy as np
 
 from library.tools import source_memory
+from library.tools.project_model_masks import REGION_RUNS_CODEC as CODEC
 
 M3D_STATUS_MEASURED = "measured"
 M3D_METHOD = "person-instance-mask-v1"
@@ -114,7 +115,10 @@ DECODE_WIDTH = 1152
 docstring: 384 px (M2's own thumbnails) leaks the table reflection into
 the mask; 1152 px matches a 1920 px decode at median IoU 0.991."""
 
-CODEC = "runs-rowmajor-v1"
+# `CODEC` is imported above from the mask-kind registry
+# (:mod:`library.tools.project_model_masks`), which is what reads these
+# bytes back; the import keeps the ``pr.CODEC`` readers working while the
+# tag is defined exactly once.
 SIDECAR_PREFIX = "regions.masks."
 SIDECAR_SUFFIX = ".json.gz"
 

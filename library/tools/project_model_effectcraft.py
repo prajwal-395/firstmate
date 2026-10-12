@@ -1146,19 +1146,22 @@ def write_matte_sequence(
     *,
     stem: str | None = None,
     project_folder: str | Path | None = None,
+    memory_root: str | Path | None = None,
 ) -> MatteSequence:
     """Rasterize a non-static mask into a lossless matte PNG sequence.
 
     One file per comp frame the mask interval touches, at the comp's
     width, height and frame clock, so EffectCraft can carry the mask as
     a track matte with no approximation. Animated boxes interpolate
-    linearly between keyframes; RLE frames - inline ``rle`` or a
+    linearly between keyframes; RLE frames - inline ``rle``, a
     ``sam2_rle_track`` resolved through its referenced 1.06 file
-    (``project_folder`` locates the reference) - hold Ren's own
-    held-matte semantic (latest frame at or before the sample). Any
-    frame the model cannot cover - outside the keyframe span, before
-    the first RLE frame, RLE dims off the comp, pixel-space boxes - is
-    refused with :class:`UnprojectableMask`, not filled by a guess.
+    (``project_folder`` locates the reference), or a ``region_rle``
+    resolved through its M3d sidecar in source memory (``memory_root``
+    locates it) - hold Ren's own held-matte semantic (latest frame at
+    or before the sample). Any frame the model cannot cover - outside
+    the keyframe span, before the first RLE frame, RLE dims off the
+    comp, pixel-space boxes - is refused with :class:`UnprojectableMask`,
+    not filled by a guess.
     """
     validate_project_model(model)
     mask_id = mask["id"]
@@ -1237,6 +1240,42 @@ def write_matte_sequence(
                     f"{tick} (comp frame {frame}); refusing rather than "
                     "inventing one") from exc
             alphas.append(_decode_rle(held, width, height, mask_id))
+    elif kind == project_model_masks.REGION_RLE_KIND:
+        try:
+            width, height, region_runs = (
+                project_model_masks.region_track_frames(
+                    representation, memory_root=memory_root,
+                    mask_id=mask_id))
+        except (project_model_masks.UnresolvableMask,
+                project_model_masks.UnknownMaskKind) as exc:
+            raise UnprojectableMask(str(exc)) from exc
+        if width != comp.width or height != comp.height:
+            raise UnprojectableMask(
+                f"mask {mask_id!r} region mask is {width}x{height} but "
+                f"the comp is {comp.width}x{comp.height}; resampling "
+                "would approximate, so it is refused"
+            )
+        if not region_runs:
+            raise UnprojectableMask(
+                f"mask {mask_id!r} region track carries no samples")
+        alphas = []
+        for frame in range(first, last + 1):
+            tick = _sample_tick(frame, tps, fps)
+            try:
+                held_runs = project_model_masks.region_frame_at(
+                    region_runs, tick, mask_id)
+            except (project_model_masks.UnresolvableMask,
+                    project_model_masks.UnknownMaskKind) as exc:
+                raise UnprojectableMask(
+                    f"mask {mask_id!r} has no region sample at or before "
+                    f"tick {tick} (comp frame {frame}); refusing rather "
+                    "than inventing one") from exc
+            try:
+                alphas.append(project_model_masks.decode_region_runs(
+                    held_runs, width, height, mask_id))
+            except (project_model_masks.UnresolvableMask,
+                    project_model_masks.UnknownMaskKind) as exc:
+                raise UnprojectableMask(str(exc)) from exc
     elif isinstance(kind, str):
         states = _bbox_states(representation, mask_id, tps)
         alphas = [
@@ -1849,6 +1888,9 @@ def main(argv: list[str] | None = None) -> int:
     matte.add_argument("--project-folder", default=None,
                        help="project root holding the referenced 1.06 "
                             "segmentation file for sam2_rle_track masks")
+    matte.add_argument("--memory-root", default=None,
+                       help="source-memory root holding the referenced M3d "
+                            "sidecar for region_rle masks")
     matte.add_argument("--comp", default="Main")
     matte.add_argument("--width", type=int, default=96)
     matte.add_argument("--height", type=int, default=64)
@@ -1920,7 +1962,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"model has no mask {args.mask!r}")
             sequence = write_matte_sequence(mask, model, comp, args.out_dir,
                                             stem=args.stem,
-                                            project_folder=args.project_folder)
+                                            project_folder=args.project_folder,
+                                            memory_root=args.memory_root)
             args.sidecar.write_text(json.dumps(
                 {"matte": sequence.as_json()}, indent=2,
                 ensure_ascii=False) + "\n", encoding="utf-8")

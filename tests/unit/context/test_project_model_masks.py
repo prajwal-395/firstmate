@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from library.tools import person_regions as pr
 from library.tools import project_model_effectcraft as ec
 from library.tools import project_model_evidence as evidence
 from library.tools import project_model_masks as masks
@@ -124,7 +125,7 @@ def _read_matte_alpha(path: str) -> bytes:
     return bytes(alpha)
 
 
-def _migrated_sam2_mask(tmp_path: Path) -> tuple[dict, dict, Path]:
+def _migrated_sam2_mask(tmp_path: Path) -> tuple[dict, dict, Path, Path]:
     paths = _fixture_project(tmp_path)
     model, _report = evidence.migrate_project_evidence(
         str(paths["project"]), memory_root=str(paths["memory"]))
@@ -132,7 +133,30 @@ def _migrated_sam2_mask(tmp_path: Path) -> tuple[dict, dict, Path]:
     mask = next(m for m in model["masks"]
                 if m["id"] == "mask-clip_001-obj_1")
     assert mask["representation"]["kind"] == masks.SAM2_RLE_TRACK_KIND
-    return model, mask, paths["project"]
+    return model, mask, paths["project"], paths["memory"]
+
+
+def _region_mask_row(tmp_path: Path, memory: Path, entity: str, clock: str,
+                     provenance_id: str) -> dict:
+    """A ``region_rle`` row over a real sidecar: one 8x8 sample written
+    by the lane's own sidecar writer, so the registry resolves what a
+    producer actually writes."""
+    grid = [WIDTH, HEIGHT]
+    blob = np.zeros((HEIGHT, WIDTH), dtype=bool)
+    blob[:4, :4] = True
+    ref = pr.write_sidecar(memory / DIGEST, [pr.encode_runs(blob)], grid)
+    return {
+        "id": "mask-drift-region", "entity_id": entity,
+        "interval": {"clock_id": clock, "start": 0, "end": 2000},
+        "representation": {
+            "kind": "region_rle", "content_digest": DIGEST,
+            "sidecar_file": ref["file"], "sidecar_sha256": ref["sha256"],
+            "codec": ref["codec"], "grid": grid,
+            "track_id": "region_001",
+            "sample_ticks": [0], "mask_indices": [0]},
+        "source_model": "apple_vision_person_instance_mask",
+        "provenance_id": provenance_id,
+    }
 
 
 def test_migrated_sam2_masks_rasterize_to_the_decoded_pixels(tmp_path):
@@ -140,7 +164,7 @@ def test_migrated_sam2_masks_rasterize_to_the_decoded_pixels(tmp_path):
     the 1.06 masks: numpy mask -> encode -> file -> migrate ->
     resolve -> decode -> PNG alpha, compared against the numpy
     originals, never against another RLE decode."""
-    model, mask, project = _migrated_sam2_mask(tmp_path)
+    model, mask, project, _memory = _migrated_sam2_mask(tmp_path)
     comp = ec.CompSpec(name="Main", width=WIDTH, height=HEIGHT,
                        frame_rate=10.0, duration_seconds=2.0)
     sequence = ec.write_matte_sequence(
@@ -170,7 +194,7 @@ def test_producer_consumer_drift_every_produced_kind_rasterizes(tmp_path):
     and every listed kind rasterizes through the consumer instead of
     refusing as unknown."""
     produced: set[str] = set()
-    model, sam2_mask, project = _migrated_sam2_mask(tmp_path)
+    model, sam2_mask, project, memory = _migrated_sam2_mask(tmp_path)
     produced.add(sam2_mask["representation"]["kind"])
     for path in _model_paths():
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -224,21 +248,31 @@ def test_producer_consumer_drift_every_produced_kind_rasterizes(tmp_path):
          "provenance_id": sam2_mask["provenance_id"]},
     ]
     model["masks"].extend(extra)
+    model["masks"].append(_region_mask_row(
+        tmp_path, memory, entity, clock, sam2_mask["provenance_id"]))
     validate_project_model(model)
     kinds = {row["representation"]["kind"] for row in extra}
+    kinds.add("region_rle")
     assert kinds | produced == set(masks.MASK_KINDS)
     for row in extra:
         rasterized = ec.write_matte_sequence(
             row, model, comp, out_dir / row["id"], project_folder=project)
         assert rasterized.count == 20
         assert len(rasterized.files) == 20
+    region = next(m for m in model["masks"]
+                  if m["representation"].get("kind") == "region_rle")
+    rasterized = ec.write_matte_sequence(
+        region, model, comp, out_dir / region["id"],
+        project_folder=project, memory_root=memory)
+    assert rasterized.count == 20
+    assert len(rasterized.files) == 20
 
 
 def test_unknown_mask_kind_still_refuses_with_the_registry_listed(tmp_path):
     """Fail-closed is kept: a kind no producer writes refuses, and the
     refusal lists the registry so the next producer/consumer drift
     reads as a name, not a mystery."""
-    model, mask, _project = _migrated_sam2_mask(tmp_path)
+    model, mask, _project, _memory = _migrated_sam2_mask(tmp_path)
     mask["representation"] = {"kind": "magic_mask"}
     comp = ec.CompSpec(name="Main", width=WIDTH, height=HEIGHT,
                        frame_rate=10.0, duration_seconds=2.0)
