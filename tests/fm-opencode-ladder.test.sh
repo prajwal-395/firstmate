@@ -884,6 +884,55 @@ test_go_capped_routes_to_second_workspace() {
   pass "a capped Go rung routes the next spawn to the second workspace"
 }
 
+test_workspace_quota_rows_split_caps_and_prefer_more_remaining() {
+  local state out cfg fixture healthy pick
+  state=$(fresh_state workspace-quota-split)
+  cfg=$(second_config workspacequotasplit)
+  cap_free_plus "$state"
+  fixture="$TMP_ROOT/workspace-quota-split.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2030-01-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"resetsAt":"2030-01-01T00:00:00Z"}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2030-01-02T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"resetsAt":"2030-01-02T00:00:00Z"}]}}]}
+JSON
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" run_gate "$state" "$FREE") \
+    || fail "the second workspace must accept dispatch past a main-workspace quota cap"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a live second Go workspace must receive the dispatch, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the route must identify the second workspace: ${NOTE:-<silent>}" ;; esac
+  [ -f "$state/.opencode-cap-go" ] || fail "zero main-workspace quota must keep the main Go cap"
+  [ ! -e "$state/.opencode-cap-go-second" ] || fail "positive second-workspace quota must not cap its Go rung"
+
+  state=$(fresh_state workspace-quota-preference)
+  cfg=$(priority_config workspacequotapreference '2026-11-08T02:02:34Z' '2026-12-01T00:00:00Z')
+  healthy="$TMP_ROOT/workspace-quota-healthy.json"
+  cat > "$healthy" <<'JSON'
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":25}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50}]}}]}
+JSON
+  pick=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$healthy" PATH="$QUOTA_BIN:$PATH" \
+    fm_opencode_ladder_pick_go_workspace "$state" 2>/dev/null) \
+    || fail "the workspace pick must accept two fresh known quota rows"
+  [ "$pick" = secondary ] || fail "the higher-quota second workspace must beat the earlier monthly reset, got '$pick'"
+  pass "workspace-keyed quota caps main at zero and dispatches through the higher-quota second workspace"
+}
+
+test_unlabelled_go_quota_row_keeps_main_meaning() {
+  local state out cfg fixture
+  state=$(fresh_state unlabelled-go-quota)
+  cfg=$(second_config unlabelledgoquota)
+  cap_free_plus "$state"
+  fixture="$TMP_ROOT/unlabelled-go-quota.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2030-01-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"resetsAt":"2030-01-01T00:00:00Z"}]}}]}
+JSON
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "a legacy main-workspace quota cap must leave the second workspace available"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "the uncapped second workspace must receive dispatch, got '$GOT'"
+  [ -f "$state/.opencode-cap-go" ] || fail "an unlabelled row must record the legacy main Go cap"
+  [ ! -e "$state/.opencode-cap-go-second" ] || fail "an unlabelled row must not affect the second Go rung"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "a main cap must route through the second workspace: ${NOTE:-<silent>}" ;; esac
+  pass "an unlabelled OpenCode Go quota row retains its legacy main-workspace meaning"
+}
+
 test_fourth_rung_exhaustion_refuses() {
   local state note got rc cfg
   state=$(fresh_state second-out)
@@ -1261,6 +1310,8 @@ test_expired_rung_cap_climbs_back_to_free
 test_free_then_codex_cap_skips_to_go_and_returns_after_reset
 test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not
 test_go_capped_routes_to_second_workspace
+test_workspace_quota_rows_split_caps_and_prefer_more_remaining
+test_unlabelled_go_quota_row_keeps_main_meaning
 test_fourth_rung_exhaustion_refuses
 test_second_rung_cap_never_marks_main_go
 test_secondary_lane_evidence_feeds_fourth_rung
