@@ -8,6 +8,8 @@ set -u
 SCRIPT="$ROOT/bin/fm-plan-frontier.sh"
 BOARD="$ROOT/bin/fm-bearings-board.sh"
 TMP_ROOT=$(fm_test_tmproot fm-plan-frontier)
+TEST_PC_BIN="${PC_BIN:-/Users/prajwal/.treehouse/rust compiler and optimizer-12e57d/3/rust compiler and optimizer/target/debug/pc}"
+TEST_PC_ROOT=$(cd "$(dirname "$TEST_PC_BIN")/../.." && pwd)
 
 unset TASKS_AXI_FILE TASKS_AXI_BACKEND FM_HOME FM_ROOT_OVERRIDE \
   FM_DATA_OVERRIDE FM_STATE_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE PC_BIN
@@ -66,14 +68,42 @@ printf '%s\n' "$*" >> "$PC_CALL_LOG"
 case "${1-}" in
   check) printf 'ok: fixture plan\n' ;;
   compile) printf 'makespan 1.000 minutes\n' ;;
+  explain)
+    if [ -f "$PC_STATE" ]; then printf 'accepted (fixture answer)\n'; else printf 'proposed (fixture method)\n'; fi
+    ;;
+  accept|reject) touch "$PC_STATE"; printf '%s\n' "$1" ;;
   frontier)
     [ "${3-}" = --json ] || exit 2
-    cat "$PC_FRONTIER_JSON"
+    if [ -f "$PC_STATE" ]; then printf '{"items":[],"unestimated":[],"blocked":[]}\n'; else cat "$PC_FRONTIER_JSON"; fi
     ;;
   *) exit 2 ;;
 esac
 EOF
   chmod +x "$1/bin/pc"
+  cat > "$1/bin/captain-hold" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "$HOLD_LOG"
+EOF
+  chmod +x "$1/bin/captain-hold"
+  cat > "$1/bin/tasks-axi-route" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+case "${1-}" in
+  list)
+    if [ "${3-}" = done ] && [ "${ROUTING_ANSWER:-0}" = 1 ]; then
+      printf '  %s, Planning compiler: rule on alternative\n' "${ROUTING_ID:-pc-route-proj-a--alternative}"
+    fi
+    ;;
+  show)
+    [ "${2-}" = "${ROUTING_ID:-pc-route-proj-a--alternative}" ] || exit 2
+    printf 'task: %s\n  id: %s\n  Resolution mode: answered\n  Captain decision: %s\n' \
+      "${ROUTING_ID:-pc-route-proj-a--alternative}" "${ROUTING_ID:-pc-route-proj-a--alternative}" "${ROUTING_DECISION:-accept}"
+    ;;
+  *) exit 2 ;;
+esac
+EOF
+  chmod +x "$1/bin/tasks-axi-route"
   cat > "$1/frontier.json" <<'EOF'
 {"items":[{"subject":"task:pa-01","kind":"open-task","score":0.75,"reason":"critical path"},{"subject":"method:proposal","kind":"proposal","score":1.0,"reason":"out of scope"}],"unestimated":[{"subject":"task:pa-02","kind":"open-task","reason":"no accepted method"}],"blocked":[{"subject":"method:alternative","kind":"blocked-alternative","reason":"out of scope"}]}
 EOF
@@ -102,7 +132,11 @@ test_frontier_annotations_preserve_dispatch_and_board_schema() {
   PATH="$dir/bin:$PATH" \
     TASKS_AXI_LOG="$dir/tasks.log" \
     PC_CALL_LOG="$dir/pc.log" \
+    PC_STATE="$dir/accepted" \
     PC_FRONTIER_JSON="$dir/frontier.json" \
+    HOLD_LOG="$dir/hold.log" \
+    FM_PLAN_TASKS_AXI_BIN="$dir/bin/tasks-axi-route" \
+    FM_PLAN_CAPTAIN_HOLD_BIN="$dir/bin/captain-hold" \
     PC_BIN="$dir/bin/pc" \
     FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
     bash "$SCRIPT" --payload "$dir/payload.json" --data-dir "$dir/data" --out "$dir/out" \
@@ -128,10 +162,60 @@ test_frontier_annotations_preserve_dispatch_and_board_schema() {
   assert_contains "$(cat "$dir/pc.log")" "frontier " "pc frontier was not run"
   assert_contains "$(cat "$dir/pc.log")" "--json" "pc frontier did not request JSON"
   assert_no_grep 'ready' "$dir/tasks.log" "the overlay consulted tasks-axi ready"
-  pass "frontier annotations enrich only existing queued rows and preserve the board payload contract"
+  jq -e '.captains_call | length == 1 and .[0].key == "pc-route-proj-a--alternative" and .[0].options[0].value == "accept" and .[0].options[1].value == "reject"' "$dir/result.json" >/dev/null \
+    || fail "blocked alternative did not become one captain call card"
+  assert_contains "$(cat "$dir/hold.log")" "hold pc-route-proj-a--alternative" "blocked alternative was not held through the captain-hold command"
+  PATH="$dir/bin:$PATH" TASKS_AXI_LOG="$dir/tasks.log" PC_CALL_LOG="$dir/answer-pc.log" \
+    PC_STATE="$dir/accepted" PC_FRONTIER_JSON="$dir/frontier.json" HOLD_LOG="$dir/hold.log" \
+    FM_PLAN_TASKS_AXI_BIN="$dir/bin/tasks-axi-route" FM_PLAN_CAPTAIN_HOLD_BIN="$dir/bin/captain-hold" \
+    ROUTING_ANSWER=1 PC_BIN="$dir/bin/pc" FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
+    bash "$SCRIPT" --payload "$dir/payload.json" --data-dir "$dir/data" --out "$dir/out" \
+    >"$dir/answered.json" 2>"$dir/answered.log" || fail "captain answer was not consumed: $(cat "$dir/answered.log")"
+  assert_contains "$(cat "$dir/answer-pc.log")" "accept method:alternative" "captain answer did not accept the method"
+  assert_contains "$(cat "$dir/answer-pc.log")" "compile " "accepted method was not recompiled"
+  jq -e '.captains_call | length == 0' "$dir/answered.json" >/dev/null || fail "answered alternative remained on Captain's Call"
+  pass "frontier annotations preserve dispatch while blocked alternatives hold and answer through accept/recompile"
+}
+
+test_real_blocked_alternative_routes_and_reject_recompiles() {
+  [ -x "$TEST_PC_BIN" ] || { pass "real compiler routing skipped (PC_BIN unavailable)"; return; }
+  local dir="$TMP_ROOT/real-blocked"
+  seed_fixture "$dir"
+  mkdir -p "$dir/data/proj-a"
+  cp "$TEST_PC_ROOT/examples/transcription-substitution/plan.toml" \
+    "$dir/data/proj-a/plan.toml" || fail "could not stage the synthetic compiler plan"
+  PATH="$dir/bin:$PATH" TASKS_AXI_LOG="$dir/tasks.log" PC_CALL_LOG="$dir/pc.log" \
+    HOLD_LOG="$dir/hold.log" FM_PLAN_TASKS_AXI_BIN="$dir/bin/tasks-axi-route" \
+    FM_PLAN_CAPTAIN_HOLD_BIN="$dir/bin/captain-hold" PC_BIN="$TEST_PC_BIN" \
+    FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
+    bash "$SCRIPT" --payload "$dir/payload.json" --plan-dir "$dir/data/proj-a" --data-dir "$dir/data" \
+    >"$dir/result.json" 2>"$dir/run.log" || fail "real compiler routing failed: $(cat "$dir/run.log")"
+  jq -e '.captains_call | length == 1 and .[0].key == "pc-route-proj-a--via-hybrid" and .[0].options[0].value == "accept" and .[0].options[1].value == "reject"' "$dir/result.json" >/dev/null \
+    || fail "real blocked-alternative did not become a held Captain's Call card"
+  ROUTING_ANSWER=1 ROUTING_ID=pc-route-proj-a--via-hybrid ROUTING_DECISION=reject \
+    PATH="$dir/bin:$PATH" TASKS_AXI_LOG="$dir/tasks.log" \
+    PC_CALL_LOG="$dir/answer-pc.log" HOLD_LOG="$dir/hold.log" \
+    FM_PLAN_TASKS_AXI_BIN="$dir/bin/tasks-axi-route" FM_PLAN_CAPTAIN_HOLD_BIN="$dir/bin/captain-hold" \
+    PC_BIN="$TEST_PC_BIN" FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
+    bash "$SCRIPT" --payload "$dir/payload.json" --plan-dir "$dir/data/proj-a" --data-dir "$dir/data" \
+    >"$dir/answered.json" 2>"$dir/answered.log" || fail "real compiler answer loop failed: $(cat "$dir/answered.log")"
+  assert_contains "$(cat "$dir/answered.log")" "plan-answer: pc-route-proj-a--via-hybrid reject" "captain answer did not reject the real blocked alternative"
+  assert_contains "$(cat "$dir/answered.log")" "recompiled:" "real blocked alternative was not recompiled"
+  "$TEST_PC_BIN" compile "$dir/data/proj-a" >/dev/null \
+    || fail "the rejected synthetic plan no longer compiles"
+  jq -e '.captains_call | length == 0' "$dir/answered.json" >/dev/null || fail "rejected alternative remained on Captain's Call"
+  ROUTING_ANSWER=1 ROUTING_ID=pc-route-proj-a--via-hybrid ROUTING_DECISION=reject \
+    PATH="$dir/bin:$PATH" TASKS_AXI_LOG="$dir/tasks.log" \
+    FM_PLAN_TASKS_AXI_BIN="$dir/bin/tasks-axi-route" FM_PLAN_CAPTAIN_HOLD_BIN="$dir/bin/captain-hold" \
+    PC_BIN="$TEST_PC_BIN" FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
+    bash "$SCRIPT" --payload "$dir/payload.json" --plan-dir "$dir/data/proj-a" --data-dir "$dir/data" \
+    >"$dir/replayed.json" 2>"$dir/replayed.log" || fail "replaying the recorded rejection was not idempotent"
+  jq -e '.captains_call | length == 0' "$dir/replayed.json" >/dev/null || fail "replayed rejection recreated the captain call"
+  pass "a real compiler blocked-alternative becomes a captain hold and its answer rejects and recompiles"
 }
 
 test_missing_pc_bin_refuses_clearly_before_export
 test_frontier_annotations_preserve_dispatch_and_board_schema
+test_real_blocked_alternative_routes_and_reject_recompiles
 
 pass "fm-plan-frontier behavior tests passed"
