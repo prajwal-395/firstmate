@@ -676,9 +676,8 @@ from the record's `lanes` list, never defaulted.
 `group_id`, `group_members`, `reference_digest` and
 `offset_to_reference_seconds` (`world_model._build_multicam`).
 
-It is built by its own command, not by `ren analyze`: `footage_analysis.
-LANES` carries no `world_model` lane, so the analysis run never writes
-this slot.
+It is built by the `world_model` lane of `ren analyze`
+(`footage_analysis.LANES`) and by its own command:
 
 ```sh
 python3 -m library.tools.world_model build <project> [--memory-root DIR]
@@ -873,12 +872,11 @@ ren eval-search <project> --out-json F    # the pre-registered set by default
   each requires - never object segmentation, OCR only with `--with
   ocr.extract`. Results land in `capability_outputs` and the preflight ledger, so
   `ren edit` continues with preflight done. Then the lanes in
-  `footage_analysis.LANES` fill M0-M3d, M6, M7 and M10 and build the
-  text and frame indexes (the `identity` lane writes M1b `speakers.json` beside
-  M3b via `source_memory.write_speakers`); M9 (`world_model.json`) is
-  built by `world_model.build_project_world_model` through its own
-  `build` command - not a `footage_analysis.LANES` lane, so `ren analyze`
-  does not write it. `--memory-only` runs scan and catalog alone.
+   `footage_analysis.LANES` fill M0-M3f, M6, M7, M9 and M10 and build the
+   text and frame indexes (the `identity` lane writes M1b `speakers.json` beside
+   M3b via `source_memory.write_speakers`); M9 (`world_model.json`) is
+   also built by `world_model.build_project_world_model` through its own
+   `build` command. `--memory-only` runs scan and catalog alone.
 - **A fresh record is reused, never rebuilt**: a per-source lane runs only
   for sources whose slot is missing, names another digest, or is older than
   a slot it reads (an M3 measured off an M2 that was since re-sampled).

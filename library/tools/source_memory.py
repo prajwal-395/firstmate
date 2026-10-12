@@ -146,13 +146,9 @@ MEMORY_ROOT_ENV = "PIPELINE_SOURCE_MEMORY_ROOT"
 """Names the memory root outright, for a machine whose layout differs."""
 
 # ── The slots ──────────────────────────────────────────────────────
-# A lane writes into its named file and no other. `source.json`,
-# `transcript.words.json`, the `frames/`/`frames.index.json` pair,
-# `identity.json` and `speakers.json` (by `library/tools/person_entity.py`),
-# `scenes.json` (by `library/tools/analysis/vision_pipeline_v3.py`) and
-# `sound.json` (by `library/steps/step_1_04_temporal_index/step.py`) are
-# written now; the rest are RESERVED - named here so later lanes share
-# the shapes instead of inventing their own, with no code behind them yet.
+# A lane writes into its named file and no other. Every slot named below
+# has a writer (the per-slot constants and the writer history under
+# them); no slot is reserved.
 
 SLOT_SOURCE = "source.json"                    # M0
 SLOT_TRANSCRIPT = "transcript.words.json"      # M1
