@@ -120,7 +120,7 @@ VERBS = (
          module_argv=("library.tools.edit_spec",)),
     Verb("revise", "Projects", "Turn an editor's note into a verified change, in one verb",
          module_argv=("library.tools.revise",),
-         detail="`ren revise <project> \"<note>\"` (or `--note-id` for a pulled Resolve marker) translates the note, shows what would change, then patches the reel in place, touches it up, or rebuilds only what the note reaches - and records the outcome with a summary naming where the change landed. It stops to ask exactly one question when the note is ambiguous, and `ren revise <project>` continues the newest open revision (`--answer` answers its question, `--plan` stops before changing anything)."),
+         detail="`ren revise <project> \"<note>\"` (or `--note-id` for a pulled Resolve marker) translates the note, shows what would change, then patches the reel in place, touches it up, or rebuilds only what the note reaches - and records the outcome with a summary naming where the change landed. `ren revise <project> --at 0:12 [--reel N] \"<note>\"` anchors a chat note to that delivered-file time through the reel's `.deliver.json`, without Resolve. It stops to ask exactly one question when the note is ambiguous, and `ren revise <project>` continues the newest open revision (`--answer` answers its question, `--plan` stops before changing anything)."),
     Verb("reindex", "Projects", "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)", subcommand="reindex",
          detail="Move a project's words onto Voz plus MFA: invalidate legacy temporal indexes, then re-transcribe them"),
 

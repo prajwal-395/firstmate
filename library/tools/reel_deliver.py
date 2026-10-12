@@ -779,6 +779,38 @@ def _refuse_stale_overlays(stale: list) -> str:
     return "\n".join(lines)
 
 
+def _timeline_clock(timeline) -> tuple:
+    """`(fps, start_frame, end_frame)` off the timeline itself.
+
+    One read of the three numbers a file time maps through: the rate
+    turns file seconds into frames, and the start turns them into the
+    timeline's own absolute frame numbering (Resolve starts at
+    01:00:00:00 by default, so this is not zero). Refuses rather than
+    guessing, the way `_timeline_expected_seconds` does.
+    """
+    try:
+        fps = float(timeline.GetSetting("timelineFrameRate"))
+    except (TypeError, ValueError, AttributeError):
+        fps = 0.0
+    if not fps or fps <= 0:
+        raise DeliverRefused(
+            "the timeline reports no usable frame rate",
+            "the delivery record could not carry the rate a file-time "
+            "note maps through - refusing rather than guessing",
+            "fix the timeline's frame rate in Resolve, then deliver again")
+    try:
+        start = int(timeline.GetStartFrame())
+        end = int(timeline.GetEndFrame())
+    except (TypeError, ValueError, AttributeError):
+        raise DeliverRefused(
+            "the timeline reports no usable frame range",
+            "the delivery record could not carry the start frame a "
+            "file-time note maps through - refusing rather than guessing",
+            "fix the timeline's in/out range in Resolve, then deliver "
+            "again")
+    return fps, start, end
+
+
 def _timeline_expected_seconds(timeline) -> float:
     """How long the timeline plays, in seconds. Refused, never guessed."""
     try:
@@ -863,6 +895,8 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         # twice. Nothing here moves the cursor, so there is nothing to
         # put back afterwards either.
         timeline = resolve_render._find_timeline(project, timeline_name)
+        timeline_fps, timeline_start, timeline_end = _timeline_clock(
+            timeline)
         expected_seconds = _timeline_expected_seconds(timeline)
 
         # Fail fast, naming the files: a render against stale overlay
@@ -915,6 +949,10 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     full = {
         "timeline_name": timeline_name,
         "reel": int(reel),
+        "timeline_fps": timeline_fps,
+        "timeline_start_frame": timeline_start,
+        "timeline_end_frame": timeline_end,
+        "timeline_seconds": expected_seconds,
         "settings": settings,
         "render": report,
         "verification": verdict,

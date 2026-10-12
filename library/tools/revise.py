@@ -7,7 +7,11 @@ scope JSON `feedback_patch_flow` takes, and then pick between that, a
 touch-up and a rebuild themselves. This module is the order:
 
 1. **Note.** From chat (`ren revise <p> "<note>"`), which becomes a new
-   durable note (`edit_spec._write_request_note`), or from a pulled
+   durable note (`edit_spec._write_request_note`); from a delivered
+   file's own clock (`ren revise <p> --at 0:12 [--reel N] "<note>"`),
+   which maps the file time onto the timeline through the reel's
+   `.deliver.json` and stores it in the same note store with a stable
+   note id (`delivered_note_anchor`); or from a pulled
    Resolve marker (`--note-id`), which keeps its own id. The note joins
    the assignment that owns its reel (`assignment_spine.attach_revision`).
 2. **Translate.** One `edit_spec` handshake. The host model answers it;
@@ -193,13 +197,29 @@ def _decision_candidates(project: str, routed) -> tuple[list, str]:
 
 
 def start(project, note: str = "", *, note_id: str = "", reel: str = "",
-          **options) -> dict:
+          at: str = "", **options) -> dict:
     """Take a note in and carry it as far as it can go now."""
     from library.tools import assignment_spine as spine
     from library.tools import edit_spec
 
     project = _root(project)
     routed = None
+    anchor = None
+    if at:
+        if note_id:
+            raise ReviseRefused(
+                "a pulled marker note is already placed on the timeline",
+                "a file time anchors a chat note watched in the delivered "
+                "file, not a marker Resolve already placed",
+                "revise the marker with `--note-id` alone, or the chat "
+                "note with `--at` alone")
+        from library.tools import delivered_note_anchor as anchor_mod
+
+        file_seconds = anchor_mod.parse_at(at)
+        anchor = anchor_mod.resolve(project, reel, file_seconds)
+        note_id, _pull_path = anchor_mod.write_anchored_note(
+            project, note, anchor)
+        reel = anchor["timeline_name"]
     if note_id:
         routed = _find_note(project, note_id)
         if routed is None:
@@ -228,8 +248,10 @@ def start(project, note: str = "", *, note_id: str = "", reel: str = "",
         "project": project,
         "note": note,
         "note_id": linked,
-        "source": "marker" if routed is not None else "chat",
+        "source": ("chat-at" if anchor is not None
+                   else "marker" if routed is not None else "chat"),
         "reel": reel,
+        "anchor": anchor,
         "assignment_id": owner["assignment_id"] if owner else None,
         "spec_id": spec_id,
         "request_path": request_path,
@@ -738,7 +760,8 @@ def _result(project: str, record: dict) -> dict:
                             f"`{record.get('failed_command')}`."),
     }.get(status) or (record.get("change") or {}).get("summary")
     out = {key: record.get(key) for key in (
-        "revise_id", "status", "note", "note_id", "reel", "assignment_id",
+        "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
+        "assignment_id",
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question")}
     out["reply"] = reply
@@ -832,6 +855,11 @@ def main(argv=None) -> int:
                         help="the reel's exact timeline name, if known")
     parser.add_argument("--note-id", default="",
                         help="revise a pulled Resolve marker note by its id")
+    parser.add_argument("--at", default="", dest="at",
+                        help="anchor a chat note to this delivered-file time "
+                             "(seconds, M:SS or H:M:SS), e.g. `--at 0:12`; "
+                             "maps to the timeline through the reel's "
+                             "`.deliver.json` without Resolve")
     parser.add_argument("--id", default="", dest="revise_id",
                         help="continue this revision (default: the newest "
                              "open one)")
@@ -844,9 +872,10 @@ def main(argv=None) -> int:
                         help="stop after showing what would change")
     args = parser.parse_args(argv)
     try:
-        if args.note or args.note_id:
+        if args.note or args.note_id or args.at:
             result = start(args.project, args.note, note_id=args.note_id,
-                           reel=args.reel, plan_only=args.plan_only)
+                           reel=args.reel, at=args.at,
+                           plan_only=args.plan_only)
         else:
             revise_id = args.revise_id
             if not revise_id:
