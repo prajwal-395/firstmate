@@ -131,12 +131,14 @@ def run(project_folder: str, args) -> int:
     # project outside the supported range refuses here, and an older
     # supported one migrates with a backup.  This runner takes a raw
     # folder, never `get_project`, so it asks for the gate itself.
-    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
     try:
         from library.tools import project_format
         project_format.ensure_project_format(project_folder)
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         return REFUSAL_EXIT_CODE
     # The assignment this build belongs to (library/tools/
     # assignment_spine.py): D2 asks before approved work is replaced,
@@ -189,7 +191,9 @@ def _run_capabilities(project_folder: str, args) -> int:
             held.enter_context(
                 resolve_lock.resolve_lease("build reels", exclusive=True))
         except resolve_lock.ResolveBusy as busy:
+            from library.tools.ren_refusal import emit_refusal_result
             print(busy.render(), file=sys.stderr)
+            emit_refusal_result(busy)
             return REFUSAL_EXIT_CODE
         for spec in capabilities.run_order(processes.REELS):
             op = operations.get(spec.id)
@@ -227,9 +231,11 @@ def _run_capabilities(project_folder: str, args) -> int:
                 # A step-level refusal with a known next step (the replace
                 # guard's `--allow-drop` declaration): no traceback, exit 4,
                 # nothing after it ran and no closing commit.
-                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+                from library.tools.ren_refusal import (
+                    REFUSAL_EXIT_CODE, emit_refusal_result)
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(refused.render(), file=sys.stderr)
+                emit_refusal_result(refused)
                 return REFUSAL_EXIT_CODE
             if result.refused:
                 from library.tools.ren_refusal import REFUSAL_EXIT_CODE

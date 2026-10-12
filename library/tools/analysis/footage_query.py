@@ -3686,6 +3686,12 @@ def _load_external_hits(path):
 
 
 def main(argv=None):
+    # Same default as the front door, for direct `-m` use: under a
+    # harness the host parses `REN_RESULT` instead of prose (LE-03).
+    # A `ren` verb already set it through the environment, and an
+    # explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     parser = argparse.ArgumentParser(
         prog="footage_query",
         description="Cross-clip footage search over a project's own ingest output.",
@@ -4139,8 +4145,15 @@ def main(argv=None):
 if __name__ == "__main__":
     # ONE place renders every refusal on `ren search` / `ren
     # search-index`'s path, in the same shape as the front door.
+    # With `REN_OUTPUT=json` both a refusal and an uncaught error end
+    # with one final `REN_RESULT` line (LE-03).
     try:
         sys.exit(main())
     except RenRefusal as refused:
+        from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        from library.tools.ren_refusal import report_unexpected
+        sys.exit(report_unexpected(exc))

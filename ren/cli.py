@@ -76,6 +76,13 @@ def _exec_vep(vep, engine_root, argv: list) -> None:
 
 
 def main(argv=None) -> int:
+    # Under a chat harness the host wants data, not prose: default
+    # `REN_OUTPUT` to `json` before anything else, so every verb -
+    # builtins here and exec'd children through the environment -
+    # ends refusals and errors with a `REN_RESULT` line (LE-03). An
+    # explicit user value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
     argv = list(sys.argv[1:] if argv is None else argv)
     if os.environ.get("REN_PERF_LEDGER"):
         from library.tools.perf_ledger import count_call
@@ -116,28 +123,34 @@ def main(argv=None) -> int:
         return 2
 
     if verb.builtin == "doctor":
-        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
         from ren import doctor
         try:
             return doctor.main(rest)
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
     if verb.builtin == "config":
-        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
         from ren import config
         try:
             return config.main(rest)
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
     if verb.builtin == "support-bundle":
-        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
         from ren import support_bundle
         try:
             return support_bundle.main(rest)
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
     if verb.builtin == "setup":
         from ren import setup
@@ -146,7 +159,8 @@ def main(argv=None) -> int:
         from ren import uninstall
         return uninstall.main(rest)
     if verb.builtin in {"upgrade", "rollback"}:
-        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
         from ren import upgrade
         try:
             if verb.builtin == "upgrade":
@@ -154,14 +168,17 @@ def main(argv=None) -> int:
             return upgrade.rollback_main(rest)
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
     if verb.builtin == "update":
-        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
         from ren import update
         try:
             return update.main(rest)
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
     if verb.subcommand:
         _exec_vep(vep, engine_root, [str(manage_project), verb.subcommand, *rest])

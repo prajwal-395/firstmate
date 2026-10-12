@@ -131,6 +131,34 @@ def detected() -> list:
     return [adapter for adapter in ADAPTERS if shutil.which(adapter.binary)]
 
 
+REN_OUTPUT_ENV = "REN_OUTPUT"
+"""The switch the `REN_RESULT` line obeys (`library/tools/ren_refusal.py`)."""
+
+REN_OUTPUT_JSON = "json"
+"""The value that turns the machine-readable result line on."""
+
+
+def ensure_harness_output_env() -> str | None:
+    """Default `REN_OUTPUT` to `json` when a supported harness is present.
+
+    Called at the top of every `ren` process entry (`ren/cli.py`,
+    `manage_project.py`, `footage_query`): when a harness binary is on
+    PATH the caller is almost certainly an agent, which parses the
+    `REN_RESULT` line instead of the prose (LE-03). Detection is the
+    cheap `which`, never a probe, so this costs nothing. A value the
+    user set explicitly always wins - even empty, which keeps
+    prose-only output on a machine with a harness installed. Returns
+    the adapter name that triggered it, or None when nothing was set.
+    """
+    if REN_OUTPUT_ENV in os.environ:
+        return None
+    found = detected()
+    if not found:
+        return None
+    os.environ[REN_OUTPUT_ENV] = REN_OUTPUT_JSON
+    return found[0].name
+
+
 def parse_version(text: str) -> str:
     """The version in a `--version` line, or "" when there is none."""
     match = _VERSION_RE.search(text or "")

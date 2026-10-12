@@ -6,6 +6,7 @@ config is read, and a token planted in a fake auth file must never
 reach a doctor line.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -262,3 +263,34 @@ def test_setup_without_a_host_says_so_and_installs_nothing(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "no chat harness detected" in out
     assert "ren setup-hooks --list" in out
+
+
+def test_detected_host_gets_json_output_by_default(tmp_path, monkeypatch):
+    """A detected harness means the host parses data: the entries
+    default `REN_OUTPUT` to `json` (LE-03)."""
+    bin_dir = _fake_env(tmp_path, monkeypatch)
+    _fake_opencode(bin_dir, {"anthropic": {"type": "oauth"}})
+    monkeypatch.delenv("REN_OUTPUT", raising=False)
+
+    assert hosts.ensure_harness_output_env() == "opencode"
+    assert os.environ["REN_OUTPUT"] == "json"
+
+
+def test_explicit_output_choice_wins_over_detection(tmp_path, monkeypatch):
+    """Presence is a choice: even empty keeps prose-only output on a
+    machine with a harness installed."""
+    bin_dir = _fake_env(tmp_path, monkeypatch)
+    _fake_opencode(bin_dir, {"anthropic": {"type": "oauth"}})
+    monkeypatch.setenv("REN_OUTPUT", "")
+
+    assert hosts.ensure_harness_output_env() is None
+    assert os.environ["REN_OUTPUT"] == ""
+
+
+def test_no_host_leaves_output_alone(tmp_path, monkeypatch):
+    """With no harness on PATH nothing is defaulted."""
+    _fake_env(tmp_path, monkeypatch)
+    monkeypatch.delenv("REN_OUTPUT", raising=False)
+
+    assert hosts.ensure_harness_output_env() is None
+    assert "REN_OUTPUT" not in os.environ

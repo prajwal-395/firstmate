@@ -4678,6 +4678,13 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    # Same default as the front door, for direct `bin/vep
+    # manage_project.py` use: under a harness the host parses
+    # `REN_RESULT` instead of prose (LE-03). A `ren` verb already set
+    # it through the environment, and an explicit value always wins.
+    from ren import hosts
+    hosts.ensure_harness_output_env()
+
     # After argparse, so the check is asked only of the command that
     # needs it. See ML_DEPENDENT_COMMANDS.
     preflight_check(args.command)
@@ -4686,12 +4693,19 @@ def main():
     # (`library/tools/ren_refusal.py`) carries what happened, why, and
     # the fix, and the exit code contract names 4 for it. An unexpected
     # error keeps its traceback and exit 1 - it is a bug, not a refusal.
-    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    # With `REN_OUTPUT=json` both also print one final `REN_RESULT`
+    # line, so the host parses data instead of prose (LE-03).
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
     try:
         args.func(args)
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
         sys.exit(REFUSAL_EXIT_CODE)
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        sys.exit(report_unexpected(exc))
 
 
 if __name__ == "__main__":

@@ -5,12 +5,21 @@ lists pulled Resolve marker notes no routing record has carried yet,
 with the `ren` verb that works each one. It never probes Resolve, so a
 closed app costs a session nothing.
 
+Alongside the hook, `--write` persists `REN_OUTPUT=json` in the host's
+own session environment, so an agent session gets the machine-readable
+`REN_RESULT` line without depending on binary detection at runtime
+(LE-03). A value the user set explicitly - even empty - is never
+overwritten. Hosts with no env channel in the file this manages
+(`codex`: `hooks.json` carries commands, not environment) rely on the
+runtime default in `ren/hosts.py` instead.
+
 Supported hosts (P5: OAuth harnesses only):
 
 * `claude-code` - merges a SessionStart entry into
-  `~/.claude/settings.json`.
+  `~/.claude/settings.json`, plus `REN_OUTPUT` under its `env`.
 * `opencode` - copies the plugin to
-  `~/.config/opencode/plugins/ren-marker-hook.js`.
+  `~/.config/opencode/plugins/ren-marker-hook.js` (the plugin defaults
+  the variable itself).
 * `codex` - merges a session_start entry into `~/.codex/hooks.json`.
 
 Without `--write` this prints what would change and stops. With
@@ -56,7 +65,11 @@ def _plan(app: str) -> tuple:
 
 
 def _merge_claude_settings(path: str) -> tuple:
-    """Merge the hook into Claude settings. Returns (changed, note)."""
+    """Merge the hook and `REN_OUTPUT=json` into Claude settings.
+
+    Returns (changed, note): `changed` is False when the file already
+    carries both, else the settings to write. An `env.REN_OUTPUT` the
+    user set - even empty - always wins and is left alone."""
     try:
         with open(path, "r", encoding="utf-8") as handle:
             settings = json.load(handle)
@@ -64,15 +77,35 @@ def _merge_claude_settings(path: str) -> tuple:
         settings = {}
     if not isinstance(settings, dict):
         return False, "settings file is not an object; left alone"
+    notes = []
+    wrote_hook = False
     hooks = settings.setdefault("hooks", {})
     starts = hooks.setdefault("SessionStart", [])
-    blob = json.dumps(starts)
-    if "ren-marker-hook" in blob:
-        return False, "ren-marker-hook already present"
-    starts.append({
-        "hooks": [{"type": "command",
-                   "command": "ren-marker-hook check"}]})
-    return settings, "SessionStart entry added"
+    if "ren-marker-hook" in json.dumps(starts):
+        notes.append("ren-marker-hook already present")
+    else:
+        starts.append({
+            "hooks": [{"type": "command",
+                       "command": "ren-marker-hook check"}]})
+        notes.append("SessionStart entry added")
+        wrote_hook = True
+    wrote_env = False
+    env = settings.get("env")
+    if env is None:
+        settings["env"] = {"REN_OUTPUT": "json"}
+        notes.append("REN_OUTPUT=json added to env")
+        wrote_env = True
+    elif isinstance(env, dict) and "REN_OUTPUT" not in env:
+        env["REN_OUTPUT"] = "json"
+        notes.append("REN_OUTPUT=json added to env")
+        wrote_env = True
+    elif isinstance(env, dict):
+        notes.append("REN_OUTPUT already set in env; left alone")
+    else:
+        notes.append("env is not an object; left alone")
+    if not wrote_hook and not wrote_env:
+        return False, "; ".join(notes)
+    return settings, "; ".join(notes)
 
 
 def _merge_codex_hooks(path: str) -> tuple:

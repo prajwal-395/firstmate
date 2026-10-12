@@ -48,7 +48,11 @@ fields (`code`, `what`, `why`, `fix`, `user_message`,
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import sys
+import traceback
 
 
 REFUSAL_EXIT_CODE = 4
@@ -145,3 +149,69 @@ def _default_code(class_name: str) -> str:
         return "REN_REFUSAL"
     snake = re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).upper()
     return snake if snake.startswith("REN_") else f"REN_{snake}"
+
+
+REN_RESULT_PREFIX = "REN_RESULT"
+"""The final stderr line's prefix when `REN_OUTPUT=json` (LE-03)."""
+
+UNEXPECTED_CODE = "REN_UNEXPECTED"
+"""The `code` an uncaught error carries in its `REN_RESULT` line."""
+
+
+def json_output_enabled() -> bool:
+    """Whether the caller wants the machine-readable result line.
+
+    The host adapters set `REN_OUTPUT=json` for detected harnesses;
+    humans never set it and keep the prose only."""
+    return os.environ.get("REN_OUTPUT") == "json"
+
+
+def refusal_result_dict(refused: RenRefusal,
+                        exit_code: int = REFUSAL_EXIT_CODE) -> dict:
+    """The `REN_RESULT` payload for a refusal: the exit plus `to_dict`."""
+    return {"ok": False, "exit": exit_code, **refused.to_dict()}
+
+
+def emit_ren_result(payload: dict) -> None:
+    """Print one final `REN_RESULT <json>` line on stderr."""
+    print(f"{REN_RESULT_PREFIX} {json.dumps(payload, sort_keys=True)}",
+          file=sys.stderr)
+
+
+def emit_refusal_result(refused: RenRefusal,
+                        exit_code: int = REFUSAL_EXIT_CODE) -> None:
+    """Print the refusal's `REN_RESULT` line when JSON output is on.
+
+    Every refusal catch site calls this after `render()`: the prose
+    stays as is for humans, and the line carries the code, the
+    recovery class and the fix for the host."""
+    if json_output_enabled():
+        emit_ren_result(refusal_result_dict(refused, exit_code))
+
+
+def unexpected_result_dict(exc: BaseException) -> dict:
+    """The `REN_RESULT` payload for an uncaught error.
+
+    `where` names the frame that raised, so the host can say which
+    file to read; the traceback itself is still printed first."""
+    where = "<unknown>"
+    try:
+        frames = traceback.extract_tb(exc.__traceback__)
+        if frames:
+            last = frames[-1]
+            where = f"{last.filename}:{last.lineno}"
+    except Exception:  # noqa: BLE001 - the location is best-effort
+        pass
+    return {"ok": False, "exit": 1, "code": UNEXPECTED_CODE,
+            "exception": f"{type(exc).__name__}: {exc}", "where": where}
+
+
+def report_unexpected(exc: BaseException) -> int:
+    """Print the traceback, then the `REN_RESULT` line when JSON is on.
+
+    Returns 1, so an `__main__` guard ends with
+    `raise SystemExit(report_unexpected(exc))`."""
+    traceback.print_exc()
+    if json_output_enabled():
+        emit_ren_result(unexpected_result_dict(exc))
+    return 1

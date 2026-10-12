@@ -53,6 +53,14 @@ def pytest_configure(config):
     loads the native library into every test process and arms the
     shutdown race this block exists to prevent (2026-09-23 SIGABRT).
     """
+    # Tests read refusal prose unless they opt into JSON: without this
+    # a machine with a chat harness installed (which the `ren` entries
+    # detect) would emit `REN_RESULT` lines inside tests that call them,
+    # and one test's entry call would leak `REN_OUTPUT=json` into every
+    # later test in the worker. Present-but-empty counts as an explicit
+    # prose choice, so the entries leave it alone; a test that wants the
+    # JSON line sets it itself (LE-03).
+    os.environ.setdefault("REN_OUTPUT", "")
     marker_names = {
         marker.split(":", maxsplit=1)[0]
         for marker in config.getini("markers")
