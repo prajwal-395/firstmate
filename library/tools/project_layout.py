@@ -258,8 +258,12 @@ FOOTAGE_ANALYSIS_RUN = "footage_analysis"
 PROJECT_FORMAT = "project_format"
 """`ren analyze` (library/tools/footage_analysis.py) - not a step: it
 orchestrates steps and the per-source memory lanes."""
+REEL_PREVIEW = "reel_preview"
+"""`ren preview` (library/tools/reel_preview.py) - an explicit verb, not a
+step, like `ren deliver`."""
 NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL,
-                      MARKER_CAPTURE, FOOTAGE_ANALYSIS_RUN, PROJECT_FORMAT)
+                      MARKER_CAPTURE, FOOTAGE_ANALYSIS_RUN, PROJECT_FORMAT,
+                      REEL_PREVIEW)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -365,6 +369,7 @@ class Area(str, Enum):
     # under a step would be a lie about who wrote them.
     GATES = "gates"
     REVIEW = "review"
+    PREVIEWS = "previews"
     LLM_REQUESTS = "llm_requests"
     LLM_RESPONSES = "llm_responses"
     LLM_RESPONSES_BAK = "llm_responses_bak"
@@ -622,6 +627,11 @@ AREAS: dict[Area, AreaSpec] = {
         f"{_OUT}/review", Kind.OUTPUT,
         "The anchored review channel - channel.json holds every note and reply.",
         produced_by=(REVIEW_CHANNEL,)),
+    Area.PREVIEWS: AreaSpec(
+        f"{_OUT}/previews", Kind.OUTPUT,
+        "Watchable low-cost previews of built reels, one per content key, "
+        "and previews.json, the record of every render and cache hit.",
+        produced_by=(REEL_PREVIEW,)),
     Area.LLM_REQUESTS: AreaSpec(
         f"{_OUT}/llm_requests", Kind.OUTPUT,
         "The prompt each hybrid/LLM step was handed, as it was sent.",

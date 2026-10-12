@@ -167,6 +167,7 @@ it whenever the goal is about what is IN the footage.
 | Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |
 | Two versions of one reel | `ren variant new` / `build` / `diff` / `choose` |
 | Redo one stage, step or clip | `ren edit <project> --full-auto agent` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
+| "Let me see it" after a build or a revision | `ren preview <project>` (renders only when asked; an unchanged reel is a cache hit) and hand the person the `Watch:` path it prints |
 | Render a reel to a file | `ren deliver <project> <n>` |
 | Record approval | `ren sign-off <project>` (built reels only; `PROPOSED` fails as `REJECTED` does) |
 | Tidy the Resolve pool | `ren pool-organize`, `ren pool-prune`, `ren relink` |

@@ -47,7 +47,6 @@ The run summary reports `SUCCESS` only when the whole DAG is complete and `faile
 """
 import json
 import os
-import shutil
 import sys
 import subprocess
 import threading
@@ -59,7 +58,6 @@ import tempfile
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from collections import deque
-import re
 import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
@@ -2358,40 +2356,18 @@ def _project_ref(project_dir: str) -> str:
 #: gate-pending pause are not endings, so they stay silent.
 NOTIFIABLE_STATUSES = ("SUCCESS", "FAILED", "REFUSED", "AWAITING_LLM")
 
-#: How long the notification itself may take before the run stops
-#: waiting for it. Posting is instant; a wedged notification server
-#: must not wedge a run's ending.
-NOTIFY_TIMEOUT_S = 10
-
-
 def notify_run_end(status: str, project_dir: str) -> bool:
     """Push a macOS completion notice naming the run's status.
 
-    `osascript -e 'display notification ...'`, exactly once per call.
-    `REN_NOTIFY=0` opts out, and off macOS (or with no `osascript` on
-    PATH) it is a silent no-op. Best-effort throughout: a notice that
-    cannot be posted must never fail the run it announces. Returns
-    whether a notification was posted.
+    Exactly one notification per call, through `completion_notice.post`
+    (which owns the `REN_NOTIFY=0` opt-out and the macOS-only rule).
+    Best-effort throughout: a notice that cannot be posted must never
+    fail the run it announces. Returns whether a notification was posted.
     """
-    if os.environ.get("REN_NOTIFY") == "0":
-        return False
-    if sys.platform != "darwin":
-        return False
-    if shutil.which("osascript") is None:
-        return False
+    from library.tools import completion_notice
     project = os.path.basename(os.path.abspath(project_dir or "")) or (
         str(project_dir) or "(unknown project)")
-    text = f"Ren run {status}: {project}".replace("\\", "\\\\").replace(
-        '"', '\\"')
-    try:
-        subprocess.run(
-            ["osascript", "-e",
-             f'display notification "{text}" with title "Ren"'],
-            capture_output=True, timeout=NOTIFY_TIMEOUT_S, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return True
+    return completion_notice.post(f"Ren run {status}: {project}")
 
 
 def artifact_summary_line(project_dir: str, state: dict) -> str:

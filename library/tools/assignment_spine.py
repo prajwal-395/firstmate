@@ -27,6 +27,7 @@ history reads as the sequence of verbs that happened:
     sign_off  review -> approved  every built reel is signed off
     deliver   approved -> delivered  every signed-off reel is a file
     revise    -> review           a note changed a built reel in place
+    preview   (no move)           a watchable file of a built reel exists
 
 Approving a proposal does not make the assignment `approved`. `approved`
 is the D2 word for work the creator has accepted, and a plan with no
@@ -531,6 +532,40 @@ def begin_deliver(project, reel_number: int) -> Act | None:
     return act
 
 
+# ── Preview ─────────────────────────────────────────────────────────
+
+
+def on_preview(project, reel_number: int, preview: dict) -> dict | None:
+    """A watchable preview of a built reel exists (`ren preview`).
+
+    Records the file on the reel's entry - the newest preview replaces
+    the last, since only the newest matches the reel - and appends one
+    `preview` history entry naming it and whether it was rendered or a
+    cache hit. A preview moves no state: watching is not approving.
+    None when no assignment owns the reel.
+    """
+    root = _root(project)
+    if not lifecycle.list_records(root):
+        return None
+    with lifecycle.assignment_lock(root, _SPINE_LOCK):
+        moment = next((m for m in _moments(root)
+                       if int(m.number) == int(reel_number)), None)
+        owner = (_owner(lifecycle.list_records(root), moment.moment_id)
+                 if moment is not None else None)
+        if owner is None:
+            return None
+        entry = {key: preview[key] for key in (
+            "path", "content_key", "engine", "outcome", "duration_seconds")
+            if key in preview}
+        entry["at"] = _now()
+        owner["reels"][moment.moment_id]["preview"] = entry
+        lifecycle.save(root, owner)
+        return lifecycle.transition(
+            root, owner["assignment_id"], owner["state"], event="preview",
+            detail={"reels": [int(reel_number)], "path": entry.get("path"),
+                    "outcome": entry.get("outcome")})
+
+
 # ── Edit ────────────────────────────────────────────────────────────
 
 
@@ -702,9 +737,11 @@ def resume_point(project, record: dict) -> dict:
                        ", ".join(r["name"] for r in by_status["approved"])}
     if by_status["built"]:
         reel = by_status["built"][0]
+        watch = (reel.get("preview") or {}).get("path")
         return {"action": "sign_off",
                 "command": f"ren sign-off {quoted} {shlex.quote(reel['name'])}",
-                "why": f"{reel['name']} is built and waiting for approval"}
+                "why": f"{reel['name']} is built and waiting for approval"
+                       + (f"; watch {watch}" if watch else "")}
     if by_status["signed_off"]:
         reel = by_status["signed_off"][0]
         return {"action": "deliver",

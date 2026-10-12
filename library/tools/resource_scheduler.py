@@ -27,11 +27,15 @@ Capability phases declare their resource demand on
 `operations.Operation.execution`; this module derives the profiles it
 admits. An exclusive Resolve phase also reserves `resolve_cursor`, so
 the resource scheduler and Resolve router cannot disagree. `machine` is
-the default and the old mutex exactly. `full_suite_gate` is the one
-non-capability workload profile: it is a test runner, not a pipeline
-capability. Its 6 GB RAM ceiling was measured at 5.30 GB resident
-across 243 samples. Its CPU demand stays declared: a noisy shared-machine
-run showed what the gate obtained, not what it asked for.
+the default and the old mutex exactly. Two workload profiles are not
+capabilities. `full_suite_gate` is a test runner. Its 6 GB RAM ceiling
+was measured at 5.30 GB resident across 243 samples. Its CPU demand
+stays declared: a noisy shared-machine run showed what the gate
+obtained, not what it asked for. `reel_preview` is `ren preview`'s
+headless engine render and proxy encode (`library/tools/reel_preview.py`),
+an explicit verb rather than a capability like `ren deliver`. It takes
+the whole GPU, so a preview never runs beside a Resolve render or a
+model pass: one heavy media job at a time on the captain's Mac.
 
 The store
 ---------
@@ -153,6 +157,14 @@ def profiles() -> Dict[str, Dict[str, int]]:
             "cpu": max(cap["cpu"] - 2, cap["cpu"] // 2 + 1),
             "ram_gb": min(6, cap["ram_gb"]),
             "disk": 2,
+        },
+        # `ren preview` (module docstring): a bounded engine render plus
+        # one proxy encode, serialised against every other GPU tenant.
+        "reel_preview": {
+            "cpu": min(4, cap["cpu"]),
+            "ram_gb": min(4, cap["ram_gb"]),
+            "disk": 2,
+            "gpu": 1,
         },
     }
     for part in NATIVE_PARTS:
