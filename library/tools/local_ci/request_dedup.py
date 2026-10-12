@@ -8,24 +8,20 @@ so the daemon can account for every check served by one execution.
 from __future__ import annotations
 
 import threading
-from collections import OrderedDict
 
 
 class RequestDeduplicator:
     """Single-flight execution for concurrent requests with the same key."""
 
-    def __init__(self, keep: int = 1024) -> None:
-        if keep < 1:
-            raise ValueError("keep must be positive")
-        self._keep = keep
+    def __init__(self) -> None:
         self._lock = threading.Condition()
-        self._requests: OrderedDict[str, dict] = OrderedDict()
+        self._requests: dict[str, dict] = {}
 
     def run(self, key: str, consumer: str, execute) -> dict:
         """Run once per key and return its result plus all consumers.
 
-        Exceptions are shared as results too: every consumer sees the same
-        failure and a later request may retry after the failed row is evicted.
+        Exceptions are shared with current waiters. Completed requests are
+        removed immediately; validated PASS reuse belongs to the result cache.
         """
         with self._lock:
             request = self._requests.get(key)
@@ -54,23 +50,16 @@ class RequestDeduplicator:
             with self._lock:
                 request["error"] = exc
                 request["running"] = False
-                self._trim()
+                self._requests.pop(key, None)
                 self._lock.notify_all()
             raise
         with self._lock:
             request["result"] = result
             request["running"] = False
-            self._trim()
+            self._requests.pop(key, None)
             self._lock.notify_all()
             return {"result": result, "consumers": list(request["consumers"]),
                     "shared": False}
-
-    def _trim(self) -> None:
-        completed = [key for key, value in self._requests.items()
-                     if not value["running"]]
-        while len(completed) > self._keep:
-            self._requests.pop(completed.pop(0), None)
-
 
 _daemon_requests = RequestDeduplicator()
 

@@ -47,3 +47,42 @@ def test_distinct_verification_keys_execute_independently():
             key, key, lambda request_key=key:
             calls.append(request_key) or request_key)
     assert calls == ["test.py:key-a", "test.py:key-b"]
+
+
+def test_request_after_failure_executes_again():
+    deduplicator = RequestDeduplicator()
+    calls = []
+
+    def fail_once():
+        calls.append("failed")
+        raise RuntimeError("temporary failure")
+
+    try:
+        deduplicator.run("key", "first", fail_once)
+    except RuntimeError as exc:
+        assert str(exc) == "temporary failure"
+    else:
+        raise AssertionError("first request should fail")
+
+    result = deduplicator.run(
+        "key", "retry", lambda: calls.append("passed") or {"ok": True})
+
+    assert calls == ["failed", "passed"]
+    assert result["result"] == {"ok": True}
+    assert result["shared"] is False
+
+
+def test_request_after_success_executes_again():
+    deduplicator = RequestDeduplicator()
+    calls = []
+
+    def execute():
+        calls.append("ran")
+        return {"ok": True}
+
+    first = deduplicator.run("key", "first", execute)
+    second = deduplicator.run("key", "second", execute)
+
+    assert calls == ["ran", "ran"]
+    assert first["shared"] is False
+    assert second["shared"] is False
