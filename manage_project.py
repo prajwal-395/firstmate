@@ -751,9 +751,12 @@ def cmd_sign_off(args):
             if note:
                 print(f'      "{note}"')
         return
+    from library.tools import assignment_spine
     if args.withdraw:
         if reel_signoff.withdraw(project_folder, args.reel,
                                  why=args.note):
+            assignment_spine.on_sign_off(project_folder, args.reel,
+                                         withdrawn=True)
             print(f"Withdrew the sign-off on {args.reel!r}. The "
                   f"withdrawal is recorded, not erased.")
         else:
@@ -765,6 +768,7 @@ def cmd_sign_off(args):
     except reel_signoff.UncarriedNotesOpen as owed:
         print(owed.render(), file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
+    assignment_spine.on_sign_off(project_folder, args.reel)
     print(f"Signed off {entry['reel']!r}"
           + (f" in round {entry['round']}" if entry.get("round") else "")
           + f", by {entry['by']}.")
@@ -1944,11 +1948,31 @@ def cmd_run(args):
     print(f"  Command: {' '.join(cmd)}")
     print(f"")
 
+    # A real run is an act of the project's edit assignment
+    # (library/tools/assignment_spine.py): it opens one on the first
+    # run, asks before replacing an approved edit, and moves to review
+    # only when the whole DAG completed. A dry run touches nothing.
+    act = None
+    if not args.dry_run:
+        from library.tools import assignment_spine
+        act = assignment_spine.begin_edit(str(config.project_root))
+
     import subprocess
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PILOT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     # check=False: the return code is inspected on the next line.
-    result = subprocess.run(cmd, env=env, check=False)
+    try:
+        result = subprocess.run(cmd, env=env, check=False)
+    except KeyboardInterrupt:
+        if act is not None:
+            assignment_spine.end_act(act, ok=False, status="interrupted")
+        raise
+    if act is not None:
+        from library.tools import run_control
+        assignment_spine.end_edit(
+            act, returncode=result.returncode,
+            summary_status=run_control.read_run_status(
+                str(config.project_root)).get("summary_status"))
     sys.exit(result.returncode)
 
 
@@ -2110,6 +2134,11 @@ def cmd_propose_reels(args):
             f"absolute path instead of the slug") from e
     path = write_from_step_output(str(config._project_root), force=args.force)
     print(f"Wrote {path}")
+    # The first proposal of a request opens its assignment
+    # (library/tools/assignment_spine.py); `ren work-state` reads it.
+    from library.tools import assignment_spine
+    record = assignment_spine.on_propose(str(config._project_root))
+    print(f"Assignment {record['assignment_id']}: {record['state']}")
 
 
 def cmd_build_reels(args):
@@ -2584,6 +2613,11 @@ def cmd_deliver_reel(args):
     from library.tools import reel_deliver
 
     project_folder = _reel_project_folder(args.project)
+    # The delivery is an act of the reel's assignment
+    # (library/tools/assignment_spine.py): D2 asks before an approved
+    # delivery is overwritten, and the state moves only on success.
+    from library.tools import assignment_spine
+    act = assignment_spine.begin_deliver(project_folder, args.reel)
     try:
         full = reel_deliver.deliver_reel(
             project_folder,
@@ -2593,8 +2627,17 @@ def cmd_deliver_reel(args):
             timeout_seconds=args.timeout,
         )
     except reel_deliver.DeliverRefused as refused:
+        assignment_spine.end_act(act, ok=False, detail=refused.what)
         print(refused.render(), file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
+    except KeyboardInterrupt:
+        assignment_spine.end_act(act, ok=False, status="interrupted")
+        raise
+    except BaseException as crashed:
+        assignment_spine.end_act(act, ok=False, status="failed",
+                                 detail=repr(crashed))
+        raise
+    assignment_spine.end_act(act, ok=True)
 
     verification = full["verification"]
     print(f"Delivered {full['timeline_name']!r} -> "

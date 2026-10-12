@@ -66,6 +66,10 @@ def test_work_state_includes_resumable_assignment_checkpoints(tmp_path):
         "state": "review",
         "checkpoint": "picture.plan",
         "recovery": "resume",
+        "resume_point": {
+            "action": "resume_operation", "command": None,
+            "why": "operation picture.plan did not finish; resubmit its "
+                   "recorded request"},
     }]
     assert {"kind": "assignment", **state["assignments"][0]} in state["open_work"]
 

@@ -12,7 +12,9 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 STATES = ("brief", "draft", "review", "approved", "delivered")
@@ -58,15 +60,22 @@ SAFE_OPERATION_EFFECTS = {
 }
 
 
-def _path(project: str, assignment_id: str) -> Path:
-    digest = hashlib.sha256(assignment_id.encode("utf-8")).hexdigest()[:24]
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _directory(project: str) -> Path:
     return (
         Path(project).expanduser().resolve()
         / "pipeline_output"
         / "llm_requests"
         / "assignments"
-        / f"{digest}.json"
     )
+
+
+def _path(project: str, assignment_id: str) -> Path:
+    digest = hashlib.sha256(assignment_id.encode("utf-8")).hexdigest()[:24]
+    return _directory(project) / f"{digest}.json"
 
 
 @contextmanager
@@ -115,10 +124,28 @@ def load(project: str, assignment_id: str) -> dict | None:
     return record
 
 
-def create(project: str, assignment_id: str, brief=None) -> dict:
+def list_records(project: str) -> list[dict]:
+    """Every assignment checkpoint in the project, oldest first."""
+    directory = _directory(project)
+    records = []
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("version") == 1 \
+                and record.get("assignment_id"):
+            records.append(record)
+    return sorted(records, key=lambda r: (r.get("created_at") or "",
+                                          r["assignment_id"]))
+
+
+def create(project: str, assignment_id: str, brief=None, **fields) -> dict:
+    """Create the checkpoint once; ``fields`` seed only a NEW record."""
     existing = load(project, assignment_id)
     if existing is not None:
         return existing
+    now = _now()
     record = {
         "version": 1,
         "assignment_id": assignment_id,
@@ -127,30 +154,65 @@ def create(project: str, assignment_id: str, brief=None) -> dict:
         "replacement_approved": False,
         "checkpoint": None,
         "operations": {},
+        "history": [],
+        "created_at": now,
+        "updated_at": now,
+        **fields,
     }
     _write(_path(project, assignment_id), record)
     return record
 
 
-def transition(project: str, assignment_id: str, target: str, *, brief=None) -> dict:
+def save(project: str, record: dict) -> dict:
+    """Persist a record a caller changed under ``assignment_lock``."""
+    record["updated_at"] = _now()
+    _write(_path(project, record["assignment_id"]), record)
+    return record
+
+
+def update(project: str, assignment_id: str,
+           mutate: Callable[[dict], None]) -> dict:
+    """Apply ``mutate`` to an existing record and persist it."""
+    record = load(project, assignment_id)
+    if record is None:
+        raise FileNotFoundError(f"assignment {assignment_id!r} has no checkpoint")
+    mutate(record)
+    return save(project, record)
+
+
+def transition(project: str, assignment_id: str, target: str, *, brief=None,
+               event: str | None = None, detail: dict | None = None) -> dict:
+    """Move to ``target``; a named ``event`` is appended to the history.
+
+    An event whose target is the current state is still recorded: the
+    history is what happened to the assignment, and an act that leaves
+    the state where it was (approving a plan, delivering a second reel)
+    happened all the same. Without an event a same-state call is a no-op.
+    """
     if target not in STATES:
         raise ValueError(f"unknown assignment state {target!r}")
     record = create(project, assignment_id, brief)
     current = record["state"]
-    if target == current:
+    if target == current and event is None:
         return record
-    if target not in TRANSITIONS[current]:
+    if target != current and target not in TRANSITIONS[current]:
         raise ValueError(f"invalid assignment transition {current!r} -> {target!r}")
     record["state"] = target
-    _write(_path(project, assignment_id), record)
-    return record
+    if target == "approved" and current != "approved":
+        # Per-assignment authorization covers one revision round: the
+        # creator approving the work again closes it (decision D2).
+        record["replacement_approved"] = False
+    if event is not None:
+        record.setdefault("history", []).append(
+            {"event": event, "from": current, "to": target, "at": _now(),
+             **(detail or {})})
+    return save(project, record)
 
 
 def authorize_replacement(project: str, assignment_id: str) -> dict:
     record = create(project, assignment_id)
     record["replacement_approved"] = True
-    _write(_path(project, assignment_id), record)
-    return record
+    return save(project, record)
 
 
 def _operation_key(operation_id: str, request: dict) -> str:
@@ -178,15 +240,16 @@ def operation_effect(
             "allowed": False,
             "reason": "settled creative direction needs clarification",
         }
-    replaces = bool(
-        inputs.get("replace_approved_work")
-        or inputs.get("replaces_approved_work")
-        or (
-            record["state"] in {"approved", "delivered"}
-            and SAFE_OPERATION_EFFECTS.get(operation_id) == "draft"
-        )
+    # A caller that KNOWS it replaces approved work says so; that holds
+    # whatever the assignment's aggregate state, because one signed-off
+    # reel of a request still in review is approved work.
+    declared = bool(inputs.get("replace_approved_work")
+                    or inputs.get("replaces_approved_work"))
+    replaces = declared or (
+        record["state"] in {"approved", "delivered"}
+        and SAFE_OPERATION_EFFECTS.get(operation_id) == "draft"
     )
-    if replaces and record["state"] in {"approved", "delivered"}:
+    if replaces and (declared or record["state"] in {"approved", "delivered"}):
         if not record["replacement_approved"]:
             return {
                 "effect": "replace_approved_work",
@@ -229,7 +292,7 @@ def begin_operation(
     checkpoint = {"operation_id": operation_id, "request": request, "status": "running"}
     record["operations"][key] = checkpoint
     record["checkpoint"] = key
-    _write(_path(project, assignment_id), record)
+    save(project, record)
     return checkpoint
 
 
@@ -240,7 +303,7 @@ def finish_operation(
     key = _operation_key(operation_id, envelope["recovery"]["resume_with"])
     checkpoint = record["operations"][key]
     checkpoint.update(status="completed", envelope=envelope)
-    _write(_path(project, assignment_id), record)
+    save(project, record)
 
 
 def interrupt(project: str, assignment_id: str) -> dict:
@@ -250,7 +313,7 @@ def interrupt(project: str, assignment_id: str) -> dict:
     operation_id = record.get("checkpoint")
     if operation_id and record["operations"][operation_id]["status"] == "running":
         record["operations"][operation_id]["status"] = "interrupted"
-        _write(_path(project, assignment_id), record)
+        save(project, record)
     return record
 
 

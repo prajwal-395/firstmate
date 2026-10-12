@@ -1293,9 +1293,10 @@ def test_the_build_command_closes_its_own_record():
     """The closing commit exists, and it is OUTSIDE the node loop.
 
     Inside the loop it would commit before the next node's state write
-    and reproduce the defect one node later.
+    and reproduce the defect one node later. The loop lives in
+    `_run_capabilities`, which `run` calls inside its assignment act.
     """
-    body = _function("run")
+    body = _function("_run_capabilities")
     calls = [n for n in ast.walk(body)
              if isinstance(n, ast.Call)
              and ast.unparse(n).startswith("commit_run_tail")]

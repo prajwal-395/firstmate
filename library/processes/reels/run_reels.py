@@ -138,6 +138,34 @@ def run(project_folder: str, args) -> int:
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
         return REFUSAL_EXIT_CODE
+    # The assignment this build belongs to (library/tools/
+    # assignment_spine.py): D2 asks before approved work is replaced,
+    # and the state moves only when the build completes - a refusal or
+    # a crash leaves the assignment where it was.
+    from library.tools import assignment_spine
+    try:
+        act = assignment_spine.begin_build(
+            project_folder, args.only_reel or None)
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        return REFUSAL_EXIT_CODE
+    try:
+        code = _run_capabilities(project_folder, args)
+    except KeyboardInterrupt:
+        assignment_spine.end_act(act, ok=False, status="interrupted")
+        raise
+    except BaseException as crashed:
+        assignment_spine.end_act(act, ok=False, status="failed",
+                                 detail=repr(crashed))
+        raise
+    assignment_spine.end_act(
+        act, ok=code == 0, detail="" if code == 0 else f"exit {code}")
+    return code
+
+
+def _run_capabilities(project_folder: str, args) -> int:
+    """The capability loop of `run`, inside its assignment act."""
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE
     # ONE HOLD for the whole run: build, ask, the gate and promotion.
     # `rebuild_reels_in_project` holds the exclusive instance lease for
     # its own body, and that body ends where `reel.build` returns -

@@ -82,24 +82,21 @@ def project_work_state(project_ref: str) -> dict:
         for path in sorted(requests.glob("edit_spec_*.json")):
             if not (responses / path.name).exists():
                 pending_specs.append(path.stem)
+    # Assignments are read through the lifecycle and the spine, the same
+    # records and resume point `ren assignment` answers with.
+    from library.tools import assignment_lifecycle, assignment_spine
     assignments = []
-    assignment_dir = requests / "assignments"
-    if assignment_dir.is_dir():
-        for path in sorted(assignment_dir.glob("*.json")):
-            record = _json(path)
-            if record is None or record.get("version") != 1:
-                continue
-            assignment_id = record["assignment_id"]
-            state = record["state"]
-            checkpoint_id = record.get("checkpoint")
-            checkpoint = record.get("operations", {}).get(checkpoint_id, {})
-            assignments.append({
-                "assignment_id": assignment_id,
-                "state": state,
-                "checkpoint": checkpoint.get("operation_id"),
-                "recovery": "resume" if checkpoint.get("status") in {"running", "interrupted"}
-                else "continue",
-            })
+    for record in assignment_lifecycle.list_records(str(root)):
+        checkpoint_id = record.get("checkpoint")
+        checkpoint = record.get("operations", {}).get(checkpoint_id, {})
+        assignments.append({
+            "assignment_id": record["assignment_id"],
+            "state": record["state"],
+            "checkpoint": checkpoint.get("operation_id"),
+            "recovery": "resume" if checkpoint.get("status") in {"running", "interrupted"}
+            else "continue",
+            "resume_point": assignment_spine.resume_point(str(root), record),
+        })
     run = _json(root / "pipeline_run.json")
     brief = config_data.get("creative_brief") or config_data.get("pipeline", {}).get("creative_brief")
     settled = []
@@ -156,9 +153,16 @@ def _summary(state: dict) -> str:
     pending = (f" {len(approvals)} approval{'s' if len(approvals) != 1 else ''} waiting." if approvals else " No approvals are waiting.")
     work = state["open_work"]
     open_text = " Work is waiting: " + ", ".join(str(item.get("kind")) for item in work if item.get("kind") != "next step") + "." if any(item.get("kind") != "next step" for item in work) else " No open work is recorded."
+    live = [item for item in state["assignments"]
+            if item["state"] != "delivered" or item["recovery"] == "resume"]
+    assignment_text = "".join(
+        f" Assignment {item['assignment_id']} is {item['state']}"
+        + (f"; next: {item['resume_point']['command']}"
+           if item["resume_point"].get("command") else "")
+        + "." for item in live)
     requested = state["last_requested_change"]
     requested_text = f" Last request: {requested.get('prompt', '').strip()[:180]}" if requested and requested.get("prompt") else ""
-    return f"{project}.{last}{pending}{open_text}{requested_text}"
+    return f"{project}.{last}{pending}{open_text}{assignment_text}{requested_text}"
 
 
 def main(argv=None) -> int:

@@ -86,6 +86,9 @@ VERBS = (
     Verb("work-state", "Projects", "Read where a project left off",
          module_argv=("library.tools.project_work_state",),
          detail="Read a short summary of settled decisions, latest changes, approvals and open work. No model call or Resolve access."),
+    Verb("assignment", "Projects", "Read a request's assignment: state, history and the verb it waits on",
+         module_argv=("library.tools.assignment_interaction",),
+         detail="Print the assignment contract's envelope for the project's open request: its state (brief, draft, review, approved, delivered), the history of verbs that moved it and the resume point. `--authorize-replacement --id <id>` records the creator's yes to replacing that assignment's approved work. No model call or Resolve access."),
     Verb("task", "Projects", "Start or finish an isolated semantic task",
          subcommand="task",
          detail="`ren task <project> start <task>` allocates a ren/<task> "

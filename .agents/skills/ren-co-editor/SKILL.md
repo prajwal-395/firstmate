@@ -44,6 +44,11 @@ Work from the person's GOAL, not from the pipeline's step list:
    useful. It composes existing project records and makes no model call
    or Resolve connection. Treat its records as the project's durable
    history, so continuing does not depend on this chat surviving.
+   Each request (a proposal or an edit run) has an assignment that the
+   verbs move: `ren assignment <project>` prints its state, history and
+   `resume_point.command`, which is the next verb to run. A refusal with
+   recovery class `needs_question` is a question for the person. On yes,
+   run the `--authorize-replacement` command it names, then repeat.
 2. **Goal** - what should be different when you are done? Ask in chat
    when it is ambiguous; never guess a creative choice.
 3. **Inspect state** - what exists already (section 2).

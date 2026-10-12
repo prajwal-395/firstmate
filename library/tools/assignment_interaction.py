@@ -279,3 +279,103 @@ def delivery_receipt(project: str, *, assignment_id: str,
             "recovery": {"resumable": True, "resume_with": {
                 "assignment_id": assignment_id, "stage": "deliver",
                 "action": resume_point["action"]}}}
+
+
+STAGE_BY_STATE = {"brief": "understand", "draft": "plan", "review": "review",
+                  "approved": "deliver", "delivered": "deliver"}
+
+
+def _summary_message(record: Mapping, resume: Mapping) -> str:
+    return f"Assignment {record['state']}: {resume['why']}."
+
+
+def state(project: str, assignment_id: str | None = None) -> dict:
+    """How a host reads an assignment: the same envelope every act returns.
+
+    With no ``assignment_id`` the project's newest open assignment answers
+    (``assignment_spine.current``), else the newest one of any state. The
+    result carries the record, its history and the resume point - the
+    one verb the assignment is waiting on.
+    """
+    from library.tools import assignment_spine
+    root = str(Path(project).expanduser().resolve())
+    if assignment_id:
+        record = lifecycle.load(root, assignment_id)
+        if record is None:
+            raise FileNotFoundError(f"assignment {assignment_id!r} has no checkpoint")
+    else:
+        records = lifecycle.list_records(root)
+        record = assignment_spine.current(root) or (
+            max(records, key=lambda r: (r.get("updated_at") or "",
+                                        r.get("created_at") or ""))
+            if records else None)
+    if record is None:
+        return {"version": ENVELOPE_VERSION, "assignment_id": None,
+                "operation_id": "assignment.state", "stage": "understand",
+                "status": "completed",
+                "progress": {"status": "completed", "fraction": 1.0,
+                             "message": "No assignment is recorded yet; "
+                                        "a proposal or an edit run opens one."},
+                "result": None,
+                "recovery": {"resumable": False, "resume_with": None}}
+    resume = assignment_spine.resume_point(root, record)
+    return {"version": ENVELOPE_VERSION, "assignment_id": record["assignment_id"],
+            "operation_id": "assignment.state",
+            "stage": STAGE_BY_STATE[record["state"]],
+            "status": "completed",
+            "progress": {"status": "completed", "fraction": 1.0,
+                         "message": _summary_message(record, resume)},
+            "result": {**record, "resume_point": resume},
+            "recovery": {"resumable": resume["command"] is not None,
+                         "resume_with": resume}}
+
+
+def authorize(project: str, assignment_id: str) -> dict:
+    """Record the creator's yes to replacing this assignment's approved work."""
+    root = str(Path(project).expanduser().resolve())
+    if lifecycle.load(root, assignment_id) is None:
+        raise FileNotFoundError(f"assignment {assignment_id!r} has no checkpoint")
+    lifecycle.authorize_replacement(root, assignment_id)
+    return state(root, assignment_id)
+
+
+def main(argv=None) -> int:
+    """`ren assignment <project>`: read (or authorize) an assignment."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="ren assignment",
+        description="Read a project's assignment as the host contract's "
+                    "envelope: state, history and the verb it waits on.")
+    parser.add_argument("project", help="project slug or path")
+    parser.add_argument("--id", dest="assignment_id", default=None,
+                        help="the assignment to read (default: the open one)")
+    parser.add_argument("--authorize-replacement", action="store_true",
+                        help="record the creator's yes to replacing this "
+                             "assignment's approved work (decision D2)")
+    args = parser.parse_args(argv)
+    root = Path(args.project).expanduser()
+    if not root.is_dir():
+        from library.tools.project_registry import get_project
+        try:
+            root = Path(get_project(args.project).project_root)
+        except FileNotFoundError as exc:
+            parser.error(str(exc))
+    try:
+        if args.authorize_replacement:
+            if not args.assignment_id:
+                parser.error("--authorize-replacement needs --id: the yes "
+                             "is given to one assignment")
+            envelope = authorize(str(root), args.assignment_id)
+        else:
+            envelope = state(str(root), args.assignment_id)
+    except FileNotFoundError as exc:
+        print(f"ren assignment: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(envelope, indent=2, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
