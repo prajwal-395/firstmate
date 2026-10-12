@@ -8,3 +8,9 @@ pytest
 # control (`--no-parallel`) and real_model phase run without it.
 # Measured basis: data/vep-parallelise-the-test-gate/report.md.
 pytest-xdist>=3.6
+
+# On-demand coverage contexts for the CI-05 index
+# (`scripts/collect_coverage_index.py --cov-context=test`). Never on the
+# merge path and never imported by library/ or ren/: the collector
+# shells out to it, and the index reader stays stdlib-only.
+pytest-cov
