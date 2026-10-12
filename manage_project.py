@@ -3172,6 +3172,20 @@ def cmd_deliver_all(project_folder: str, args) -> None:
     for row in report["untracked"]:
         print(f"  Reel {row['reel']} {row['timeline_name']!r} delivered "
               f"without a receipt: no assignment owns it")
+    for row in report.get("variants", []):
+        qc = row.get("qc") or {}
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} variant for "
+              f"{'+'.join(row['serves'])} -> {row['output_path']} "
+              f"(QC {'PASS' if qc.get('passed') else 'FAIL'}, "
+              f"{row.get('crop')})")
+    for row in report.get("variants_up_to_date", []):
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} variant for "
+              f"{'+'.join(row['serves'])} up to date "
+              f"({row['output_path']} - {row['reason']})")
+    for row in report.get("variant_failures", []):
+        print(f"  Reel {row['reel']} {row['timeline_name']!r} variant for "
+              f"{'+'.join(row['serves'])} NOT delivered: {row['error']}",
+              file=sys.stderr)
     for note in report["variant_notes"]:
         print(f"  Reel {note['reel']} variant for "
               f"{'+'.join(note['serves'])} pending: {note['reason']}")

@@ -10,7 +10,9 @@ refusing for a missing number:
 * `deliverable_set` is planned only when the requested specs differ.
   pmk posts one 1080x1920 master to three platforms whose specs agree
   on every render-governing field, so the three are ONE job and each
-  reel renders once;
+  reel renders once; when the specs differ, each further job is
+  reframed off the rendered master picture (`deliver_variants`) into
+  its own variant file instead of a named-missing receipt row;
 * every produced file runs `deliverable_qc` against its own spec;
 * every owning assignment gets
   `assignment_artifacts.publish_delivery_receipt`;
@@ -189,8 +191,7 @@ def delivery_jobs(platforms: list[str],
     `{"serves": (...), "spec": DeliverySpec, "needs_reframe": bool,
     "source": str}`. The first job's representative is the project's
     own platform - that is the file the batch renders; further jobs
-    are recorded as missing in the receipt until the reframe path
-    renders them.
+    are reframed off it by `deliver_variants.render_variant`.
     """
     from library.tools.deliverable_matrix import render_key
     from library.tools.delivery_spec import resolve_delivery_spec
@@ -486,23 +487,32 @@ def deliver_all_approved(
         output_dir: str = "",
         timeout_seconds: int = 1800,
         deliver_one: Callable | None = None,
-        qc_one: Callable | None = None) -> dict:
+        qc_one: Callable | None = None,
+        reframe_one: Callable | None = None,
+        face_track_for: Callable | None = None) -> dict:
     """Deliver every approved (signed-off) reel. Returns the batch report.
 
-    `deliver_one` defaults to `reel_deliver.deliver_reel` and `qc_one`
-    to `run_qc` - the seams the suite fakes. A reel whose render is
-    refused does not stop the batch: its error is recorded and the
+    `deliver_one` defaults to `reel_deliver.deliver_reel`, `qc_one`
+    to `run_qc` and `reframe_one` to
+    `deliver_variants.render_variant` - the seams the suite fakes.
+    `face_track_for`, when given, is called as
+    `face_track_for(timeline_name, duration_seconds, sample_rate_hz)`
+    and returns a face-centre track over the master seconds or None;
+    without it every variant crop is centred and says so. A reel whose
+    render is refused does not stop the batch: its error is recorded and the
     batch continues; when nothing at all was delivered the first
     refusal raises, so the CLI exits as a refusal rather than a quiet
     partial. Receipts cover what was delivered (rendered or already up
     to date); a run that delivered nothing writes none.
     """
     from library.tools import assignment_spine, reel_deliver
+    from library.tools import deliver_variants as _variants
     from library.tools.project_layout import Area, ProjectLayout
 
     project_folder = os.path.abspath(project_folder)
     deliver_one = deliver_one or reel_deliver.deliver_reel
     qc_one = qc_one or run_qc
+    reframe_one = reframe_one or _variants.render_variant
 
     moments = approved_moments(project_folder)
     if not moments:
@@ -530,6 +540,14 @@ def deliver_all_approved(
     up_to_date: list[dict] = []
     failed: list[dict] = []
     first_error: Optional[Exception] = None
+    # Per reel, what the master pass left behind: the rendered (or
+    # recorded) master file, the full deliver report when one ran, and
+    # the owning assignment halves the variant pass reuses. A reel the
+    # master pass refused has no file and no entry here, so its
+    # variants read as pending rather than as silent skips.
+    master_outputs: dict[int, str] = {}
+    master_fulls: dict[int, dict | None] = {}
+    moment_state: dict[int, dict] = {}
 
     for moment in moments:
         number = int(moment.number)
@@ -551,6 +569,11 @@ def deliver_all_approved(
                        "from_prior_delivery": True},
                 "reason": why,
             })
+            master_outputs[number] = prior.get("output_path") or ""
+            master_fulls[number] = None
+            moment_state[number] = {
+                "record": record, "reel_entry": reel_entry,
+                "moment": moment}
             continue
         act = assignment_spine.begin_deliver(project_folder, number)
         try:
@@ -598,28 +621,135 @@ def deliver_all_approved(
                 "opens_on_black", "passed")},
             "qc": qc,
         })
+        master_outputs[number] = out_path
+        master_fulls[number] = full
+        moment_state[number] = {
+            "record": record, "reel_entry": reel_entry,
+            "moment": moment}
 
     if not delivered and not up_to_date:
         assert first_error is not None
         raise first_error
 
-    # Further jobs (specs differed): the master rendered; variants are
-    # named missing outcomes until the reframe path renders them.
-    variant_notes = []
+    # Further jobs (specs differed): each is reframed off its reel's
+    # rendered master picture into its own variant file - the
+    # `deliverable_set` video plan made real. Variants skip and
+    # re-render independently of the master and of each other: the
+    # ledger key carries the served platforms, and the signature the
+    # variant spec. A variant whose master is missing or whose reframe
+    # fails is recorded as pending/failed, never as a quiet skip.
+    variants: list[dict] = []
+    variants_up_to_date: list[dict] = []
+    variant_failures: list[dict] = []
+    variant_notes: list[dict] = []
+    variant_ready: list[dict] = []
+    variant_missing: list[dict] = []
+    scratch_dir = ""
+    if len(jobs) > 1:
+        scratch_dir = str(layout.write_dir(
+            Area.SCRATCH, step="deliver-variants"))
     for job in jobs[1:]:
+        serves = list(job["serves"])
+        spec = job["spec"]
+        variant_spec_data = spec_summary(spec)
+        ext = _variants.variant_extension(spec, settings["extension"])
         for moment in moments:
-            variant_notes.append({
-                "reel": int(moment.number),
-                "timeline_name": moment.timeline_name,
-                "serves": list(job["serves"]),
-                "reason": "the specs differ, so this platform needs its "
-                          "own render off the master picture (reframe "
-                          "path) - not run by deliver-all",
-            })
+            number = int(moment.number)
+            timeline = moment.timeline_name
+            state = moment_state.get(number, {})
+            record = state.get("record")
+            reel_entry = state.get("reel_entry")
+            key = _variants.variant_ledger_key(timeline, serves)
+            out_name = _variants.variant_file_name(
+                timeline, settings["naming"], ext, serves)
+            master_path = master_outputs.get(number) or ""
+            if not master_path or not os.path.isfile(master_path):
+                reason = ("the master render for this reel was refused "
+                          "or its file is gone, so there is no picture "
+                          "to reframe - deliver the master first")
+                variant_notes.append({
+                    "reel": number, "timeline_name": timeline,
+                    "serves": serves, "reason": reason})
+                variant_missing.append({
+                    "reel": number, "timeline_name": timeline,
+                    "serves": serves, "name": out_name,
+                    "spec": variant_spec_data, "error": None,
+                    "reason": reason})
+                continue
+            render, why = needs_render(
+                project_folder, timeline_name=key, settings=settings,
+                spec=variant_spec_data, proposal_digest=digest,
+                assignment_reel=reel_entry, ledger=ledger)
+            if not render:
+                prior = ledger[key]
+                row = {
+                    "reel": number, "timeline_name": timeline,
+                    "serves": serves,
+                    "output_path": prior.get("output_path"),
+                    "assignment_id": (prior.get("assignment_id")
+                                      or (record or {}).get(
+                                          "assignment_id")),
+                    "qc": {"passed": prior.get("qc_passed"),
+                           "from_prior_delivery": True},
+                    "reason": why,
+                }
+                variants_up_to_date.append(row)
+                variant_ready.append({**row, "spec": variant_spec_data})
+                continue
+            full = master_fulls.get(number)
+            expected = (_expected_seconds(full, moment) if full
+                        else float(moment.total_duration))
+            out_path = os.path.join(dest_dir, out_name)
+            try:
+                track = (face_track_for(
+                    timeline, expected,
+                    _variants.VARIANT_FACE_RATE_HZ)
+                    if face_track_for is not None else None)
+                result = reframe_one(
+                    master_path=master_path, spec=spec,
+                    output_path=out_path, face_centers=track,
+                    sample_rate_hz=_variants.VARIANT_FACE_RATE_HZ,
+                    work_dir=scratch_dir)
+            except Exception as exc:  # noqa: BLE001 - ledgered, batched on
+                variant_failures.append({
+                    "reel": number, "timeline_name": timeline,
+                    "serves": serves, "error": repr(exc)})
+                variant_missing.append({
+                    "reel": number, "timeline_name": timeline,
+                    "serves": serves, "name": out_name,
+                    "spec": variant_spec_data, "error": repr(exc),
+                    "reason": ("the reframe off the master picture "
+                               "failed - see the failure row")})
+                continue
+            try:
+                qc = qc_one(result["output_path"], spec, expected)
+                qc_passed = bool(qc.get("passed"))
+            except Exception as exc:  # noqa: BLE001 - QC measures, never sinks
+                qc = {"passed": False, "error": repr(exc)}
+                qc_passed = False
+            signature = delivery_signature(
+                timeline_name=key, settings=settings,
+                spec=variant_spec_data, proposal_digest=digest,
+                assignment_reel=reel_entry)
+            assignment_id = (record or {}).get("assignment_id")
+            ledger = record_ledger_entry(
+                project_folder, timeline_name=key, signature=signature,
+                output_path=result["output_path"], reel=number,
+                assignment_id=assignment_id, qc_passed=qc_passed)
+            row = {
+                "reel": number, "timeline_name": timeline,
+                "serves": serves, "output_path": result["output_path"],
+                "assignment_id": assignment_id,
+                "crop": result.get("crop"),
+                "crop_reason": result.get("crop_reason"),
+                "qc": qc,
+            }
+            variants.append(row)
+            variant_ready.append({**row, "spec": variant_spec_data})
 
     receipts, untracked = _publish_receipts(
         project_folder, wanted, master_job, delivered, up_to_date,
-        variant_notes, dest_dir, settings)
+        variant_ready, variant_missing, dest_dir, settings)
 
     return {"platforms": wanted,
             "jobs": [{"serves": list(job["serves"]),
@@ -630,16 +760,25 @@ def deliver_all_approved(
             "delivered": delivered, "up_to_date": up_to_date,
             "failed": failed, "unapproved": skipped_moments(project_folder),
             "untracked": untracked,
+            "variants": variants,
+            "variants_up_to_date": variants_up_to_date,
+            "variant_failures": variant_failures,
             "variant_notes": variant_notes, "receipts": receipts,
             "exports_dir": dest_dir}
 
 
 def _file_entries(delivered: list[dict], up_to_date: list[dict],
-                  serves: list[str], spec_data: dict,
-                  variant_notes: list[dict], dest_dir: str) -> list[dict]:
-    """Receipt `files` rows: one per reel served, variants named missing."""
-    from library.tools.reel_deliver import render_file_name
+                   serves: list[str], spec_data: dict,
+                   variant_ready: list[dict], variant_missing: list[dict],
+                   dest_dir: str) -> list[dict]:
+    """Receipt `files` rows: master rows, rendered variants as ready,
+    and only unrendered variants as missing.
 
+    Each rendered (or up-to-date) variant row carries its own served
+    platforms and its own spec - the row says what the file IS, not
+    what the master is. A variant with no file names the reason it has
+    none instead of reading as delivered.
+    """
     platform = "+".join(serves)
     rows = []
     for row in delivered + up_to_date:
@@ -653,21 +792,34 @@ def _file_entries(delivered: list[dict], up_to_date: list[dict],
                        else "missing"),
             "qc": qc,
         })
-    for note in variant_notes:
-        name = render_file_name(note["timeline_name"], "{timeline}.{ext}",
-                                "mp4")
+    for row in variant_ready:
+        out = row.get("output_path") or ""
+        qc = row.get("qc")
         rows.append({
-            "name": name,
-            "path": os.path.join(dest_dir, name),
-            "platform": "+".join(note["serves"]), "spec": spec_data,
+            "name": os.path.basename(out) or row["timeline_name"],
+            "path": out, "platform": "+".join(row.get("serves") or ()),
+            "spec": row.get("spec") or spec_data,
+            "exists": bool(out and os.path.isfile(out)),
+            "status": ("ready" if out and os.path.isfile(out)
+                       else "missing"),
+            "qc": qc,
+        })
+    for note in variant_missing:
+        rows.append({
+            "name": note.get("name") or note["timeline_name"],
+            "path": os.path.join(dest_dir, note.get("name") or ""),
+            "platform": "+".join(note.get("serves") or ()),
+            "spec": note.get("spec") or spec_data,
             "exists": False, "status": "missing", "qc": None,
+            "reason": note.get("error") or note.get("reason"),
         })
     return rows
 
 
 def _publish_receipts(project_folder: str, platforms: list[str],
                       master_job: dict, delivered: list[dict],
-                      up_to_date: list[dict], variant_notes: list[dict],
+                      up_to_date: list[dict], variant_ready: list[dict],
+                      variant_missing: list[dict],
                       dest_dir: str, settings: dict
                       ) -> tuple[list[dict], list[dict]]:
     """One delivery receipt per owning assignment.
@@ -675,12 +827,15 @@ def _publish_receipts(project_folder: str, platforms: list[str],
     Returns `(receipts, untracked)`: reels no assignment owns are
     delivered and QC'd but get no receipt - there is nothing to attach
     one to, and the spine leaves untracked work untracked rather than
-    inventing it a history.
+    inventing it a history. Rendered variants join their reel's
+    assignment receipt with their own QC; `selected_platforms` names
+    every platform the batch served, not just the master's.
     """
     from library.tools import assignment_lifecycle, assignment_spine
     from library.tools.assignment_artifacts import publish_delivery_receipt
 
-    covered = delivered + up_to_date
+    covered = (delivered + up_to_date
+               + [row for row in variant_ready if row.get("assignment_id")])
     by_assignment: dict[str, list[dict]] = {}
     untracked: list[dict] = []
     for row in covered:
@@ -695,12 +850,15 @@ def _publish_receipts(project_folder: str, platforms: list[str],
             record = assignment_lifecycle.load(root, assignment_id)
         except (KeyError, OSError, ValueError):
             continue
-        numbers = sorted(row["reel"] for row in rows)
+        numbers = sorted({row["reel"] for row in rows})
         files = _file_entries(
-            [r for r in delivered if r.get("assignment_id") == assignment_id],
-            [r for r in up_to_date if r.get("assignment_id") == assignment_id],
-            list(master_job["serves"]), spec_summary(master_job["spec"]),
-            [n for n in variant_notes
+            [r for r in delivered + up_to_date
+             if r.get("assignment_id") == assignment_id],
+            [], list(master_job["serves"]),
+            spec_summary(master_job["spec"]),
+            [r for r in variant_ready
+             if r.get("assignment_id") == assignment_id],
+            [n for n in variant_missing
              if any(r["reel"] == n["reel"] for r in rows)],
             dest_dir)
         per_file = {}
@@ -724,7 +882,7 @@ def _publish_receipts(project_folder: str, platforms: list[str],
             approved_version=approved_version, files=files,
             qc={"per_file": per_file, "platforms": platforms},
             resume_point=resume,
-            selected_platforms=list(master_job["serves"]))
+            selected_platforms=list(platforms))
         receipts.append({"assignment_id": assignment_id,
                          "path": str(path), "receipt": receipt})
     return receipts, untracked
