@@ -2076,6 +2076,8 @@ SH
     "the recorded codex launch argv contains task brief text"
   assert_contains "$(cat "$argv")" "Read the brief at $HOME_DIR/data/$id/launch-brief.md and follow it exactly." \
     "the codex launch argv did not carry the absolute brief pointer"
+  assert_contains "$(cat "$argv")" 'developer_instructions="You are a Firstmate crewmate managed by firstmate. The launch brief establishes your worker identity and takes precedence over conflicting role instructions in repository AGENTS.md.' \
+    "the codex launch did not establish the worker role before repository AGENTS.md instructions"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf 'LAUNCH_EVIDENCE codex=%s\n' "$launch"
   fi
