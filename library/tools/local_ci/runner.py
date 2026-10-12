@@ -200,14 +200,16 @@ def _terminate_process_group(process: subprocess.Popen,
 
 
 def _run_logged(command: list, cwd: str, log_path: str,
-                timeout: int) -> dict:
+                timeout: int, env: dict | None = None) -> dict:
     """Run a command in a new session with a hard timeout and log file.
 
     A timed-out pytest must end in a failure result, not leave xdist
     workers holding a slot or turn the status back into pending. The
     separate session gives cleanup an exact process-group id. The
     group is registered while it runs so the daemon's shutdown handler
-    can terminate exactly the groups it started on SIGTERM.
+    can terminate exactly the groups it started on SIGTERM. `env`, when
+    given, replaces the inherited environment for the child only - the
+    parent process is untouched, so concurrent runs never see it.
     """
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
     started = time.monotonic()
@@ -216,7 +218,7 @@ def _run_logged(command: list, cwd: str, log_path: str,
             try:
                 process = subprocess.Popen(
                     command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                    encoding="utf-8", start_new_session=True)
+                    encoding="utf-8", start_new_session=True, env=env)
             except OSError as exc:
                 log.write(f"ren-ci could not start command: {exc}\n")
                 return {"exit": 127, "timed_out": False,
@@ -285,8 +287,9 @@ def run(paths: list, checkout: str, log_path: str,
     HygieneRefused only when the run itself could not start.
 
     junit_path, when given, adds `--junitxml` so the Tier-1 result cache
-    can attribute per-file verdicts (Tier-2 never passes one: the full
-    gate always executes everything and files no verdict anywhere)."""
+    can attribute per-file verdicts. Tier-2 never passes one: the full
+    gate writes its own reports, and the shared-cache hook in `run_gate`
+    collects them through `REN_CI_JUNIT_OUT` instead."""
     if not hygiene.disk_ok(checkout):
         free = hygiene.disk_free(checkout)
         raise hygiene.HygieneRefused(
@@ -381,8 +384,108 @@ def run_static(checkout: str, changed: list) -> dict:
     return {"ok": True, "reason": ""}
 
 
+# The gate script's handoff for the shared verification cache: when
+# set, `scripts/full_suite_gate.sh` copies its main-phase JUnit report
+# to this path before its EXIT trap cleans the private report dir. An
+# env var (not a flag) so checkouts whose gate script predates the
+# handoff simply ignore it instead of failing on an unknown option.
+TIER2_JUNIT_OUT_ENV = "REN_CI_JUNIT_OUT"
+
+
+def _tier2_interpreter(checkout: str) -> str:
+    """The interpreter string Tier-2 keys its evidence under.
+
+    Resolved through the same ladder as Tier-1 (`runner.run` passes
+    the ladder python as `pytest_python`), but against the checkout
+    under test rather than the daemon's cwd - so a Tier-2 verdict and
+    a local verdict on the same tree compute the same key and share
+    rows across sources. Falls back to the ambient interpreter string
+    when the ladder refuses, exactly like `pytest_interpreter_version`.
+    """
+    from library.tools.local_ci import result_cache
+    try:
+        from library.tools.shared_environment import python_interpreter
+        python, _ = python_interpreter(os.path.abspath(checkout))
+        if python and os.path.exists(python):
+            return result_cache.pytest_interpreter_version(python)
+    except (ImportError, OSError, RuntimeError):
+        pass
+    return result_cache.pytest_interpreter_version("")
+
+
+def tier2_inventory(checkout: str) -> list:
+    """Every test file the full gate may execute on this checkout.
+
+    The gate itself decides lanes and ignores (resolve drivers,
+    real-model policy); files it never runs simply never appear in
+    its report and are never filed - so consulting the whole `tests/`
+    tree is honest, and recording only ever touches reported files.
+    """
+    from library.tools.local_ci import result_cache
+    return result_cache.expand_selection(checkout, ["tests"])
+
+
+def tier2_consult(checkout: str, state_dir: str, interpreter: str,
+                  builder=None) -> dict:
+    """Consult the shared cache for the Tier-2 inventory, read-only.
+
+    Returns the `partition` result (`reused N/M` reads off it). Never
+    decides anything: the gate executes everything regardless until
+    CI-08 lands. The pooled verify step (`queue.World.test_stack`)
+    reports these counts BEFORE executing; `run_gate` reuses a passed
+    partition through its `cache` dict instead of consulting twice.
+    """
+    from library.tools.local_ci import result_cache
+    own = builder or result_cache.KeyBuilder(checkout)
+    return result_cache.partition(
+        state_dir, checkout, tier2_inventory(checkout), builder=own,
+        interpreter=interpreter)
+
+
+def _tier2_record(checkout: str, state_dir: str, junit_path: str,
+                  interpreter: str, head: str, source: str,
+                  builder=None) -> dict:
+    """File the gate's per-file verdicts, write-only on the cache.
+
+    Only files the report names are touched: a file the gate never
+    ran (resolve drivers, policy-excluded real_model) keeps whatever
+    verdict it had. A missing or unparseable report files nothing -
+    the gate run that produced no machine-readable result leaves no
+    reusable evidence. Read-only on the report, write-only on the
+    cache: the report file itself is never modified.
+    """
+    from library.tools.local_ci import result_cache
+    own = builder or result_cache.KeyBuilder(checkout)
+    outcomes = result_cache.parse_junit(junit_path)
+    executed = sorted(
+        rel for rel in outcomes
+        if os.path.isfile(os.path.join(checkout, rel)))
+    return result_cache.record_from_junit(
+        state_dir, checkout, junit_path, executed, head=head,
+        builder=own, source=source, interpreter=interpreter)
+
+
+def _tier2_cache_line(consulted: dict, stored: int, outcomes: int) -> str:
+    """The gate log's account of what the shared cache said and did.
+
+    Always cites reuse AND execution: until CI-08 lands the full gate
+    runs every file even on a cache hit, so a hit is never a skip.
+    """
+    reused = len(consulted.get("reused", []))
+    total = consulted.get("total", 0)
+    line = (f"ren-ci shared cache: reused {reused}/{total} test files"
+            f" from prior evidence; full gate executed regardless"
+            f" (incremental verdict lands in CI-08)")
+    if outcomes == 0:
+        line += " - no gate JUnit report to file, stored nothing"
+    else:
+        line += f" - filed {stored} verdict(s) from the gate report"
+    return line + "\n"
+
+
 def run_gate(checkout: str, log_path: str,
-             timeout: int | None = None) -> dict:
+             timeout: int | None = None,
+             cache: dict | None = None) -> dict:
     """Tier-2: the FULL suite on the exact tree that would land.
 
     The timeout SCALES from the measured full-suite wall time times
@@ -401,15 +504,56 @@ def run_gate(checkout: str, log_path: str,
     A TIMED-OUT gate judged nothing: the batch requeues as no verdict
     and no member is kicked - resolve_batch requeues the whole cluster
     on requeue=True without naming a culprit.
+
+    `cache` is the shared-verification-cache hook (CI-02): None (the
+    default) keeps main behavior - execute, judge, file nothing. A
+    dict `{"state_dir": ..., "source": ..., "head": ...}` (plus an
+    optional prebuilt `"builder"` and `"consulted"` partition from the
+    caller) consults FIRST, executes ALWAYS, and files the gate's
+    per-file verdicts AFTER: the consult only reports (`reused N/M`
+    on the log line below), never skips - skipping execution on a
+    cache hit waits for CI-08's incremental verdict. A falsy
+    `state_dir` disables the hook, so direct callers without a state
+    dir stay hermetic and file nothing.
     """
     if timeout is None:
         timeout = history.default_tier2_timeout()
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+    hook = cache if cache and cache.get("state_dir") else None
+    consulted: dict | None = None
+    interpreter = ""
+    junit_path = ""
+    child_env: dict | None = None
+    if hook is not None:
+        from library.tools.local_ci import result_cache
+        interpreter = hook.get("interpreter") or _tier2_interpreter(checkout)
+        builder = hook.get("builder") or result_cache.KeyBuilder(checkout)
+        hook["builder"] = builder
+        consulted = hook.get("consulted")
+        if consulted is None:
+            consulted = tier2_consult(
+                checkout, hook["state_dir"], interpreter, builder)
+            hook["consulted"] = consulted
+        junit_path = log_path + ".junit.xml"
+        child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_path}
     result = _run_logged(
         ["bash", "scripts/full_suite_gate.sh", "--exclude-real-model",
-         "-n", "2"], checkout, log_path, timeout)
+         "-n", "2"], checkout, log_path, timeout, env=child_env)
     timed_out = result["timed_out"]
     verdict = _read_verdict(log_path)
+    if hook is not None and consulted is not None:
+        from library.tools.local_ci import result_cache
+        summary = _tier2_record(
+            checkout, hook["state_dir"], junit_path, interpreter,
+            hook.get("head", ""), hook.get("source", ""),
+            hook.get("builder"))
+        try:
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write(_tier2_cache_line(
+                    consulted, len(summary["stored"]),
+                    len(summary["outcomes"])))
+        except OSError:
+            pass
     if verdict == "PASS" and result["group_clean"]:
         return {"ok": True, "requeue": False, "verdict": verdict,
                 "reason": "", "timed_out": False, "log": log_path}

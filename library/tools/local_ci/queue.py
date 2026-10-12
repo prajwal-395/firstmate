@@ -116,8 +116,14 @@ class World:
 
     def test_stack(self, base: str, members: list) -> TestResult:
         """Evaluate main+members stacked: Tier-2 runs the FULL suite once
-        on the exact tree the ordered merges would produce."""
-        from library.tools.local_ci import hygiene
+        on the exact tree the ordered merges would produce.
+
+        The pooled-run verify step consults the shared cache FIRST and
+        reports `reused N/M` before executing - then executes everything
+        anyway (the gate still runs each file even on a cache hit until
+        CI-08 lands) and files the gate's per-file verdicts as `batch`
+        evidence for cross-source reuse."""
+        from library.tools.local_ci import hygiene, result_cache
         # The daemon keeps one mirror across queue passes. Main can move
         # after the mirror's last refresh, so fetch this exact base SHA
         # before creating a checkout. A missing/racing base must requeue,
@@ -130,9 +136,20 @@ class World:
                                   stack_conflict=stack.get("conflict", ""))
             log = os.path.join(self.state_dir, "logs",
                                f"tier2-{int(time.time())}.log")
+            builder = result_cache.KeyBuilder(checkout)
+            interpreter = runner._tier2_interpreter(checkout)
+            consulted = runner.tier2_consult(
+                checkout, self.state_dir, interpreter, builder)
+            print(f"ren-ci Tier-2 verify: reused "
+                  f"{len(consulted['reused'])}/{consulted['total']} "
+                  f"test files from shared cache; executing the full gate "
+                  f"anyway (CI-08 not landed)", flush=True)
             gate = runner.run_gate(
                 checkout, log,
-                timeout=history.default_tier2_timeout(self.state_dir))
+                timeout=history.default_tier2_timeout(self.state_dir),
+                cache={"state_dir": self.state_dir, "source": "batch",
+                       "builder": builder, "interpreter": interpreter,
+                       "consulted": consulted})
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"])
 
@@ -142,13 +159,27 @@ class World:
         The red-batch baseline (a red main must kick nobody): when a
         stacked cluster fails, resolve_batch judges this before
         bisecting. Failures here belong to main, never to a member.
+        Like the stacked verify, it consults first, executes always,
+        and files its verdicts as `batch` evidence.
         """
-        from library.tools.local_ci import hygiene
+        from library.tools.local_ci import hygiene, result_cache
         hygiene.fetch_base(self.mirror, base)
         with hygiene.disposable_checkout(self.mirror, base, self.state_dir) as checkout:
             log = os.path.join(self.state_dir, "logs",
                                f"tier2-main-{int(time.time())}.log")
-            gate = runner.run_gate(checkout, log)
+            builder = result_cache.KeyBuilder(checkout)
+            interpreter = runner._tier2_interpreter(checkout)
+            consulted = runner.tier2_consult(
+                checkout, self.state_dir, interpreter, builder)
+            print(f"ren-ci Tier-2 verify (main): reused "
+                  f"{len(consulted['reused'])}/{consulted['total']} "
+                  f"test files from shared cache; executing the full gate "
+                  f"anyway (CI-08 not landed)", flush=True)
+            gate = runner.run_gate(
+                checkout, log,
+                cache={"state_dir": self.state_dir, "source": "batch",
+                       "builder": builder, "interpreter": interpreter,
+                       "consulted": consulted})
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"])
 

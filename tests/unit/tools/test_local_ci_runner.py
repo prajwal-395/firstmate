@@ -56,7 +56,7 @@ def test_run_gate_excludes_real_model_and_limits_workers(monkeypatch,
                                                           tmp_path):
     calls = []
 
-    def run_logged(command, cwd, log_path, timeout):
+    def run_logged(command, cwd, log_path, timeout, env=None):
         calls.append((command, cwd, log_path, timeout))
         with open(log_path, "w", encoding="utf-8") as log:
             log.write("FULL-SUITE GATE: PASS  |  unit+scenario: 7 passed")
@@ -78,7 +78,7 @@ def test_a_timed_out_gate_requeues_as_no_verdict(monkeypatch, tmp_path):
     # The October lane: an unloaded 700s suite killed at a fixed 1200s
     # under agent load at 98% complete. A timeout judged nothing, so
     # the batch requeues - it is never a red verdict on the members.
-    def run_logged(command, cwd, log_path, timeout):
+    def run_logged(command, cwd, log_path, timeout, env=None):
         with open(log_path, "w", encoding="utf-8") as log:
             log.write(f"\nREN-CI TIMEOUT after {timeout}s; "
                       "process_group_clean=True\n")
@@ -100,7 +100,7 @@ def test_run_gate_scales_its_timeout_from_the_measured_suite(
     from library.tools.local_ci import history
     seen = []
 
-    def run_logged(command, cwd, log_path, timeout):
+    def run_logged(command, cwd, log_path, timeout, env=None):
         seen.append(timeout)
         with open(log_path, "w", encoding="utf-8") as log:
             log.write("FULL-SUITE GATE: PASS  |  unit+scenario: 7 passed")

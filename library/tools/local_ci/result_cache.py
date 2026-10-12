@@ -1,11 +1,18 @@
-"""Tier-1-only content-hash result cache (benchmark Spec 2).
+"""Shared content-hash verification cache (benchmark Spec 2, CI-01/CI-02).
 
-A Tier-1 selection reruns only what its inputs cannot prove unchanged:
-each selected test FILE carries a key over every input that could flip
-its verdict, and a stored PASS under the same key is reused without
-executing the file. The batched Tier-2 full suite ALWAYS executes
-everything - this cache never feeds it, or a stale green could skip the
-exact-tree full run that is the design's whole test-security half.
+A selection reruns only what its inputs cannot prove unchanged: each
+test FILE carries a key over every input that could flip its verdict,
+and a stored PASS under the same key is reused without executing the
+file. Every eligible execution produces reusable evidence regardless
+of origin - a worker-local `ren ci check`, a PR Tier-1 run, a Tier-2
+integration batch, or a periodic full validation: they all read and
+write the same rows, keyed identically for the same tree.
+
+Test security (until CI-08 lands): Tier-2 still EXECUTES everything.
+Sharing evidence is not skipping execution yet - the Tier-2 write hook
+files verdicts from the gate's own JUnit report after the full run,
+and the pooled verify step consults the cache only to REPORT reuse
+(`reused N/M`) before executing.
 
 The key (report section 7, plus the prototype-bug fix it proves): the
 test file itself, its static closure INCLUDING tests-helpers (the
@@ -18,10 +25,17 @@ tests only - an environment fingerprint (the 2145 failure was
 npm-missing, which no content hash catches; env-gated tests never reuse
 unless the fingerprint matches).
 
-Fail-closed everywhere: only PASS verdicts with executed tests are
-stored; failures and all-skipped files delete any stored row; a missing
-or unparseable junit report stores nothing; an unhashable input
-(unreadable file) makes the key unmatchable, never empty.
+ Fail-closed everywhere: only PASS verdicts with executed tests are
+ stored; failures and all-skipped files delete any stored row; a missing
+ or unparseable junit report stores nothing; an unhashable input
+ (unreadable file) makes the key unmatchable, never empty.
+
+ Each row also records its SOURCE - which executor produced the
+ evidence (`local`, `pr`, `batch`, `periodic`) - for the evidence
+ ledger. The source is metadata only: it never enters the key, so the
+ same tree under any source computes the same key and reuses across
+ sources.
+
 
 Store: a multiversion SQLite store under the state dir, one row per
 (test path, verification key): parallel branches verifying the same
@@ -48,6 +62,11 @@ import threading
 
 CACHE_FILENAME = "tier1_result_cache.sqlite3"
 LOCK_FILENAME = "tier1_result_cache.lock"
+
+# Executors that may file evidence, for the `source` column. Stored
+# verbatim (unknown values are kept, never refused - the source never
+# affects reuse); this tuple is the vocabulary writers use.
+SOURCES = ("local", "pr", "batch", "periodic")
 
 # Successful verdicts kept per test path. Two parallel branches (the
 # AAA/BBB case) need two rows to coexist; one spare covers a third
@@ -448,6 +467,7 @@ _MULTIVERSION_SCHEMA = (
     " head TEXT NOT NULL DEFAULT '',"
     " recorded_at REAL NOT NULL,"
     " last_used REAL NOT NULL,"
+    " source TEXT NOT NULL DEFAULT '',"
     " PRIMARY KEY (test_path, key))")
 
 
@@ -457,7 +477,10 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
     Databases written before the multiversion store hold one row per
     path (`test_path PRIMARY KEY`, no `last_used`). Their verdicts
     carry over one-to-one - each legacy row already names its key -
-    so no stored PASS is wiped or stranded by the upgrade.
+    so no stored PASS is wiped or stranded by the upgrade. Databases
+    written before the source column (CI-01 era) gain it with the
+    empty default: old rows keep their verdicts, only their source
+    reads as unrecorded.
     """
     columns = [row[1] for row in connection.execute(
         "PRAGMA table_info(tier1_results)").fetchall()]
@@ -468,21 +491,26 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
             " ON tier1_results (test_path, last_used)")
         connection.commit()
         return
-    if "last_used" in columns:
+    if "last_used" not in columns:
+        connection.execute(
+            "ALTER TABLE tier1_results RENAME TO tier1_results_legacy")
+        connection.execute(_MULTIVERSION_SCHEMA)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tier1_results_lru"
+            " ON tier1_results (test_path, last_used)")
+        connection.execute(
+            "INSERT INTO tier1_results"
+            " (test_path, key, passed, total, head, recorded_at, last_used)"
+            " SELECT test_path, key, passed, total, head, recorded_at,"
+            " recorded_at FROM tier1_results_legacy")
+        connection.execute("DROP TABLE tier1_results_legacy")
+        connection.commit()
         return
-    connection.execute(
-        "ALTER TABLE tier1_results RENAME TO tier1_results_legacy")
-    connection.execute(_MULTIVERSION_SCHEMA)
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tier1_results_lru"
-        " ON tier1_results (test_path, last_used)")
-    connection.execute(
-        "INSERT INTO tier1_results"
-        " (test_path, key, passed, total, head, recorded_at, last_used)"
-        " SELECT test_path, key, passed, total, head, recorded_at,"
-        " recorded_at FROM tier1_results_legacy")
-    connection.execute("DROP TABLE tier1_results_legacy")
-    connection.commit()
+    if "source" not in columns:
+        connection.execute(
+            "ALTER TABLE tier1_results ADD COLUMN"
+            " source TEXT NOT NULL DEFAULT ''")
+        connection.commit()
 
 
 def _lookup_row(connection: sqlite3.Connection, test_rel: str,
@@ -495,7 +523,7 @@ def _lookup_row(connection: sqlite3.Connection, test_rel: str,
     """
     import time
     row = connection.execute(
-        "SELECT key, passed, total, head, recorded_at"
+        "SELECT key, passed, total, head, recorded_at, source"
         " FROM tier1_results WHERE test_path = ? AND key = ?",
         (test_rel, key)).fetchone()
     if row is None or (row[1] or 0) <= 0:
@@ -546,7 +574,7 @@ def lookup(state_dir: str, checkout: str, test_rel: str,
         return None
     import time
     return {"key": row[0], "passed": row[1], "total": row[2],
-            "head": row[3], "recorded_at": row[4],
+            "head": row[3], "recorded_at": row[4], "source": row[5],
             "checked_at": time.time()}
 
 
@@ -578,14 +606,16 @@ def _enforce_bounds(connection: sqlite3.Connection,
 
 
 def store(state_dir: str, test_rel: str, key: str, passed: int,
-          total: int, head: str = "") -> None:
+          total: int, head: str = "", source: str = "") -> None:
     """Record one PASS verdict under its key.
 
     One row per (path, key): a branch's store never overwrites another
     branch's row for the same path. Re-recording the same key refreshes
     its verdict. History past the bound evicts least-recently-used
     first, so the table stays bounded by measured suite size, never by
-    an unbounded per-path history."""
+    an unbounded per-path history. `source` names the executor that
+    produced the evidence (`local` / `pr` / `batch` / `periodic`) and
+    never enters the key."""
     import time
     now = time.time()
     with _lock:
@@ -594,9 +624,9 @@ def store(state_dir: str, test_rel: str, key: str, passed: int,
             connection.execute(
                 "INSERT OR REPLACE INTO tier1_results"
                 " (test_path, key, passed, total, head, recorded_at,"
-                " last_used)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (test_rel, key, passed, total, head, now, now))
+                " last_used, source)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (test_rel, key, passed, total, head, now, now, source))
             _enforce_bounds(connection, test_rel)
             connection.commit()
         finally:
@@ -673,7 +703,8 @@ def partition(state_dir: str, checkout: str, paths: list,
         if hit is None:
             run.append(rel)
         else:
-            reused.append({"path": rel, "passed": hit["passed"]})
+            reused.append({"path": rel, "passed": hit["passed"],
+                           "source": hit.get("source", "")})
             reused_passed += hit["passed"]
     return {"expanded": expanded, "run": run, "reused": reused,
             "reused_passed": reused_passed, "total": len(expanded)}
@@ -717,13 +748,15 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
                       executed: list, head: str = "",
                       builder: KeyBuilder | None = None,
                       pytest_python: str = "",
+                      source: str = "",
                       **overrides) -> dict:
     """Store PASS rows for executed files the junit report clears.
 
     A file with any failure/error, with zero executed tests (all
     skipped), or absent from the report is DROPPED, never stored. Keys
     recompute here (not reused from partition) so a tree that moved
-    mid-run cannot file a verdict under a stale key.
+    mid-run cannot file a verdict under a stale key. `source` records
+    which executor produced the evidence without changing any key.
     """
     own = builder or KeyBuilder(checkout)
     if "interpreter" not in overrides:
@@ -741,7 +774,7 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
         if outcome["failed"] == 0 and executed_count > 0:
             key = compute_key(checkout, rel, own, **overrides)
             store(state_dir, rel, key, executed_count, outcome["total"],
-                  head)
+                  head, source)
             stored.append(rel)
         else:
             dropped.append(rel)

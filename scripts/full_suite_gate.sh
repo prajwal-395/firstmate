@@ -606,5 +606,14 @@ fi
 
 echo "FULL-SUITE GATE: ${VERDICT}  |  unit+scenario: ${MAIN_DETAIL}  |  ${REAL_MODEL_NOTE}"
 
+# Shared verification cache handoff (CI-02): when REN_CI_JUNIT_OUT
+# names a file, copy the main-phase JUnit report there before the EXIT
+# trap cleans the private report dir. Copy only, never move: the kept
+# failure reports above stay where diagnosis expects them. Unset (the
+# pooled manual run, old callers) means no copy and no behavior change.
+if [ -n "${REN_CI_JUNIT_OUT:-}" ] && [ -f "${MAIN_XML}" ]; then
+  cp "${MAIN_XML}" "${REN_CI_JUNIT_OUT}" 2>/dev/null || true
+fi
+
 [ "${VERDICT}" = "PASS" ] && exit 0
 exit 1

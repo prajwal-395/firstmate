@@ -96,8 +96,9 @@ def test_tier2_fetches_the_exact_base_before_creating_its_checkout(
         events.append(("stack", checkout, base, heads))
         return {"ok": True, "reason": ""}
 
-    def run_gate(checkout, log, timeout=None):
+    def run_gate(checkout, log, timeout=None, cache=None):
         events.append(("gate", checkout, timeout))
+        assert cache is not None and cache["source"] == "batch"
         return {"ok": True, "reason": "", "requeue": False}
 
     monkeypatch.setattr(hygiene, "fetch_base", fetch_base)

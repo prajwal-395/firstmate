@@ -170,7 +170,7 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                              junit_path=junit_path)
             result_cache.record_from_junit(
                 world.state_dir, checkout, junit_path, part["run"],
-                head=head, builder=builder,
+                head=head, builder=builder, source="pr",
                 pytest_python=runner._pytest_python())
             result = dict(raw)
             # Reused files passed on identical inputs; the run's own

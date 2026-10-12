@@ -446,33 +446,48 @@ def test_runner_passes_junitxml_through(monkeypatch, tmp_path):
 
 
 def test_tier2_always_executes_despite_the_cache(monkeypatch, tmp_path,
-                                                 state_dir):
-    # The cache must never feed Tier-2: a stored Tier-1 PASS under the
-    # same key still runs the full gate on the exact tree.
+                                                  state_dir, checkout):
+    # CI-02: the shared cache never feeds Tier-2's verdict - a stored
+    # PASS under the same key still runs the full gate on the exact
+    # tree (skipping execution on a hit waits for CI-08), and the run
+    # files its verdict under the locally computed key instead. The
+    # gate log cites reuse + execution.
     rel = "tests/unit/foo/test_widget.py"
     _store_hit(state_dir, checkout, rel)
     calls = []
 
-    def run_logged(command, cwd, log_path, timeout):
+    def run_logged(command, cwd, log_path, timeout, env=None):
         calls.append(command)
         with open(log_path, "w", encoding="utf-8") as log:
             log.write("FULL-SUITE GATE: PASS  |  unit: 1 passed")
+        out = (env or {}).get(runner.TIER2_JUNIT_OUT_ENV, "")
+        if out:
+            junit = __import__("pathlib").Path(out)
+            junit.parent.mkdir(parents=True, exist_ok=True)
+            _junit(junit, [(rel, "passed")])
         return {"timed_out": False, "group_clean": True}
 
     monkeypatch.setattr(runner, "_run_logged", run_logged)
-    result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"),
-                             timeout=1200)
+    monkeypatch.setattr(
+        runner, "_tier2_interpreter",
+        lambda checkout_path: PINNED["interpreter"])
+    monkeypatch.setattr(result_cache, "native_fingerprint",
+                        lambda *args, **kwargs: PINNED["native"])
+    monkeypatch.setattr(result_cache, "config_fingerprint",
+                        lambda *args, **kwargs: PINNED["config_text"])
+    monkeypatch.setattr(result_cache, "env_fingerprint",
+                        lambda *args, **kwargs: PINNED["env"])
+    log_path = str(tmp_path / "gate.log")
+    result = runner.run_gate(
+        str(checkout), log_path, timeout=1200,
+        cache={"state_dir": state_dir, "source": "batch"})
     assert result["ok"] is True
     assert calls and calls[0][1] == "scripts/full_suite_gate.sh"
     assert "--junitxml" not in calls[0]
-    # Structural pin: Tier-2's gate path never names the cache, so no
-    # later edit can quietly feed stored verdicts into the merge verdict.
-    repo = __import__("pathlib").Path(__file__).resolve().parents[3]
-    gate_body = (repo / "library" / "tools" / "local_ci"
-                 / "runner.py").read_text(encoding="utf-8")
-    gate_body = gate_body.split("def run_gate")[1].split(
-        "def _read_verdict")[0]
-    assert "result_cache" not in gate_body and "junit" not in gate_body
+    text = open(log_path, encoding="utf-8").read()
+    assert "reused 1/2" in text and "execut" in text
+    hit = _lookup(state_dir, checkout, rel)
+    assert hit is not None and hit["source"] == "batch"
 
 
 def test_tier1_second_run_on_same_tree_skips_pytest(
