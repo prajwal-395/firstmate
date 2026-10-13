@@ -126,6 +126,25 @@ def test_changed_test_file_is_selected_for_itself():
     assert path in select([path])
 
 
+def test_test_configuration_and_fixture_changes_select_nested_safeguards():
+    nested = {
+        "tests/tooling/test_nested_project_collection.py",
+        "tests/tooling/test_nested_broker_isolation.py",
+    }
+    for changed in ("pyproject.toml", "tests/conftest.py",
+                    "tests/unit/resolve/conftest.py", "tests/helpers.py"):
+        assert nested <= set(select([changed])), changed
+
+
+def test_guard_changes_select_only_the_relevant_nested_safeguard():
+    assert "tests/tooling/test_nested_project_collection.py" in select(
+        ["library/tools/paths.py"])
+    assert "tests/tooling/test_nested_broker_isolation.py" in select(
+        ["library/tools/resolved/client.py"])
+    assert "tests/tooling/test_nested_broker_isolation.py" in select(
+        ["library/tools/resolve_lock.py"])
+
+
 def test_distances_rank_the_changed_test_before_its_dependents():
     """Tier-1 fills its time budget in distance order, so the order
     itself is a contract: the changed test is 0, a direct importer is

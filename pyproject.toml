@@ -14,6 +14,7 @@ markers = [
     "resolve_live: marks tests that drive the running DaVinci Resolve instance",
     "real_model: marks tests that load and measure with real ML models or dependencies",
     "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
+    "nested: marks an expensive subprocess suite replay retained in full-suite runs and selected on safeguard changes",
 ]
 
 # ─── Ren, the installed front door (README "Quickstart") ─────────────

@@ -35,17 +35,15 @@ Three lines of defence, all pinned here:
    chain runs brokerless instead of spawning a detached broker the
    parent test could never record.
 
-The unit tests below pin the guard and the interpreter; the
-subprocess tests replay the incidents' shapes - the broker-exercising
-suites, and a hand-started Python broker the teardown used to miss
-(2026-10-07: an orphaned `python -m library.tools.resolved serve`,
-parent pid 1, survived the test run because the Popen recorder only
-matched the Rust argv) - run as a worker would run them, and prove
-each leaves no broker process behind and never touches the default
-socket.
+The routine unit tests below pin the guard and the interpreter. The
+nested `test_nested_broker_isolation.py` replay covers both the broker-
+exercising suites and the hand-started Python broker the teardown used
+to miss (2026-10-07: an orphaned `python -m library.tools.resolved
+serve`, parent pid 1, survived because the Popen recorder only matched
+the Rust argv). It proves the child runs leave no broker behind and
+never touch the default socket.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -271,117 +269,6 @@ def test_the_rust_broker_spawns_with_the_built_binary(tmp_path, monkeypatch):
 
 # ── 2. The incident's shape, replayed in a subprocess ────────────────
 
-_BROKER_WATCH_PLUGIN = '''
-"""Fails the report (not the run) where a test touches the default socket."""
-import json
-import os
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-
-REPORT = Path(os.environ["PIPELINE_BROKER_WATCH_REPORT"])
-DEFAULT = Path(tempfile.gettempdir()) / "ren-resolved.sock"
-
-events = {"spawns": [], "default_pings": [], "default_calls": [],
-          "default_ensures": []}
-
-
-def _is_default(target):
-    try:
-        return (os.path.realpath(target) == os.path.realpath(DEFAULT))
-    except OSError:
-        return False
-
-
-def pytest_configure(config):
-    from library.tools.resolved import client
-
-    orig_ensure = client.ensure
-    orig_start = client._start_detached
-    orig_ping = client.ping
-    orig_call = client.call
-    orig_python = client._broker_python
-    orig_popen = subprocess.Popen
-
-    def ensure(path=None, timeout=15.0):
-        try:
-            target = str(client._path(path))
-        except Exception:
-            target = "<unresolvable>"
-        if _is_default(target):
-            events["default_ensures"].append(target)
-        return orig_ensure(path=path, timeout=timeout)
-
-    def start(path):
-        # The Rust daemon is a binary, not a Python interpreter: record it
-        # as a rust spawn so the interpreter assertion below skips it.
-        is_rust = (os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower()
-                   == "rust")
-        spawn = {"path": str(path), "default": _is_default(Path(path)),
-                 "python": None if is_rust else orig_python(),
-                 "rust": is_rust, "pid": None, "via": "_start_detached"}
-        events["spawns"].append(spawn)
-        process = orig_start(path)
-        spawn["pid"] = getattr(process, "pid", None)
-        return process
-
-    def popen(*args, **kwargs):
-        argv = args[0] if args else kwargs.get("args")
-        try:
-            parts = [str(a) for a in (argv or [])]
-        except TypeError:
-            parts = []
-        watched = (any("ren-resolved" in part for part in parts)
-                   and "serve" in parts)
-        spawn = None
-        if watched:
-            spawn = {"path": next((p for p in parts if p.endswith(".sock")),
-                                   "<no-sock-arg>"),
-                     "default": False, "python": None, "rust": True,
-                     "pid": None, "via": "Popen"}
-            events["spawns"].append(spawn)
-        process = orig_popen(*args, **kwargs)
-        if spawn is not None:
-            try:
-                spawn["path"] = str(spawn["path"])
-                spawn["default"] = _is_default(Path(spawn["path"]))
-            except (OSError, TypeError):
-                pass
-            spawn["pid"] = getattr(process, "pid", None)
-        return process
-
-    def ping(path=None):
-        try:
-            target = str(client._path(path))
-        except Exception:
-            target = "<unresolvable>"
-        if _is_default(target):
-            events["default_pings"].append(target)
-        return orig_ping(path)
-
-    def call(request, path=None, timeout=30.0):
-        try:
-            target = str(client._path(path))
-        except Exception:
-            target = "<unresolvable>"
-        if _is_default(target):
-            events["default_calls"].append(
-                {"target": target, "op": request.get("op")})
-        return orig_call(request, path, timeout)
-
-    client.ensure = ensure
-    client._start_detached = start
-    subprocess.Popen = popen
-    client.ping = ping
-    client.call = call
-
-
-def pytest_sessionfinish(session, exitstatus):
-    REPORT.write_text(json.dumps(events, indent=2), encoding="utf-8")
-'''
-
-
 def _broker_pids() -> set:
     """Pids of every `resolved serve` process on the machine."""
     try:
@@ -403,182 +290,7 @@ def _broker_pids() -> set:
     return found
 
 
-@pytest.mark.serial(
-    reason="Runs nested broker and Resolve-lock suites; keep child startup "
-           "out of xdist saturation.")
-def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
-        tmp_path):
-    """The reproduction, run the way a worker runs it, in a subprocess.
-
-    Runs the suites that exercise the broker client - the spawn path
-    itself (`test_ensure`), the in-process broker suites that must
-    never spawn (`test_ui_transaction`, `test_shadow_watcher`,
-    `test_resolve_lock`) - then proves the run left no broker process
-    behind and never touched the default socket. It never connects to or
-    stops the production broker.
-
-    A stray `ensure` without the spawn opt-in raises inside the inner
-    run (failing it, which fails this test with the inner output), so
-    a suite that spawns where its fixture did not opt in is caught
-    here rather than leaking.
-    """
-    # The child plugin watches every broker-client ensure, ping and call,
-    # plus broker subprocess starts. Do not ping the shared default before
-    # and after this long run: Firstmate owns its lifecycle, and a normal
-    # supervisor restart must not fail an otherwise isolated test.
-    before_pids = _broker_pids()
-
-    plugin_dir = tmp_path / "plugin"
-    plugin_dir.mkdir()
-    (plugin_dir / "broker_watch.py").write_text(
-        _BROKER_WATCH_PLUGIN, encoding="utf-8")
-    report = tmp_path / "broker-events.json"
-
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(plugin_dir), str(REPO_ROOT), env.get("PYTHONPATH", "")])
-    env["PIPELINE_BROKER_WATCH_REPORT"] = str(report)
-
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest",
-         "tests/unit/resolve/test_ensure.py",
-         "tests/unit/resolve/test_ui_transaction.py",
-         "tests/unit/resolve/test_shadow_watcher.py",
-         "tests/unit/resolve/test_resolve_lock.py",
-         "-q", "-p", "no:cacheprovider", "-o", "addopts=",
-         "-p", "broker_watch"],
-        cwd=str(REPO_ROOT), env=env, capture_output=True,
-        encoding="utf-8", timeout=1200, check=False)
-    assert result.returncode == 0, (
-        "the broker-exercising suites failed in the subprocess:\n"
-        f"{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
-    assert report.exists(), (
-        "the broker_watch plugin never ran, so this check proved "
-        f"nothing:\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}")
-    events = json.loads(report.read_text(encoding="utf-8"))
-
-    default_spawns = [s for s in events["spawns"] if s["default"]]
-    assert not default_spawns, (
-        "a test started a broker on the production default socket:\n  "
-        + "\n  ".join(json.dumps(s) for s in default_spawns))
-    assert not events["default_pings"], (
-        "a test pinged the production default socket "
-        f"(would answer where a broker serves): {events['default_pings']}")
-    assert not events["default_calls"], (
-        "a test called the production default socket: "
-        f"{events['default_calls']}")
-
-    from library.tools import shared_environment
-    expected, _ = shared_environment.python_interpreter(str(REPO_ROOT))
-    if expected:
-        for spawn in events["spawns"]:
-            if spawn.get("rust"):
-                continue
-            assert spawn["python"] == expected, (
-                "a test started a broker with the caller's interpreter "
-                f"{spawn['python']} instead of Ren's {expected}: {spawn}")
-    assert events["spawns"], (
-        "the subprocess run started no broker at all - it did not "
-        "exercise the spawn path, so this check proved nothing.")
-
-    # Only the brokers this run spawned: a machine-wide before/after diff
-    # also counts one a sibling xdist worker or another checkout starts
-    # meanwhile, and failed for a broker this run never touched.
-    spawned = {spawn["pid"] for spawn in events["spawns"] if spawn["pid"]}
-    left = sorted(spawned & _broker_pids())
-    assert not left, (
-        f"the subprocess run left broker processes behind: {left} "
-        f"(spawned {sorted(spawned)}, running before {sorted(before_pids)}). "
-        "A detached broker outlives its test; stop what is started.")
-# ── 3. The 2026-10-07 leak, replayed in a subprocess ────────────────
-
-_DIRECT_POPEN_REPRO = '''
-"""A hand-started Python broker the teardown used to miss, then stops it."""
-import os
-import subprocess
-import sys
-import tempfile
-import time
-from pathlib import Path
-
-from library.tools.resolved import client
-from library.tools.resolved.server import SOCKET_NAME
-
-
-def test_hand_started_python_broker_is_stopped_at_teardown():
-    lock_dir = Path(tempfile.mkdtemp(prefix="ren-leak-repro-", dir="/tmp"))
-    env = dict(os.environ, PIPELINE_RESOLVE_LOCK_DIR=str(lock_dir),
-               REN_SHADOW_WATCHER="0")
-    # The `qualification_project._broker` shape: no `.sock` in the argv,
-    # the socket reached through the environment - the pattern the
-    # Popen recorder never matched, so the broker survived the test.
-    process = subprocess.Popen(
-        [sys.executable, "-m", "library.tools.resolved", "serve"],
-        env=env, stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-        start_new_session=True)
-    sock = lock_dir / SOCKET_NAME
-    deadline = time.time() + 15
-    while client.ping(sock) is None and time.time() < deadline:
-        time.sleep(0.1)
-    assert client.ping(sock) is not None, "the repro broker never started"
-    print(f"REPRO_BROKER_PID={process.pid} SOCK={sock}")
-    # Deliberately no shutdown: the per-test teardown must stop the
-    # exact pid, and the session guard must see nothing left.
-'''
-
-
-def test_a_hand_started_python_broker_leaves_no_orphan(tmp_path):
-    """The reproduction: a direct-Popen broker is stopped, not orphaned.
-
-    Before the conftest fix the Popen recorder only matched the Rust
-    argv (`ren-resolved ... serve`), so this test's broker survived as
-    an orphan with parent pid 1. Now the teardown records both daemon
-    argv shapes - resolving the Python broker's socket from its
-    environment, where the argv carries none - shuts it down, and
-    signals the exact pid where it lingers.
-
-    The repro file is written under `tests/` (removed afterwards) so
-    the inner run loads the suite's own `tests/conftest.py` - a file
-    outside the suite would run without the fixture and prove nothing.
-    """
-    repro = TESTS_DIR / "test_direct_popen_repro_tmp.py"
-    repro.write_text(_DIRECT_POPEN_REPRO, encoding="utf-8")
-    before = _broker_pids()
-
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT), env.get("PYTHONPATH", "")])
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(repro),
-             "-q", "-s", "-p", "no:cacheprovider", "-o", "addopts="],
-            cwd=str(REPO_ROOT), env=env, capture_output=True,
-            encoding="utf-8", timeout=600, check=False)
-    finally:
-        repro.unlink(missing_ok=True)
-    assert result.returncode == 0, (
-        "the direct-Popen repro failed (teardown or session guard fired):\n"
-        f"{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
-    assert "REPRO_BROKER_PID=" in result.stdout, (
-        "the repro never started its broker, so this check proved "
-        f"nothing:\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}")
-
-    marker = next(line for line in result.stdout.splitlines()
-                  if "REPRO_BROKER_PID=" in line)
-    pid = int(marker.split("REPRO_BROKER_PID=")[1].split()[0])
-    assert pid not in before, (
-        f"the repro broker pid {pid} predates the run - the pid "
-        f"comparison proved nothing (running before {sorted(before)})")
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        pass
-    else:
-        pytest.fail(
-            f"the hand-started broker survived its test as pid {pid}: "
-            f"the teardown missed the Python Popen shape.")
-
+# ── 3. The session-end leak guard ──────────────────────────────────
 
 def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
     """The session-end guard names a tracked broker that is still alive.
@@ -587,7 +299,7 @@ def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
     entry and an empty session change nothing. Only tracked entries
     are read - the production broker is never touched.
     """
-    import tests.conftest as conftest
+    from tests import conftest
 
     kept = list(conftest._SESSION_BROKERS)
     try:
@@ -607,7 +319,7 @@ def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
 
 def test_the_session_guard_passes_where_nothing_tracked_is_alive():
     """Dead tracked entries and an empty session are not failures."""
-    import tests.conftest as conftest
+    from tests import conftest
 
     kept = list(conftest._SESSION_BROKERS)
     try:

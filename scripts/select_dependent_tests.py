@@ -112,6 +112,25 @@ SCENARIO_HELPERS = {
         "tests/scenarios/golden_edit.py"],
 }
 
+# These nested tests are intentionally outside the routine guard modules.
+# Keep their cost on setup/isolation changes and full-suite runs, where the
+# ordinary changed-test selection would otherwise miss the cross-suite proof.
+NESTED_SAFEGUARD_TESTS = {
+    "tests/tooling/test_nested_project_collection.py",
+    "tests/tooling/test_nested_broker_isolation.py",
+}
+_PROJECT_GUARD_PATHS = {
+    "library/tools/paths.py",
+    "tests/tooling/test_tests_never_reach_real_projects.py",
+    "tests/tooling/test_nested_project_collection.py",
+}
+_BROKER_GUARD_PATHS = {
+    "library/tools/resolved/client.py",
+    "library/tools/resolve_lock.py",
+    "tests/tooling/test_tests_never_start_a_real_broker.py",
+    "tests/tooling/test_nested_broker_isolation.py",
+}
+
 
 def _imported_stems(tree: ast.Module) -> set[str]:
     """Every module stem imported anywhere in the tree, at any depth.
@@ -658,6 +677,28 @@ def _select_with_distances(changed, use_coverage=True):
     def keep(path, distance):
         add(path, distance)
         protected.add(path)
+
+    changed_relpaths = {
+        os.path.relpath(os.path.abspath(path if os.path.isabs(path)
+                                        else os.path.join(REPO_ROOT, path)),
+                        REPO_ROOT).replace(os.sep, "/")
+        for path in changed
+    }
+    setup_change = any(
+        _wide_change_reason(path) in ("fixture", "config")
+        or (path.startswith("tests/")
+            and path.endswith(".py")
+            and not os.path.basename(path).startswith("test_"))
+        for path in changed_relpaths)
+    project_guard_change = setup_change or bool(
+        changed_relpaths & _PROJECT_GUARD_PATHS)
+    broker_guard_change = setup_change or bool(
+        changed_relpaths & _BROKER_GUARD_PATHS)
+    if project_guard_change or broker_guard_change:
+        if project_guard_change:
+            keep("tests/tooling/test_nested_project_collection.py", 1)
+        if broker_guard_change:
+            keep("tests/tooling/test_nested_broker_isolation.py", 1)
     for path in changed:
         abs_path = (path if os.path.isabs(path)
                     else os.path.join(REPO_ROOT, path))
