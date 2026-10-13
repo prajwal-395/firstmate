@@ -1030,6 +1030,8 @@ class TestParallelLanesKeepTheSerialContract:
         assert rows[1]["error"] == "unreadable media file"
         assert "error" not in rows[2]
         assert rows[0]["index_path"].endswith("clip_001.json")
+        assert rows[0]["motion_evidence"]["coverage"]["kind"] == "unavailable"
+        assert rows[0]["motion_evidence"]["index_path"] == rows[0]["index_path"]
         assert result["total_indexed"] == 2
         assert result["total_failed"] == 1
         assert result["total_reused"] == 2

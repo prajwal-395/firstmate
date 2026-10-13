@@ -3506,6 +3506,16 @@ def build_temporal_index(
     )
     semantic_by_clip = build_semantic_lookup(
         semantic_analysis_documents or [], clip_catalog or [])
+    # M2 is the shared thumbnail decode. FI-14 derives motion/change
+    # evidence from it when fresh thumbnails exist, rather than decoding
+    # the source a second time. M3d masks are optional; their absence is
+    # carried as an unsupported camera/subject decomposition.
+    from library.tools import motion_evidence, source_memory
+
+    clip_by_id = {
+        row["clip_id"]: row for row in (clip_catalog or []) if "clip_id" in row
+    }
+    recorded_fingerprints = source_memory.load_recorded_fingerprints(str(layout.root))
     stream_context = semantic_profile_stream.current_run_context(
         str(layout.root))
     if stream_context["expected"] and not stream_context["run_id"]:
@@ -3639,6 +3649,20 @@ def build_temporal_index(
                 # Write per-clip JSON
                 _atomic_json_write(index_path, index)
 
+            motion_clip = dict(clip_by_id.get(clip_id) or {})
+            motion_clip.setdefault("clip_id", clip_id)
+            motion_clip.setdefault("source_file", filepath)
+            existing_motion = index.get("motion_evidence")
+            if not isinstance(
+                existing_motion, dict
+            ) or not motion_evidence.cached_inputs_match(
+                existing_motion, str(layout.root), motion_clip, recorded_fingerprints
+            ):
+                index["motion_evidence"] = motion_evidence.read_cached_motion(
+                    str(layout.root), motion_clip, recorded_fingerprints
+                )
+                _atomic_json_write(index_path, index)
+
             # Regional flow is deliberately different from the clip-wide
             # curves above: only time-bounded Gemma actions select a span.
             # Existing face boxes and this step's existing scene boundaries
@@ -3687,6 +3711,9 @@ def build_temporal_index(
             if not isinstance(sound_event_method, str):
                 sound_event_method = (
                     "unmeasured: predates the event measurement")
+            motion_measurement = index.get("motion_evidence") or {}
+            if not isinstance(motion_measurement, dict):
+                motion_measurement = {}
             write_sound_memory(index, filepath)
             return {
                 "clip_id": clip_id,
@@ -3715,6 +3742,13 @@ def build_temporal_index(
                     p for p in flow.get("motion_peaks", [])
                     if isinstance(p, dict)
                 ],
+                "motion_evidence": {
+                    "method": motion_measurement.get("method", "unmeasured"),
+                    "coverage": motion_measurement.get("coverage", {
+                        "kind": "unavailable"}),
+                    "boundaries": motion_measurement.get("boundaries", []),
+                    "index_path": index_path,
+                },
                 "sound_event_method": sound_event_method,
                 "sound_events": [
                     e for e in sound_events

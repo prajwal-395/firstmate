@@ -410,6 +410,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/stable_json.py",
     ),
     "step_1_04_temporal_index": (
+        # FI-14 camera/subject and novelty evidence derived from M2.
+        "library/tools/motion_evidence.py",
         # The project's declared transcription language: a fix here
         # changes which language every cached index is heard in.
         "library/tools/footage_identity.py",
