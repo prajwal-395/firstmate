@@ -1404,6 +1404,15 @@ _fm_composer_leftbar_floor_row() {  # <trimmed-row>
   [ -z "${blocks//▀/}" ]
 }
 
+# _fm_composer_row_is_opencode_limit_notice: recognize the vendor's quota
+# notice when it is rendered below OpenCode's closed left-bar composer. This
+# row belongs to the completed request, not to the empty input area.
+_fm_composer_row_is_opencode_limit_notice() {  # <trimmed-row>
+  local row=$1
+  printf '%s\n' "$row" | LC_ALL=C grep -Eiq \
+    '^(Free usage exceeded|.*usage limit (reached|exceeded))([.,:![:space:]]|$)'
+}
+
 # _fm_composer_row_is_composer_furniture: 0 when <trimmed-row> is DEMONSTRABLY
 # a harness's own furniture drawn below its composer, given <proof-glyph> - the
 # agent glyph that proved the envelope above it. Exactly four things qualify,
@@ -1517,7 +1526,7 @@ _fm_composer_bare_rule_sandwich() {  # <plain-screen> <row>
 }
 
 _fm_composer_select_cursorless() {
-  local plain=$1 generic=-1 next boundary raw trimmed glyph bare footer=0
+  local plain=$1 generic=-1 next boundary raw trimmed glyph bare footer=0 floor=0
   FM_COMPOSER_SELECTED_KIND=
   FM_COMPOSER_SELECTED_FIRST=-1
   FM_COMPOSER_SELECTED_LAST=-1
@@ -1622,9 +1631,20 @@ _fm_composer_select_cursorless() {
     raw=$(_fm_composer_screen_row "$next" "$plain")
     trimmed=$raw
     fm_composer_normalize_trim_var trimmed
+    if [ "$FM_COMPOSER_SELECTED_KIND" = leftbar ]; then
+      raw=$(_fm_composer_screen_row "$boundary" "$plain")
+      trimmed=$raw
+      fm_composer_normalize_trim_var trimmed
+      _fm_composer_leftbar_floor_row "$trimmed" && floor=1
+      raw=$(_fm_composer_screen_row "$next" "$plain")
+      trimmed=$raw
+      fm_composer_normalize_trim_var trimmed
+    fi
     if [ -n "$trimmed" ] && ! fm_composer_row_has_edge "$trimmed"; then
-      FM_COMPOSER_SELECTED_KIND=
-      return 1
+      if [ "$floor" != 1 ] || ! _fm_composer_row_is_opencode_limit_notice "$trimmed"; then
+        FM_COMPOSER_SELECTED_KIND=
+        return 1
+      fi
     fi
   fi
   [ -n "$FM_COMPOSER_SELECTED_KIND" ]
