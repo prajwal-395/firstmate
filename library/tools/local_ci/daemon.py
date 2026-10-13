@@ -87,10 +87,7 @@ def tier2_only_slugs() -> list:
     slugs = []
     for entry in config.TIER1_TIER2_ONLY:
         base = os.path.basename(entry)
-        if base.startswith("test_"):
-            base = base[len("test_"):]
-        if base.endswith(".py"):
-            base = base[:-len(".py")]
+        base = base.removeprefix("test_").removesuffix(".py")
         slugs.append(base.replace("_", "-"))
     return slugs
 
@@ -130,6 +127,8 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 f"PR #{number} diff unreadable ({exc}): next pass retries "
                 "on a fresh fetch") from exc
         capped = selection.capped_selection_for(files, checkout)
+        selection.record_coverage_decision(
+            world.state_dir, number, head, capped["coverage"])
         paths = capped["paths"]
         command = (selection.selection_command(files) + " + "
                    + selection.mandatory_description(
@@ -369,8 +368,8 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
         retries = int(record.get("timeout_retries", 0) or 0)
         status, description = (
             "pending",
-            f"ren-ci: {reason} - retrying "
-            f"({retries}/{config.TIER1_TIMEOUT_MAX_RETRIES})")
+            (f"ren-ci: {reason} - retrying "
+             f"({retries}/{config.TIER1_TIMEOUT_MAX_RETRIES})"))
     else:
         if record.get("process_group_leaked"):
             reason = "pytest process group did not exit"
@@ -824,12 +823,12 @@ class Tier1Scheduler:
                 and not any(entry.get("status") == state.ENTRY_TESTING
                             for entry in entries)
                 and not gate_running
-                and not orphaned):
+                and not orphaned
+                and self._tier2_start(plan["window"])):
             # The idle gate still holds - Tier-2 starts only once
             # running Tier-1 jobs drain - but the start no longer
             # blocks the pass: the cluster evaluates beside dispatch.
-            if self._tier2_start(plan["window"]):
-                done["queue"] = {"ripe": True, "started": True}
+            done["queue"] = {"ripe": True, "started": True}
         return done
 
     def shutdown(self, wait: bool = True) -> None:

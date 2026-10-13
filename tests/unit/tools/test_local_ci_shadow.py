@@ -154,6 +154,45 @@ def test_matching_green_files_nothing(tmp_path):
         state_dir, shadow.SHADOW_FINDINGS_FILENAME))
 
 
+def test_tier2_audit_keeps_full_gate_and_hypothetical_skip_counts(tmp_path):
+    state_dir = _state_dir(tmp_path)
+    plan = {"executed": ["tests/unit/test_a.py"],
+            "reused": ["tests/unit/test_b.py"], "integration": [],
+            "total_tests": 3, "skipped_tests": 2, "total_files": 2,
+            "skipped_files": 1, "skipped_fraction": 2 / 3}
+    record = shadow.record_tier2_audit(
+        state_dir, SHA, plan, {"verdict": "PASS"},
+        {"tests/unit/test_a.py": {"failed": 0, "total": 1}})
+    assert record["full_gate_verdict"] == "PASS"
+    assert record["skipped_tests"] == 2
+    with open(os.path.join(state_dir, shadow.TIER2_AUDIT_FILENAME),
+              encoding="utf-8") as handle:
+        saved = json.loads(handle.readline())
+    assert saved["sha"] == SHA
+    assert saved["disagreement"] is False
+
+
+def test_direct_gate_audit_uses_the_pre_gate_partition(
+        monkeypatch, tmp_path):
+    state_dir = _state_dir(tmp_path)
+    checkout = str(tmp_path / "checkout")
+    outcomes = {"tests/unit/test_a.py": {"failed": 0, "total": 1}}
+    plan = {"executed": ["tests/unit/test_a.py"],
+            "reused": [], "integration": [],
+            "total_tests": 1, "skipped_tests": 0, "total_files": 1,
+            "skipped_files": 0, "skipped_fraction": 0.0}
+    monkeypatch.setattr(result_cache, "parse_junit",
+                        lambda _: outcomes)
+    monkeypatch.setattr(runner, "tier2_incremental_plan",
+                        lambda *_args, **_kwargs: plan)
+    prepared = {"head": SHA, "consulted": {"expanded": [], "reused": []}}
+    record = shadow.complete_direct_gate_audit(
+        checkout, state_dir, prepared, "unused.xml", "PASS")
+    assert record["sha"] == SHA
+    assert record["full_gate_verdict"] == "PASS"
+    assert record["total_tests"] == 1
+
+
 # -- refusals: nothing spent, nothing filed ---------------------------
 
 def test_a_red_claim_needs_no_shadow_and_spends_no_gate(tmp_path):

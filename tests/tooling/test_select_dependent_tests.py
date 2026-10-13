@@ -397,6 +397,17 @@ def test_stale_index_falls_back_wide(monkeypatch, tmp_path):
     changed = ["library/leaf.py"]
     assert module.select(changed) == module.select(
         changed, use_coverage=False)
+    module.select(changed)
+    assert module._LAST_COVERAGE_REPORT["reason"] == "fingerprint mismatch"
+
+
+def test_missing_coverage_index_reports_no_compatible_baseline(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("VEP_COVERAGE_INDEX_FILE",
+                       str(tmp_path / "missing-index.json"))
+    module = _load_selector()
+    module.select(["library/tools/local_ci/selection.py"])
+    assert module._LAST_COVERAGE_REPORT["reason"] == "no compatible baseline"
 
 
 def test_narrowing_report_counts_are_exact():

@@ -555,7 +555,11 @@ def test_tier1_second_run_on_same_tree_skips_pytest(
                          "capped": False, "dependent_total": 1,
                          "dependent_kept": 1, "budget": 30.0,
                          "budget_seconds": 30.0, "estimated_seconds": 1.0,
-                         "deferred": 0, "deferred_paths": []})
+                         "deferred": 0, "deferred_paths": [],
+                         "coverage": {"narrowed": False,
+                                      "reason": "fixture",
+                                      "static_count": 1,
+                                      "selected_count": 1}})
     monkeypatch.setattr(runner, "run_static",
                         lambda *a, **k: {"ok": True, "reason": ""})
     monkeypatch.setattr(runner, "_pytest_python", lambda: "python3")

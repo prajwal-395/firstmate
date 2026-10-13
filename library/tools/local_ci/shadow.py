@@ -132,6 +132,32 @@ def record_tier2_audit(state_dir: str, sha: str, plan: dict,
     return record
 
 
+def prepare_direct_gate_audit(checkout: str, state_dir: str) -> dict:
+    """Snapshot reusable evidence before a directly invoked full gate."""
+    from library.tools.local_ci import result_cache, runner
+    interpreter = runner._tier2_interpreter(checkout)
+    builder = result_cache.KeyBuilder(checkout)
+    consulted = runner.tier2_consult(
+        checkout, state_dir, interpreter, builder)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=checkout, capture_output=True,
+        encoding="utf-8", check=False, timeout=30).stdout.strip()
+    return {"head": head,
+            "interpreter": interpreter, "consulted": consulted}
+
+
+def complete_direct_gate_audit(checkout: str, state_dir: str,
+                               prepared: dict, junit_path: str,
+                               verdict: str) -> dict:
+    """Append a same-tree audit for a directly invoked full-suite gate."""
+    from library.tools.local_ci import result_cache, runner
+    outcomes = result_cache.parse_junit(junit_path)
+    plan = runner.tier2_incremental_plan(
+        checkout, prepared["consulted"], observed_outcomes=outcomes)
+    return record_tier2_audit(
+        state_dir, prepared["head"], plan, {"verdict": verdict}, outcomes)
+
+
 def check_claim(claim: dict | None) -> tuple:
     """Validate incremental evidence's claim, or refuse with the reason.
 

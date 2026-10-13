@@ -7,7 +7,7 @@ mandatory half ran and why); and a report line that cannot be pasted
 to reproduce the run.
 """
 
-from library.tools.local_ci import config, hygiene, runner, selection
+from library.tools.local_ci import config, hygiene, runner, selection, state
 
 
 class _Proc:
@@ -35,6 +35,26 @@ def test_selection_always_contains_the_universal_set():
     paths = selection.selection_for(["library/tools/beat_grid.py"])
     for entry in config.ALWAYS_RUN_UNIVERSAL:
         assert entry in paths, f"universal {entry} missing from selection"
+
+
+def test_coverage_summary_uses_recent_merged_pr_measurements(tmp_path):
+    state_dir = str(tmp_path / "ci")
+    selection.record_coverage_decision(
+        state_dir, 10, "a" * 40,
+        {"narrowed": False, "reason": "all changed files invalidated",
+         "static_count": 5, "selected_count": 5})
+    selection.record_coverage_decision(
+        state_dir, 11, "b" * 40,
+        {"narrowed": True, "reason": "coverage narrowed",
+         "static_count": 5, "selected_count": 2})
+    state.write_queue([
+        {"pr": 10, "merged_at": 20},
+        {"pr": 11, "merged_at": 10},
+        {"pr": 12, "status": "testing"}], state_dir)
+    summary = selection.coverage_decision_summary(state_dir, limit=2)
+    assert summary == {
+        "merged": 2, "sampled": 2, "narrowed": 1, "unmeasured": 0,
+        "not_narrowed_reasons": {"all changed files invalidated": 1}}
 
 
 def test_a_docs_only_change_selects_only_the_universal_set():

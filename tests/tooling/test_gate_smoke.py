@@ -9,8 +9,6 @@ import textwrap
 import tomllib
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LOCAL_GATE = REPO_ROOT / "scripts" / "full_suite_gate.sh"
 
@@ -64,6 +62,9 @@ def test_native_gate_tools_are_prepared_after_lock_and_before_pytest():
 
     assert lock < static < native < pytest_pos
     assert "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)" in source
+    assert "DIRECT_SHADOW_PLAN" in source
+    assert '"${REN_CI_SHADOW_AUDIT:-}" != "queue"' in source
+    assert "tier2_shadow_audit.py" in source
 
 
 def _report_shim(tmp_path: Path, xml: str, exit_code: int = 0) -> Path:

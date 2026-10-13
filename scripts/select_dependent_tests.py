@@ -361,6 +361,7 @@ _DYNAMIC_IMPORT_MARKERS = (
 # Index roots mirror the coverage index (`coverage_index.INDEX_ROOTS`):
 # only tree code the index records can ever narrow.
 _FALLBACK_INDEX_ROOTS = ("library", "tests", "ren")
+_LAST_COVERAGE_REPORT = {"narrowed": False, "reason": "not evaluated"}
 
 # Basename/suffix classes whose change invalidates evidence the index
 # cannot see: shared fixtures, configuration, native artifacts and the
@@ -472,11 +473,18 @@ def _apply_coverage_narrowing(changed, static, protected):
     protected entries plus the forward fan-out the index shows
     executing a changed file - a strict subset of the input.
     """
-    if not static:
+    global _LAST_COVERAGE_REPORT
+    def fallback(reason):
+        global _LAST_COVERAGE_REPORT
+        _LAST_COVERAGE_REPORT = {
+            "narrowed": False, "reason": reason,
+            "static_count": len(static), "selected_count": len(static)}
         return dict(static)
+    if not static:
+        return fallback("empty static selection")
     module = _coverage_module()
     if module is None:
-        return dict(static)
+        return fallback("coverage reader unavailable")
     sha, interpreter, native = _coverage_overrides()
     try:
         tests_map, _reason, baseline_changed = module.load(
@@ -484,9 +492,19 @@ def _apply_coverage_narrowing(changed, static, protected):
             native=native, with_metadata=True)
     except (OSError, ValueError, ImportError, AttributeError, TypeError,
             KeyError):
-        return dict(static)
+        return fallback("coverage index unreadable")
     if not isinstance(tests_map, dict):
-        return dict(static)
+        detail = (_reason or "no compatible baseline").lower()
+        if ("stale:" in detail or "fingerprint" in detail
+                or "mismatch" in detail):
+            label = "fingerprint mismatch"
+        elif "no coverage index" in detail:
+            label = "no compatible baseline"
+        else:
+            label = "incompatible baseline"
+        return fallback(label)
+    if not tests_map:
+        return fallback(_reason or "no compatible baseline")
     roots = getattr(module, "INDEX_ROOTS", _FALLBACK_INDEX_ROOTS)
     changed_rels = []
     for path in changed:
@@ -495,15 +513,16 @@ def _apply_coverage_narrowing(changed, static, protected):
         try:
             rel = os.path.relpath(os.path.abspath(abs_path), REPO_ROOT)
         except ValueError:
-            return dict(static)
+            return fallback("changed path outside checkout")
         rel_posix = rel.replace(os.sep, "/")
         changed_rels.append(rel_posix)
         if _wide_change_reason(rel_posix) is not None:
-            return dict(static)
+            return fallback("changed file invalidates coverage: " +
+                            _wide_change_reason(rel_posix))
         if not _is_indexable_path(rel_posix, roots):
-            return dict(static)
+            return fallback("changed file outside coverage index")
         if _has_dynamic_import_signal(os.path.abspath(abs_path)):
-            return dict(static)
+            return fallback("dynamic import signal")
     # The baseline index says nothing trustworthy about files changed
     # since certification. Keep their complete static selection, while
     # still allowing compatible evidence to narrow other changed files.
@@ -511,7 +530,7 @@ def _apply_coverage_narrowing(changed, static, protected):
     if any(_wide_change_reason(path) is not None
            or not _is_indexable_path(path, roots)
            for path in invalidated):
-        return dict(static)
+        return fallback("baseline invalidation includes unindexable file")
     static_invalidated = {}
     for path, distance in static.items():
         if any(path == candidate or
@@ -526,11 +545,21 @@ def _apply_coverage_narrowing(changed, static, protected):
     active_changed = [path for path in changed
                       if path.replace(os.sep, "/") not in invalidated]
     if invalidated and not active_changed:
-        return {**static, **static_invalidated}
+        result = {**static, **static_invalidated}
+        _LAST_COVERAGE_REPORT = {
+            "narrowed": result.keys() < static.keys(),
+            "reason": "all changed files invalidated",
+            "static_count": len(static), "selected_count": len(result)}
+        return result
     changed_rels = [path for path in changed_rels
                     if path not in invalidated]
     if not changed_rels:
-        return {**static, **static_invalidated}
+        result = {**static, **static_invalidated}
+        _LAST_COVERAGE_REPORT = {
+            "narrowed": result.keys() < static.keys(),
+            "reason": "all changed files invalidated",
+            "static_count": len(static), "selected_count": len(result)}
+        return result
     covered: set = set()
     for entry in tests_map.values():
         if isinstance(entry, dict) and isinstance(entry.get("files"), list):
@@ -539,7 +568,7 @@ def _apply_coverage_narrowing(changed, static, protected):
     for rel_posix in changed_rels:
         if rel_posix not in covered:
             # Uncovered but importable: the static edge still selects.
-            return dict(static)
+            return fallback("changed file absent from coverage baseline")
     executed_by_test_file: dict = {}
     for test_id, entry in tests_map.items():
         if not isinstance(test_id, str) or not isinstance(entry, dict):
@@ -568,6 +597,12 @@ def _apply_coverage_narrowing(changed, static, protected):
             path.replace(os.sep, "/"), set())
         if executed & wanted:
             narrowed[path] = distance
+    did_narrow = set(narrowed) < set(static)
+    _LAST_COVERAGE_REPORT = {
+        "narrowed": did_narrow,
+        "reason": "coverage narrowed" if did_narrow else
+                  "coverage evidence retained full static selection",
+        "static_count": len(static), "selected_count": len(narrowed)}
     return narrowed
 
 
@@ -701,7 +736,8 @@ def main(argv):
     if not args or args[0] in ("-h", "--help"):
         print(__doc__.strip().splitlines()[0])
         print("usage: select_dependent_tests.py [--no-coverage] "
-              "[--loop] [--distances] <changed-file> ...")
+              "[--loop] [--distances|--coverage-report] "
+              "<changed-file> ...")
         return 0
     if args[0] == "--loop":
         for path in loop(args[1:], use_coverage=use_coverage):
@@ -712,6 +748,12 @@ def main(argv):
             args[1:], use_coverage=use_coverage)
         for path in sorted(distances):
             print(f"{distances[path]} {path}")
+        return 0
+    if args[0] == "--coverage-report":
+        selected = select_with_distances(args[1:], use_coverage=use_coverage)
+        print(json.dumps({**_LAST_COVERAGE_REPORT,
+                          "selected": sorted(selected),
+                          "distances": selected}))
         return 0
     for path in select(args, use_coverage=use_coverage):
         print(path)

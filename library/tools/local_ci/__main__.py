@@ -119,6 +119,16 @@ def cmd_status(args) -> int:
               f"last-seen={pin['last_seen_upstream_sha'][:12]} {state_label}")
     from library.tools.local_ci import config, shadow
     findings_state = args.state or config.state_dir()
+    from library.tools.local_ci import selection
+    measured = selection.coverage_decision_summary(findings_state)
+    if measured["merged"]:
+        print(f"coverage narrowing (last {measured['merged']} merged PRs): "
+              f"{measured['narrowed']}/{measured['sampled']} measured narrowed; "
+              f"{measured['unmeasured']} have no recorded selection")
+        for reason, count in sorted(measured["not_narrowed_reasons"].items()):
+            print(f"  {reason}: {count}")
+    else:
+        print("coverage narrowing: no merged PR selection measurements available")
     findings = shadow.summarize_findings(findings_state)
     if findings:
         print(f"shadow findings: "
@@ -316,8 +326,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

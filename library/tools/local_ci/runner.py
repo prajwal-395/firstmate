@@ -599,7 +599,8 @@ def run_gate(checkout: str, log_path: str,
                 checkout, hook["state_dir"], interpreter, builder)
             hook["consulted"] = consulted
         junit_path = log_path + ".junit.xml"
-        child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_path}
+        child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_path,
+                     "REN_CI_SHADOW_AUDIT": "queue"}
     elif junit_out:
         child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_out}
     result = _run_logged(

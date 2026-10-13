@@ -170,6 +170,15 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 REPORT_DIR="$(mktemp -d)"
+DIRECT_SHADOW_PLAN=""
+if [ "${REN_CI_SHADOW_AUDIT:-}" != "queue" ]; then
+  DIRECT_SHADOW_PLAN="${REPORT_DIR}/tier2-shadow-plan.json"
+  if ! python3 "${REPO_ROOT}/scripts/tier2_shadow_audit.py" prepare \
+      "${REPO_ROOT}" "${DIRECT_SHADOW_PLAN}"; then
+    echo "ren-ci CI-08 direct shadow: preflight unavailable; full gate continues" >&2
+    DIRECT_SHADOW_PLAN=""
+  fi
+fi
 # KEPT on a non-zero exit, and only then.  The trap used to be an
 # unconditional `rm -rf`, so the JUnit reports this gate computes were
 # deleted before anyone could read them: a FAIL printed a count and left
@@ -181,6 +190,11 @@ REPORT_DIR="$(mktemp -d)"
 # computed and then dropped), in the gate itself.
 _keep_report_on_failure() {
   local status=$?
+  if [ -n "${DIRECT_SHADOW_PLAN}" ]; then
+    python3 "${REPO_ROOT}/scripts/tier2_shadow_audit.py" complete \
+      "${REPO_ROOT}" "${DIRECT_SHADOW_PLAN}" "${MAIN_XML:-}" \
+      "${VERDICT:-DID NOT RUN}" || true
+  fi
   if [ "${status}" -ne 0 ]; then
     echo
     echo "JUnit reports kept for diagnosis: ${REPORT_DIR}"

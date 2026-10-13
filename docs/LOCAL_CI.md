@@ -121,6 +121,9 @@ batched full suite, which already runs everything on the exact
 stacked tree before any merge. A capped run records the cap on its
 Tier-1 status (`[capped, breadth to Tier-2]`), so it never reads as
 full coverage.
+The coverage selector records whether it narrowed the static selection
+and why it kept the full set in `~/.ren-ci/coverage_selections.jsonl`;
+`ren ci status` summarizes the last 10 merged PRs with measurements.
 
 The mandatory set beside the dependent selection is two tiers. A tiny
 universal half - the compiles/parity/wiring files that cost seconds
@@ -215,8 +218,11 @@ set as the conservative integration set. `~/.ren-ci/tier2_shadow_audits.jsonl` r
 hypothetical incremental verdict, executed and skipped files, individual
 test case counts, and the fraction of test cases it would skip. The same
 batch's full-gate JUnit report audits that verdict,
-and every disagreement is appended as a test-intelligence defect. This
-audit runs in the local ren-ci service. The full gate still executes and
+and every disagreement is appended as a test-intelligence defect. The
+queue records the audit after its gate; a direct `scripts/full_suite_gate.sh`
+run snapshots reusable evidence before the suite and records its audit from
+the gate's exit trap. `ren ci status` reports selector narrowing for the last
+10 merged PRs when selection history is available. The full gate still executes and
 remains the only merge authority; these measurements do not change
 queue or merge decisions.
 

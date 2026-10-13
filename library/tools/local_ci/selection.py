@@ -11,8 +11,10 @@ whose diff touches nothing testable still runs the universal half:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import time
 
 from library.tools.local_ci import config, history
 
@@ -97,6 +99,74 @@ def dependent_distances(paths: list, repo: str = REPO_ROOT) -> dict:
         except ValueError:
             continue
     return distances
+
+
+def coverage_report(paths: list, repo: str = REPO_ROOT) -> dict:
+    """Return the hybrid selector's decision and selected test list."""
+    if not paths:
+        return {"narrowed": False, "reason": "no changed files",
+                "static_count": 0, "selected_count": 0, "selected": [],
+                "distances": {}}
+    result = subprocess.run(
+        ["python3", SELECT_SCRIPT, "--coverage-report", *paths],
+        capture_output=True, encoding="utf-8", check=False, timeout=300,
+        cwd=repo, env={**os.environ, "REN_SELECT_ROOT": repo})
+    if result.returncode != 0:
+        raise RuntimeError("coverage report failed: " + result.stderr.strip())
+    try:
+        return json.loads(result.stdout)
+    except ValueError as exc:
+        raise RuntimeError("coverage report returned invalid JSON") from exc
+
+
+def record_coverage_decision(state_dir: str, pr: int, head: str,
+                             report: dict) -> None:
+    """Append the selection evidence used by a Tier-1 PR check."""
+    if not state_dir:
+        return
+    os.makedirs(state_dir, exist_ok=True)
+    path = os.path.join(state_dir, "coverage_selections.jsonl")
+    record = {key: report[key] for key in
+              ("narrowed", "reason", "static_count", "selected_count")}
+    record.update({"pr": pr, "head": head, "recorded_at": time.time()})
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def coverage_decision_summary(state_dir: str, limit: int = 10) -> dict:
+    """Summarize the most recent recorded PR selection decisions."""
+    path = os.path.join(state_dir, "coverage_selections.jsonl")
+    records = []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line)
+                    if isinstance(row, dict):
+                        records.append(row)
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    by_pr = {}
+    for row in records:
+        by_pr[row.get("pr")] = row
+    from library.tools.local_ci import state
+    merged = sorted((entry for entry in state.read_queue(state_dir)
+                     if entry.get("merged_at")),
+                    key=lambda entry: entry.get("merged_at", 0),
+                    reverse=True)[:limit]
+    recent = [by_pr[entry["pr"]] for entry in merged
+              if entry.get("pr") in by_pr]
+    reasons = {}
+    for row in recent:
+        if not row.get("narrowed"):
+            reason = row.get("reason", "unknown")
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return {"merged": len(merged), "sampled": len(recent),
+            "narrowed": sum(bool(row.get("narrowed")) for row in recent),
+            "unmeasured": len(merged) - len(recent),
+            "not_narrowed_reasons": reasons}
 
 
 def loop_subsystems(paths: list, repo: str = REPO_ROOT) -> list:
@@ -248,7 +318,7 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
     reach (`mandatory_for`); a contracts-skipped run records its reason
     instead of reading as a contracts-passed run.
 
-    Returns {paths, capped, dependent_total, dependent_kept, budget,
+    Returns {paths, coverage, capped, dependent_total, dependent_kept, budget,
     budget_seconds, estimated_seconds, deferred, deferred_paths,
     tier2_only, tier2_only_deferred, mandatory_entries,
     mandatory_contracts, mandatory_reason}: capped is True exactly when
@@ -260,6 +330,8 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
     for budget), so the status line can name what Tier-1 skipped.
     `mandatory_contracts`/`mandatory_reason` name which mandatory half
     ran and why.
+    `coverage` records whether compatible runtime coverage strictly
+    narrowed the static dependent selection and, otherwise, the reason.
     Files in `config.TIER1_TIER2_ONLY` never run in Tier-1 - not even
     as a direct test of their own change, and not via the always-run
     directory expansion (the runner also ignores them): the Tier-2
@@ -267,7 +339,43 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
     """
     budget = (float(budget_seconds) if budget_seconds is not None
               else config.tier1_time_budget_seconds())
-    distances = dependent_distances(paths, repo)
+    try:
+        static_distances = dependent_distances(paths, repo)
+    except Exception:  # noqa: BLE001 - selection still answers from coverage
+        static_distances = None
+    try:
+        coverage = coverage_report(paths, repo)
+        if coverage.get("narrowed") and static_distances is not None:
+            narrowed = set(coverage.get("selected", []))
+            # Trust narrowing only as a strict subset of the static
+            # selection; otherwise keep the measured narrowed list.
+            if narrowed and narrowed < set(static_distances):
+                distances = {path: static_distances[path]
+                             for path in narrowed}
+                for path, value in coverage.get("distances", {}).items():
+                    if path in distances:
+                        try:
+                            distances[path] = int(value)
+                        except (TypeError, ValueError):
+                            pass
+            else:
+                distances = {path: int(distance) for path, distance in
+                             coverage["distances"].items()}
+        elif static_distances is not None:
+            distances = dict(static_distances)
+        else:
+            distances = {path: int(distance) for path, distance in
+                         coverage["distances"].items()}
+    except Exception:  # noqa: BLE001 - measurement cannot affect selection
+        if static_distances is not None:
+            distances = dict(static_distances)
+        else:
+            distances = dependent_distances(paths, repo)
+        coverage = {"narrowed": False,
+                    "reason": "coverage measurement unavailable",
+                    "static_count": len(distances),
+                    "selected_count": len(distances),
+                    "selected": sorted(distances)}
     full_dependent = sorted(distances)
     if durations is None:
         durations = history.test_durations()
@@ -332,7 +440,7 @@ def capped_selection_for(paths: list, repo: str = REPO_ROOT,
         if entry in tier2_only or entry in selected:
             continue
         selected.append(entry)
-    return {"paths": selected, "capped": capped,
+    return {"paths": selected, "coverage": coverage, "capped": capped,
             "dependent_total": len(full_dependent),
             "dependent_kept": len(kept), "budget": budget,
             "budget_seconds": budget,
