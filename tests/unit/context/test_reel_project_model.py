@@ -6,7 +6,6 @@ only media probed is the committed synthetic fixture.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -92,6 +91,59 @@ def test_clip_uses_equal_placements_and_empty_spans_refuse():
     assert video_use["timeline_interval"]["start"] == 0
     assert video_use["timeline_interval"]["end"] == 600_000
     assert any(row["operation"] == "reel.assemble" for row in model["edits"])
+    validate_project_model(model)
+
+
+def test_audio_clip_use_roles_follow_recorded_track_plan():
+    placements = [
+        {"source_file": "/m/music.wav", "source_in": 2.0,
+         "source_out": 7.0, "record_start": 0.0, "record_frame": 0,
+         "record_frames": 120, "track_type": "audio", "track_index": 2},
+        {"source_file": "/m/hit.wav", "source_in": 0.0,
+         "source_out": 1.0, "record_start": 1.0, "record_frame": 24,
+         "record_frames": 24, "track_type": "audio", "track_index": 3},
+    ]
+    model = rpm.blank_model("project-x")
+    track_plan = {"audio_tracks": [
+        {"index": 2, "role": "music"}, {"index": 3, "role": "sfx"}]}
+    report = rpm.build_reel_fragment(
+        model, "Reel 01", placements, track_plan, fps=24.0)
+    assert report["clip_uses_skipped"] == []
+    assert [row["role"] for row in model["clip_uses"]] == ["music", "sfx"]
+    assert [row["timeline_interval"]["start"] for row in model["clip_uses"]] == [
+        0, 120_000]
+
+
+def test_declared_word_gap_ducking_targets_music_clip_use():
+    model = rpm.blank_model("project-x")
+    placements = [
+        {"source_file": "/m/speech.wav", "source_in": 0.0,
+         "source_out": 5.0, "record_start": 0.0, "record_frame": 0,
+         "record_frames": 120, "master_start": 10.0, "master_end": 15.0,
+         "track_type": "audio", "track_index": 1},
+        {"source_file": "/m/music.wav", "source_in": 2.0,
+         "source_out": 7.0, "record_start": 0.0, "record_frame": 0,
+         "record_frames": 120, "track_type": "audio", "track_index": 2},
+    ]
+    plan = {"audio_tracks": [
+        {"index": 1, "role": "speech"},
+        {"index": 2, "role": "music"}]}
+    mix = {
+        "music_ducking_plan": {"enabled": True, "duck_db": 6.0,
+                               "release_ms": 200.0},
+        "music_automation": [{"word_intervals": [[11.0, 12.0]],
+                               "word_gap_level_db": -12.0}],
+    }
+    report = rpm.build_reel_fragment(
+        model, "Reel 01", placements, plan, audio_mix_spec=mix, fps=24.0)
+    assert len(report["word_gap_ducking_effects"]) == 1
+    effect = model["effects"][0]
+    assert effect["class_id"] == "audio.ducking"
+    assert effect["target_id"] == "use:reel-01:0001"
+    assert effect["interval"]["start"] == 120_000
+    assert effect["interval"]["end"] == 240_000
+    assert effect["parameters"] == {
+        "full_db": -12.0, "depth_db": 6.0, "ramp_ticks": 24_000}
     validate_project_model(model)
 
 

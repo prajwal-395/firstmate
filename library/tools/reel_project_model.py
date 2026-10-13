@@ -96,6 +96,11 @@ def _sha16(*parts: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def _finite_number(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
 def sec_to_ticks(start: Any, end: Any,
                  ticks_per_second: int = TICKS_PER_SECOND
                  ) -> tuple[int, int] | None:
@@ -591,7 +596,9 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
     Roles come from the recorded track plan (``track_roles`` maps
     ``(track_type, track_index)`` to the plan role): A-roll picture
     rows mint ``a_roll``, everything else picture mints ``b_roll``,
-    audio rows mint ``speech``. A placement with no source span or
+    and audio rows use their recorded role (``speech``, ``music`` or
+    ``sfx``), defaulting to ``speech`` when the plan has no recognized
+    role. A placement with no source span or
     no reel span is refused with its reason, never clamped.
     Returns ``{"use_ids", "evidence_ids", "skipped"}``.
     """
@@ -648,7 +655,11 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             track_index = 0
         role = track_roles.get((track_type, track_index), "")
         if track_type == "audio":
-            use_role = "speech"
+            # The recorded track plan is the authority for audio intent.
+            # Treating every audio row as dialogue made the model bridge
+            # erase the music/SFX roles the FilmCraft adapter already
+            # knows how to place on separate stems.
+            use_role = role if role in {"speech", "music", "sfx"} else "speech"
         elif role == "a_roll":
             use_role = "a_roll"
         else:
@@ -900,6 +911,110 @@ def _mint_static_transform(model: dict[str, Any], reel_slug: str,
     return effect_id
 
 
+def word_gap_ducking_effects(model: dict[str, Any], reel_slug: str,
+                             reel_clock: str, placements: list[dict[str, Any]],
+                             use_id_by_placement: dict[int, str],
+                             audio_mix_spec: dict[str, Any] | None
+                             ) -> dict[str, Any]:
+    """Carry the measured word-gap mix onto native music uses.
+
+    ``audio_mix_spec`` is on master-spine time. Reel speech placements
+    record the master-to-reel offset, and music ClipUses provide the
+    destination interval. The effect is minted only where all three
+    measurements overlap; no timeline span is guessed.
+    """
+    spec = audio_mix_spec if isinstance(audio_mix_spec, dict) else {}
+    plan = spec.get("music_ducking_plan") or {}
+    if not plan.get("enabled"):
+        return {"minted": [], "skipped": []}
+    duck_db = plan["duck_db"]
+    release_ms = plan["release_ms"]
+    if (not _finite_number(duck_db) or duck_db <= 0
+            or not _finite_number(release_ms) or release_ms <= 0):
+        return {"minted": [], "skipped": [{
+            "reason": "enabled music ducking needs positive duck_db and release_ms"}]}
+
+    music_uses = [row for row in model.get("clip_uses") or []
+                  if isinstance(row, dict) and row.get("role") == "music"]
+    if not music_uses:
+        return {"minted": [], "skipped": [{
+            "reason": "music ducking is enabled but the reel has no music ClipUse"}]}
+    tps = _ticks_per_second(model, reel_clock)
+    automation = spec["music_automation"]
+    words = []
+    for row in automation:
+        if not row.get("word_intervals"):
+            continue
+        full_db = row["word_gap_level_db"]
+        if not _finite_number(full_db):
+            continue
+        for interval in row["word_intervals"]:
+            words.append((float(interval[0]), float(interval[1]),
+                          float(full_db)))
+
+    minted: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for place in placements:
+        if not isinstance(place, dict) or place.get("track_type") != "audio":
+            continue
+        speech_id = use_id_by_placement.get(id(place))
+        speech_use = next((row for row in model.get("clip_uses") or []
+                           if isinstance(row, dict) and row.get("id") == speech_id),
+                          None)
+        if speech_use is None or speech_use.get("role") != "speech":
+            continue
+        try:
+            master_start = float(place["master_start"])
+            master_end = float(place["master_end"])
+            reel_start = float(place["record_start"])
+            reel_end = reel_start + master_end - master_start
+        except (KeyError, TypeError, ValueError):
+            skipped.append({"placement": speech_id,
+                            "reason": "speech placement lacks a measured master-to-reel span"})
+            continue
+        for word_start, word_end, full_db in words:
+            start = reel_start + max(word_start, master_start) - master_start
+            end = reel_start + min(word_end, master_end) - master_start
+            if end <= start:
+                continue
+            for music in music_uses:
+                music_interval = music["timeline_interval"]
+                music_start = music_interval["start"] / tps
+                music_end = music_interval["end"] / tps
+                clipped_start = max(start, music_start)
+                clipped_end = min(end, music_end, reel_end)
+                if clipped_end <= clipped_start:
+                    continue
+                interval = sec_to_ticks(clipped_start, clipped_end, tps)
+                if interval is None:
+                    continue
+                signature = (music["id"], interval[0], interval[1])
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                effect_id = (f"effect:{reel_slug}:duck:{_sha16(*signature)}")
+                if not any(isinstance(row, dict) and row.get("id") == effect_id
+                           for row in model.get("effects") or []):
+                    model.setdefault("effects", []).append({
+                        "id": effect_id,
+                        "class_id": "audio.ducking",
+                        "target_id": music["id"],
+                        "interval": {"clock_id": reel_clock,
+                                     "start": interval[0], "end": interval[1]},
+                        "parameters": {
+                            "full_db": full_db,
+                            "depth_db": duck_db,
+                            "ramp_ticks": round(release_ms * tps / 1000.0),
+                        },
+                        "keyframes": [],
+                    })
+                minted.append(effect_id)
+    if not minted and not skipped:
+        skipped.append({"reason": "declared ducking overlaps no placed music and speech"})
+    return {"minted": minted, "skipped": skipped}
+
+
 def _placement_for_master_span(placements: list[dict[str, Any]],
                                start: Any, end: Any) -> dict[str, Any] | None:
     """The video placement overlapping a master span most, or None.
@@ -1010,9 +1125,7 @@ def titles_from_segments(model: dict[str, Any], reel_slug: str,
             "master_end": segment.get("timeline_end"),
         }
         copy = segment.get("copy", segment.get("text"))
-        if isinstance(copy, str) and copy.strip():
-            params["copy"] = copy
-        elif isinstance(copy, dict) and copy:
+        if isinstance(copy, str) and copy.strip() or isinstance(copy, dict) and copy:
             params["copy"] = copy
         effect_id = f"effect:{reel_slug}:title{position:03d}"
         present = {row["id"] for row in model.get("effects") or []
@@ -1081,7 +1194,9 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                         title_segments: list[dict[str, Any]] | None = None,
                         masks: list[dict[str, Any]] | None = None,
                         overlay_placements: list[dict[str, Any]] | None = None,
-                        fps: float = 24.0) -> dict[str, Any]:
+                        fps: float = 24.0,
+                        audio_mix_spec: dict[str, Any] | None = None
+                        ) -> dict[str, Any]:
     """Mint one reel's fragment onto the model, in place.
 
     Pure: no Resolve, no lanes, no store. Roles come from the
@@ -1101,6 +1216,13 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                 roles[("video", int(track.get("index", 0)))] = "a_roll"
             except (TypeError, ValueError):
                 pass
+    for track in ((track_plan or {}).get("audio_tracks") or []):
+        if isinstance(track, dict) and track.get("role") in {
+                "speech", "music", "sfx"}:
+            try:
+                roles[("audio", int(track.get("index", 0)))] = track["role"]
+            except (TypeError, ValueError):
+                pass
     reel_clock = _reel_clock(model, reel_slug, reel_name, fps)
     report: dict[str, Any] = {"reel": reel_name, "reel_slug": reel_slug}
     uses = clip_uses_from_placements(model, reel_slug, reel_name,
@@ -1114,6 +1236,11 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
         if isinstance(place, dict)
         and f"use:{reel_slug}:{index:04d}" in valid_use_ids
     }
+    ducking = word_gap_ducking_effects(
+        model, reel_slug, reel_clock, placements, use_id_by_placement,
+        audio_mix_spec)
+    report["word_gap_ducking_effects"] = ducking["minted"]
+    report["word_gap_ducking_skipped"] = ducking["skipped"]
     transforms = static_transforms_from_placements(
         model, reel_slug, placements, use_id_by_placement)
     report["static_transforms"] = transforms["minted"]
@@ -1184,6 +1311,8 @@ def _state_outputs(project_folder: str) -> dict[str, Any]:
                 state, "vfx.resolve", "enhancement_spec"),
             "motion_graphics_overlay": capability_outputs.value(
                 state, "motion_graphics.render", "motion_graphics_overlay"),
+            "audio_mix_spec": capability_outputs.value(
+                state, "audio_mix", "audio_mix_spec"),
         }
     except (OSError, ValueError, KeyError):
         return {}
@@ -1204,7 +1333,9 @@ def maintain_from_build(project_folder: str, build_record: dict,
                         masks: list[dict[str, Any]] | None = None,
                         store_root: str | Path | None = None,
                         author: str = "reel.build",
-                        reason: str | None = None) -> dict[str, Any]:
+                        reason: str | None = None,
+                        audio_mix_spec: dict[str, Any] | None = None
+                        ) -> dict[str, Any]:
     """Bring the Project Model current with one reel build, as one revision.
 
     ``build_record`` is the ``reel_build`` record (``reel_placements``
@@ -1226,7 +1357,8 @@ def maintain_from_build(project_folder: str, build_record: dict,
     try:
         return _maintain(project_folder, store_at, slug, record,
                          transcript, enhancement_spec,
-                         motion_graphics_overlay, masks, author, reason)
+                         motion_graphics_overlay, audio_mix_spec, masks,
+                         author, reason)
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
         return {"status": "refused",
                 "reason": f"project model not updated: {exc!r}"}
@@ -1236,6 +1368,7 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
               build_record: dict, transcript: dict | None,
               enhancement_spec: dict | None,
               motion_graphics_overlay: dict | None,
+              audio_mix_spec: dict | None,
               masks: list[dict[str, Any]] | None,
               author: str, reason: str | None) -> dict[str, Any]:
     from library.tools import project_model_store as store
@@ -1245,12 +1378,15 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
         return {"status": "refused",
                 "reason": "build record carries no reel_placements; "
                           "the model cannot grade what was not recorded"}
-    if enhancement_spec is None or motion_graphics_overlay is None:
+    if (enhancement_spec is None or motion_graphics_overlay is None
+            or audio_mix_spec is None):
         state = _state_outputs(project_folder)
         if enhancement_spec is None:
             enhancement_spec = state.get("enhancement_spec")
         if motion_graphics_overlay is None:
             motion_graphics_overlay = state.get("motion_graphics_overlay")
+        if audio_mix_spec is None:
+            audio_mix_spec = state.get("audio_mix_spec")
     spec = enhancement_spec if isinstance(enhancement_spec, dict) else {}
     overlay = (motion_graphics_overlay
                if isinstance(motion_graphics_overlay, dict) else {})
@@ -1330,6 +1466,8 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
             overlay_placements=[row for row in
                                 overlay_placements_by_reel.get(reel_name, [])
                                 if isinstance(row, dict)],
+            audio_mix_spec=(audio_mix_spec
+                            if isinstance(audio_mix_spec, dict) else None),
             fps=reel_fps))
     validate_project_model(model)
     reels_named = sorted(placements_by_reel)
@@ -1373,6 +1511,9 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
                     overlay_placements=[row for row in
                                         overlay_placements_by_reel.get(reel_name, [])
                                         if isinstance(row, dict)],
+                    audio_mix_spec=(audio_mix_spec
+                                    if isinstance(audio_mix_spec, dict)
+                                    else None),
                     fps=reel_fps)
             validate_project_model(model)
     else:
@@ -1402,7 +1543,6 @@ def note_deliver(project_folder: str, reel: int, timeline_name: str,
     the return and the deliver still commits - the render happened;
     only its QA note is missing.
     """
-    from library.tools import project_model_store as store
     project_folder = str(project_folder)
     store_at = Path(store_root) if store_root is not None else Path(project_folder)
     try:
@@ -1441,7 +1581,7 @@ def _probe_frames(path: str) -> tuple[int | None, float | None]:
         rate = None
     if frames is None and rate:
         try:
-            frames = int(round(float(values["duration"]) * rate))
+            frames = round(float(values["duration"]) * rate)
         except (KeyError, ValueError):
             frames = None
     return frames, rate
@@ -1551,8 +1691,8 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
         # Reel clock ticks onto render frames, proportionally: the
         # delivered file plays the whole picture contiguously, so the
         # reel's end lands exactly on the expected frame count.
-        to_start = int(round((span["start"] - reel_start) / reel_span * frames))
-        to_end = int(round((span["end"] - reel_start) / reel_span * frames))
+        to_start = round((span["start"] - reel_start) / reel_span * frames)
+        to_end = round((span["end"] - reel_start) / reel_span * frames)
         if to_end <= to_start:
             return {"status": "refused",
                     "reason": f"reel {timeline_name!r} use {row['id']!r} "
@@ -1602,6 +1742,8 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
         from library.tools import reel_layer_links as _links
         from library.tools.plan_provenance import (
             read_provenance as _read_prov,
+        )
+        from library.tools.plan_provenance import (
             reel_content_hashes as _hashes_of,
         )
         _review_dir = str(Path(project_folder) / "pipeline_output"
@@ -1778,7 +1920,7 @@ def _record_of(project_folder: str) -> dict:
     except (OSError, ValueError, KeyError) as exc:
         raise ValueError(f"no readable pipeline state: {exc}") from exc
     if not isinstance(record, dict):
-        raise ValueError("pipeline state carries no reel_build record")
+        raise TypeError("pipeline state carries no reel_build record")
     transcript_path = (Path(project_folder) / "pipeline_output" / "scratch"
                        / "timeline_transcript" / "transcript.json")
     try:
