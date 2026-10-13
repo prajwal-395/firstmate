@@ -1157,6 +1157,32 @@ fn filmcraft_placement_operations<'py>(
     json_to_py(py, &value)
 }
 
+/// Plan the adapter's measured dual-mono mapping for one imported source.
+#[pyfunction]
+#[pyo3(signature = (model, asset_id, item, project, current_mapping))]
+fn filmcraft_plan_dual_mono_mapping<'py>(
+    model: &Bound<'_, PyAny>,
+    asset_id: &str,
+    item: u64,
+    project: &str,
+    current_mapping: &Bound<'_, PyAny>,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let model = filmcraft_decode_model(model)?;
+    let mapping = py_to_json(current_mapping)?;
+    let operation = ren_filmcraft::adapter::plan_dual_mono_mapping(
+        &model,
+        asset_id,
+        item,
+        std::path::Path::new(project),
+        &mapping,
+    )
+    .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(operation).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
 /// The `ren_native` extension module.
 #[pymodule]
 fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1189,5 +1215,6 @@ fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(filmcraft_verify_media, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_import_operation, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_placement_operations, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_plan_dual_mono_mapping, m)?)?;
     Ok(())
 }

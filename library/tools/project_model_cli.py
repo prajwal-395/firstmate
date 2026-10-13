@@ -56,6 +56,7 @@ FILMCRAFT_FUNCTIONS = (
     "filmcraft_verify_media",
     "filmcraft_import_operation",
     "filmcraft_placement_operations",
+    "filmcraft_plan_dual_mono_mapping",
 )
 """The ``ren_native`` entry points the FilmCraft half plans through."""
 
@@ -795,6 +796,63 @@ def _placement_clips(use_id: str, placed: Any) -> list[int]:
     return list(clips)
 
 
+def _with_measured_aroll_audio_streams(model: dict, media_map: dict) -> dict:
+    """Fill missing A-roll audio metadata for the native channel planner.
+
+    Reel-built models can name the video stream of an MXF without recording
+    its embedded audio streams. The dual-mono planner intentionally stays
+    pure and only acts on declared one-channel audio streams, so measure
+    those declarations from the actual imported source before calling it.
+    """
+    audio_assets = {stream["asset_id"] for stream in model["streams"]
+                    if stream["metadata"].get("codec_type") == "audio"}
+    aroll_assets = {use["asset_id"] for use in model["clip_uses"]
+                    if use["role"] == "a_roll"}
+    augmented = dict(model)
+    streams = list(model["streams"])
+    for asset_id in sorted(aroll_assets.intersection(media_map) - audio_assets):
+        media_path = Path(media_map[asset_id])
+        # Test adapters and dry fixtures can intentionally name virtual
+        # paths. Production media has already passed verify_media.
+        if not media_path.is_file():
+            continue
+        measured = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index,channels", "-of", "json",
+             str(media_path)], capture_output=True, encoding="utf-8",
+            errors="replace", check=False)
+        if measured.returncode != 0:
+            raise _refuse(
+                f"could not measure embedded A-roll audio streams in {media_path}",
+                (measured.stderr or f"ffprobe exit {measured.returncode}").strip()[-400:],
+                "check that ffprobe can read the imported source",
+                code="REN_PM_CLI_AUDIO_STREAM_PROBE")
+        try:
+            audio_rows = json.loads(measured.stdout or "{}").get("streams", [])
+        except (TypeError, ValueError) as exc:
+            raise _refuse(
+                f"ffprobe returned invalid audio stream data for {media_path}",
+                str(exc), "check ffprobe output for the imported source",
+                code="REN_PM_CLI_AUDIO_STREAM_PROBE") from exc
+        video = next(stream for stream in streams
+                     if stream["asset_id"] == asset_id)
+        for audio in audio_rows:
+            stream_index = audio.get("index")
+            channels = audio.get("channels")
+            if (not isinstance(stream_index, int) or isinstance(stream_index, bool)
+                    or not isinstance(channels, int) or isinstance(channels, bool)):
+                continue
+            streams.append({
+                "id": f"{video['id']}:audio:{stream_index}",
+                "asset_id": asset_id,
+                "clock_id": video["clock_id"],
+                "stream_index": stream_index,
+                "metadata": {"codec_type": "audio", "channels": channels},
+            })
+    augmented["streams"] = streams
+    return augmented
+
+
 def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       out: Path, media_root: Path | None,
                       filmcraft_project: Path | None,
@@ -851,6 +909,12 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("media verification refused", exc) from exc
     media_map = {key: Path(value) for key, value in resolved.items()}
+    # The prebuilt plan can only name streams declared by the input model.
+    # A-roll camera files sometimes omit their embedded audio stream rows;
+    # measure them before finalizing placements so the adapter assigns A1.
+    planner_model = _with_measured_aroll_audio_streams(model, media_map)
+    if planner_model is not model:
+        projection = plan_filmcraft_projection(planner_model, native)
     preconform_report: dict[str, Any] = {"enabled": False}
     if preconform:
         if preconform_size is None:
@@ -926,6 +990,26 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       code="REN_PM_CLI_FILMCRAFT_COMMAND")
     item_by_asset = {imp["asset_id"]: item
                      for imp, item in zip(projection["imports"], items)}
+    # FilmCraft imports discrete mono MXF streams as stereo pairs. Query the
+    # actual engine mapping, then let the native adapter decide whether a
+    # mono source needs Resolve-style dual-mono before any timeline placement.
+    if item_by_asset:
+        mapping_operation = {"kind": "audio_channels", "project": project_str,
+                             "items": list(item_by_asset.values()),
+                             "format": None, "clips": None}
+        mapping_command = _describe(native, mapping_operation)
+        channel_mapping = _fc_exec(cli, project, mapping_command["command"],
+                                   mapping_command["params"], save=False)
+        for asset_id, item in item_by_asset.items():
+            try:
+                dual_mono = native.filmcraft_plan_dual_mono_mapping(
+                    planner_model, asset_id, item, project_str, channel_mapping)
+            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+                raise _refuse_from_adapter("dual-mono mapping refused", exc) from exc
+            if dual_mono is not None:
+                described = _describe(native, dual_mono)
+                _fc_exec(cli, project, described["command"], described["params"],
+                         save=described["save"])
 
     try:
         pairs = native.filmcraft_placement_operations(

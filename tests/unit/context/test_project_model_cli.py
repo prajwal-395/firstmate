@@ -42,6 +42,7 @@ FILMCRAFT_FUNCTIONS = (
     "filmcraft_verify_media",
     "filmcraft_import_operation",
     "filmcraft_placement_operations",
+    "filmcraft_plan_dual_mono_mapping",
 )
 
 
@@ -351,6 +352,7 @@ def _stub_native():
     native.filmcraft_verify_media = lambda _projection, _media_dir: {}
     native.filmcraft_import_operation = lambda *args: {"kind": "import"}
     native.filmcraft_placement_operations = lambda *args: []
+    native.filmcraft_plan_dual_mono_mapping = lambda *args: None
     native.filmcraft_reconcile_clip_ids = lambda *args: {}
     return native
 
@@ -683,13 +685,17 @@ def _batch_native():
     native.filmcraft_add_tracks_operation = lambda *args: None
     native.filmcraft_plan_ren_edit = lambda *args: [{"kind": "timeline.move"}]
     native.filmcraft_describe_operation = lambda op: {
-        "command": op["kind"],
-        "params": {"at": op["kind"]},
-        "save": True}
+        "command": ("clip.audioChannels" if op["kind"] == "audio_channels"
+                    else op["kind"]),
+        "params": ({"items": op["items"]} if op["kind"] == "audio_channels"
+                   else {"at": op["kind"]}),
+        "save": (bool(op.get("format") or op.get("clips"))
+                 if op["kind"] == "audio_channels" else True)}
     native.filmcraft_verify_media = lambda _projection, _media_dir: {"a1": "a1.mp4"}
     native.filmcraft_import_operation = lambda *args: {"kind": "import"}
     native.filmcraft_placement_operations = lambda *args: [
         ("u1", {"kind": "timeline.place"}), ("u2", {"kind": "timeline.place"})]
+    native.filmcraft_plan_dual_mono_mapping = lambda *args: None
     native.filmcraft_reconcile_clip_ids = lambda *args: {"u1": [11], "u2": [12]}
     return native
 
@@ -719,6 +725,8 @@ def _batch_engine(monkeypatch, tmp_path: Path, calls: dict) -> None:
             return {}
         if command == "import":
             return {"items": [7], "errors": []}
+        if command == "clip.audioChannels":
+            return {"items": [{"item": 7, "clips": [[0, 1], [2, 3]]}]}
         if command == "sequence.addTracks":
             return {}
         if command == "sequence.settings":
@@ -762,6 +770,68 @@ def test_execute_batches_placements_and_edits_into_two_sessions(
     assert pmc._batch_enabled() is True
 
 
+def test_execute_queries_and_applies_native_dual_mono_before_placement(
+        tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    calls: dict = {}
+    _batch_engine(monkeypatch, tmp_path, calls)
+    native = _batch_native()
+    plans = []
+
+    def plan(model, asset_id, item, project, mapping):
+        plans.append((asset_id, item, mapping))
+        return {"kind": "audio_channels", "project": project, "items": [item],
+                "format": "stereo", "clips": [[0, 0]]}
+
+    native.filmcraft_plan_dual_mono_mapping = plan
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: native)
+    monkeypatch.delenv("REN_FILMCRAFT_BATCH", raising=False)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(_batch_model(tmp_path)), "--out", str(out),
+                 "--execute"]) == 0
+    assert plans and plans[0][1] == 7
+    assert plans[0][2]["items"][0]["clips"] == [[0, 1], [2, 3]]
+    assert calls["exec"].count("clip.audioChannels") == 2
+    assert calls["exec"].index("import") < calls["exec"].index(
+        "clip.audioChannels")
+    assert calls["batches"][0] == ["timeline.place", "timeline.place"]
+
+
+def test_missing_aroll_audio_streams_are_measured_for_the_planner(
+        tmp_path, monkeypatch):
+    import subprocess
+    import types
+
+    from library.tools.project_model_cli import _with_measured_aroll_audio_streams
+
+    media = tmp_path / "quad-mono.mxf"
+    media.write_bytes(b"fixture")
+    model = {
+        "streams": [{"id": "video-a", "asset_id": "a", "clock_id": "source-a",
+                     "metadata": {"codec_type": "video"}}],
+        "clip_uses": [{"asset_id": "a", "role": "a_roll"}],
+    }
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs:
+                        types.SimpleNamespace(
+                            returncode=0,
+                            stdout=json.dumps({"streams": [
+                                {"index": 1, "channels": 1},
+                                {"index": 2, "channels": 1},
+                                {"index": 3, "channels": 1},
+                                {"index": 4, "channels": 1},
+                            ]}), stderr=""))
+
+    augmented = _with_measured_aroll_audio_streams(model, {"a": media})
+    audio = [stream for stream in augmented["streams"]
+             if stream["metadata"]["codec_type"] == "audio"]
+    assert [stream["metadata"]["channels"] for stream in audio] == [1, 1, 1, 1]
+    assert all(stream["clock_id"] == "source-a" for stream in audio)
+    assert len(model["streams"]) == 1  # execution enrichment is non-mutating
+
+
 def test_execute_provisions_tracks_before_import_and_placement(tmp_path, monkeypatch):
     import library.tools.project_model_cli as pmc
 
@@ -787,8 +857,6 @@ def test_execute_provisions_tracks_before_import_and_placement(tmp_path, monkeyp
 
 def test_execute_refuses_invalid_sequence_size_before_project_creation(
         tmp_path, monkeypatch):
-    import library.tools.project_model_cli as pmc
-
     calls: dict = {}
     _batch_engine(monkeypatch, tmp_path, calls)
     root = _project(tmp_path)
@@ -818,6 +886,8 @@ def test_execute_hatch_restores_the_per_exec_loop(tmp_path, monkeypatch):
             return {}
         if command == "import":
             return {"items": [7], "errors": []}
+        if command == "clip.audioChannels":
+            return {"items": [{"item": 7, "clips": [[0, 1], [2, 3]]}]}
         if command == "timeline.place":
             return {"clips": placed_queue.pop(0)}
         if command == "timeline.move":
