@@ -24,8 +24,12 @@
 #   4. The number of moves is parsed from the rendered list, never assumed, and
 #      an ambiguous or absent target refuses instead of guessing.
 #   5. A completed switch is believed only from BOTH independent signals agy
-#      leaves behind. Losing either one must refuse - that is asserted by
-#      driving the two apart deliberately.
+#      leaves behind - except on a provably busy worker, whose pane pins `esc
+#      to cancel` where the footer would be: there the acknowledgement alone
+#      confirms, but never against a footer that names a different model, and
+#      never without the acknowledgement. That exception is asserted by driving
+#      the ack, the footer, and the turn state apart deliberately, and the
+#      unmodified both-signals rule still refuses every other combination.
 #   6. The per-poll evaluation is silent and free for a healthy fleet, escalates
 #      once rather than every minute, and refuses instead of acting whenever the
 #      durable record and the running worker name different models. WHICH
@@ -82,6 +86,14 @@ FAKE_BUSY='idle agy-hook'
 # starting state while believing they were reading the result.
 FAKE_MODE=static
 FAKE_STICKY=0
+# FAKE_SETTLE_BUSY=1 renders a committed switch the way a worker that resumed
+# its turn looks: agy's own acknowledgement is visible, but the idle footer is
+# replaced by the pinned busy row, so there is no model field to read back.
+FAKE_SETTLE_BUSY=0
+# FAKE_BUSY_FOLLOWS_SETTLE=1 makes the turn-state stub report idle until the
+# switch commits and busy afterwards, which is the window the defect lives in:
+# idle at the guard, mid-turn by the confirmation.
+FAKE_BUSY_FOLLOWS_SETTLE=0
 FAKE_DIR=
 FAKE_ROWS=(
   'Gemini 3.8 Flash'
@@ -147,6 +159,10 @@ fake_render_picker() {
 }
 
 fake_render_settled() {
+  if [ "${FAKE_SETTLE_BUSY:-0}" = 1 ]; then
+    busy_ack_pane "$(fake_settled)"
+    return 0
+  fi
   local settled
   settled=$(fake_settled)
   printf '> do the thing\n\n  working on it\n\n> /model\n  Model set to %s\n\n>\n%s | ctx: 2.1%% | quota: 100%% (4h 0m)\n' \
@@ -215,7 +231,13 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> ...
   printf '%s' "$FAKE_SUBMIT_VERDICT"
   return 0
 }
-fm_busy_classify_meta() { printf '%s' "$FAKE_BUSY"; }
+fm_busy_classify_meta() {
+  if [ "${FAKE_BUSY_FOLLOWS_SETTLE:-0}" = 1 ] && [ -n "$(fake_settled)" ]; then
+    printf 'busy agy-hook'
+  else
+    printf '%s' "$FAKE_BUSY"
+  fi
+}
 fm_meta_get() {
   [ -f "$1" ] || return 0
   grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- || true
@@ -499,6 +521,21 @@ Gemini 3.7 Flash (High) | ctx: 2.1% | quota: 100% (4h 59m)
 EOF
 }
 
+# A pane mid-turn after a committed switch: agy's own acknowledgement names the
+# new model, but the idle footer is replaced by the pinned busy row, so there
+# is no model field to read back. The busy row carries no `quota:` token, which
+# is what makes the footer parse fail on it exactly as on the real pane.
+busy_ack_pane() {  # <settled-display>
+  cat <<EOF
+> /model
+  Model set to $1
+
+Thinking... (esc to cancel, 3s)
+
+esc to cancel                                $1
+EOF
+}
+
 ordinary_pane() {
   cat <<'EOF'
 > do the thing
@@ -646,6 +683,114 @@ test_confirmation_needs_both_signals() {
   ! fm_agy_descent_confirms "$both" 'Claude Opus 4.6 (Thinking)' \
     || fail "a pane settled on rung 3 must not confirm a switch to rung 2"
   pass "fm_agy_descent_confirms: both signals are required and each is checked independently"
+}
+
+test_confirmation_while_busy_needs_the_ack_without_a_footer_and_a_busy_worker() {
+  local ack_busy ack_disagree busy_no_ack
+  ack_busy=$(busy_ack_pane 'Gemini 3.7 Flash (High)')
+
+  # The defect's shape: the acknowledgement names the target, no footer names
+  # anything, and the worker is provably mid-turn. That confirms.
+  FAKE_BUSY='busy agy-hook'
+  fm_agy_descent_confirms_busy "$ack_busy" 'Gemini 3.7 Flash (High)' dummy-meta dummy-id dummy-state \
+    || fail "an acknowledged switch on a provably busy worker must confirm without the idle footer"
+
+  # The same pane with an idle worker refuses: an idle pane draws a footer, so
+  # its absence is not evidence of anything.
+  FAKE_BUSY='idle agy-hook'
+  ! fm_agy_descent_confirms_busy "$ack_busy" 'Gemini 3.7 Flash (High)' dummy-meta dummy-id dummy-state >/dev/null \
+    || fail "an acknowledged switch must not confirm busy without a busy worker"
+
+  # An acknowledgement against a footer that names a DIFFERENT model still
+  # refuses even while busy: only an unreadable footer may take the busy path,
+  # never a contradicting one.
+  FAKE_BUSY='busy agy-hook'
+  ack_disagree=$(printf '%s\n' "$ack_busy" | sed 's/^esc to cancel.*/Gemini 3.1 Pro (High) | ctx: 2.1% | quota: 50% (3h 0m)/')
+  ! fm_agy_descent_confirms_busy "$ack_disagree" 'Gemini 3.7 Flash (High)' dummy-meta dummy-id dummy-state >/dev/null \
+    || fail "a busy worker whose footer disagrees must still refuse"
+  [ "$ack_disagree" != "$ack_busy" ] || fail "the footer-doctored busy fixture must actually differ"
+
+  # No acknowledgement at all confirms nothing, however busy the worker is.
+  busy_no_ack=$(printf '%s\n' "$ack_busy" | grep -vF 'Model set to')
+  ! fm_agy_descent_confirms_busy "$busy_no_ack" 'Gemini 3.7 Flash (High)' dummy-meta dummy-id dummy-state >/dev/null \
+    || fail "a busy pane with no acknowledgement must not confirm"
+
+  # And with no record to classify through there is no busy evidence either way.
+  ! fm_agy_descent_confirms_busy "$ack_busy" 'Gemini 3.7 Flash (High)' >/dev/null \
+    || fail "a busy confirmation with no task record must refuse"
+  FAKE_BUSY='idle agy-hook'
+  pass "fm_agy_descent_confirms_busy: the ack confirms only with no footer contradicting it and a provably busy worker"
+}
+
+test_a_switch_the_pane_confirms_while_busy_is_recorded_not_repeated() {
+  # THE FILED DEFECT, end to end. The worker is idle at the guard, resumes its
+  # turn the moment the switch commits, and its pane shows the acknowledgement
+  # but never the idle footer again. The old code timed the confirmation out,
+  # sent Escape - cancelling that very turn - and left the record on the old
+  # rung, so the next tick walked the picker again.
+  local state out keys
+  state=$(fresh_state tick-busy-confirm)
+  meta "$state" busymove "$RUNG1"
+  record "$state" "$RUNG1" 0.0 '3h 41m'
+  record "$state" "$RUNG2" 100.0 '4h 59m'
+  FAKE_STICKY=0
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
+  FAKE_SETTLE_BUSY=1
+  FAKE_BUSY_FOLLOWS_SETTLE=1
+  FAKE_BUSY='idle agy-hook'
+  KEYLOG_PATH="$TMP_ROOT/busy-confirm-keys.log"
+  : > "$KEYLOG_PATH"
+  local FM_AGY_DESCENT_CONFIRM_WAIT=6
+
+  out=$(fm_agy_descent_tick "$state" "$NOW")
+  assert_contains "$out" "descended busymove" "a pane-confirmed switch must count even while the worker is busy"
+  assert_contains "$out" "$RUNG1 -> $RUNG2" "the move must be one rung, and must name both ends"
+  [ "$(fm_meta_get "$state/busymove.meta" model)" = "$RUNG2" ] \
+    || fail "the task's durable record must now name rung 2"
+  keys=$(cat "$KEYLOG_PATH")
+  assert_not_contains "$keys" "Escape" "no Escape may reach a worker that is mid-turn"
+
+  # ...and the episode is over, so the next evaluation does not walk the picker
+  # again onto a model the worker is already running.
+  [ ! -f "$state/.agy-descent-below-busymove" ] \
+    || fail "a recorded descent must close the below-the-floor episode"
+  rm -f "$state/.agy-descent-last"
+  out=$(fm_agy_descent_tick "$state" "$((NOW + 120))")
+  [ -z "$out" ] || fail "a worker already moved to a healthy rung must be silent, got: $out"
+  FAKE_MODE=static
+  FAKE_SETTLE_BUSY=0
+  FAKE_BUSY_FOLLOWS_SETTLE=0
+  FAKE_BUSY='idle agy-hook'
+  KEYLOG_PATH=
+  pass "fm_agy_descent_tick: a switch confirmed while busy is recorded, never Escaped, and never repeated"
+}
+
+test_a_missing_picker_on_a_busy_worker_sends_nothing() {
+  # The same no-Escape discipline at the picker's other end: the command may
+  # have reached a pane that started a turn before the picker opened, and an
+  # Escape there cancels that turn.
+  local state out rc=0 keys
+  local FM_AGY_DESCENT_PICKER_WAIT=2
+  FAKE_MODE=static
+  FAKE_PANE=$(busy_ack_pane 'irrelevant' | grep -vF 'Model set to')
+  FAKE_BUSY='busy agy-hook'
+  KEYLOG_PATH="$TMP_ROOT/busy-no-picker-keys.log"
+  : > "$KEYLOG_PATH"
+  state=$(fresh_state tick-busypicker)
+  meta "$state" occupied "$RUNG1"
+
+  out=$(fm_agy_descent_switch tmux fake:target fm-repro "$RUNG2" "$state/occupied.meta" occupied "$state" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] \
+    || fail "a picker that never opens must still refuse"
+  assert_contains "$out" "mid-turn" "the refusal must say the worker was left alone mid-turn"
+  keys=$(cat "$KEYLOG_PATH")
+  assert_not_contains "$keys" "Escape" "no Escape may be sent to a worker that is mid-turn"
+  [ "$(fm_meta_get "$state/occupied.meta" model)" = "$RUNG1" ] \
+    || fail "a refused descent must leave the durable record exactly as it was"
+  FAKE_MODE=static
+  FAKE_BUSY='idle agy-hook'
+  KEYLOG_PATH=
+  pass "fm_agy_descent_switch: a missing picker on a busy worker refuses without sending anything"
 }
 
 # --- 4. The target is the ladder's answer, not a rung number ----------------
@@ -1401,6 +1546,9 @@ test_parses_the_rows_agy_actually_draws
 test_a_ladder_name_resolves_against_the_pickers_own_rows
 test_the_walk_is_counted_from_the_rendered_list
 test_confirmation_needs_both_signals
+test_confirmation_while_busy_needs_the_ack_without_a_footer_and_a_busy_worker
+test_a_switch_the_pane_confirms_while_busy_is_recorded_not_repeated
+test_a_missing_picker_on_a_busy_worker_sends_nothing
 test_the_target_is_whatever_the_ladder_authorizes
 test_crossing_the_floor_uses_the_ladders_own_reading
 test_a_healthy_fleet_is_silent_and_starts_no_clock
