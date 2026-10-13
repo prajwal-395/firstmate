@@ -159,6 +159,14 @@ class _FilesWorld(queue.World):
     def pr_files(self, pr):
         return list(self._files.get(pr, []))
 
+    def proof_requirements(self, pr):
+        # Scripted worlds owe no live proofs, and no test spawns a
+        # real gh-axi read at merge time.
+        return []
+
+    def missing_proofs(self, pr, head, required):
+        return []
+
     def test_stack(self, base, members):
         self.tests += 1
         return queue.TestResult(True, 3, 0)

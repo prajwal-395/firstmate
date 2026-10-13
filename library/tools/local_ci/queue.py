@@ -133,6 +133,15 @@ class World:
         from library.tools.local_ci import github
         return github.pr_files(pr)
 
+    def proof_requirements(self, pr: int) -> list[str]:
+        """Read current obligations from the PR body at merge time."""
+        from library.tools.local_ci import github, proof
+        return proof.requirements(github.get_pr(pr).get("body", ""))
+
+    def missing_proofs(self, pr: int, head: str, required: list[str]) -> list[str]:
+        from library.tools.local_ci import proof
+        return proof.missing(pr, head, required, self.state_dir)
+
     def test_stack(self, base: str, members: list) -> TestResult:
         """Evaluate main+members stacked: Tier-2 runs the FULL suite once
         on the exact tree the ordered merges would produce.
@@ -937,6 +946,21 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
             for rest in green[index:]:
                 rest["status"] = state.ENTRY_QUEUED
                 rest["reason"] = "main moved under the batch - re-testing"
+                requeued.append(rest)
+            break
+        try:
+            required = world.proof_requirements(member["pr"])
+            missing = world.missing_proofs(
+                member["pr"], member["head"], required)
+        except (OSError, RuntimeError) as exc:
+            missing = [f"proof requirements unavailable: {exc}"]
+        if missing:
+            for offset, rest in enumerate(green[index:]):
+                rest["status"] = state.ENTRY_QUEUED
+                rest["reason"] = (
+                    "required proof missing: " + ", ".join(missing)
+                    if offset == 0 else
+                    "earlier batch member did not merge - re-testing")
                 requeued.append(rest)
             break
         try:

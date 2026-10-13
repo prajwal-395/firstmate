@@ -41,7 +41,7 @@ def test_pull_shapes_to_the_integration_fields():
                   "base_sha": "",
                   "labels": ["ren-ci-ready"], "draft": False,
                   "url": "https://github.com/o/r/pull/2082",
-                  "title": "fix"}
+                  "title": "fix", "body": ""}
 
 
 def test_plain_json_passes_through():
@@ -54,7 +54,7 @@ def _projected_pull(number, label):
             "base": {"ref": "main"}, "labels": [label],
             "draft": False,
             "html_url": f"https://github.com/o/r/pull/{number}",
-            "title": f"change {number}"}
+            "title": f"change {number}", "body": ""}
 
 
 def _jq_response(records):

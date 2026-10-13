@@ -38,6 +38,22 @@ That is the test-security half of the design; the speed half is that
 Tier-1 selections are small and parallel while the full suite runs
 once per cluster instead of once per PR.
 
+## Required live proofs
+
+A PR body can declare a required proof with one line per proof, for
+example `Ren-CI-Proof-Required: live-resolve`. Tier-2 still runs the
+offline full suite, then leaves the PR queued if an accepted record for
+that proof and the exact PR head is missing. Accept evidence with:
+
+```sh
+ren ci proof accept <pr> live-resolve --head <sha> \
+  --evidence <reference> --accepted-by <reviewer>
+```
+
+The command checks that `<sha>` is the PR's current head. Proof records
+live in `proofs.json` under the local CI state directory; a later push
+has a different key and requires fresh evidence.
+
 Before Tier-2 starts the full gate, it builds `ml-worker-client` and
 `ren-graphics-fframes` from that stacked checkout. Their Cargo cache is
 shared under `~/.ren-ci/native-target`; each disposable checkout binds

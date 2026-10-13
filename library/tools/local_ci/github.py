@@ -124,12 +124,13 @@ def _shape_pull(data: dict) -> dict:
                        for label in labels],
             "draft": bool(data.get("draft", False)),
             "url": str(data.get("html_url", "")),
-            "title": str(data.get("title", ""))}
+            "title": str(data.get("title", "")),
+            "body": str(data.get("body", "") or "")}
 
 
 _PULL_FIELDS_JQ = (
     "{number, head: {sha: .head.sha}, base: {ref: .base.ref, sha: .base.sha}, "
-    "labels: [.labels[].name], draft, html_url, title}"
+    "labels: [.labels[].name], draft, html_url, title, body}"
 )
 
 

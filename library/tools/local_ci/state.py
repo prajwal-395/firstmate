@@ -25,6 +25,7 @@ CHECKS_FILENAME = "checks.json"
 QUEUE_FILENAME = "queue.json"
 SEEN_FILENAME = "seen.json"
 MAIN_BASELINE_FILENAME = "main_baseline.json"
+PROOFS_FILENAME = "proofs.json"
 
 # How many main SHAs keep a cached baseline verdict: the daemon judges
 # one SHA at a time, so this is headroom, not a working set. Bounded so
@@ -211,6 +212,37 @@ def read_seen(state: str = "") -> dict:
     """Every first-seen key -> timestamp."""
     data = _read(SEEN_FILENAME, state)
     return data if isinstance(data, dict) else {}
+
+
+def read_proofs(state: str = "") -> dict:
+    """Accepted proof records, keyed by PR, head SHA, and proof name."""
+    data = _read(PROOFS_FILENAME, state)
+    return data if isinstance(data, dict) else {}
+
+
+def record_proof(pr: int, head: str, name: str, evidence: str,
+                 accepted_by: str, state: str = "") -> dict:
+    """Accept evidence for one exact PR head; another push cannot reuse it."""
+    name = name.strip().lower()
+    if not head or not name or not evidence.strip() or not accepted_by.strip():
+        raise ValueError("head, proof name, evidence, and accepted_by are required")
+    records = read_proofs(state)
+    key = f"{pr}:{head}:{name}"
+    record = {"pr": int(pr), "head": head, "name": name,
+              "evidence": evidence.strip(), "accepted_by": accepted_by.strip(),
+              "accepted": True, "recorded_at": time.time()}
+    records[key] = record
+    _write(PROOFS_FILENAME, records, state)
+    return dict(record)
+
+
+def has_accepted_proof(pr: int, head: str, name: str,
+                       state: str = "") -> bool:
+    record = read_proofs(state).get(f"{pr}:{head}:{name}")
+    return (isinstance(record, dict) and record.get("accepted") is True
+            and record.get("pr") == pr and record.get("head") == head
+            and record.get("name") == name
+            and bool(record.get("evidence")) and bool(record.get("accepted_by")))
 
 
 def read_main_baseline(state: str = "") -> dict:

@@ -530,6 +530,14 @@ def test_tier2_fires_as_soon_as_running_tier1_drains(
         def pr_head(self, pr):
             return f"head-{pr}"
 
+        def proof_requirements(self, pr):
+            # Scripted worlds owe no live proofs, and no test spawns
+            # a real gh-axi read at merge time.
+            return []
+
+        def missing_proofs(self, pr, head, required):
+            return []
+
         def test_stack(self, base, members):
             return queue.TestResult(True, 3, 0)
 
@@ -642,6 +650,14 @@ class _BlockingGateWorld(queue.World):
 
     def pr_head(self, pr):
         return f"head-{pr}"
+
+    def proof_requirements(self, pr):
+        # Scripted worlds owe no live proofs, and no test spawns a
+        # real gh-axi read at merge time.
+        return []
+
+    def missing_proofs(self, pr, head, required):
+        return []
 
     def test_stack(self, base, members):
         self.stacks += 1

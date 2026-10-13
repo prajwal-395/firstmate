@@ -1,0 +1,8 @@
+{
+  "incident": "PR 2402 merged after offline Tier-2 despite requiring live Resolve validation",
+  "pr": 2402,
+  "url": "https://github.com/prajwal-395/video_editing_pilot/pull/2402",
+  "head": "2402-head-before-live-proof",
+  "body": "Ren-CI-Proof-Required: live-resolve",
+  "accepted_proofs": []
+}

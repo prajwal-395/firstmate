@@ -167,6 +167,18 @@ def cmd_ready(args) -> int:
     return 0
 
 
+def cmd_proof_accept(args) -> int:
+    from library.tools.local_ci import github, state
+    pull = github.get_pr(args.pr)
+    if pull["head"] != args.head:
+        print(f"proof refused: PR head is {pull['head']}, not {args.head}")
+        return 2
+    record = state.record_proof(args.pr, args.head, args.name,
+                                args.evidence, args.accepted_by, args.state or "")
+    print(f"accepted {record['name']} proof for {pull['url']} head {args.head}")
+    return 0
+
+
 def __ready_label() -> str:
     from library.tools.local_ci import config
     return config.READY_LABEL
@@ -285,6 +297,15 @@ def main(argv=None) -> int:
     check.add_argument("pr", type=int)
     ready = sub.add_parser("ready", help="mark a PR ready for the queue")
     ready.add_argument("pr", type=int)
+    proof_p = sub.add_parser("proof", help="manage required live-proof records")
+    proof_sub = proof_p.add_subparsers(dest="proof_action", required=True)
+    proof_accept = proof_sub.add_parser("accept", help="accept proof for an exact PR head")
+    proof_accept.add_argument("pr", type=int)
+    proof_accept.add_argument("name")
+    proof_accept.add_argument("--head", required=True)
+    proof_accept.add_argument("--evidence", required=True,
+                              help="durable evidence reference, such as a report URL")
+    proof_accept.add_argument("--accepted-by", required=True)
     sub.add_parser("process-once", help="one queue pass: test + merge")
     daemon_p = sub.add_parser("daemon", help="serve until killed")
     daemon_p.add_argument("--repo", default="")
@@ -317,6 +338,8 @@ def main(argv=None) -> int:
                 "daemon": cmd_daemon, "install": cmd_install,
                 "uninstall": cmd_uninstall, "upstream": cmd_upstream,
                 "shadow": cmd_shadow}
+    if args.verb == "proof":
+        return cmd_proof_accept(args)
     commands["replay"] = cmd_replay
     return commands[args.verb](args)
 

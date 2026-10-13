@@ -6,8 +6,10 @@ culprit (or serialize on an interaction), never merge the red stack and
 never kick the innocent.
 """
 
+import json
 import subprocess
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
@@ -56,6 +58,12 @@ class FakeWorld(queue.World):
     def pr_files(self, pr):
         # Scripted worlds carry no diffs: unknown files group with
         # eyes open, and no test spawns a real gh-axi read.
+        return []
+
+    def proof_requirements(self, pr):
+        return []
+
+    def missing_proofs(self, pr, head, required):
         return []
 
     def test_stack(self, base, members):
@@ -246,7 +254,57 @@ def test_a_refused_merge_requeues_it_and_every_later_member():
     assert [m["pr"] for m in requeued] == [1, 2]
     assert "409" in requeued[0]["reason"]
     assert "earlier batch member" in requeued[1]["reason"]
+
+
+def test_pr_2402_live_resolve_obligation_blocks_tier2_merge_until_exact_head_proof(
+        tmp_path):
+    fixture_path = (Path(__file__).parents[2] / "fixtures" / "local_ci" /
+                    "pr_2402_live_resolve_proof.json")
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    class ProofWorld(FakeWorld):
+        def __init__(self):
+            super().__init__(state_dir=str(tmp_path))
+            self.fixture = fixture
+            self.fixture_head = fixture["head"]
+
+        def pr_head(self, pr):
+            return self.fixture_head
+
+        def proof_requirements(self, pr):
+            from library.tools.local_ci import proof
+            return proof.requirements(self.fixture["body"])
+
+        def missing_proofs(self, pr, head, required):
+            from library.tools.local_ci import proof
+            return proof.missing(pr, head, required, self.state_dir)
+
+    world = ProofWorld()
+    state.write_queue([{
+        "pr": fixture["pr"], "head": fixture["head"],
+        "status": state.ENTRY_QUEUED, "reason": "", "enqueued_at": 0,
+    }], str(tmp_path))
+
+    first = queue.process_once(world, window=0)
+    assert first["green"] == [fixture["pr"]]  # offline Tier-2 passed
+    assert first["merged"] == []
+    assert "live-resolve" in state.read_queue(str(tmp_path))[0]["reason"]
     assert world.merges == []
+
+    state.record_proof(fixture["pr"], fixture["head"], "live-resolve",
+                       "proof://resolve-session/accepted", "reviewer",
+                       str(tmp_path))
+    second = queue.process_once(world, window=0)
+    assert second["merged"] == [fixture["pr"]]
+
+
+def test_accepted_proof_for_old_head_does_not_satisfy_new_head(tmp_path):
+    state.record_proof(2402, "old-head", "live-resolve",
+                       "proof://resolve-session/accepted", "reviewer",
+                       str(tmp_path))
+    from library.tools.local_ci import proof
+    assert proof.missing(2402, "new-head", ["live-resolve"], str(tmp_path)) == [
+        "live-resolve"]
 
 
 def test_a_cluster_ripens_when_the_window_closes_not_before():
