@@ -72,9 +72,15 @@
 #      anything is committed, so a wrong walk is abandoned, not shipped.
 #   5. The result is confirmed from two independent signals - agy's own
 #      "Model set to <model>" acknowledgement and the pane footer's model
-#      field - and both must name the exact target.
+#      field - and both must name the exact target. The one exception is a
+#      worker provably mid-turn: its pane pins `esc to cancel` where the
+#      footer would be, so there is no footer to agree, and the acknowledgement
+#      alone confirms - but never against a footer that names some OTHER model,
+#      which still refuses.
 #   6. Anything else escapes the picker, leaves the worker where it was, and
-#      escalates.
+#      escalates - unless the worker is provably mid-turn, in which case
+#      nothing is sent at all. Escape cancels a running turn, so sending it
+#      "to be safe" is the damage, not the safety.
 #
 # The one thing never re-derived from the pane is the FLOOR. Quota comes from
 # the authenticated poll in bin/fm-agy-quota-lib.sh; the rendered footer is
@@ -405,6 +411,15 @@ fm_agy_descent_plan() {  # <picker-text> <ladder-display>
   printf '%s %s %s' "$key" "$delta" "$effort"
 }
 
+# fm_agy_descent_acknowledges: 0 when <text> carries agy's own "Model set to
+# <ladder-display>" acknowledgement. The ack half of fm_agy_descent_confirms,
+# factored so the busy confirmation below matches the identical line; the
+# footer half stays where it is, because a READABLE footer still has to agree.
+fm_agy_descent_acknowledges() {  # <text> <ladder-display>
+  printf '%s\n' "$1" | fm_agy_strip_ansi \
+    | LC_ALL=C grep -qF "Model set to $2"
+}
+
 # fm_agy_descent_confirms: 0 when <text> proves the running model is now
 # <ladder-display>, from BOTH independent signals agy leaves behind - its own
 # acknowledgement line and the pane footer's model field. The footer parse has
@@ -412,11 +427,43 @@ fm_agy_descent_plan() {  # <picker-text> <ladder-display>
 # never the percentage, because the floor is never re-derived from a pane.
 fm_agy_descent_confirms() {  # <text> <ladder-display>
   local text=$1 want=$2 footer
-  printf '%s\n' "$text" | fm_agy_strip_ansi \
-    | LC_ALL=C grep -qF "Model set to $want" || return 1
+  fm_agy_descent_acknowledges "$text" "$want" || return 1
   footer=$(fm_agy_footer_model "$text") || return 1
   [ "$footer" = "$want" ] || return 1
   return 0
+}
+
+# fm_agy_descent_is_mid_turn: 0 only when the worker is PROVABLY mid-turn, by
+# the same lifecycle-hook classification the pre-switch guard trusts. Without
+# the task's record there is no evidence either way and it fails, so callers
+# without one keep their old behaviour.
+fm_agy_descent_is_mid_turn() {  # [<meta> <id> <state-dir> <text>]
+  [ $# -ge 4 ] || return 1
+  [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || return 1
+  local verdict
+  verdict=$(fm_busy_classify_meta "$1" "$2" "$3" "$4" 2>/dev/null || true)
+  [ "${verdict%% *}" = busy ]
+}
+
+# fm_agy_descent_confirms_busy: 0 when <text> proves the running model is now
+# <ladder-display> even though no idle footer can be read - agy's own
+# acknowledgement names the exact target, no footer names anything (a pane
+# mid-turn pins `esc to cancel` where the footer would be), and the worker is
+# provably mid-turn through the same classification the pre-switch guard uses.
+#
+# THE DEFECT THIS HEALS. A switch committed and acknowledged while the worker
+# resumed its turn used to time out here waiting for a footer a busy pane does
+# not draw; the timeout then sent Escape - cancelling that very turn - and left
+# the durable record on the old rung, so the next tick repeated the whole walk.
+# A readable footer that disagrees still refuses through the other half of
+# fm_agy_descent_confirms: only an UNREADABLE footer may take this path, never
+# a contradicting one.
+fm_agy_descent_confirms_busy() {  # <text> <ladder-display> [<meta> <id> <state-dir>]
+  local text=$1 want=$2
+  fm_agy_descent_acknowledges "$text" "$want" || return 1
+  fm_agy_footer_model "$text" >/dev/null 2>&1 && return 1
+  shift 2
+  fm_agy_descent_is_mid_turn "$@" "$text"
 }
 
 # fm_agy_descent_model_agrees: does firstmate's durable record and the running
@@ -587,12 +634,15 @@ fm_agy_descent_escape() {  # <backend> <target> <label>
 
 # fm_agy_descent_switch: move a running agy worker onto <ladder-display> through
 # agy's own in-session model picker.
-#   0  the worker is now on that model, confirmed from both signals
+#   0  the worker is now on that model, confirmed from both signals - or from
+#      the acknowledgement alone while the worker is provably mid-turn
 #   1  nothing was changed; the printed line is why
 # Every refusal path leaves the picker closed and the worker on the model it
-# was already running.
-fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
+# was already running - except a worker that is provably mid-turn, which is
+# sent nothing at all, because Escape would cancel its turn.
+fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display> [<meta> <id> <state-dir>]
   local backend=$1 target=$2 label=$3 want=$4
+  local meta=${5:-} id=${6:-} sdir=${7:-}
   local verdict text plan key count effort i waited selected rows
 
   # EXACTLY ONE Enter. The shared submit helper takes a retry count and, when it
@@ -626,6 +676,14 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
     waited=$((waited + 2))
   done
   if ! fm_agy_descent_is_picker "$text"; then
+    # A worker that started a turn after `/model` was typed is mid-turn, not
+    # parked in a picker: escaping it would cancel that turn, so it is left
+    # alone and the next evaluation re-reads it.
+    if fm_agy_descent_is_mid_turn "$meta" "$id" "$sdir" "$text"; then
+      printf 'the model picker did not open within %ss (delivery reported %s) and the worker is mid-turn, so no further keys were sent and it was left alone' \
+        "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"
+      return 1
+    fi
     fm_agy_descent_escape "$backend" "$target" "$label" \
       || { printf 'the model picker did not open within %ss (delivery reported %s) and the worker could not be returned to a clean composer' "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"; return 1; }
     case "${verdict:-nothing}" in
@@ -698,14 +756,28 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
   }
 
   # GUARD: believe the switch only from agy's own acknowledgement AND the pane
-  # footer, both naming the exact target.
+  # footer, both naming the exact target - or from the acknowledgement alone
+  # when the worker is provably mid-turn and therefore draws no footer to
+  # agree with it. Waiting a busy pane out for an idle footer it will not draw
+  # is what used to time out, cancel the turn with an Escape, and leave the
+  # record on the old rung for the next tick to repeat.
   waited=0
   while [ "$waited" -lt "$FM_AGY_DESCENT_CONFIRM_WAIT" ]; do
     sleep 2
     waited=$((waited + 2))
     text=$(fm_agy_descent_capture "$backend" "$target" "$label")
     fm_agy_descent_confirms "$text" "$want" && return 0
+    fm_agy_descent_confirms_busy "$text" "$want" "$meta" "$id" "$sdir" && return 0
   done
+  # A worker that is mid-turn now must not be Escaped: Escape cancels its turn,
+  # which is the damage this used to do on every tick until the record caught
+  # up. Leave it alone and say so; the next evaluation re-reads it, and the
+  # record is only ever written for a switch the pane actually confirmed.
+  if fm_agy_descent_is_mid_turn "$meta" "$id" "$sdir" "$text"; then
+    printf 'the worker is mid-turn and its pane never confirmed it is running on %s within %ss, so no further keys were sent and it was left alone' \
+      "$want" "$FM_AGY_DESCENT_CONFIRM_WAIT"
+    return 1
+  fi
   fm_agy_descent_escape "$backend" "$target" "$label" || true
   printf 'the worker did not confirm it is running on %s within %ss' "$want" "$FM_AGY_DESCENT_CONFIRM_WAIT"
   return 1
@@ -1013,8 +1085,9 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
     fi
 
     # The guarded walk down. The direction only decides which word the outcome
-    # is reported under.
-    if reason=$(fm_agy_descent_switch "$backend" "$endpoint" "$label" "$target_display"); then
+    # is reported under. The task's record travels with the switch so the
+    # confirmation can tell a provably mid-turn worker from an unreadable pane.
+    if reason=$(fm_agy_descent_switch "$backend" "$endpoint" "$label" "$target_display" "$meta" "$id" "$state_dir"); then
       # THE MOVE IS NOT FINISHED UNTIL IT IS WRITTEN DOWN. The worker is already
       # on the new model at this point, so the record is the only thing that can
       # still be lost - and losing it is not a missed notification, it is a
