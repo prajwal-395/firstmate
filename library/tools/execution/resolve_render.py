@@ -5,9 +5,9 @@ Step 6.01 built a timeline and stopped there, so every run ended with
 `distribution_ready: false` and the note "re-run validation with
 output_path set".  Nothing ever set it, because nothing ever rendered.
 
-This module drives the Deliver page: it queues a render job for the
-current timeline, starts it, waits for completion, and returns the path
-of the file Resolve actually wrote.
+This module uses the scripting API to queue a render job for the current
+timeline, starts it, waits for the job status, and returns the path of
+the file Resolve actually wrote. It does not change the active page.
 
 Run standalone (the timeline must already exist in the current project):
 
@@ -168,12 +168,6 @@ def _render_timeline_under_lease(
     timeline_name = timeline.GetName()
     output_name = output_name or timeline_name
 
-    prev_page = resolve.GetCurrentPage()
-    if not prev_page:
-        raise RenderError(
-            "Resolve did not report its current page; refusing to change it "
-            "without a restorable value")
-
     # Save format/codec - the ONLY render state Resolve lets us read
     # back (H4 from the statefulness hazards investigation).  The rest
     # of SetRenderSettings is write-only, so we cannot save-and-restore
@@ -187,11 +181,6 @@ def _render_timeline_under_lease(
     our_job_id = None
 
     try:
-        if not resolve.OpenPage("deliver"):
-            raise RenderError("Resolve refused to open the deliver page")
-        if resolve.GetCurrentPage() != "deliver":
-            raise RenderError("Resolve did not switch to the deliver page")
-
         if not project.SetCurrentRenderFormatAndCodec(fmt, codec):
             raise RenderError(
                 f"Resolve rejected render format/codec {fmt}/{codec}. "
@@ -361,17 +350,6 @@ def _render_timeline_under_lease(
                           file=sys.stderr)
                 if deleted:
                     break
-                time.sleep(POLL_SECONDS)
-
-        if prev_page and prev_page != "deliver":
-            while True:
-                try:
-                    resolve.OpenPage(prev_page)
-                    if resolve.GetCurrentPage() == prev_page:
-                        break
-                except Exception as exc:
-                    print(f"  Waiting to restore Resolve page: {exc}",
-                          file=sys.stderr)
                 time.sleep(POLL_SECONDS)
 
 

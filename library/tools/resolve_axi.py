@@ -5151,7 +5151,13 @@ def cmd_edit_transition(args) -> int:
                       "duration": duration},
                 gate_class="edit_transition") as (journal, journal_state):
             try:
-                placed = item.AddTransition(dict(payload))
+                from library.tools.resolve_api_capabilities import callable_method
+                add_transition = callable_method(item, "AddTransition")
+                if add_transition is None:
+                    return fail(
+                        "Resolve does not expose TimelineItem.AddTransition",
+                        "use a transition supported by this Resolve version")
+                placed = add_transition(dict(payload))
             except Exception as exc:
                 return fail(f"AddTransition raised ({exc}) - verify by "
                             f"hand.",

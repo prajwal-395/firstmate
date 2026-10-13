@@ -22,8 +22,9 @@ builds the timeline programmatically.
 
 This step has two companion implementation scripts (DaVinci Resolve
 variant): `resolve_build_timeline.py` assembles the timeline, then
-`library/tools/execution/resolve_render.py` drives the Deliver page in a
-separate process and exports the file the step reports as `output_path`.
+`library/tools/execution/resolve_render.py` queues and monitors a render via
+the scripting API in a separate process and exports the file the step reports
+as `output_path`. It does not change the active page.
 Alternative variants (FFmpeg, Remotion) can be added as additional scripts
 sharing the same interface contract.
 

@@ -252,8 +252,8 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     """Render the built timeline to a file and return the render report.
 
     Runs in a separate process: clip references go stale after timeline
-    creation (AGENTS.md section 5), and the same isolation rule that
-    applies to ImportFusionComp applies to driving the Deliver page.
+    creation (AGENTS.md section 5). It is also isolated from the build
+    process so Resolve handles are never reused across process boundaries.
     """
     project_folder = inputs.get("project_folder", "")
     if not project_folder:

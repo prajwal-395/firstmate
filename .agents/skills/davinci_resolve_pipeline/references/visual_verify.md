@@ -6,12 +6,11 @@ color grading, subtitles, motion graphics) to disk for automated analysis.
 
 ## Workflow
 ```
-1. Switch to Deliver page
-2. Set MarkIn = MarkOut = target frame
-3. AddRenderJob() + StartRendering()
-4. Wait for completion
-5. Convert .mov → .png with ffmpeg
-6. Analyze the PNG
+1. Set MarkIn = MarkOut = target frame through `Project.SetRenderSettings`
+2. Add a render job, start that job, and poll `Project.GetRenderJobStatus`
+3. Delete only the job created for this capture
+4. Convert .mov → .png with ffmpeg
+5. Analyze the PNG
 ```
 
 ## Quality Checks
@@ -31,7 +30,8 @@ The render includes ALL layers visible in the viewer:
 See `scripts/render_frame.py` for the reusable implementation.
 
 ## Tips
-- Always `DeleteAllRenderJobs()` after capturing to avoid clutter
-- Switch back to `resolve.OpenPage("edit")` when done
+- Delete only the render job created for this capture; never clear the
+  project's full render queue.
+- Render API calls do not require switching Resolve to the Deliver page.
 - Rendering a single frame takes ~0.5-2 seconds
 - Use batch rendering (multiple AddRenderJob calls) for efficiency

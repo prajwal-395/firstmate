@@ -78,6 +78,7 @@ How a DRX reaches a run:
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import Any, Mapping, Optional
 
@@ -430,8 +431,8 @@ def verify_drx_draws(timeline_item: Any, drx_path: str,
     as a ghost.
 
     `render_frame(item)` is the seam: it renders one frame of the item
-    and returns it as an HxWx3 uint8 array. Production renders one frame
-    through the Deliver page (`render_one_frame_deliver`); tests inject a
+    and returns it as an HxWx3 uint8 array. Production queues a one-frame
+    job through `render_one_frame_deliver`; tests inject a
     fake. The seam is the Resolve half - the apply, the delta and the
     verdict are Resolve-free and measured by `tests/unit/picture/
     test_grade_delivery.py`.
@@ -472,7 +473,7 @@ def verify_drx_draws(timeline_item: Any, drx_path: str,
 
 def render_one_frame_deliver(resolve, project, timeline, item,
                              output_dir: str = "") -> Any:
-    """Render one frame of `item` through the Deliver page, as RGB bytes.
+    """Render one frame of `item` through Resolve's render API as RGB bytes.
 
     The proven one-frame route on this build
     (`probe_resolve_capabilities.py`, 2026-09-10): `MarkIn == MarkOut`,
@@ -481,10 +482,9 @@ def render_one_frame_deliver(resolve, project, timeline, item,
     The frame is the item's own start frame, where the clip is on the
     base video track and nothing above it covers the picture yet.
 
-    The page, format/codec and render queue are put back on every exit
-    path, the way `segment_renderer.render_batch` does - the main render
-    sets its own settings after this returns, but a wedged check must
-    not take the render's settings or its queue with it.
+    The format/codec and render queue are put back on every exit path.
+    The scripting render API queues and reports the job directly, so no
+    Deliver page switch is needed.
 
     Returns an HxWx3 uint8 numpy array. Specified, not run here: the
     brief forbids driving the live Resolve, so the production render is
@@ -497,18 +497,26 @@ def render_one_frame_deliver(resolve, project, timeline, item,
     import numpy as np
 
     from library.tools.resolve_lock import assert_current_timeline
+    from library.tools.resolve_api_capabilities import callable_method
+
+    api = {name: callable_method(project, name) for name in (
+        "SetRenderSettings", "AddRenderJob", "StartRendering",
+        "StopRendering", "GetCurrentRenderFormatAndCodec",
+        "SetCurrentRenderFormatAndCodec", "GetRenderJobStatus",
+        "DeleteRenderJob")}
+    missing = sorted(name for name, method in api.items() if method is None)
+    if missing:
+        raise RuntimeError(f"Resolve does not expose render API methods: {missing}")
 
     if not output_dir:
         output_dir = tempfile.mkdtemp(prefix="vep_drx_frame_")
     os.makedirs(output_dir, exist_ok=True)
     name = "drx_frame"
     frame = item.GetStart()
-    prev_page = resolve.GetCurrentPage()
     saved_format_codec = project.GetCurrentRenderFormatAndCodec() or {}
     job_id = None
     try:
-        resolve.OpenPage("deliver")
-        project.SetRenderSettings({
+        if not api["SetRenderSettings"]({
             "TargetDir": output_dir,
             "CustomName": name,
             # WITHOUT `SelectAllFrames: False` Resolve IGNORES the range
@@ -518,16 +526,26 @@ def render_one_frame_deliver(resolve, project, timeline, item,
             "MarkOut": frame,
             "ExportVideo": True,
             "ExportAudio": False,
-        })
+        }):
+            raise RuntimeError("Resolve rejected one-frame render settings")
         assert_current_timeline(project, timeline)
-        job_id = project.AddRenderJob()
+        job_id = api["AddRenderJob"]()
         if not job_id:
             raise RuntimeError("AddRenderJob returned no job id")
-        if not project.StartRendering([job_id], isInteractiveMode=False):
+        if not api["StartRendering"]([job_id], isInteractiveMode=False):
             raise RuntimeError("StartRendering failed")
-        deadline = time.time() + 60
-        while project.IsRenderingInProgress():
-            if time.time() > deadline:
+        deadline = time.monotonic() + 60
+        while True:
+            status = api["GetRenderJobStatus"](job_id) or {}
+            job_status = status.get("JobStatus")
+            if job_status == "Complete":
+                break
+            if job_status in {"Failed", "Cancelled", "Background Render Cancelled",
+                              "Remote Render Cancelled"}:
+                raise RuntimeError(
+                    f"Render job {job_id} ended as {job_status}: "
+                    f"{status.get('Error', 'no error reported')}")
+            if time.monotonic() >= deadline:
                 project.StopRendering()
                 raise RuntimeError("one-frame render timed out")
             time.sleep(0.2)
@@ -542,7 +560,9 @@ def render_one_frame_deliver(resolve, project, timeline, item,
     finally:
         if job_id:
             try:
-                project.DeleteRenderJob(job_id)
+                if not api["DeleteRenderJob"](job_id):
+                    print(f"  Resolve did not delete render job {job_id}",
+                          file=sys.stderr)
             except Exception:  # noqa: BLE001 - best-effort cleanup
                 pass
         if saved_format_codec.get("format"):
@@ -550,11 +570,6 @@ def render_one_frame_deliver(resolve, project, timeline, item,
                 project.SetCurrentRenderFormatAndCodec(
                     saved_format_codec.get("format", ""),
                     saved_format_codec.get("codec", ""))
-            except Exception:  # noqa: BLE001 - best-effort restore
-                pass
-        if prev_page and prev_page != "deliver":
-            try:
-                resolve.OpenPage(prev_page)
             except Exception:  # noqa: BLE001 - best-effort restore
                 pass
 

@@ -132,6 +132,48 @@ def main():
         version = resolve.GetVersionString()
         product = resolve.GetProductName()
         results.ok("GetVersionString", f"{product} {version}")
+        try:
+            from library.tools.resolve_api_capabilities import (
+                ResolveReferenceError,
+                build_capability_map,
+                capability_map_for_version,
+                has_documented_method,
+            )
+            api_map = build_capability_map(version)
+            candidates = (
+                ("TimelineItem", "AddTransition"),
+                ("TimelineItem", "GetFades"),
+                ("TimelineItem", "SetFades"),
+                ("TimelineItem", "GetProperty"),
+                ("TimelineItem", "SetProperty"),
+                ("TimelineItem", "GetSourceAudioChannelMapping"),
+                ("TimelineItem", "SetSourceAudioChannelMapping"),
+                ("MediaPoolItem", "SetAudioMapping"),
+                ("Timeline", "GetNormalizeAudioModes"),
+                ("Timeline", "NormalizeAudioLevel"),
+                ("Project", "SetRenderSettings"),
+                ("Project", "AddRenderJob"),
+                ("Project", "StartRendering"),
+                ("Project", "StopRendering"),
+                ("Project", "IsRenderingInProgress"),
+                ("Project", "GetRenderJobStatus"),
+                ("Project", "DeleteRenderJob"),
+                ("Project", "GetCurrentRenderFormatAndCodec"),
+                ("Project", "SetCurrentRenderFormatAndCodec"),
+            )
+            release_map = capability_map_for_version(api_map)
+            available = [f"{class_name}.{method_name}"
+                         for class_name, method_name in candidates
+                         if has_documented_method(api_map, class_name,
+                                                  method_name)]
+            results.ok(
+                "Installed scripting API map",
+                f"Resolve {api_map['resolve_version']}: "
+                f"{release_map['class_count']} classes, "
+                f"{release_map['method_count']} methods; "
+                f"documented edit/render methods: {', '.join(available)}")
+        except ResolveReferenceError as exc:
+            results.skip("Installed scripting API map", str(exc))
     except Exception as e:
         results.fail("GetVersionString", str(e))
 

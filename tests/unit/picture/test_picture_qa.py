@@ -1564,6 +1564,7 @@ def mock_project(mock_timeline):
     project.IsRenderingInProgress.side_effect = [True, False]
     project.GetCurrentTimeline.return_value = mock_timeline
     project.AddRenderJob.return_value = "job-1"
+    project.GetRenderJobStatus.return_value = {"JobStatus": "Complete"}
     # `render_segment` reads the queue back before starting, because
     # Resolve ignores MarkIn/MarkOut unless SelectAllFrames is False
     # and a "single frame" then renders the whole timeline. A bare

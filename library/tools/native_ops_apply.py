@@ -496,7 +496,14 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
                    "position": position, "alignment": "center",
                    "duration": int(duration)}
         try:
-            placed = target.AddTransition(dict(payload))
+            from library.tools.resolve_api_capabilities import callable_method
+            add_transition = callable_method(target, "AddTransition")
+            if add_transition is None:
+                _fail(trans_id,
+                      "Resolve does not expose TimelineItem.AddTransition",
+                      "use a transition supported by this Resolve version")
+                continue
+            placed = add_transition(dict(payload))
         except Exception as exc:
             _fail(trans_id,
                   f"AddTransition({want_type!r}, {category!r}) raised "

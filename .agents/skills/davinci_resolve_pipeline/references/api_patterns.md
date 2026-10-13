@@ -22,8 +22,9 @@ resolve.OpenPage("edit")     # Edit page (main)
 resolve.OpenPage("fusion")   # Fusion page
 resolve.OpenPage("color")    # Color page
 resolve.OpenPage("fairlight") # Audio
-resolve.OpenPage("deliver")  # Render
 ```
+Render queue operations use the Project API and do not require opening the
+Deliver page; see **Render Operations** below.
 MCP: `resolve_control(action="open_page", params={"page": "edit"})`
 
 ## Timeline Operations
@@ -107,27 +108,37 @@ MCP: `timeline_item_fusion(action="delete_comp", params={"name": "Composition 1"
 
 ## Render Operations
 
-### Render a single frame to file
+### Render a single frame to file without changing the page
 ```python
-resolve.OpenPage("deliver")
-project.SetRenderSettings({
+if not project.SetRenderSettings({
     "TargetDir": "/tmp/screenshots",
     "CustomName": "frame_45",
     "FormatWidth": 1080,
     "FormatHeight": 1920,
+    "SelectAllFrames": False,
     "MarkIn": 45,
     "MarkOut": 45,
-})
-project.AddRenderJob()
-project.StartRendering()
+    "ExportVideo": True,
+    "ExportAudio": False,
+}):
+    raise RuntimeError("Resolve rejected render settings")
+job_id = project.AddRenderJob()
+if not job_id:
+    raise RuntimeError("Resolve did not queue the render")
+if not project.StartRendering([job_id], isInteractiveMode=False):
+    raise RuntimeError("Resolve did not start the render")
 
-# Wait for completion
+# Wait for this job, then check its result.
 import time
-while project.IsRenderingInProgress():
+while True:
+    status = project.GetRenderJobStatus(job_id) or {}
+    if status.get("JobStatus") == "Complete":
+        break
+    if status.get("JobStatus") in {"Failed", "Cancelled"}:
+        raise RuntimeError(status)
     time.sleep(0.5)
-
-project.DeleteAllRenderJobs()
-resolve.OpenPage("edit")
+if not project.DeleteRenderJob(job_id):
+    raise RuntimeError("Resolve did not remove the render job")
 ```
 MCP: `render(action="prepare_render_job", params={"target_dir": "/tmp/screenshots", "settings": {"MarkIn": 45, "MarkOut": 45}})`
 

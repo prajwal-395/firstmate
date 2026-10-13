@@ -32,25 +32,38 @@ def _load(monkeypatch):
 
 
 class _Project:
+    def __init__(self):
+        self.deleted_jobs = []
+
     def SetRenderSettings(self, settings):
-        pass
+        return True
 
     def AddRenderJob(self):
         return 1
 
-    def StartRendering(self):
-        pass
+    def StartRendering(self, _job_ids, isInteractiveMode=False):
+        return True
+
+    def GetRenderJobStatus(self, _job_id):
+        return {"JobStatus": "Complete", "CompletionPercentage": 100}
+
+    def StopRendering(self):
+        return True
 
     def IsRenderingInProgress(self):
         return False
 
-    def DeleteAllRenderJobs(self):
-        pass
+    def DeleteRenderJob(self, _job_id):
+        self.deleted_jobs.append(_job_id)
+        return True
 
 
 class _Resolve:
+    def __init__(self):
+        self.pages = []
+
     def OpenPage(self, _page):
-        pass
+        self.pages.append(_page)
 
 
 def test_hostile_paths_reach_ffmpeg_as_single_argv_elements(
@@ -68,8 +81,10 @@ def test_hostile_paths_reach_ffmpeg_as_single_argv_elements(
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
+    project = _Project()
+    resolve = _Resolve()
     out = module.render_frame_to_png(
-        _Resolve(), _Project(), 3, output_dir=str(hostile_dir))
+        resolve, project, 3, output_dir=str(hostile_dir))
     argv = calls["argv"]
     assert isinstance(argv, list), argv
     assert argv[:3] == ["ffmpeg", "-y", "-i"]
@@ -78,4 +93,6 @@ def test_hostile_paths_reach_ffmpeg_as_single_argv_elements(
     assert argv[6] == str(hostile_dir / "frame_3.png")
     assert "shell" not in calls["kwargs"]
     assert out == str(hostile_dir / "frame_3.png")
+    assert project.deleted_jobs == [1]
+    assert resolve.pages == []
     assert not (tmp_path / "pwned").exists()

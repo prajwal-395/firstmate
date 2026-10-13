@@ -198,7 +198,7 @@ class ExplodingProject(MockProject):
 # ── H4 Tests: segment_renderer ─────────────────────────────────
 
 class TestSegmentRendererRestoresWhatItBorrowed:
-    """format/codec, the page and the render queue are restored on every
+    """format/codec and the render queue are restored on every
     exit, and only the job this process created is deleted - never
     everyone's (DeleteAllRenderJobs destroys the captain's queued jobs,
     H4a)."""
@@ -214,7 +214,7 @@ class TestSegmentRendererRestoresWhatItBorrowed:
         assert project.set_format_codec_calls == [("mov", "ProRes")]
         assert "my-job-99" in project.deleted_jobs
         assert not project.deleted_all
-        assert resolve.opened_pages[-1] == "edit"
+        assert resolve.opened_pages == []
 
     def test_restored_when_the_body_raises(self, tmp_path):
         """The bug H4 exists to prevent."""
@@ -227,7 +227,7 @@ class TestSegmentRendererRestoresWhatItBorrowed:
         assert project.set_format_codec_calls == [("mp4", "H264")]
         assert "my-job-77" in project.deleted_jobs
         assert not project.deleted_all
-        assert resolve.opened_pages[-1] == "color"
+        assert resolve.opened_pages == []
 
 
 # ── resolve_render (the full-timeline renderer) ────────────────
@@ -297,8 +297,8 @@ class ExplodingRenderProject(RenderTimelineMockProject):
 class TestRenderTimelineRestoreOnException:
     """resolve_render.render_timeline restores on the exception path."""
 
-    def test_format_codec_and_page_restored_when_body_raises(self, monkeypatch, tmp_path):
-        """format/codec and the page are restored even when SetRenderSettings raises."""
+    def test_format_codec_restored_when_body_raises(self, monkeypatch, tmp_path):
+        """format/codec is restored even when SetRenderSettings raises."""
         project = ExplodingRenderProject(
             format_codec={"format": "mov", "codec": "ProRes"},
         )
@@ -323,9 +323,7 @@ class TestRenderTimelineRestoreOnException:
             "format/codec was NOT restored when the body raised - "
             "this is the bug H4 exists to prevent"
         )
-        assert resolve.opened_pages[-1] == "color", (
-            "Page was not restored when the body raised"
-        )
+        assert resolve.opened_pages == []
 
     def test_own_job_deleted_when_body_raises(self, monkeypatch, tmp_path):
         """Our job is cleaned up even when the render fails mid-way."""
@@ -520,6 +518,7 @@ def _render(tmp_path, ignore_marks=False):
     """Ask for frame 300 of a 0-1665 reel."""
     tl = FakeTimeline("T", end_frame=1665)
     project = FakeProject([tl], current=tl)
+    project.render_engine = lambda _job, _timeline: True
     project.ignore_render_marks = ignore_marks
     result = segment_renderer.render_segment(
         FakeResolve(project), project, tl,
@@ -852,6 +851,7 @@ def _project_2(lie_on=None):
     timeline anyway (the 2026-09-11 shape)."""
     tl = FakeTimeline("T", end_frame=1665)
     project = FakeProject([tl], current=tl)
+    project.render_engine = lambda _job, _timeline: True
     project.ignore_render_marks = {lie_on} if lie_on is not None else False
     return tl, project
 

@@ -12,6 +12,7 @@ resolve/project/timeline objects as parameters.
 
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from library.tools.resolve_lock import assert_current_timeline, under_lease
@@ -134,8 +135,8 @@ def render_batch(resolve, project, timeline, ranges,
     The ranges are merged (`merge_ranges`), one job is queued per merged
     range, every job's MarkIn/MarkOut is read back off the queue BEFORE
     anything starts, and the jobs start together and are polled once.
-    The page, the format/codec and the queue are put back once, on every
-    exit path. A caller wanting frames or sub-ranges cuts them from the
+    The format/codec and the queue are put back once, on every exit path.
+    A caller wanting frames or sub-ranges cuts them from the
     result with ffmpeg (`extract_frames`, `trim_to_range`).
     """
     if output_dir is None:
@@ -151,7 +152,15 @@ def render_batch(resolve, project, timeline, ranges,
     names = ([name_prefix] if len(merged) == 1 else
              [f"{name_prefix}_r{k:03d}" for k in range(len(merged))])
 
-    prev_page = resolve.GetCurrentPage()
+    from library.tools.resolve_api_capabilities import callable_method
+    api = {name: callable_method(project, name) for name in (
+        "SetRenderSettings", "AddRenderJob", "StartRendering",
+        "IsRenderingInProgress", "StopRendering", "GetRenderJobStatus",
+        "DeleteRenderJob")}
+    missing = sorted(name for name, method in api.items() if method is None)
+    if missing:
+        return _failed(merged, width, height,
+                       f"Resolve does not expose render API methods: {missing}")
 
     # Save the format/codec so we can restore it.  This is the ONLY
     # render state Resolve lets us read back; the rest of
@@ -164,10 +173,8 @@ def render_batch(resolve, project, timeline, ranges,
     our_job_ids = []
 
     try:
-        resolve.OpenPage("deliver")
-
         for (mark_in, mark_out), name in zip(merged, names):
-            project.SetRenderSettings({
+            if not api["SetRenderSettings"]({
                 "TargetDir": output_dir,
                 "CustomName": name,
                 "FormatWidth": width,
@@ -187,9 +194,16 @@ def render_batch(resolve, project, timeline, ranges,
                 "MarkOut": mark_out,
                 "ExportVideo": True,
                 "ExportAudio": False,  # visual QA doesn't need audio
-            })
+            }):
+                return _failed(merged, width, height,
+                               f"Resolve rejected render settings for {name}")
             assert_current_timeline(project, timeline)
-            our_job_ids.append(project.AddRenderJob())
+            job_id = api["AddRenderJob"]()
+            if not job_id:
+                return _failed(merged, width, height,
+                               f"Resolve did not queue render range "
+                               f"{mark_in}-{mark_out}")
+            our_job_ids.append(job_id)
 
         # And then what Resolve actually QUEUED.  A range that did not
         # take is caught HERE, before a frame is rendered, because the
@@ -208,7 +222,9 @@ def render_batch(resolve, project, timeline, ranges,
                                f"Resolve queued MarkIn={got_in} MarkOut={got_out} "
                                f"for a request of {mark_in}-{mark_out} - refusing "
                                f"to start a render of a range nobody asked for")
-        project.StartRendering(our_job_ids, isInteractiveMode=False)
+        if not api["StartRendering"](our_job_ids, isInteractiveMode=False):
+            return _failed(merged, width, height,
+                           f"Resolve did not start render jobs {our_job_ids}")
 
         # Poll for completion
         elapsed = 0.0
@@ -220,6 +236,15 @@ def render_batch(resolve, project, timeline, ranges,
                 project.StopRendering()
                 return _failed(merged, width, height,
                                f"Render timed out after {timeout}s")
+
+        for job_id in our_job_ids:
+            status = api["GetRenderJobStatus"](job_id) or {}
+            if status.get("JobStatus") != "Complete":
+                return _failed(
+                    merged, width, height,
+                    f"Render job {job_id} ended as "
+                    f"{status.get('JobStatus', 'Unknown')}: "
+                    f"{status.get('Error', 'no error reported')}")
 
         segments = []
         for (mark_in, mark_out), name in zip(merged, names):
@@ -258,12 +283,11 @@ def render_batch(resolve, project, timeline, ranges,
         for job_id in our_job_ids:
             if job_id:
                 try:
-                    project.DeleteRenderJob(job_id)
+                    if not api["DeleteRenderJob"](job_id):
+                        print(f"  Resolve did not delete render job {job_id}",
+                              file=sys.stderr)
                 except Exception:
                     pass  # best-effort
-
-        if prev_page and prev_page != "deliver":
-            resolve.OpenPage(prev_page)
 
 
 @under_lease("render segments")
