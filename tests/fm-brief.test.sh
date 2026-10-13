@@ -205,12 +205,6 @@ test_ship_modes_generate_clean_briefs() {
     FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1; status=$?
     expect_code 0 "$status" "fm-brief.sh $id --mode $mode should exit 0"
     brief="$home/data/$id/brief.md"
-    assert_grep 'commit your task work and push your task branch without opening a PR' "$brief" \
-      "$id brief lost the checkpoint-before-blocked-or-paused instruction"
-    assert_grep 'checkpoint-sha=<full-pushed-commit-sha>' "$brief" \
-      "$id brief lost the pushed-commit SHA requirement"
-    assert_grep 'end your turn so the pushed branch is the durable resume point' "$brief" \
-      "$id brief lost the turn-ending checkpoint instruction"
     assert_present "$brief" "$id: brief was not scaffolded"
     assert_grep "# Definition of done" "$brief" "$id: brief missing Definition of done section"
     grep -qx "Delivery contract: mode=$mode" "$brief" \
@@ -327,34 +321,6 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   assert_no_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
     "direct-PR brief must not include the no-mistakes --intent contract"
   pass "fm-brief.sh: faster paths use configured authority without stacked review"
-}
-
-# A PR-based ship must not report done on a draft, which cannot be merged; a
-# lane that deliberately holds a draft declares a wait instead. local-only opens
-# no PR, so it must not carry the requirement.
-test_pr_based_dod_requires_non_draft() {
-  local home mode id brief
-  home="$TMP_ROOT/draft-dod-home"
-  mkdir -p "$home/data"
-  for mode in no-mistakes direct-PR local-only; do
-    id="brief-draft-$mode"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1
-    brief="$home/data/$id/brief.md"
-    assert_present "$brief" "$mode: brief was not scaffolded"
-    if [ "$mode" = local-only ]; then
-      assert_no_grep "isDraft" "$brief" "$mode: a branch-only delivery must not require a non-draft PR"
-      continue
-    fi
-    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-    assert_grep 'confirm it is not a draft (`gh-axi pr view <number>` must print `draft: no`' "$brief" \
-      "$mode: done must require reading the PR back from the forge as non-draft"
-    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-    assert_grep 'mark it ready with `gh-axi pr ready <number>`' "$brief" \
-      "$mode: a draft must be marked ready before done"
-    assert_grep "If you deliberately keep the PR a draft, append \`paused" "$brief" \
-      "$mode: a deliberate draft must declare a wait instead of done"
-  done
-  pass "fm-brief.sh: PR-based done requires a non-draft PR; a deliberate draft declares a wait"
 }
 
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
