@@ -199,6 +199,21 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             "Observation",
             schema_for!(Observation),
         ),
+        named(
+            "project-evidence-type",
+            "EvidenceType",
+            schema_for!(EvidenceType),
+        ),
+        named(
+            "project-coverage-kind",
+            "CoverageKind",
+            schema_for!(CoverageKind),
+        ),
+        named(
+            "project-evidence-contract",
+            "EvidenceContract",
+            schema_for!(EvidenceContract),
+        ),
         named("project-entity", "Entity", schema_for!(Entity)),
         named(
             "project-identity-link",

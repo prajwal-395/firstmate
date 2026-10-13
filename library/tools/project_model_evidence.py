@@ -80,6 +80,7 @@ try:
         conversation_clock,
         depth,
         event_spans,
+        evidence_contract,
         mask_seed,
         person_entity,
         person_measurements,
@@ -96,6 +97,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         conversation_clock,
         depth,
         event_spans,
+        evidence_contract,
         mask_seed,
         person_entity,
         person_measurements,
@@ -245,9 +247,9 @@ class _Builder:
         return prov_id
 
     def observation(self, digest: str, lane: str, asset_id: str,
-                    clock_id: str, start: float, end: float, modality: str,
-                    payload: dict[str, Any], confidence: Any,
-                    producer: str) -> str | None:
+                     clock_id: str, start: float, end: float, modality: str,
+                     payload: dict[str, Any], confidence: Any,
+                     producer: str) -> str | None:
         ticks = sec_to_ticks(start, end)
         if ticks is None:
             self.dropped.append({"digest": digest, "lane": lane,
@@ -255,6 +257,10 @@ class _Builder:
                                  "reason": "non-positive-interval",
                                  "start": start, "end": end})
             return None
+        # FI-03 contract audit: a mapped modality files a measurement,
+        # never an evaluation. Unmapped modalities pass through; the
+        # check raises only on a genuine type violation.
+        evidence_contract.audit_legacy_observation(modality, payload)
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
         obs_id = f"obs-{key}-{self._obs_counter[key]:04d}"

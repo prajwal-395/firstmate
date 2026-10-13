@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvidenceType",
+  "description": "FI-03: the four evidence types (plan A1). A raw instrument value\nlives under `Measurement` and must never inhabit `Evaluation`.",
+  "type": "string",
+  "enum": [
+    "measurement",
+    "inference",
+    "evaluation",
+    "creative_judgment"
+  ]
+}
