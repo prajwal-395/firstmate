@@ -8,6 +8,10 @@
 # `--yes` ban is the exact delivery hole this single owner exists to close.
 # fm_ship_checkpoint_instructions [<paused-verb>] prints the shared checkpoint
 # requirement used by ordinary and promoted ship briefs.
+# A no-mistakes worker whose branch is owned by an active no-mistakes run
+# (branch_sync state pipeline_owned) reports paused without pushing and
+# without a checkpoint-sha, because the pipeline already holds the work
+# durably and a worker push would diverge its validated head.
 # fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
 # prints the block on stdout with no trailing blank line. The caller validates the
 # mode; an unknown mode is refused rather than silently rendered as the pipeline
@@ -410,7 +414,9 @@ fm_ship_checkpoint_instructions() {  # [<paused-verb>]
   local paused=${1:-${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}}
   printf '%s\n' \
     "   Before appending any \`blocked:\` or \`$paused:\` event, commit your task work and push your task branch without opening a PR; if there is nothing to commit, say the worktree is clean and push the existing branch tip." \
-    '   Include `checkpoint-sha=<full-pushed-commit-sha>` in the event only after the push succeeds, then end your turn so the pushed branch is the durable resume point.'
+    '   Include `checkpoint-sha=<full-pushed-commit-sha>` in the event only after the push succeeds, then end your turn so the pushed branch is the durable resume point.' \
+    "   Exception: a no-mistakes worker whose branch is owned by an active no-mistakes run (\`no-mistakes axi status\` shows branch_sync state pipeline_owned) reports \`$paused:\` without pushing and without a checkpoint-sha." \
+    '   The pipeline already holds the work durably in that state, so your own push would diverge its validated head.'
 }
 
 fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
