@@ -244,7 +244,10 @@ fn encode_tiny_clip(path: &Path) {
         .arg("-y")
         .output()
         .unwrap();
-    assert!(encoded.status.success(), "ffmpeg must encode the fixture clip");
+    assert!(
+        encoded.status.success(),
+        "ffmpeg must encode the fixture clip"
+    );
 }
 
 fn check_env(project: &Project) -> Vec<(String, String)> {

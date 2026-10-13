@@ -133,6 +133,7 @@ import math
 import os
 import time
 from functools import wraps
+from collections.abc import Mapping
 
 from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
@@ -3858,14 +3859,14 @@ def placements(ranges: Sequence[Tuple[float, float]],
     return out
 
 
-def serializable_placements(placements_list) -> list:
+def serializable_placements(placements_list, fps: float | None = None) -> list:
     """The placed derivation as plain JSON - what the build laid down.
 
     One row per placed piece: which source span plays over which reel
     span, on which row, whose speech. `clip` is a `TimelineClip`
-    (frozen dataclass); only its scalar ground truth is carried, never
-    the live `transform` mapping. Seconds throughout; `record_frames`
-    is present only on retimed pieces (`rate` != 1.0).
+    (frozen dataclass); its measured transform is copied into plain JSON
+    beside the scalar ground truth. Source spans stay in seconds; the
+    exact record-frame span is carried for frame-aligned model timing.
 
     Recorded on `build_record["placements"]` so the Project Model
     writer grades what was built, never a re-derivation - the same
@@ -3892,6 +3893,34 @@ def serializable_placements(placements_list) -> list:
             "master_start": master_start,
             "master_end": master_end,
         }
+        source_fps = getattr(clip, "fps", None)
+        if source_fps is not None:
+            try:
+                row["source_fps"] = float(source_fps)
+            except (TypeError, ValueError):
+                pass
+        record_frames = (place.get("record_frames") if isinstance(place, dict)
+                         else None)
+        if record_frames is None:
+            try:
+                source_seconds = float(place["source_out"]) - float(place["source_in"])
+                record_fps = float(fps or getattr(clip, "fps"))
+                record_frames = round(source_seconds * record_fps)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                record_frames = None
+        if record_frames is not None:
+            try:
+                row["record_frames"] = int(record_frames)
+            except (TypeError, ValueError):
+                pass
+        transform = (place.get("transform") if isinstance(place, dict)
+                     else None) or getattr(clip, "transform", None)
+        if isinstance(transform, Mapping):
+            row["transform"] = dict(transform)
+        if isinstance(place, dict) and place.get("native_position") is not None:
+            row["native_position"] = list(place["native_position"])
+        if isinstance(place, dict) and place.get("native_scale") is not None:
+            row["native_scale"] = float(place["native_scale"])
         if isinstance(place, dict) and place.get("rate") not in (None, 1.0):
             try:
                 row["rate"] = float(place["rate"])
@@ -6958,6 +6987,17 @@ def aim_picture_row(name: str, look: dict, screen_window,
             frame_width, frame_height, window=screen_window,
             draw_gain=draw_gain)
         if properties is None:
+            held = _held_transform(item, timeline, resolve_project)
+            if isinstance(held, Mapping):
+                place["transform"] = held
+                from library.tools.resolve_transform import fit_base_scale
+                base_scale = fit_base_scale(
+                    source_size[0], source_size[1], frame_width, frame_height)
+                place["native_position"] = _native_picture_position(
+                    held, source_size, frame_width, frame_height,
+                    base_scale, draw_gain)
+                place["native_scale"] = _native_picture_scale(
+                    held, source_size, frame_width, frame_height)
             print(f"  {name}: NO PUNCH-IN on "
                   f"{os.path.basename(source_file)} "
                   f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
@@ -7004,6 +7044,18 @@ def aim_picture_row(name: str, look: dict, screen_window,
                           timeline=timeline,
                           resolve_project=resolve_project,
                           transform_context=transform_context)
+        held = _held_transform(item, timeline, resolve_project,
+                               transform_context=transform_context)
+        if isinstance(held, Mapping):
+            place["transform"] = held
+            from library.tools.resolve_transform import fit_base_scale
+            base_scale = fit_base_scale(
+                source_size[0], source_size[1], frame_width, frame_height)
+            place["native_position"] = _native_picture_position(
+                held, source_size, frame_width, frame_height,
+                base_scale, draw_gain)
+            place["native_scale"] = _native_picture_scale(
+                held, source_size, frame_width, frame_height)
         aimed += 1
         print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
               f"(declared {look['punch_in']}, screen window needs "
@@ -7025,6 +7077,39 @@ def aim_picture_row(name: str, look: dict, screen_window,
                 f"cannot establish the Pan/Tilt units for {name}: {exc}") \
                 from exc
     return aimed
+
+
+def _native_picture_position(held, source_size, frame_width, frame_height,
+                             base_scale, draw_gain):
+    """Resolve's held Pan/Tilt expressed as the native sequence pixel center."""
+    from library.tools.resolve_transform import shift_px
+
+    pan = float(held.get("Pan", 0.0))
+    tilt = float(held.get("Tilt", 0.0))
+    return [
+        frame_width / 2.0 + shift_px(
+            pan, source_size[0], frame_width, base_scale, draw_gain),
+        frame_height / 2.0 - shift_px(
+            tilt, source_size[1], frame_height, base_scale, draw_gain),
+    ]
+
+
+def _native_picture_scale(held, source_size, frame_width, frame_height):
+    """Resolve zoom over scaleToFit as a native source-pixel multiplier."""
+    from library.tools.resolve_transform import fit_base_scale
+
+    try:
+        zoom_x = float(held.get("ZoomX", 1.0))
+        zoom_y = float(held.get("ZoomY", zoom_x))
+        if (not math.isfinite(zoom_x) or not math.isfinite(zoom_y)
+                or zoom_x <= 0 or zoom_y <= 0
+                or not math.isclose(zoom_x, zoom_y,
+                                    rel_tol=0.0, abs_tol=1e-6)):
+            return None
+        return zoom_x * fit_base_scale(
+            source_size[0], source_size[1], frame_width, frame_height)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
 
 def _with_freeze(placements_list, freeze, fps: float) -> list:
@@ -8089,6 +8174,29 @@ def _overlay_spans(segments, fps: float):
             if s.get("timeline_end", 0) > s.get("timeline_start", 0)]
 
 
+def _native_overlay_position(held_transform, canvas, frame, draw_gain):
+    """Convert held Resolve Pan/Tilt into native sequence-pixel position."""
+    if not isinstance(held_transform, Mapping) or not canvas or not frame:
+        return None
+    try:
+        canvas_w, canvas_h = (float(value) for value in canvas)
+        frame_w, frame_h = (float(value) for value in frame)
+        pan = float(held_transform.get("Pan", 0.0))
+        tilt = float(held_transform.get("Tilt", 0.0))
+        if not all(math.isfinite(value) for value in
+                   (canvas_w, canvas_h, frame_w, frame_h, pan, tilt)):
+            return None
+        from library.tools.resolve_transform import shift_px
+        return [
+            frame_w / 2.0 + shift_px(
+                pan, canvas_w, frame_w, draw_gain=draw_gain),
+            frame_h / 2.0 - shift_px(
+                tilt, canvas_h, frame_h, draw_gain=draw_gain),
+        ]
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            segments, track_rows, kind: str,
                            check: str, properties: dict = None,
@@ -8339,6 +8447,14 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
         if sweep_out is not None and canvas is not None:
+            held_transform = (_held_transform(
+                placed[0], timeline, project)
+                if isinstance(placed, list) and placed else None)
+            duration_frames = segment.get("total_frames")
+            if duration_frames is None:
+                duration_frames = int(round(
+                    (float(segment["timeline_end"])
+                     - float(segment["timeline_start"])) * fps))
             sweep_out.append({
                 "label": f"{kind} at {segment['timeline_start']:.2f}s",
                 "kind": kind,
@@ -8350,6 +8466,13 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 "placement": tight.get("placement"),
                 "overlay_path": segment.get("overlay_path") or "",
                 "frames_dir": "",
+                "timeline_start_frame": record_frame,
+                "duration_frames": int(duration_frames),
+                "source_start_frame": 0,
+                "transform": (dict(held_transform)
+                              if isinstance(held_transform, Mapping) else None),
+                "native_position": _native_overlay_position(
+                    held_transform, canvas, frame, draw_gain),
             })
     return held_back
 
@@ -9774,6 +9897,18 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 # off the timeline after the build and judges it against
                 # intent. Full-canvas captions need no transform and leave
                 # no record.
+                caption_item = None
+                try:
+                    for candidate in (timeline.GetItemListInTrack(
+                            "video", track_plan.caption_row().index) or []):
+                        if int(candidate.GetStart()) == record_start:
+                            caption_item = candidate
+                            break
+                except Exception:  # noqa: BLE001 - placement remains recorded
+                    caption_item = None
+                held_transform = (_held_transform(
+                    caption_item, timeline, project) if caption_item is not None
+                    else None)
                 _sweep_records.append({
                     "label": segment.get("segment_id", "caption"),
                     "kind": "caption",
@@ -9789,6 +9924,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                                   ).get("placement"),
                     "overlay_path": segment.get("overlay_path") or "",
                     "frames_dir": frame_dir,
+                    "timeline_start_frame": record_start,
+                    "duration_frames": content_frames,
+                    "source_start_frame": segment["source_in_frame"],
+                    "transform": (dict(held_transform)
+                                  if isinstance(held_transform, Mapping) else None),
+                    "native_position": _native_overlay_position(
+                        held_transform, _caption_canvas, (width, height),
+                        draw_gain),
                 })
 
         # Transition elements last, on the plan's transitions row. Placed
@@ -10204,7 +10347,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # `track_plans` rides the record). Seconds throughout; the model
     # converts to ticks on millisecond clocks.
     build_record["fps"] = float(fps)
-    build_record["placements"] = serializable_placements(placements_list)
+    build_record["placements"] = serializable_placements(
+        placements_list, fps=float(fps))
+    build_record["overlay_placements"] = [dict(row) for row in _sweep_records]
     return build_record
 
 
@@ -13466,6 +13611,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     overlay_records = {}
     track_plans = {}
     reel_placements = {}
+    reel_overlay_placements = {}
     skipped_by_exclusion: list = []
     # Reels this call deliberately did NOT build because a final range
     # touches no declared window of its own (`reel_ledger.audit_ranges`
@@ -14582,6 +14728,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # Project Model writer's clip-use source.
                     reel_placements[name] = list(
                         build_result.get("placements") or [])
+                    reel_overlay_placements[name] = list(
+                        build_result.get("overlay_placements") or [])
                     if overlay_intent:
                         # Per-reel intent application, keyed by STAGING name
                         # here and remapped to finals beside `caption_hashes`
@@ -15213,6 +15361,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final: reel_placements[promotion_staged_to_final[final]]
             for final in final_names
             if promotion_staged_to_final[final] in reel_placements}
+        reel_overlay_placements = {
+            final: reel_overlay_placements[promotion_staged_to_final[final]]
+            for final in final_names
+            if promotion_staged_to_final[final] in reel_overlay_placements}
         intent_applied_by_reel = {
             final: intent_applied_by_reel[
                 promotion_staged_to_final[final]]
@@ -15550,6 +15702,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # `track_plans`). Seconds throughout; `reel_fps` is the master
         # rate every derivation below was planned on.
         "reel_placements": reel_placements,
+        "reel_overlay_placements": reel_overlay_placements,
         "reel_fps": float(fps),
         "plan_path": proposal_path,
         "resolve_project_name": resolve_name,

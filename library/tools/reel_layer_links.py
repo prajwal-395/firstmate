@@ -22,9 +22,9 @@ store, and changes no placement mechanics. Every function here is pure
 reported with its reason, never guessed at, and no caller fails its own
 duty when the model is absent.
 
-Time bases: the model speaks integer millisecond ticks on named clocks;
-manifests, pulls and beds speak float seconds. Matching converts model
-ticks to seconds (``tick / 1000.0``) and compares in seconds with a 1ms
+Time bases: the model speaks integer ticks on named clocks; manifests,
+pulls and beds speak float seconds. Matching converts ticks with the
+named clock's ``ticks_per_second`` and compares in seconds with a 1ms
 epsilon, so neither side is re-quantised into the other's grid.
 """
 
@@ -65,13 +65,22 @@ def _is_number(value: Any) -> bool:
             and math.isfinite(value))
 
 
-def _ms_to_seconds(tick: Any) -> float | None:
-    """A model millisecond tick as seconds, or None when not a number."""
+def _ticks_to_seconds(model: Mapping[str, Any], clock_id: Any,
+                      tick: Any) -> float | None:
+    """A model clock tick as seconds, or None when its clock is unknown."""
     if isinstance(tick, bool) or not isinstance(tick, (int, float)):
         return None
     if not math.isfinite(float(tick)):
         return None
-    return float(tick) / 1000.0
+    clock = next((row for row in (model.get("clocks") or [])
+                  if isinstance(row, Mapping)
+                  and row.get("id") == clock_id), None)
+    if clock is None:
+        return None
+    tps = clock.get("ticks_per_second")
+    if isinstance(tps, bool) or not isinstance(tps, int) or tps <= 0:
+        return None
+    return float(tick) / tps
 
 
 def _span_seconds(start: Any, end: Any) -> tuple[float, float] | None:
@@ -151,23 +160,27 @@ def effects_on(model: Mapping[str, Any], clip_use_id: str) -> list[str]:
     return sorted(out)
 
 
-def _use_source_span(use: Mapping[str, Any]) -> tuple[float, float] | None:
+def _use_source_span(model: Mapping[str, Any],
+                     use: Mapping[str, Any]) -> tuple[float, float] | None:
     interval = use.get("source_interval") if isinstance(use, Mapping) else None
     if not isinstance(interval, Mapping):
         return None
-    start = _ms_to_seconds(interval.get("start"))
-    end = _ms_to_seconds(interval.get("end"))
+    clock_id = interval.get("clock_id")
+    start = _ticks_to_seconds(model, clock_id, interval.get("start"))
+    end = _ticks_to_seconds(model, clock_id, interval.get("end"))
     if start is None or end is None or end <= start:
         return None
     return (start, end)
 
 
-def _use_timeline_span(use: Mapping[str, Any]) -> tuple[float, float] | None:
+def _use_timeline_span(model: Mapping[str, Any],
+                       use: Mapping[str, Any]) -> tuple[float, float] | None:
     interval = use.get("timeline_interval") if isinstance(use, Mapping) else None
     if not isinstance(interval, Mapping):
         return None
-    start = _ms_to_seconds(interval.get("start"))
-    end = _ms_to_seconds(interval.get("end"))
+    clock_id = interval.get("clock_id")
+    start = _ticks_to_seconds(model, clock_id, interval.get("start"))
+    end = _ticks_to_seconds(model, clock_id, interval.get("end"))
     if start is None or end is None or end <= start:
         return None
     return (start, end)
@@ -215,7 +228,7 @@ def match_clip_use(*, source_file: str,
     for use in uses:
         if use.get("asset_id") != asset_id:
             continue
-        have_source = _use_source_span(use)
+        have_source = _use_source_span(model, use)
         if have_source is None:
             continue
         source_hit = _overlap(want_source, have_source)
@@ -226,7 +239,7 @@ def match_clip_use(*, source_file: str,
             interval = use.get("timeline_interval")
             if (isinstance(interval, Mapping)
                     and interval.get("clock_id") == timeline_clock):
-                have_timeline = _use_timeline_span(use)
+                have_timeline = _use_timeline_span(model, use)
                 if have_timeline is not None:
                     if _overlap(want_timeline, have_timeline) <= 0.0:
                         continue
@@ -405,8 +418,10 @@ def link_overlay_entries(entries: Any,
                     if isinstance(effect, Mapping) else None
                 if not isinstance(interval, Mapping):
                     continue
-                have = _span_seconds(_ms_to_seconds(interval.get("start")),
-                                     _ms_to_seconds(interval.get("end")))
+                clock_id = interval.get("clock_id")
+                have = _span_seconds(
+                    _ticks_to_seconds(model, clock_id, interval.get("start")),
+                    _ticks_to_seconds(model, clock_id, interval.get("end")))
                 if have is None:
                     continue
                 span = _overlap(want, have)
@@ -607,7 +622,7 @@ def resolve_clip_use_at_seconds(model: Mapping[str, Any] | None,
     """The ``clip_use_id`` playing one reel-timeline second, or (None, reason).
 
     Walks the reel's source-to-reel frame map (``map:<slug>``) ``to``
-    intervals: the second is converted to the map's own millisecond
+    intervals: the second is converted to the map's destination-clock
     ticks and the segment containing it answers with its
     ``source_clip_use``. A second on a segment boundary answers with
     the segment starting there. Out-of-range, unmapped and model-absent
@@ -617,10 +632,16 @@ def resolve_clip_use_at_seconds(model: Mapping[str, Any] | None,
         return None, "no model to resolve against"
     if not _is_number(seconds):
         return None, f"an anchor second must be a number, got {seconds!r}"
-    tick = int(math.floor(float(seconds) * 1000.0))
     frame_map, reason = _frame_map_for(model, reel_slug)
     if frame_map is None:
         return None, reason
+    clock_id = frame_map.get("to_clock")
+    clock = next((row for row in (model.get("clocks") or [])
+                  if isinstance(row, Mapping)
+                  and row.get("id") == clock_id), None)
+    if clock is None or not _is_number(clock.get("ticks_per_second")):
+        return None, f"{frame_map.get('id')!r} names an unknown destination clock"
+    tick = int(math.floor(float(seconds) * clock["ticks_per_second"]))
     segments = frame_map.get("segments") or []
     if not isinstance(segments, list) or not segments:
         return None, f"{frame_map.get('id')!r} carries no segments"
@@ -635,7 +656,7 @@ def resolve_clip_use_at_seconds(model: Mapping[str, Any] | None,
                 and start <= tick < end):
             use_id = segment.get("source_clip_use")
             if isinstance(use_id, str) and use_id:
-                return use_id, f"segment {start}-{end}ms of {frame_map['id']!r}"
+                return use_id, f"segment {start}-{end} ticks of {frame_map['id']!r}"
             return None, "the covering segment names no clip use"
     return None, (f"{float(seconds):.3f}s is on no {frame_map['id']!r} "
                   f"segment: refusing, not guessing")

@@ -689,3 +689,16 @@ def test_a_shot_with_no_face_plays_uncropped_and_is_said(
         size_of=lambda item: (3840, 2160))
     assert aimed == 0
     assert "NO PUNCH-IN" in capsys.readouterr().err
+
+
+def test_uncropped_shot_records_its_measured_native_position():
+    held = {"ZoomX": 1.0, "ZoomY": 1.0, "Pan": 35.0, "Tilt": -20.0}
+    place = _place()
+    aimed = aim_picture_row(
+        "Reel 09", {"punch_in": 2.3}, (0, 0, 1080, 1920), 1080, 1920,
+        [_Item(held=held)], [place],
+        measure=lambda *_: None,
+        size_of=lambda _item: (3840, 2160))
+    assert aimed == 0
+    assert place["transform"] == held
+    assert place["native_position"] != [540.0, 960.0]

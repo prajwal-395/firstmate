@@ -53,12 +53,12 @@ def _record(reel="Reel 01", placements=None):
             "reel_fps": 24.0}
 
 
-def test_sec_to_ms_refuses_what_cannot_be_an_interval():
-    assert rpm.sec_to_ms(1.0, 2.0) == (1000, 2000)
-    assert rpm.sec_to_ms(2.0, 2.0) is None
-    assert rpm.sec_to_ms(2.0, 1.0) is None
-    assert rpm.sec_to_ms(float("nan"), 1.0) is None
-    assert rpm.sec_to_ms("x", 1.0) is None
+def test_sec_to_ticks_refuses_what_cannot_be_an_interval():
+    assert rpm.sec_to_ticks(1.0, 2.0) == (120000, 240000)
+    assert rpm.sec_to_ticks(2.0, 2.0) is None
+    assert rpm.sec_to_ticks(2.0, 1.0) is None
+    assert rpm.sec_to_ticks(float("nan"), 1.0) is None
+    assert rpm.sec_to_ticks("x", 1.0) is None
 
 
 def test_blank_model_validates():
@@ -88,9 +88,9 @@ def test_clip_uses_equal_placements_and_empty_spans_refuse():
     video_use = model["clip_uses"][0]
     assert video_use["source_interval"] == {
         "clock_id": video_use["source_interval"]["clock_id"],
-        "start": 10000, "end": 15000}
+        "start": 1_200_000, "end": 1_800_000}
     assert video_use["timeline_interval"]["start"] == 0
-    assert video_use["timeline_interval"]["end"] == 5000
+    assert video_use["timeline_interval"]["end"] == 600_000
     assert any(row["operation"] == "reel.assemble" for row in model["edits"])
     validate_project_model(model)
 
@@ -141,6 +141,167 @@ def test_fragment_carries_producer_moves_and_says_when_absent():
     validate_project_model(bare)
 
 
+def test_fragment_migrates_recorded_static_scale_and_native_position():
+    placements = [dict(_placements()[0])]
+    placements[0]["transform"] = {"ZoomX": 2.1386, "ZoomY": 2.1386,
+                                  "Pan": -6.5, "Tilt": -174.01}
+    placements[0]["native_position"] = [120.0, -480.0]
+    placements[0]["native_scale"] = 0.60148125
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(model, "Reel 01", placements,
+                                     _track_plan(), _transcript())
+    assert len(report["static_transforms"]) == 2
+    effects = {row["class_id"]: row for row in model["effects"]}
+    assert effects["transform.scale"]["parameters"] == {
+        "scale": 0.60148125}
+    assert effects["transform.position"]["parameters"] == {
+        "position": [120.0, -480.0]}
+    assert report["static_transforms_skipped"] == []
+    validate_project_model(model)
+
+
+def test_fragment_refuses_non_uniform_static_zoom_without_minting():
+    placements = [dict(_placements()[0])]
+    placements[0]["transform"] = {"ZoomX": 2.0, "ZoomY": 1.5}
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(model, "Reel 01", placements,
+                                     _track_plan(), _transcript())
+    assert report["static_transforms"] == []
+    assert report["static_transforms_skipped"] == [{
+        "index": 0,
+        "reason": "non-uniform ZoomX/ZoomY has no uniform native scale",
+    }]
+
+
+def test_fragment_refuses_picture_zoom_without_measured_native_scale():
+    placements = [dict(_placements()[0])]
+    placements[0]["transform"] = {"ZoomX": 2.0, "ZoomY": 2.0}
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(model, "Reel 01", placements,
+                                     _track_plan(), _transcript())
+    assert report["static_transforms"] == []
+    assert report["static_transforms_skipped"] == [{
+        "index": 0,
+        "reason": "Resolve zoom needs measured source and sequence dimensions for the native scaleToFit conversion",
+    }]
+
+
+def test_transform_migration_keeps_placement_identity_after_a_skipped_use():
+    placements = [dict(_placements()[0]), dict(_placements()[0])]
+    placements[0]["source_file"] = ""
+    placements[0]["transform"] = {"ZoomX": 3.0, "ZoomY": 3.0}
+    placements[1]["source_file"] = "/m/b.MXF"
+    placements[1]["record_start"] = 5.0
+    placements[1]["source_in"] = 20.0
+    placements[1]["source_out"] = 25.0
+    placements[1]["transform"] = {"ZoomX": 2.0, "ZoomY": 2.0}
+    placements[1]["native_scale"] = 2.0
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(model, "Reel 01", placements,
+                                     _track_plan())
+    assert report["clip_uses"] == 1
+    assert len(report["static_transforms"]) == 1
+    assert model["effects"][0]["target_id"] == "use:reel-01:0001"
+
+
+def test_fragment_migrates_measured_overlay_clip_and_position_effect():
+    record = {"kind": "caption", "overlay_path": "/m/caption.mov",
+              "timeline_start_frame": 24, "duration_frames": 48,
+              "source_start_frame": 0, "native_position": [540.0, 1500.0],
+              "transform": {"ZoomX": 1.25, "ZoomY": 1.25,
+                            "Pan": 0.0, "Tilt": 0.0}}
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(
+        model, "Reel 01", [], _track_plan(), overlay_placements=[record],
+        fps=24.0)
+    assert report["overlay_uses"] == ["use:reel-01:overlay:0000"]
+    assert report["overlay_transforms_skipped"] == []
+    assert len(report["overlay_transform_effects"]) == 2
+    use = next(row for row in model["clip_uses"]
+               if row["id"] == report["overlay_uses"][0])
+    assert use["role"] == "subtitle_overlay"
+    assert use["timeline_interval"] == {
+        "clock_id": "clock:reel:reel-01", "start": 120000, "end": 360000}
+    effect = next(row for row in model["effects"]
+                  if row["class_id"] == "transform.position")
+    assert effect["class_id"] == "transform.position"
+    assert effect["parameters"] == {"position": [540.0, 1500.0]}
+    scale = next(row for row in model["effects"]
+                 if row["class_id"] == "transform.scale")
+    assert scale["parameters"] == {"scale": 1.25}
+    validate_project_model(model)
+    assert effect["target_id"] == use["id"]
+
+
+def test_overlay_transforms_get_distinct_effect_ids_and_targets():
+    records = [
+        {"kind": "caption", "overlay_path": f"/m/caption-{index}.mov",
+         "timeline_start_frame": index * 24, "duration_frames": 12,
+         "source_start_frame": 0, "native_position": [540.0, 1500.0],
+         "transform": {"ZoomX": 1.0, "ZoomY": 1.0}}
+        for index in range(3)]
+    model = rpm.blank_model("project-x")
+    rpm.build_reel_fragment(model, "Reel 01", [], _track_plan(),
+                            overlay_placements=records, fps=24.0)
+    positions = [row for row in model["effects"]
+                 if row["class_id"] == "transform.position"]
+    assert len(positions) == 3
+    assert len({row["id"] for row in positions}) == 3
+    assert {row["target_id"] for row in positions} == {
+        f"use:reel-01:overlay:{index:04d}" for index in range(3)}
+
+
+def test_fractional_rate_overlay_frames_meet_without_rounding_overlap():
+    records = [
+        {"kind": "caption", "overlay_path": f"/m/caption-{index}.mov",
+         "timeline_start_frame": index, "duration_frames": 1,
+         "source_start_frame": index}
+        for index in range(2)]
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(
+        model, "Reel 01", [], _track_plan(), overlay_placements=records,
+        fps=23.976)
+    uses = [next(row for row in model["clip_uses"] if row["id"] == use_id)
+            for use_id in report["overlay_uses"]]
+    first, second = [use["timeline_interval"] for use in uses]
+    assert first["end"] == second["start"] == 5005
+
+
+def test_fractional_rate_picture_frames_meet_without_rounding_overlap():
+    fps = 23.976
+    placements = []
+    for frame in range(2):
+        placements.append({
+            "source_file": f"/m/picture-{frame}.mov",
+            "source_in": 10.0, "source_out": 10.0 + 1 / fps,
+            "record_start": frame / fps, "record_frame": frame,
+            "record_frames": 1, "track_type": "video", "track_index": 1,
+            "track_name": "A-Roll", "master_start": 10.0,
+            "master_end": 10.0 + 1 / fps,
+        })
+    model = rpm.blank_model("project-x")
+    rpm.build_reel_fragment(model, "Reel 01", placements, _track_plan(),
+                            fps=fps)
+    intervals = [use["timeline_interval"] for use in model["clip_uses"]]
+    assert intervals[0]["end"] == intervals[1]["start"] == 5005
+
+
+def test_fragment_keeps_end_card_overlay_on_the_render_spine():
+    record = {"kind": "end_card", "overlay_path": "/m/logo.mov",
+              "timeline_start_frame": 24, "duration_frames": 24,
+              "source_start_frame": 0}
+    model = rpm.blank_model("project-x")
+    report = rpm.build_reel_fragment(
+        model, "Reel 01", [], _track_plan(), overlay_placements=[record],
+        fps=24.0)
+    use_id = report["overlay_uses"][0]
+    use = next(row for row in model["clip_uses"] if row["id"] == use_id)
+    frame_map = next(row for row in model["frame_maps"]
+                     if row["id"] == report["frame_map"])
+    assert use["role"] == "end_card"
+    assert frame_map["segments"][0]["source_clip_use"] == use_id
+
+
 def test_carry_move_effects_verbatim_and_invalid_dropped():
     model = rpm.blank_model("project-x")
     good = {"id": "effect:mint:1", "class_id": "move.slow_zoom_in",
@@ -172,7 +333,7 @@ def test_face_only_person_reaches_a_roll_and_renders():
     model["observations"].append({
         "id": "obs-face-1", "asset_id": asset_id,
         "interval": {"clock_id": source_clock,
-                     "start": 10000, "end": 11000},
+                     "start": 1_200_000, "end": 1_320_000},
         "modality": "face", "payload": {"face_track": "track-1"},
         "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
     })
@@ -185,7 +346,7 @@ def test_face_only_person_reaches_a_roll_and_renders():
     model["observations"].append({
         "id": "obs-on-screen-1", "asset_id": asset_id,
         "interval": {"clock_id": source_clock,
-                     "start": 10000, "end": 15000},
+                     "start": 1_200_000, "end": 1_800_000},
         "modality": "event_span",
         "payload": {"predicate": "on_screen", "face_track": "track-1",
                     "voice_track": None},
@@ -250,7 +411,7 @@ def test_ambiguous_on_screen_cover_links_both_persons():
         model["observations"].append({
             "id": f"obs-face-{track}", "asset_id": "asset-x",
             "interval": {"clock_id": "clock-x",
-                         "start": 10000, "end": 11000},
+                         "start": 1_200_000, "end": 1_320_000},
             "modality": "face", "payload": {"face_track": track},
             "confidence": None, "provenance_id": rpm.PROVENANCE_ID,
         })
@@ -272,7 +433,7 @@ def test_ambiguous_on_screen_cover_links_both_persons():
     model["observations"].append({
         "id": "obs-on-screen-1", "asset_id": asset_id,
         "interval": {"clock_id": source_clock,
-                     "start": 10000, "end": 12500},
+                     "start": 1_200_000, "end": 1_500_000},
         "modality": "event_span",
         "payload": {"predicate": "on_screen", "face_track": "track-1",
                     "voice_track": None},
@@ -281,7 +442,7 @@ def test_ambiguous_on_screen_cover_links_both_persons():
     model["observations"].append({
         "id": "obs-on-screen-2", "asset_id": asset_id,
         "interval": {"clock_id": source_clock,
-                     "start": 12500, "end": 15000},
+                     "start": 1_500_000, "end": 1_800_000},
         "modality": "event_span",
         "payload": {"predicate": "on_screen", "face_track": "track-2",
                     "voice_track": None},
@@ -380,7 +541,7 @@ def test_note_deliver_records_render_off_the_file(tmp_path):
     frame_map = next(row for row in model["frame_maps"]
                      if row["id"] == render["frame_map_id"])
     assert (frame_map["segments"][-1]["to"]["end"]
-            == render["settings"]["expected_frames"])
+            == render["settings"]["expected_frames"] * 5_000)
     validate_project_model(model)
 
 
@@ -430,21 +591,21 @@ def test_two_source_frame_map_resolves_per_segment_clock():
     first, second = frame_map["segments"]
     assert first["from"]["clock_id"] != second["from"]["clock_id"]
     assert frame_map["from_clock"] == first["from"]["clock_id"]
-    assert (first["from"]["start"], first["from"]["end"]) == (10000, 15000)
-    assert (second["from"]["start"], second["from"]["end"]) == (20000, 25000)
-    assert (first["to"]["start"], first["to"]["end"]) == (0, 5000)
-    assert (second["to"]["start"], second["to"]["end"]) == (5000, 10000)
+    assert (first["from"]["start"], first["from"]["end"]) == (1_200_000, 1_800_000)
+    assert (second["from"]["start"], second["from"]["end"]) == (2_400_000, 3_000_000)
+    assert (first["to"]["start"], first["to"]["end"]) == (0, 600_000)
+    assert (second["to"]["start"], second["to"]["end"]) == (600_000, 1_200_000)
     # The second source's tick lands on the second render range.
     assert swap.map_tick(
-        frame_map, second["from"]["clock_id"], 20000) == 5000
+        frame_map, second["from"]["clock_id"], 2_400_000) == 600_000
     assert swap.map_tick(
-        frame_map, second["from"]["clock_id"], 24999) == 9999
+        frame_map, second["from"]["clock_id"], 2_999_999) == 1_199_999
     # Asked on the first clock, that tick refuses: on main it
     # answered with the second range against the wrong clock.
     with pytest.raises(swap.SwapbackRefused):
-        swap.map_tick(frame_map, first["from"]["clock_id"], 20000)
+        swap.map_tick(frame_map, first["from"]["clock_id"], 2_400_000)
     with pytest.raises(swap.SwapbackRefused):
-        swap.map_tick(frame_map, "clock:src:no-such-source", 20000)
+        swap.map_tick(frame_map, "clock:src:no-such-source", 2_400_000)
     validate_project_model(model)
 
 
@@ -467,10 +628,10 @@ def test_same_tick_on_two_sources_answers_per_clock():
                      if row["id"] == map_id)
     first, second = frame_map["segments"]
     assert first["from"]["clock_id"] != second["from"]["clock_id"]
-    assert (first["from"]["start"], first["from"]["end"]) == (10000, 15000)
-    assert (second["from"]["start"], second["from"]["end"]) == (10000, 15000)
+    assert (first["from"]["start"], first["from"]["end"]) == (1_200_000, 1_800_000)
+    assert (second["from"]["start"], second["from"]["end"]) == (1_200_000, 1_800_000)
     assert swap.map_tick(
-        frame_map, first["from"]["clock_id"], 12000) == 2000
+        frame_map, first["from"]["clock_id"], 1_440_000) == 240_000
     assert swap.map_tick(
-        frame_map, second["from"]["clock_id"], 12000) == 7000
+        frame_map, second["from"]["clock_id"], 1_440_000) == 840_000
     validate_project_model(model)

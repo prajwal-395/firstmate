@@ -48,6 +48,8 @@ EFFECTCRAFT_VERSION = "0.7.0"
 
 FILMCRAFT_FUNCTIONS = (
     "filmcraft_plan_projection",
+    "filmcraft_plan_picture_effects",
+    "filmcraft_add_tracks_operation",
     "filmcraft_plan_ren_edit",
     "filmcraft_describe_operation",
     "filmcraft_reconcile_clip_ids",
@@ -202,6 +204,10 @@ def classify_filmcraft_edit(model: dict, projection: dict, edit: dict, native) -
 def plan_filmcraft(model: dict, native) -> dict:
     """The plan: the adapter's projection plus per-edit executability."""
     projection = plan_filmcraft_projection(model, native)
+    dummy_ids = {placement["clip_use_id"]: [0]
+                 for placement in projection["placements"]}
+    picture_effects = translate_filmcraft_picture_effects(
+        model, projection, dummy_ids, "<project>", native)
     edit_rows = []
     for edit in model.get("edits", []):
         executable, code = classify_filmcraft_edit(model, projection, edit, native)
@@ -217,6 +223,9 @@ def plan_filmcraft(model: dict, native) -> dict:
             "imports": projection["imports"],
             "placements": projection["placements"],
             "losses": projection["losses"],
+            "picture_effects": [{"command": command["command"],
+                                 "params": command["params"]}
+                                for command in picture_effects],
             "edits": edit_rows,
             "executed": False}
 
@@ -246,6 +255,27 @@ def translate_filmcraft_edits(model: dict, projection: dict, clip_ids: dict[str,
                              "params": described["params"],
                              "save": described["save"]})
     return commands
+
+
+def translate_filmcraft_picture_effects(
+        model: dict, projection: dict, clip_ids: dict[str, list[int]],
+        project: str, native) -> list[dict]:
+    """Translate model-owned picture transforms before the native edit writes."""
+    try:
+        operations = native.filmcraft_plan_picture_effects(
+            model, projection, clip_ids, project)
+        return [_describe(native, operation) for operation in operations]
+    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+        raise _refuse_from_adapter("model picture effect refused", exc) from exc
+
+
+def translate_filmcraft_add_tracks(projection: dict, project: str, native):
+    """Describe the one track-provision operation, when overlays need it."""
+    try:
+        operation = native.filmcraft_add_tracks_operation(projection, project)
+        return _describe(native, operation) if operation is not None else None
+    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+        raise _refuse_from_adapter("overlay track provisioning refused", exc) from exc
 
 
 # ── Pre-conform (opt-in, default off) ────────────────────
@@ -301,6 +331,23 @@ def _parse_preconform_size(text: str) -> tuple[int, int]:
                       "a proxy frame with no pixels conforms nothing",
                       "pass e.g. --preconform-size 1080x1920",
                       code="REN_PM_CLI_PRECONFORM")
+    return width, height
+
+
+def _parse_sequence_size(text: str) -> tuple[int, int]:
+    parts = (text or "").strip().lower().split("x")
+    try:
+        width, height = (int(value) for value in parts)
+    except (TypeError, ValueError):
+        raise _refuse(f"`--sequence-size` reads WIDTHxHEIGHT, got {text!r}",
+                      "the native sequence frame is not a valid pixel size",
+                      "pass e.g. --sequence-size 1080x1920",
+                      code="REN_PM_CLI_SEQUENCE_SIZE") from None
+    if width <= 0 or height <= 0:
+        raise _refuse(f"`--sequence-size` must be positive, got {width}x{height}",
+                      "a sequence with no pixels cannot be rendered",
+                      "pass a positive WIDTHxHEIGHT",
+                      code="REN_PM_CLI_SEQUENCE_SIZE")
     return width, height
 
 
@@ -754,7 +801,8 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       export_path: Path | None,
                       export_format: str, native,
                       preconform: bool = False,
-                      preconform_size: str | None = None) -> dict:
+                      preconform_size: str | None = None,
+                      sequence_size: str | None = None) -> dict:
     """Build the adapter-planned timeline on the pinned FilmCraft CLI.
 
     `preconform` stays off unless the operator passes `--preconform`:
@@ -762,6 +810,8 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     pixels. When on, `--preconform-size` names the proxy frame and each
     used a_roll/b_roll span transcodes once to the project scratch
     cache; anything inexact imports the camera original instead.
+    `sequence_size` configures and reads back the frame before media is
+    imported, so sequence-pixel transform effects have an explicit canvas.
     """
     projection = {key: plan[key] for key in
                   ("adapter_version", "engine_revision", "timeline_clock",
@@ -778,6 +828,8 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       "an execute run never overwrites an engine project",
                       "remove the file or pass --filmcraft-project at a fresh path",
                       code="REN_PM_CLI_PROJECT_EXISTS")
+    sequence_dimensions = (_parse_sequence_size(sequence_size)
+                          if sequence_size is not None else None)
     if preconform_size is not None and not preconform:
         raise _refuse("`--preconform-size` without `--preconform`",
                       "a proxy frame with no pre-conform run sizes nothing",
@@ -820,7 +872,11 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         print(f"pre-conform: {proxied}/{len(preconform_report['assets'])} asset(s) proxied "
               f"(cache {preconform_report['cache_dir']})", file=sys.stderr)
     dummy_ids = {placement["clip_use_id"]: [0] for placement in projection["placements"]}
+    translate_filmcraft_picture_effects(
+        model, projection, dummy_ids, project_str, native)
     translate_filmcraft_edits(model, projection, dummy_ids, project_str, native)
+    add_tracks_command = translate_filmcraft_add_tracks(
+        projection, project_str, native)
     treatments_plan = _plan_native_treatments(project_root)
 
     cli = _filmcraft_cli()
@@ -833,6 +889,20 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       f"no file at {project} after file.newSequence",
                       "check the pinned CLI opens headless",
                       code="REN_PM_CLI_FILMCRAFT_COMMAND")
+    if sequence_size is not None:
+        width, height = sequence_dimensions
+        _fc_exec(cli, project, "sequence.settings",
+                 {"width": width, "height": height, "scaleMotion": False},
+                 save=True)
+        configured = _fc_exec(cli, project, "sequence.inspect", {}, save=False)
+        settings = configured.get("settings") or {}
+        if (settings.get("width"), settings.get("height")) != (width, height):
+            raise _refuse(
+                "FilmCraft did not retain the requested sequence size",
+                f"requested {width}x{height}, read back "
+                f"{settings.get('width')}x{settings.get('height')}",
+                "check the pinned FilmCraft sequence.settings command",
+                code="REN_PM_CLI_SEQUENCE_SIZE")
     try:
         import_operation = native.filmcraft_import_operation(
             projection, {key: str(value) for key, value in media_map.items()},
@@ -840,6 +910,11 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("import operation refused", exc) from exc
     described_import = _describe(native, import_operation)
+
+    if add_tracks_command is not None:
+        _fc_exec(cli, project, add_tracks_command["command"],
+                 add_tracks_command["params"], save=add_tracks_command["save"])
+
     imported = _fc_exec(cli, project, described_import["command"],
                         described_import["params"],
                         save=described_import["save"])
@@ -881,7 +956,11 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("clip id reconciliation refused", exc) from exc
 
-    real_commands = translate_filmcraft_edits(
+    picture_commands = translate_filmcraft_picture_effects(
+        model, projection,
+        {key: list(value) for key, value in clip_ids.items()},
+        project_str, native)
+    real_commands = picture_commands + translate_filmcraft_edits(
         model, projection,
         {key: list(value) for key, value in clip_ids.items()},
         project_str, native)
@@ -1291,6 +1370,9 @@ def build_parser() -> argparse.ArgumentParser:
     project.add_argument("--preconform-size", default=None,
                          help="proxy frame as WIDTHxHEIGHT (e.g. 1080x1920); required with "
                               "--preconform and must equal the engine sequence frame")
+    project.add_argument("--sequence-size", default=None,
+                         help="set the new FilmCraft sequence frame as WIDTHxHEIGHT "
+                              "before placing clips (e.g. 1080x1920)")
     return parser
 
 
@@ -1384,7 +1466,8 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
             media_root=media_root, filmcraft_project=args.filmcraft_project,
             export_path=args.export, export_format=args.export_format,
             native=native, preconform=args.preconform,
-            preconform_size=args.preconform_size)
+            preconform_size=args.preconform_size,
+            sequence_size=args.sequence_size)
         args.out.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8")
         print(json.dumps({k: v for k, v in receipt.items() if k != "inspected"},

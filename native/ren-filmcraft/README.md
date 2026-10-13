@@ -93,15 +93,23 @@ frame map packs the spine alone - overlays draw onto the base frames and
 add no render time. Model effects,
 masks, and object tracks become explicit loss entries, never silent drops.
 Compositing overlays additionally carry an `overlay_unpositioned` loss:
-the projection has no motion parameters to send, so they draw at the
-engine's default position until a positioning pass lands. `verify_media`
+the projection has no placement parameters to send, so an overlay with
+no model `transform.position` effect draws at the engine's default
+position. Static `transform.position` (sequence pixels) and uniform
+positive multiplicative `transform.scale` factors (`1.0` is unchanged)
+execute over the target clip's full span through the measured
+`effects.setParam` path, converted to FilmCraft's percent scale;
+keyframed
+transforms keep their timed writes. `verify_media`
 gates overlay and card codecs through ffprobe before anything runs:
 ProRes with alpha composites (measured), while QuickTime Animation and
 PNG decode to nothing and refuse as `overlay_codec_not_supported` -
 transcode those to ProRes 4444 first (H264 is accepted for opaque end
 cards). Overlays needing V4/V5 plan one `sequence.addTracks` operation
 (`add_tracks_operation`, driven once after create) because fresh projects
-carry three video tracks.
+carry three video tracks. The Project Model CLI's optional
+`--sequence-size WIDTHxHEIGHT` sets and reads back the sequence frame
+before import and placement; position effects are sequence pixels.
 `reconcile_clip_ids` maps stable Ren clip-use ids back onto engine-minted
 clip ids (linked-audio placements mint one id per track; edits address the
 whole array for retime and link, the first id otherwise - per-clip gain

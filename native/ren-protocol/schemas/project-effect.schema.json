@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Effect",
+  "description": "Effect declaration and supported picture-transform parameter conventions.\n`transform.position` uses `parameters.position: [x, y]` in sequence\npixels or timed `[x, y]` keyframes. `transform.scale` uses a uniform\npositive multiplicative factor (`1.0` is unchanged) in\n`parameters.scale` or numeric keyframes. Static\ntransforms cover the full target clip use; keyframed transforms may\nvary within their interval.",
   "type": "object",
   "properties": {
     "class_id": {

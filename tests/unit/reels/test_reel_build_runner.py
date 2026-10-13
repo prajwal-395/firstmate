@@ -121,6 +121,26 @@ def test_scoped_build_replaces_staged_timeline_identity_records(tmp_path):
     assert staging_holds.held_names(project) == {stage_b}
 
 
+def test_scoped_build_merges_overlay_placements_by_reel():
+    records = {"reel_build": {
+        "reel_overlay_placements": {
+            "Reel 02": [{"label": "old two"}],
+            "Reel 07": [{"label": "seven"}],
+        },
+    }}
+    run_reels.merge_record(
+        records, "reel_build",
+        {"reel_overlay_placements": {
+            "Reel 02": [{"label": "new two"}],
+        }},
+        only_reels=[2],
+    )
+    assert records["reel_build"]["reel_overlay_placements"] == {
+        "Reel 02": [{"label": "new two"}],
+        "Reel 07": [{"label": "seven"}],
+    }
+
+
 # --------------------------------------------------------------------------
 # From test_build_reels_skips_caller_supplied.py
 #

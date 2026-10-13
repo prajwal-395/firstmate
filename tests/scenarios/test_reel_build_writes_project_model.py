@@ -17,6 +17,7 @@ from pathlib import Path
 from library.tools import reel_project_model as rpm
 from library.tools.project_model import validate_project_model
 from library.tools.reel_build import placements, serializable_placements
+from library.tools.reel_build import _native_picture_scale
 from library.tools.timeline_ingest import TimelineClip
 
 FPS = 24.0
@@ -51,7 +52,7 @@ def _transcript():
 def _mask_for(entity_id, clock_id):
     return {"id": "mask:fixture:ada",
             "entity_id": entity_id,
-            "interval": {"clock_id": clock_id, "start": 110000, "end": 115000},
+            "interval": {"clock_id": clock_id, "start": 13_200_000, "end": 13_800_000},
             "representation": {"kind": "ellipse",
                                "normalized_bbox": [0.35, 0.1, 0.3, 0.65]},
             "source_model": "synthetic_fixture",
@@ -89,7 +90,7 @@ def test_a_real_reel_build_writes_a_linked_model(tmp_path):
          "class_id": "move.slow_zoom_in",
          "target_id": "use:reel-01:0000",
          "interval": {"clock_id": "clock:reel:reel-01",
-                      "start": 0, "end": 5000},
+                      "start": 0, "end": 600_000},
          "parameters": {"zoom_start": 1.0, "zoom_end": 1.15},
          "keyframes": []}]}
     # The mask is measured elsewhere (1.06 segmentation); the writer
@@ -118,10 +119,10 @@ def test_a_real_reel_build_writes_a_linked_model(tmp_path):
                   if row["role"] == "a_roll"]
     assert len(video_uses) == 2
     first = video_uses[0]
-    assert first["source_interval"]["start"] == 110000
-    assert first["source_interval"]["end"] == 115000
+    assert first["source_interval"]["start"] == 13_200_000
+    assert first["source_interval"]["end"] == 13_800_000
     assert first["timeline_interval"]["start"] == 0
-    assert first["timeline_interval"]["end"] == 5000
+    assert first["timeline_interval"]["end"] == 600_000
 
     # Identities: Ada's speaker entity links speech, mask and A-roll.
     ada_uses = [row for row in model["clip_uses"]
@@ -156,6 +157,30 @@ def test_a_real_reel_build_writes_a_linked_model(tmp_path):
     assert shown["reels"][0]["effects"] == 1
     assert shown["reels"][0]["speech"] == 2
     assert shown["reels"][0]["masks"] == 1
+
+
+def test_record_serializer_preserves_the_measured_transform_and_native_position():
+    from dataclasses import replace
+
+    clip = replace(_clip("video", 1, "A-Roll", "Ada", 100.0, 0.0, 5.0),
+                   transform={"ZoomX": 2.1386, "ZoomY": 2.1386,
+                              "Pan": -6.5, "Tilt": -174.01})
+    rows = serializable_placements([{
+        "clip": clip, "source_in": 100.0, "source_out": 105.0,
+        "record": 0.0, "snapped_record": 0, "master": (0.0, 5.0),
+        "native_position": [540.0, 960.0],
+        "native_scale": 0.60148125,
+    }])
+    assert rows[0]["transform"] == clip.transform
+    assert rows[0]["native_position"] == [540.0, 960.0]
+    assert rows[0]["native_scale"] == 0.60148125
+
+
+def test_native_picture_scale_includes_resolve_scale_to_fit():
+    scale = _native_picture_scale(
+        {"ZoomX": 2.1386, "ZoomY": 2.1386},
+        (3840, 2160), 1080, 1920)
+    assert scale == 2.1386 * 0.28125
 
 
 def test_partial_rebuild_keeps_the_model_current(tmp_path):

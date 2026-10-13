@@ -287,6 +287,10 @@ def test_the_project_model_gets_an_overlap_observation_per_voice():
                           "cam_a.mov", 100.0)],
         ov.RECORD_KEY: _measured((10.8, 11.6, ("host", "guest")))}
     model = rpm.blank_model("m")
+    model["clocks"].append({
+        "id": "clock:a", "domain": {"kind": "source",
+                                      "asset_id": "asset:a"},
+        "ticks_per_second": rpm.TICKS_PER_SECOND, "frame_rate": None})
     minted = rpm.overlap_observations(model, transcript, "host",
                                       "cam_a.mov", "asset:a", "clock:a",
                                       "person:host")
@@ -294,7 +298,7 @@ def test_the_project_model_gets_an_overlap_observation_per_voice():
     obs = next(o for o in model["observations"] if o["id"] == minted[0])
     assert obs["modality"] == "overlap"
     assert obs["interval"] == {"clock_id": "clock:a",
-                               "start": 100800, "end": 101600}
+                               "start": 12_096_000, "end": 12_192_000}
     assert obs["payload"]["voices"] == ["host", "guest"]
     assert any(link["observation_id"] == minted[0]
                for link in model["identity_links"])

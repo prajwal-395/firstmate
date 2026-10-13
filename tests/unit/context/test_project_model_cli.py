@@ -34,6 +34,8 @@ FIXTURE_MODEL = REPO / "tests/fixtures/project_model_e2e/expected-project-model.
 
 FILMCRAFT_FUNCTIONS = (
     "filmcraft_plan_projection",
+    "filmcraft_plan_picture_effects",
+    "filmcraft_add_tracks_operation",
     "filmcraft_plan_ren_edit",
     "filmcraft_describe_operation",
     "filmcraft_reconcile_clip_ids",
@@ -339,6 +341,8 @@ def _stub_native():
     }
     native = types.SimpleNamespace()
     native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_picture_effects = lambda *args: []
+    native.filmcraft_add_tracks_operation = lambda *args: None
     native.filmcraft_plan_ren_edit = lambda *args: []
     native.filmcraft_describe_operation = lambda op: {
         "command": op["kind"],
@@ -675,6 +679,8 @@ def _batch_native():
     }
     native = types.SimpleNamespace()
     native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_picture_effects = lambda *args: []
+    native.filmcraft_add_tracks_operation = lambda *args: None
     native.filmcraft_plan_ren_edit = lambda *args: [{"kind": "timeline.move"}]
     native.filmcraft_describe_operation = lambda op: {
         "command": op["kind"],
@@ -707,13 +713,18 @@ def _batch_engine(monkeypatch, tmp_path: Path, calls: dict) -> None:
     def fake_fc_exec(cli, project, command, params, *,
                      save=False, save_as=None):
         calls.setdefault("exec", []).append(command)
+        calls.setdefault("exec_params", []).append((command, params))
         if save_as is not None:
             Path(save_as).write_bytes(b"fake-project")
             return {}
         if command == "import":
             return {"items": [7], "errors": []}
-        if command == "sequence.inspect":
+        if command == "sequence.addTracks":
             return {}
+        if command == "sequence.settings":
+            return {}
+        if command == "sequence.inspect":
+            return {"settings": {"width": 1080, "height": 1920}}
         raise AssertionError(f"unexpected single exec: {command}")
 
     def fake_fc_run_batch(cli, project, commands, *, save=True):
@@ -749,6 +760,43 @@ def test_execute_batches_placements_and_edits_into_two_sessions(
     assert "timeline.place" not in calls.get("exec", [])
     assert "timeline.move" not in calls.get("exec", [])
     assert pmc._batch_enabled() is True
+
+
+def test_execute_provisions_tracks_before_import_and_placement(tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    calls: dict = {}
+    _batch_engine(monkeypatch, tmp_path, calls)
+    native = _batch_native()
+    native.filmcraft_add_tracks_operation = lambda *args: {"kind": "sequence.addTracks"}
+    monkeypatch.setattr(pmc, "filmcraft_native", lambda: native)
+    monkeypatch.delenv("REN_FILMCRAFT_BATCH", raising=False)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(_batch_model(tmp_path)), "--out", str(out),
+                 "--execute", "--sequence-size", "1080x1920"]) == 0
+    assert calls["exec"][1:5] == ["sequence.settings", "sequence.inspect",
+                                  "sequence.addTracks", "import"]
+    assert calls["exec_params"][1] == (
+        "sequence.settings", {"width": 1080, "height": 1920,
+                               "scaleMotion": False})
+    assert calls["batches"][0] == ["timeline.place", "timeline.place"]
+
+
+def test_execute_refuses_invalid_sequence_size_before_project_creation(
+        tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    calls: dict = {}
+    _batch_engine(monkeypatch, tmp_path, calls)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(_batch_model(tmp_path)), "--out", str(out),
+                 "--execute", "--sequence-size", "vertical"]) == 4
+    assert calls.get("exec") is None
 
 
 def test_execute_hatch_restores_the_per_exec_loop(tmp_path, monkeypatch):

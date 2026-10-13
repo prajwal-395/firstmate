@@ -101,7 +101,7 @@ use ren_protocol::project_model::{
     MappingKind, ProjectModel, Rational,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::{
@@ -670,9 +670,15 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
             ),
         });
     }
+    let positioned: BTreeSet<&str> = model
+        .effects
+        .iter()
+        .filter(|effect| effect.class_id == TRANSFORM_POSITION_CLASS)
+        .map(|effect| effect.target_id.as_str())
+        .collect();
     let unpositioned: Vec<&str> = placements
         .iter()
-        .filter(|p| is_compositing_overlay(&p.role))
+        .filter(|p| is_compositing_overlay(&p.role) && !positioned.contains(p.clip_use_id.as_str()))
         .map(|p| p.clip_use_id.as_str())
         .collect();
     // The projection carries no motion parameters (`timeline.place` takes
@@ -713,10 +719,11 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
 // - Effects with class `color.lut` and exactly `{"lut": str}` plan into
 //   `lut.import` (file paths) plus `lumetri.setInputLut` (`builtin:`/`lib:`
 //   refs apply in one phase).
-// - Effects with class `transform.position` (`[x, y]` keys),
-//   `transform.scale` / `transform.rotation` / `opacity.opacity` (numeric
-//   keys) plan into `effects.toggleAnimation` plus one `effects.setParam`
-//   per keyframe on the built-in `motion`/`opacity` engine effects.
+// - Effects with class `transform.position` (`position: [x, y]`),
+//   `transform.scale` (`scale: number`, a multiplier where 1.0 is
+//   unchanged), `transform.rotation` (`rotation: number`) and
+//   `opacity.opacity` (`opacity: number`) plan into static
+//   `effects.setParam` writes; their keyframed forms use animation keys.
 // - Effects with class `transform.crop` and static `left`/`top`/`right`/
 //   `bottom` parameters plan into `effects.apply` plus one
 //   `effects.setParam` per edge; animated crops refuse.
@@ -1222,7 +1229,20 @@ fn engine_value_for(
                     "effect `{effect_id}` ({class_id}) needs a finite number, got {value}"
                 ))
             })?;
-            Ok(serde_json::json!(number))
+            if class_id == TRANSFORM_SCALE_CLASS && number <= 0.0 {
+                return Err(invalid(format!(
+                    "effect `{effect_id}` (transform.scale) needs a positive scale, got {value}"
+                )));
+            }
+            let engine_number = if class_id == TRANSFORM_SCALE_CLASS {
+                // Project Model scale is a multiplicative factor relative
+                // to source pixels (1.0 is unchanged); FilmCraft's
+                // motion.scale parameter is a percentage (100.0 is unchanged).
+                number * 100.0
+            } else {
+                number
+            };
+            Ok(serde_json::json!(engine_number))
         }
         _ => Err(unsupported(
             "effect_value_not_supported",
@@ -1290,6 +1310,18 @@ pub fn plan_effect_keyframes(
             effect.interval.end,
             &format!("effect `{}` interval end", effect.id.0),
         )?;
+        if effect.keyframes.is_empty()
+            && !is_crop
+            && (effect_start != clip_start || effect_end != clip_end)
+        {
+            return Err(unsupported(
+                "static_transform_span_mismatch",
+                format!(
+                    "effect `{}` ({class_id}) is static but its interval does not cover the target clip use; static transforms must cover the full placement",
+                    effect.id.0
+                ),
+            ));
+        }
         if is_crop {
             if !effect.keyframes.is_empty() {
                 return Err(unsupported(
@@ -1340,20 +1372,73 @@ pub fn plan_effect_keyframes(
             });
             continue;
         }
+        if effect.keyframes.is_empty() {
+            let (parameter, expected) = match class_id {
+                TRANSFORM_POSITION_CLASS => ("position", "a two-number [x, y] pair"),
+                TRANSFORM_SCALE_CLASS => ("scale", "a finite number"),
+                TRANSFORM_ROTATION_CLASS => ("rotation", "a finite number"),
+                OPACITY_CLASS_ID => ("opacity", "a finite number"),
+                _ => unreachable!(),
+            };
+            if effect.parameters.len() != 1 || !effect.parameters.contains_key(parameter) {
+                return Err(invalid(format!(
+                    "effect `{}` ({class_id}) needs exactly `parameters.{parameter}` ({expected})",
+                    effect.id.0
+                )));
+            }
+            let raw = &effect.parameters[parameter];
+            let value = if class_id == TRANSFORM_POSITION_CLASS {
+                let pair = raw.as_array().ok_or_else(|| {
+                    invalid(format!(
+                        "effect `{}` (transform.position) needs a `[x, y]` value",
+                        effect.id.0
+                    ))
+                })?;
+                if pair.len() != 2 || pair.iter().any(|part| finite_number(part).is_none()) {
+                    return Err(invalid(format!(
+                        "effect `{}` (transform.position) needs two finite numbers, got {raw}",
+                        effect.id.0
+                    )));
+                }
+                serde_json::json!([pair[0], pair[1]])
+            } else {
+                let number = finite_number(raw).ok_or_else(|| {
+                    invalid(format!(
+                        "effect `{}` ({class_id}) needs a finite number, got {raw}",
+                        effect.id.0
+                    ))
+                })?;
+                if class_id == TRANSFORM_SCALE_CLASS && number <= 0.0 {
+                    return Err(invalid(format!(
+                        "effect `{}` (transform.scale) needs a positive scale, got {raw}",
+                        effect.id.0
+                    )));
+                }
+                let engine_number = if class_id == TRANSFORM_SCALE_CLASS {
+                    // Project Model scale is a multiplicative factor;
+                    // FilmCraft stores motion.scale as percent.
+                    number * 100.0
+                } else {
+                    number
+                };
+                serde_json::json!(engine_number)
+            };
+            plans.push(EffectKeyPlan {
+                effect_id: effect.id.0.clone(),
+                clip_use_id: effect.target_id.clone(),
+                engine_effect: engine_effect.into(),
+                engine_param: None,
+                needs_apply: None,
+                static_params: vec![(parameter.into(), value)],
+                keys: Vec::new(),
+            });
+            continue;
+        }
         if !effect.parameters.is_empty() {
             return Err(unsupported(
                 "effect_static_params_unsupported",
                 format!(
                     "effect `{}` ({class_id}) carries static parameters; keyframed picture effects express values through keyframes only",
-                    effect.id.0
-                ),
-            ));
-        }
-        if effect.keyframes.is_empty() {
-            return Err(unsupported(
-                "effect_has_no_keyframes",
-                format!(
-                    "effect `{}` ({class_id}) carries no keyframes; a keyframed picture effect with nothing timed would drive nothing",
                     effect.id.0
                 ),
             ));
@@ -1979,6 +2064,18 @@ pub fn effect_key_operations(
         }
     }
     Ok(operations)
+}
+
+/// Model-owned static and animated picture transforms, executed after each
+/// clip use has a reconciled engine id and before export.
+pub fn project_picture_effect_operations(
+    project: &Path,
+    model: &ProjectModel,
+    placements: &[Placement],
+    clip_ids: &BTreeMap<String, Vec<u64>>,
+) -> Result<Vec<super::Operation>> {
+    let plans = plan_effect_keyframes(model, placements)?;
+    effect_key_operations(project, clip_ids, &plans)
 }
 
 /// Volume operations for automation plans: one `MixerWriteAutomation`
@@ -6989,6 +7086,93 @@ mod tests {
             effect_key_operations(Path::new("test.fcproj"), &clip_ids, &plans).unwrap();
         assert_eq!(operations.len(), 5);
         assert!(matches!(&operations[0], Operation::ApplyEffect { .. }));
+    }
+
+    #[test]
+    fn static_transform_effects_are_written_from_the_model_contract() {
+        let mut model = minimal_model();
+        model.effects.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "effect-static-position", "class_id": "transform.position", "target_id": "use-a",
+                 "interval": {"clock_id": "clock-timeline", "start": 0, "end": 24},
+                 "parameters": {"position": [120.0, -480.0]}, "keyframes": []}
+            )).unwrap(),
+        );
+        model.effects.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "effect-static-scale", "class_id": "transform.scale", "target_id": "use-a",
+                 "interval": {"clock_id": "clock-timeline", "start": 0, "end": 24},
+                 "parameters": {"scale": 2.1386}, "keyframes": []}
+            ))
+            .unwrap(),
+        );
+        let projection = plan_projection(&model).unwrap();
+        let plans = plan_effect_keyframes(&model, &projection.placements).unwrap();
+        assert_eq!(plans.len(), 2);
+        assert_eq!(
+            plans[0].static_params,
+            vec![("position".into(), serde_json::json!([120.0, -480.0]))]
+        );
+        assert_eq!(
+            plans[1].static_params,
+            vec![("scale".into(), serde_json::json!(2.1386_f64 * 100.0))]
+        );
+        assert!(plans
+            .iter()
+            .all(|plan| plan.keys.is_empty() && plan.engine_param.is_none()));
+        let clip_ids = BTreeMap::from([("use-a".into(), vec![7])]);
+        let operations =
+            effect_key_operations(Path::new("test.fcproj"), &clip_ids, &plans).unwrap();
+        assert_eq!(operations.len(), 2);
+        assert!(
+            matches!(&operations[0], Operation::SetEffectParam { param, value, time_ticks: None, .. }
+            if param == "position" && value == &serde_json::json!([120.0, -480.0]))
+        );
+        assert!(
+            matches!(&operations[1], Operation::SetEffectParam { param, value, time_ticks: None, .. }
+            if param == "scale" && value == &serde_json::json!(2.1386_f64 * 100.0))
+        );
+    }
+
+    #[test]
+    fn keyframed_scale_multiplier_converts_to_filmcraft_percent() {
+        let mut model = minimal_model();
+        model.effects.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "effect-scale-keys", "class_id": "transform.scale", "target_id": "use-a",
+                 "interval": {"clock_id": "clock-timeline", "start": 0, "end": 24},
+                 "parameters": {},
+                 "keyframes": [{"tick": 0, "value": 1.0}, {"tick": 12, "value": 2.1386}]}
+            ))
+            .unwrap(),
+        );
+        let projection = plan_projection(&model).unwrap();
+        let plans = plan_effect_keyframes(&model, &projection.placements).unwrap();
+        assert_eq!(plans[0].keys[0].value, serde_json::json!(100.0));
+        assert_eq!(
+            plans[0].keys[1].value,
+            serde_json::json!(2.1386_f64 * 100.0)
+        );
+    }
+
+    #[test]
+    fn a_model_position_effect_clears_the_overlay_position_loss() {
+        let mut model = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
+            clip_use("use-sub", "asset-a", "subtitle_overlay", (0, 24), (0, 24)),
+        ]));
+        model.effects.push(
+            serde_json::from_value(serde_json::json!(
+                {"id": "effect-sub-position", "class_id": "transform.position", "target_id": "use-sub",
+                 "interval": {"clock_id": "clock-timeline", "start": 0, "end": 24},
+                 "parameters": {"position": [540.0, 1500.0]}, "keyframes": []}
+            )).unwrap(),
+        );
+        let projection = plan_projection(&model).unwrap();
+        assert!(!projection
+            .losses
+            .iter()
+            .any(|loss| loss.code == "overlay_unpositioned"));
     }
 
     #[test]

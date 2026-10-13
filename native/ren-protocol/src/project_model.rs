@@ -308,6 +308,13 @@ pub struct Keyframe {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+/// Effect declaration and supported picture-transform parameter conventions.
+/// `transform.position` uses `parameters.position: [x, y]` in sequence
+/// pixels or timed `[x, y]` keyframes. `transform.scale` uses a uniform
+/// positive multiplicative factor (`1.0` is unchanged) in
+/// `parameters.scale` or numeric keyframes. Static
+/// transforms cover the full target clip use; keyframed transforms may
+/// vary within their interval.
 pub struct Effect {
     pub id: EffectId,
     pub class_id: String,

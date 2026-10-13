@@ -324,7 +324,7 @@ ENVIRONMENT_CONDITIONS = (
     # skips; the skip fires only where the build is absent or stale, so
     # it is narrowing.
     EnvironmentCondition(
-        pattern=r"the ren_native extension is (not built|stale)",
+        pattern=r"the ren_native extension (for this tree )?is (not built|stale)",
         false_when="the ren_native extension is built from this tree's "
                    "native/ sources - scripts/build_ren_native.sh bakes "
                    "the source fingerprint in, and ren setup / ren "

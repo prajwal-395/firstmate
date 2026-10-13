@@ -1025,9 +1025,7 @@ fn enumerate_footage(project_dir: &Path) -> Result<Vec<FootageFile>, String> {
                     Some(Json::Array(items)) => items
                         .iter()
                         .filter_map(|entry| match entry {
-                            Json::Str(s) if !s.trim().is_empty() => {
-                                Some(s.to_string())
-                            }
+                            Json::Str(s) if !s.trim().is_empty() => Some(s.to_string()),
                             _ => None,
                         })
                         .collect(),
@@ -1048,8 +1046,7 @@ fn enumerate_footage(project_dir: &Path) -> Result<Vec<FootageFile>, String> {
         declared
             .iter()
             .map(|entry| {
-                let expanded =
-                    project::expand_portable_pub(entry, project_dir, &engine_root);
+                let expanded = project::expand_portable_pub(entry, project_dir, &engine_root);
                 let path = PathBuf::from(&expanded);
                 if path.is_absolute() {
                     path

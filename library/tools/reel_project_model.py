@@ -17,7 +17,10 @@ Where each half enters the model
 - Clip uses and edits: the reel's own recorded placements
   (``reel_build.rebuild_reels_in_project`` records
   ``reel_placements`` beside ``track_plans`` so the writer grades
-  what was built, never a re-derivation).
+  what was built, never a re-derivation). Measured static Resolve zoom
+  and sequence-pixel positions, plus tight overlay placements, travel
+  in those reel records and are minted as ``transform.scale`` and
+  ``transform.position`` effects.
 - Effects: step 4.03's mint (PR 2263) is the one producer - its
   ``enhancement_spec.move_effects`` rows are carried verbatim, and
   an absent key is recorded as "no move_effects in
@@ -32,8 +35,9 @@ One store revision per build (``maintain_from_build``), so the
 model is current after any partial rebuild: reel rows are
 namespaced per reel (``use:<slug>:<i>``), a partial rebuild
 replaces only its own reels' rows and keeps every other reel's.
-``run_reels.merge_record`` already merges ``reel_placements`` per
-reel, so concurrent ``--only-reel`` lanes each keep their rows.
+``run_reels.merge_record`` merges ``reel_placements`` and
+``reel_overlay_placements`` per reel, so concurrent ``--only-reel``
+lanes each keep their rows.
 
 Fail-soft: the Resolve path is unchanged. Both hooks record a
 refusal dict on the record rather than raising - a model write
@@ -51,6 +55,7 @@ import json
 import math
 import re
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -59,10 +64,13 @@ try:
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools.project_model import SCHEMA_VERSION, validate_project_model
 
-TICKS_PER_SECOND = 1000
-"""Millisecond clocks, the Unit-3 evidence policy: lanes measure
-float seconds, so integer millisecond ticks preserve every measured
-span without a frame-rate assumption no lane recorded."""
+TICKS_PER_SECOND = 120_000
+"""120 kHz ticks preserve millisecond evidence and common frame rates.
+
+This shared grid represents 23.976, 24, 29.97 and 59.94 fps frames as
+integer ticks, while retaining better-than-millisecond resolution for
+float-second measurements.
+"""
 
 PROVENANCE_ID = "prov-reel-build"
 PRODUCER = "reel_project_model"
@@ -88,12 +96,14 @@ def _sha16(*parts: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-def sec_to_ms(start: Any, end: Any) -> tuple[int, int] | None:
-    """Float seconds to half-open millisecond ticks, or None when refused.
+def sec_to_ticks(start: Any, end: Any,
+                 ticks_per_second: int = TICKS_PER_SECOND
+                 ) -> tuple[int, int] | None:
+    """Float seconds to half-open clock ticks, or None when refused.
 
-    Refuses non-finite bounds and non-positive spans: a zero-length
-    measurement cannot be a half-open interval, and widening it would
-    invent evidence (the Unit-3 ``sec_to_ticks`` policy, in ms).
+    Refuses non-finite bounds and non-positive spans. The default clock
+    is 120 kHz, which represents millisecond evidence and common video
+    frame rates exactly; frame clocks may request a larger exact base.
     """
     try:
         start_f, end_f = float(start), float(end)
@@ -101,8 +111,10 @@ def sec_to_ms(start: Any, end: Any) -> tuple[int, int] | None:
         return None
     if not (math.isfinite(start_f) and math.isfinite(end_f)):
         return None
-    start_tick = math.floor(start_f * TICKS_PER_SECOND)
-    end_tick = math.ceil(end_f * TICKS_PER_SECOND)
+    if isinstance(ticks_per_second, bool) or ticks_per_second <= 0:
+        return None
+    start_tick = round(start_f * ticks_per_second)
+    end_tick = round(end_f * ticks_per_second)
     if end_tick <= start_tick:
         return None
     return (start_tick, end_tick)
@@ -149,21 +161,95 @@ def ensure_provenance(model: dict[str, Any]) -> None:
     })
 
 
-def _clock(model: dict[str, Any], clock_id: str, domain: dict[str, Any]) -> str:
+def _frame_rate(fps: Any) -> dict[str, int] | None:
+    try:
+        value = float(fps)
+        if not math.isfinite(value) or value <= 0:
+            return None
+        standard_rates = (Fraction(24000, 1001), Fraction(30000, 1001),
+                          Fraction(60000, 1001))
+        rate = next((candidate for candidate in standard_rates
+                     if abs(value - float(candidate)) <= 0.001),
+                    Fraction(str(value)).limit_denominator(100_000))
+        if TICKS_PER_SECOND * rate.denominator % rate.numerator:
+            return None
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return {"numerator": rate.numerator, "denominator": rate.denominator}
+
+
+def _ticks_per_second(model: dict[str, Any], clock_id: str) -> int:
+    return int(next(clock for clock in model.get("clocks", [])
+                    if clock.get("id") == clock_id)["ticks_per_second"])
+
+
+def _clock_ticks_per_second(frame_rate: dict[str, int] | None) -> int:
+    return TICKS_PER_SECOND
+
+
+def _frame_ticks(model: dict[str, Any], clock_id: str, fps: Any) -> int:
+    rate = _frame_rate(fps)
+    if rate is None:
+        raise ValueError(f"clock {clock_id!r} has no exact frame rate")
+    tps = _ticks_per_second(model, clock_id)
+    return tps * rate["denominator"] // rate["numerator"]
+
+
+def _rebase_clock_references(model: dict[str, Any], clock_id: str,
+                             multiplier: int) -> None:
+    """Keep every stored time in seconds when upgrading a clock's tick rate."""
+    def walk(value: Any, inherited: bool = False) -> None:
+        if isinstance(value, list):
+            for child in value:
+                walk(child, inherited)
+            return
+        if not isinstance(value, dict):
+            return
+        owns_clock = value.get("clock_id") == clock_id
+        interval = value.get("interval")
+        has_timed_keys = (isinstance(interval, dict)
+                          and interval.get("clock_id") == clock_id)
+        active = inherited or owns_clock
+        if active:
+            for key in ("start", "end", "tick"):
+                item = value.get(key)
+                if isinstance(item, int) and not isinstance(item, bool):
+                    value[key] = item * multiplier
+        for key, child in value.items():
+            child_is_timed = (active and key in ("samples", "keyframes"))
+            child_is_keyed = has_timed_keys and key == "keyframes"
+            walk(child, child_is_timed or child_is_keyed)
+
+    for key in ("clip_uses", "observations", "masks", "tracks", "effects",
+                "frame_maps", "relations", "intents"):
+        walk(model.get(key, []))
+
+
+def _clock(model: dict[str, Any], clock_id: str, domain: dict[str, Any],
+           frame_rate: dict[str, int] | None = None) -> str:
+    desired_tps = _clock_ticks_per_second(frame_rate)
     for clock in model.get("clocks") or []:
         if isinstance(clock, dict) and clock.get("id") == clock_id:
+            old_tps = int(clock.get("ticks_per_second") or TICKS_PER_SECOND)
+            new_tps = math.lcm(old_tps, desired_tps)
+            if new_tps != old_tps:
+                _rebase_clock_references(model, clock_id, new_tps // old_tps)
+                clock["ticks_per_second"] = new_tps
+            if clock.get("frame_rate") is None and frame_rate is not None:
+                clock["frame_rate"] = frame_rate
             return clock_id
     model.setdefault("clocks", []).append({
         "id": clock_id,
         "domain": domain,
-        "ticks_per_second": TICKS_PER_SECOND,
-        "frame_rate": None,
+        "ticks_per_second": desired_tps,
+        "frame_rate": frame_rate,
     })
     return clock_id
 
 
 def asset_for_source(model: dict[str, Any], source_file: str,
-                     track_type: str = "video") -> tuple[str, str] | None:
+                     track_type: str = "video",
+                     frame_rate: Any = None) -> tuple[str, str] | None:
     """The asset and clock ids for a placed source file, minting when absent.
 
     Reuses an evidence-migrated asset when one already carries this
@@ -183,7 +269,8 @@ def asset_for_source(model: dict[str, Any], source_file: str,
                  and isinstance(clock.get("domain"), dict)
                  and clock["domain"].get("asset_id") == asset_id),
                 f"clock:src:{_sha16(uri)}")
-            _clock(model, clock_id, {"kind": "source", "asset_id": asset_id})
+            _clock(model, clock_id, {"kind": "source", "asset_id": asset_id},
+                   _frame_rate(frame_rate))
             return asset_id, clock_id
     digest = _sha16(uri)
     asset_id = f"asset:src:{digest}"
@@ -196,7 +283,8 @@ def asset_for_source(model: dict[str, Any], source_file: str,
         "metadata": {"producer": PRODUCER},
         "provenance": [PROVENANCE_ID],
     })
-    _clock(model, clock_id, {"kind": "source", "asset_id": asset_id})
+    _clock(model, clock_id, {"kind": "source", "asset_id": asset_id},
+           _frame_rate(frame_rate))
     codec = "video" if track_type == "video" else "audio"
     model.setdefault("streams", []).append({
         "id": f"stream:src:{digest}:{codec}",
@@ -395,7 +483,8 @@ def speech_observations(model: dict[str, Any], transcript: dict | None,
             continue
         if str(row.get("source_file") or "") != str(source_file or ""):
             continue
-        span = sec_to_ms(row.get("source_start"), row.get("source_end"))
+        span = sec_to_ticks(row.get("source_start"), row.get("source_end"),
+                            _ticks_per_second(model, clock_id))
         if span is None:
             continue
         obs_id = f"obs:speech:{_sha16(speaker, source_file, row.get('source_start'), row.get('source_end'), index)}"
@@ -455,7 +544,8 @@ def overlap_observations(model: dict[str, Any], transcript: dict | None,
             if speaker not in span.voices:
                 continue
             start, end = max(row_start, span.start), min(row_end, span.end)
-            interval = sec_to_ms(start + offset, end + offset)
+            interval = sec_to_ticks(start + offset, end + offset,
+                                    _ticks_per_second(model, clock_id))
             if interval is None:
                 continue
             obs_id = (f"obs:overlap:"
@@ -484,16 +574,18 @@ def overlap_observations(model: dict[str, Any], transcript: dict | None,
 
 
 def _reel_clock(model: dict[str, Any], reel_slug: str,
-                timeline_name: str) -> str:
+                timeline_name: str, fps: Any = None) -> str:
     return _clock(model, f"clock:reel:{reel_slug}",
-                  {"kind": "timeline", "timeline_id": timeline_name})
+                  {"kind": "timeline", "timeline_id": timeline_name},
+                  _frame_rate(fps))
 
 
 def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
                               timeline_name: str,
                               placements: list[dict[str, Any]],
                               track_roles: dict[tuple[str, int], str],
-                              transcript: dict | None = None) -> dict[str, Any]:
+                              transcript: dict | None = None,
+                              fps: float = 24.0) -> dict[str, Any]:
     """One ClipUse per placed piece, plus the reel's assemble edit.
 
     Roles come from the recorded track plan (``track_roles`` maps
@@ -503,7 +595,7 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
     no reel span is refused with its reason, never clamped.
     Returns ``{"use_ids", "evidence_ids", "skipped"}``.
     """
-    reel_clock = _reel_clock(model, reel_slug, timeline_name)
+    reel_clock = _reel_clock(model, reel_slug, timeline_name, fps)
     use_ids: list[str] = []
     evidence_ids: list[str] = []
     skipped: list[dict[str, Any]] = []
@@ -513,27 +605,47 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
         if not isinstance(place, dict):
             skipped.append({"index": index, "reason": "not a mapping"})
             continue
-        source = sec_to_ms(place.get("source_in"), place.get("source_out"))
-        reel_span = sec_to_ms(place.get("record_start"),
-                              float(place.get("record_start", 0.0))
-                              + max(float(place.get("source_out", 0.0))
-                                    - float(place.get("source_in", 0.0)), 0.0))
+        track_type = str(place.get("track_type") or "")
+        asset = asset_for_source(
+            model, place.get("source_file"), track_type,
+            place.get("source_fps") or fps)
+        if asset is None:
+            skipped.append({"index": index, "reason": "no source file"})
+            continue
+        asset_id, source_clock = asset
+        source = sec_to_ticks(place.get("source_in"), place.get("source_out"),
+                              _ticks_per_second(model, source_clock))
+        reel_tps = _ticks_per_second(model, reel_clock)
+        reel_frame_ticks = _frame_ticks(model, reel_clock, fps)
+        if (place.get("record_frame") is not None
+                and place.get("record_frames") is not None and fps > 0):
+            try:
+                record_frame = int(place["record_frame"])
+                record_frames = int(place["record_frames"])
+                reel_span = (
+                    record_frame * reel_frame_ticks,
+                    (record_frame + record_frames) * reel_frame_ticks,
+                )
+                if record_frame < 0 or record_frames <= 0:
+                    reel_span = None
+            except (TypeError, ValueError, OverflowError):
+                reel_span = None
+        else:
+            reel_span = sec_to_ticks(place.get("record_start"),
+                                  float(place.get("record_start", 0.0))
+                                  + max(float(place.get("source_out", 0.0))
+                                        - float(place.get("source_in", 0.0)), 0.0),
+                                  reel_tps)
         if source is None:
             skipped.append({"index": index, "reason": "empty source span"})
             continue
         if reel_span is None:
             skipped.append({"index": index, "reason": "empty reel span"})
             continue
-        track_type = str(place.get("track_type") or "")
         try:
             track_index = int(place.get("track_index", 0))
         except (TypeError, ValueError):
             track_index = 0
-        asset = asset_for_source(model, place.get("source_file"), track_type)
-        if asset is None:
-            skipped.append({"index": index, "reason": "no source file"})
-            continue
-        asset_id, source_clock = asset
         role = track_roles.get((track_type, track_index), "")
         if track_type == "audio":
             use_role = "speech"
@@ -611,6 +723,181 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
         })
     return {"use_ids": use_ids, "evidence_ids": sorted(set(evidence_ids)),
             "skipped": skipped}
+
+
+def static_transforms_from_placements(
+        model: dict[str, Any], reel_slug: str, placements: list[dict[str, Any]],
+        use_id_by_placement: dict[int, str]) -> dict[str, Any]:
+    """Migrate recorded static scale and native-pixel position effects.
+
+    Resolve Pan/Tilt and Zoom are converted by the recorder into native
+    sequence pixels and source-pixel scale. ``native_position`` applies
+    the shared transform law; ``native_scale`` includes Resolve's
+    scale-to-fit base scale, which FilmCraft's source-pixel motion scale
+    does not apply automatically.
+    """
+    minted: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for index, place in enumerate(placements):
+        transform = place.get("transform") if isinstance(place, dict) else None
+        if not isinstance(transform, dict):
+            continue
+        target_id = use_id_by_placement.get(id(place))
+        if target_id is None:
+            skipped.append({"index": index, "reason": "placement minted no clip use"})
+            continue
+        use = next((row for row in model.get("clip_uses") or []
+                    if isinstance(row, dict) and row.get("id") == target_id), None)
+        if use is None:
+            skipped.append({"index": index, "reason": "target clip use is not in the model"})
+            continue
+        scale_x = transform.get("ZoomX")
+        scale_y = transform.get("ZoomY")
+        if scale_x is not None or scale_y is not None:
+            try:
+                sx, sy = float(scale_x), float(scale_y)
+            except (TypeError, ValueError):
+                skipped.append({"index": index, "reason": "Resolve zoom is not numeric"})
+            else:
+                if not (math.isfinite(sx) and math.isfinite(sy)) or sx <= 0 or sy <= 0:
+                    skipped.append({"index": index, "reason": "Resolve zoom must be finite and positive"})
+                elif not math.isclose(sx, sy, rel_tol=0.0, abs_tol=1e-6):
+                    skipped.append({"index": index, "reason": "non-uniform ZoomX/ZoomY has no uniform native scale"})
+                else:
+                    native_scale = place.get("native_scale")
+                    if native_scale is None:
+                        skipped.append({"index": index,
+                                        "reason": "Resolve zoom needs measured source and sequence dimensions for the native scaleToFit conversion"})
+                    else:
+                        try:
+                            native_scale = float(native_scale)
+                        except (TypeError, ValueError):
+                            skipped.append({"index": index,
+                                            "reason": "native_scale must be numeric"})
+                        else:
+                            if (not math.isfinite(native_scale)
+                                    or native_scale <= 0):
+                                skipped.append({"index": index,
+                                                "reason": "native_scale must be finite and positive"})
+                            elif not math.isclose(native_scale, 1.0,
+                                                 rel_tol=0.0,
+                                                 abs_tol=1e-6):
+                                minted.append(_mint_static_transform(
+                                    model, reel_slug, "transform.scale",
+                                    target_id,
+                                    dict(use["timeline_interval"]),
+                                    {"scale": native_scale}, "scale"))
+        native_position = place.get("native_position")
+        if native_position is not None:
+            if (not isinstance(native_position, (list, tuple))
+                    or len(native_position) != 2):
+                skipped.append({"index": index, "reason": "native_position must be an [x, y] pair"})
+            else:
+                try:
+                    position = [float(value) for value in native_position]
+                except (TypeError, ValueError):
+                    skipped.append({"index": index, "reason": "native_position must contain numbers"})
+                else:
+                    if not all(math.isfinite(value) for value in position):
+                        skipped.append({"index": index, "reason": "native_position must be finite"})
+                    elif position != [0.0, 0.0]:
+                        minted.append(_mint_static_transform(
+                            model, reel_slug, "transform.position", target_id,
+                            dict(use["timeline_interval"]), {"position": position}, "position"))
+        elif any(transform.get(key, 0) not in (0, 0.0, None) for key in ("Pan", "Tilt")):
+            skipped.append({"index": index,
+                            "reason": "Resolve Pan/Tilt needs measured source and sequence dimensions before conversion to native pixels"})
+    return {"minted": minted, "skipped": skipped}
+
+
+def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
+                              reel_clock: str, records: list[dict[str, Any]],
+                              fps: float) -> dict[str, Any]:
+    """Migrate measured tight overlay placements as clip uses and effects."""
+    use_ids: list[str] = []
+    effect_ids: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            skipped.append({"index": index, "reason": "not an overlay placement record"})
+            continue
+        source_file = str(record.get("overlay_path") or "")
+        if not source_file:
+            skipped.append({"index": index, "reason": "overlay record names no media file"})
+            continue
+        try:
+            start_frame = int(record["timeline_start_frame"])
+            source_frame = int(record["source_start_frame"])
+            duration_frames = int(record["duration_frames"])
+        except (KeyError, TypeError, ValueError):
+            skipped.append({"index": index, "reason": "overlay record lacks exact frame spans"})
+            continue
+        if start_frame < 0 or source_frame < 0 or duration_frames <= 0 or fps <= 0:
+            skipped.append({"index": index, "reason": "overlay frame spans or rate are not positive"})
+            continue
+        asset = asset_for_source(model, source_file, "video", fps)
+        if asset is None:
+            skipped.append({"index": index, "reason": "overlay media path is empty"})
+            continue
+        asset_id, source_clock = asset
+        try:
+            source_frame_ticks = _frame_ticks(model, source_clock, fps)
+            reel_frame_ticks = _frame_ticks(model, reel_clock, fps)
+        except ValueError:
+            skipped.append({"index": index, "reason": "overlay frame rate is invalid"})
+            continue
+        source = (source_frame * source_frame_ticks,
+                  (source_frame + duration_frames) * source_frame_ticks)
+        timeline = (start_frame * reel_frame_ticks,
+                    (start_frame + duration_frames) * reel_frame_ticks)
+        kind = str(record.get("kind") or "").lower()
+        role = ("end_card" if "end_card" in kind or kind == "logo"
+                else "subtitle_overlay" if "caption" in kind or "subtitle" in kind
+                else "frame_overlay" if "frame" in kind
+                else "motion_graphic")
+        use_id = f"use:{reel_slug}:overlay:{index:04d}"
+        if not any(isinstance(row, dict) and row.get("id") == use_id
+                   for row in model.get("clip_uses") or []):
+            model.setdefault("clip_uses", []).append({
+                "id": use_id, "asset_id": asset_id,
+                "source_interval": {"clock_id": source_clock,
+                                     "start": source[0], "end": source[1]},
+                "timeline_interval": {"clock_id": reel_clock,
+                                      "start": timeline[0], "end": timeline[1]},
+                "entity_links": [], "role": role, "intent_id": None,
+            })
+        use_ids.append(use_id)
+        overlay_transform = record.get("transform")
+        native_scale = record.get("native_scale")
+        if (native_scale is None and isinstance(overlay_transform, dict)):
+            native_scale = overlay_transform.get("ZoomX")
+        transform_place = {
+            "transform": overlay_transform,
+            "native_position": record.get("native_position"),
+            "native_scale": native_scale,
+        }
+        transform_report = static_transforms_from_placements(
+            model, reel_slug, [transform_place],
+            {id(transform_place): use_id})
+        effect_ids.extend(transform_report["minted"])
+        skipped.extend({"index": index, **row}
+                       for row in transform_report["skipped"])
+    return {"use_ids": use_ids, "effects": effect_ids, "skipped": skipped}
+
+
+def _mint_static_transform(model: dict[str, Any], reel_slug: str,
+                            class_id: str, target_id: str,
+                            interval: dict[str, Any], parameters: dict[str, Any],
+                            suffix: str) -> str:
+    effect_id = (f"effect:{reel_slug}:transform:{_sha16(target_id)}:"
+                 f"{suffix}")
+    if not any(isinstance(row, dict) and row.get("id") == effect_id
+               for row in model.get("effects") or []):
+        model.setdefault("effects", []).append({
+            "id": effect_id, "class_id": class_id, "target_id": target_id,
+            "interval": interval, "parameters": parameters, "keyframes": [],
+        })
+    return effect_id
 
 
 def _placement_for_master_span(placements: list[dict[str, Any]],
@@ -792,7 +1079,9 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                         transcript: dict | None = None,
                         move_effects: list[dict[str, Any]] | None = None,
                         title_segments: list[dict[str, Any]] | None = None,
-                        masks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                        masks: list[dict[str, Any]] | None = None,
+                        overlay_placements: list[dict[str, Any]] | None = None,
+                        fps: float = 24.0) -> dict[str, Any]:
     """Mint one reel's fragment onto the model, in place.
 
     Pure: no Resolve, no lanes, no store. Roles come from the
@@ -812,15 +1101,28 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                 roles[("video", int(track.get("index", 0)))] = "a_roll"
             except (TypeError, ValueError):
                 pass
-    reel_clock = _reel_clock(model, reel_slug, reel_name)
+    reel_clock = _reel_clock(model, reel_slug, reel_name, fps)
     report: dict[str, Any] = {"reel": reel_name, "reel_slug": reel_slug}
     uses = clip_uses_from_placements(model, reel_slug, reel_name,
-                                     placements, roles, transcript)
+                                     placements, roles, transcript, fps)
     report["clip_uses"] = len(uses["use_ids"])
     report["clip_uses_skipped"] = uses["skipped"]
-    use_id_by_placement = {id(place): use_id for place, use_id
-                           in zip(placements, uses["use_ids"])
-                           if isinstance(place, dict)}
+    valid_use_ids = set(uses["use_ids"])
+    use_id_by_placement = {
+        id(place): f"use:{reel_slug}:{index:04d}"
+        for index, place in enumerate(placements)
+        if isinstance(place, dict)
+        and f"use:{reel_slug}:{index:04d}" in valid_use_ids
+    }
+    transforms = static_transforms_from_placements(
+        model, reel_slug, placements, use_id_by_placement)
+    report["static_transforms"] = transforms["minted"]
+    report["static_transforms_skipped"] = transforms["skipped"]
+    overlays = overlay_uses_from_records(
+        model, reel_slug, reel_clock, list(overlay_placements or []), fps)
+    report["overlay_uses"] = overlays["use_ids"]
+    report["overlay_transform_effects"] = overlays["effects"]
+    report["overlay_transforms_skipped"] = overlays["skipped"]
     if masks:
         carried, skipped_masks = 0, []
         present_masks = {row["id"] for row in model.get("masks") or []
@@ -852,8 +1154,13 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                                   use_id_by_placement)
     report["titles"] = titles["minted"]
     report["titles_skipped"] = titles["skipped"]
-    report["frame_map"] = frame_map_for_reel(model, reel_slug, reel_clock,
-                                             uses["use_ids"])
+    end_card_use_ids = [
+        use_id for use_id in overlays["use_ids"]
+        if any(isinstance(use, dict) and use.get("id") == use_id
+               and use.get("role") == "end_card"
+               for use in model.get("clip_uses") or [])]
+    report["frame_map"] = frame_map_for_reel(
+        model, reel_slug, reel_clock, uses["use_ids"] + end_card_use_ids)
     validate_project_model(model)
     return report
 
@@ -991,6 +1298,13 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
     track_plans = record.get("track_plans")
     if not isinstance(track_plans, dict):
         track_plans = {}
+    overlay_placements_by_reel = record.get("reel_overlay_placements")
+    if not isinstance(overlay_placements_by_reel, dict):
+        overlay_placements_by_reel = {}
+    try:
+        reel_fps = float(record.get("reel_fps", 24.0))
+    except (TypeError, ValueError):
+        reel_fps = 24.0
     # The step 4.03 mint (PR 2263) is the one move producer; its
     # rows arrive on `enhancement_spec.move_effects` and are carried
     # verbatim. Anything else is absent, never re-minted here.
@@ -1012,7 +1326,11 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
             move_effects=carried_moves,
             title_segments=segments,
             masks=[mask for mask in (masks or [])
-                   if isinstance(mask, dict)] or None))
+                   if isinstance(mask, dict)] or None,
+            overlay_placements=[row for row in
+                                overlay_placements_by_reel.get(reel_name, [])
+                                if isinstance(row, dict)],
+            fps=reel_fps))
     validate_project_model(model)
     reels_named = sorted(placements_by_reel)
     write_reason = reason or f"reel.build: {', '.join(reels_named)}"
@@ -1051,7 +1369,11 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
                     move_effects=carried_moves,
                     title_segments=segments,
                     masks=[mask for mask in (masks or [])
-                           if isinstance(mask, dict)] or None)
+                           if isinstance(mask, dict)] or None,
+                    overlay_placements=[row for row in
+                                        overlay_placements_by_reel.get(reel_name, [])
+                                        if isinstance(row, dict)],
+                    fps=reel_fps)
             validate_project_model(model)
     else:
         return {"status": "refused",
@@ -1166,8 +1488,10 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
     render_clock = f"clock:render:{reel_slug}"
     from fractions import Fraction
     try:
-        rate_frac = Fraction(float(rate)).limit_denominator(1001)
-        render_tps = max(int(round(float(rate))), 1)
+        rate_frac = Fraction(str(float(rate))).limit_denominator(1001)
+        render_tps = _clock_ticks_per_second({
+            "numerator": rate_frac.numerator,
+            "denominator": rate_frac.denominator})
     except (TypeError, ValueError):
         rate_frac, render_tps = None, TICKS_PER_SECOND
     model["clocks"] = [clock for clock in model.get("clocks") or []
@@ -1181,6 +1505,8 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
                         "denominator": rate_frac.denominator}
                        if rate_frac is not None else None),
     })
+    render_frame_ticks = (render_tps * rate_frac.denominator
+                          // rate_frac.numerator) if rate_frac else 1
     asset_id = f"asset:render:{reel_slug}"
     present_assets = {row["id"] for row in model.get("assets") or []
                       if isinstance(row, dict) and "id" in row}
@@ -1222,7 +1548,7 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
                               f"contiguous at {cursor}: use {row['id']!r} "
                               f"starts at {span['start']}"}
         span = row["timeline_interval"]
-        # Reel milliseconds onto render frames, proportionally: the
+        # Reel clock ticks onto render frames, proportionally: the
         # delivered file plays the whole picture contiguously, so the
         # reel's end lands exactly on the expected frame count.
         to_start = int(round((span["start"] - reel_start) / reel_span * frames))
@@ -1233,8 +1559,9 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
                               f"covers no render frame"}
         segments.append({
             "from": dict(span),
-            "to": {"clock_id": render_clock, "start": to_start,
-                   "end": to_end},
+            "to": {"clock_id": render_clock,
+                   "start": to_start * render_frame_ticks,
+                   "end": to_end * render_frame_ticks},
             "mapping_kind": "one_to_one",
             "rate": {"numerator": 1, "denominator": 1},
             "source_clip_use": row["id"],

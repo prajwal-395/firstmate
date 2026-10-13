@@ -128,7 +128,7 @@ def test_effect_ids_follow_the_effect_target():
         "id": f"effect:{slugs}:grade000", "class_id": "color.grade",
         "target_id": use_id,
         "interval": {"clock_id": f"clock:reel:{slugs}",
-                     "start": 0, "end": 5000},
+                     "start": 0, "end": 600_000},
         "parameters": {"exposure": 0.1}, "keyframes": []})
     manifest = {"tracks": {"V1": {"label": "A-Roll", "clips": [
         _manifest_row("/m/a.MXF", 10.0, 15.0, 0.0, 5.0, label="a1"),

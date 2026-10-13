@@ -475,6 +475,7 @@ _PER_REEL_MAP_KEYS = {
     # R2/R9) but stays here so `only_reels` runs still scope records
     # written before the retirement.
     "caption_hashes", "closer_fit", "track_plans", "reel_placements",
+    "reel_overlay_placements",
     "transition_overlays", "staged_timelines", "allow_drops",
     "staged_timeline_ids", "reels", "notes",
 }

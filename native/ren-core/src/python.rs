@@ -981,6 +981,50 @@ fn filmcraft_plan_projection<'py>(
     json_to_py(py, &value)
 }
 
+/// Plan all model-owned picture transforms against reconciled clip ids.
+#[pyfunction]
+#[pyo3(signature = (model, projection, clip_ids, project))]
+fn filmcraft_plan_picture_effects<'py>(
+    model: &Bound<'_, PyAny>,
+    projection: &Bound<'_, PyAny>,
+    clip_ids: std::collections::HashMap<String, Vec<u64>>,
+    project: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let model = filmcraft_decode_model(model)?;
+    let projection = filmcraft_decode_projection(projection)?;
+    let ids: std::collections::BTreeMap<String, Vec<u64>> = clip_ids.into_iter().collect();
+    let operations = ren_filmcraft::adapter::project_picture_effect_operations(
+        std::path::Path::new(project),
+        &model,
+        &projection.placements,
+        &ids,
+    )
+    .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&operations).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
+/// Provision the overlay tracks a FilmCraft projection addresses.
+#[pyfunction]
+#[pyo3(signature = (projection, project))]
+fn filmcraft_add_tracks_operation<'py>(
+    projection: &Bound<'_, PyAny>,
+    project: &str,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let operation =
+        ren_filmcraft::adapter::add_tracks_operation(std::path::Path::new(project), &projection);
+    let value = operation
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|err| PyValueError::new_err(err.to_string()))?
+        .unwrap_or(serde_json::Value::Null);
+    json_to_py(py, &value)
+}
+
 /// Translate one model edit into driver operations. `clip_ids` maps a
 /// placed clip use onto its reconciled engine clip ids; planning with
 /// placeholder ids validates every parameter without executing.
@@ -1137,6 +1181,8 @@ fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(respan, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_plan_projection, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_plan_picture_effects, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_add_tracks_operation, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_plan_ren_edit, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_describe_operation, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_reconcile_clip_ids, m)?)?;
