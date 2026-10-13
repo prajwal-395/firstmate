@@ -410,6 +410,7 @@ test_occupancy_counts_only_this_projects_workers() {
   fm_write_meta "$home/state/legacy-b.meta" "window=firstmate:fm-legacy-b" "project=$case_dir/project"
   write_live "$home" other-c "$case_dir/other-project"
   fm_write_meta "$home/state/mate-d.meta" "window=remote:mate-d" "project=$case_dir/project" "kind=secondmate"
+  printf 'blocked [at=1791867513]: waiting checkpoint-sha=%040d\n' 3 > "$home/state/scout-a.status"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "records outside this project's workers took a place: $out"
   rc=0
