@@ -148,10 +148,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-echo "=== full-suite gate: prepare native test tools ==="
-if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh"; then
-  echo "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
-  exit 1
+if [ "${FULL_SUITE_GATE_SKIP_NATIVE_PREP:-0}" = "1" ]; then
+  echo "=== full-suite gate: native test tool preparation skipped by test switch ==="
+else
+  echo "=== full-suite gate: prepare native test tools ==="
+  if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh"; then
+    echo "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
+    exit 1
+  fi
 fi
 
 # A fresh worktree does not carry the ignored `node_modules` bind from the
@@ -210,52 +214,10 @@ trap _keep_report_on_failure EXIT
 # tests, and records no failure and no error.
 summarise() {
   local xml="$1" exit_code="$2"
-  "${PYTHON}" - "$xml" "$exit_code" <<'PY' 2>/dev/null || echo "ran-nothing no readable JUnit report (the run produced no machine-readable result)"
-import sys, xml.etree.ElementTree as ET, signal as _signal
-path, exit_code = sys.argv[1], int(sys.argv[2])
-try:
-    root = ET.parse(path).getroot()
-except Exception as exc:
-    print(f"ran-nothing unreadable JUnit report ({exc.__class__.__name__})")
-    raise SystemExit(0)
-suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
-if not suites:
-    print("ran-nothing JUnit report contains no test suite")
-    raise SystemExit(0)
-n = sum(int(s.get("tests", 0)) for s in suites)
-fail = sum(int(s.get("failures", 0)) for s in suites)
-err = sum(int(s.get("errors", 0)) for s in suites)
-skip = sum(int(s.get("skipped", 0)) for s in suites)
-executed = n - skip
-if n == 0:
-    print("ran-nothing pytest collected 0 tests")
-elif executed == 0:
-    print(f"ran-nothing all {n} selected tests skipped, so nothing was measured")
-elif fail or err:
-    print(f"bad {executed} executed, {fail} failed, {err} errored")
-elif exit_code != 0:
-    # Exit codes >= 128 mean killed by a signal (exit = 128 + signum).
-    # Distinguish this from a normal non-zero exit so the verdict names
-    # the actual cause rather than a bare number.  The gate still fails -
-    # a native crash is not acceptable - but the operator can now see
-    # that the TESTS passed and the PROCESS died, and where to look.
-    if exit_code > 128:
-        signum = exit_code - 128
-        try:
-            signame = _signal.Signals(signum).name
-        except (ValueError, AttributeError):
-            signame = f"signal {signum}"
-        print(
-            f"crashed {executed} passed then NATIVE CRASH ({signame}) "
-            f"- check ~/Library/Logs/DiagnosticReports/ for the faulting library"
-        )
-    else:
-        print(f"bad {executed} executed with no recorded failure but pytest exited {exit_code}")
-else:
-    print(f"ok {executed} passed, {skip} skipped")
-PY
+  "${HELPER_PYTHON}" "${REPO_ROOT}/scripts/full_suite_gate_verdict.py" \
+    summarize "$xml" "$exit_code" 2>/dev/null \
+    || echo "ran-nothing no readable JUnit report (the run produced no machine-readable result)"
 }
-
 # Extracts missing capabilities from a JUnit XML and prints one line per
 # missing capability: `<name> <skip_count> <install_hint>`.
 # Prints nothing when the environment is complete.
@@ -566,29 +528,12 @@ elif [ "${REAL_MODEL_STATE}" != "ok" ] \
 fi
 
 # ---- the verdict -------------------------------------------------------
-# Fail closed unless the main selection demonstrably ran and the real
-# model category ran, narrowed the verdict, or was explicitly excluded
-# by the local CI marker policy.
-case "${MAIN_STATE}" in
-  ok) VERDICT="PASS" ;;
-  bad|crashed) VERDICT="FAIL" ;;
-  *) VERDICT="DID NOT RUN" ;;
-esac
-case "${REAL_MODEL_STATE}" in
-  ok) REAL_MODEL_NOTE="real_model ${REAL_MODEL_DETAIL}" ;;
-  bad) REAL_MODEL_NOTE="real_model FAILED - ${REAL_MODEL_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
-  crashed) REAL_MODEL_NOTE="real_model CRASHED - ${REAL_MODEL_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
-  *)
-    if [ "${REAL_MODEL_EXCLUDED_BY_POLICY}" -eq 1 ]; then
-      REAL_MODEL_NOTE="real_model excluded by local CI marker policy"
-    else
-      REAL_MODEL_NOTE="real_model NOT MEASURED - ${REAL_MODEL_DETAIL}"
-    fi
-    ;;
-esac
-if [ "${VERDICT}" = "PASS" ] && [ "${NARROWED_COUNT}" -gt 0 ]; then
-  VERDICT="NARROWED PASS"
-fi
+FINAL_VERDICT_LINE="$("${HELPER_PYTHON}" "${REPO_ROOT}/scripts/full_suite_gate_verdict.py" \
+  verdict "${MAIN_STATE}" "${MAIN_DETAIL}" "${REAL_MODEL_STATE}" \
+  "${REAL_MODEL_DETAIL}" "${NARROWED_COUNT}" "${REAL_MODEL_EXCLUDED_BY_POLICY}")"
+VERDICT_EXIT_CODE=$?
+VERDICT="${FINAL_VERDICT_LINE#FULL-SUITE GATE: }"
+VERDICT="${VERDICT%%  |*}"
 
 if [ "${VERDICT}" = "PASS" ]; then
   TIMING_REPORTS=("${MAIN_XML}")
@@ -618,7 +563,7 @@ if [ "${NARROWED_COUNT}" -gt 0 ]; then
   echo "--------------------------------------------------------------------"
 fi
 
-echo "FULL-SUITE GATE: ${VERDICT}  |  unit+scenario: ${MAIN_DETAIL}  |  ${REAL_MODEL_NOTE}"
+echo "${FINAL_VERDICT_LINE}"
 
 # Shared verification cache handoff (CI-02): when REN_CI_JUNIT_OUT
 # names a file, copy the main-phase JUnit report there before the EXIT
@@ -629,5 +574,4 @@ if [ -n "${REN_CI_JUNIT_OUT:-}" ] && [ -f "${MAIN_XML}" ]; then
   cp "${MAIN_XML}" "${REN_CI_JUNIT_OUT}" 2>/dev/null || true
 fi
 
-[ "${VERDICT}" = "PASS" ] && exit 0
-exit 1
+exit "${VERDICT_EXIT_CODE}"
