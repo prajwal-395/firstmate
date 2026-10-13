@@ -392,8 +392,10 @@ def _stub_engine(monkeypatch, tmp_path: Path) -> None:
             done = subprocess.run(
                 ["ffmpeg", "-v", "error", "-y",
                  "-f", "lavfi", "-i",
-                 "testsrc=size=64x112:rate=24:duration=0.3333"]
-                + args + [str(out)],
+                 "testsrc=size=64x112:rate=24:duration=2",
+                 "-f", "lavfi", "-i",
+                 "sine=frequency=440:sample_rate=48000:duration=2"]
+                + args + ["-c:a", "aac", "-shortest", str(out)],
                 capture_output=True, text=True, encoding="utf-8",
                 check=False)
             assert done.returncode == 0, done.stderr[:300]
@@ -434,6 +436,10 @@ def test_execute_export_composites_the_declared_grade(tmp_path, monkeypatch):
     assert treatments["lossy_encodes"] == 1
     assert treatments["engine_format"] == "prores"
     assert treatments["intermediate_removed"] is True
+    assert receipt["mastering"]["target"]["lufs"] == -14.0
+    assert receipt["mastering"]["target"]["true_peak_ceiling"] == -1.0
+    assert receipt["mastering"]["loudness_range_lu"]["input"] >= 0
+    assert (tmp_path / "reel.pre-master.mp4").is_file()
     assert export.is_file()
     assert not list(tmp_path.glob("*.treatments-tmp.mp4"))
     assert not list(tmp_path.glob("*.engine-base.mov"))
@@ -544,7 +550,28 @@ def test_execute_export_leaves_engine_bytes_alone_without_declarations(
     assert treatments["intermediate"] is None
     assert receipt["export"]["intermediate"] is None
     assert receipt["export"]["engine_format"] == "h264"
-    assert export.read_bytes() == (tmp_path / "engine-base.mp4").read_bytes()
+    assert receipt["mastering"]["target"]["lufs"] == -14.0
+    assert (tmp_path / "reel.pre-master.mp4").read_bytes() == (
+        tmp_path / "engine-base.mp4").read_bytes()
+    assert export.read_bytes() != (tmp_path / "engine-base.mp4").read_bytes()
+
+
+def test_execute_refuses_an_existing_pre_master_before_engine_work(
+        tmp_path, monkeypatch):
+    _stub_engine(monkeypatch, tmp_path)
+    root = _project(tmp_path)
+    out = tmp_path / "receipt.json"
+    export = tmp_path / "reel.mp4"
+    raw = tmp_path / "reel.pre-master.mp4"
+    raw.write_bytes(b"previous unmastered evidence")
+
+    assert main(["project", str(root), "--engine", "filmcraft",
+                 "--model", str(FIXTURE_MODEL), "--out", str(out),
+                 "--media-root", str(FIXTURE_MODEL.parent),
+                 "--execute", "--export", str(export)]) == 4
+    assert raw.read_bytes() == b"previous unmastered evidence"
+    assert not export.exists()
+    assert not list(tmp_path.glob("*.fcproj"))
 
 
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not on PATH")
@@ -1196,6 +1223,8 @@ def test_execute_preconform_end_to_end_uses_cache_on_second_run(
         "asset-ada", "asset-ben", "asset-broll"}
     assert all(e["cache_hit"] is False
                for e in report["assets"].values())
+    assert receipt["mastering"] == {
+        "skipped": "native video export contains no audio stream"}
     for entry in report["swapback"]["preconformed"].values():
         assert entry["original_path"].endswith(".mp4")
         assert "preconform" not in entry["original_path"]

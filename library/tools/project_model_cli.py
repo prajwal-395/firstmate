@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -871,6 +872,17 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     `sequence_size` configures and reads back the frame before media is
     imported, so sequence-pixel transform effects have an explicit canvas.
     """
+    if export_path is not None and export_format != "wav":
+        raw_path = export_path.with_name(
+            f"{export_path.stem}.pre-master{export_path.suffix}")
+        mastered_path = export_path.with_name(
+            f".{export_path.stem}.mastering{export_path.suffix}")
+        if raw_path.exists() or mastered_path.exists():
+            raise _refuse(
+                "native mastering output already exists",
+                f"refusing to replace {raw_path} or {mastered_path}",
+                "choose a fresh export path or move the previous evidence",
+                code="REN_PM_CLI_MASTERING_OUTPUT_EXISTS")
     projection = {key: plan[key] for key in
                   ("adapter_version", "engine_revision", "timeline_clock",
                    "imports", "placements", "losses")}
@@ -1165,7 +1177,76 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
             "lossy_encodes": 0,
             "skipped": "no export was requested, so there is no render to treat",
         }
+    if export_path is not None and export_format != "wav":
+        receipt["mastering"] = _master_filmcraft_export(
+            project_root, export_path)
+    elif export_path is not None:
+        receipt["mastering"] = {
+            "skipped": "audio-only WAV export has no video delivery master",
+        }
     return receipt
+
+
+def _master_filmcraft_export(project_root: Path, export_path: Path) -> dict:
+    """Apply the project's delivery mastering to an audio-bearing export."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=index", "-of", "csv=p=0",
+         str(export_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=60, check=False)
+    if probe.returncode != 0:
+        raise _refuse(
+            "could not inspect native export audio",
+            probe.stderr[-1000:],
+            "check that ffprobe can read the exported media",
+            code="REN_PM_CLI_MASTERING_PROBE_FAILED")
+    if not probe.stdout.strip():
+        return {"skipped": "native video export contains no audio stream"}
+
+    # Native FilmCraft exports are renders, not deliveries. Apply the same
+    # measured mastering stage as `ren deliver`, using the project's spec.
+    from library.tools.delivery_spec import resolve_delivery_spec_for_project
+    from library.tools.master_loudness import (
+        _loudnorm_measure, normalize_to_delivery, result_as_dict,
+    )
+
+    spec = resolve_delivery_spec_for_project(str(project_root))
+    raw_path = export_path.with_name(
+        f"{export_path.stem}.pre-master{export_path.suffix}")
+    mastered_path = export_path.with_name(
+        f".{export_path.stem}.mastering{export_path.suffix}")
+    try:
+        before_loudness = _loudnorm_measure(str(export_path))
+        mastered = normalize_to_delivery(
+            str(export_path), str(mastered_path),
+            target_lufs=spec.loudness_target_lufs,
+            tolerance=spec.loudness_tolerance_lufs,
+            true_peak_ceiling=spec.true_peak_ceiling_dbtp)
+        after_loudness = _loudnorm_measure(str(mastered_path))
+        os.replace(export_path, raw_path)
+        try:
+            os.replace(mastered_path, export_path)
+        except OSError:
+            os.replace(raw_path, export_path)
+            raise
+    except Exception as exc:
+        mastered_path.unlink(missing_ok=True)
+        if not export_path.exists() and raw_path.exists():
+            os.replace(raw_path, export_path)
+        raise _refuse(
+            f"native export mastering failed: {exc}",
+            "the encoded native export did not complete the declared delivery mastering pass",
+            "inspect the named measurement or encoder failure and retry to a fresh export path",
+            code="REN_PM_CLI_MASTERING_FAILED") from exc
+    mastering = result_as_dict(mastered)
+    mastering["raw_output_path"] = str(raw_path)
+    mastering["output_path"] = str(export_path)
+    mastering["loudness_range_lu"] = {
+        "input": before_loudness["input_lra"],
+        "output": after_loudness["input_lra"],
+    }
+    return mastering
 
 
 def _plan_native_treatments(project_root: Path) -> dict:
