@@ -43,6 +43,12 @@ the same model always plans identical bytes. Roles map onto fixed tracks:
 `a_roll` on V1, `b_roll` on V2, `subtitle_overlay` on V3,
 `motion_graphic` on V4, `frame_overlay` on V5, and full-frame `end_card`s
 beside the footage on V1. Anything else refuses as `unsupported_role`.
+Source-segmented person masks (`sam2_rle_track` and `region_rle`) are
+projected only when their source clock and entity link match a placed
+picture clip and a seed covers its source start. The raster seed becomes
+FilmCraft polygon masks, whose measured raster IoU must be at least 0.92;
+each polygon is then tracked on the placed clip. Face boxes stay evidence,
+not person mattes, and remain a named projection loss.
 `plan_edit` translates only explicit `filmcraft.*` model edits into driver
 operations. `plan_ren_edit` translates Ren's own editorial vocabulary -
 split, trim (both edges, including the E2E fixture's `timeline_end` /

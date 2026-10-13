@@ -7,16 +7,18 @@
 //! music/SFX stems dealt across the audio pool from A2 upward, per-clip gain
 //! via `clip.audioGain`, track gain via `mixer.setValue`, caption/title
 //! tracks from speech observations, LUT application, keyframed
-//! transform/crop/opacity on clip uses, and track volume automation)
+//! transform/crop/opacity on clip uses, segmented person masks on their
+//! source-linked placements, and track volume automation)
 //! into driver [`super::Operation`]s, keeps the bidirectional Ren/engine ID map,
 //! builds the exact timeline-to-render [`FrameMap`](ren_protocol::project_model::FrameMap),
 //! validates the exported render asset, and carries every loss explicitly.
 //!
 //! EffectCraft ownership boundary: content EffectCraft already projects
-//! (masks, track mattes, camera moves as `move.*`, `blur.gaussian` and
+//! track mattes and camera moves as `move.*`, `blur.gaussian` and
 //! `color.saturation` in its verified map) stays there. This adapter never
 //! duplicates it: such effects report `effect_owned_by_effectcraft` and
-//! masks/tracks keep their existing loss codes.
+//! object tracks keep their existing loss codes. Source-segmented SAM2/M3d
+//! masks are a distinct native opacity-mask input, not an EffectCraft matte.
 //!
 //! Fail-closed rules:
 //!
@@ -24,7 +26,7 @@
 //!   `(timeline_start, clip_use_id)`; imports sort by asset id; ID maps are
 //!   `BTreeMap`s. Planning twice over the same model yields identical bytes.
 //! - Anything the engine cannot represent is a projection [`super::LossReport`]
-//!   (model effects, masks, object tracks, overlay positioning) or an
+//!   (model effects, unsupported masks, object tracks, overlay positioning) or an
 //!   [`AdapterError::Unsupported`] refusal (overlapping timeline ranges on one
 //!   track, overlapping base picture, unknown roles, short sources,
 //!   undecodable overlay codecs, inexact tick conversion, unknown edit
@@ -98,7 +100,7 @@
 
 use ren_protocol::project_model::{
     validate_project_model, Clock, EditOperation, FrameMap, FrameMapId, FrameMapSegment, Interval,
-    MappingKind, ProjectModel, Rational,
+    MappingKind, ProjectModel, Rational, TimeDomain,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -652,12 +654,17 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
 
     let mut losses = Vec::new();
     losses.extend(projectable_effect_losses(model, &placements, timeline)?);
-    if !model.masks.is_empty() {
+    let mask_losses = model
+        .masks
+        .iter()
+        .filter(|mask| !mask_has_native_target(model, mask, &placements))
+        .count();
+    if mask_losses > 0 {
         losses.push(LossReport {
             code: "mask_not_projected".into(),
             detail: format!(
-                "the model carries {} mask(s); the FilmCraft projection has no mask operation, so none were sent",
-                model.masks.len()
+                "{} mask(s) have no entity-linked SAM2/M3d seed covering a placed source start and were not sent",
+                mask_losses
             ),
         });
     }
@@ -704,6 +711,38 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
         imports: imports.into_values().collect(),
         placements,
         losses,
+    })
+}
+
+fn mask_has_native_target(
+    model: &ProjectModel,
+    mask: &ren_protocol::project_model::Mask,
+    placements: &[Placement],
+) -> bool {
+    let Some(kind) = mask.representation.get("kind").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    if !matches!(kind, "sam2_rle_track" | "region_rle") {
+        return false;
+    }
+    let Some(clock) = model.clocks.iter().find(|c| c.id == mask.interval.clock_id) else {
+        return false;
+    };
+    let TimeDomain::Source { asset_id, .. } = &clock.domain else {
+        return false;
+    };
+    model.clip_uses.iter().any(|use_| {
+        if !matches!(use_.role.as_str(), "a_roll" | "b_roll")
+            || !use_.entity_links.contains(&mask.entity_id)
+            || &use_.asset_id != asset_id
+            || use_.source_interval.clock_id != mask.interval.clock_id
+            || use_.source_interval.start < mask.interval.start
+            || use_.source_interval.start >= mask.interval.end
+            || !placements.iter().any(|p| p.clip_use_id == use_.id.0)
+        {
+            return false;
+        }
+        true
     })
 }
 
@@ -4934,6 +4973,40 @@ mod tests {
             24 * ENGINE_TICKS_PER_SECOND / 24
         );
         assert!(first.losses.is_empty());
+    }
+
+    #[test]
+    fn only_linked_person_segmentations_covering_clip_start_clear_mask_loss() {
+        let mut model = minimal_model();
+        model.clip_uses[1]
+            .entity_links
+            .push(ren_protocol::project_model::EntityId("person-a".into()));
+        let placement = plan_projection(&model).unwrap().placements[0].clone();
+        let mask = ren_protocol::project_model::Mask {
+            id: ren_protocol::project_model::MaskId("mask-a".into()),
+            entity_id: ren_protocol::project_model::EntityId("person-a".into()),
+            interval: Interval {
+                clock_id: ren_protocol::project_model::ClockId("clock-source".into()),
+                start: 0,
+                end: 24,
+            },
+            representation: serde_json::json!({"kind":"region_rle"}),
+            source_model: "test-region-mask".into(),
+            provenance_id: ren_protocol::project_model::ProvenanceId("prov-1".into()),
+        };
+        assert!(mask_has_native_target(&model, &mask, &[placement.clone()]));
+
+        let mut face_box = mask.clone();
+        face_box.representation = serde_json::json!({"kind":"face_bbox_track"});
+        assert!(!mask_has_native_target(
+            &model,
+            &face_box,
+            &[placement.clone()]
+        ));
+
+        let mut partial = mask;
+        partial.interval.start = 1;
+        assert!(!mask_has_native_target(&model, &partial, &[placement]));
     }
 
     #[test]

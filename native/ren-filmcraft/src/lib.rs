@@ -373,6 +373,22 @@ pub enum Operation {
         clips: Vec<u64>,
         effect: String,
     },
+    /// Add a normalized opacity mask to one placed clip. `path` is a
+    /// closed polygon in source-frame coordinates, normalized to 0..1.
+    MaskAdd {
+        project: PathBuf,
+        clip: u64,
+        shape: String,
+        path: Vec<[f64; 2]>,
+    },
+    /// Track one opacity mask over the placed clip's source frames.
+    MaskTrack {
+        project: PathBuf,
+        clip: u64,
+        mask: u32,
+        frames: u32,
+        method: String,
+    },
     /// Enable per-parameter animation (`effects.toggleAnimation`).
     /// Answers `null`.
     ToggleEffectAnimation {
@@ -1323,6 +1339,61 @@ pub fn plan(op: Operation) -> Result<(Option<PathBuf>, String, &'static str, Val
                 "apply_effect",
                 "effects.apply",
                 json!({"clips": clips, "effect": effect}),
+                true,
+            )
+        }
+        Operation::MaskAdd {
+            project,
+            clip,
+            shape,
+            path,
+        } => {
+            if shape != "polygon" || path.len() < 3 {
+                return Err(Error::Schema(
+                    "opacity mask requires a polygon with at least three points".into(),
+                ));
+            }
+            if path
+                .iter()
+                .flatten()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+            {
+                return Err(Error::Schema(
+                    "opacity mask polygon points must be finite normalized coordinates in 0..1"
+                        .into(),
+                ));
+            }
+            (
+                Some(project),
+                "mask_add",
+                "masks.add",
+                json!({"clip": clip, "effect": "opacity", "shape": shape, "path": path}),
+                true,
+            )
+        }
+        Operation::MaskTrack {
+            project,
+            clip,
+            mask,
+            frames,
+            method,
+        } => {
+            if frames == 0
+                || !matches!(
+                    method.as_str(),
+                    "position" | "positionRotation" | "positionScaleRotation"
+                )
+            {
+                return Err(Error::Schema(
+                    "mask tracking requires positive frames and a supported tracking method".into(),
+                ));
+            }
+            (
+                Some(project),
+                "mask_track",
+                "masks.track",
+                json!({"clip": clip, "effect": "opacity", "mask": mask,
+                    "direction": "forward", "frames": frames, "method": method, "wait": true}),
                 true,
             )
         }
@@ -2299,6 +2370,58 @@ mod tests {
         .unwrap();
         assert_eq!(command, "file.exportMedia");
         assert_eq!(params["gpuRendering"], json!("auto"));
+    }
+
+    #[test]
+    fn opacity_masks_map_to_native_add_and_track_commands() {
+        let (_, add_name, add, add_params, add_saves) = plan(Operation::MaskAdd {
+            project: "x.fcproj".into(),
+            clip: 14,
+            shape: "polygon".into(),
+            path: vec![[0.1, 0.2], [0.8, 0.2], [0.5, 0.9]],
+        })
+        .unwrap();
+        assert_eq!(add_name, "mask_add");
+        assert_eq!(add, "masks.add");
+        assert_eq!(
+            add_params,
+            json!({"clip":14,"effect":"opacity","shape":"polygon","path":[[0.1,0.2],[0.8,0.2],[0.5,0.9]]})
+        );
+        assert!(add_saves);
+
+        let (_, track_name, track, track_params, track_saves) = plan(Operation::MaskTrack {
+            project: "x.fcproj".into(),
+            clip: 14,
+            mask: 0,
+            frames: 32,
+            method: "positionScaleRotation".into(),
+        })
+        .unwrap();
+        assert_eq!(track_name, "mask_track");
+        assert_eq!(track, "masks.track");
+        assert_eq!(
+            track_params,
+            json!({"clip":14,"effect":"opacity","mask":0,"direction":"forward","frames":32,"method":"positionScaleRotation","wait":true})
+        );
+        assert!(track_saves);
+
+        for operation in [
+            Operation::MaskAdd {
+                project: "x.fcproj".into(),
+                clip: 14,
+                shape: "polygon".into(),
+                path: vec![[0.1, 0.2], [1.1, 0.2], [0.5, 0.9]],
+            },
+            Operation::MaskTrack {
+                project: "x.fcproj".into(),
+                clip: 14,
+                mask: 0,
+                frames: 0,
+                method: "position".into(),
+            },
+        ] {
+            assert!(matches!(plan(operation), Err(Error::Schema(_))));
+        }
     }
 
     #[test]

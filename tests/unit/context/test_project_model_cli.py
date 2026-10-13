@@ -28,7 +28,9 @@ REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from library.tools.project_model_cli import main  # noqa: E402
+from library.tools.project_model_cli import (  # noqa: E402
+    _mask_contour_paths, main, translate_filmcraft_masks,
+)
 
 FIXTURE_MODEL = REPO / "tests/fixtures/project_model_e2e/expected-project-model.json"
 
@@ -158,6 +160,139 @@ def test_filmcraft_plan_equals_the_adapter_projection(
     printed = json.loads(capsys.readouterr().out)
     assert printed["placements"] == len(expected["placements"])
     assert printed["executed"] is False
+
+
+def test_segmented_person_mask_projects_a_measured_polygon_and_native_track(tmp_path):
+    """Only source-linked SAM2 mattes seed FilmCraft, with polygon loss measured."""
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    use = next(row for row in model["clip_uses"] if row["role"] == "a_roll")
+    use["entity_links"] = ["person-craig"]
+    source = use["source_interval"]
+    width = height = 32
+    source_clock = next(clock for clock in model["clocks"]
+                        if clock["id"] == source["clock_id"])
+    start = int(source["start"] * 2 / source_clock["ticks_per_second"])
+    runs = []
+    for y in range(height):
+        for x in range(width):
+            if 5 <= x < 21 and 4 <= y < 29:
+                runs.append(y * width + x)
+    rle = ",".join(f"{idx} 1" for idx in runs)
+    segmentation = tmp_path / "segmentation.json"
+    segmentation.write_text(json.dumps({
+        "resolution": [height, width],
+        "objects": [{"object_id": "person", "masks_rle": {str(start): rle}}],
+    }), encoding="utf-8")
+    mask = {
+        "id": "mask-person", "entity_id": "person-craig",
+        "interval": {**source, "start": 0},
+        "representation": {"kind": "sam2_rle_track",
+                           "segmentation_file": str(segmentation),
+                           "object_id": "person", "sample_fps": 2,
+                           "resolution": [height, width]},
+    }
+    model["masks"] = [mask]
+    projection = {"placements": [
+        {"clip_use_id": use["id"], "duration_ticks": 256 * 10594584},
+    ]}
+
+    class Native:
+        @staticmethod
+        def filmcraft_describe_operation(operation):
+            return {"command": operation["kind"].replace("_", "."),
+                    "params": operation, "save": True}
+
+    commands = translate_filmcraft_masks(
+        model, projection, {use["id"]: [44]}, str(tmp_path / "out.fcproj"),
+        Native(), project_root=tmp_path)
+    assert [row["command"] for row in commands] == ["mask.add", "mask.track"]
+    seed = commands[0]["params"]["path"]
+    assert len(seed) >= 4
+    clock = next(row for row in model["clocks"]
+                 if row["id"] == source["clock_id"])
+    rate = clock["frame_rate"]
+    expected_frames = round((source["end"] - source["start"])
+                            * rate["numerator"]
+                            / (clock["ticks_per_second"] * rate["denominator"]))
+    assert commands[1]["params"]["frames"] == expected_frames
+
+
+def test_m3d_region_mask_projects_from_source_memory(tmp_path):
+    """A face-linked M3d region can seed a native mask from its sidecar."""
+    import gzip
+    import hashlib
+    from itertools import groupby
+
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    use = next(row for row in model["clip_uses"] if row["role"] == "a_roll")
+    use["entity_links"] = ["person-craig"]
+    source = use["source_interval"]
+    clock = next(row for row in model["clocks"]
+                 if row["id"] == source["clock_id"])
+    ticks_per_second = clock["ticks_per_second"]
+    frame_rate = clock["frame_rate"]
+    frame_ticks = (ticks_per_second * frame_rate["denominator"]
+                   // frame_rate["numerator"])
+    source["start"] = 20 * ticks_per_second
+    source["end"] = source["start"] + 256 * frame_ticks
+    width = height = 32
+    flat = []
+    for y in range(height):
+        flat.extend(1 if 5 <= x < 24 and 3 <= y < 30 else 0
+                    for x in range(width))
+    runs = [len(list(group)) for _, group in groupby(flat)]
+    from library.tools.project_model_masks import REGION_RUNS_CODEC
+
+    digest = "a" * 64
+    memory_root = tmp_path / "memory"
+    source_dir = memory_root / digest
+    source_dir.mkdir(parents=True)
+    payload = json.dumps({"codec": REGION_RUNS_CODEC,
+                          "grid": [width, height],
+                          "masks": [runs, runs]},
+                         separators=(",", ":")).encode("utf-8")
+    sidecar = "regions.masks.fixture.json.gz"
+    (source_dir / sidecar).write_bytes(gzip.compress(payload))
+    mask = {
+        "id": "mask-region-person", "entity_id": "person-craig",
+        "interval": {"clock_id": source["clock_id"], "start": 0,
+                     "end": 40 * ticks_per_second},
+        "representation": {
+            "kind": "region_rle", "content_digest": digest,
+            "sidecar_file": sidecar,
+            "sidecar_sha256": hashlib.sha256(payload).hexdigest(),
+            "codec": REGION_RUNS_CODEC, "grid": [width, height],
+            "track_id": "region_001",
+            "sample_ticks": [19_500, 20_000], "mask_indices": [0, 1],
+        },
+    }
+    model["masks"] = [mask]
+    projection = {"placements": [{"clip_use_id": use["id"]}]}
+
+    class Native:
+        @staticmethod
+        def filmcraft_describe_operation(operation):
+            return {"command": operation["kind"].replace("_", "."),
+                    "params": operation, "save": True}
+
+    commands = translate_filmcraft_masks(
+        model, projection, {use["id"]: [44]},
+        str(tmp_path / "out.fcproj"), Native(),
+        project_root=tmp_path, memory_root=memory_root)
+    assert [row["command"] for row in commands] == ["mask.add", "mask.track"]
+    assert len(commands[0]["params"]["path"]) >= 4
+    assert commands[1]["params"]["frames"] == 256
+
+
+def test_mask_polygonization_reports_raster_agreement():
+    """The polygon passed to the native tracker must closely match its seed."""
+    import numpy as np
+
+    image = np.zeros((64, 64), dtype=np.uint8)
+    image[8:56, 16:48] = 255
+    paths, agreement = _mask_contour_paths(image.tobytes(), 64, 64)
+    assert len(paths) == 1
+    assert agreement >= 0.99
 
 
 def test_filmcraft_edit_rows_match_the_adapter_verdicts(tmp_path, monkeypatch):

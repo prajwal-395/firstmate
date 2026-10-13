@@ -203,13 +203,16 @@ def classify_filmcraft_edit(model: dict, projection: dict, edit: dict, native) -
     return True, None
 
 
-def plan_filmcraft(model: dict, native) -> dict:
+def plan_filmcraft(model: dict, native, project_root: Path | None = None) -> dict:
     """The plan: the adapter's projection plus per-edit executability."""
     projection = plan_filmcraft_projection(model, native)
     dummy_ids = {placement["clip_use_id"]: [0]
                  for placement in projection["placements"]}
     picture_effects = translate_filmcraft_picture_effects(
         model, projection, dummy_ids, "<project>", native)
+    mask_commands = translate_filmcraft_masks(
+        model, projection, dummy_ids, "<project>", native,
+        project_root=project_root)
     edit_rows = []
     for edit in model.get("edits", []):
         executable, code = classify_filmcraft_edit(model, projection, edit, native)
@@ -228,6 +231,9 @@ def plan_filmcraft(model: dict, native) -> dict:
             "picture_effects": [{"command": command["command"],
                                  "params": command["params"]}
                                 for command in picture_effects],
+            "mask_commands": [{"command": command["command"],
+                                "params": command["params"]}
+                               for command in mask_commands],
             "edits": edit_rows,
             "executed": False}
 
@@ -269,6 +275,143 @@ def translate_filmcraft_picture_effects(
         return [_describe(native, operation) for operation in operations]
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("model picture effect refused", exc) from exc
+
+
+def translate_filmcraft_masks(
+        model: dict, projection: dict, clip_ids: dict[str, list[int]],
+        project: str, native, *, project_root: Path | None = None,
+        memory_root: Path | None = None) -> list[dict]:
+    """Seed and track source-segmented person masks on matching reel clips.
+
+    Only SAM2/M3d raster masks bound to the exact source clock and a linked
+    entity are eligible. Face boxes are observations, not person mattes, and
+    are deliberately left as named projection losses. `memory_root` overrides
+    the machine source-memory root for `region_rle` sidecars (tests); when
+    None the shared per-machine root is used.
+    """
+    uses = {row["id"]: row for row in model["clip_uses"]}
+    clocks = {row["id"]: row for row in model["clocks"]}
+    placements = {row["clip_use_id"]: row for row in projection["placements"]}
+    operations = []
+    mask_indices: dict[int, int] = {}
+    for mask in model["masks"]:
+        representation = mask["representation"]
+        kind = representation["kind"]
+        if kind not in ("sam2_rle_track", "region_rle"):
+            continue
+        for use_id, use in uses.items():
+            placement = placements.get(use_id)
+            if placement is None or mask["entity_id"] not in use["entity_links"]:
+                continue
+            source = use["source_interval"]
+            interval = mask["interval"]
+            if interval["clock_id"] != source["clock_id"]:
+                continue
+            if not interval["start"] <= source["start"] < interval["end"]:
+                continue
+            clock = clocks[interval["clock_id"]]
+            domain = clock["domain"]
+            if (domain["kind"] != "source" or domain["asset_id"] != use["asset_id"]
+                    or use["role"] not in ("a_roll", "b_roll")):
+                continue
+            ticks_per_second = int(clock["ticks_per_second"])
+            seed_tick = round(source["start"] * 1000 / ticks_per_second)
+            try:
+                from library.tools import project_model_masks as masks_api
+                if kind == masks_api.SAM2_RLE_TRACK_KIND:
+                    width, height, samples = masks_api.sam2_track_frames(
+                        representation, project_folder=project_root,
+                        mask_id=mask["id"])
+                    rle = masks_api.rle_frame_at(samples, seed_tick, mask["id"])
+                    alpha = masks_api.decode_rle_to_alpha(rle, width, height, mask["id"])
+                else:
+                    width, height, samples = masks_api.region_track_frames(
+                        representation, memory_root=memory_root,
+                        mask_id=mask["id"])
+                    runs = masks_api.region_frame_at(samples, seed_tick, mask["id"])
+                    alpha = masks_api.decode_region_runs(runs, width, height, mask["id"])
+                paths, agreement = _mask_contour_paths(alpha, width, height)
+            except Exception as exc:  # noqa: BLE001 - refuse an unmeasured matte before execution
+                raise _refuse(
+                    f"mask `{mask['id']}` has no usable native seed",
+                    str(exc)[:400],
+                    "rebuild the named SAM2/M3d segmentation so a source-frame matte covers the clip start",
+                    code="REN_PM_CLI_MASK_SEED") from exc
+            if agreement < 0.92:
+                raise _refuse(
+                    f"mask `{mask['id']}` contour agreement is too low",
+                    f"polygon seed IoU is {agreement:.4f}; FilmCraft mask path would lose too much matte area",
+                    "use a denser supported mask path or improve the segmentation",
+                    code="REN_PM_CLI_MASK_AGREEMENT")
+            ids = clip_ids.get(use_id)
+            if not ids:
+                raise _refuse(f"mask `{mask['id']}` targets an unplaced use `{use_id}`",
+                              "the clip use has no reconciled FilmCraft clip id",
+                              "place the clip before projecting its mask",
+                              code="REN_PM_CLI_MASK_TARGET")
+            try:
+                clock_rate = clock["frame_rate"]
+                frames = round((source["end"] - source["start"])
+                               * int(clock_rate["numerator"])
+                               / (ticks_per_second * int(clock_rate["denominator"])))
+            except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+                raise _refuse(
+                    f"mask `{mask['id']}` target has no usable source rate",
+                    str(exc)[:300],
+                    "use a video source clock with a declared frame rate",
+                    code="REN_PM_CLI_MASK_RATE") from exc
+            if frames <= 0:
+                raise _refuse(
+                    f"mask `{mask['id']}` target has no trackable source frames",
+                    f"the placed source window converts to {frames} frames",
+                    "use a positive, frame-aligned video source window",
+                    code="REN_PM_CLI_MASK_RATE")
+            mask_index = mask_indices.get(ids[0], 0)
+            for path in paths:
+                add = _describe(native, {"kind": "mask_add", "project": project,
+                                         "clip": ids[0], "shape": "polygon",
+                                         "path": path})
+                track = _describe(native, {"kind": "mask_track", "project": project,
+                                           "clip": ids[0], "mask": mask_index,
+                                           "frames": frames,
+                                           "method": "positionScaleRotation"})
+                operations.extend((add, track))
+                mask_index += 1
+            mask_indices[ids[0]] = mask_index
+    return operations
+
+
+def _mask_contour_paths(alpha: bytes, width: int, height: int) -> tuple[list[list[list[float]]], float]:
+    """Polygonize raster masks and return the measured union IoU."""
+    import cv2
+    import numpy as np
+
+    source = np.frombuffer(alpha, dtype=np.uint8).reshape((height, width))
+    contours, _ = cv2.findContours((source > 0).astype(np.uint8),
+                                   cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        raise ValueError("segmentation seed is empty")
+    paths, polygons = [], []
+    for contour in contours:
+        if cv2.contourArea(contour) < max(4.0, width * height * 0.00002):
+            continue
+        perimeter = cv2.arcLength(contour, True)
+        polygon = cv2.approxPolyDP(contour, max(1.0, perimeter * 0.002), True)
+        if len(polygon) < 3:
+            continue
+        points = polygon.reshape((-1, 2))
+        paths.append([[float(x) / width, float(y) / height]
+                      for x, y in points.tolist()])
+        polygons.append(points)
+    if not polygons:
+        raise ValueError("segmentation seed has no polygon with three vertices")
+    rendered = np.zeros_like(source, dtype=np.uint8)
+    cv2.fillPoly(rendered, polygons, 255)
+    truth = source > 0
+    estimate = rendered > 0
+    union = int(np.logical_or(truth, estimate).sum())
+    iou = float(np.logical_and(truth, estimate).sum()) / union if union else 0.0
+    return paths, iou
 
 
 def translate_filmcraft_add_tracks(projection: dict, project: str, native):
@@ -950,6 +1093,9 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     dummy_ids = {placement["clip_use_id"]: [0] for placement in projection["placements"]}
     translate_filmcraft_picture_effects(
         model, projection, dummy_ids, project_str, native)
+    translate_filmcraft_masks(
+        model, projection, dummy_ids, project_str, native,
+        project_root=project_root)
     translate_filmcraft_edits(model, projection, dummy_ids, project_str, native)
     add_tracks_command = translate_filmcraft_add_tracks(
         projection, project_str, native)
@@ -1052,11 +1198,15 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("clip id reconciliation refused", exc) from exc
 
+    mask_commands = translate_filmcraft_masks(
+        model, projection,
+        {key: list(value) for key, value in clip_ids.items()},
+        project_str, native, project_root=project_root)
     picture_commands = translate_filmcraft_picture_effects(
         model, projection,
         {key: list(value) for key, value in clip_ids.items()},
         project_str, native)
-    real_commands = picture_commands + translate_filmcraft_edits(
+    real_commands = mask_commands + picture_commands + translate_filmcraft_edits(
         model, projection,
         {key: list(value) for key, value in clip_ids.items()},
         project_str, native)
@@ -1623,7 +1773,7 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
         return 0
 
     native = filmcraft_native()
-    plan = plan_filmcraft(model, native)
+    plan = plan_filmcraft(model, native, project_root=root)
     plan["model_source"] = source
     if args.execute:
         receipt = execute_filmcraft(
