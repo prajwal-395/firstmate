@@ -119,6 +119,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # stale model write. Same rows on the 1.06 side below.
         "library/tools/footage_model_link.py",
         "library/tools/project_model.py",
+        # Imported by project_model: the typed certainty/confidence
+        # and coverage validation every model write is checked
+        # against, so a fix here changes what cached rows validate.
+        "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
@@ -189,6 +193,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # stale model write. Same rows on the 1.06 side above.
         "library/tools/footage_model_link.py",
         "library/tools/project_model.py",
+        # Imported by project_model: the typed certainty/confidence
+        # and coverage validation every model write is checked
+        # against, so a fix here changes what cached rows validate.
+        "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
@@ -273,6 +281,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # as the scan row above.)
         "library/tools/footage_model_link.py",
         "library/tools/project_model.py",
+        # Imported by project_model: the typed certainty/confidence
+        # and coverage validation every model write is checked
+        # against, so a fix here changes what cached rows validate.
+        "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
@@ -349,6 +361,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by footage_model_link: the migration and the stores
         # behind the link.
         "library/tools/project_model.py",
+        # Imported by project_model: the typed certainty/confidence
+        # and coverage validation every model write is checked
+        # against, so a fix here changes what cached rows validate.
+        "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/project_model_store.py",
         "library/tools/protocol_conformance.py",
@@ -442,6 +458,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by footage_model_link: the migration and the stores
         # behind the link.
         "library/tools/project_model.py",
+        # Imported by project_model: the typed certainty/confidence
+        # and coverage validation every model write is checked
+        # against, so a fix here changes what cached rows validate.
+        "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/project_model_store.py",
         "library/tools/protocol_conformance.py",

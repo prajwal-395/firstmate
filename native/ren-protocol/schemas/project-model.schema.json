@@ -21,6 +21,12 @@
         "$ref": "#/$defs/Clock"
       }
     },
+    "coordinate_spaces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CoordinateSpace"
+      }
+    },
     "edits": {
       "type": "array",
       "items": {
@@ -37,6 +43,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/Entity"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Event"
       }
     },
     "frame_maps": {
@@ -58,6 +70,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/EditorialIntent"
+      }
+    },
+    "interpretations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Interpretation"
       }
     },
     "masks": {
@@ -90,6 +108,12 @@
         "$ref": "#/$defs/Provenance"
       }
     },
+    "query_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/QueryResult"
+      }
+    },
     "receipts": {
       "type": "array",
       "items": {
@@ -113,10 +137,28 @@
       "format": "uint32",
       "minimum": 0
     },
+    "signals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Signal"
+      }
+    },
+    "space_transforms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SpaceTransform"
+      }
+    },
     "streams": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/SourceStream"
+      }
+    },
+    "time_transforms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TimeTransform"
       }
     },
     "timebase_policy": {
@@ -155,6 +197,14 @@
     "provenance"
   ],
   "$defs": {
+    "AnalysisLevel": {
+      "type": "string",
+      "enum": [
+        "l0",
+        "l1",
+        "l2"
+      ]
+    },
     "Asset": {
       "type": "object",
       "properties": {
@@ -203,6 +253,16 @@
         "proxy",
         "render",
         "other"
+      ]
+    },
+    "CertaintyState": {
+      "description": "Canonical epistemic category. These values are orthogonal to confidence.",
+      "type": "string",
+      "enum": [
+        "observed",
+        "measured",
+        "inferred",
+        "interpreted"
       ]
     },
     "ClipUse": {
@@ -278,6 +338,91 @@
         "ticks_per_second"
       ]
     },
+    "CompletenessBasis": {
+      "type": "object",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/CoverageKind"
+        },
+        "freshness": {
+          "$ref": "#/$defs/CoverageFreshness"
+        },
+        "lane": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/AnalysisLevel"
+        },
+        "producer_version": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/CoverageScope"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "lane",
+        "coverage",
+        "freshness",
+        "scope",
+        "producer_version",
+        "level"
+      ]
+    },
+    "ConfidenceKind": {
+      "type": "string",
+      "enum": [
+        "rank",
+        "logit",
+        "cosine",
+        "calibrated_probability",
+        "uncertainty",
+        "raw_score"
+      ]
+    },
+    "CoordinateSpace": {
+      "type": "object",
+      "properties": {
+        "axes": {
+          "type": "string"
+        },
+        "calibration": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "units": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "units",
+        "origin",
+        "axes"
+      ]
+    },
+    "CoverageFreshness": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "unknown"
+      ]
+    },
     "CoverageKind": {
       "description": "FI-03 provenance + coverage semantics (plan C4 + A2 item 7).\n`Unavailable` means unmeasured - the lane never looked. A measured\nabsence is `Complete` with zero samples instead.",
       "type": "string",
@@ -287,6 +432,34 @@
         "inferred",
         "unavailable"
       ]
+    },
+    "CoverageScope": {
+      "type": "object",
+      "properties": {
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "EditOperation": {
       "type": "object",
@@ -442,6 +615,58 @@
         "other"
       ]
     },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "$ref": "#/$defs/CertaintyState"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypedConfidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "participant_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/VerificationStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "interval",
+        "kind",
+        "participant_ids",
+        "status",
+        "certainty",
+        "evidence_ids"
+      ]
+    },
     "EvidenceContract": {
       "description": "FI-03: one versioned measurement record (plan A2) - asset, interval\non a named clock (the observation's own), target entity/region,\ntype/value/unit/method/sample-resolution, coverage and provenance.\nMirrors `library/tools/evidence_contract.py::to_rust_evidence`;\nthe Python key set is pinned by test against these serde names.",
       "type": "object",
@@ -452,13 +677,39 @@
             "type": "string"
           }
         },
+        "certainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertaintyState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "contract_version": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0
         },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "coverage": {
           "$ref": "#/$defs/CoverageKind"
+        },
+        "coverage_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "coverage_sample_rate_hz": {
           "type": "number",
@@ -469,8 +720,28 @@
           "format": "uint64",
           "minimum": 0
         },
+        "coverage_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoverageScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "evidence_type": {
           "$ref": "#/$defs/EvidenceType"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoverageFreshness"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "measurement_type": {
           "type": "string"
@@ -484,6 +755,28 @@
             "null"
           ]
         },
+        "processing_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessingStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "producer_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          }
+        },
         "sample_resolution": {
           "type": [
             "array",
@@ -496,6 +789,18 @@
           },
           "maxItems": 2,
           "minItems": 2
+        },
+        "source_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spatial_frame_id": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "target_entity_id": {
           "type": [
@@ -533,6 +838,73 @@
         "coverage_sample_rate_hz",
         "basis_measurement_ids",
         "contract_version"
+      ]
+    },
+    "EvidenceReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "source_sample"
+            },
+            "sample_index": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stream_id",
+            "sample_index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame_index": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "source_frame"
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stream_id",
+            "frame_index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "observation"
+            },
+            "observation_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observation_id"
+          ]
+        }
       ]
     },
     "EvidenceType": {
@@ -618,6 +990,22 @@
           ],
           "format": "double"
         },
+        "confidence_detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypedConfidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contradicting_observation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "entity_id": {
           "type": "string"
         },
@@ -627,14 +1015,53 @@
         "method": {
           "type": "string"
         },
+        "method_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "observation_id": {
           "type": "string"
         },
         "provenance_id": {
           "type": "string"
         },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "status": {
           "$ref": "#/$defs/IdentityStatus"
+        },
+        "supporting_observation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "verification_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerificationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -652,6 +1079,58 @@
       "enum": [
         "candidate",
         "verified"
+      ]
+    },
+    "Interpretation": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "certainty": {
+          "$ref": "#/$defs/CertaintyState"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "objective": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": true,
+        "uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "author",
+        "evidence_ids",
+        "scope",
+        "certainty"
       ]
     },
     "Interval": {
@@ -808,11 +1287,33 @@
         "clock_id": {
           "type": "string"
         },
+        "continuity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessingStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "entity_id": {
           "type": "string"
         },
         "id": {
           "type": "string"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "provenance_id": {
           "type": "string"
@@ -839,12 +1340,32 @@
         "asset_id": {
           "type": "string"
         },
+        "certainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertaintyState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "confidence": {
           "type": [
             "number",
             "null"
           ],
           "format": "double"
+        },
+        "confidence_detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypedConfidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "evidence": {
           "description": "FI-03 evidence contract, additive: `None` for every observation\nmigrated before the contract existed, so older documents still\ndecode. `skip_serializing_if` keeps the round-trip byte-identical\nfor contract-less payloads.",
@@ -881,6 +1402,17 @@
         "provenance_id"
       ]
     },
+    "ProcessingStatus": {
+      "description": "Pipeline state is coverage metadata, never a certainty value.",
+      "type": "string",
+      "enum": [
+        "analyzed",
+        "not_analyzed",
+        "unavailable",
+        "failed",
+        "inconclusive"
+      ]
+    },
     "Provenance": {
       "type": "object",
       "properties": {
@@ -915,6 +1447,48 @@
         "producer"
       ]
     },
+    "QueryResult": {
+      "type": "object",
+      "properties": {
+        "candidate_evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completeness_basis": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CompletenessBasis"
+          }
+        },
+        "required_missing_lanes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/QueryResultStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "candidate_evidence_ids",
+        "required_missing_lanes",
+        "completeness_basis"
+      ]
+    },
+    "QueryResultStatus": {
+      "type": "string",
+      "enum": [
+        "present",
+        "confidently_absent",
+        "not_yet_analysed",
+        "inconclusive"
+      ]
+    },
     "Rational": {
       "type": "object",
       "properties": {
@@ -937,12 +1511,28 @@
     "Relation": {
       "type": "object",
       "properties": {
+        "certainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertaintyState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "confidence": {
           "type": [
             "number",
             "null"
           ],
           "format": "double"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "id": {
           "type": "string"
@@ -958,6 +1548,16 @@
         },
         "provenance_id": {
           "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerificationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "subject_id": {
           "type": "string"
@@ -1036,6 +1636,51 @@
         "details"
       ]
     },
+    "Signal": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interval": {
+          "$ref": "#/$defs/Interval"
+        },
+        "measurement_type": {
+          "type": "string"
+        },
+        "processing_status": {
+          "$ref": "#/$defs/ProcessingStatus"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "sample_clock_id": {
+          "type": "string"
+        },
+        "samples": {
+          "type": "array",
+          "items": true
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset_id",
+        "interval",
+        "measurement_type",
+        "unit",
+        "samples",
+        "sample_clock_id",
+        "provenance_id",
+        "processing_status"
+      ]
+    },
     "SourceStream": {
       "type": "object",
       "properties": {
@@ -1045,12 +1690,50 @@
         "clock_id": {
           "type": "string"
         },
+        "coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessingStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoverageFreshness"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "type": "string"
         },
         "metadata": {
           "type": "object",
           "additionalProperties": true
+        },
+        "producer_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provenance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stream_index": {
           "type": "integer",
@@ -1065,6 +1748,46 @@
         "stream_index",
         "clock_id",
         "metadata"
+      ]
+    },
+    "SpaceTransform": {
+      "type": "object",
+      "properties": {
+        "from_space": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "matrix": {
+          "description": "Row-major homogeneous matrix; dimensions are checked by the owner that applies it.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "to_space": {
+          "type": "string"
+        },
+        "uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "from_space",
+        "to_space",
+        "matrix",
+        "provenance_id"
       ]
     },
     "TimeDomain": {
@@ -1141,6 +1864,37 @@
         }
       ]
     },
+    "TimeTransform": {
+      "type": "object",
+      "properties": {
+        "from_clock": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "provenance_id": {
+          "type": "string"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TransformSegment"
+          }
+        },
+        "to_clock": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "from_clock",
+        "to_clock",
+        "segments",
+        "provenance_id"
+      ]
+    },
     "TimebasePolicy": {
       "type": "string",
       "enum": [
@@ -1159,10 +1913,48 @@
           ],
           "format": "double"
         },
+        "confidence_detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypedConfidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "coordinate_space": {
           "type": "string"
         },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "geometry": true,
+        "interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "space_transform_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tick": {
           "type": "integer",
           "format": "int64"
@@ -1173,6 +1965,83 @@
         "tick",
         "geometry",
         "coordinate_space"
+      ]
+    },
+    "TransformSegment": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/Interval"
+        },
+        "invertible": {
+          "type": "boolean"
+        },
+        "offset_ticks": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "slope": {
+          "$ref": "#/$defs/Rational"
+        },
+        "to": {
+          "$ref": "#/$defs/Interval"
+        },
+        "uncertainty_ticks": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "slope",
+        "offset_ticks",
+        "uncertainty_ticks",
+        "invertible"
+      ]
+    },
+    "TypedConfidence": {
+      "type": "object",
+      "properties": {
+        "calibration_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ConfidenceKind"
+        },
+        "population": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "producer": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "kind",
+        "producer"
+      ]
+    },
+    "VerificationStatus": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "candidate",
+        "verified",
+        "retracted"
       ]
     }
   }

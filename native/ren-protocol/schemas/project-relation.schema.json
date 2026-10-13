@@ -3,12 +3,28 @@
   "title": "Relation",
   "type": "object",
   "properties": {
+    "certainty": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CertaintyState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "confidence": {
       "type": [
         "number",
         "null"
       ],
       "format": "double"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "id": {
       "type": "string"
@@ -25,6 +41,16 @@
     "provenance_id": {
       "type": "string"
     },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerificationStatus"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "subject_id": {
       "type": "string"
     }
@@ -39,6 +65,16 @@
     "provenance_id"
   ],
   "$defs": {
+    "CertaintyState": {
+      "description": "Canonical epistemic category. These values are orthogonal to confidence.",
+      "type": "string",
+      "enum": [
+        "observed",
+        "measured",
+        "inferred",
+        "interpreted"
+      ]
+    },
     "Interval": {
       "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
       "type": "object",
@@ -60,6 +96,15 @@
         "clock_id",
         "start",
         "end"
+      ]
+    },
+    "VerificationStatus": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "candidate",
+        "verified",
+        "retracted"
       ]
     }
   }

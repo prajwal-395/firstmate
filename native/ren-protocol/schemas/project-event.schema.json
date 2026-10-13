@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event",
+  "type": "object",
+  "properties": {
+    "certainty": {
+      "$ref": "#/$defs/CertaintyState"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TypedConfidence"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "participant_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "$ref": "#/$defs/VerificationStatus"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "interval",
+    "kind",
+    "participant_ids",
+    "status",
+    "certainty",
+    "evidence_ids"
+  ],
+  "$defs": {
+    "CertaintyState": {
+      "description": "Canonical epistemic category. These values are orthogonal to confidence.",
+      "type": "string",
+      "enum": [
+        "observed",
+        "measured",
+        "inferred",
+        "interpreted"
+      ]
+    },
+    "ConfidenceKind": {
+      "type": "string",
+      "enum": [
+        "rank",
+        "logit",
+        "cosine",
+        "calibrated_probability",
+        "uncertainty",
+        "raw_score"
+      ]
+    },
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "TypedConfidence": {
+      "type": "object",
+      "properties": {
+        "calibration_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ConfidenceKind"
+        },
+        "population": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "producer": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "kind",
+        "producer"
+      ]
+    },
+    "VerificationStatus": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "candidate",
+        "verified",
+        "retracted"
+      ]
+    }
+  }
+}

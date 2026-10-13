@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Interpretation",
+  "type": "object",
+  "properties": {
+    "author": {
+      "type": "string"
+    },
+    "certainty": {
+      "$ref": "#/$defs/CertaintyState"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "objective": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scope": true,
+    "uncertainty": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "author",
+    "evidence_ids",
+    "scope",
+    "certainty"
+  ],
+  "$defs": {
+    "CertaintyState": {
+      "description": "Canonical epistemic category. These values are orthogonal to confidence.",
+      "type": "string",
+      "enum": [
+        "observed",
+        "measured",
+        "inferred",
+        "interpreted"
+      ]
+    }
+  }
+}

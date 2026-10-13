@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalysisLevel",
+  "type": "string",
+  "enum": [
+    "l0",
+    "l1",
+    "l2"
+  ]
+}

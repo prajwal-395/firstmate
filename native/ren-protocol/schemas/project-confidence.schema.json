@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TypedConfidence",
+  "type": "object",
+  "properties": {
+    "calibration_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "$ref": "#/$defs/ConfidenceKind"
+    },
+    "population": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "producer": {
+      "type": "string"
+    },
+    "value": {
+      "type": "number",
+      "format": "double"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "value",
+    "kind",
+    "producer"
+  ],
+  "$defs": {
+    "ConfidenceKind": {
+      "type": "string",
+      "enum": [
+        "rank",
+        "logit",
+        "cosine",
+        "calibrated_probability",
+        "uncertainty",
+        "raw_score"
+      ]
+    }
+  }
+}

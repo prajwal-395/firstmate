@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletenessBasis",
+  "type": "object",
+  "properties": {
+    "coverage": {
+      "$ref": "#/$defs/CoverageKind"
+    },
+    "freshness": {
+      "$ref": "#/$defs/CoverageFreshness"
+    },
+    "lane": {
+      "type": "string"
+    },
+    "level": {
+      "$ref": "#/$defs/AnalysisLevel"
+    },
+    "producer_version": {
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/CoverageScope"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "lane",
+    "coverage",
+    "freshness",
+    "scope",
+    "producer_version",
+    "level"
+  ],
+  "$defs": {
+    "AnalysisLevel": {
+      "type": "string",
+      "enum": [
+        "l0",
+        "l1",
+        "l2"
+      ]
+    },
+    "CoverageFreshness": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "unknown"
+      ]
+    },
+    "CoverageKind": {
+      "description": "FI-03 provenance + coverage semantics (plan C4 + A2 item 7).\n`Unavailable` means unmeasured - the lane never looked. A measured\nabsence is `Complete` with zero samples instead.",
+      "type": "string",
+      "enum": [
+        "complete",
+        "sampled",
+        "inferred",
+        "unavailable"
+      ]
+    },
+    "CoverageScope": {
+      "type": "object",
+      "properties": {
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    }
+  }
+}

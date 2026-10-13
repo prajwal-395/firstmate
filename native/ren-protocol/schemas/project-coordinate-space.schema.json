@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoordinateSpace",
+  "type": "object",
+  "properties": {
+    "axes": {
+      "type": "string"
+    },
+    "calibration": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "origin": {
+      "type": "string"
+    },
+    "units": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "units",
+    "origin",
+    "axes"
+  ]
+}

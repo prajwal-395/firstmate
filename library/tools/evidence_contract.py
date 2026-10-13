@@ -81,11 +81,37 @@ class EvidenceType(str, Enum):
     CREATIVE_JUDGMENT = "creative_judgment"
 
 
+class CertaintyState(str, Enum):
+    OBSERVED = "observed"
+    MEASURED = "measured"
+    INFERRED = "inferred"
+    INTERPRETED = "interpreted"
+
+
+class ProcessingStatus(str, Enum):
+    NOT_ANALYZED = "not_analyzed"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+    INCONCLUSIVE = "inconclusive"
+
+
 class CoverageKind(str, Enum):
     COMPLETE = "complete"
     SAMPLED = "sampled"
     INFERRED = "inferred"
     UNAVAILABLE = "unavailable"
+
+
+#: Coverage levels: the L0/L1/L2 analysis policy the contract must be able
+#: to express without building the scheduler here.
+ANALYSIS_LEVELS = ("l0", "l1", "l2")
+
+#: Freshness of the producer run behind a record.
+COVERAGE_FRESHNESS = ("fresh", "stale", "unknown")
+
+#: Typed evidence-link kinds: a record cites the source samples/frames or
+#: input observations it was read from, never a bare description.
+EVIDENCE_REFERENCE_KINDS = ("source_sample", "source_frame", "observation")
 
 
 class EvidenceContractError(ValueError):
@@ -252,6 +278,37 @@ class EvidenceRecord:
     policy_id: str | None = None
     basis_measurement_ids: tuple[str, ...] = ()
     contract_version: int = EVIDENCE_CONTRACT_VERSION
+    certainty_state: CertaintyState | None = None
+    processing_status: ProcessingStatus | None = None
+    source_reference: str | None = None
+    spatial_frame_id: str | None = None
+    coordinate_space_id: str | None = None
+    references: tuple[dict[str, Any], ...] = ()
+    coverage_scope: dict[str, Any] | None = None
+    coverage_level: str | None = None
+    producer_version: str | None = None
+    freshness: str | None = None
+
+    @property
+    def certainty(self) -> CertaintyState | None:
+        """FI-03 compatibility adapter; policy evaluation has no certainty."""
+        if self.certainty_state is not None:
+            if self.evidence_type is EvidenceType.EVALUATION:
+                raise EvidenceTypeError("policy evaluation cannot carry epistemic certainty")
+            allowed = {
+                EvidenceType.MEASUREMENT: {CertaintyState.OBSERVED, CertaintyState.MEASURED},
+                EvidenceType.INFERENCE: {CertaintyState.INFERRED},
+                EvidenceType.CREATIVE_JUDGMENT: {CertaintyState.INTERPRETED},
+            }
+            if self.certainty_state not in allowed[self.evidence_type]:
+                raise EvidenceTypeError("certainty conflicts with legacy evidence kind")
+            return self.certainty_state
+        return {
+            EvidenceType.MEASUREMENT: CertaintyState.MEASURED,
+            EvidenceType.INFERENCE: CertaintyState.INFERRED,
+            EvidenceType.CREATIVE_JUDGMENT: CertaintyState.INTERPRETED,
+            EvidenceType.EVALUATION: None,
+        }[self.evidence_type]
 
     def __post_init__(self) -> None:
         if self.contract_version > EVIDENCE_CONTRACT_VERSION:
@@ -321,6 +378,48 @@ class EvidenceRecord:
             raise EvidenceContractError("every value carries its method")
         if not self.provenance_id:
             raise EvidenceContractError("every value carries provenance")
+        # Eagerly refuse a certainty state its evidence kind cannot carry:
+        # a measurement is observed or measured, an inference inferred, a
+        # creative judgment interpreted, and a policy evaluation has none.
+        _ = self.certainty
+        if self.freshness is not None and self.freshness not in COVERAGE_FRESHNESS:
+            raise EvidenceContractError(
+                f"freshness {self.freshness!r} is not one of {COVERAGE_FRESHNESS}")
+        if self.coverage_level is not None and self.coverage_level not in ANALYSIS_LEVELS:
+            raise EvidenceContractError(
+                f"coverage level {self.coverage_level!r} is not one of {ANALYSIS_LEVELS}")
+        for reference in self.references:
+            if not isinstance(reference, dict):
+                raise EvidenceContractError("evidence references are mappings")
+            kind = reference.get("kind")
+            if kind not in EVIDENCE_REFERENCE_KINDS:
+                raise EvidenceContractError(
+                    f"evidence reference kind {kind!r} is not one of {EVIDENCE_REFERENCE_KINDS}")
+            if kind in ("source_sample", "source_frame"):
+                key = "sample_index" if kind == "source_sample" else "frame_index"
+                if not reference.get("stream_id") or not isinstance(reference.get(key), int):
+                    raise EvidenceContractError(
+                        f"{kind} references carry a stream id and an integer {key}")
+            elif not reference.get("observation_id"):
+                raise EvidenceContractError(
+                    "observation references carry an observation id")
+        if self.coverage_scope is not None:
+            if not isinstance(self.coverage_scope, dict):
+                raise EvidenceContractError("coverage scope is a mapping")
+            unknown = set(self.coverage_scope) - {
+                "interval", "coordinate_space_id", "target_entity_id"}
+            if unknown:
+                raise EvidenceContractError(
+                    f"coverage scope carries unknown keys {sorted(unknown)}")
+            interval = self.coverage_scope.get("interval")
+            if interval is not None and (
+                    not isinstance(interval, dict)
+                    or not isinstance(interval.get("start"), int)
+                    or not isinstance(interval.get("end"), int)
+                    or interval["end"] <= interval["start"]
+                    or not interval.get("clock_id")):
+                raise EvidenceContractError(
+                    "coverage scope intervals name a clock and a non-empty tick range")
 
 
 def new_measurement(asset_id: str, clock_id: str, start_tick: int,
@@ -670,7 +769,7 @@ def to_rust_evidence(record: EvidenceRecord) -> dict[str, Any]:
     """The ``EvidenceContract`` shape ``native/ren-protocol`` stores
     on its ``Observation``. Key names match the Rust struct's serde
     names exactly; a test pins the set."""
-    return {
+    result = {
         "evidence_type": record.evidence_type.value,
         "measurement_type": record.measurement_type,
         "value": record.value,
@@ -686,7 +785,18 @@ def to_rust_evidence(record: EvidenceRecord) -> dict[str, Any]:
         "policy_id": record.policy_id,
         "basis_measurement_ids": list(record.basis_measurement_ids),
         "contract_version": record.contract_version,
+        "certainty": record.certainty.value if record.certainty is not None else None,
+        "processing_status": record.processing_status.value if record.processing_status is not None else None,
+        "source_reference": record.source_reference,
+        "spatial_frame_id": record.spatial_frame_id,
+        "coordinate_space_id": record.coordinate_space_id,
+        "references": [dict(reference) for reference in record.references],
+        "coverage_scope": dict(record.coverage_scope) if record.coverage_scope is not None else None,
+        "coverage_level": record.coverage_level,
+        "producer_version": record.producer_version,
+        "freshness": record.freshness,
     }
+    return result
 
 
 #: The exact key set ``to_rust_evidence`` emits, pinned against the
@@ -697,6 +807,9 @@ RUST_EVIDENCE_KEYS: frozenset[str] = frozenset({
     "coverage_sample_rate_hz", "target_entity_id", "target_region",
     "uncertainty", "policy_id", "basis_measurement_ids",
     "contract_version",
+    "certainty", "processing_status", "source_reference",
+    "spatial_frame_id", "coordinate_space_id", "references",
+    "coverage_scope", "coverage_level", "producer_version", "freshness",
 })
 
 
@@ -708,18 +821,23 @@ COVERAGE_NOTE = (
     "must never read sparse sampling as evidence that nothing happened.")
 
 __all__ = [
+    "ANALYSIS_LEVELS",
+    "COVERAGE_FRESHNESS",
     "COVERAGE_NOTE",
     "EVIDENCE_CONTRACT_VERSION",
+    "EVIDENCE_REFERENCE_KINDS",
     "KNOWN_METHODS",
     "MODALITY_TO_MEASUREMENT",
     "RUST_EVIDENCE_KEYS",
     "TICKS_PER_SECOND",
+    "CertaintyState",
     "CoverageKind",
     "EvidenceContractError",
     "EvidenceRecord",
     "EvidenceType",
     "EvidenceTypeError",
     "MulticamOffset",
+    "ProcessingStatus",
     "ProvenanceRecord",
     "RationalRate",
     "TemporalAlignmentError",

@@ -183,6 +183,78 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             schema_for!(MlWorkerHealthReport),
         ),
         named("project-model", "ProjectModel", schema_for!(ProjectModel)),
+        named(
+            "project-certainty-state",
+            "CertaintyState",
+            schema_for!(CertaintyState),
+        ),
+        named(
+            "project-processing-status",
+            "ProcessingStatus",
+            schema_for!(ProcessingStatus),
+        ),
+        named(
+            "project-query-result-status",
+            "QueryResultStatus",
+            schema_for!(QueryResultStatus),
+        ),
+        named(
+            "project-query-result",
+            "QueryResult",
+            schema_for!(QueryResult),
+        ),
+        named("project-event", "Event", schema_for!(Event)),
+        named(
+            "project-interpretation",
+            "Interpretation",
+            schema_for!(Interpretation),
+        ),
+        named("project-signal", "Signal", schema_for!(Signal)),
+        named(
+            "project-time-transform",
+            "TimeTransform",
+            schema_for!(TimeTransform),
+        ),
+        named(
+            "project-space-transform",
+            "SpaceTransform",
+            schema_for!(SpaceTransform),
+        ),
+        named(
+            "project-coordinate-space",
+            "CoordinateSpace",
+            schema_for!(CoordinateSpace),
+        ),
+        named(
+            "project-confidence",
+            "TypedConfidence",
+            schema_for!(TypedConfidence),
+        ),
+        named(
+            "project-evidence-reference",
+            "EvidenceReference",
+            schema_for!(EvidenceReference),
+        ),
+        named(
+            "project-analysis-level",
+            "AnalysisLevel",
+            schema_for!(AnalysisLevel),
+        ),
+        named(
+            "project-coverage-freshness",
+            "CoverageFreshness",
+            schema_for!(CoverageFreshness),
+        ),
+        named(
+            "project-coverage-scope",
+            "CoverageScope",
+            schema_for!(CoverageScope),
+        ),
+        named(
+            "project-completeness-basis",
+            "CompletenessBasis",
+            schema_for!(CompletenessBasis),
+        ),
         named("project-id", "ProjectId", schema_for!(ProjectId)),
         named("project-clock-id", "ClockId", schema_for!(ClockId)),
         named("project-time-domain", "TimeDomain", schema_for!(TimeDomain)),

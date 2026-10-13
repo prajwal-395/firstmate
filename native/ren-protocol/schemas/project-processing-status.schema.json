@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProcessingStatus",
+  "description": "Pipeline state is coverage metadata, never a certainty value.",
+  "type": "string",
+  "enum": [
+    "analyzed",
+    "not_analyzed",
+    "unavailable",
+    "failed",
+    "inconclusive"
+  ]
+}

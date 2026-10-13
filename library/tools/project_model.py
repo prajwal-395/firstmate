@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,7 @@ def validate_project_model(model: dict[str, Any]) -> None:
     if version != SCHEMA_VERSION:
         raise ValueError(f"unsupported project model schema_version {version!r}; expected {SCHEMA_VERSION}")
     protocol_conformance.validate(model, "project-model")
+    from library.tools.project_model_contract import validate_typed_confidence
     for clock in model["clocks"]:
         if clock["ticks_per_second"] <= 0 or (clock["frame_rate"] and clock["frame_rate"]["denominator"] <= 0):
             raise ValueError("clock rates must have positive denominators and ticks_per_second")
@@ -30,6 +33,126 @@ def validate_project_model(model: dict[str, Any]) -> None:
     confidence_values.extend(sample["confidence"] for track in model["tracks"] for sample in track["samples"])
     if any(value is not None and not 0 <= value <= 1 for value in confidence_values):
         raise ValueError("confidence must be between 0 and 1")
+    observation_ids = {item["id"] for item in model["observations"]}
+    entity_ids = {item["id"] for item in model["entities"]}
+    clock_ids = {clock["id"] for clock in model["clocks"]}
+    stream_ids = {stream["id"] for stream in model.get("streams", [])}
+    for item in model.get("observations", []):
+        detail = item.get("confidence_detail")
+        if detail is not None:
+            validate_typed_confidence(detail["value"], detail["kind"], detail["producer"],
+                                      detail.get("calibration_version"))
+        certainty = item.get("certainty")
+        if certainty not in (None, "observed", "measured", "inferred", "interpreted"):
+            raise ValueError("observation certainty must use the canonical epistemic vocabulary")
+        if clock_ids and item["interval"]["clock_id"] not in clock_ids:
+            raise ValueError("observation references unknown clock")
+        evidence = item.get("evidence")
+        if isinstance(evidence, dict):
+            if not set(evidence.get("basis_measurement_ids", [])) <= observation_ids:
+                raise ValueError("evidence references unknown basis observations")
+            for reference in evidence.get("references", []):
+                kind = reference.get("kind")
+                if kind in ("source_sample", "source_frame"):
+                    if stream_ids and reference.get("stream_id") not in stream_ids:
+                        raise ValueError("evidence references unknown source stream")
+                elif kind == "observation":
+                    if observation_ids and reference.get("observation_id") not in observation_ids:
+                        raise ValueError("evidence references unknown input observation")
+                else:
+                    raise ValueError(f"evidence reference has unknown kind {kind!r}")
+    for item in model.get("identity_links", []):
+        detail = item.get("confidence_detail")
+        if detail is not None:
+            validate_typed_confidence(detail["value"], detail["kind"], detail["producer"],
+                                      detail.get("calibration_version"))
+    for item in model.get("events", []):
+        detail = item.get("confidence")
+        if detail is not None:
+            validate_typed_confidence(detail["value"], detail["kind"], detail["producer"],
+                                      detail.get("calibration_version"))
+    for link in model.get("identity_links", []):
+        support = link.get("supporting_observation_ids", [])
+        contradicting = link.get("contradicting_observation_ids", [])
+        if link.get("verification_status") == "verified" and not (support or link.get("observation_id")):
+            raise ValueError("verified identity links require supporting observations")
+        if support and not set(support) <= observation_ids:
+            raise ValueError("identity link references unknown supporting observations")
+        if contradicting and not set(contradicting) <= observation_ids:
+            raise ValueError("identity link references unknown contradicting observations")
+        uncertainty = link.get("uncertainty")
+        if uncertainty is not None and not 0 <= uncertainty <= 1:
+            raise ValueError("identity link uncertainty must be between 0 and 1")
+        scope = link.get("scope")
+        if scope is not None and scope["start"] >= scope["end"]:
+            raise ValueError("identity link scope must be a non-empty half-open interval")
+    for relation in model.get("relations", []):
+        if relation.get("status") == "verified" and not relation.get("evidence_ids"):
+            raise ValueError("verified relations require evidence")
+        if not set(relation.get("evidence_ids", [])) <= observation_ids:
+            raise ValueError("relation references unknown observations")
+        if relation.get("certainty") not in (None, "observed", "measured", "inferred", "interpreted"):
+            raise ValueError("relation certainty must use the canonical epistemic vocabulary")
+    for event in model.get("events", []):
+        if event["interval"]["start"] >= event["interval"]["end"]:
+            raise ValueError("event intervals must be non-empty and half-open")
+        if event.get("status") == "verified" and not event.get("evidence_ids"):
+            raise ValueError("verified events require evidence")
+        if not set(event.get("evidence_ids", [])) <= observation_ids:
+            raise ValueError("event references unknown observations")
+        if not set(event.get("participant_ids", [])) <= entity_ids:
+            raise ValueError("event references unknown participants")
+    for interpretation in model.get("interpretations", []):
+        if interpretation["certainty"] != "interpreted":
+            raise ValueError("interpretation certainty must be interpreted")
+        uncertainty = interpretation.get("uncertainty")
+        if uncertainty is not None and not 0 <= uncertainty <= 1:
+            raise ValueError("interpretation uncertainty must be between 0 and 1")
+    for signal in model.get("signals", []):
+        if signal["interval"]["start"] >= signal["interval"]["end"]:
+            raise ValueError("signal intervals must be non-empty and half-open (start < end)")
+        if clock_ids and (signal["sample_clock_id"] not in clock_ids
+                          or signal["interval"]["clock_id"] not in clock_ids):
+            raise ValueError("signal references unknown clock")
+        if signal.get("processing_status") == "unavailable" and signal.get("samples"):
+            raise ValueError("unavailable signal cannot carry samples")
+    coordinate_ids = {space["id"] for space in model.get("coordinate_spaces", [])}
+    space_transform_ids = {transform["id"] for transform in model.get("space_transforms", [])}
+    for track in model.get("tracks", []):
+        if clock_ids and track["clock_id"] not in clock_ids:
+            raise ValueError("track references unknown clock")
+        ticks = [sample["tick"] for sample in track["samples"]]
+        if any(first >= second for first, second in pairwise(ticks)):
+            raise ValueError("track samples must be strictly ordered; discontinuity must be explicit")
+        for sample in track["samples"]:
+            detail = sample.get("confidence_detail")
+            if detail is not None:
+                validate_typed_confidence(detail["value"], detail["kind"], detail["producer"],
+                                          detail.get("calibration_version"))
+            interval = sample.get("interval")
+            if interval is not None and (interval["start"] >= interval["end"]
+                                         or interval["clock_id"] != track["clock_id"]):
+                raise ValueError("track sample interval must be valid on the track clock")
+            if not set(sample.get("evidence_ids", [])) <= observation_ids:
+                raise ValueError("track sample references unknown observation")
+            if sample.get("space_transform_id") is not None \
+                    and sample["space_transform_id"] not in space_transform_ids:
+                raise ValueError("track sample references unknown space transform")
+            if sample.get("coordinate_space_id") is not None \
+                    and sample["coordinate_space_id"] not in coordinate_ids:
+                raise ValueError("track sample references unknown coordinate space")
+    for result in model.get("query_results", []):
+        if result["status"] == "confidently_absent" and not result["completeness_basis"]:
+            raise ValueError("confidently absent requires a completeness basis")
+        if result["status"] == "confidently_absent" and any(
+            basis["coverage"] != "complete"
+            or basis["freshness"] != "fresh"
+            or not basis["producer_version"]
+            for basis in result["completeness_basis"]
+        ):
+            raise ValueError("confidently absent requires fresh complete versioned coverage")
+        if result["status"] == "not_yet_analysed" and not result["required_missing_lanes"]:
+            raise ValueError("not_yet_analysed requires missing lanes")
     for collection in ("observations", "masks", "relations", "effects"):
         for item in model[collection]:
             interval = item["interval"]
@@ -43,6 +166,28 @@ def validate_project_model(model: dict[str, Any]) -> None:
         for segment in frame_map["segments"]:
             if segment["from"]["start"] >= segment["from"]["end"] or segment["to"]["start"] >= segment["to"]["end"]:
                 raise ValueError("frame map intervals must be non-empty and half-open (start < end)")
+    for stream in model.get("streams", []):
+        if clock_ids and stream["clock_id"] not in clock_ids:
+            raise ValueError("source stream references unknown clock")
+        if stream.get("source_digest") == "":
+            raise ValueError("source stream digest must not be empty")
+    for transform in model.get("time_transforms", []):
+        if clock_ids and not {transform["from_clock"], transform["to_clock"]} <= clock_ids:
+            raise ValueError("time transform references unknown clock")
+        for segment in transform["segments"]:
+            if segment["slope"]["denominator"] <= 0:
+                raise ValueError("time transform slope denominator must be positive")
+            if segment["from"]["start"] >= segment["from"]["end"] or segment["to"]["start"] >= segment["to"]["end"]:
+                raise ValueError("time transform intervals must be non-empty and half-open")
+            if segment["from"]["clock_id"] != transform["from_clock"] \
+                    or segment["to"]["clock_id"] != transform["to_clock"]:
+                raise ValueError("time transform segment clock mismatch")
+    for transform in model.get("space_transforms", []):
+        if coordinate_ids and not {transform["from_space"], transform["to_space"]} <= coordinate_ids:
+            raise ValueError("space transform references unknown coordinate space")
+        matrix = transform.get("matrix", [])
+        if len(matrix) not in (9, 16) or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in matrix):
+            raise ValueError("space transform matrix must be a finite 3x3 or 4x4")
 
 
 def read_project_model(path: Path) -> dict[str, Any]:

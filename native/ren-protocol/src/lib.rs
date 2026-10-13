@@ -35,8 +35,9 @@ pub use ml_worker::{
     MlWorkerProgress, MlWorkerRefusal, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
 };
 pub use project_model::{
-    decode_project_model, validate_project_model, CoverageKind, EvidenceContract, EvidenceType,
-    ProjectModel, ProjectModelDecodeError, EVIDENCE_CONTRACT_VERSION, PROJECT_MODEL_SCHEMA_VERSION,
+    decode_project_model, validate_project_model, CertaintyState, CoverageKind, EvidenceContract,
+    EvidenceType, ProjectModel, ProjectModelDecodeError, EVIDENCE_CONTRACT_VERSION,
+    PROJECT_MODEL_SCHEMA_VERSION,
 };
 pub use receipt::{
     GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,

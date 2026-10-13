@@ -147,6 +147,7 @@ def _model_with_moves(spec):
                                          timeline_tps=FPS)
     model = json.loads((FIXTURES / "model-move-drift.json")
                        .read_text(encoding="utf-8"))
+    fixture_clocks = list(model["clocks"])
     tps = int(FPS)
     clocks = []
     for entry in adapted["clocks"]:
@@ -159,6 +160,14 @@ def _model_with_moves(spec):
                        "frame_rate": {"numerator": entry[
                            "ticks_per_second"], "denominator": 1}})
     model["clocks"] = clocks
+    # The fixture's checker stream still lives on its own clock: keep any
+    # fixture clock retained streams reference, so the seating validates
+    # with every stream clock resolvable instead of dangling.
+    retained = {stream["clock_id"] for stream in model.get("streams", [])}
+    have = {clock["id"] for clock in model["clocks"]}
+    model["clocks"].extend(
+        clock for clock in fixture_clocks
+        if clock["id"] in retained and clock["id"] not in have)
     assets = [asset for asset in model["assets"]]
     for use in adapted["uses_by_block"].values():
         asset_id = use["asset_id"]

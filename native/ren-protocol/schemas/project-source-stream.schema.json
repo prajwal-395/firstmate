@@ -9,12 +9,50 @@
     "clock_id": {
       "type": "string"
     },
+    "coverage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProcessingStatus"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "freshness": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CoverageFreshness"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "id": {
       "type": "string"
     },
     "metadata": {
       "type": "object",
       "additionalProperties": true
+    },
+    "producer_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "provenance_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_digest": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "stream_index": {
       "type": "integer",
@@ -29,5 +67,26 @@
     "stream_index",
     "clock_id",
     "metadata"
-  ]
+  ],
+  "$defs": {
+    "CoverageFreshness": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "unknown"
+      ]
+    },
+    "ProcessingStatus": {
+      "description": "Pipeline state is coverage metadata, never a certainty value.",
+      "type": "string",
+      "enum": [
+        "analyzed",
+        "not_analyzed",
+        "unavailable",
+        "failed",
+        "inconclusive"
+      ]
+    }
+  }
 }

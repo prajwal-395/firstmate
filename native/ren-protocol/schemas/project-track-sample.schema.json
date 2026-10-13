@@ -10,10 +10,48 @@
       ],
       "format": "double"
     },
+    "confidence_detail": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TypedConfidence"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "coordinate_space": {
       "type": "string"
     },
+    "coordinate_space_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "geometry": true,
+    "interval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Interval"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "space_transform_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "tick": {
       "type": "integer",
       "format": "int64"
@@ -24,5 +62,74 @@
     "tick",
     "geometry",
     "coordinate_space"
-  ]
+  ],
+  "$defs": {
+    "ConfidenceKind": {
+      "type": "string",
+      "enum": [
+        "rank",
+        "logit",
+        "cosine",
+        "calibrated_probability",
+        "uncertainty",
+        "raw_score"
+      ]
+    },
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "TypedConfidence": {
+      "type": "object",
+      "properties": {
+        "calibration_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ConfidenceKind"
+        },
+        "population": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "producer": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "kind",
+        "producer"
+      ]
+    }
+  }
 }

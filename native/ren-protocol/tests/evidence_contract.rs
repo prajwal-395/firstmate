@@ -6,8 +6,8 @@
 //! validation, mirroring the Python `EvidenceTypeError`.
 
 use ren_protocol::project_model::{
-    validate_project_model, AssetId, ClockId, EVIDENCE_CONTRACT_VERSION, EntityId, Interval,
-    Observation, ObservationId, ProjectModel, ProvenanceId, TimebasePolicy,
+    validate_project_model, AssetId, ClockId, EntityId, Interval, Observation, ObservationId,
+    ProjectModel, ProvenanceId, TimebasePolicy, EVIDENCE_CONTRACT_VERSION,
 };
 use serde_json::{json, Value};
 
@@ -73,6 +73,13 @@ fn model_with_observations(observations: Vec<Observation>) -> ProjectModel {
         nle_bindings: vec![],
         receipts: vec![],
         provenance: vec![],
+        signals: vec![],
+        events: vec![],
+        interpretations: vec![],
+        coordinate_spaces: vec![],
+        time_transforms: vec![],
+        space_transforms: vec![],
+        query_results: vec![],
     }
 }
 
@@ -125,7 +132,11 @@ fn an_inference_without_uncertainty_is_refused() {
 fn clock_and_entity_ids_keep_their_shapes() {
     // The contract's target and clock references reuse the existing id
     // types; a typo here would be a key-name mismatch across the FFI.
-    let _ = (AssetId("a".into()), ClockId("c".into()), EntityId("e".into()));
+    let _ = (
+        AssetId("a".into()),
+        ClockId("c".into()),
+        EntityId("e".into()),
+    );
     let _ = (
         ObservationId("o".into()),
         ProvenanceId("p".into()),

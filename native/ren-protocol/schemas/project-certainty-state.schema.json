@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CertaintyState",
+  "description": "Canonical epistemic category. These values are orthogonal to confidence.",
+  "type": "string",
+  "enum": [
+    "observed",
+    "measured",
+    "inferred",
+    "interpreted"
+  ]
+}

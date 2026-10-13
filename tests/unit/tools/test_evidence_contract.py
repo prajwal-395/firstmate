@@ -258,6 +258,91 @@ def test_rust_evidence_keys_are_pinned():
         == set(contract.RUST_EVIDENCE_KEYS)
 
 
+def test_canonical_certainty_is_explicit_and_evaluation_stays_separate():
+    from dataclasses import replace
+
+    observed = replace(_sharpness([320, 180], SHARP_180),
+                       certainty_state=contract.CertaintyState.OBSERVED)
+    assert contract.to_rust_evidence(observed)["certainty"] == "observed"
+    assert contract.to_rust_evidence(_sharpness([320, 180], SHARP_180))["certainty"] == "measured"
+
+
+def test_illegal_certainty_coercions_raise():
+    """Acceptance: the four states are epistemic, not ordinal - a
+    measurement is observed or measured, an inference inferred, a
+    creative judgment interpreted, and a policy evaluation has none."""
+    from dataclasses import replace
+
+    with pytest.raises(contract.EvidenceTypeError):
+        replace(_sharpness([320, 180], SHARP_180),
+                certainty_state=contract.CertaintyState.INFERRED)
+    with pytest.raises(contract.EvidenceTypeError):
+        contract.EvidenceRecord(
+            asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1,
+            target_entity_id=None, target_region=None,
+            evidence_type=contract.EvidenceType.EVALUATION,
+            measurement_type="eval.sharpness_pass",
+            value=True, unit="boolean",
+            method="policy-check-v1",
+            sample_resolution=None,
+            coverage=contract.CoverageKind.COMPLETE, coverage_samples=1,
+            coverage_sample_rate_hz=0.0, provenance_id="prov-x",
+            policy_id="steady_broll_v1", basis_measurement_ids=("m1",),
+            certainty_state=contract.CertaintyState.MEASURED)
+
+
+def test_evidence_links_to_source_samples_and_frames():
+    """Acceptance (observations row): a record cites the source
+    samples/frames and input observations it was read from, plus its
+    spatial frame, coordinate space, coverage scope/level, producer
+    version and freshness - and the emitted dict carries them to Rust."""
+    from dataclasses import replace
+
+    record = replace(
+        _sharpness([320, 180], SHARP_180),
+        processing_status=contract.ProcessingStatus.NOT_ANALYZED,
+        source_reference="frame:12",
+        spatial_frame_id="frame-12",
+        coordinate_space_id="space-pixels",
+        references=(
+            {"kind": "source_frame", "stream_id": "stream-video",
+             "frame_index": 12},
+            {"kind": "observation", "observation_id": "obs-1"},
+        ),
+        coverage_scope={"interval": {"clock_id": CLOCK, "start": 0,
+                                     "end": 1000},
+                        "coordinate_space_id": "space-pixels",
+                        "target_entity_id": None},
+        coverage_level="l1",
+        producer_version="picture-quality-deterministic_v1",
+        freshness="fresh")
+    emitted = contract.to_rust_evidence(record)
+    assert set(emitted) == set(contract.RUST_EVIDENCE_KEYS)
+    assert emitted["references"][0]["frame_index"] == 12
+    assert emitted["coverage_scope"]["coordinate_space_id"] == "space-pixels"
+    assert emitted["coverage_level"] == "l1"
+    assert emitted["freshness"] == "fresh"
+
+
+def test_evidence_links_refuse_unknown_kinds_and_ranges():
+    from dataclasses import replace
+
+    with pytest.raises(contract.EvidenceContractError):
+        replace(_sharpness([320, 180], SHARP_180),
+                references=({"kind": "vibes", "stream_id": "s"},))
+    with pytest.raises(contract.EvidenceContractError):
+        replace(_sharpness([320, 180], SHARP_180),
+                references=({"kind": "source_frame", "stream_id": "s"},))
+    with pytest.raises(contract.EvidenceContractError):
+        replace(_sharpness([320, 180], SHARP_180), freshness="mouldy")
+    with pytest.raises(contract.EvidenceContractError):
+        replace(_sharpness([320, 180], SHARP_180), coverage_level="l9")
+    with pytest.raises(contract.EvidenceContractError):
+        replace(_sharpness([320, 180], SHARP_180),
+                coverage_scope={"interval": {"clock_id": CLOCK, "start": 9,
+                                             "end": 9}})
+
+
 def test_migration_path_audits_mapped_modalities():
     """The real caller: the migration builder audits every mapped
     modality, passes measurements through, and leaves unmapped

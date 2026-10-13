@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signal",
+  "type": "object",
+  "properties": {
+    "asset_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/Interval"
+    },
+    "measurement_type": {
+      "type": "string"
+    },
+    "processing_status": {
+      "$ref": "#/$defs/ProcessingStatus"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "sample_clock_id": {
+      "type": "string"
+    },
+    "samples": {
+      "type": "array",
+      "items": true
+    },
+    "unit": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "asset_id",
+    "interval",
+    "measurement_type",
+    "unit",
+    "samples",
+    "sample_clock_id",
+    "provenance_id",
+    "processing_status"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "ProcessingStatus": {
+      "description": "Pipeline state is coverage metadata, never a certainty value.",
+      "type": "string",
+      "enum": [
+        "analyzed",
+        "not_analyzed",
+        "unavailable",
+        "failed",
+        "inconclusive"
+      ]
+    }
+  }
+}

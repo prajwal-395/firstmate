@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TimeTransform",
+  "type": "object",
+  "properties": {
+    "from_clock": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "provenance_id": {
+      "type": "string"
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TransformSegment"
+      }
+    },
+    "to_clock": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "from_clock",
+    "to_clock",
+    "segments",
+    "provenance_id"
+  ],
+  "$defs": {
+    "Interval": {
+      "description": "Half-open integer tick range [start, end); `start < end` is required by validation.",
+      "type": "object",
+      "properties": {
+        "clock_id": {
+          "type": "string"
+        },
+        "end": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clock_id",
+        "start",
+        "end"
+      ]
+    },
+    "Rational": {
+      "type": "object",
+      "properties": {
+        "denominator": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "numerator": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ]
+    },
+    "TransformSegment": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/Interval"
+        },
+        "invertible": {
+          "type": "boolean"
+        },
+        "offset_ticks": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "slope": {
+          "$ref": "#/$defs/Rational"
+        },
+        "to": {
+          "$ref": "#/$defs/Interval"
+        },
+        "uncertainty_ticks": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "slope",
+        "offset_ticks",
+        "uncertainty_ticks",
+        "invertible"
+      ]
+    }
+  }
+}
