@@ -26,6 +26,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, TypeVar
@@ -333,6 +334,9 @@ def _run_locked(owner: str, profile: str, command: list[str]) -> int:
     child: subprocess.Popen | None = None
     received: list[int] = []
     return_code = 0
+    queue_wait_s = 0.0
+    execution_started = None
+    execution_s = 0.0
 
     def forward(signum, _frame):
         received.append(signum)
@@ -348,6 +352,11 @@ def _run_locked(owner: str, profile: str, command: list[str]) -> int:
         with heavy_work_lock(owner, profile,
                              cancelled=lambda: bool(received)):
             if not received:
+                token = os.environ.get(OWNER_ENV)
+                timing = _scheduler().timing(token) if token else None
+                if timing is not None:
+                    queue_wait_s = max(0.0, timing[1] - timing[0])
+                execution_started = time.monotonic()
                 child = subprocess.Popen(command, start_new_session=True)
                 # A signal between the check and `child` being set was
                 # recorded but not forwarded: forward it now.
@@ -357,6 +366,7 @@ def _run_locked(owner: str, profile: str, command: list[str]) -> int:
                     except ProcessLookupError:
                         pass
                 return_code = child.wait()
+                execution_s = max(0.0, time.monotonic() - execution_started)
     except resource_scheduler.Cancelled:
         pass
     finally:
@@ -365,6 +375,9 @@ def _run_locked(owner: str, profile: str, command: list[str]) -> int:
 
     if received:
         return 128 + received[-1]
+    if execution_started is not None:
+        print(f"heavy-work: queue wait {queue_wait_s:.3f}s; "
+              f"execution {execution_s:.3f}s", file=sys.stderr, flush=True)
     return return_code
 
 
@@ -389,8 +402,8 @@ def _history(days: float) -> str:
         held = [r["finished_at"] - r["started_at"] for r in rows]
         waited = [r["started_at"] - r["enqueued_at"] for r in rows]
         lines.append(
-            f"{name}: {len(rows)} grant(s), held max {max(held):.0f}s, "
-            f"waited max {max(waited):.0f}s")
+            f"{name}: {len(rows)} grant(s), execution max {max(held):.0f}s, "
+            f"queue wait max {max(waited):.0f}s")
         lines.append(f"  declared  {declared.get(name, '(not a profile)')}")
         if sampled:
             mean_cores = max(r["cpu_s"] / max(1.0, r["finished_at"]

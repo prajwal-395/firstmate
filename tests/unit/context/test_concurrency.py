@@ -445,6 +445,75 @@ def test_scheduler_wait_timeout_removes_its_waiting_row(scheduler):
     scheduler.release(held)
 
 
+def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
+    """A separate live process keeps its row through stale heartbeat checks."""
+    held = scheduler.acquire("holder", resource_scheduler.demand_for("machine"))
+    waiter_code = (
+        "import sys; sys.path.insert(0, %r);"
+        " from pathlib import Path;"
+        " from library.tools import resource_scheduler as rs;"
+        " s=rs.Scheduler(Path(%r));"
+        " t=s.acquire('live waiter', rs.demand_for('machine'),"
+        " announce=lambda _: None, timeout=15); s.release(t)"
+        % (str(REPO_ROOT_2), str(scheduler.legacy_dir)))
+    waiter = subprocess.Popen([sys.executable, "-c", waiter_code],
+                              cwd=REPO_ROOT_2, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True,
+                              encoding="utf-8")
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if any(job["owner"] == "live waiter" and job["state"] == "waiting"
+                   for job in scheduler.jobs()):
+                break
+            if waiter.poll() is not None:
+                pytest.fail("waiter exited before entering the queue")
+            time.sleep(0.02)
+        else:
+            pytest.fail("waiter did not enter the queue")
+
+        # A recent heartbeat identifies the live waiter even when its
+        # recorded start differs from the PID's current process start.
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("UPDATE jobs SET pid_start = ? WHERE owner = ?",
+                         ("different process start", "live waiter"))
+        assert any(job["owner"] == "live waiter" for job in scheduler.jobs())
+
+        # Once the identity matches again, lease expiry still must not reap
+        # a live queue row whose poll was delayed.
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("UPDATE jobs SET pid_start = ?, heartbeat_at = ?"
+                         " WHERE owner = ?",
+                         (resource_scheduler._pid_start(waiter.pid),
+                          time.time() - resource_scheduler.LEASE_SECONDS - 1,
+                          "live waiter"))
+        assert [job["owner"] for job in scheduler.jobs()] == [
+            "holder", "live waiter"]
+        scheduler.release(held)
+        stdout, stderr = waiter.communicate(timeout=10)
+        assert waiter.returncode == 0, stdout + stderr
+    finally:
+        if waiter.poll() is None:
+            waiter.terminate()
+            waiter.wait(timeout=5)
+        if scheduler.jobs() and any(job["owner"] == "holder"
+                                    for job in scheduler.jobs()):
+            scheduler.release(held)
+
+
+def test_grant_receipt_separates_queue_wait_and_execution(scheduler):
+    token = scheduler.acquire("timed grant", {"cpu": 1},
+                              announce=lambda line: None)
+    timing = scheduler.timing(token)
+    assert timing is not None
+    enqueued, admitted = timing
+    scheduler.release(token)
+    receipt = scheduler.history()[-1]
+    assert receipt["queue_wait_s"] == pytest.approx(admitted - enqueued)
+    assert receipt["execution_s"] == pytest.approx(
+        receipt["finished_at"] - admitted)
+
+
 def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
         scheduler, monkeypatch):
     import sqlite3

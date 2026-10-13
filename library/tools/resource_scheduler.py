@@ -479,9 +479,11 @@ class Scheduler:
             " peak_rss_gb REAL,"
             " samples INTEGER,"
             " resolve_peak_cores REAL,"
-            " resolve_peak_rss_gb REAL)")
+            " resolve_peak_rss_gb REAL,"
+            " queue_wait_s REAL, execution_s REAL)")
         have = {row[1] for row in conn.execute("PRAGMA table_info(grants)")}
-        for column in ("resolve_peak_cores", "resolve_peak_rss_gb"):
+        for column in ("resolve_peak_cores", "resolve_peak_rss_gb",
+                       "queue_wait_s", "execution_s"):
             if column not in have:     # a table from before the column
                 conn.execute(f"ALTER TABLE grants ADD COLUMN {column} REAL")
         return conn
@@ -503,9 +505,9 @@ class Scheduler:
         machine_id = _machine_id()
         now = time.time()
         for row_id, pid, row_host, row_machine, row_start, row_beat, \
-                row_started, row_enqueued in conn.execute(
+                row_started, row_enqueued, state in conn.execute(
                 "SELECT id, pid, host, machine_id, pid_start, heartbeat_at,"
-                " started_at, enqueued_at FROM jobs").fetchall():
+                " started_at, enqueued_at, state FROM jobs").fetchall():
             # The store is machine-local, so a dead holder is always ours
             # to reclaim: by stable identity, by hostname when the identity
             # predates this scheme (`mac-<getnode>`, which was random per
@@ -516,8 +518,19 @@ class Scheduler:
             legacy_style = not row_machine or row_machine.startswith("mac-")
             if not (same_machine or same_host or legacy_style):
                 continue
+            last_beat = row_beat if row_beat else (row_started or row_enqueued or 0)
+            if (state == "waiting" and row_beat
+                    and now - row_beat <= LEASE_SECONDS):
+                # A fresh heartbeat proves that a live waiter is refreshing
+                # its row, even if a wrapper's recorded pid/start differs.
+                continue
             if _holder_dead(pid, row_start):
                 conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
+                continue
+            if state == "waiting":
+                # Lease expiry reclaims abandoned grants. A live waiter
+                # holds no grant, and its queue row must survive delays in
+                # heartbeat polling or sqlite lock contention.
                 continue
             # The lease is the fallback past pid identity: a holder whose
             # heartbeat stopped (kill -9 ends the thread with the process)
@@ -525,7 +538,6 @@ class Scheduler:
             # process. Live holders heartbeat, so a stale lease means the
             # holder is gone. Rows predating the heartbeat column fall back
             # to their start times rather than reading as forever fresh.
-            last_beat = row_beat if row_beat else (row_started or row_enqueued or 0)
             if last_beat and now - last_beat > LEASE_SECONDS:
                 conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
 
@@ -737,6 +749,15 @@ class Scheduler:
             return json.loads(row[0]) if row else None
         return self._transaction(body)
 
+    def timing(self, token: str) -> Optional[tuple[float, float]]:
+        """Return enqueue and admission wall times for a live grant."""
+        def body(conn):
+            row = conn.execute(
+                "SELECT enqueued_at, started_at FROM jobs WHERE token = ?"
+                " AND state = 'running'", (token,)).fetchone()
+            return (float(row[0]), float(row[1])) if row else None
+        return self._transaction(body)
+
     def history(self, since: float = 0.0) -> list:
         """Every finished grant since `since`, oldest first, as dicts."""
         def body(conn):
@@ -928,15 +949,18 @@ def _cpu_seconds(text: str) -> float:
 
 def _record_grant(conn, row, profile: str, used: Dict[str, float]) -> None:
     """Keep one finished grant's measured use in `grants`."""
+    finished = time.time()
     conn.execute(
         "INSERT INTO grants (owner, profile, demand, enqueued_at,"
         " started_at, finished_at, cpu_s, peak_cores, peak_rss_gb,"
-        " samples, resolve_peak_cores, resolve_peak_rss_gb)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (row[0], profile, row[1], row[2], row[3], time.time(),
+        " samples, resolve_peak_cores, resolve_peak_rss_gb,"
+        " queue_wait_s, execution_s)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (row[0], profile, row[1], row[2], row[3], finished,
          used.get("cpu_s"), used.get("peak_cores"), used.get("peak_rss_gb"),
          used.get("samples"), used.get("resolve_peak_cores"),
-         used.get("resolve_peak_rss_gb")))
+         used.get("resolve_peak_rss_gb"), max(0.0, row[3] - row[2]),
+         max(0.0, finished - row[3])))
 
 
 def _label(owner: dict) -> str:
