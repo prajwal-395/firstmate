@@ -40,6 +40,7 @@ from library.tools.overlay_carriage import (  # noqa: E402
     assert_transparent_region_unchanged,
     carries_alpha,
     data_level_for,
+    encode_verified_overlay,
     restamp_carriage,
     transparent_region_deviation,
 )
@@ -58,6 +59,30 @@ needs_ffmpeg = pytest.mark.skipif(
     not _has_ffmpeg(),
     reason="ffmpeg/ffprobe not on PATH; a dev machine carries them per "
            "AGENTS.md 9, so this runs everywhere the repo is set up")
+
+
+@needs_ffmpeg
+def test_encoder_child_is_reaped_when_frame_producer_refuses(
+        tmp_path, monkeypatch):
+    real_popen = subprocess.Popen
+    children = []
+
+    def track_popen(*args, **kwargs):
+        child = real_popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    def refusing_frames():
+        raise RuntimeError("matte dimensions changed during frame production")
+        yield b""
+
+    monkeypatch.setattr(subprocess, "Popen", track_popen)
+    with pytest.raises(RuntimeError, match="dimensions changed"):
+        encode_verified_overlay(refusing_frames(), 1, 1, 24,
+                                str(tmp_path / "refused.mov"))
+
+    assert len(children) == 1
+    assert children[0].poll() is not None, "ffmpeg outlived its refusal"
 
 
 def _read(name: str, gray: bool = False):

@@ -1532,17 +1532,38 @@ class TestSubjectGradePrecomposite:
         assert inside - outside > 40.0
 
     @needs_ffmpeg
-    def test_a_matte_at_the_wrong_size_refuses(self, tmp_path):
+    def test_a_matte_at_the_wrong_size_refuses(self, tmp_path, monkeypatch):
         from PIL import Image
 
         source = _source_clip(tmp_path / "c1.mp4")
         path = str(tmp_path / "m_00000.png")
         Image.fromarray(np.zeros((12, 16), dtype=np.uint8),
                         mode="L").save(path)
-        with pytest.raises(subject_grade.SubjectGradeRefused):
-            subject_grade.precomposite_subject_grade(
-                source, [path], str(tmp_path / "x.mov"), source_in=0.0,
-                timeline_fps=10.0, grade={"gain": 1.2})
+        real_popen = subprocess.Popen
+        children = []
+
+        def track_ffmpeg(args, *popen_args, **popen_kwargs):
+            child = real_popen(args, *popen_args, **popen_kwargs)
+            if Path(args[0]).name == "ffmpeg":
+                children.append((args, child))
+            return child
+
+        monkeypatch.setattr(subprocess, "Popen", track_ffmpeg)
+        try:
+            with pytest.raises(subject_grade.SubjectGradeRefused):
+                subject_grade.precomposite_subject_grade(
+                    source, [path], str(tmp_path / "x.mov"), source_in=0.0,
+                    timeline_fps=10.0, grade={"gain": 1.2})
+            encoder_args = [args for args, _ in children
+                            if "rawvideo" in args]
+            assert not encoder_args, "wrong-size matte started an encoder"
+            assert all(child.poll() is not None for _, child in children), (
+                "an ffmpeg child outlived the refusal")
+        finally:
+            for _, child in children:
+                if child.poll() is None:
+                    child.kill()
+                child.wait()
 
     def test_stale_subject_grade_keys_draw_no_loader(self):
         """A scripted Loader never decodes on a Resolve 21.1 timeline comp

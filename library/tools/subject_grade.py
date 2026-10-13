@@ -441,6 +441,14 @@ def precomposite_subject_grade(source_file: str, matte_files: list[str],
     except PersonMatteUnavailable as exc:
         raise SubjectGradeRefused(f"{label}: {exc.detail}") from exc
     width, height = probe["width"], probe["height"]
+    for matte_path in matte_files:
+        with Image.open(matte_path) as matte_image:
+            matte_width, matte_height = matte_image.size
+        if (matte_width, matte_height) != (width, height):
+            raise SubjectGradeRefused(
+                f"{label}: matte {matte_width}x{matte_height} against "
+                f"source {width}x{height} - the matte would gate the "
+                "wrong pixels")
     shown = person_matte.played_source_frames(
         source_in, len(matte_files), timeline_fps, probe["fps"])
     with tempfile.TemporaryDirectory(prefix="ren-subject-grade-") as tmp:

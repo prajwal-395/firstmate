@@ -548,6 +548,22 @@ class OverlayEncodeFailed(RuntimeError):
         self.detail = detail
 
 
+def _kill_and_reap(proc: subprocess.Popen) -> None:
+    """Close every pipe and reap a child after its producer/consumer fails."""
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    for name in ("stdin", "stdout", "stderr"):
+        stream = getattr(proc, name, None)
+        if stream is not None:
+            try:
+                stream.close()
+            except OSError:
+                pass
+    proc.wait()
+
+
 def encode_verified_overlay(frames: Iterable[bytes], width: int,
                             height: int, fps: float, out_path: str, *,
                             timeout: int = 600) -> dict:
@@ -586,10 +602,11 @@ def encode_verified_overlay(frames: Iterable[bytes], width: int,
         proc.stdin.close()
         stderr = proc.stderr.read()
         proc.wait(timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        proc.kill()
-        proc.wait()
-        raise OverlayEncodeFailed("run", str(exc)) from exc
+    except BaseException as exc:
+        _kill_and_reap(proc)
+        if isinstance(exc, (OSError, subprocess.TimeoutExpired)):
+            raise OverlayEncodeFailed("run", str(exc)) from exc
+        raise
     if proc.returncode != 0 or not os.path.isfile(out_path):
         raise OverlayEncodeFailed(
             "encode", stderr.decode("utf-8", "replace").strip()[-300:])
@@ -600,6 +617,7 @@ def encode_verified_overlay(frames: Iterable[bytes], width: int,
             "probe", f"probes as {fields.get('codec_name', '?')!r}/"
             f"{fields.get('pix_fmt', '?')!r}, not qtrle/argb")
     got = hashlib.sha256()
+    back = None
     try:
         back = subprocess.Popen(
             ["ffmpeg", "-v", "error", "-i", out_path,
@@ -608,8 +626,12 @@ def encode_verified_overlay(frames: Iterable[bytes], width: int,
         for chunk in iter(lambda: back.stdout.read(1 << 20), b""):
             got.update(chunk)
         back.wait(timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise OverlayEncodeFailed("run", f"decode back: {exc}") from exc
+    except BaseException as exc:
+        if back is not None:
+            _kill_and_reap(back)
+        if isinstance(exc, (OSError, subprocess.TimeoutExpired)):
+            raise OverlayEncodeFailed("run", f"decode back: {exc}") from exc
+        raise
     if back.returncode != 0 or got.hexdigest() != want.hexdigest():
         _unlink(out_path)
         raise OverlayEncodeFailed(
