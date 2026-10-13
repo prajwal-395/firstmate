@@ -57,9 +57,8 @@ export FM_AGY_LADDER_INFLIGHT_MARGIN=1
 # says today.
 export FM_AGY_QUOTA_POLL=off
 
-RUNG1='Gemini 3.1 Pro (High)'
-RUNG2='Claude Opus 4.6 (Thinking)'
-RUNG3='Gemini 3.7 Flash (High)'
+RUNG1='Claude Opus 4.6 (Thinking)'
+RUNG2='Gemini 3.8 Flash (High)'
 
 NOW=$(date +%s)
 
@@ -88,8 +87,8 @@ meta() {  # <state-dir> <id> <model>
 # --- the {} direction: healthy output passes untouched -----------------------
 
 S=$(fresh_state healthy)
-meta "$S" w1 "$RUNG2"
-record_at "$S" "$RUNG2" 28.7 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG1"
+record_at "$S" "$RUNG1" 28.7 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW") || fail "a healthy rung must exit 0"
 [ "$OUT" = '{}' ] || fail "a healthy rung must pass through, got: $OUT"
 pass "a worker above its floor passes through untouched"
@@ -97,15 +96,15 @@ pass "a worker above its floor passes through untouched"
 # --- the terminate direction: exhausted own rung ends the turn ---------------
 
 S=$(fresh_state exhausted)
-meta "$S" w1 "$RUNG2"
-record_at "$S" "$RUNG2" 22.3 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG1"
+record_at "$S" "$RUNG1" 22.3 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW") || fail "an exhausted rung must exit 0"
 case "$OUT" in
   '{"terminationBehavior":"terminate"'*) : ;;
   *) fail "an exhausted rung must terminate, got: $OUT" ;;
 esac
 case "$OUT" in
-  *"$RUNG2"*25*) : ;;
+  *"$RUNG1"*25*) : ;;
   *) fail "the terminate verdict must name the rung and its floor, got: $OUT" ;;
 esac
 pass "a worker at 22.3% on Opus 4.6 terminates its turn"
@@ -113,14 +112,14 @@ pass "a worker at 22.3% on Opus 4.6 terminates its turn"
 # --- the boundary itself, both sides ------------------------------------------
 
 S=$(fresh_state boundary)
-meta "$S" w1 "$RUNG2"
-record_at "$S" "$RUNG2" 25.0 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG1"
+record_at "$S" "$RUNG1" 25.0 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 case "$OUT" in
   '{"terminationBehavior":"terminate"'*) : ;;
   *) fail "Opus at exactly 25% is at its floor and must terminate, got: $OUT" ;;
 esac
-record_at "$S" "$RUNG2" 25.1 "4h 0m" "$NOW"
+record_at "$S" "$RUNG1" 25.1 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 [ "$OUT" = '{}' ] || fail "Opus at 25.1% is above its floor and must pass, got: $OUT"
 pass "the 25% floor boundary terminates at-or-below and passes above"
@@ -128,11 +127,11 @@ pass "the 25% floor boundary terminates at-or-below and passes above"
 # --- floor-0 rungs terminate only at true zero --------------------------------
 
 S=$(fresh_state floorzero)
-meta "$S" w1 "$RUNG3"
-record_at "$S" "$RUNG3" 5.0 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG2"
+record_at "$S" "$RUNG2" 5.0 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 [ "$OUT" = '{}' ] || fail "a floor-0 rung at 5% must pass, got: $OUT"
-record_at "$S" "$RUNG3" 0.0 "4h 0m" "$NOW"
+record_at "$S" "$RUNG2" 0.0 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 case "$OUT" in
   '{"terminationBehavior":"terminate"'*) : ;;
@@ -143,8 +142,8 @@ pass "a floor-0 rung terminates only at true zero"
 # --- override and pre-gate entries always pass ---------------------------------
 
 S=$(fresh_state override)
-meta "$S" w1 "$RUNG2"
-record_at "$S" "$RUNG2" 10.0 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG1"
+record_at "$S" "$RUNG1" 10.0 "4h 0m" "$NOW"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 off "$NOW")
 [ "$OUT" = '{}' ] || fail "an override-pinned worker must pass even exhausted, got: $OUT"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 "" "$NOW")
@@ -154,10 +153,10 @@ pass "override and pre-gate entries pass even below the floor"
 # --- unknown and stale evidence fail open when polling is off -----------------
 
 S=$(fresh_state unknown)
-meta "$S" w1 "$RUNG2"
+meta "$S" w1 "$RUNG1"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 [ "$OUT" = '{}' ] || fail "an unknown reading must fail open, got: $OUT"
-record_at "$S" "$RUNG2" 10.0 "4h 0m" "$((NOW - 900))"
+record_at "$S" "$RUNG1" 10.0 "4h 0m" "$((NOW - 900))"
 OUT=$(fm_agy_spend_gate_verdict "$S" w1 on "$NOW")
 [ "$OUT" = '{}' ] || fail "a stale reading must fail open when polling is off, got: $OUT"
 pass "unknown and stale evidence fail open with the poll off"
@@ -182,7 +181,7 @@ agy_poll_fakebin() {  # <dir> <fraction>: an agy answering only /quota.
   cat > "$fakebin/agy" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --print ]; then
-  printf '{"command":{"data":{"groups":[{"buckets":[{"name":"%s","remaining_fraction":%s,"reset_time":"%s"},{"name":"%s","remaining_fraction":0.99,"reset_time":"%s"}]}]}}}\n' "$RUNG2" "$fraction" "$reset" "$RUNG3" "$reset"
+  printf '{"command":{"data":{"groups":[{"buckets":[{"name":"%s","remaining_fraction":%s,"reset_time":"%s"},{"name":"%s","remaining_fraction":0.99,"reset_time":"%s"}]}]}}}\n' "$RUNG1" "$fraction" "$reset" "$RUNG2" "$reset"
 fi
 exit 0
 SH
@@ -192,8 +191,8 @@ SH
 
 if command -v jq >/dev/null 2>&1; then
   S=$(fresh_state pollshut)
-  meta "$S" w1 "$RUNG2"
-  record_at "$S" "$RUNG2" 10.0 "4h 0m" "$((NOW - 900))"
+  meta "$S" w1 "$RUNG1"
+  record_at "$S" "$RUNG1" 10.0 "4h 0m" "$((NOW - 900))"
   FAKE=$(agy_poll_fakebin "$TMP_ROOT/pollshut" 0.223)
   OUT=$(env PATH="$FAKE:$PATH" FM_AGY_QUOTA_POLL=on \
     "$ROOT/bin/fm-agy-spend-gate.sh" "$S" w1 on "$NOW") || fail "a deciding poll must exit 0"
@@ -204,8 +203,8 @@ if command -v jq >/dev/null 2>&1; then
   pass "a stale reading refreshed below the floor terminates"
 
   S=$(fresh_state pollopen)
-  meta "$S" w1 "$RUNG2"
-  record_at "$S" "$RUNG2" 10.0 "4h 0m" "$((NOW - 900))"
+  meta "$S" w1 "$RUNG1"
+  record_at "$S" "$RUNG1" 10.0 "4h 0m" "$((NOW - 900))"
   FAKE=$(agy_poll_fakebin "$TMP_ROOT/pollopen" 0.60)
   OUT=$(env PATH="$FAKE:$PATH" FM_AGY_QUOTA_POLL=on \
     "$ROOT/bin/fm-agy-spend-gate.sh" "$S" w1 on "$NOW") || fail "a deciding poll must exit 0"
@@ -221,8 +220,8 @@ OUT=$("$ROOT/bin/fm-agy-spend-gate.sh") || fail "the entry script must exit 0 wi
 [ -n "$OUT" ] || fail "the entry script must print a verdict with no arguments"
 [ "$OUT" = '{}' ] || fail "the entry script must allow with no arguments, got: $OUT"
 S=$(fresh_state entryexhausted)
-meta "$S" w1 "$RUNG2"
-record_at "$S" "$RUNG2" 22.3 "4h 0m" "$NOW"
+meta "$S" w1 "$RUNG1"
+record_at "$S" "$RUNG1" 22.3 "4h 0m" "$NOW"
 OUT=$(FM_AGY_QUOTA_POLL=off "$ROOT/bin/fm-agy-spend-gate.sh" "$S" w1 on "$NOW") \
   || fail "the entry script must exit 0 on an exhausted rung"
 case "$OUT" in
@@ -237,9 +236,9 @@ pass "the entry script always answers exactly one verdict line with exit 0"
 # scratch agy customization root, so the operator's own configuration is never
 # touched) and then drives the GENERATED hook with a synthetic PostInvocation
 # payload. What is asserted is behavior - the verdict the hook prints - not
-# the bytes it was generated from. Never run on Opus: rung 1 needs no
-# exhaustion proof above it, so the launch gate lets it through on a healthy
-# reading and nothing here spends the reserve.
+# the bytes it was generated from. Never run on Opus: rung 2 needs rung 1
+# proven spent, so the launch records Opus below its reserve and the worker
+# runs on Flash, and nothing here spends the reserve.
 
 agy_spawn_fakebin() {  # <dir>: fake agy answering only the catalogue.
   local fakebin
@@ -248,8 +247,7 @@ agy_spawn_fakebin() {  # <dir>: fake agy answering only the catalogue.
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
   printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
-  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
-  printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+  printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
 fi
 exit 0
 SH
@@ -268,7 +266,7 @@ case "${1:-}" in
   # the brief is running. The covered path below means no dialog renders, so
   # a steady busy row is the whole story - and it must carry no dialog text,
   # or the gate would wait for an answer instead.
-  capture-pane) printf 'esc to cancel                                Gemini 3.1 Pro (High)\n'; exit 0 ;;
+  capture-pane) printf 'esc to cancel                                Gemini 3.8 Flash (High)\n'; exit 0 ;;
 esac
 exit 0
 SH
@@ -299,7 +297,8 @@ brief for $id
 ## Firstmate spec
 Exercise the spawn behavior under test.
 EOF
-  fm_agy_quota_observe "$RUNG1 | ctx: 3.0% | quota: 88.0% (4h 0m)" "$home/state"
+  fm_agy_quota_observe "$RUNG1 | ctx: 3.0% | quota: 10.0% (4h 0m)" "$home/state"
+  fm_agy_quota_observe "$RUNG2 | ctx: 3.0% | quota: 88.0% (4h 0m)" "$home/state"
   # The readiness gate counts a busy turn at once only on a covered path, and
   # coverage is read from the launching user's own store - so the spawn runs
   # under a scratch HOME whose store already trusts the worktree. That keeps
@@ -316,7 +315,7 @@ EOF
       FM_AGY_CONFIG_HOME="$dir/agy-config" FM_AGY_SETTINGS="$dir/agy-settings.json" \
       FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
       "$ROOT/bin/fm-spawn.sh" "$id" "$proj" \
-      --harness agy --model "$RUNG1" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness agy --model "$RUNG2" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
     env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$dir/scratch-home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
@@ -324,7 +323,7 @@ EOF
       FM_AGY_CONFIG_HOME="$dir/agy-config" FM_AGY_SETTINGS="$dir/agy-settings.json" \
       FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
       "$ROOT/bin/fm-spawn.sh" "$id" "$proj" \
-      --harness agy --model "$RUNG1" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness agy --model "$RUNG2" --mode no-mistakes --yolo off >/dev/null 2>&1
   fi
   printf '%s\n' "$dir"
 }
@@ -360,7 +359,7 @@ OUT=$(hook_payload "$D/wt" | bash "$HOOK" PostInvocation 2>/dev/null) \
   || fail "the generated hook must exit 0 on a healthy rung"
 [ "$OUT" = '{}' ] || fail "the generated hook must pass a healthy rung, got: $OUT"
 
-fm_agy_quota_observe "$RUNG1 | ctx: 3.0% | quota: 0.0% (4h 0m)" "$D/home/state"
+fm_agy_quota_observe "$RUNG2 | ctx: 3.0% | quota: 0.0% (4h 0m)" "$D/home/state"
 OUT=$(FM_AGY_QUOTA_POLL=off hook_payload "$D/wt" | bash "$HOOK" PostInvocation 2>/dev/null) \
   || fail "the generated hook must exit 0 on an exhausted rung"
 case "$OUT" in
@@ -375,7 +374,7 @@ ENTRY_TOKEN=$(sed -n 's/^token=//p' "$D2/wt/.fm-agy-turnend" 2>/dev/null || true
 ENTRY="$D2/agy-config/plugins/fm-turn-end/fm-turn-end.d/$ENTRY_TOKEN"
 grep -q '^spend_gate=off$' "$ENTRY" || fail "an override spawn must carry spend_gate=off"
 HOOK="$D2/agy-config/plugins/fm-turn-end/fm-turn-end.sh"
-fm_agy_quota_observe "$RUNG1 | ctx: 3.0% | quota: 0.0% (4h 0m)" "$D2/home/state"
+fm_agy_quota_observe "$RUNG2 | ctx: 3.0% | quota: 0.0% (4h 0m)" "$D2/home/state"
 OUT=$(FM_AGY_QUOTA_POLL=off hook_payload "$D2/wt" | bash "$HOOK" PostInvocation 2>/dev/null) \
   || fail "the override hook must exit 0"
 [ "$OUT" = '{}' ] || fail "an override-pinned worker must pass even exhausted, got: $OUT"

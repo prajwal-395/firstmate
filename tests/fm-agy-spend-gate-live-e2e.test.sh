@@ -43,8 +43,8 @@ echo "# agy $AGY_VERSION"
 
 # Deliberately the cheapest rung: this guard must never spend the reserve it
 # exists to protect.
-MODEL_KEBAB=gemini-3.7-flash-high
-MODEL_DISPLAY='Gemini 3.7 Flash (High)'
+MODEL_KEBAB=gemini-3.8-flash-high
+MODEL_DISPLAY='Gemini 3.8 Flash (High)'
 
 TMP=$(fm_test_tmproot fm-agy-spend-gate-live)
 WORK="$TMP/work"
