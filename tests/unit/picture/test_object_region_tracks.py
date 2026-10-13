@@ -152,6 +152,36 @@ def test_normalize_seed_box_clamps_but_never_invents():
 # ── Bakeoff scoring: the baseline scores without phrases ──
 
 
+def test_bakeoff_results_are_json_serializable(tmp_path, monkeypatch):
+    """`run_bakeoff` rows carry the model id, never the loaded model:
+    the first full run died writing bakeoff_27.json because a row held
+    the `Owlv2ForObjectDetection` object (`TypeError: ... is not JSON
+    serializable`), losing every measured timing with it."""
+    import json as _json
+
+    def _fake_load(name):
+        return {"device": "test", "model_id": f"fake-{name}",
+                "model": object()}
+
+    def _fake_detect(detector, image_path, phrases, *, score_threshold):
+        return [ovd.Detection("laptop", [0.0, 0.0, 0.5, 0.5], 0.9,
+                              detector)]
+
+    monkeypatch.setattr(ovd, "load_detector", _fake_load)
+    monkeypatch.setattr(ovd, "detect_image", _fake_detect)
+    frames = [{"image": "x.jpg", "phrases": ["laptop"],
+               "boxes": [{"phrase": "laptop",
+                          "box": [0.0, 0.0, 0.5, 0.5]}]}]
+    results = bakeoff.run_bakeoff(tmp_path, frames,
+                                  detectors=["owlv2", "grounding_dino"])
+    _json.dumps(results)
+    assert results["detectors"]["owlv2"]["model"] == "fake-owlv2"
+    assert results["detectors"]["owlv2"]["recall"] == 1.0
+    doc = bakeoff.render_markdown(results, frames_source="t",
+                                  ground_truth_source="t", gemma_source="t")
+    assert "fake-owlv2" in doc
+
+
 def test_bakeoff_recall_counts_covering_boxes():
     hit = bakeoff.score_frame(
         [{"phrase": "laptop", "box": [0.0, 0.0, 0.5, 0.5]}],

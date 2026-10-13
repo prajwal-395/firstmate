@@ -130,7 +130,7 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
             load = ovd.load_detector(name)
             row["load_seconds"] = round(time.perf_counter() - t0, 1)
             row["device"] = load.get("device")
-            row["model"] = load.get("model")
+            row["model"] = load.get("model_id")
         except ovd.DetectorNotAvailable as exc:
             row["viable"] = False
             row["reason"] = str(exc)
