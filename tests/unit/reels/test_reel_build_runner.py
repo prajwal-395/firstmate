@@ -761,67 +761,52 @@ def _holds_open(entry):
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_derivation_runs_under_the_whole_build_hold(built_with_spies):
-    """The whole build holds the exclusive lease: caption rendering and
-    every other derivation step run under the outer "build reels"
-    hold, never outside it.
+def test_derivation_runs_without_a_resolve_hold(built_with_spies):
+    """Graphics and derivation leave Resolve available to independent readers.
 
-    Read with the inventory test below: derivation events must
-    appear, and must appear under the hold the inventory names. A
-    derivation step that stopped taking the hold would show up here
-    with the stack empty.
+    Derivation events must appear with an empty Resolve hold stack.
     """
     derivations = [e for e in built_with_spies["events"]
                    if e[0] == "derivation"]
     assert derivations, "the build never derived - the spy missed"
     for entry in derivations:
-        assert _holds_open(entry) == [("build reels", True)], (
+        assert _holds_open(entry) == [], (
             f"derivation ran under {_holds_open(entry)}")
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_placement_holds_the_whole_build_hold(built_with_spies):
-    """The seconds serialise: the placer runs under the outer
-    whole-build hold and its own per-reel hold, both exclusive."""
+def test_placement_holds_one_continuous_exclusive_lease(built_with_spies):
+    """The live read, decision and placement share the per-reel lease."""
     places = [e for e in built_with_spies["events"]
               if e[0] == "place-call"]
     assert len(places) == 1
     assert _holds_open(places[0]) == [
-        ("build reels", True),
         ("place Reel 01 (rebuild staging)", True)]
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_placement_planning_runs_under_the_whole_build_hold(
+def test_placement_planning_runs_inside_the_per_reel_lease(
         built_with_spies):
-    """The reel's placement plan - offsets, angle plan, freeze render,
-    post header, track plan, promoted artefacts - is computed under
-    the outer whole-build hold. It used to run holding nothing,
-    between the decision hold and the placement hold."""
+    """Placement planning follows the live decision inside the per-reel hold."""
     events = built_with_spies["events"]
     prepares = [e for e in events if e[0] == "prepare-call"]
     assert len(prepares) == 1
-    assert _holds_open(prepares[0]) == [("build reels", True)]
-    order = [e[1] for e in events if e[0] == "lease-enter"]
-    decide = order.index("decide Reel 01 (rebuild staging)")
-    place = order.index("place Reel 01 (rebuild staging)")
-    assert decide < place
-    assert events.index(prepares[0]) > events.index(
-        ("lease-exit", "decide Reel 01 (rebuild staging)", True))
+    assert _holds_open(prepares[0]) == [
+        ("place Reel 01 (rebuild staging)", True)]
+    place_lease = ("lease-held", "place Reel 01 (rebuild staging)", True)
+    assert events.index(prepares[0]) > events.index(place_lease)
 
 
 @pytest.mark.usefixtures("mock_dvr")
 def test_the_gate_reads_under_a_shared_hold(built_with_spies):
     """The gate must grade a stable staging, and several such reads
     run together while no writer runs - so shared, never exclusive.
-    Both run under the outer whole-build hold."""
+    The gate and sweep take only their own shared holds."""
     verifies = [e for e in built_with_spies["events"]
                 if e[0] == "verify-call"]
     assert len(verifies) == 2  # the scoped gate, then the sweep
-    assert _holds_open(verifies[0]) == [
-        ("build reels", True), ("verify built reels", False)]
-    assert _holds_open(verifies[1]) == [
-        ("build reels", True), ("sweep all reels", False)]
+    assert _holds_open(verifies[0]) == [("verify built reels", False)]
+    assert _holds_open(verifies[1]) == [("sweep all reels", False)]
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -836,11 +821,10 @@ def test_cursor_moving_self_reads_take_exclusive_holds(built_with_spies):
     assert leases == [(purpose, True) for purpose in (
         "build reels drift baseline", "build reels master digest",
         "build reels drift end")]
-    # And the whole-build hold is the FIRST hold the build takes: every
-    # inner hold, these included, is nested under it.
-    enters = [e[1] for e in built_with_spies["events"]
-              if e[0] == "lease-enter"]
-    assert enters[0] == "build reels", enters
+    # Cursor-moving reads keep their individual exclusive guards.
+    assert all(purpose in {entry[1] for entry in built_with_spies["events"]
+                           if entry[0] == "lease-enter"}
+               for purpose in purposes)
 
 
 # ── The failure mode, demonstrated deliberately ───────────────────────

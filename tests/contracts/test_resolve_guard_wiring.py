@@ -48,10 +48,13 @@ READ_ROWS = [op for op in OPERATIONS if op.exclusion == RESOLVE_READ]
 
 def _lease_failures(op):
     """What is wrong with one routed row's lease, or [] if it is right."""
-    leased = getattr(_resolve_entry_point(op.entry_point),
-                     "__resolve_lease__", None)
+    entry_point = _resolve_entry_point(op.entry_point)
+    leased = getattr(entry_point, "__resolve_lease__", None)
     if op.exclusion == RESOLVE_CURSOR:
         if leased is None:
+            lease_plan = getattr(entry_point, "__resolve_lease_plan__", None)
+            if lease_plan == ("cursor_sections", "exclusive"):
+                return []
             return [f"{op.entry_point} is routed {op.exclusion} and does not "
                     f"take the instance. Decorate it with "
                     f"`resolve_lock.under_lease(...)`, or move the row to "

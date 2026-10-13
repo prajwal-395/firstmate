@@ -41,13 +41,16 @@ was `FREE` for that reason. Measured 2026-10-05: three concurrent
 live builds interleaved their writes in the gaps between those
 per-section holds - one build died reading a timeline count that no
 longer matched the project, another's staging timeline was deleted
-under it. The build now holds the exclusive instance lease for its
-whole duration (see `rebuild_reels_in_project`'s THE LEASE section),
-so its row is `RESOLVE_CURSOR`: a second build waits at its own
-first acquisition rather than interleaving. The per-write cursor
-check makes each write land where it was aimed; it cannot protect a
-READ from a concurrent deletion, and it cannot stop one build's
-discard path from deleting another's staging.
+under it. The build now serializes its own staging and sidecar work
+with a separate build turn, while each cursor-sensitive section takes
+an exclusive instance lease. Its route stays `RESOLVE_CURSOR` because
+the operation contains those writes; the lease plan is explicitly
+sectioned, so readers can run during graphics preparation on direct build
+calls. The `run_reels` caller keeps its wider lease through verification and
+promotion. The
+per-write cursor check makes each write land where it was aimed; it
+cannot protect a READ from a concurrent deletion, and it cannot stop
+one build's discard path from deleting another's staging.
 
 What is NOT in this table
 -------------------------

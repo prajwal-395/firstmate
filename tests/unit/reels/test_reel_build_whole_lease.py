@@ -1,4 +1,4 @@
-"""One reel build holds the exclusive Resolve lease for its WHOLE duration.
+"""Reel preparation leaves Resolve free, then each placement is atomic.
 
 The defect this file answers (captain, 2026-10-05): three workers ran
 live reel builds in the captain's Resolve project at the same time. One
@@ -39,14 +39,11 @@ cannot stop one build's discard path from deleting another's staging.
 
 The fix
 -------
-The build takes ONE exclusive lease at its first line and holds it to
-its last - connect, derivation, placement, gate, promotion, sweep. Every
-inner hold becomes a reentrant no-op under it. A second build waits at
-its own first acquisition (the connect, which IS the whole build now)
-and refuses with a named reason after the bounded wait if the first
-build never finishes. The per-section holds stay in the code: they
-document each section's critical section, and they are correct if the
-outer hold is ever removed.
+A separate build turn serializes builds without holding Resolve during
+preparation. Graphics and placement-plan work completes before one
+exclusive per-reel lease spans the live read, decision and placement.
+The batch Fusion pass, verification and promotion retain their own
+leases.
 
 Reads by the shadow watcher go through the broker, which serializes
 them behind the build's exclusive grant - they wait, which is the safe
@@ -56,14 +53,12 @@ scripts (`populate_calibration.py`, `probe_render_control_plane.py`,
 `probe_fusion_tool_inputs.py`) each take one `@under_lease` for their
 whole body. The reel build was the outlier.
 
-The two tests
--------------
-`test_the_build_holds_one_exclusive_lease_for_whole_body` pins the new
-shape deterministically in-process. `test_two_concurrent_builds_never_
-interleave` is the regression test: two subprocesses run the REAL build
-against fake Resolves sharing one lock dir, and the second build's body
-must never start before the first build's body ends. Both fail on the
-per-section shape and pass on the whole-build hold.
+The acceptance tests
+--------------------
+`test_graphics_prepare_runs_without_resolve_lease` blocks a fake graphics
+renderer while a second Resolve reader acquires the instance, then proves
+the decision and placement share one exclusive lease. The subprocess race
+test ensures two builds still do not interleave.
 """
 
 from __future__ import annotations
@@ -82,7 +77,6 @@ import pytest
 
 from library.tools import resolve_lock
 from library.tools import reel_build as rb
-from library.tools.resolve_lock import resolve_lease
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -471,6 +465,7 @@ def _start_worker(lock_dir: Path, log: Path, project_dir: Path):
     env = dict(os.environ)
     env[resolve_lock.LOCK_DIR_ENV] = str(lock_dir)
     env.pop(resolve_lock.INHERIT_ENV, None)
+    env.pop(resolve_lock.INHERIT_MODE_ENV, None)
     return subprocess.Popen(
         [sys.executable, "-c", _BUILD_WORKER,
          str(lock_dir), str(log), str(project_dir)],
@@ -506,13 +501,10 @@ def test_two_concurrent_builds_never_interleave(tmp_path):
     """Two REAL builds, one lock dir, and the second never starts its
     body before the first ends.
 
-    The first build's placement plan sleeps 3s - a section that holds
-    NO lease on the old shape. The main test waits for that section to
-    begin, then starts the second build. On the per-section shape the
-    second build's connect succeeds during the first's hold-free plan
-    and its body overlaps the first's; on the whole-build hold the
-    second build waits at its connect (which IS the whole build) until
-    the first build's body has ended.
+    The first build's placement plan sleeps 3s while its Resolve lease
+    is free. The main test starts the second build during that pause.
+    The separate build-turn lock keeps the second build's derivation
+    from overlapping the first build's sidecar writes.
     """
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
@@ -561,12 +553,10 @@ def test_two_concurrent_builds_never_interleave(tmp_path):
 
 @contextmanager
 def _spy_outer_lease(events):
-    """Record every lease the build's own module and the decorator take.
+    """Record every Resolve lease taken through either module reference.
 
-    Patches BOTH names the build calls - `resolve_lock.resolve_lease`
-    (which `under_lease`'s wrapper calls) and `reel_build.resolve_lease`
-    (the inner per-section holds) - so the record shows the whole shape:
-    the outer whole-build hold and the inner holds nested under it.
+    Patches both names used by the build so tests can inspect the active
+    cursor-sensitive sequence at each fake Resolve operation.
     """
     real = resolve_lock.resolve_lease
     open_stack = []
@@ -591,62 +581,184 @@ def _spy_outer_lease(events):
         yield snapshot
 
 
-def test_the_build_holds_one_exclusive_lease_for_whole_body(
-        tmp_path, stub_resolve_script):
-    """One exclusive hold, taken at the first line and held to the last.
+def test_graphics_prepare_runs_without_resolve_lease(
+        tmp_path, stub_resolve_script, monkeypatch):
+    """A shared reader enters during blocked graphics work, but not placement."""
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(lock_dir))
+    monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
 
-    The outer hold is the build's whole body: it is taken before any
-    derivation, still open during the placement and the gate, and
-    released after the sweep. On the per-section shape the first hold is
-    "build reels connect" and it closes before the body runs.
-    """
+    @contextmanager
+    def no_broker(*args, **kwargs):
+        yield None
+
+    monkeypatch.setattr(resolve_lock, "_broker_turn", no_broker)
+    monkeypatch.setenv("PIPELINE_RESOLVE_LEASE_TIMEOUT", "5")
+    perf_path = tmp_path / "perf.jsonl"
+    monkeypatch.setenv("REN_PERF_LEDGER", str(perf_path))
+    monkeypatch.setenv("REN_PERF_RUN", "lease-split-test")
+    monkeypatch.setenv("REN_PERF_CAPABILITY", "reel.build")
+
     project_dir = tmp_path / "project"
     _write_project(project_dir)
     project = _ResolveProject([MASTER])
-
+    renderer_entered = []
+    place_reader = []
     events = []
     markers = []
+    place_snapshot = []
+    graphics_marker = tmp_path / "graphics-reader.json"
+    place_marker = tmp_path / "placement-reader.json"
 
-    def derive():
-        markers.append("derive")
+    reader_script = textwrap.dedent(f"""        import json, os, sys, time
+        from pathlib import Path
+        from contextlib import contextmanager
+        from library.tools import resolve_lock
+        os.environ.pop(resolve_lock.INHERIT_ENV, None)
+        os.environ.pop(resolve_lock.INHERIT_MODE_ENV, None)
+        @contextmanager
+        def no_broker(*args, **kwargs):
+            yield None
+        resolve_lock._broker_turn = no_broker
+        marker = Path(sys.argv[1])
+        marker.write_text(json.dumps({{"state": "attempting"}}), encoding="utf-8")
+        with resolve_lock.resolve_lease(
+                "acceptance shared reader", exclusive=False):
+            marker.write_text(json.dumps({{"state": "acquired"}}), encoding="utf-8")
+    """)
 
-    def prepare():
-        markers.append("prepare")
+    def blocked_graphics_renderer():
+        # This callback represents the renderer's blocked section. It does
+        # not return until a separate process has actually acquired Resolve.
+        proc = subprocess.run(
+            [sys.executable, "-c", reader_script, str(graphics_marker)],
+            cwd=REPO_ROOT,
+            env={**os.environ, resolve_lock.LOCK_DIR_ENV: str(lock_dir)},
+            capture_output=True, text=True, encoding="utf-8", timeout=10,
+            check=False)
+        assert proc.returncode == 0, (proc.stdout, proc.stderr)
+        assert json.loads(
+            graphics_marker.read_text(encoding="utf-8"))["state"] == "acquired"
+        renderer_entered.append(True)
+        markers.append("graphics")
+
+    def placement_reader_attempt():
+        proc = subprocess.Popen(
+            [sys.executable, "-c", reader_script, str(place_marker)],
+            cwd=REPO_ROOT,
+            env={**os.environ, resolve_lock.LOCK_DIR_ENV: str(lock_dir)},
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8")
+        place_reader.append(proc)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if place_marker.exists():
+                body = json.loads(place_marker.read_text(encoding="utf-8"))
+                if body["state"] == "attempting":
+                    break
+            time.sleep(0.01)
+        else:
+            _, stderr = proc.communicate(timeout=5)
+            raise AssertionError(
+                f"reader did not reach its lease attempt; "
+                f"returncode={proc.returncode}, stderr={stderr!r}")
+        time.sleep(0.05)
+        assert json.loads(
+            place_marker.read_text(encoding="utf-8"))["state"] == "attempting"
+        place_snapshot.extend(snapshot())
 
     def place():
         markers.append("place")
+        placement_reader_attempt()
 
-    patches = _install_build_mocks(project, on_derive=derive,
-                                  on_prepare=prepare, on_place=place)
-    with _spy_outer_lease(events) as snapshot:
-        for p in patches:
-            p.start()
-        try:
-            rb.rebuild_reels_in_project(str(project_dir), organise=False)
-        finally:
-            for p in patches:
-                p.stop()
+    patches = _install_build_mocks(
+        project, on_derive=blocked_graphics_renderer,
+        on_prepare=lambda: markers.append("prepare"), on_place=place)
+    try:
+        with _spy_outer_lease(events) as snapshot:
+            for patcher in patches:
+                patcher.start()
+            try:
+                result = rb.rebuild_reels_in_project(
+                    str(project_dir), organise=False)
+            finally:
+                for patcher in reversed(patches):
+                    patcher.stop()
+        assert renderer_entered == [True]
+        assert any(name.startswith("place Reel 01")
+                   for name in place_snapshot), place_snapshot
+        assert markers == ["graphics", "prepare", "place"], markers
+        assert "Reel 01" in project.names(), project.names()
 
-    enters = [e for e in events if e[0] == "lease-enter"]
-    assert enters, "the build took no lease at all"
-    first_purpose, first_exclusive = enters[0][1], enters[0][2]
-    assert first_purpose == "build reels", (
-        f"the build's first lease was {first_purpose!r}, not the "
-        f"whole-build hold 'build reels' - the per-section shape is back")
-    assert first_exclusive is True, "the whole-build hold must be exclusive"
+        for proc in place_reader:
+            _, stderr = proc.communicate(timeout=5)
+            assert proc.returncode == 0, stderr
+        assert json.loads(
+            place_marker.read_text(encoding="utf-8"))["state"] == "acquired"
 
-    # The outer hold is open across the whole body: derivation,
-    # placement, gate and promotion all run under it.
-    held_purposes = [e[1] for e in events if e[0] == "lease-held"]
-    assert "build reels" in held_purposes
-    exits = [e for e in events if e[0] == "lease-exit"]
-    assert exits[-1][1] == "build reels", (
-        f"the build's last lease release was {exits[-1][1]!r}, not the "
-        f"whole-build hold - something outlived the build")
+        rows = [json.loads(line) for line in
+                perf_path.read_text(encoding="utf-8").splitlines()]
+        phase_rows = [row for row in rows if row.get("kind") == "span"
+                      and row.get("layer", "").startswith("reel_build_")]
+        by_layer = {}
+        for row in phase_rows:
+            by_layer.setdefault(row["layer"], []).append(row)
+        assert {"reel_build_survey", "reel_build_prepare",
+                "reel_build_place", "reel_build_verify",
+                "reel_build_promote"} <= set(by_layer)
+        prep = by_layer["reel_build_prepare"][0]
+        placement = by_layer["reel_build_place"][0]
+        assert prep["wall_s"] >= 0
+        assert prep["output_digest"] == placement["output_digest"]
+        assert len(prep["output_digest"]["derivation"]) == 64
+        holds = [row for row in rows if row.get("layer") == "resolve_hold"
+                 and row.get("capability") == "reel.build"]
 
-    # The body's markers all fired, and the build placed its reel.
-    assert markers == ["derive", "prepare", "place"], markers
-    assert "Reel 01" in project.names(), project.names()
+        def overlap_seconds(phase, hold):
+            phase_start = float(phase["started_at"])
+            phase_end = phase_start + float(phase["wall_s"])
+            hold_start = float(hold["started_at"])
+            hold_end = hold_start + float(hold.get("held_s", hold["wall_s"]))
+            return max(0.0, min(phase_end, hold_end)
+                       - max(phase_start, hold_start))
+
+        assert all(overlap_seconds(prep, hold) == 0 for hold in holds)
+        assert any(overlap_seconds(placement, hold) > 0 for hold in holds)
+        assert result["timelines_built"]
+    finally:
+        for proc in place_reader:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate(timeout=5)
+
+
+def test_synthetic_120_second_preparation_has_zero_lease_hold():
+    """A profiled 120s preparation is outside Resolve, then placement holds."""
+    from library.tools import perf_ledger
+
+    rows = [
+        {"kind": "capability", "run_id": "fixture",
+         "capability": "reel.build", "started_at": 1000.0,
+         "wall_s": 121.0, "cpu_s": 0.0},
+        {"kind": "span", "run_id": "fixture",
+         "capability": "reel.build", "layer": "reel_build_prepare",
+         "started_at": 1000.0, "wall_s": 120.0},
+        {"kind": "span", "run_id": "fixture",
+         "capability": "reel.build", "layer": "resolve_hold",
+         "started_at": 1120.0, "wall_s": 1.0, "held_s": 1.0,
+         "exclusive": True, "purpose": "place Reel 01"},
+    ]
+    report = perf_ledger.profile(rows, "fixture")
+    prepare = next(row for row in report["lines"]
+                   if row["name"] == "reel_build_prepare")
+    assert prepare["wall_s"] == 120.0
+    assert report["resolve"]["exclusive_held_s"] == 1.0
+    prep_interval = (1000.0, 1120.0)
+    lease_interval = (1120.0, 1121.0)
+    assert max(0.0, min(prep_interval[1], lease_interval[1])
+               - max(prep_interval[0], lease_interval[0])) == 0.0
+
 
 
 # ── The second interleaving: the gap between build and verify ───────
