@@ -48,6 +48,7 @@ keeps the headline and points here.
 import json
 import math
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -1608,6 +1609,7 @@ def _build_timeline_under_lease(
     motion_graphics_path: Optional[str] = None,
     project_name: Optional[str] = None,
     project_folder: str = "",
+    confirm_open_project: bool = False,
     _prepared: Optional[dict] = None,
 ) -> dict:
     """Build a complete Resolve timeline from an assembly manifest.
@@ -1679,7 +1681,18 @@ def _build_timeline_under_lease(
 
     pm = resolve.GetProjectManager()
     if project_name:
-        project = resolve_project_exactly(pm, project_name)
+        declared_folder = ""
+        from library.tools.project_layout import ProjectLayout
+        config_path = (ProjectLayout(project_folder).project_config_path
+                       if project_folder else None)
+        if config_path and config_path.is_file():
+            from library.schemas.project_config import load_project_config
+            declared_folder = load_project_config(
+                config_path, migrate_format=False).resolve.folder
+        from library.tools.timeline_ingest import resolve_project_in_declared_folder
+        project = resolve_project_in_declared_folder(
+            pm, project_name, declared_folder,
+            confirm_open=confirm_open_project)
     else:
         project = pm.GetCurrentProject()
 
@@ -4552,6 +4565,7 @@ def build_timeline(
     motion_graphics_path: Optional[str] = None,
     project_name: Optional[str] = None,
     project_folder: str = "",
+    confirm_open_project: bool = False,
 ) -> dict:
     """Prepare a placement plan, then execute it under Resolve and machine leases."""
     prepared = _prepare_timeline_build(
@@ -4587,6 +4601,7 @@ def build_timeline(
             motion_graphics_path=motion_graphics_path,
             project_name=project_name,
             project_folder=project_folder,
+            confirm_open_project=confirm_open_project,
             _prepared=prepared,
         )
 
@@ -4610,6 +4625,8 @@ if __name__ == "__main__":
     subtitle_overlay = None
     motion_graphics = None
     project_name = None
+    project_folder = ""
+    confirm_open_project = False
 
     if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.0)[0]:
         # Orchestrator mode: JSON piped via stdin
@@ -4621,6 +4638,8 @@ if __name__ == "__main__":
             subtitle_overlay = input_data.get("subtitle_overlay_path")
             motion_graphics = input_data.get("motion_graphics_path")
             project_name = input_data.get("project_name")
+            project_folder = input_data.get("project_folder", "")
+            confirm_open_project = input_data.get("confirm_open_project", False) is True
 
     if manifest is None:
         # CLI mode: parse arguments
@@ -4629,6 +4648,11 @@ if __name__ == "__main__":
         parser.add_argument("--subtitle-overlay", help="Path to Remotion subtitle overlay (.mov)")
         parser.add_argument("--motion-graphics", help="Path to Remotion motion graphics overlay (.mov)")
         parser.add_argument("--project", help="Resolve project name")
+        parser.add_argument("--project-folder", default="",
+                            help="Project directory containing project.yaml")
+        parser.add_argument(
+            "--yes-open-project", action="store_true",
+            help="Confirm opening the declared Resolve project after Ren asks")
         args = parser.parse_args()
 
         with open(args.manifest) as f:
@@ -4636,12 +4660,16 @@ if __name__ == "__main__":
         subtitle_overlay = args.subtitle_overlay
         motion_graphics = args.motion_graphics
         project_name = args.project
+        project_folder = args.project_folder
+        confirm_open_project = args.yes_open_project
 
     result = build_timeline(
         manifest,
         subtitle_overlay_path=subtitle_overlay,
         motion_graphics_path=motion_graphics,
         project_name=project_name,
+        project_folder=project_folder,
+        confirm_open_project=confirm_open_project,
     )
 
     # BUG FIX C7: Output structured JSON result to stdout (only JSON, no

@@ -355,6 +355,7 @@ def run(inputs: dict) -> dict:
             motion_graphics_path=inputs.get("motion_graphics_path"),
             project_name=_resolve_build_project_name(manifest),
             project_folder=inputs.get("project_folder", ""),
+            confirm_open_project=inputs.get("confirm_open_project") is True,
         )
         result["transition_items"] = _transition_items_for_report(manifest)
         
@@ -419,6 +420,9 @@ def run(inputs: dict) -> dict:
         # Fail fast if Resolve isn't running
         raise RuntimeError(f"ConnectionError: {str(e)}")
     except Exception as e:
+        from library.tools.ren_refusal import RenRefusal
+        if isinstance(e, RenRefusal):
+            raise
         raise RuntimeError(f"Render failed: {str(e)}")
 
 
@@ -433,6 +437,12 @@ def main():
         result = run(input_data)
         json.dump(result, sys.stdout, indent=2)
     except Exception as e:
+        from library.tools.ren_refusal import (
+            REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result)
+        if isinstance(e, RenRefusal):
+            print(e.render(), file=sys.stderr)
+            emit_refusal_result(e)
+            sys.exit(REFUSAL_EXIT_CODE)
         # The reason goes to STDERR, and the traceback with it.
         #
         # This used to `print()` the reason - to STDOUT - and exit 1. The

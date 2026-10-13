@@ -77,11 +77,13 @@ track name is used verbatim.  Nothing here invents a speaker for a track
 that does not name one - such a clip carries `speaker: None`, which
 downstream reads as "this edit does not say".
 
-What this module does NOT do
+What this module does
 ----------------------------
-It never writes to Resolve.  Every call it makes is a getter.  A caller
-that wants to build something drives `resolve_build_timeline` as usual;
-this side only reads.
+The snapshot and timeline-reading paths are read-only. The timeline builder
+has one explicit exception: under the exclusive Resolve lease it may navigate
+to the project's declared `resolve.folder`, restore the prior folder, and
+ask before opening the exact declared project. Opening requires an explicit
+confirmation and a clean-state read; an unknown or dirty state refuses.
 
     python3 -m library.tools.timeline_ingest <project_folder> --write
 
@@ -289,18 +291,10 @@ def resolve_project_exactly(project_manager, name: str):
     only safe address is the exact string as Resolve's own project list
     reports it, and the only safe response to its absence is to refuse.
 
-    IT LOOKS IN THE PROJECT MANAGER'S *CURRENT FOLDER* and does not
-    navigate, so where the manager is parked is part of the address.
-    `project.yaml`'s `resolve.folder` names where a project lives
-    (`geo-podcast`: `Lucie Content/Social Media/Podcast`) - park the
-    manager there before building.
-
-    Measured 2026-09-16: a read-only lane finished with
-    `pm.GotoRootFolder()`, which is what "leave the instance as found"
-    asks for, and the next reel build could not find
-    `Podcast (field test)` at all.  The two conventions collide, and
-    this side refuses rather than guessing - which is safe, and is why
-    the collision shows up as a puzzling refusal rather than as damage.
+    This primitive looks in the current folder. The build entry point
+    uses `resolve_project_in_declared_folder` under an exclusive lease,
+    which navigates to the configured folder and restores the previous
+    path after the exact-name lookup.
     """
     listed = project_manager.GetProjectListInCurrentFolder() or []
     if name in listed:
@@ -310,9 +304,7 @@ def resolve_project_exactly(project_manager, name: str):
         open_name = current.GetName() if current else None
         raise TimelineIngestError(
             f"{name!r} is in the current folder but is not the open "
-            f"project (open: {open_name!r}). This module never opens a "
-            f"project - opening one is a write to the captain's "
-            f"session. Open it in Resolve and re-run.")
+            f"project (open: {open_name!r}).")
 
     near = [other for other in listed
             if name.lower() in other.lower() or other.lower() in name.lower()]
@@ -322,6 +314,133 @@ def resolve_project_exactly(project_manager, name: str):
         f"No project named exactly {name!r} in the current folder. "
         f"Resolve lists {listed}.{hint} Refusing rather than guessing: a "
         f"near match here lands on somebody else's project.")
+
+
+def _current_folder_path(project_manager) -> tuple[str, ...]:
+    """Read the full Project Manager path by walking to root and back."""
+    leaf_to_root = []
+    while True:
+        current = project_manager.GetCurrentFolder()
+        if not project_manager.GotoParentFolder():
+            break
+        if current:
+            leaf_to_root.append(str(current))
+    return tuple(reversed(leaf_to_root))
+
+
+def _subfolders(project_manager) -> List[str]:
+    """Folder names under the current Project Manager folder.
+
+    Judged by what it RETURNS (AGENTS.md section 5): live Resolve
+    answers `GetFoldersInCurrentFolder()` with a 1-indexed DICT
+    (`{1: 'AM video', ...}`, measured live 2026-10-13), not a list,
+    and `in` on a dict checks its integer keys. Normalize to the
+    names either way so an exact-name match never misses on shape.
+    """
+    children = project_manager.GetFoldersInCurrentFolder() or []
+    if isinstance(children, Mapping):
+        return [str(name) for name in children.values()]
+    return [str(name) for name in children]
+
+
+def _open_folder_path(project_manager, path: Sequence[str]) -> None:
+    """Open a folder by exact path segments and verify each segment."""
+    if project_manager.GotoRootFolder() is False:
+        raise TimelineIngestError("Resolve could not navigate to the Project Manager root.")
+    for segment in path:
+        if not segment or segment in {".", ".."} or "/" in segment or "\\" in segment:
+            raise TimelineIngestError(f"Invalid Resolve Project Manager folder segment {segment!r}.")
+        children = _subfolders(project_manager)
+        if segment not in children:
+            raise TimelineIngestError(
+                f"No folder named exactly {segment!r} under "
+                f"{project_manager.GetCurrentFolder()!r}; Resolve lists {children}.")
+        project_manager.OpenFolder(segment)
+        if project_manager.GetCurrentFolder() != segment:
+            raise TimelineIngestError(
+                f"Resolve did not open folder {segment!r}; read-back was "
+                f"{project_manager.GetCurrentFolder()!r}.")
+
+
+def resolve_project_in_declared_folder(project_manager, name: str,
+                                       folder: str = "", *,
+                                       confirm_open: bool = False):
+    """Resolve an exact project in its declared folder, restoring the PM cursor.
+
+    Project opening is a separate, explicit chat-confirmed action. The current
+    project must expose a trustworthy dirty-state read and be clean; missing
+    or ambiguous dirty-state APIs fail closed.
+    """
+    from library.tools.resolve_lock import exclusive_held
+
+    if not exclusive_held():
+        raise TimelineIngestError(
+            "Resolve Project Manager navigation requires the exclusive Resolve lease.")
+    if str(folder).startswith(("/", "\\")):
+        raise TimelineIngestError(
+            f"Resolve folder must be a relative path from the Project Manager root: {folder!r}.")
+    original_path = _current_folder_path(project_manager)
+    target = tuple(part for part in str(folder).replace("\\", "/").split("/") if part)
+    try:
+        _open_folder_path(project_manager, target)
+        listed = project_manager.GetProjectListInCurrentFolder() or []
+        if name not in listed:
+            return resolve_project_exactly(project_manager, name)
+        current = project_manager.GetCurrentProject()
+        if current is not None and current.GetName() == name:
+            return current
+        open_name = current.GetName() if current else None
+        if not confirm_open:
+            from library.tools.ren_refusal import RenRefusal
+            raise RenRefusal(
+                what=f"Open Resolve project {name!r}",
+                why=f"Resolve currently has {open_name!r} open, while the project declares {name!r}.",
+                fix="Reply yes in chat to let Ren open the declared project.",
+                code="REN_RESOLVE_PROJECT_OPEN_ASK",
+                user_message=(f"The declared Resolve project {name!r} is ready. "
+                              "May I open it? Reply yes or no."),
+                recovery_class="needs_question")
+        if current is not None:
+            try:
+                dirty = current.GetIsProjectDirty()
+            except (AttributeError, TypeError) as exc:
+                # TypeError is the live shape of a missing check:
+                # measured 2026-10-13, the scripting bridge answers
+                # `GetIsProjectDirty` with None rather than raising
+                # AttributeError, so calling it fails. Either way there
+                # is no reliable unsaved-changes check, so no open.
+                raise TimelineIngestError(
+                    f"Cannot open {name!r}: Resolve does not expose a reliable "
+                    "unsaved-changes check for the currently open project.") from exc
+            except Exception as exc:  # Resolve scripting calls can fail independently.
+                raise TimelineIngestError(
+                    "Cannot open the declared project: Resolve could not report "
+                    "whether the open project has unsaved changes.") from exc
+            if not isinstance(dirty, bool):
+                raise TimelineIngestError(
+                    "Cannot open the declared project: Resolve returned no reliable "
+                    "saved-state reading for the open project.")
+            if dirty:
+                raise TimelineIngestError(
+                    f"Cannot open {name!r}: the currently open project {open_name!r} "
+                    "has unsaved changes. Save or close it yourself, then retry; "
+                    "Ren will not save or discard your changes.")
+        # The ONE in-repo LoadProject path: live-handle check, switch
+        # settle, guard stamp and read-back. A direct call here would be
+        # a second switch discipline, which the crash-hardening contract
+        # refuses (`test_every_loadproject_goes_through_the_switch_helper`).
+        from library.tools.qualification_project import (
+            QualificationError,
+            switch_project,
+        )
+        try:
+            return switch_project(project_manager, name)
+        except QualificationError as exc:
+            raise TimelineIngestError(
+                f"Resolve did not open the exact declared project "
+                f"{name!r}: {exc}") from exc
+    finally:
+        _open_folder_path(project_manager, original_path)
 
 
 def timeline_named(project, name: str):

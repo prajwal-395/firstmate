@@ -232,9 +232,39 @@ class FakeResolve:
 
 
 class FakeProjectManager:
-    def __init__(self, project=None, project_names=None) -> None:
+    def __init__(self, project=None, project_names=None, *,
+                 folder_tree=None, projects_by_folder=None) -> None:
         self._project = project
         self._project_names = list(project_names or ())
+        self._folder_tree = dict(folder_tree or {(): []})
+        self._projects_by_folder = dict(projects_by_folder or {})
+        self._folder_path = ()
+        self.open_folder_calls = []
+        self.load_project_calls = []
+
+    def GetCurrentFolder(self):
+        return self._folder_path[-1] if self._folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self._folder_path:
+            return False
+        self._folder_path = self._folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self._folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        # Live Resolve answers a 1-indexed dict ({1: name, ...}),
+        # measured live 2026-10-13 - never a list.
+        return {index + 1: name for index, name in enumerate(
+            self._folder_tree.get(self._folder_path, ()))}
+
+    def OpenFolder(self, name):
+        self.open_folder_calls.append((self._folder_path, name))
+        self._folder_path = (*self._folder_path, name)
+        return name
 
     def GetCurrentProject(self):
         return self._project
@@ -244,9 +274,19 @@ class FakeProjectManager:
         return True
 
     def GetProjectListInCurrentFolder(self):
+        if self._folder_path in self._projects_by_folder:
+            return [p.GetName() for p in self._projects_by_folder[self._folder_path]]
         if self._project_names:
             return list(self._project_names)
         return [self._project.GetName()] if self._project else []
+
+    def LoadProject(self, name):
+        self.load_project_calls.append(name)
+        for project in self._projects_by_folder.get(self._folder_path, ()):
+            if project.GetName() == name:
+                self._project = project
+                return project
+        return None
 
 
 def make_project(
@@ -282,6 +322,7 @@ class FakeProject:
                 raise TypeError("timeline list was supplied twice")
             timelines, name = name, "Fixture Project"
         self._name = name
+        self._is_dirty = False
         self._settings = dict(_DEFAULT_SETTINGS)
         self._timelines: list = []
         self._current = None
@@ -320,6 +361,9 @@ class FakeProject:
 
     def GetName(self):
         return self._name
+
+    def GetIsProjectDirty(self):
+        return self._is_dirty
 
     def GetUniqueId(self):
         return f"project:{self._name}"

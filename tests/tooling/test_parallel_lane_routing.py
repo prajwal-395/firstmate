@@ -17,6 +17,7 @@ RESOLVE_DRIVING = {
     "tests/qualification/test_golden_conversation_live.py",
     "tests/qualification/test_marker_capture_against_resolve.py",
     "tests/qualification/test_marker_feedback_against_resolve.py",
+    "tests/qualification/test_pm_navigate_live.py",
     "tests/qualification/test_qualifier_sample_live.py",
     "tests/qualification/test_resolve_qualification.py",
     "tests/qualification/test_true_peak_normalize_live.py",

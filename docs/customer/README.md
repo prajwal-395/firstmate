@@ -76,16 +76,18 @@ it to your host's configuration to opt in.
 
 ### When Resolve refuses
 
-Ren never opens a Resolve project or moves around the Project Manager
-for you: opening a project changes your session. So when a build needs
-Resolve, the chat may ask you to do one of these, and then you say
-"carry on".
+For a Resolve build, Ren navigates to the folder declared in the project
+and restores the folder that was open before. If another project is open,
+Ren asks in chat before opening the declared project. It only does so after
+you answer yes and Resolve confirms that the open project has no unsaved
+changes. If that state is dirty or cannot be checked, Ren stops without
+saving or discarding anything.
 
 | The chat says | What to do in Resolve |
 | --- | --- |
 | Resolve scripting is not connected | Run DaVinci Resolve **Studio** (the free edition does not take scripts). Set DaVinci Resolve > Settings > System > General > External scripting using: **Local**, then restart Resolve. |
-| No project named exactly "...", in the current folder | In the Project Manager, open the folder the project lives in. Ren looks in the folder that is open, never a near match. |
-| The project is in the folder but is not the open project | Open that project. |
+| No project named exactly "...", in the declared folder | Check `resolve.folder` and the exact Resolve project name in `project.yaml`. Ren never substitutes a near match. |
+| The project is in the folder but is not the open project | Answer yes in chat to let Ren open it. If Resolve reports unsaved changes, save or close the current project yourself and retry. |
 | Resolve is busy, or another Ren process holds it | Wait for the render or the other job to finish; the chat retries. |
 
 ### Where is my file?

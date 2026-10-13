@@ -291,7 +291,90 @@ def test_a_project_is_addressed_by_its_exact_name_and_never_opened():
     pm = FakeProjectManager(FakeProject("Podcast"), project_names=names)
     with pytest.raises(TimelineIngestError) as e:
         timeline_ingest.resolve_project_exactly(pm, "Podcast (field test)")
-    assert "never opens a project" in str(e.value)
+    assert "not the open project" in str(e.value)
+
+
+def _pm_with_declared_project(current, target):
+    from tests.resolve_double import FakeProject
+
+    pm = FakeProjectManager(
+        current,
+        folder_tree={(): ["Keep", "Client"], ("Client",): ["Sub"],
+                     ("Client", "Sub"): [], ("Keep",): []},
+        projects_by_folder={("Client", "Sub"): [target]})
+    pm._folder_path = ("Keep",)
+    return pm
+
+
+def test_declared_folder_navigation_restores_and_does_not_open_without_yes():
+    from library.tools.resolve_lock import resolve_lease
+    from library.tools.ren_refusal import RenRefusal
+
+    current = FakeProject("Current")
+    target = FakeProject("Declared")
+    pm = _pm_with_declared_project(current, target)
+    with resolve_lease("test declared Project Manager folder", timeout=1.0):
+        with pytest.raises(RenRefusal) as error:
+            timeline_ingest.resolve_project_in_declared_folder(
+                pm, "Declared", "Client/Sub")
+    assert error.value.recovery_class == "needs_question"
+    assert pm.load_project_calls == []
+    assert pm._folder_path == ("Keep",)
+
+
+def test_declared_project_open_refuses_when_current_project_is_dirty():
+    from library.tools.resolve_lock import resolve_lease
+
+    current = FakeProject("Current")
+    current._is_dirty = True
+    target = FakeProject("Declared")
+    pm = _pm_with_declared_project(current, target)
+    with resolve_lease("test dirty Project Manager project", timeout=1.0):
+        with pytest.raises(TimelineIngestError, match="unsaved changes"):
+            timeline_ingest.resolve_project_in_declared_folder(
+                pm, "Declared", "Client/Sub", confirm_open=True)
+    assert pm.load_project_calls == []
+    assert pm._folder_path == ("Keep",)
+
+
+def test_declared_project_opens_after_yes_when_current_project_is_clean():
+    from library.tools.resolve_lock import resolve_lease
+
+    current = FakeProject("Current")
+    target = FakeProject("Declared")
+    pm = _pm_with_declared_project(current, target)
+    with resolve_lease("test confirmed Project Manager project", timeout=1.0):
+        result = timeline_ingest.resolve_project_in_declared_folder(
+            pm, "Declared", "Client/Sub", confirm_open=True)
+    assert result is target
+    assert pm.load_project_calls == ["Declared"]
+    assert pm._folder_path == ("Keep",)
+
+
+def test_declared_project_open_refuses_when_dirty_read_is_absent():
+    """A None `GetIsProjectDirty` fails closed, as live Resolve answers.
+
+    Measured live 2026-10-13: the scripting bridge resolves the check
+    to None instead of raising AttributeError, so calling it is a
+    TypeError. Either shape refuses the open rather than proceeding
+    without a saved-state reading.
+    """
+    from library.tools.resolve_lock import resolve_lease
+
+    from tests.resolve_double import FakeProject
+
+    class NoDirtyRead(FakeProject):
+        GetIsProjectDirty = None
+
+    current = NoDirtyRead("Current")
+    target = FakeProject("Declared")
+    pm = _pm_with_declared_project(current, target)
+    with resolve_lease("test absent dirty-state read", timeout=1.0):
+        with pytest.raises(TimelineIngestError, match="reliable"):
+            timeline_ingest.resolve_project_in_declared_folder(
+                pm, "Declared", "Client/Sub", confirm_open=True)
+    assert pm.load_project_calls == []
+    assert pm._folder_path == ("Keep",)
 
 
 def test_a_timeline_is_addressed_exactly_too(tmp_path):
