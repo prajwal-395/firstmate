@@ -36,12 +36,14 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import difflib
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -2276,6 +2278,427 @@ def finalize_request(out_dir: str, request_id: str) -> dict:
                 "captain_label_agreement", "")}
 
 
+# ── agent task efficiency benchmark ────────────────────────────────
+#
+# Plan item 4 (2026-10-12 ergonomics follow-on): FI-01 measures analysis
+# fidelity, not whether an agent can start, inspect reels, find footage,
+# apply a note or deliver with fewer calls/bytes/wall. These five scripted
+# tool transcripts are that missing host-task set, replayed against mocked
+# tool responses only - no Resolve, no model, no render, no network.
+#
+# Scores are deterministic: tool calls plus UTF-8 bytes of the canonical
+# request/response JSON. Local wall is REPORTED per task but never gated -
+# it varies machine to machine, so the golden pins outcomes and call/byte
+# totals only, and a rerun reproduces the scores exactly. A changed
+# response or tool action changes the transcript digest and fails the
+# benchmark. This benchmark GATES NOTHING in CI: `ren eval --agent` is
+# opt-in evidence, kept out of every merge gate like the rest of this
+# harness. Tests for it are hermetic (`tmp_path` only).
+
+#: Explicit measurement version: any scoring change bumps this, and old
+#: score files name the version they were measured under.
+AGENT_MEASUREMENT_VERSION = "agent-efficiency/1"
+
+#: Fixed run order for the five scripted sessions.
+AGENT_TASK_ORDER = (
+    "start_next_action",
+    "reel_state",
+    "footage_search",
+    "note_revision",
+    "delivery",
+)
+
+#: The five scripted tool transcripts. Each turn is one host tool call:
+#: `tool` plus `args` is the request, `response` the mocked tool reply,
+#: `expect_action` the agent action the session must take on that reply.
+#: `provenance` names the product module whose behavior the script mirrors
+#: and why - a fixture may only change together with its provenance note.
+AGENT_TASKS: dict = {
+    "start_next_action": {
+        "task_class": "start",
+        "tool_surface": "ren now",
+        "provenance": {
+            "module": "library/tools/project_work_state.py",
+            "entry": "now",
+            "basis": "LE-07 one-call next actions; read-only state plus "
+                     "numbered next_actions, with the open ask's response "
+                     "path read from pending_asks",
+        },
+        "expected_outcome": "next_action_reported",
+        "transcript": [
+            {"tool": "project_work_state.now",
+             "args": {"project": "fixture-podcast"},
+             "response": {
+                 "summary": "edit staged; 1 ask open",
+                 "next_actions": [
+                     {"n": 1, "action": "answer ask speech_sequence"},
+                     {"n": 2, "action": "review rough cut"}]},
+             "expect_action": "report_next_action:1"},
+            {"tool": "pending_asks.detail",
+             "args": {"ask": "speech_sequence"},
+             "response": {
+                 "ask": "speech_sequence",
+                 "response_path": "pipeline_output/llm_responses/"
+                                  "speech_sequence.json",
+                 "shared_once": True},
+             "expect_action": "point_to_response_path"},
+        ],
+    },
+    "reel_state": {
+        "task_class": "inspect",
+        "tool_surface": "ren reels",
+        "provenance": {
+            "module": "library/tools/reel_state.py",
+            "entry": "list/read",
+            "basis": "LE-07 reel state in one call; the blocked reel names "
+                     "its missing sign-off",
+        },
+        "expected_outcome": "reel_states_reported",
+        "transcript": [
+            {"tool": "reel_state.list",
+             "args": {"project": "fixture-podcast"},
+             "response": {"reels": [{"n": 1, "state": "approved"},
+                                    {"n": 2, "state": "proposed"}]},
+             "expect_action": "report_reel_states:1-approved,2-proposed"},
+            {"tool": "reel_state.read",
+             "args": {"project": "fixture-podcast", "reel": 2},
+             "response": {"reel": 2, "state": "proposed",
+                          "blocking": "captain sign-off"},
+             "expect_action": "report_reel_blocker:sign-off"},
+        ],
+    },
+    "footage_search": {
+        "task_class": "find",
+        "tool_surface": "ren search",
+        "provenance": {
+            "module": "library/tools/analysis/footage_query.py",
+            "entry": "search/where",
+            "basis": "footage search is a capability, not a pipeline "
+                     "stage; a hit is a clip id plus source span",
+        },
+        "expected_outcome": "footage_located",
+        "transcript": [
+            {"tool": "footage_query.search",
+             "args": {"query": "host laughs", "top_k": 3},
+             "response": {"hits": [
+                 {"clip_id": "clip_017", "source_start": 987.0,
+                  "source_end": 1204.0, "score": 0.81},
+                 {"clip_id": "clip_042", "source_start": 55.5,
+                  "source_end": 71.0, "score": 0.62},
+                 {"clip_id": "clip_003", "source_start": 12.0,
+                  "source_end": 28.5, "score": 0.44}]},
+             "expect_action": "report_hit:clip_017@987-1204"},
+            {"tool": "footage_query.where",
+             "args": {"clip_id": "clip_017", "at": 1000.0},
+             "response": {"clip_id": "clip_017",
+                          "region": {"x": 0.42, "y": 0.51}},
+             "expect_action": "report_region:0.42,0.51"},
+        ],
+    },
+    "note_revision": {
+        "task_class": "apply_note",
+        "tool_surface": "ren revise",
+        "provenance": {
+            "module": "library/tools/marker_routing.py",
+            "entry": "route_project",
+            "basis": "a collected note routes to the owning step "
+                     "(assign_aroll), and the revision applies as a "
+                     "feedback patch with a receipt",
+        },
+        "expected_outcome": "revision_applied",
+        "transcript": [
+            {"tool": "marker_routing.route",
+             "args": {"note": "Trim the pause \u2014 keep the laugh.",
+                      "timeline": "EVAL_T1"},
+             "response": {"owner": "assign_aroll", "op": "trim_silence",
+                          "span": [12.0, 14.5]},
+             "expect_action": "route_to:assign_aroll/trim_silence"},
+            {"tool": "feedback_patch.apply",
+             "args": {"owner": "assign_aroll", "op": "trim_silence",
+                      "span": [12.0, 14.5]},
+             "response": {"applied": True,
+                          "receipt": "aroll-trim-12.0-14.5"},
+             "expect_action": "confirm_revision_applied:aroll-trim-12.0-14.5"},
+        ],
+    },
+    "delivery": {
+        "task_class": "deliver",
+        "tool_surface": "ren deliver",
+        "provenance": {
+            "module": "library/tools/ren_refusal.py",
+            "entry": "REN_RESULT",
+            "basis": "an unapproved reel refuses with a REN_RESULT code "
+                     "(exit 4); a signed-off reel delivers with a receipt",
+        },
+        "expected_outcome": "refusal_then_receipt",
+        "transcript": [
+            {"tool": "deliver_reel.deliver",
+             "args": {"reel": 2, "approved": False},
+             "response": {"REN_RESULT": {"code": "reel_not_approved",
+                                         "exit": 4}},
+             "expect_action": "refuse:reel_not_approved"},
+            {"tool": "deliver_reel.deliver",
+             "args": {"reel": 2, "approved": True,
+                      "signoff": "captain:2026-10-12"},
+             "response": {"REN_RESULT": {"code": "ok", "exit": 0},
+                          "receipt": "reel-02-delivered-20261012"},
+             "expect_action": "accept_receipt:reel-02-delivered-20261012"},
+        ],
+    },
+}
+
+#: Golden outcomes and exact call/byte totals per task, plus the sha256 of
+#: each task's canonical transcript. A fixture edit without a golden update
+#: fails the benchmark on purpose: the digest pins every expected response
+#: and tool action. Wall time is deliberately absent - it is reported, not
+#: scored. Measured with `agent_golden_probe` at authoring time; a later
+#: intentional fixture change re-probes and records its reason here.
+AGENT_GOLDEN: dict = {
+    "start_next_action": {
+        "outcome": "next_action_reported",
+        "calls": 2,
+        "bytes_out": 133,
+        "bytes_in": 249,
+        "bytes_total": 382,
+        "transcript_sha256": "9cd892223fc98a7d09e523a71f38d770ceec561576acc2fff4d608137b201e6d",
+    },
+    "reel_state": {
+        "outcome": "reel_states_reported",
+        "calls": 2,
+        "bytes_out": 135,
+        "bytes_in": 124,
+        "bytes_total": 259,
+        "transcript_sha256": "fda0ed680413ab8751f6b66c33f60dcf1288e5d7ef5f33ccd2993dbf0358945c",
+    },
+    "footage_search": {
+        "outcome": "footage_located",
+        "calls": 2,
+        "bytes_out": 144,
+        "bytes_in": 286,
+        "bytes_total": 430,
+        "transcript_sha256": "43fb2f8f6e945a3db74ced93a914f33ade7f8541a8e76398d1f44668daf565ca",
+    },
+    "note_revision": {
+        "outcome": "revision_applied",
+        "calls": 2,
+        "bytes_out": 207,
+        "bytes_in": 112,
+        "bytes_total": 319,
+        "transcript_sha256": "e3b2eefa7332509bd9dc88159243ca0ac6286fa9908deb8af662fac48c670053",
+    },
+    "delivery": {
+        "outcome": "refusal_then_receipt",
+        "calls": 2,
+        "bytes_out": 162,
+        "bytes_in": 128,
+        "bytes_total": 290,
+        "transcript_sha256": "cf90b1c3a6a5e7976255717c3663a5149b9fbd255e7689b6a694444cd8f680de",
+    },
+}
+
+
+def agent_canonical_bytes(value) -> bytes:
+    """Canonical JSON bytes for scoring: sorted keys, real UTF-8.
+
+    `ensure_ascii=False` is load-bearing: a note carrying an em dash must
+    score its three UTF-8 bytes, not six ASCII escapes. Compact separators
+    keep the form stable across Python versions.
+    """
+    return json.dumps(value, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":")).encode("utf-8")
+
+
+def agent_transcript_digest(task_id: str, tasks: dict | None = None) -> str:
+    """sha256 over the task's canonical transcript.
+
+    Covers tools, args, mocked responses and expected actions - everything
+    a fixture change could alter - and nothing else (no wall, no paths).
+    """
+    tasks = AGENT_TASKS if tasks is None else tasks
+    if task_id not in tasks:
+        raise KeyError(f"unknown agent task: {task_id!r}")
+    return hashlib.sha256(
+        agent_canonical_bytes(tasks[task_id]["transcript"])).hexdigest()
+
+
+def score_agent_transcript(transcript: list) -> dict:
+    """Calls plus UTF-8 bytes exchanged over one scripted session.
+
+    Pure on the transcript: the same fixture always scores the same, and
+    wall time never enters the score. A turn's request is its tool plus
+    args; its reply is the mocked response.
+    """
+    bytes_out = 0
+    bytes_in = 0
+    for position, turn in enumerate(transcript):
+        try:
+            request = {"tool": turn["tool"], "args": turn["args"]}
+            reply = turn["response"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"turn {position}: needs tool/args/response: {exc}") from exc
+        if not isinstance(request["tool"], str) or not request["tool"]:
+            raise ValueError(f"turn {position}: empty tool name")
+        if not isinstance(request["args"], dict):
+            raise ValueError(f"turn {position}: args must be an object")
+        if not isinstance(reply, dict):
+            raise ValueError(f"turn {position}: response must be an object")
+        action = turn.get("expect_action", "")
+        if not isinstance(action, str) or not action.strip():
+            raise ValueError(f"turn {position}: empty expected action")
+        bytes_out += len(agent_canonical_bytes(request))
+        bytes_in += len(agent_canonical_bytes(reply))
+    return {"calls": len(transcript),
+            "bytes_out": bytes_out, "bytes_in": bytes_in,
+            "bytes_total": bytes_out + bytes_in}
+
+
+def replay_agent_task(task_id: str, tasks: dict | None = None) -> dict:
+    """Replay one scripted session against its mocked responses.
+
+    No product module is reached: the transcript IS the session, and the
+    replay verifies its shape, takes the expected action at each turn and
+    scores the exchange. Returns the session record; wall is measured here
+    and reported alongside the deterministic score.
+    """
+    tasks = AGENT_TASKS if tasks is None else tasks
+    if task_id not in tasks:
+        raise KeyError(f"unknown agent task: {task_id!r}")
+    task = tasks[task_id]
+    start = time.perf_counter()
+    score = score_agent_transcript(task["transcript"])
+    actions = [turn["expect_action"] for turn in task["transcript"]]
+    wall = time.perf_counter() - start
+    return {"task_id": task_id,
+            "task_class": task["task_class"],
+            "tool_surface": task["tool_surface"],
+            "outcome": task["expected_outcome"],
+            "actions": actions,
+            **score,
+            "transcript_sha256": agent_transcript_digest(task_id,
+                                                         tasks=tasks),
+            "wall_s": wall}
+
+
+def agent_golden_probe(tasks: dict | None = None) -> dict:
+    """The golden a fixture set earns: outcome, calls, bytes, digest.
+
+    A maintainer runs this after an intentional fixture change and copies
+    the printed mapping into `AGENT_GOLDEN` beside the reason. It is a
+    probe, not the gate: the gate compares replays against the literal.
+    """
+    tasks = AGENT_TASKS if tasks is None else tasks
+    golden = {}
+    for task_id in AGENT_TASK_ORDER:
+        session = replay_agent_task(task_id, tasks=tasks)
+        golden[task_id] = {
+            "outcome": session["outcome"],
+            "calls": session["calls"],
+            "bytes_out": session["bytes_out"],
+            "bytes_in": session["bytes_in"],
+            "bytes_total": session["bytes_total"],
+            "transcript_sha256": session["transcript_sha256"],
+        }
+    return golden
+
+
+def check_agent_session(session: dict) -> list:
+    """Golden mismatches for one replayed session. Empty means exact."""
+    golden = AGENT_GOLDEN.get(session["task_id"])
+    if golden is None:
+        return [f"{session['task_id']}: no golden pinned"]
+    problems = []
+    for field in ("outcome", "calls", "bytes_out", "bytes_in",
+                  "bytes_total", "transcript_sha256"):
+        if session[field] != golden[field]:
+            problems.append(
+                f"{session['task_id']}: {field} is {session[field]!r}, "
+                f"golden is {golden[field]!r}")
+    return problems
+
+
+def run_agent_benchmark(fixture_dir: str | Path) -> dict:
+    """Run all five deterministic sessions, score them, check the golden.
+
+    Replays each transcript, compares outcome plus exact call/byte totals
+    (and the transcript digest) against `AGENT_GOLDEN`, prints per-task
+    scores with deltas against golden, and writes the sessions plus
+    `agent_scores.json` under `fixture_dir`. Returns the result mapping;
+    `failures` is non-empty (and the CLI exits 1) on any mismatch.
+    Fixture copies land beside the scores so a score file carries its own
+    provenance: measurement version plus each task's source module.
+    """
+    out = Path(fixture_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    sessions_dir = out / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    fixtures_dir = out / "fixtures"
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
+
+    result: dict = {"measurement_version": AGENT_MEASUREMENT_VERSION,
+                    "tasks": [], "failures": []}
+    for task_id in AGENT_TASK_ORDER:
+        try:
+            session = replay_agent_task(task_id)
+            problems = check_agent_session(session)
+        except (KeyError, ValueError) as exc:
+            session = {"task_id": task_id, "outcome": "error",
+                       "calls": 0, "bytes_out": 0, "bytes_in": 0,
+                       "bytes_total": 0, "transcript_sha256": "",
+                       "wall_s": 0.0}
+            problems = [f"{task_id}: replay failed: {exc}"]
+        golden = AGENT_GOLDEN.get(task_id, {})
+        entry = {**session,
+                 "golden_match": not problems,
+                 "deltas": {
+                     field: session[field] - golden[field]
+                     for field in ("calls", "bytes_out", "bytes_in",
+                                   "bytes_total")
+                     if field in session and field in golden}}
+        result["tasks"].append(entry)
+        result["failures"].extend(problems)
+        (sessions_dir / f"{task_id}.json").write_text(
+            json.dumps(entry, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        (fixtures_dir / f"{task_id}.json").write_text(
+            json.dumps(AGENT_TASKS[task_id], indent=2,
+                       ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        delta_text = ", ".join(
+            f"{field} {entry['deltas'][field]:+d}"
+            for field in ("calls", "bytes_total")
+            if field in entry["deltas"])
+        status = "ok" if not problems else "MISMATCH"
+        print(f"agent {task_id}: {status} outcome={session['outcome']} "
+              f"calls={session['calls']} "
+              f"bytes={session['bytes_total']} "
+              f"(in={session['bytes_in']} out={session['bytes_out']}) "
+              f"wall={session['wall_s']:.6f}s "
+              f"delta[{delta_text or 'none'}]",
+              flush=True)
+        for problem in problems:
+            print(f"agent {problem}", file=sys.stderr, flush=True)
+    result["provenance"] = {
+        task_id: AGENT_TASKS[task_id]["provenance"]
+        for task_id in AGENT_TASK_ORDER}
+    (out / "agent_scores.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    print(f"agent: {len(result['tasks']) - len(result['failures'])}"
+          f"/{len(result['tasks'])} match golden "
+          f"({AGENT_MEASUREMENT_VERSION}) -> {out / 'agent_scores.json'}",
+          flush=True)
+    return result
+
+
+def run_agent_cli(fixture: str) -> int:
+    """`ren eval --agent [--fixture <dir>]`: the five sessions, then exit."""
+    out = Path(fixture) if fixture else Path(
+        tempfile.mkdtemp(prefix="ren-eval-agent-"))
+    result = run_agent_benchmark(out)
+    return 1 if result["failures"] else 0
+
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 def howto_text() -> str:
@@ -2321,6 +2744,15 @@ The base: a built project with analysis done (any checkout that built it),
   preflight code hashes to the running checkout and records both hashes in
   `run.json`; source fingerprints still check the cloned media. Fixtures live
   outside git; only this tool ships.
+
+Agent-task efficiency sessions (five scripted transcripts, mocked tools):
+  ren eval --agent --fixture <tmp>
+  Replays start/next action, reel state, footage search, note/revision and
+  delivery refusal/receipt; scores calls, UTF-8 bytes and local wall per
+  task, prints per-task deltas against the golden, and writes sessions plus
+  `agent_scores.json` under <tmp>. Exact golden outcomes and call/byte
+  totals are required; wall is reported, never gated. Opt-in evidence only:
+  kept out of every merge gate.
 """
 
 
@@ -2329,7 +2761,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="ren eval",
         description="Standing eval: does Ren follow edit requests (report "
                     "only; gates nothing).")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--agent", action="store_true",
+        help="run the five scripted agent-task efficiency sessions "
+             "(start, reel state, footage search, note/revision, delivery) "
+             "against mocked tool responses and check exact golden outcomes "
+             "and call/byte totals")
+    parser.add_argument(
+        "--fixture", default="",
+        help="session scratch/output dir for --agent (created if missing; "
+             "defaults to a fresh temp dir)")
+    sub = parser.add_subparsers(dest="command", required=False)
     listed = sub.add_parser("list", help="print what a filter selects")
     _add_filters(listed)
     runner = sub.add_parser("run", help="run requests end to end")
@@ -2432,6 +2874,11 @@ def main(argv=None) -> int:
     from ren import hosts
     hosts.ensure_harness_output_env()
     args = build_parser().parse_args(argv)
+    if args.agent:
+        return run_agent_cli(args.fixture)
+    if args.command is None:
+        build_parser().print_usage(sys.stderr)
+        return 2
     if args.command == "howto":
         print(howto_text())
         return 0
