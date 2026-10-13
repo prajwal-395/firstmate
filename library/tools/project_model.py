@@ -37,6 +37,27 @@ def validate_project_model(model: dict[str, Any]) -> None:
     entity_ids = {item["id"] for item in model["entities"]}
     clock_ids = {clock["id"] for clock in model["clocks"]}
     stream_ids = {stream["id"] for stream in model.get("streams", [])}
+    policy_rules: dict[str, dict[str, str]] = {}
+    for policy in model.get("evaluation_policies", []):
+        if (policy.get("format") != "evaluation_policy/1"
+                or not policy.get("id") or type(policy.get("version")) is not int
+                or policy["version"] < 1 or policy.get("project_id") != model["id"]):
+            raise ValueError("evaluation policy needs a supported format, positive version, id and matching project")
+        policy_ref = f"{policy['id']}@v{policy['version']}"
+        if policy_ref in policy_rules:
+            raise ValueError(f"duplicate evaluation policy {policy_ref}")
+        seen_rules: dict[str, str] = {}
+        for kind in ("requirements", "preferences"):
+            expected_kind = "requirement" if kind == "requirements" else "preference"
+            for rule in policy.get(kind, []):
+                if (rule.get("kind") != expected_kind or not rule.get("id")
+                        or not rule.get("measurement_type") or not rule.get("origin")
+                        or not rule.get("origin_ref")
+                        or rule.get("operator") not in ("eq", "ne", "lt", "lte", "gt", "gte")
+                        or rule["id"] in seen_rules):
+                    raise ValueError(f"invalid or duplicate {expected_kind} rule in {policy_ref}")
+                seen_rules[rule["id"]] = rule["measurement_type"]
+        policy_rules[policy_ref] = seen_rules
     for item in model.get("observations", []):
         detail = item.get("confidence_detail")
         if detail is not None:
@@ -49,6 +70,29 @@ def validate_project_model(model: dict[str, Any]) -> None:
             raise ValueError("observation references unknown clock")
         evidence = item.get("evidence")
         if isinstance(evidence, dict):
+            if evidence.get("evidence_type") == "evaluation":
+                if not evidence.get("policy_id"):
+                    raise ValueError("evaluation must name its versioned policy")
+                if not evidence.get("basis_measurement_ids"):
+                    raise ValueError("evaluation must cite its basis measurements")
+                if not evidence.get("basis_rule_ids"):
+                    raise ValueError("evaluation must cite its policy rules")
+                rules = policy_rules.get(evidence["policy_id"])
+                if rules is None:
+                    raise ValueError(f"evaluation references missing policy {evidence['policy_id']}")
+                rule_ids = set(evidence["basis_rule_ids"])
+                if not rule_ids <= rules.keys():
+                    raise ValueError("evaluation references unknown policy rule")
+                required_measurements = {rules[rule_id] for rule_id in rule_ids}
+                for measurement_id in evidence["basis_measurement_ids"]:
+                    measurement = next(
+                        (row.get("evidence") for row in model["observations"]
+                         if row["id"] == measurement_id), None)
+                    if (not isinstance(measurement, dict)
+                            or measurement.get("evidence_type") != "measurement"
+                            or measurement.get("measurement_type") not in required_measurements):
+                        raise ValueError(
+                            "evaluation cites a measurement unrelated to its policy rules")
             if not set(evidence.get("basis_measurement_ids", [])) <= observation_ids:
                 raise ValueError("evidence references unknown basis observations")
             for reference in evidence.get("references", []):

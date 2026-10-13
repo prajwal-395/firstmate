@@ -288,6 +288,7 @@ def test_illegal_certainty_coercions_raise():
             coverage=contract.CoverageKind.COMPLETE, coverage_samples=1,
             coverage_sample_rate_hz=0.0, provenance_id="prov-x",
             policy_id="steady_broll_v1", basis_measurement_ids=("m1",),
+            basis_rule_ids=("sharpness-min",),
             certainty_state=contract.CertaintyState.MEASURED)
 
 

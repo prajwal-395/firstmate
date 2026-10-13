@@ -2,7 +2,9 @@
 screen replacement, subject isolation, retiming, object removal and
 tracking - separate from the ability to operate them.
 
-Each detection emits plan items with reason and evidence:
+Each detection emits plan items with reason and evidence. A detection is
+only a candidate; it never authorizes an edit. Stabilization still passes
+the explicit-request gate in ``effect_authorization`` before compile/render.
 
 1. **Stabilization needs** - shots where measured camera shake exceeds the
    instrument-derived threshold (``camera_stability.HANDHELD_BELOW``). The

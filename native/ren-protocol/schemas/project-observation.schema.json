@@ -153,6 +153,13 @@
             "type": "string"
           }
         },
+        "basis_rule_ids": {
+          "description": "FI-22: stable IDs of the policy rules applied by this evaluation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "certainty": {
           "anyOf": [
             {

@@ -106,6 +106,24 @@ def test_old_contract_less_model_still_validates():
     validate_project_model(model)
 
 
+def test_versioned_evaluation_policy_is_project_scoped_and_origin_stamped():
+    from library.tools.evaluation_policy import EvaluationPolicy, PolicyRule
+
+    model = _model()
+    policy = EvaluationPolicy(
+        id="broll", version=1, project_id=model["id"],
+        requirements=(PolicyRule(
+            id="sharpness", kind="requirement",
+            measurement_type="image.sharpness.laplacian_variance",
+            operator="gte", expected=0.5, origin="project",
+            origin_ref="project.yaml:creative_preferences"),))
+    model["evaluation_policies"] = [policy.to_dict()]
+    validate_project_model(model)
+    model["evaluation_policies"][0]["requirements"][0]["origin_ref"] = ""
+    with pytest.raises(ValueError, match="invalid or duplicate requirement rule"):
+        validate_project_model(model)
+
+
 def test_verified_claims_require_supporting_evidence():
     """Acceptance: an unverified candidate must never decode as a
     fact - verified events, relations and identity links without

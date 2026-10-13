@@ -214,6 +214,13 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Dialogue continuity judged against a versioned "
         "policy, citing the speech evidence it read.",
     },
+    "eval.policy_rule_pass": {
+        "unit": "boolean",
+        "kind": EvidenceType.EVALUATION,
+        "requires_resolution": False,
+        "description": "One explicit requirement or preference judged "
+        "against its versioned policy rule and cited measurements.",
+    },
     "creative.soft_focus_keep": {
         "unit": "decision",
         "kind": EvidenceType.CREATIVE_JUDGMENT,
@@ -287,6 +294,8 @@ class EvidenceRecord:
     uncertainty: float | None = None
     policy_id: str | None = None
     basis_measurement_ids: tuple[str, ...] = ()
+    # FI-22: keep the applied policy rules distinct from their measurements.
+    basis_rule_ids: tuple[str, ...] = ()
     contract_version: int = EVIDENCE_CONTRACT_VERSION
     certainty_state: CertaintyState | None = None
     processing_status: ProcessingStatus | None = None
@@ -371,6 +380,9 @@ class EvidenceRecord:
             if not self.basis_measurement_ids:
                 raise EvidenceTypeError(
                     "an evaluation must cite the measurement ids it read")
+            if not self.basis_rule_ids:
+                raise EvidenceTypeError(
+                    "an evaluation must cite the policy rule ids it applied")
         if self.evidence_type is EvidenceType.CREATIVE_JUDGMENT \
                 and not self.policy_id:
             raise EvidenceTypeError(
@@ -482,6 +494,7 @@ def new_evaluation(asset_id: str, clock_id: str, start_tick: int,
                    end_tick: int, measurement_type: str, value: Any,
                    method: str, provenance_id: str, policy_id: str,
                    basis_measurement_ids: tuple[str, ...] | list[str],
+                   basis_rule_ids: tuple[str, ...] | list[str] = (),
                    target_entity_id: str | None = None,
                    target_region: str | None = None) -> EvidenceRecord:
     """Build an evaluation record; policy + cited basis required."""
@@ -496,7 +509,8 @@ def new_evaluation(asset_id: str, clock_id: str, start_tick: int,
         coverage_samples=len(tuple(basis_measurement_ids)),
         coverage_sample_rate_hz=0.0, provenance_id=provenance_id,
         policy_id=policy_id,
-        basis_measurement_ids=tuple(basis_measurement_ids))
+        basis_measurement_ids=tuple(basis_measurement_ids),
+        basis_rule_ids=tuple(basis_rule_ids))
 
 
 # ── Temporal alignment (plan A3) ───────────────────────────────────
@@ -794,6 +808,7 @@ def to_rust_evidence(record: EvidenceRecord) -> dict[str, Any]:
         "uncertainty": record.uncertainty,
         "policy_id": record.policy_id,
         "basis_measurement_ids": list(record.basis_measurement_ids),
+        "basis_rule_ids": list(record.basis_rule_ids),
         "contract_version": record.contract_version,
         "certainty": record.certainty.value if record.certainty is not None else None,
         "processing_status": record.processing_status.value if record.processing_status is not None else None,
@@ -815,7 +830,7 @@ RUST_EVIDENCE_KEYS: frozenset[str] = frozenset({
     "evidence_type", "measurement_type", "value", "unit", "method",
     "sample_resolution", "coverage", "coverage_samples",
     "coverage_sample_rate_hz", "target_entity_id", "target_region",
-    "uncertainty", "policy_id", "basis_measurement_ids",
+    "uncertainty", "policy_id", "basis_measurement_ids", "basis_rule_ids",
     "contract_version",
     "certainty", "processing_status", "source_reference",
     "spatial_frame_id", "coordinate_space_id", "references",

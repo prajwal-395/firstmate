@@ -419,6 +419,9 @@ pub struct EvidenceContract {
     pub uncertainty: Option<f64>,
     pub policy_id: Option<String>,
     pub basis_measurement_ids: Vec<String>,
+    /// FI-22: stable IDs of the policy rules applied by this evaluation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub basis_rule_ids: Vec<String>,
     pub contract_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certainty: Option<CertaintyState>,
@@ -672,6 +675,31 @@ pub struct NleBinding {
     pub external_bindings: BTreeMap<String, Value>,
 }
 
+/// FI-22: authored requirements and preferences used to produce evaluations.
+/// An absent policy is represented by an empty collection, never by defaults.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationPolicy {
+    pub format: String,
+    pub id: String,
+    pub version: u32,
+    pub project_id: ProjectId,
+    pub requirements: Vec<PolicyRule>,
+    pub preferences: Vec<PolicyRule>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyRule {
+    pub id: String,
+    pub kind: String,
+    pub measurement_type: String,
+    pub operator: String,
+    pub expected: Value,
+    pub origin: String,
+    pub origin_ref: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TimebasePolicy {
@@ -718,6 +746,8 @@ pub struct ProjectModel {
     pub space_transforms: Vec<SpaceTransform>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub query_results: Vec<QueryResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evaluation_policies: Vec<EvaluationPolicy>,
 }
 
 pub const PROJECT_MODEL_SCHEMA_VERSION: u32 = 1;
@@ -757,6 +787,42 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
             "unsupported project model version {}",
             model.schema_version
         ));
+    }
+    let mut policy_versions = std::collections::BTreeSet::new();
+    let mut policy_rules = std::collections::BTreeMap::new();
+    for policy in &model.evaluation_policies {
+        if policy.format != "evaluation_policy/1"
+            || policy.id.is_empty()
+            || policy.version == 0
+            || policy.project_id != model.id
+        {
+            return Err("evaluation policy needs a supported format, positive version, id and matching project".into());
+        }
+        let policy_ref = format!("{}@v{}", policy.id, policy.version);
+        if !policy_versions.insert(policy_ref.clone()) {
+            return Err(format!("duplicate evaluation policy {policy_ref}"));
+        }
+        let mut ids = std::collections::BTreeMap::new();
+        for (kind, rules) in [
+            ("requirement", &policy.requirements),
+            ("preference", &policy.preferences),
+        ] {
+            for rule in rules {
+                if rule.kind != kind
+                    || rule.id.is_empty()
+                    || rule.measurement_type.is_empty()
+                    || rule.origin.is_empty()
+                    || rule.origin_ref.is_empty()
+                    || !["eq", "ne", "lt", "lte", "gt", "gte"].contains(&rule.operator.as_str())
+                    || ids
+                        .insert(rule.id.clone(), rule.measurement_type.clone())
+                        .is_some()
+                {
+                    return Err(format!("invalid or duplicate {kind} rule in {policy_ref}"));
+                }
+            }
+        }
+        policy_rules.insert(policy_ref, ids);
     }
     let valid_interval = |interval: &Interval| interval.start < interval.end;
     for (name, valid) in [
@@ -1117,6 +1183,43 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
                 }
                 if evidence.basis_measurement_ids.is_empty() {
                     return Err("an evaluation must cite its measurements".into());
+                }
+                if evidence.basis_rule_ids.is_empty() {
+                    return Err("an evaluation must cite its policy rules".into());
+                }
+                let policy_id = evidence
+                    .policy_id
+                    .as_deref()
+                    .ok_or_else(|| "an evaluation must name its policy".to_string())?;
+                let rules = policy_rules
+                    .get(policy_id)
+                    .ok_or_else(|| format!("evaluation references missing policy {policy_id}"))?;
+                if evidence
+                    .basis_rule_ids
+                    .iter()
+                    .any(|rule| !rules.contains_key(rule))
+                {
+                    return Err("evaluation references unknown policy rule".into());
+                }
+                let required_measurements: std::collections::BTreeSet<_> = evidence
+                    .basis_rule_ids
+                    .iter()
+                    .filter_map(|rule| rules.get(rule).map(String::as_str))
+                    .collect();
+                for reference in &evidence.basis_measurement_ids {
+                    let measurement = model
+                        .observations
+                        .iter()
+                        .find(|o| o.id.0 == *reference)
+                        .and_then(|o| o.evidence.as_ref());
+                    if !measurement.is_some_and(|measurement| {
+                        measurement.evidence_type == EvidenceType::Measurement
+                            && required_measurements.contains(measurement.measurement_type.as_str())
+                    }) {
+                        return Err(
+                            "evaluation cites a measurement unrelated to its policy rules".into(),
+                        );
+                    }
                 }
             }
             EvidenceType::CreativeJudgment => {

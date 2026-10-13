@@ -45,6 +45,12 @@
         "$ref": "#/$defs/Entity"
       }
     },
+    "evaluation_policies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvaluationPolicy"
+      }
+    },
     "events": {
       "type": "array",
       "items": {
@@ -615,6 +621,47 @@
         "other"
       ]
     },
+    "EvaluationPolicy": {
+      "description": "FI-22: authored requirements and preferences used to produce evaluations.\nAn absent policy is represented by an empty collection, never by defaults.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "preferences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyRule"
+          }
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyRule"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "id",
+        "version",
+        "project_id",
+        "requirements",
+        "preferences"
+      ]
+    },
     "Event": {
       "type": "object",
       "properties": {
@@ -672,6 +719,13 @@
       "type": "object",
       "properties": {
         "basis_measurement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "basis_rule_ids": {
+          "description": "FI-22: stable IDs of the policy rules applied by this evaluation.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1400,6 +1454,40 @@
         "modality",
         "payload",
         "provenance_id"
+      ]
+    },
+    "PolicyRule": {
+      "type": "object",
+      "properties": {
+        "expected": true,
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "measurement_type": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "origin_ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "measurement_type",
+        "operator",
+        "expected",
+        "origin",
+        "origin_ref"
       ]
     },
     "ProcessingStatus": {
