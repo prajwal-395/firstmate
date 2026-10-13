@@ -98,6 +98,20 @@ def tier2_only_marker() -> str:
             + ", ".join(config.TIER1_TIER2_ONLY) + "]")
 
 
+def classify_tier1(outcome: dict) -> str:
+    """Give every completed head exactly one evidence classification."""
+    if outcome.get("result_class") == "stale_base" or outcome.get("reason") == "stale base":
+        return "stale_base"
+    if outcome.get("timed_out") or outcome.get("reason") == "no tests executed":
+        return "timeout_no_tests"
+    if outcome.get("result_class") == "environment" or outcome.get(
+            "process_group_leaked") or outcome.get("broker_leaked"):
+        return "environment"
+    if outcome.get("static_failed"):
+        return "test_failure"
+    return "pass" if outcome.get("ok") else "test_failure"
+
+
 def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
     """Execute one PR's Tier-1 check: static gate, then its selection.
 
@@ -114,6 +128,14 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
     world.mirror = mirror
     base = github.main_sha()
     hygiene.fetch_base(mirror, base)
+    pr_base = str(pr.get("base_sha", ""))
+    if pr_base and pr_base != base:
+        return {"pr": number, "head": head, "url": url, "ok": False,
+                "passed": 0, "failed": 0, "elapsed": 0.0,
+                "selection": [], "selected_files": [], "skipped_files": {},
+                "base_sha": base, "pr_base_sha": pr_base,
+                "result_class": "stale_base", "reason": "stale base",
+                "timed_out": False}
     local_head = hygiene.fetch_pr(mirror, number)
     if local_head != head:
         raise hygiene.HygieneRefused(
@@ -130,6 +152,13 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
         selection.record_coverage_decision(
             world.state_dir, number, head, capped["coverage"])
         paths = capped["paths"]
+        skipped = ({path: "tier1 time budget; deferred to Tier-2"
+                    for path in capped.get("deferred_paths", [])}
+                   | {path: "Tier-2-only policy"
+                      for path in capped.get("tier2_only_deferred", [])})
+        skipped.update({path: "not selected by dependent-test policy"
+                        for path in files
+                        if path not in paths and path not in skipped})
         command = (selection.selection_command(files) + " + "
                    + selection.mandatory_description(
                        {"entries": capped.get("mandatory_entries", []),
@@ -152,6 +181,9 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                     "selection": paths, "command": command,
                     "selection_capped": capped["capped"],
                     "selection_detail": capped,
+                    "base_sha": base, "selected_files": paths,
+                    "skipped_files": skipped,
+                    "result_class": "test_failure",
                     "static_failed": static["reason"]}
         log = os.path.join(world.state_dir, "logs",
                            f"pr-{number}-{head[:12]}.log")
@@ -219,6 +251,8 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
             # Reused files passed on identical inputs; the run's own
             # failures still fail the check.
             result["passed"] = result["passed"] + part["reused_passed"]
+        failed_tests = runner.failed_test_ids(log + ".junit.xml")
+        result_class = classify_tier1(result)
         return {"pr": number, "head": head, "url": url,
                 "ok": result["ok"], "passed": result["passed"],
                 "failed": result["failed"], "elapsed": result["elapsed"],
@@ -226,6 +260,9 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "command": command,
                 "selection_capped": capped["capped"],
                 "selection_detail": capped,
+                "base_sha": base, "selected_files": paths,
+                "skipped_files": skipped, "result_class": result_class,
+                "failed_test_ids": failed_tests,
                 "cache_reused": cache_detail["reused"],
                 "cache_total": cache_detail["total"],
                 "broker_leaked": result.get("broker_leaked", False),
@@ -266,35 +303,34 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
     """
     from library.tools.local_ci import github
     done_at = time.time()
-    if outcome.get("timed_out"):
+    non_verdict = (outcome.get("timed_out")
+                   or outcome.get("result_class") == "environment"
+                   or outcome.get("reason") in {"no tests executed",
+                                                  "stale base"})
+    if non_verdict:
         prior = state.read_checks(world.state_dir).get(outcome["head"], {})
         retries = int(prior.get("timeout_retries", 0) or 0) + 1
-        if retries <= config.TIER1_TIMEOUT_MAX_RETRIES:
-            backoff = (config.TIER1_TIMEOUT_RETRY_BASE_SECONDS
-                       * (2 ** (retries - 1)))
-            record = state.record_check(
-                {**outcome, "seen_at": seen_at, "done_at": done_at,
-                 "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
-                 "timeout_retries": retries,
-                 "timeout_retry_at": done_at + backoff,
-                 "status_posted": False, "status_error": ""},
-                world.state_dir)
-            line = _report_line(outcome)
-            record["report"] = line
-            # record_check persisted the entry BEFORE the line existed;
-            # the in-memory assignment above never reaches the file, so
-            # persist it (the manual `ren ci check` path prints it off
-            # the returned record, which is re-read from disk below).
-            state.update_check(outcome["head"], {"report": line},
-                               world.state_dir)
-            print(f"{line} [timeout retry {retries}/"
-                  f"{config.TIER1_TIMEOUT_MAX_RETRIES} in {backoff:.0f}s]",
-                  flush=True)
-            _publish_check_status(record, world.state_dir)
-            return state.read_checks(world.state_dir).get(
-                outcome["head"], record)
+        backoff = min(config.TIER1_TIMEOUT_RETRY_BASE_SECONDS
+                      * (2 ** min(retries - 1, 10)), 3600)
+        record = state.record_check(
+            {**outcome, "seen_at": seen_at, "done_at": done_at,
+             "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
+             "timeout_retries": retries,
+             "timeout_retry_at": done_at + backoff,
+             "result_class": outcome.get("result_class",
+                                          "timeout_no_tests"),
+             "status_posted": False, "status_error": ""},
+            world.state_dir)
+        line = _report_line(outcome)
+        record["report"] = line
+        state.update_check(outcome["head"], {"report": line},
+                           world.state_dir)
+        print(f"{line} [non-verdict retry {retries} in {backoff:.0f}s]",
+              flush=True)
+        _publish_check_status(record, world.state_dir)
+        return state.read_checks(world.state_dir).get(outcome["head"], record)
     extra: dict = {}
-    if outcome.get("timed_out"):
+    if non_verdict:
         prior = state.read_checks(world.state_dir).get(outcome["head"], {})
         extra["timeout_retries"] = int(
             prior.get("timeout_retries", 0) or 0) + 1
@@ -358,18 +394,20 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
         description = f"ren-ci: {record.get('passed', 0)} passed"
         description += (capped_suffix + mandatory_suffix + tier2_suffix
                         + reuse_suffix)
-    elif record.get("timed_out") and int(
-            record.get("timeout_retries", 0) or 0) <= (
-                config.TIER1_TIMEOUT_MAX_RETRIES):
-        reason = "timed out"
+    elif record.get("result_class") in {"timeout_no_tests", "stale_base", "environment"} or record.get(
+            "reason") in {"no tests executed", "stale base"}:
+        reason = ("stale base" if record.get("result_class") == "stale_base"
+                  else "environment issue" if record.get("result_class") == "environment"
+                  else "timed out" if record.get("timed_out")
+                  else "no tests executed")
         diagnostic = record.get("timeout_diagnostic", "")
         if diagnostic:
             reason += f": {diagnostic}"
         retries = int(record.get("timeout_retries", 0) or 0)
         status, description = (
             "pending",
-            (f"ren-ci: {reason} - retrying "
-             f"({retries}/{config.TIER1_TIMEOUT_MAX_RETRIES})"))
+             (f"ren-ci: {reason} - retrying "
+             f"(attempt {retries})"))
     else:
         if record.get("process_group_leaked"):
             reason = "pytest process group did not exit"
@@ -514,13 +552,13 @@ def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
         seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
         known = checks.get(pr["head"])
         if known and known.get("pr") == pr["number"]:
-            # A timed-out Tier-1 judged nothing: re-queue the head while
-            # retries remain and the backoff has elapsed. Past the retry
-            # budget (or while backing off) it stays a known head, never
-            # a silent re-run: backing off waits, exhausted stays red.
-            if known.get("timed_out") and int(
-                    known.get("timeout_retries", 0) or 0) <= (
-                        config.TIER1_TIMEOUT_MAX_RETRIES):
+            # An incomplete Tier-1 run never judges code. Retry it with
+            # capped backoff indefinitely; it must not become a red check.
+            if (known.get("result_class") == "timeout_no_tests"
+                    or known.get("result_class") == "stale_base"
+                    or known.get("result_class") == "environment"
+                    or known.get("timed_out")
+                    or known.get("reason") == "no tests executed"):
                 retry_at = float(known.get("timeout_retry_at", 0) or 0)
                 if time.time() >= retry_at:
                     due.append((pr, seen_at))

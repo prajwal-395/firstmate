@@ -763,6 +763,24 @@ def resolve_batch(world: World, base: str, members: list) -> tuple:
     if not members:
         return [], [], []
     verdict = world.test_stack(base, members)
+    if not verdict.ok and not verdict.requeue and verdict.log:
+        # Preserve the causal edge from this pooled failure to every
+        # green Tier-1 head whose selection included the failing file.
+        checks = state.read_checks(world.state_dir)
+        failed = sorted(set(verdict.failed_tests or []))
+        affected = []
+        for member in members:
+            check = checks.get(member.get("head"), {})
+            selected = set(check.get("selected_files", []))
+            skipped = set((check.get("skipped_files") or {}).keys())
+            if not failed or selected.intersection(failed) or skipped.intersection(failed):
+                affected.append(member.get("head", ""))
+        state.link_full_run(
+            affected,
+            {"run_id": os.path.basename(verdict.log), "base_sha": base,
+             "stack_sha": "", "verdict": "FAIL",
+             "failed_tests": failed, "log": verdict.log},
+            world.state_dir)
     if verdict.requeue:
         for member in members:
             member["status"] = state.ENTRY_QUEUED

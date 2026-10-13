@@ -22,6 +22,7 @@ import signal
 import subprocess
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 from library.tools.local_ci import config, history, hygiene
 
@@ -658,6 +659,25 @@ def failed_tests_from_junit(junit_path: str) -> list:
     return sorted(
         rel for rel, outcome in outcomes.items()
         if (outcome.get("failed") or 0) > 0)
+
+
+def failed_test_ids(junit_path: str) -> list[str]:
+    """Return exact pytest node ids from a Tier-1 JUnit report."""
+    if not junit_path:
+        return []
+    try:
+        root = ET.parse(junit_path).getroot()
+    except (OSError, ET.ParseError):
+        return []
+    failed = []
+    for case in root.iter("testcase"):
+        if case.find("failure") is None and case.find("error") is None:
+            continue
+        name = case.get("name", "")
+        classname = case.get("classname", "")
+        if name:
+            failed.append(f"{classname}::{name}" if classname else name)
+    return sorted(set(failed))
 
 
 def _read_verdict(log_path: str) -> str:

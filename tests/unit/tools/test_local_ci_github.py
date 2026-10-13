@@ -38,6 +38,7 @@ def test_pull_shapes_to_the_integration_fields():
     data = _parse_response(PULLS_ENVELOPE, "pulls")
     pr = _shape_pull(data[0])
     assert pr == {"number": 2082, "head": "abc123", "base": "main",
+                  "base_sha": "",
                   "labels": ["ren-ci-ready"], "draft": False,
                   "url": "https://github.com/o/r/pull/2082",
                   "title": "fix"}
@@ -130,8 +131,8 @@ def test_label_changes_use_repo_scoped_rest_calls(monkeypatch):
     assert calls == [
         (("repos/prajwal-395/video_editing_pilot/issues/2083/labels",),
          {"method": "POST", "fields": {"labels[]": "ren-ci-ready"}}),
-        (("repos/prajwal-395/video_editing_pilot/issues/2083/labels/"
-          "ren-ci-ready",), {"method": "DELETE"}),
+        ((("repos/prajwal-395/video_editing_pilot/issues/2083/labels/"
+           "ren-ci-ready"),), {"method": "DELETE"}),
     ]
 
 

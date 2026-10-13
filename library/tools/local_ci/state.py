@@ -107,6 +107,30 @@ def update_check(head: str, fields: dict, state: str = "") -> dict | None:
     return dict(record)
 
 
+def link_full_run(heads: list[str], result: dict, state: str = "") -> None:
+    """Attach a later pooled result to each Tier-1 head it informs."""
+    link = {"run_id": result.get("run_id", ""),
+            "base_sha": result.get("base_sha", ""),
+            "stack_sha": result.get("stack_sha", ""),
+            "verdict": result.get("verdict", "DID NOT RUN"),
+            "failed_tests": sorted(set(result.get("failed_tests", []))),
+            "log": result.get("log", "")}
+    checks = read_checks(state)
+    changed = False
+    for head in heads:
+        record = checks.get(head)
+        if not isinstance(record, dict):
+            continue
+        links = list(record.get("full_run_results", []))
+        if link not in links:
+            links.append(link)
+        record["full_run_results"] = links
+        checks[head] = record
+        changed = True
+    if changed:
+        _write(CHECKS_FILENAME, checks, state)
+
+
 def read_queue(state: str = "") -> list:
     """The merge queue, oldest first."""
     data = _read(QUEUE_FILENAME, state)

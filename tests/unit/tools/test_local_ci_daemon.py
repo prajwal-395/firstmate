@@ -12,8 +12,10 @@ Tier-2 worker.
 GitHub is faked; the ledger is real (tmp state dir).
 """
 
+import json
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -314,7 +316,7 @@ def test_legacy_local_log_url_is_replaced_before_status_retry(
     assert stored["status_posted"] is True
 
 
-def test_zero_test_run_posts_an_explicit_failure(
+def test_zero_test_run_posts_pending_not_a_code_failure(
         tmp_path, faked_github):
     pr = _pr(6)
     outcome = {**_outcome(pr, ok=False), "passed": 0, "failed": 1,
@@ -323,8 +325,8 @@ def test_zero_test_run_posts_an_explicit_failure(
     daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr, outcome,
                         seen_at=1.0, slot=0)
 
-    assert faked_github.posts[-1][1] == "failure"
-    assert faked_github.posts[-1][2] == "ren-ci: no tests executed"
+    assert faked_github.posts[-1][1] == "pending"
+    assert "no tests executed" in faked_github.posts[-1][2]
 
 
 def test_a_crash_posts_pending_never_error(monkeypatch, tmp_path,
@@ -389,10 +391,10 @@ def test_timeout_posts_pending_and_retries_after_backoff(
     assert [item[0]["number"] for item in due] == [21]
 
 
-def test_timeout_exhaustion_posts_failure_and_drops_the_label(
+def test_timeout_exhaustion_stays_pending_and_keeps_the_label(
         monkeypatch, tmp_path, faked_github):
-    # At most two retries: the third timeout is a final failure, and
-    # only then does the PR lose its ready label and queue membership.
+    # Retry counts are diagnostic only: an incomplete run never judges
+    # code and therefore cannot become a red status at exhaustion.
     pr = _pr(22, labels=[config.READY_LABEL])
     faked_github.prs = [pr]
     world = queue.World(state_dir=str(tmp_path))
@@ -404,10 +406,56 @@ def test_timeout_exhaustion_posts_failure_and_drops_the_label(
     record = daemon.finish_tier1(world, pr, _timeout_outcome(pr),
                                  seen_at=time.time(), slot=0)
     assert int(record.get("timeout_retries", 0)) == 3
-    failures = [call for call in faked_github.posts
-                if len(call) >= 2 and call[1] == "failure"]
-    assert failures and "timed out" in failures[-1][2]
-    assert ("unlabel", 22, config.READY_LABEL) in faked_github.posts
+    assert not any(len(call) >= 2 and call[1] == "failure"
+                   for call in faked_github.posts)
+    assert any(len(call) >= 2 and call[1] == "pending"
+               for call in faked_github.posts)
+    assert ("unlabel", 22, config.READY_LABEL) not in faked_github.posts
+    assert record["result_class"] == "timeout_no_tests"
+
+
+def test_no_tests_and_stale_base_are_non_verdicts(
+        tmp_path, faked_github):
+    world = queue.World(state_dir=str(tmp_path))
+    for number, kind, reason in ((23, "timeout_no_tests", "no tests executed"),
+                                 (24, "stale_base", "stale base")):
+        pr = _pr(number, labels=[config.READY_LABEL])
+        outcome = {**_outcome(pr, ok=False), "passed": 0, "failed": 0,
+                   "result_class": kind, "reason": reason}
+        record = daemon.finish_tier1(world, pr, outcome,
+                                     seen_at=time.time(), slot=0)
+        assert record["result_class"] == kind
+        assert not any(call[0] == pr["head"] and call[1] == "failure"
+                       for call in faked_github.posts)
+        assert not any(call[0] == "unlabel" and call[1] == number
+                       for call in faked_github.posts)
+
+
+def test_three_day_ledger_fixture_classifies_each_head_once():
+    fixture = json.loads(Path("tests/fixtures/local_ci_three_day_tier1_ledger.json")
+                         .read_text(encoding="utf-8"))
+    heads = fixture["heads"]
+    assert len({row["head"] for row in heads}) == len(heads)
+    categories = [daemon.classify_tier1(row["outcome"]) for row in heads]
+    assert categories == [row["expected"] for row in heads]
+    assert {name: categories.count(name) for name in set(categories)} == {
+        "pass": 34, "test_failure": 19, "timeout_no_tests": 3}
+
+
+def test_later_full_gate_failure_links_to_green_tier1_head(tmp_path):
+    head = "green-head"
+    state.record_check({"pr": 31, "head": head, "ok": True,
+                        "selected_files": ["tests/unit/example.py"],
+                        "skipped_files": {"tests/unit/deferred.py": "budget"}},
+                       str(tmp_path))
+    state.link_full_run([head], {"run_id": "tier2-1.log",
+                                 "base_sha": "base", "stack_sha": "stack",
+                                 "verdict": "FAIL",
+                                 "failed_tests": ["tests/unit/example.py"],
+                                 "log": "/logs/tier2-1.log"}, str(tmp_path))
+    record = state.read_checks(str(tmp_path))[head]
+    assert record["full_run_results"][0]["failed_tests"] == [
+        "tests/unit/example.py"]
     assert state.read_queue(str(tmp_path)) == []
 
 

@@ -1,0 +1,420 @@
+{
+  "source": "docs/local-ci-verification report, three-day aggregate (2026-10-10 to 2026-10-13)",
+  "note": "Head labels are stable fixture identifiers; outcome counts reproduce the recorded 34 green, 19 test-run red, 3 timeout/no-test totals.",
+  "heads": [
+    {
+      "head": "recorded-head-01",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-02",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-03",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-04",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-05",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-06",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-07",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-08",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-09",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-10",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-11",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-12",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-13",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-14",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-15",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-16",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-17",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-18",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-19",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-20",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-21",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-22",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-23",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-24",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-25",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-26",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-27",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-28",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-29",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-30",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-31",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-32",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-33",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-34",
+      "outcome": {
+        "ok": true
+      },
+      "expected": "pass"
+    },
+    {
+      "head": "recorded-head-35",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-36",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-37",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-38",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-39",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-40",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-41",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-42",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-43",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-44",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-45",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-46",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-47",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-48",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-49",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-50",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-51",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-52",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-53",
+      "outcome": {
+        "ok": false,
+        "failed": 1
+      },
+      "expected": "test_failure"
+    },
+    {
+      "head": "recorded-head-54",
+      "outcome": {
+        "ok": false,
+        "timed_out": true
+      },
+      "expected": "timeout_no_tests"
+    },
+    {
+      "head": "recorded-head-55",
+      "outcome": {
+        "ok": false,
+        "timed_out": true
+      },
+      "expected": "timeout_no_tests"
+    },
+    {
+      "head": "recorded-head-56",
+      "outcome": {
+        "ok": false,
+        "timed_out": true
+      },
+      "expected": "timeout_no_tests"
+    }
+  ]
+}

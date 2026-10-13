@@ -118,6 +118,7 @@ def _shape_pull(data: dict) -> dict:
     return {"number": int(data.get("number", 0)),
             "head": str(head.get("sha", "")),
             "base": str(base.get("ref", "")),
+            "base_sha": str(base.get("sha", "")),
             "labels": [str(label.get("name", ""))
                        if isinstance(label, dict) else str(label)
                        for label in labels],
@@ -127,7 +128,7 @@ def _shape_pull(data: dict) -> dict:
 
 
 _PULL_FIELDS_JQ = (
-    "{number, head: {sha: .head.sha}, base: {ref: .base.ref}, "
+    "{number, head: {sha: .head.sha}, base: {ref: .base.ref, sha: .base.sha}, "
     "labels: [.labels[].name], draft, html_url, title}"
 )
 
