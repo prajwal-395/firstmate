@@ -94,7 +94,7 @@ fn a_measurement_record_round_trips() {
     let parsed: Observation =
         serde_json::from_value(observation_with_evidence(measurement_evidence()))
             .expect("a contract observation must decode");
-    let evidence = parsed.evidence.expect("evidence must be present");
+    let evidence = parsed.evidence.as_ref().expect("evidence must be present");
     assert_eq!(evidence.contract_version, EVIDENCE_CONTRACT_VERSION);
     assert!(validate_project_model(&model_with_observations(vec![parsed])).is_ok());
 }
