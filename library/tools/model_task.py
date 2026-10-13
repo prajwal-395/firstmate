@@ -76,12 +76,20 @@ def _agent_sleep(seconds: float) -> None:
 def _agent_clock() -> float:
     """Clock inside the agent-backend poll loop.
 
+    MONOTONIC, never the wall clock: this clock measures the handshake
+    timeout and the host-model latency, and a wall clock STEPS (an NTP
+    correction under load fired a 60 s timeout after ~6 s of wall time
+    in the 2026-10-12 full suite, with the answer sitting on disk -
+    tests/scenarios/test_post_bridge_rejection_reaches_the_model.py).
+    A backward step would stall past the timeout the same way. Elapsed
+    time is what every call site wants, so the step is invisible here.
+
     Same reason as `_agent_sleep`: tests answering the agent backend
     fast-forward THIS clock without consuming `time.time` readings a
     stray thread performs. Patch `model_task._agent_clock`, never
     `time.time`.
     """
-    return time.time()
+    return time.monotonic()
 
 
 # The `--full-auto` backends.  `agent` names the MECHANISM - the pipeline
