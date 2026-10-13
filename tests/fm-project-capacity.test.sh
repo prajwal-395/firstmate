@@ -203,7 +203,7 @@ test_undeclared_capacity_keeps_dispatch_uncapped() {
   home="$case_dir/home"
   write_live "$home" live-a "$case_dir/project"
   write_live "$home" live-b "$case_dir/project"
-  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
   expect_code 0 "$rc" "an undeclared project refused a spawn: $out"
   assert_contains "$out" "spawned task-c" "an undeclared project did not launch the worker"
   assert_present "$home/state/task-c.meta" "an undeclared project's spawn published no record"
@@ -235,7 +235,7 @@ test_exhausted_capacity_defers_without_leaving_anything_behind() {
   write_live "$home" live-b "$case_dir/project"
   before=$(call_count "$case_dir")
   worktrees=$(worktree_list "$case_dir")
-  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "a spawn beyond capacity was not deferred: $out"
   assert_contains "$out" "deferred: project project admits 2 worker(s) at once on this machine ($home/config/project-capacity) and 2 already hold a place (live-a, live-b)" \
     "the deferral did not name the capacity and its holders"
@@ -269,7 +269,7 @@ test_checkpointed_paused_worker_releases_capacity() {
   declare_capacity "$home" "project 1"
   write_live "$home" live-a "$case_dir/project"
   printf 'paused [at=1791867513]: waiting for review checkpoint-sha=%040d\n' 2 > "$home/state/live-a.status"
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "a pushed paused checkpoint kept holding project capacity: $out"
   assert_contains "$out" "spawned task-c" "the freed capacity did not admit the next worker"
   pass "a paused worker releases project capacity after naming its pushed checkpoint SHA"
@@ -371,7 +371,7 @@ test_release_frees_a_place() {
   declare_capacity "$home" "project 2"
   write_live "$home" live-a "$case_dir/project"
   write_live "$home" live-b "$case_dir/project"
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "the full project admitted a worker: $out"
 
   # PR handoff: the line bin/fm-pr-check.sh records for a ready PR.
