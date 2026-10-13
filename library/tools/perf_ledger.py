@@ -812,6 +812,40 @@ def _seconds(value: float | None) -> str:
     return "-" if value is None else f"{value:.2f}s"
 
 
+def _agent_field(value) -> str:
+    """An aggregate number, or the word that says it was never measured."""
+    if value is None:
+        return "unmeasured"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def render_agent(summary: dict[str, Any]) -> str:
+    """Text form of `ren profile --agent`: aggregates only, gaps named."""
+    groups = summary.get("groups") or []
+    if not groups:
+        return ("Agent cost: unmeasured - no agent-cost rows in this "
+                "ledger yet (hosts record opt-in aggregates only; "
+                "raw conversation text is never collected).")
+    out = [f"Agent cost across {summary.get('sessions', 0)} session(s):"]
+    out.append(f"{'host':<16} {'task class':<24} {'calls':>6} "
+               f"{'in bytes':>9} {'out bytes':>10} {'wall s':>9}")
+    for group in groups:
+        out.append(f"{str(group.get('host'))[:16]:<16} "
+                   f"{str(group.get('task_class'))[:24]:<24} "
+                   f"{_agent_field(group.get('tool_calls')):>6} "
+                   f"{_agent_field(group.get('input_bytes')):>9} "
+                   f"{_agent_field(group.get('output_bytes')):>10} "
+                   f"{_agent_field(group.get('wall_s')):>9}")
+    if any(value is None for group in groups for value in (
+            group.get("tool_calls"), group.get("input_bytes"),
+            group.get("output_bytes"), group.get("wall_s"))):
+        out.append("A field reading `unmeasured` was recorded by no "
+                   "session; it is not zero.")
+    return "\n".join(out)
+
+
 def _resolve_project(ref: str) -> str:
     from library.tools.project_registry import get_project, resolve_project_path
     found = resolve_project_path(ref)
@@ -839,6 +873,9 @@ def main(argv=None) -> int:
     parser.add_argument("--ledger", help="read a standalone perf ledger JSONL path")
     parser.add_argument("--list", action="store_true",
                         help="list the run ids the ledger holds")
+    parser.add_argument("--agent", action="store_true",
+                        help="summarize privacy-safe agent-cost aggregates "
+                             "by host and task class (read only)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if not args.project and not args.ledger:
@@ -846,6 +883,15 @@ def main(argv=None) -> int:
     project = (_resolve_project(args.project) if not args.ledger
                else args.project or "")
     rows = read_rows(project, args.ledger)
+    if args.agent:
+        from library.tools import agent_cost
+        summary = agent_cost.summarize(
+            rows, run_id=args.run if args.run else None)
+        if args.json:
+            print(json.dumps(summary, indent=2))
+        else:
+            print(render_agent(summary))
+        return 0
     ids = run_ids(rows)
     if args.list:
         print("\n".join(ids))

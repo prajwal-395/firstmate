@@ -201,9 +201,10 @@ VERBS = (
     Verb("profile", "Projects", "Show where a run spent its time, layer by layer (read only)",
          effects=("read",), json=True,
          module_argv=("library.tools.perf_ledger",),
-         detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: Ren own-code versus "
-                "external-engine wall time, per-capability split, measured call counts, and named "
-                "layers. Changes nothing"),
+          detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: Ren own-code versus "
+                 "external-engine wall time, per-capability split, measured call counts, and named "
+                 "layers. `ren profile --agent` summarizes only the opt-in privacy-safe agent-cost "
+                 "aggregates by host and task class (never conversation text). Changes nothing"),
     Verb("progress", "Projects", "Read plain-language progress and currently available capabilities",
          effects=("read", "resolve_read"),
          module_argv=("library.tools.progress",),
