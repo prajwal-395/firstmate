@@ -152,7 +152,7 @@ if [ "${FULL_SUITE_GATE_SKIP_NATIVE_PREP:-0}" = "1" ]; then
   echo "=== full-suite gate: native test tool preparation skipped by test switch ==="
 else
   echo "=== full-suite gate: prepare native test tools ==="
-  if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh"; then
+  if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh" "${PYTHON}"; then
     echo "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
     exit 1
   fi
