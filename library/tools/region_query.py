@@ -556,3 +556,301 @@ def face_to_person_for_project(
             if face_digest and track_id:
                 mapping[(face_digest, track_id)] = person_id
     return mapping
+
+
+# ── Object region tracks (MU-15: detector seed → SAM 2 → ObjectClass) ──
+
+
+def _resolve_object_entity(model: dict[str, Any],
+                           ref: str) -> dict[str, Any] | None:
+    """The object entity `ref` names, in model order.
+
+    By id (exact), then label (case-insensitive exact), then the
+    both-directions substring rule `roster_persons_for_tokens` ranks
+    persons with - over the label, the `ObjectClass` name and the class
+    id. So "laptop" answers the entity labelled "black laptop" whose
+    class is `class-laptop`: Gemma phrases are descriptions, not ids,
+    and the query speaks Gemma's words. A ref matching nothing is None,
+    never the nearest object.
+    """
+    want = str(ref or "").strip()
+    if not want:
+        return None
+    objects = [c for c in model.get("entities") or []
+               if isinstance(c, dict) and c.get("kind") == "object"]
+    for candidate in objects:
+        if candidate.get("id") == want:
+            return candidate
+    lowered = want.lower()
+    for candidate in objects:
+        if (isinstance(candidate.get("label"), str)
+                and candidate["label"].lower() == lowered):
+            return candidate
+    classes = {c.get("id"): c for c in model.get("object_classes") or []
+               if isinstance(c, dict) and c.get("id")}
+
+    def _names(candidate: dict[str, Any]) -> list[str]:
+        out = []
+        for text in (candidate.get("label"),
+                     (classes.get(candidate.get("object_class_id") or "")
+                      or {}).get("name"),
+                     candidate.get("object_class_id")):
+            if isinstance(text, str) and text.strip():
+                out.append(text.strip().lower())
+        return out
+
+    def _matches(names: list[str]) -> bool:
+        return any(lowered in name or name in lowered for name in names)
+
+    for candidate in objects:
+        if _matches(_names(candidate)):
+            return candidate
+    return None
+
+
+def _pixel_space_dimensions(sample: Any) -> tuple[int, int] | None:
+    """The (width, height) a `bbox_pixels` sample lives in, from its
+    `coordinate_space` (`source_pixels_WxH`). None when the space is
+    absent or malformed: a pixel box without its frame size is never
+    compared against a normalised query."""
+    space = sample.get("coordinate_space") if isinstance(sample, dict) \
+        else None
+    if not isinstance(space, str) or not space.startswith("source_pixels_"):
+        return None
+    try:
+        dims = space[len("source_pixels_"):].lower().split("x")
+        width, height = int(dims[0]), int(dims[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def _object_sample_box(sample: Any) -> list[float] | None:
+    """One object-track sample's bbox in normalised top-left coords.
+
+    Region-kind samples (`geometry.kind == "region"`) already carry it;
+    1.06 segmentation samples carry `bbox_pixels` (x, y, w, h) with
+    their frame size in `coordinate_space`. Anything else is not an
+    object region sample and answers None."""
+    if not isinstance(sample, dict):
+        return None
+    geometry = sample.get("geometry")
+    if not isinstance(geometry, dict):
+        return None
+    if geometry.get("kind") == REGION_GEOMETRY_KIND and isinstance(
+            geometry.get("bbox"), (list, tuple)) and len(
+            geometry["bbox"]) == 4:
+        try:
+            return [float(v) for v in geometry["bbox"]]
+        except (TypeError, ValueError):
+            return None
+    pixels = geometry.get("bbox_pixels")
+    if pixels is None:
+        return None
+    dims = _pixel_space_dimensions(sample)
+    if dims is None:
+        return None
+    try:
+        x, y, w, h = (float(v) for v in pixels)
+    except (TypeError, ValueError):
+        return None
+    width, height = dims
+    if w <= 0 or h <= 0:
+        return None
+    return [x / width, y / height, (x + w) / width, (y + h) / height]
+
+
+def is_object_track(track: Any) -> bool:
+    """Whether a model track is an object region track: at least one
+    sample answers a normalised bbox through `_object_sample_box`."""
+    if not isinstance(track, dict):
+        return False
+    return any(_object_sample_box(sample) is not None
+               for sample in track.get("samples") or [])
+
+
+def object_tracks_for(model: dict[str, Any],
+                      entity_id: str) -> list[dict[str, Any]]:
+    """Every object region track the model holds for one entity."""
+    return [track for track in model.get("tracks") or []
+            if isinstance(track, dict)
+            and track.get("entity_id") == entity_id
+            and is_object_track(track)]
+
+
+def object_region_at(model: dict[str, Any], ref: str, t: float,
+                     clock_id: str | None = None,
+                     digest: str | None = None) -> dict[str, Any]:
+    """Where one NAMED OBJECT is at one moment.
+
+    `ref` is an object entity id, its label, or its `ObjectClass` name
+    ("laptop"); `t` is source seconds. The track's own span (first to
+    last sample tick) is the cover: inside it the object is held on the
+    latest sample at or before `t`; outside every span - or where the
+    model holds no object track - the answer is an absence with a
+    reason (`unknown_person` for an unresolvable ref, `no_region_tracks`
+    where the entity has no track, `absent_at_time` in a gap), never
+    the nearest sample's geometry.
+    """
+    entity = _resolve_object_entity(model, ref)
+    if entity is None:
+        return _absence(ABSENT_UNKNOWN_PERSON)
+    entity_id = entity["id"]
+    try:
+        moment = float(t)
+    except (TypeError, ValueError):
+        return _absence(ABSENT_AT_TIME, entity_id=entity_id,
+                        detail={"t": t, "why": "not a time"})
+    tick = round(moment * TICKS_PER_SECOND)
+    tracks = object_tracks_for(model, entity_id)
+    if digest is not None or clock_id is not None:
+        wanted = {digest, clock_id}
+        tracks = [track for track in tracks
+                  if _clock_of(track) in wanted
+                  or _digest_of_clock(model, _clock_of(track)) in wanted]
+    best: dict[str, Any] | None = None
+    best_tick = -1
+    for track in tracks:
+        samples = [(s, _sample_tick(s), _object_sample_box(s))
+                   for s in track.get("samples") or []]
+        samples = [(s, tk, box) for s, tk, box in samples
+                   if tk is not None and box is not None]
+        if not samples:
+            continue
+        ticks = [tk for _, tk, _ in samples]
+        first, last = min(ticks), max(ticks)
+        if not (first <= tick <= last):
+            continue
+        for sample, sample_tick, box in samples:
+            if sample_tick <= tick and sample_tick > best_tick:
+                best_tick = sample_tick
+                best = {"track": track, "sample": sample, "box": box}
+    if best is None:
+        if not tracks:
+            return _absence(ABSENT_NO_TRACKS, entity_id=entity_id)
+        return _absence(ABSENT_AT_TIME, entity_id=entity_id,
+                        detail={"t": moment, "tick": tick})
+    track, sample = best["track"], best["sample"]
+    return {
+        "present": True,
+        "entity_id": entity_id,
+        "track_id": track.get("id"),
+        "clock_id": _clock_of(track),
+        "tick": tick,
+        "sample_tick": best_tick,
+        "bbox": best["box"],
+        "confidence": sample.get("confidence"),
+        "source": "project_model",
+    }
+
+
+def object_track_coverage(model: dict[str, Any], ref: str,
+                          ground_truth: dict[int, list[float]], *,
+                          project_folder: str | Path | None = None,
+                          iou_threshold: float = 0.5) -> dict[str, Any]:
+    """How much of a named object's sampled span its MASKS cover.
+
+    `ground_truth` maps sample tick -> normalised laptop box (the
+    fixture's known geometry, or hand-labelled boxes on captain
+    frames). Each ground-truth tick is held back to the mask's latest
+    sample at or before it (Ren's held-matte semantic); the decoded
+    mask pixels and the box pixels meet at IoU, covered at
+    `iou_threshold`. Answers `{frames, covered, fraction, per_frame}`.
+
+    Only `sam2_rle_track` masks resolve today (the kind the 1.06
+    migration writes for detector-seeded objects); any other kind is
+    refused by name, never approximated. A ground-truth tick before
+    the first mask sample is a miss, never filled by a guess.
+    """
+    from library.tools import project_model_masks
+
+    entity = _resolve_object_entity(model, ref)
+    if entity is None:
+        raise ValueError(f"no object entity matches {ref!r}")
+    entity_id = entity["id"]
+    masks = [m for m in model.get("masks") or []
+             if isinstance(m, dict) and m.get("entity_id") == entity_id]
+    if not masks:
+        raise ValueError(f"object {entity_id!r} carries no masks")
+    try:
+        ticks = sorted(int(k) for k in ground_truth)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"ground truth ticks are millisecond ints, got {exc}") from exc
+    if not ticks:
+        raise ValueError("ground truth holds no frame to score")
+    per_frame = []
+    covered = 0
+    for tick in ticks:
+        try:
+            box = [float(v) for v in ground_truth[tick]]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"ground-truth box at tick {tick} is not four numbers: "
+                f"{exc}") from exc
+        row: dict[str, Any] = {"tick": tick, "iou": 0.0, "covered": False}
+        per_frame.append(row)
+        mask = next((m for m in masks
+                     if _mask_covers_tick(model, m, tick, project_folder)),
+                    None)
+        if mask is None:
+            continue
+        iou = _mask_box_iou(mask, tick, box, project_folder)
+        row["iou"] = round(iou, 3)
+        row["covered"] = bool(iou >= iou_threshold)
+        covered += row["covered"]
+    return {"entity_id": entity_id, "frames": len(ticks),
+            "covered": covered,
+            "fraction": round(covered / len(ticks), 3),
+            "iou_threshold": iou_threshold, "per_frame": per_frame}
+
+
+def _mask_covers_tick(model: dict[str, Any], mask: dict[str, Any],
+                      tick: int, project_folder: str | Path | None) -> bool:
+    """Whether a mask entry has a sample at or before `tick`."""
+    from library.tools import project_model_masks
+
+    representation = mask.get("representation") or {}
+    if representation.get("kind") != project_model_masks.SAM2_RLE_TRACK_KIND:
+        raise ValueError(
+            f"object mask {mask.get('id')!r} kind "
+            f"{representation.get('kind')!r} is not "
+            f"{project_model_masks.SAM2_RLE_TRACK_KIND!r}: "
+            f"coverage resolves sam2 tracks, never approximates")
+    _, _, frames = project_model_masks.sam2_track_frames(
+        representation, project_folder=project_folder,
+        mask_id=str(mask.get("id") or "mask"))
+    return any(frame_tick <= tick for frame_tick, _ in frames)
+
+
+def _mask_box_iou(mask: dict[str, Any], tick: int, box: list[float],
+                  project_folder: str | Path | None) -> float:
+    """IoU of a held mask sample's pixels against a normalised box."""
+    from library.tools import project_model_masks
+
+    representation = mask.get("representation") or {}
+    width, height, frames = project_model_masks.sam2_track_frames(
+        representation, project_folder=project_folder,
+        mask_id=str(mask.get("id") or "mask"))
+    held = project_model_masks.rle_frame_at(
+        frames, tick, mask_id=str(mask.get("id") or "mask"))
+    alpha = project_model_masks.decode_rle_to_alpha(
+        held, width, height, mask_id=str(mask.get("id") or "mask"))
+    try:
+        x0, y0, x1, y1 = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return 0.0
+    px0, py0 = int(x0 * width), int(y0 * height)
+    px1, py1 = int(x1 * width), int(y1 * height)
+    if px1 <= px0 or py1 <= py0:
+        return 0.0
+    inter = box_area = 0
+    mask_area = sum(1 for b in alpha if b)
+    for py in range(max(0, py0), min(height, py1)):
+        base = py * width
+        for px in range(max(0, px0), min(width, px1)):
+            box_area += 1
+            if alpha[base + px]:
+                inter += 1
+    union = mask_area + box_area - inter
+    return inter / union if union > 0 else 0.0

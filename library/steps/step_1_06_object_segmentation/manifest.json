@@ -31,6 +31,12 @@
         "description": "Explicit clip_id to normalized [x1, y1, x2, y2] first-frame face box map (issue #268). OPTIONAL: wins over temporal_index where present."
       },
       {
+        "name": "object_seeds_by_clip",
+        "type": "object",
+        "required": false,
+        "description": "Explicit clip_id to detector-seed list map (MU-15): each seed is {box, label, category, detector} from an open-vocabulary detector answering Gemma's object phrases. OPTIONAL: a wanted clip carrying seeds is segmented for its named objects even where no face box reaches it; absent means face-only seeding."
+      },
+      {
         "name": "color_grade_spec",
         "type": "object",
         "required": false,

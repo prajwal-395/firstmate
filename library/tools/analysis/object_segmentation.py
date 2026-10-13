@@ -77,6 +77,34 @@ what it is, so a reader of the masks knows the target was named, not found."""
 FACE_SEED_CATEGORY = "person"
 
 
+DETECTOR_SEED_PREFIX = "detector:"
+"""Tracked-object `seed` values naming an open-vocabulary detector
+(MU-15): `detector:owlv2` means the target was seeded from that
+detector's box for a Gemma phrase, not found by the blob generator.
+The evidence migration reads this prefix to mint an `ObjectClass`
+with taxonomy `open-vocabulary`; anything else keeps the legacy
+`sam2_seed_category`."""
+
+
+def normalize_seed_box(box) -> List[float] | None:
+    """A normalized [x1, y1, x2, y2] detector box, or None when it
+    names no area. Same clamping contract as `normalize_face_box`: a
+    partially overlapping box is clamped (an object at the frame edge
+    is still an object); a box covering nothing after clamping is not
+    a seed, so SAM 2 is never prompted with a degenerate box."""
+    try:
+        x1, y1, x2, y2 = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    x1 = min(max(x1, 0.0), 1.0)
+    y1 = min(max(y1, 0.0), 1.0)
+    x2 = min(max(x2, 0.0), 1.0)
+    y2 = min(max(y2, 0.0), 1.0)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+
+
 def normalize_face_box(fx, fy, fw, fh, frame_w, frame_h):
     """A pixel detection rect as a normalized box, clamped to the frame.
 
@@ -139,6 +167,55 @@ def first_frame_face_box(face_presence, width, height, sample_index=0):
         return None
     return (x1, y1, x2, y2)
 
+
+@dataclass
+class ObjectSeed:
+    """One detector-seeded target (MU-15): the open-vocabulary box a
+    SAM 2 track grows from.
+
+    `box` is normalized [x1, y1, x2, y2]; `label` the Gemma phrase the
+    detector answered ("black laptop"); `category` the class the
+    `ObjectClass` is minted from ("laptop"); `detector` the slate name
+    that produced the box ("owlv2"). `check_seed_boxes` refuses a seed
+    with no area, no label or no class: a track without a class mints
+    no `ObjectClass`, which is the whole point of seeding it.
+    """
+
+    box: List[float]
+    label: str
+    category: str
+    detector: str
+
+
+def check_seed_boxes(seed_boxes) -> List[ObjectSeed]:
+    """Detector seeds as clean `ObjectSeed`s. None (or an empty list)
+    means no detector seeding; a malformed entry is refused, never
+    skipped - a silently dropped seed would read as a detector miss."""
+    if not seed_boxes:
+        return []
+    seeds = []
+    for entry in seed_boxes:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"an object seed is a dict with box/label/category/"
+                f"detector, got {entry!r}")
+        box = normalize_seed_box(entry.get("box"))
+        if box is None:
+            raise ValueError(
+                f"object seed {entry.get('label')!r} has no usable box: "
+                f"{entry.get('box')!r}")
+        label = str(entry.get("label") or "").strip()
+        category = str(entry.get("category") or "").strip().lower()
+        detector = str(entry.get("detector") or "").strip()
+        if not label or not category or not detector:
+            raise ValueError(
+                f"object seed {entry!r} needs a label, a category and a "
+                f"detector; a track without a class mints no ObjectClass")
+        seeds.append(ObjectSeed(box=box, label=label, category=category,
+                                detector=detector))
+    return seeds
+
+
 @dataclass
 class TrackedObject:
     object_id: str
@@ -148,6 +225,11 @@ class TrackedObject:
     masks_rle: Dict[int, str]
     bboxes: Dict[int, Tuple[int, int, int, int]]
     avg_area_ratio: float
+    seed: Optional[str] = None
+    """How the target was seeded: "face" for the face-seeded subject,
+    "detector:<name>" for an MU-15 open-vocabulary seed, "blob" for the
+    legacy automatic regions. Files written before seeds existed carry
+    no key and read as None - "unseeded history", not a kind."""
 
 @dataclass
 class MatchCutCandidate:
@@ -309,7 +391,8 @@ class ObjectSegmenter:
     """Wrapper for SAM 2 video segmentation model using managed_model lifecycle."""
     
     def segment_clip(self, video_path: str, sample_fps: float = 2.0,
-                       face_box=None, require_face: bool = False
+                       face_box=None, require_face: bool = False,
+                       seed_boxes=None,
                        ) -> SegmentationResult:
         """Samples frames from the video, seeds targets, tracks them across frames.
 
@@ -321,6 +404,15 @@ class ObjectSegmenter:
         entirely: one tracked object instead of ten, and the seed is the
         subject rather than whichever region happened to be largest (issue
         #268 - on a wide shot that was a car window or a patch of road).
+
+        `seed_boxes` (MU-15) is detector seeding: a list of
+        `{box, label, category, detector}` dicts (see `check_seed_boxes`)
+        from an open-vocabulary detector answering Gemma's object
+        phrases. Each box prompts one more SAM 2 target beside the face
+        seed, so a clip carries its subject AND its named objects ("mask
+        out the logo" finally has a track). A clip with detector seeds
+        but no face box is still segmented - named objects need no face -
+        while a clip with neither is declined exactly as before.
 
         When face seeding is asked for and no box arrives (`require_face`
         with `face_box=None`, or a box covering no pixels after clamping),
@@ -355,13 +447,14 @@ class ObjectSegmenter:
 
         if face_box is not None:
             normalized_box = _validate_face_box(face_box)
-        elif require_face:
+        elif require_face and not seed_boxes:
             return _decline(
                 "face-seeded masking was requested but no face box arrived "
                 "for the first frame - no target worth tracking, so no "
                 "masks rather than a blob.")
         else:
             normalized_box = None
+        detector_seeds = check_seed_boxes(seed_boxes)
         
         def _load_sam2():
             try:
@@ -411,6 +504,8 @@ class ObjectSegmenter:
 
                 seed_note: Optional[str]
                 objects_dict = {}
+                next_obj_id = 1
+                seed_notes = []
                 if normalized_box is not None:
                     # The face-seeded path (issue #268). One deliberate
                     # target through add_new_points_or_box; the generator is
@@ -441,13 +536,15 @@ class ObjectSegmenter:
                         frames=[],
                         masks_rle={},
                         bboxes={},
-                        avg_area_ratio=0.0
+                        avg_area_ratio=0.0,
+                        seed="face",
                     )
-                    seed_note = (
+                    next_obj_id = 2
+                    seed_notes.append(
                         "face_seeded: one subject target from the "
                         f"first-frame face box {normalized_box}; automatic "
                         "blob seeding skipped (1 tracked object, not 10).")
-                else:
+                elif not detector_seeds:
                     # The legacy path: seed on the largest automatic regions.
                     # 1. Run automatic mask generation on the first frame to find objects
                     masks = generator.generate(first_frame_img)
@@ -478,11 +575,61 @@ class ObjectSegmenter:
                             frames=[],
                             masks_rle={},
                             bboxes={},
-                            avg_area_ratio=0.0
+                            avg_area_ratio=0.0,
+                            seed="blob",
                         )
-                    seed_note = (
+                    seed_notes.append(
                         f"blob_seeded: {len(objects_dict)} largest "
                         "first-frame regions; no face box was provided.")
+
+                if detector_seeds:
+                    # MU-15: one SAM 2 target per detector box, beside
+                    # whatever the face/blob path seeded. The box arrives
+                    # normalized and SAM 2 takes frame pixels, so it is
+                    # scaled onto the extraction frame and clamped to it;
+                    # a seed that covers no pixels after clamping is
+                    # refused loudly (a degenerate prompt tracks nothing
+                    # and says nothing about it).
+                    prompted = []
+                    for seed in detector_seeds:
+                        x1 = min(max(seed.box[0] * width, 0.0), float(width))
+                        y1 = min(max(seed.box[1] * height, 0.0), float(height))
+                        x2 = min(max(seed.box[2] * width, 0.0), float(width))
+                        y2 = min(max(seed.box[3] * height, 0.0), float(height))
+                        if x2 <= x1 or y2 <= y1:
+                            raise ValueError(
+                                f"object seed {seed.label!r} box {seed.box} "
+                                f"covers no pixels of a {width}x{height} "
+                                f"frame after clamping.")
+                        pixel_box = np.array([x1, y1, x2, y2],
+                                             dtype=np.float32)
+                        _, out_obj_ids, out_mask_logits = (
+                            predictor.add_new_points_or_box(
+                                inference_state=inference_state,
+                                frame_idx=0,
+                                obj_id=next_obj_id,
+                                box=pixel_box,
+                            )
+                        )
+                        objects_dict[next_obj_id] = TrackedObject(
+                            object_id=f"obj_{next_obj_id}",
+                            label=seed.label,
+                            category=seed.category,
+                            frames=[],
+                            masks_rle={},
+                            bboxes={},
+                            avg_area_ratio=0.0,
+                            seed=f"{DETECTOR_SEED_PREFIX}{seed.detector}",
+                        )
+                        prompted.append(
+                            f"{seed.label!r} ({seed.detector})")
+                        next_obj_id += 1
+                    seed_notes.append(
+                        "detector_seeded: "
+                        f"{len(prompted)} object target(s) "
+                        f"{', '.join(prompted)}; each mints an ObjectClass "
+                        "from its category on migration.")
+                seed_note = "; ".join(seed_notes) if seed_notes else None
             
                 # Propagate the seeds across frames. Seeding above is the only
                 # thing that differs between the paths; everything from here
