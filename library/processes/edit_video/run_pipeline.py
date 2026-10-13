@@ -1666,6 +1666,7 @@ def _run_step_subprocess(argv: list, inputs: dict, label: str):
     """
     proc = subprocess.Popen(
         argv,
+        env=_step_subprocess_env(),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1735,6 +1736,23 @@ def _run_step_subprocess(argv: list, inputs: dict, label: str):
 
 
 _DEFAULT_RUN_STEP_SUBPROCESS = _run_step_subprocess
+
+
+def _step_subprocess_env() -> dict:
+    """Make child imports resolve to the checkout running this pipeline.
+
+    A step's script directory is on ``sys.path`` in the child, but the
+    repository root is not. Without it, an editable installation or an
+    inherited ``PYTHONPATH`` can make a step import another checkout's
+    ``library`` package.
+    """
+    checkout = str(Path(__file__).resolve().parents[3])
+    env = os.environ.copy()
+    # Do not retain inherited paths: adding the checkout before a foreign
+    # regular package is insufficient when this checkout's `library` is a
+    # namespace package (the foreign regular package wins resolution).
+    env["PYTHONPATH"] = checkout
+    return env
 
 
 def run_deterministic_step(entry: str, inputs: dict) -> dict:

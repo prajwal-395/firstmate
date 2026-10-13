@@ -134,6 +134,38 @@ def test_large_stderr_and_large_stdout_together(tmp_path):
     assert err.count("progress line") == 3000
 
 
+def test_step_subprocess_runs_the_checkout_code(tmp_path, monkeypatch):
+    """An inherited PYTHONPATH must not make a step import another checkout."""
+    foreign_checkout = tmp_path / "foreign-checkout"
+    foreign_library = foreign_checkout / "library"
+    foreign_library.mkdir(parents=True)
+    (foreign_library / "__init__.py").write_text(
+        "raise RuntimeError('imported library from outside this checkout')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(foreign_checkout))
+    step = _write_step(
+        tmp_path,
+        """
+        import json
+        import library
+        print(json.dumps({"library_paths": list(library.__path__)}))
+        """,
+    )
+
+    code, out, err = _run_step_subprocess(
+        [sys.executable, str(step)], {}, "checkout-isolation")
+
+    assert code == 0, err
+    imported_paths = [Path(path).resolve() for path in
+                      json.loads(out)["library_paths"]]
+    assert imported_paths, "test subprocess did not resolve library"
+    assert all(path.is_relative_to(REPO_ROOT / "library")
+               for path in imported_paths), (
+        f"test subprocess imported from {imported_paths} outside {REPO_ROOT}"
+    )
+
+
 # --------------------------------------------------------------------------
 # From test_step_timeout.py
 #
