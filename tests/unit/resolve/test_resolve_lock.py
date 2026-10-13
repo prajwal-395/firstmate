@@ -1630,20 +1630,31 @@ def test_a_reentrant_holder_exiting_last_still_emits_the_release(
     log = tmp_path / "event_log.jsonl"
     monkeypatch.setenv(event_log.EVENT_LOG_ENV, str(log))
     release_probe = threading.Event()
-    exclusive_acquired = threading.Event()
+    probe_entered = threading.Event()
+    probe_errors = []
 
     def reentrant_probe():
-        assert exclusive_acquired.wait(5.0)
-        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
-            assert release_probe.wait(5.0)
+        try:
+            with resolve_lease("watchdog probe", exclusive=False,
+                               timeout=1.0):
+                probe_entered.set()
+                if not release_probe.wait(30.0):
+                    raise AssertionError("outer lease did not release")
+        except BaseException as error:  # noqa: BLE001 - reported below
+            probe_errors.append(error)
 
     b = threading.Thread(target=reentrant_probe)
-    b.start()
-    with resolve_lease("live run", exclusive=True, timeout=1.0):
-        exclusive_acquired.set()
-        pass
-    release_probe.set()
-    b.join()
+    try:
+        with resolve_lease("live run", exclusive=True, timeout=1.0):
+            b.start()
+            assert probe_entered.wait(30.0), (
+                "reentrant holder did not enter while the outer lease was held")
+    finally:
+        release_probe.set()
+        if b.ident is not None:
+            b.join(30.0)
+    assert not b.is_alive(), "reentrant holder did not exit"
+    assert not probe_errors, probe_errors
     lines = [json.loads(line) for line in
              log.read_text(encoding="utf-8").splitlines() if line.strip()]
     releases = [e for e in lines
@@ -1779,4 +1790,14 @@ def test_broker_job_body_refusal_is_not_retried(
             "a body refusal must not wait out the contention budget"
     finally:
         broker.stop()
+        store.close()
+
+
+def test_broker_stop_joins_its_worker_threads(tmp_path):
+    store = JobStore(tmp_path / "stop.sqlite3")
+    broker = Broker(store, connect=lambda: None)
+    try:
+        broker.stop()
+        assert all(not thread.is_alive() for thread in broker._threads)
+    finally:
         store.close()

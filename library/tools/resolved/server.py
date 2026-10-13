@@ -284,6 +284,11 @@ class Broker:
         with self._cond:
             self._stopping = True
             self._cond.notify_all()
+        # Callers close the store immediately after stop returns, so this is
+        # also the barrier that keeps the workers from using it afterward.
+        for thread in self._threads:
+            if thread is not threading.current_thread():
+                thread.join()
 
     # ── internals ────────────────────────────────────────────────
     def _forget(self, job_id: str) -> None:
