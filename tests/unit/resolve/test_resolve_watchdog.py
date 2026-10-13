@@ -192,6 +192,222 @@ def test_post_restart_check_never_returns():
     assert "did not return" in result["error"]
 
 
+def _run_check_bounded(func, timeout_s=15.0):
+    """Run a post-restart check on a daemon thread; fail past `timeout_s`.
+
+    A regression of the hang this file pins would otherwise wedge the
+    suite instead of failing it: the check's own budgets are the pins,
+    and this join is the backstop behind them.
+    """
+    box = {}
+
+    def _target():
+        box["result"] = func()
+
+    thread = threading.Thread(target=_target, daemon=True,
+                              name="post-restart-hang-pin")
+    thread.start()
+    thread.join(timeout_s)
+    assert not thread.is_alive(), (
+        f"the post-restart check hung past {timeout_s:g}s while health "
+        "answers - the 2026-10-11 hang is back")
+    return box["result"]
+
+
+def test_post_restart_check_hung_scan_answers_promptly(tmp_path):
+    """A timeline scan that never returns is reported, not hung.
+
+    The defect: the per-head timeline lookup called Resolve with no
+    deadline, so one stuck lookup hung the whole check past the
+    client's 30 s timeout while `health` - one bounded round trip -
+    answered.
+    """
+    from library.tools.resolve_lock import assume_sole_writer
+
+    project = make_project("Scan Project")
+    for i in range(2):
+        timeline = project.adopt(FakeTimeline(f"Reel {i:02d}",
+                                              project=project))
+        place_clip(timeline, make_pool_clip(f"{i}.mov"), 0, 47)
+    project.SetCurrentTimeline(project._timelines[0])
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+    with assume_sole_writer("canonical Resolve double"):
+        for timeline in list(project._timelines):
+            project.SetCurrentTimeline(timeline)
+            shadow.observe(project, timeline, store)
+        project.SetCurrentTimeline(project._timelines[0])
+
+    gate = threading.Event()
+    real_by_index = project.GetTimelineByIndex
+
+    def hanging_lookup(index):
+        assert gate.wait(60)
+        return real_by_index(index)
+
+    project.GetTimelineByIndex = hanging_lookup
+    try:
+        def _checked():
+            with assume_sole_writer("hang pin"):
+                return wd.post_restart_check(
+                    resolve, budget_s=5.0, per_timeline_s=0.2,
+                    store=store)
+
+        start = time.time()
+        result = _run_check_bounded(_checked)
+        wall = time.time() - start
+    finally:
+        gate.set()
+    assert wall < 5.0
+    assert result["ok"] is True
+    assert result["project"] == "Scan Project"
+    assert result["timelines_intact"] == []
+    assert len(result["timelines_stale"]) == 2
+    assert all("did not answer" in entry["error"]
+               for entry in result["timelines_stale"])
+
+
+def test_post_restart_check_hung_project_name_answers_promptly():
+    """A project name that never returns fails the check fast.
+
+    The defect: `project.GetName()` ran outside any deadline, so one
+    stuck name hung the check past the client's timeout.
+    """
+    project = make_project("Named Project")
+    real_name = project.GetName
+    gate = threading.Event()
+
+    def hanging_name():
+        assert gate.wait(60)
+        return real_name()
+
+    project.GetName = hanging_name
+    resolve = FakeResolve(project)
+    try:
+        start = time.time()
+        result = _run_check_bounded(
+            lambda: wd.post_restart_check(resolve, budget_s=5.0))
+        wall = time.time() - start
+    finally:
+        gate.set()
+    # The check spends its 5 s budget, then answers - it must not hang
+    # past it.
+    assert wall < 8.0
+    assert result["ok"] is False
+    assert "did not return within" in result["error"]
+
+
+def test_post_restart_check_scans_timelines_once(tmp_path):
+    """The timeline scan is one pass, not one scan per known head.
+
+    The defect: each known head re-scanned the whole timeline list, so
+    the check was quadratic in the timeline count - 36 lookups for 8
+    timelines, and past the client timeout on a 33-timeline project.
+    """
+    from library.tools.resolve_lock import assume_sole_writer
+
+    timeline_count = 8
+    project = make_project("Wide Project")
+    for i in range(timeline_count):
+        timeline = project.adopt(FakeTimeline(f"Reel {i:02d}",
+                                              project=project))
+        place_clip(timeline, make_pool_clip(f"{i}.mov"), 0, 47)
+    project.SetCurrentTimeline(project._timelines[0])
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+    with assume_sole_writer("canonical Resolve double"):
+        for timeline in list(project._timelines):
+            project.SetCurrentTimeline(timeline)
+            shadow.observe(project, timeline, store)
+        project.SetCurrentTimeline(project._timelines[0])
+
+    calls = []
+    real_by_index = project.GetTimelineByIndex
+
+    def counting_lookup(index):
+        calls.append(index)
+        return real_by_index(index)
+
+    project.GetTimelineByIndex = counting_lookup
+    try:
+        with assume_sole_writer("canonical Resolve double"):
+            result = wd.post_restart_check(resolve, store=store)
+    finally:
+        project.GetTimelineByIndex = real_by_index
+    assert result["ok"] is True
+    assert len(result["timelines_intact"]) == timeline_count
+    assert len(calls) <= 2 * timeline_count, (
+        f"the scan is quadratic again: {len(calls)} lookups for "
+        f"{timeline_count} timelines")
+
+
+def test_post_restart_check_spent_budget_marks_timelines_unverified(
+        tmp_path):
+    """A spent budget reports timelines unverified, never waits on them.
+
+    With no slice left for even the scan, every known head lands stale
+    with the reason - deterministically: `per_timeline_s=0` starts no
+    reader thread at all.
+    """
+    from library.tools.resolve_lock import assume_sole_writer
+
+    project = make_project("Budget Project")
+    for i in range(2):
+        timeline = project.adopt(FakeTimeline(f"Reel {i:02d}",
+                                              project=project))
+        place_clip(timeline, make_pool_clip(f"{i}.mov"), 0, 47)
+    project.SetCurrentTimeline(project._timelines[0])
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+    with assume_sole_writer("canonical Resolve double"):
+        for timeline in list(project._timelines):
+            project.SetCurrentTimeline(timeline)
+            shadow.observe(project, timeline, store)
+        project.SetCurrentTimeline(project._timelines[0])
+        result = wd.post_restart_check(resolve, per_timeline_s=0.0,
+                                       store=store)
+    assert result["ok"] is True
+    assert result["timelines_intact"] == []
+    assert len(result["timelines_stale"]) == 2
+    assert all("budget was spent" in entry["error"]
+               for entry in result["timelines_stale"])
+
+
+def test_post_restart_worker_hung_connect_answers_promptly(monkeypatch):
+    """A connect that never returns fails the worker check fast.
+
+    The defect: the execution worker called connect_resolve with no
+    deadline, so one stuck connect hung the daemon's worker round trip
+    past the client's timeout while `health` - bounded - answered.
+    """
+    from library.tools import marker_feedback
+    from library.tools.resolve_lock import assume_sole_writer
+    from library.tools.resolved import worker as execution_worker
+
+    gate = threading.Event()
+
+    def hanging_connect():
+        assert gate.wait(60)
+        return FakeResolve()
+
+    monkeypatch.setattr(marker_feedback, "connect_resolve",
+                        hanging_connect)
+    monkeypatch.setattr(wd, "CONNECT_BUDGET_S", 0.2)
+    try:
+        def _checked():
+            with assume_sole_writer("hang pin"):
+                return execution_worker._execute_post_restart_check()
+
+        start = time.time()
+        result = _run_check_bounded(_checked)
+        wall = time.time() - start
+    finally:
+        gate.set()
+    assert wall < 5.0
+    assert result["ok"] is False
+    assert "did not return within" in result["error"]
+
+
 def test_post_restart_check_reports_corrupted_timeline(tmp_path):
     """A restart that corrupts a timeline's contents is detected.
 

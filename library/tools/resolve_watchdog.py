@@ -297,46 +297,127 @@ def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S,
     head hash. A mismatch is reported as a stale shadow, not a failure -
     the shadow is re-observed.
 
+    Every Resolve call here is bounded: the identifying reads share
+    `budget_s` as an overall deadline, and each timeline's verification
+    gets `per_timeline_s`. A timeline the check cannot verify inside its
+    slice - or at all, once the budget is spent - is reported stale with
+    the reason, never waited on: the per-head scan used to be unbounded,
+    so a healthy broker with dozens of timelines blew past the client's
+    own timeout while `health` answered (measured 2026-10-11: the check
+    hung 30 s on a healthy broker).
+
     Never writes anything to Resolve.
     """
     result = {"ok": False, "project": "", "timeline": "",
               "timeline_count": 0, "error": "",
               "timelines_intact": [], "timelines_stale": []}
+    deadline = time.monotonic() + budget_s
+
+    def bounded(label, func, timeout_s, deadline_waiter=None):
+        return _deadline_call(
+            label, func,
+            timeout_s=max(min(timeout_s, deadline - time.monotonic()),
+                          0.0),
+            deadline_waiter=deadline_waiter)
+
     try:
-        project = _deadline_call(
+        project = bounded(
             "post-restart project",
             lambda: resolve.GetProjectManager().GetCurrentProject(),
-            timeout_s=budget_s, deadline_waiter=deadline_waiter)
+            budget_s, deadline_waiter=deadline_waiter)
         if project is None:
             result["error"] = "no project open"
             return result
-        result["project"] = project.GetName()
-        timeline = _deadline_call(
+        result["project"] = bounded(
+            "post-restart project name", project.GetName,
+            budget_s, deadline_waiter=deadline_waiter)
+        timeline = bounded(
             "post-restart timeline",
             project.GetCurrentTimeline,
-            timeout_s=budget_s, deadline_waiter=deadline_waiter)
-        result["timeline"] = timeline.GetName() if timeline else ""
-        result["timeline_count"] = _deadline_call(
+            budget_s, deadline_waiter=deadline_waiter)
+        if timeline is not None:
+            result["timeline"] = bounded(
+                "post-restart timeline name", timeline.GetName,
+                budget_s, deadline_waiter=deadline_waiter)
+        result["timeline_count"] = bounded(
             "post-restart count",
             project.GetTimelineCount,
-            timeout_s=budget_s, deadline_waiter=deadline_waiter)
+            budget_s, deadline_waiter=deadline_waiter)
         result["ok"] = True
     except Exception as exc:  # noqa: BLE001 - report, don't raise
         result["error"] = f"{type(exc).__name__}: {exc}"
         return result
 
-    _verify_timeline_contents(project, result, per_timeline_s, store)
+    _verify_timeline_contents(project, result, per_timeline_s, store,
+                               deadline, deadline_waiter)
     return result
 
 
+def _read_live_snapshot(project, timeline):
+    """One timeline's live snapshot and hash. Reads only.
+
+    Takes no lease of its own - the caller holds the cursor on this
+    timeline already - so abandoning this at its deadline strands no
+    lease and moves no cursor.
+    """
+    from library.tools.timeline_shadow import read_live, snapshot_hash
+
+    snapshot = read_live(project, timeline)
+    return snapshot, snapshot_hash(snapshot)
+
+
+def _timeline_index(project, timeout_s: float,
+                      deadline_waiter=None) -> dict | None:
+    """Every timeline id to its handle, mapped in ONE pass over Resolve.
+
+    One scan per known head turned this check quadratic - 36 lookups
+    for 8 timelines, and past the client timeout on the captain's
+    33-timeline project. `None` where the scan did not answer inside
+    its budget: the caller reports each known timeline unverified
+    rather than waiting on it.
+    """
+    def _scan():
+        count = project.GetTimelineCount()
+        index = {}
+        for i in range(1, count + 1):
+            try:
+                timeline = project.GetTimelineByIndex(i)
+            except Exception:  # noqa: BLE001 - one bad entry skips
+                continue
+            if timeline is None:
+                continue
+            try:
+                index[timeline.GetUniqueId()] = timeline
+            except Exception:  # noqa: BLE001 - unreadable id skips
+                continue
+        return index
+
+    try:
+        return _deadline_call("post-restart timeline scan", _scan,
+                              timeout_s=max(timeout_s, 0.0),
+                              deadline_waiter=deadline_waiter)
+    except Exception:  # noqa: BLE001 - reported per timeline, not raised
+        return None
+
+
 def _verify_timeline_contents(project, result: dict,
-                              per_timeline_s: float, store) -> None:
+                              per_timeline_s: float, store,
+                              deadline: float,
+                              deadline_waiter=None) -> None:
     """Compare each known timeline's live contents against the shadow store.
 
     For each timeline the shadow store knows about in this project,
     do a quick live read and compare the hash against the recorded head
     hash. A mismatch is reported as a stale shadow and the shadow is
     re-observed. Read-only with respect to Resolve.
+
+    Each timeline's live read is bounded by `per_timeline_s`, and the
+    loop stops taking new work at `deadline`: a timeline left
+    unverified lands in `timelines_stale` with the reason, so the check
+    answers inside the client's timeout however many timelines the
+    project holds. The cursor excursion itself stays on this thread -
+    only the lease-free live read runs under a deadline, so an expired
+    slice never strands a cursor move.
     """
     from library.tools.timeline_shadow import (
         OBSERVED,
@@ -356,10 +437,35 @@ def _verify_timeline_contents(project, result: dict,
     if not heads:
         return
 
+    scan_s = min(per_timeline_s, deadline - time.monotonic())
+    if scan_s <= 0:
+        for head in heads:
+            result["timelines_stale"].append({
+                "timeline": head.timeline_name,
+                "error": "not verified: the post-restart budget was spent",
+            })
+        return
+    index = _timeline_index(project, scan_s, deadline_waiter)
+    if index is None:
+        for head in heads:
+            result["timelines_stale"].append({
+                "timeline": head.timeline_name,
+                "error": "not verified: the timeline scan did not answer "
+                         f"within {per_timeline_s:g}s",
+            })
+        return
+
     from library.tools.resolve_lock import cursor_excursion
 
     for head in heads:
-        timeline = _find_timeline_by_id(project, head.timeline_id)
+        slice_s = min(per_timeline_s, deadline - time.monotonic())
+        if slice_s <= 0:
+            result["timelines_stale"].append({
+                "timeline": head.timeline_name,
+                "error": "not verified: the post-restart budget was spent",
+            })
+            continue
+        timeline = index.get(head.timeline_id)
         if timeline is None:
             result["timelines_stale"].append({
                 "timeline": head.timeline_name,
@@ -371,8 +477,11 @@ def _verify_timeline_contents(project, result: dict,
             with cursor_excursion(project, timeline, "post-restart check",
                                   timeout=per_timeline_s,
                                   honor_captain=False):
-                snapshot = read_live(project, timeline)
-            live_hash = snapshot_hash(snapshot)
+                snapshot, live_hash = _deadline_call(
+                    f"post-restart read {head.timeline_name}",
+                    lambda _timeline=timeline: _read_live_snapshot(
+                        project, _timeline),
+                    timeout_s=slice_s, deadline_waiter=deadline_waiter)
             if live_hash == head.hash:
                 result["timelines_intact"].append(head.timeline_name)
             else:
@@ -394,19 +503,3 @@ def _verify_timeline_contents(project, result: dict,
                 "timeline": head.timeline_name,
                 "error": f"{type(exc).__name__}: {exc}",
             })
-
-
-def _find_timeline_by_id(project, timeline_id: str):
-    """Find a timeline by its unique ID."""
-    try:
-        count = project.GetTimelineCount()
-    except Exception:  # noqa: BLE001
-        return None
-    for i in range(1, count + 1):
-        try:
-            timeline = project.GetTimelineByIndex(i)
-        except Exception:  # noqa: BLE001, S112 - one missing timeline is isolated
-            continue
-        if timeline and timeline.GetUniqueId() == timeline_id:
-            return timeline
-    return None

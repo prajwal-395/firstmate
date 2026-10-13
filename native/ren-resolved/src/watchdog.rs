@@ -23,6 +23,14 @@ use crate::worker;
 /// How often the watchdog probes Resolve while idle.
 pub const PROBE_INTERVAL_S: f64 = 30.0;
 
+/// How long the daemon waits for the post-restart check's worker round
+/// trip. The Python check bounds itself by its own budgets (its overall
+/// budget plus one per-timeline slice, ~11 s); this sits between that
+/// and the client's 30 s socket timeout, so a slow worker is REPORTED
+/// instead of tripping the client's timeout while `health` keeps
+/// answering (2026-10-11).
+pub const POST_RESTART_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
 /// The watchdog's current state, for `watchdog_status`.
 #[derive(Clone, Debug)]
 pub struct WatchdogStatus {
@@ -241,8 +249,25 @@ pub fn health_reply(execution_worker: &Arc<Mutex<worker::Worker>>) -> crate::pro
 pub fn post_restart_check_reply(
     execution_worker: &Arc<Mutex<worker::Worker>>,
 ) -> crate::protocol::PostRestartCheckReply {
+    post_restart_check_reply_with_timeout(execution_worker, POST_RESTART_CHECK_TIMEOUT)
+}
+
+/// The post-restart check with an explicit worker round-trip timeout.
+///
+/// The timeout - not an unbounded wait - is what keeps one slow
+/// diagnostic from wedging the daemon thread and the shared worker
+/// mutex behind it: on expiry the worker is reset and the reply says
+/// so, instead of the client tripping its own socket timeout.
+pub fn post_restart_check_reply_with_timeout(
+    execution_worker: &Arc<Mutex<worker::Worker>>,
+    timeout: std::time::Duration,
+) -> crate::protocol::PostRestartCheckReply {
     let request = worker::post_restart_check_request("");
-    match execution_worker.lock().unwrap().run(&request) {
+    match execution_worker
+        .lock()
+        .unwrap()
+        .run_with_timeout(&request, timeout)
+    {
         Ok(response) => {
             let result = response.result.unwrap_or(Value::Null);
             crate::protocol::PostRestartCheckReply {
@@ -292,5 +317,69 @@ pub fn post_restart_check_reply(
             timelines_intact: Vec::new(),
             timelines_stale: Vec::new(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A worker interpreter that reads one request and never answers.
+    ///
+    /// The daemon spawns `PIPELINE_PYTHON -m library.tools.resolved.worker`;
+    /// pointed at this script, the arguments are ignored, one request
+    /// line is consumed, and no answer ever comes. `exec` replaces the
+    /// shell with the sleeper, so killing the child reaps it directly
+    /// instead of orphaning it.
+    fn stuck_interpreter(dir: &std::path::Path) -> std::path::PathBuf {
+        let script = dir.join("stuck-worker.sh");
+        std::fs::write(&script, "#!/bin/sh\nread line\nexec sleep 60\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
+    #[test]
+    fn post_restart_check_reports_a_stuck_worker_instead_of_wedging() {
+        let dir = std::env::temp_dir().join(format!(
+            "ren-prc-timeout-{}-{}",
+            std::process::id(),
+            crate::store::now().to_bits()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = stuck_interpreter(&dir);
+        let previous = std::env::var_os("PIPELINE_PYTHON");
+        std::env::set_var("PIPELINE_PYTHON", &script);
+        let worker = Arc::new(Mutex::new(worker::Worker::new()));
+        let started = Instant::now();
+        let reply = post_restart_check_reply_with_timeout(&worker, Duration::from_secs(2));
+        let wall = started.elapsed();
+        match previous {
+            Some(value) => std::env::set_var("PIPELINE_PYTHON", value),
+            None => std::env::remove_var("PIPELINE_PYTHON"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(!reply.ok, "a stuck worker must not report ok");
+        assert!(
+            reply.error.contains("did not answer within"),
+            "the timeout must say so: {}",
+            reply.error
+        );
+        assert!(
+            wall < Duration::from_secs(10),
+            "the daemon wedged {wall:?} on a stuck worker"
+        );
+        drop(worker);
+    }
+
+    #[test]
+    fn post_restart_check_timeout_sits_inside_the_client_timeout() {
+        // `library/tools/resolved/client.py: call` defaults to 30 s: the
+        // daemon must answer first, or the client reports the hang.
+        assert!(POST_RESTART_CHECK_TIMEOUT < Duration::from_secs(30));
     }
 }

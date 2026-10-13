@@ -139,30 +139,68 @@ impl Worker {
                 self.restart();
                 Err("the Resolve worker closed its answer".to_string())
             }
-            Ok(_) => {
-                let response: Value = serde_json::from_str(line.trim())
-                    .map_err(|exc| format!("the worker's answer was not JSON: {exc}"))?;
-                Ok(WorkerResponse {
-                    ok: response
-                        .get("ok")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    result: response.get("result").cloned(),
-                    error: response
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    refused: response
-                        .get("refused")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    cancelled: response
-                        .get("cancelled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                })
+            Ok(_) => decode_response(&line),
+            Err(exc) => {
+                self.restart();
+                Err(format!("the Resolve worker did not answer: {exc}"))
             }
+        }
+    }
+
+    /// Send one request, read one response, within `timeout`.
+    ///
+    /// `run` blocks until the worker answers: a child that never
+    /// answers wedges the caller, and with it the daemon thread and
+    /// the shared worker mutex behind it. A diagnostic that must
+    /// answer promptly uses this instead: the read runs on a thread
+    /// owning the stdout handle, and on expiry the child is killed -
+    /// its closing pipe releases the reader, so no thread outlives
+    /// the call - and the worker is reset, so the next request
+    /// relaunches it.
+    pub fn run_with_timeout(
+        &mut self,
+        request: &Value,
+        timeout: std::time::Duration,
+    ) -> Result<WorkerResponse, String> {
+        self.ensure_started()?;
+        {
+            let stdin = self.stdin.as_mut().expect("worker stdin");
+            let body = serde_json::to_string(request).unwrap_or_else(|_| "{}".to_string());
+            stdin
+                .write_all(body.as_bytes())
+                .and_then(|_| stdin.write_all(b"\n"))
+                .and_then(|_| stdin.flush())
+                .map_err(|exc| {
+                    self.restart();
+                    format!("the Resolve worker did not take the request: {exc}")
+                })?;
+        }
+        let stdout = self.stdout.take().expect("worker stdout");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = stdout;
+            let mut line = String::new();
+            let read = reader.read_line(&mut line);
+            let _ = tx.send((read, line, reader));
+        });
+        let (read, line, reader) = rx.recv_timeout(timeout).map_err(|_| {
+            // The reader still owns the old stdout handle; killing the
+            // child closes the pipe, so its read ends and it exits.
+            // `restart` resets the worker - the next request
+            // relaunches it.
+            self.restart();
+            format!(
+                "the Resolve worker did not answer within {}s",
+                timeout.as_secs_f64()
+            )
+        })?;
+        self.stdout = Some(reader);
+        match read {
+            Ok(0) => {
+                self.restart();
+                Err("the Resolve worker closed its answer".to_string())
+            }
+            Ok(_) => decode_response(&line),
             Err(exc) => {
                 self.restart();
                 Err(format!("the Resolve worker did not answer: {exc}"))
@@ -187,6 +225,32 @@ impl Drop for Worker {
             let _ = child.wait();
         }
     }
+}
+
+/// Decode one worker answer line into a response.
+fn decode_response(line: &str) -> Result<WorkerResponse, String> {
+    let response: Value = serde_json::from_str(line.trim())
+        .map_err(|exc| format!("the worker's answer was not JSON: {exc}"))?;
+    Ok(WorkerResponse {
+        ok: response
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        result: response.get("result").cloned(),
+        error: response
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        refused: response
+            .get("refused")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        cancelled: response
+            .get("cancelled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    })
 }
 
 /// The worker request for one submission's validation.

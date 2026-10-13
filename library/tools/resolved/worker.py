@@ -250,7 +250,10 @@ def _execute_post_restart_check() -> dict:
     Takes an EXCLUSIVE instance lease: the check moves the cursor through
     every known timeline (`cursor_excursion`), which is a write even though
     it only reads. `honor_captain=False` - a post-restart check is not the
-    captain's action.
+    captain's action. The connect is bounded, as the health check's is:
+    an unbounded connect hung this check past the client's timeout while
+    `health` answered (2026-10-11); the check itself bounds every call
+    after the connect.
     """
     from library.tools import resolve_lock, resolve_watchdog
     from library.tools.marker_feedback import connect_resolve
@@ -259,7 +262,15 @@ def _execute_post_restart_check() -> dict:
             "resolve-post-restart-check", exclusive=True,
             honor_captain=False,
             timeout=resolve_watchdog.CONNECT_BUDGET_S):
-        resolve = connect_resolve()
+        try:
+            resolve = resolve_watchdog._deadline_call(
+                "post-restart connect", connect_resolve,
+                timeout_s=resolve_watchdog.CONNECT_BUDGET_S)
+        except Exception as exc:                           # noqa: BLE001
+            return {"ok": False, "project": "", "timeline": "",
+                    "timeline_count": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "timelines_intact": [], "timelines_stale": []}
         return resolve_watchdog.post_restart_check(resolve)
 
 
