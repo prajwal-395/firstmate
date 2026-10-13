@@ -717,17 +717,19 @@ One enumeration, `library/tools/marker_payload.py`.
 
 ## 17. Rust
 
-**One workspace, boring Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml` (shared target dir `native/target`, gitignored). Captain's rule: concrete types, limited generics, simple traits, explicit ownership.
+**All Rust crates join `native/Cargo.toml`**, sharing ignored `native/target`; use concrete types, limited generics, simple traits and explicit ownership.
 
 **`ren-cli`** is the native front door: `native/ren-cli/README.md`.
 
-**`ren-protocol`** is the typed worker protocol: `native/ren-protocol/README.md`.
+**`ren-protocol`** defines the worker protocol: `native/ren-protocol/README.md`.
 
-**`ren-core`** is the editorial correctness core, exposed to Python as `ren_native`: `native/ren-core/README.md`.
+**`ren-core`** is the editorial core exposed as `ren_native`: `native/ren-core/README.md`.
 
 **A stale `ren_native` is refused, not used.** `library/tools/edit_backend.py`.
 
-**`ren-resolved` is the broker daemon in Rust**, speaking the existing socket protocol byte-compatibly - `REN_RESOLVED_DAEMON=rust` selects it, the client is unchanged: `native/ren-resolved/README.md`.
+**`ren-resolved` is the byte-compatible Rust broker**, selected by `REN_RESOLVED_DAEMON=rust`: `native/ren-resolved/README.md`.
+
+**`ren-resolve-codec`** inspects `.drp`/`.drt` exports and preserves unchanged archives byte-for-byte; it does not mutate projects: `native/ren-resolve-codec/README.md`.
 
 ## Maintaining this file
 

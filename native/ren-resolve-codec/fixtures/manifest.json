@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "fixture_policy": "External exports are read in place; only SHA-256 and aggregate semantic counts are recorded.",
+  "fixtures": [
+    {
+      "id": "field-test-project-2026-09-18",
+      "artifact_type": ".drp",
+      "source_artifact": "pipeline_output/review/consolidation-safety-20260918.drp",
+      "sha256": "b99db7a328752c3abb026b64d0c290e54cce3e2707f707d16683f4b27457ee5a",
+      "bytes": 3310909,
+      "resolve_product": "DaVinci Resolve (edition unknown)",
+      "resolve_version_build": "21.1.0.0014",
+      "db_app_ver": "21.1.0.0014",
+      "db_prj_ver": "17",
+      "os_arch": null,
+      "export_procedure": "Saved export from the field-test project; exact procedure unknown.",
+      "observed_at": "2026-10-13",
+      "counts": { "sequence_containers": 23, "tracks": 174, "items": 1421 }
+    },
+    {
+      "id": "field-test-caption-smoke-2026-09-18",
+      "artifact_type": ".drt",
+      "source_artifact": "pipeline_output/scratch/master_caption_smoke/GEO Podcast - Synced (caption smoke).drt",
+      "sha256": "1ea48e5ad352da2130167f78bdcd769c5d3fafeee80a125dbfe01fd62505ad26",
+      "bytes": 125502,
+      "resolve_product": "DaVinci Resolve (edition unknown)",
+      "resolve_version_build": "21.1.0.0014",
+      "db_app_ver": "21.1.0.0014",
+      "db_prj_ver": "17",
+      "os_arch": null,
+      "export_procedure": "Saved export from the field-test project; exact procedure unknown.",
+      "observed_at": "2026-10-13",
+      "counts": { "sequence_containers": 1, "tracks": 5, "items": 339 }
+    }
+  ]
+}
