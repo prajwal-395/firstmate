@@ -15,6 +15,8 @@ observation:
                "params": {...}, "qualification": false}}
     request   {"id": I, "kind": "job", "job": {...}}
     request   {"id": I, "kind": "probe" | "health" | "post_restart_check"}
+    request   {"id": I, "kind": "version"}   (the worker's code version;
+                answers without touching Resolve or the shadow DB)
     response  {"id": I, "ok": true, "result": {...}}
     response  {"id": I, "ok": false, "error": "...", "refused": true,
                "result": {...}}
@@ -274,6 +276,24 @@ def _execute_post_restart_check() -> dict:
         return resolve_watchdog.post_restart_check(resolve)
 
 
+# ── version: the worker's report ───────────────────────────────────
+
+
+def _execute_version() -> dict:
+    """This worker's code version, without touching Resolve or the DB.
+
+    The broker (or a supervisor) compares `shadow_schema_version`
+    against the shadow DB's version and refuses - or restarts on
+    current code - a worker that predates the schema it is about to
+    write, instead of failing its writes (2026-10-11: a pre-A3 worker
+    failed every first-record shadow write machine-wide while
+    re-reads looked healthy).
+    """
+    from library.tools import timeline_shadow
+
+    return {"shadow_schema_version": timeline_shadow.worker_schema_version()}
+
+
 # ── the loop ─────────────────────────────────────────────────────────
 
 
@@ -282,6 +302,8 @@ def execute(request: dict) -> dict:
     request_id = request.get("id", "")
     kind = request.get("kind")
     try:
+        if kind == "version":
+            return _reply(request_id, True, result=_execute_version())
         if kind == "prepare":
             return _execute_prepare(request["submit"])
         if kind == "job":

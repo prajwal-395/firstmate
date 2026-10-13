@@ -157,6 +157,28 @@ class HeadMoved(RuntimeError):
     """A generation was appended against a head that is no longer the head."""
 
 
+#: The shadow DB schema version this code writes. History: 1 is the
+#: pre-Lane-A3 store (10-column `generations`); 2 adds `model_revision`
+#: and `nle_binding_ids` (Lane A3, PR 2279). A worker whose version is
+#: older than the DB it is about to write refuses (StaleShadowWorker)
+#: instead of failing the write - on 2026-10-11 a broker worker running
+#: pre-A3 code failed every first-record shadow write machine-wide with
+#: `OperationalError: table generations has 12 columns but 10 values
+#: were supplied` while re-reads looked healthy.
+SHADOW_SCHEMA_VERSION = 2
+
+
+class StaleShadowWorker(RuntimeError):
+    """This worker's code predates the shadow DB schema it is about to write.
+
+    Raised instead of letting the write fail: the broker turns it into a
+    clear refusal (a rejected job, naming the restart remedy), never a
+    silent per-job failure. The DB is left untouched - restart the
+    Resolve broker from the current tree so the worker runs current
+    code; do not delete the DB.
+    """
+
+
 #: Lane A3 model-linkage columns on `generations`, added after the
 #: table already existed on machines. `CREATE TABLE IF NOT EXISTS`
 #: never adds a column to an existing table, so a store made before
@@ -214,6 +236,97 @@ def _refuse_shared_migration(path: Path, missing: list) -> None:
         "this code carries a migration that is not on main. Copy the "
         "shared DB to scratch, set REN_SHADOW_DB to the copy, and "
         "re-run the proof against that.")
+
+
+def worker_schema_version() -> int:
+    """The shadow schema version this worker's code writes.
+
+    The worker's report: the broker (or a supervisor probing the
+    worker's `version` request) compares it against the DB's version
+    and refuses a worker that predates the schema it is about to
+    write, instead of failing its writes.
+    """
+    return SHADOW_SCHEMA_VERSION
+
+
+def _db_schema_version(db) -> int:
+    """The schema version of an open shadow DB: the stamped one, or more.
+
+    `PRAGMA user_version` is stamped by every `ShadowStore` open at or
+    after this guard landed, so it names the newest code that ever held
+    the file. A store migrated before the stamp existed (Lane A3's
+    ALTER, which predates it) still shows its columns, so the column
+    floor covers those: model-linkage columns present means at least
+    v2. A file with no `generations` table yet is fresh (0) - it takes
+    whatever version opens it.
+    """
+    try:
+        stamped = db.execute("PRAGMA user_version").fetchone()[0] or 0
+    except Exception:  # noqa: BLE001 - an unreadable pragma is no version
+        stamped = 0
+    try:
+        columns = {row["name"] for row in
+                   db.execute("PRAGMA table_info(generations)").fetchall()}
+    except Exception:  # noqa: BLE001 - no table yet means a fresh store
+        return int(stamped)
+    if not columns:
+        return int(stamped)
+    names = {name for name, _ in _GENERATION_MODEL_COLUMNS}
+    floor = 2 if names <= columns else 1
+    return max(int(stamped), floor)
+
+
+def check_schema_current(path: Path | None = None) -> int:
+    """Refuse where this worker predates the shadow DB's schema.
+
+    Returns the DB's version where this worker may write. Raises
+    `StaleShadowWorker` - naming the DB version, the worker version
+    and the restart remedy - where the DB is newer than this code,
+    before any write is attempted. A missing file is fresh: there is
+    nothing to predate yet.
+    """
+    target = Path(path) if path is not None else default_db_path()
+    if not target.exists():
+        return 0
+    try:
+        db = sqlite3.connect(f"file:{target}?mode=ro", uri=True, timeout=30)
+    except sqlite3.OperationalError:
+        return 0
+    try:
+        version = _db_schema_version(db)
+    finally:
+        db.close()
+    if version > SHADOW_SCHEMA_VERSION:
+        raise StaleShadowWorker(
+            f"stale shadow worker: the shadow DB at {target} is schema "
+            f"v{version}, but this worker's code writes "
+            f"v{SHADOW_SCHEMA_VERSION} and predates it. Restart the "
+            "Resolve broker from the current tree so the worker runs "
+            "current code; the DB is left untouched and no write was "
+            "attempted - do not delete the DB.")
+    return version
+
+
+def _translate_column_mismatch(exc: Exception, path) -> Exception:
+    """The incident's silent failure, translated into a clear refusal.
+
+    A worker whose code predates the schema fails its first write with
+    `OperationalError: table X has N columns but M values were
+    supplied` (2026-10-11: pre-A3 positional INSERTs against a 12-column
+    `generations`). Where the error is that mismatch, return a
+    `StaleShadowWorker` naming the restart remedy; anything else passes
+    through untouched.
+    """
+    message = str(exc)
+    if ("columns but" in message and "values were supplied" in message):
+        return StaleShadowWorker(
+            f"stale shadow worker: this write failed with {type(exc).__name__}: "
+            f"{message} - the shadow DB at {path} has columns this "
+            f"worker's code (schema v{SHADOW_SCHEMA_VERSION}) predates. "
+            "Restart the Resolve broker from the current tree so the "
+            "worker runs current code; the DB is left untouched - do not "
+            "delete the DB.")
+    return exc
 
 
 def default_db_path() -> Path:
@@ -446,10 +559,36 @@ class ShadowStore:
         with self._connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
+            # The stale-worker guard comes before any migration: a DB
+            # newer than this code refuses here, with the restart
+            # remedy, instead of failing this worker's first write
+            # (2026-10-11: pre-A3 code against a 12-column store failed
+            # every first-record write machine-wide while re-reads
+            # looked healthy).
+            db_version = _db_schema_version(db)
+            if db_version > SHADOW_SCHEMA_VERSION:
+                raise StaleShadowWorker(
+                    f"stale shadow worker: the shadow DB at {self.path} "
+                    f"is schema v{db_version}, but this worker's code "
+                    f"writes v{SHADOW_SCHEMA_VERSION} and predates it. "
+                    "Restart the Resolve broker from the current tree "
+                    "so the worker runs current code; the DB is left "
+                    "untouched and no write was attempted - do not "
+                    "delete the DB.")
             missing = _missing_generation_columns(db)
             if missing and not explicit:
                 _refuse_shared_migration(self.path, missing)
             _migrate_generations(db)
+            # Stamp the version this code holds, never downgrading: the
+            # stamp is what lets an older worker tell it predates the
+            # file, and a column floor covers stores migrated before
+            # the stamp existed.
+            try:
+                stamped = db.execute("PRAGMA user_version").fetchone()[0] or 0
+            except Exception:  # noqa: BLE001 - an unreadable pragma stays 0
+                stamped = 0
+            if int(stamped) < SHADOW_SCHEMA_VERSION:
+                db.execute(f"PRAGMA user_version={SHADOW_SCHEMA_VERSION}")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -607,9 +746,12 @@ class ShadowStore:
             # Named columns, like every INSERT here: a schema that gains
             # a column must not break this writer (2026-10-10: a shared
             # store's new columns broke a positional INSERT on main).
-            db.execute("INSERT INTO answers (answered_at, command, project,"
-                       " timeline_id) VALUES (?, ?, ?, ?)",
-                       (time.time(), command, project, timeline_id))
+            try:
+                db.execute("INSERT INTO answers (answered_at, command, project,"
+                           " timeline_id) VALUES (?, ?, ?, ?)",
+                           (time.time(), command, project, timeline_id))
+            except sqlite3.OperationalError as exc:
+                raise _translate_column_mismatch(exc, self.path) from exc
 
     def record_read_request(self, command: str, project: str,
                             timeline_id: str | None, outcome: str) -> None:
@@ -617,10 +759,13 @@ class ShadowStore:
         if outcome not in {"shadow_hit", "live_refresh", "miss"}:
             raise ValueError(f"unknown read outcome {outcome!r}")
         with self._connect() as db:
-            db.execute("INSERT INTO read_requests (requested_at, command,"
-                       " project, timeline_id, outcome)"
-                       " VALUES (?, ?, ?, ?, ?)",
-                       (time.time(), command, project, timeline_id, outcome))
+            try:
+                db.execute("INSERT INTO read_requests (requested_at, command,"
+                           " project, timeline_id, outcome)"
+                           " VALUES (?, ?, ?, ?, ?)",
+                           (time.time(), command, project, timeline_id, outcome))
+            except sqlite3.OperationalError as exc:
+                raise _translate_column_mismatch(exc, self.path) from exc
 
     def answers_since(self, since: float,
                       until: float | None = None) -> int:
@@ -729,8 +874,11 @@ class ShadowStore:
                      json.dumps(patch, sort_keys=True) if patch else None,
                      json.dumps(receipt, sort_keys=True) if receipt else None,
                      now, now, revision,
-                     json.dumps(list(binding_ids)) if binding_ids else None))
+                      json.dumps(list(binding_ids)) if binding_ids else None))
                 db.execute("COMMIT")
+            except sqlite3.OperationalError as exc:
+                db.execute("ROLLBACK")
+                raise _translate_column_mismatch(exc, self.path) from exc
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
@@ -896,6 +1044,9 @@ class ShadowStore:
                          if binding_ids else None))
                     report["generations"] += 1
                 db.execute("COMMIT")
+            except sqlite3.OperationalError as exc:
+                db.execute("ROLLBACK")
+                raise _translate_column_mismatch(exc, self.path) from exc
             except BaseException:
                 db.execute("ROLLBACK")
                 raise

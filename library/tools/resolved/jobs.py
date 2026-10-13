@@ -606,7 +606,25 @@ def _timeline(project, name: str):
 
 
 def run(job: dict, resolve) -> dict | None:
-    """Run one EXECUTED job; returns its JSON-serialisable result."""
+    """Run one EXECUTED job; returns its JSON-serialisable result.
+
+    A shadow write attempted by a worker whose code predates the
+    shadow DB schema is a REFUSAL (`JobRefused`, receipt `rejected`),
+    never a silent per-job failure: the stale worker restarts on
+    current code instead of failing writes (2026-10-11: pre-A3 code
+    failed every first-record shadow write machine-wide while
+    re-reads looked healthy).
+    """
+    from library.tools.timeline_shadow import StaleShadowWorker
+
+    try:
+        return _run_impl(job, resolve)
+    except StaleShadowWorker as stale:
+        raise JobRefused(str(stale)) from stale
+
+
+def _run_impl(job: dict, resolve) -> dict | None:
+    """The body of `run`: one EXECUTED job on the broker's connection."""
     from library.tools import resolve_lock
     from library.tools.transform_write_log import write_scope
     kind, params = job["kind"], job["params"]

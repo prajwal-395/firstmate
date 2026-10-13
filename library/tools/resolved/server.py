@@ -592,6 +592,21 @@ def serve(path: Path | None = None, connect=None) -> None:
     from library.tools.resolved import client
     path = Path(path or socket_path())
     path.parent.mkdir(parents=True, exist_ok=True)
+    # The stale-worker guard at startup: a broker whose code predates
+    # the shadow DB schema refuses to serve, with the restart remedy,
+    # instead of failing every first-record shadow write while re-reads
+    # look healthy (2026-10-11: a pre-A3 worker did exactly that
+    # machine-wide for a day). The check is read-only; per-job writes
+    # guard again through `ShadowStore`, so a DB migrated under a
+    # long-running broker refuses the same way.
+    from library.tools import timeline_shadow
+    try:
+        shadow_version = timeline_shadow.check_schema_current()
+    except timeline_shadow.StaleShadowWorker as stale:
+        raise SystemExit(f"ren-resolved: refusing to serve - {stale}")
+    _log_broker(
+        f"ren-resolved: shadow schema v{shadow_version} "
+        f"(worker writes v{timeline_shadow.SHADOW_SCHEMA_VERSION})")
     bind_lock_path = path.parent / BIND_LOCK_NAME
     with open(bind_lock_path, "a+", encoding="utf-8") as bind_lock:
         if fcntl is not None:

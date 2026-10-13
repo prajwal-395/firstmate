@@ -703,3 +703,175 @@ def test_the_default_store_migrates_outside_a_session(tmp_path,
     monkeypatch.delenv(shadow.DB_ENV, raising=False)
     store = shadow.ShadowStore()
     assert store.get("P", "t", 1).model_revision is None
+
+
+# ── The stale-worker guard ────────────────────────────────────────────
+#
+# On 2026-10-11 a broker worker running pre-Lane-A3 code failed every
+# first-record shadow write machine-wide with `OperationalError: table
+# generations has 12 columns but 10 values were supplied`, while
+# re-reads of known timelines still succeeded - so every other lane
+# looked healthy for a day. A worker whose code predates the shadow DB
+# schema now refuses with the restart remedy instead of failing writes,
+# and the broker turns that into a rejected job.
+
+def _newer_schema_db(path):
+    """A store file stamped newer than this worker's code: the DB a
+    future migration leaves behind for an older worker to find."""
+    store = shadow.ShadowStore(path)
+    db = sqlite3.connect(path)
+    db.execute(f"PRAGMA user_version={shadow.SHADOW_SCHEMA_VERSION + 1}")
+    db.commit()
+    db.close()
+    return store
+
+
+def test_a_worker_older_than_the_db_refuses_before_any_write(tmp_path,
+                                                             monkeypatch):
+    """The incident's shape: the DB is v2 and the worker reports v1.
+
+    The open itself refuses - naming both versions and the broker
+    restart - so no first record is ever attempted, and the file is
+    left untouched for current code to keep serving."""
+    current = tmp_path / "current.sqlite3"
+    shadow.ShadowStore(current)
+    monkeypatch.setattr(shadow, "SHADOW_SCHEMA_VERSION", 1)
+    with pytest.raises(shadow.StaleShadowWorker, match="Restart the"):
+        shadow.ShadowStore(current)
+    try:
+        with pytest.raises(shadow.StaleShadowWorker) as refused:
+            shadow.check_schema_current(current)
+    finally:
+        monkeypatch.undo()
+    assert "v2" in str(refused.value) and "v1" in str(refused.value)
+    # Untouched: current code still opens it and reads what it wrote.
+    store = shadow.ShadowStore(current)
+    store.record(project="P", timeline_id="t", timeline_name="T",
+                 snapshot={"a": 1}, source=shadow.OBSERVED, expected_head=0)
+    assert store.get("P", "t", 1).hash == shadow.snapshot_hash({"a": 1})
+
+
+def test_a_db_stamped_newer_than_the_worker_refuses_first_record(tmp_path):
+    """A future migration's stamp refuses this worker at the boundary,
+    instead of failing its first write with a column-count error."""
+    newer = tmp_path / "newer.sqlite3"
+    _newer_schema_db(newer)
+    with pytest.raises(shadow.StaleShadowWorker, match="Restart the"):
+        shadow.ShadowStore(newer)
+    with pytest.raises(shadow.StaleShadowWorker, match="v3"):
+        shadow.check_schema_current(newer)
+    assert shadow.check_schema_current(tmp_path / "missing.sqlite3") == 0
+
+
+def test_the_incidents_positional_insert_becomes_a_clear_refusal(tmp_path):
+    """The exact silent failure, replayed: a pre-A3 positional 10-value
+    INSERT against the 12-column table raises OperationalError today,
+    and the write path translates it into the restart remedy."""
+    path = tmp_path / "incident.sqlite3"
+    shadow.ShadowStore(path)
+    db = sqlite3.connect(path)
+    with pytest.raises(sqlite3.OperationalError, match="12 columns but 10"):
+        db.execute("INSERT INTO generations VALUES (?,?,?,?,?,?,?,?,?,?)",
+                   ("P", "t", 1, "T", "h", "observed", None, None, 1.0, 2.0))
+    try:
+        db.execute("INSERT INTO generations VALUES (?,?,?,?,?,?,?,?,?,?)",
+                   ("P", "t", 1, "T", "h", "observed", None, None, 1.0, 2.0))
+    except sqlite3.OperationalError as exc:
+        translated = shadow._translate_column_mismatch(exc, path)
+    assert isinstance(translated, shadow.StaleShadowWorker)
+    assert "Restart the" in str(translated)
+    # Anything else passes through untouched - the translator only
+    # converts the column-count mismatch, never a real constraint.
+    other = sqlite3.OperationalError("no such table: generations")
+    assert shadow._translate_column_mismatch(other, path) is other
+
+
+def test_current_code_stamps_fresh_and_migrated_stores(tmp_path):
+    """The guard never fires on the ordinary paths: a fresh store is
+    stamped at this worker's version, and a pre-A3 store migrates and
+    stamps in place before its first write lands."""
+    fresh = tmp_path / "fresh.sqlite3"
+    shadow.ShadowStore(fresh)
+    assert sqlite3.connect(fresh).execute(
+        "PRAGMA user_version").fetchone()[0] == shadow.SHADOW_SCHEMA_VERSION
+
+    migrated = tmp_path / "migrated.sqlite3"
+    _old_schema_db(migrated)
+    store = shadow.ShadowStore(migrated)
+    assert sqlite3.connect(migrated).execute(
+        "PRAGMA user_version").fetchone()[0] == shadow.SHADOW_SCHEMA_VERSION
+    store.record(project="P", timeline_id="t2", timeline_name="T2",
+                 snapshot={"b": 2}, source=shadow.OBSERVED, expected_head=0)
+    assert store.get("P", "t2", 1).model_revision is None
+
+
+def test_a_shadow_job_refuses_when_the_worker_is_stale(tmp_path,
+                                                       monkeypatch):
+    """The broker's half: a stale write inside `jobs.run` is a rejected
+    job carrying the restart remedy, never a failed one."""
+    from library.tools.resolved import jobs as job_kinds
+
+    def stale_impl(job, resolve):
+        raise shadow.StaleShadowWorker(
+            "stale shadow worker: the shadow DB at X is schema v9, but "
+            "this worker's code writes v2 and predates it. Restart the "
+            "Resolve broker from the current tree.")
+
+    monkeypatch.setattr(job_kinds, "_run_impl", stale_impl)
+    with pytest.raises(job_kinds.JobRefused, match="Restart the"):
+        job_kinds.run({"id": "j1", "kind": "timeline.snapshot",
+                       "params": {"project": "P", "timeline": "T"}},
+                      object())
+
+
+def test_the_worker_reports_its_shadow_schema_version():
+    """The worker's report: a supervisor compares this against the DB's
+    version to find a stale worker without running a Resolve job."""
+    from library.tools.resolved import worker
+
+    reply = worker.execute({"id": "v1", "kind": "version"})
+    assert reply["ok"] is True
+    assert reply["result"] == {
+        "shadow_schema_version": shadow.SHADOW_SCHEMA_VERSION}
+
+
+def test_the_worker_refuses_a_stale_shadow_write(tmp_path, monkeypatch):
+    """End to end on the Rust-daemon worker path: the real store guard
+    fires inside the job, `jobs.run` converts it, and the reply is a
+    refusal naming the restart - the receipt reads `rejected`."""
+    from contextlib import contextmanager
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import cancellation
+    from library.tools.resolved import jobs as job_kinds
+    from library.tools.resolved import worker
+
+    stale = tmp_path / "stale.sqlite3"
+    _newer_schema_db(stale)
+    monkeypatch.setattr(shadow, "default_db_path", lambda: stale)
+    monkeypatch.delenv(shadow.DB_ENV, raising=False)
+
+    @contextmanager
+    def _lease(purpose, exclusive=False):
+        yield
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", _lease)
+    monkeypatch.setattr(cancellation, "begin", lambda job_id: None)
+    monkeypatch.setattr(cancellation, "clear", lambda job_id: None)
+    monkeypatch.setattr(cancellation, "end", lambda job_id: None)
+    monkeypatch.setattr(worker, "_connect_cached", lambda: object())
+
+    def guarded_impl(job, resolve):
+        return shadow.ShadowStore().record(
+            project="P", timeline_id="t", timeline_name="T",
+            snapshot={"a": 1}, source=shadow.OBSERVED, expected_head=0)
+
+    monkeypatch.setattr(job_kinds, "_run_impl", guarded_impl)
+    reply = worker._execute_job({"id": "j-stale", "kind": "timeline.snapshot",
+                                 "mode": "exclusive", "executed": True,
+                                 "qualification": False})
+
+    assert reply["ok"] is False
+    assert reply.get("refused") is True
+    assert "restart the" in reply["error"].lower() or \
+        "Restart the" in reply["error"]
