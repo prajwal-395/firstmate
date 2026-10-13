@@ -33,6 +33,9 @@ Identity policy (fail-closed, never guessed):
   sample; otherwise it stays on its per-clip object entity and the
   ambiguity is reported. Blob-seeded (category ``unknown``) objects get
   no ``ObjectClass``: an ``auto_object_N`` label is not a semantic class.
+  A detector-seeded (MU-15) object mints one with taxonomy
+  ``open-vocabulary`` from its seed category; face/blob seeds keep the
+  legacy ``sam2_seed_category``.
 - An M3d person-region track reaches the roster Person holding its
   majority face track (``IdentityLink`` method ``face_in_region``,
   confidence the track's face-track share). A track with no majority
@@ -854,11 +857,14 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         class_id: str | None = None
         if category != UNKNOWN_CATEGORY:
             class_id = f"class-{str(category).strip().lower().replace(' ', '_')}"
+            seed = str(obj.get("seed") or "")
+            taxonomy = ("open-vocabulary" if seed.startswith(
+                "detector:") else "sam2_seed_category")
             if not any(c["id"] == class_id
                        for c in builder.model["object_classes"]):
                 builder.model["object_classes"].append({
                     "id": class_id, "name": str(obj.get("label") or category),
-                    "taxonomy": "sam2_seed_category",
+                    "taxonomy": taxonomy,
                 })
         else:
             builder.notes.append(f"{clip_id}/{object_id}: blob-seeded with "

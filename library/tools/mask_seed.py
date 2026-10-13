@@ -302,6 +302,53 @@ def _object_mask_at(
     return obj["object_id"], mask, used
 
 
+def _named_object(
+    objects: dict, subject: str, *, clip_id: str,
+) -> dict | None:
+    """The one tracked object NAMED `subject`, or None when no name
+    matches (the caller falls through to the person route).
+
+    MU-15's class route: a detector seed carries a `label` (the Gemma
+    phrase, "black laptop") and a `category` (the class, "laptop"), and
+    "mask out the logo" names one of those, not an `obj_N` id. Exactly
+    one object may carry the name - none means the name is not tracked
+    here (None, not a refusal: the person roster may still know it),
+    more than one is `ambiguous_subject`, refused rather than picked.
+
+    Blob-seeded objects (`auto_object_N` / `unknown`) never match: a
+    generated id is not a name, and matching one would mint a seed for
+    a region nobody called anything.
+    """
+    wanted = str(subject or "").strip().lower()
+    if not wanted:
+        return None
+    candidates = []
+    for obj in objects.values():
+        if not isinstance(obj, dict):
+            continue
+        names = [obj.get("label"), obj.get("category")]
+        if not any(isinstance(n, str) and n.strip().lower() == wanted
+                   for n in names):
+            continue
+        if str(obj.get("label") or "").startswith("auto_object_"):
+            continue
+        if (obj.get("category") or "").strip().lower() == "unknown":
+            continue
+        candidates.append(obj)
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        raise MaskSeedRefused(
+            "ambiguous_subject",
+            f"Name {subject!r} matches {len(candidates)} tracked objects "
+            f"on clip {clip_id} "
+            f"({', '.join(o.get('object_id', '?') for o in candidates)}), "
+            f"so the frame cannot decide which object is named.",
+            "Name one of the candidate objects by its detection id.",
+        )
+    return candidates[0]
+
+
 def _person_mask_at(
     person: dict,
     objects: dict,
@@ -406,10 +453,12 @@ def resolve_subject_mask(
     for one subject reference - or a named refusal.
 
     A detection id (the segmentation's `object_id`, e.g. `obj_1`)
-    answers directly. A person identity (a `person_id` or declared name
-    from the M3b roster) answers through the face-silhouette bridge in
-    `_person_mask_at`. Anything that matches neither store is refused by
-    name, never guessed.
+    answers directly. A NAMED OBJECT (an MU-15 detector seed's `label`
+    or `category`, e.g. "laptop") answers through the class route: the
+    one tracked object carrying that name. A person identity (a
+    `person_id` or declared name from the M3b roster) answers through
+    the face-silhouette bridge in `_person_mask_at`. Anything that
+    matches no store is refused by name, never guessed.
     """
     objects = {
         o.get("object_id"): o
@@ -419,6 +468,15 @@ def resolve_subject_mask(
     if subject in objects:
         return _object_mask_at(
             objects[subject],
+            sample_index,
+            _mask_shape(seg_result),
+            clip_id=clip_id,
+            subject=subject,
+        )
+    named = _named_object(objects, subject, clip_id=clip_id)
+    if named is not None:
+        return _object_mask_at(
+            named,
             sample_index,
             _mask_shape(seg_result),
             clip_id=clip_id,
@@ -448,8 +506,9 @@ def resolve_subject_mask(
         f"{clip_id}'s segmentation, {roster_note} - so there is no mask "
         f"to seed from.",
         "Name a detection id (object_id) from the clip's 1.06 "
-        "segmentation, or a person_id / declared name from the "
-        "project's person roster.",
+        "segmentation, a detector-seeded object by its label or "
+        "category (e.g. 'laptop'), or a person_id / declared name from "
+        "the project's person roster.",
     )
 
 
@@ -519,3 +578,51 @@ def compute_seed(
         sample_index=seed_sample,
         seed_frame=seed_frame,
     )
+
+
+# ── The mask.create a planner emits (MU-15: C-11's missing producer) ──
+
+
+def mask_create_for_object(seed: MaskSeed, matte: str, *,
+                           provider: str = "resolve_magic_mask_api") -> dict:
+    """The `mask.create` op a planner emits to mask a named object.
+
+    C-11 added the executors (`mask.create/edit/track/delete`) but no
+    producer: "mask out the logo" could not be expressed because no
+    measured track named the logo. MU-15's detector-seeded tracks do,
+    and `compute_seed` turns the track into this op's `seed` receipt -
+    so this function is the road from a name to an op.
+
+    The op is validated through the algebra's own gates before it is
+    returned: an unknown provider, a seed receipt with no viewer point
+    or object, or a matte name the read-back would never open (it must
+    carry the matte mark) is refused here, where the planner can still
+    act - not at apply time on the captain's timeline. What this
+    function cannot check (the timeline item, the frame range the
+    trimmed clip plays) stays the executor's read-back, as C-11 built it.
+    """
+    if not isinstance(seed, MaskSeed):
+        raise MaskSeedRefused(
+            "no_segmentation",
+            f"A mask.create needs a MaskSeed receipt, got "
+            f"{type(seed).__name__} - no measured point backs this op.",
+            "Resolve the named object with compute_seed first.",
+        )
+    op = {"op": "mask.create", "provider": provider, "matte": matte,
+          "seed": seed.to_receipt()}
+    from library.tools import edit_algebra
+    from library.tools import reel_read
+
+    edit_algebra._mask_provider(op, "mask.create")
+    if provider == "resolve_magic_mask_api":
+        edit_algebra._require_magic_seed(op, "mask.create")
+    if not reel_read.is_matte_comp(matte):
+        raise MaskSeedRefused(
+            "no_segmentation",
+            f"Matte name {matte!r} carries no matte mark "
+            f"({reel_read.MATTE_MARK!r}): the read-back only opens comps "
+            f"whose name marks them as mattes, so this op could never "
+            f"verify.",
+            "Name the matte with the matte mark in it.",
+        )
+    return op

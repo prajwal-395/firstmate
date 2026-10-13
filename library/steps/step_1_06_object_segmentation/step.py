@@ -16,16 +16,32 @@ from library.tools.project_layout import Area, ProjectLayout
 SEGMENT_SAMPLE_FPS = 2.0
 
 
+def _seed_key(seed_boxes) -> list:
+    """Detector seeds as a JSON-stable cache key: a new box, label,
+    class or detector re-measures, while key order never does. None
+    (or an empty list) means face-only seeding, the key old stamps
+    carry."""
+    if not seed_boxes:
+        return []
+    return sorted(
+        [[float(v) for v in (s.get("box") or [])],
+         str(s.get("label") or ""), str(s.get("category") or ""),
+         str(s.get("detector") or "")]
+        for s in seed_boxes if isinstance(s, dict))
+
+
 def _stored_segmentation_reusable(path: Path, clip_path: str,
-                                  face_box, sample_fps: float):
+                                  face_box, sample_fps: float,
+                                  seed_boxes=None):
     """A stored matte that already measures this exact source, or None.
 
     The key is the source file's content identity
     (`footage_identity.fingerprint`: size plus both ends) together
-    with the seeding face box and the sample rate: same bytes under a
-    new name reuse, while a re-encode, a new face box or a new rate
-    re-measures. Files written before identity keys existed carry no
-    key and re-measure once, then carry it.
+    with the seeding face box, the detector seeds and the sample rate:
+    same bytes under a new name reuse, while a re-encode, a new face
+    box, a new detector seed or a new rate re-measures. Files written
+    before identity keys existed carry no key and re-measure once,
+    then carry it.
     """
     try:
         stored = json.loads(path.read_text(encoding="utf-8"))
@@ -47,6 +63,8 @@ def _stored_segmentation_reusable(path: Path, clip_path: str,
         return None
     if identity.get("face_box") != [float(v) for v in (face_box or [])]:
         return None
+    if identity.get("object_seeds", []) != _seed_key(seed_boxes):
+        return None
     objects = stored.get("objects")
     if not isinstance(objects, list):
         return None
@@ -55,7 +73,8 @@ def _stored_segmentation_reusable(path: Path, clip_path: str,
 
 
 def _stamp_segmentation_identity(path: Path, clip_path: str,
-                                 face_box, sample_fps: float) -> None:
+                                 face_box, sample_fps: float,
+                                 seed_boxes=None) -> None:
     """Record what source a freshly written matte measures.
 
     Best-effort like the ledger: a stamp that fails to land never
@@ -73,6 +92,7 @@ def _stamp_segmentation_identity(path: Path, clip_path: str,
             "size_bytes": identity.get("size_bytes"),
             "sample_fps": sample_fps,
             "face_box": [float(v) for v in (face_box or [])],
+            "object_seeds": _seed_key(seed_boxes),
         }
         path.write_text(json.dumps(stored, indent=2), encoding="utf-8")
     except (OSError, ValueError):
@@ -241,6 +261,23 @@ def _box_map_or_none(raw):
     return raw
 
 
+def _seed_map_or_none(raw):
+    """An explicit detector-seed map, or None where none arrived.
+
+    Raises TypeError on a mistyped map - a wrong-typed value silently
+    falling back to face-only seeding would mask a producer bug.
+    A helper rather than an inline guard so the contract reads as a
+    type check, not as refusing without an optional input.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise TypeError(
+            "object_seeds_by_clip must be a clip_id to seed list map, "
+            f"got {type(raw).__name__}.")
+    return raw
+
+
 def face_boxes_from_temporal_index(temporal_index) -> dict:
     """`{clip_id: box}` seeded from what step 1.04 already measured.
 
@@ -287,7 +324,8 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
              a_roll_assignments: list = None,
              b_roll_assignments: list = None,
              b_roll_interjections: list = None,
-             temporal_index=None):
+             temporal_index=None,
+             object_seeds_by_clip: dict = None):
     """
     Run object segmentation ONLY on the clips the trigger names.
 
@@ -298,6 +336,14 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     box is honestly declined - the legacy blob seeding, which seeded
     person-less clips on arbitrary regions and lost them in a median
     3.5s, is gone: a matte for nobody is not a measurement.
+
+    `object_seeds_by_clip` (MU-15) maps clip_id to detector seeds -
+    `{box, label, category, detector}` dicts from an open-vocabulary
+    detector answering Gemma's object phrases. A wanted clip carrying
+    seeds is segmented for its named objects even where no face box
+    reaches it (a logo needs no face); the seeds ride the same SAM 2
+    run and the same file, and the content key covers them, so a new
+    seed re-measures rather than reusing a faceless matte.
 
     `raw_footage_files` is accepted and ignored: the catalog carries
     every path this step reads, and a declaration nothing reads is the
@@ -347,34 +393,37 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             print(f"WARNING: File not found {clip_path}", file=sys.stderr)
             continue
 
-        # Face seeding is the ONLY seeding. A clip the trigger names
-        # but no face box reaches is declined with the reason - a
-        # behind_subject title over a person-less clip refuses at
-        # compile time, and a subject grade without a subject drops
-        # there; neither may fall back to blob seeding here.
+        # Face seeding is the subject seeding; detector seeds (MU-15)
+        # are the object seeding. A clip the trigger names but neither
+        # reaches is declined with the reason - a behind_subject title
+        # over a person-less clip refuses at compile time, and a subject
+        # grade without a subject drops there; neither may fall back to
+        # blob seeding here.
         face_box = (face_boxes_by_clip or {}).get(clip_id)
-        if face_box is None:
+        object_seeds = (object_seeds_by_clip or {}).get(clip_id)
+        if face_box is None and not object_seeds:
             declined.append({
                 "clip_id": clip_id,
                 "reason": "no_face_box",
                 "detail": (
                     f"Clip {clip_id} is wanted "
                     f"({'; '.join(wanted[clip_id])}) but no face box "
-                    f"reached the seeder - so it is declined rather "
-                    f"than seeded on an arbitrary region."),
+                    f"and no detector seed reached the seeder - so it is "
+                    f"declined rather than seeded on an arbitrary region."),
             })
             print(f"Declining {clip_path}: no face box", file=sys.stderr)
             continue
 
         # Content-keyed reuse: SAM 2 runs at ~6x realtime, so a matte
         # that already measures these exact bytes - seeded from this
-        # exact face box at this exact rate - is served from disk.
+        # exact face box and these exact detector seeds at this exact
+        # rate - is served from disk.
         # The serial loop stays serial (the generator and propagation
         # share the GPU budget), but seen content is never re-measured.
         new_file_name = f"{clip_id}_segmentation.json"
         cached = _stored_segmentation_reusable(
             out_dir_path / new_file_name, clip_path,
-            face_box, SEGMENT_SAMPLE_FPS)
+            face_box, SEGMENT_SAMPLE_FPS, object_seeds)
         if cached is not None:
             print(f"Reusing {clip_path}: content unchanged "
                   f"({cached['object_count']} objects)", file=sys.stderr)
@@ -396,7 +445,8 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
                 segmenter = get_segmenter()
             seg_result = segmenter.segment_clip(
                 clip_path, sample_fps=SEGMENT_SAMPLE_FPS,
-                face_box=face_box, require_face=True)
+                face_box=face_box, require_face=face_box is not None,
+                seed_boxes=object_seeds)
 
             # Save the detailed masks and metadata to output_dir
             seg_result.save(str(out_dir_path))
@@ -408,7 +458,8 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             if old_file.exists() and old_file != new_file:
                 os.rename(old_file, new_file)
             _stamp_segmentation_identity(new_file, clip_path,
-                                         face_box, SEGMENT_SAMPLE_FPS)
+                                          face_box, SEGMENT_SAMPLE_FPS,
+                                          object_seeds)
             _stamp_segmentation_model_ids(new_file, clip_id)
 
             # Add summary to step results
@@ -464,6 +515,12 @@ def segment_triggered_clips(data: dict) -> dict:
     face_boxes_by_clip = _box_map_or_none(
         data.get("face_boxes_by_clip"))
 
+    # Optional opt-in to detector seeding (MU-15): clip_id to a list of
+    # {box, label, category, detector} dicts from an open-vocabulary
+    # detector. Absent means face-only seeding, exactly as before.
+    object_seeds_by_clip = _seed_map_or_none(
+        data.get("object_seeds_by_clip"))
+
     # Where masks land is the layout owner's call, not this step's.
     # See library/tools/project_layout.py.
     project_folder = data.get("project_folder") or os.getcwd()
@@ -480,7 +537,8 @@ def segment_triggered_clips(data: dict) -> dict:
                       b_roll_assignments=data.get("b_roll_assignments"),
                       b_roll_interjections=data.get(
                           "b_roll_interjections"),
-                      temporal_index=data.get("temporal_index"))
+                      temporal_index=data.get("temporal_index"),
+                      object_seeds_by_clip=object_seeds_by_clip)
     return result
 
 
