@@ -47,6 +47,8 @@ fn import_and_place(adapter: &FilmCraft, project: &std::path::Path, audio: bool)
             item,
             track: "V1".into(),
             audio_track: audio.then(|| "A1".into()),
+            video: true,
+            audio,
             frame: 0,
             source_in_ticks: 0,
             duration_ticks: 762_048_000_000,
@@ -279,6 +281,8 @@ fn pinned_cli_h264_export_honors_requested_bitrate() {
             item,
             track: "V1".into(),
             audio_track: Some("A1".into()),
+            video: true,
+            audio: true,
             frame: 0,
             source_in_ticks: 0,
             // 3 seconds in the engine's project clock.

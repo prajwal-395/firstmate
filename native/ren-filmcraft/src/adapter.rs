@@ -2391,6 +2391,9 @@ pub fn placement_operations(
                 item: *item,
                 track: placement.track.clone(),
                 audio_track: placement.audio_track.clone(),
+                video: !is_stem_role(&placement.role),
+                audio: is_stem_role(&placement.role)
+                    || matches!(placement.role.as_str(), "a_roll" | "b_roll"),
                 frame: placement.frame,
                 source_in_ticks: placement.source_in_ticks,
                 duration_ticks: placement.duration_ticks,
@@ -5087,6 +5090,30 @@ mod tests {
                 ("use-voice-card", &None),
             ]
         );
+        let operations = placement_operations(
+            std::path::Path::new("reel.fcproj"),
+            &std::collections::BTreeMap::from([
+                ("asset-a".to_owned(), 1),
+                ("asset-b".to_owned(), 2),
+            ]),
+            &voiced,
+        )
+        .unwrap();
+        let placement_flags: Vec<(&str, bool, bool)> = operations
+            .iter()
+            .map(|(id, operation)| match operation {
+                Operation::Place { video, audio, .. } => (id.as_str(), *video, *audio),
+                _ => unreachable!("placement planner emits Place operations"),
+            })
+            .collect();
+        assert_eq!(
+            placement_flags,
+            vec![
+                ("use-a", true, true),
+                ("use-voice-sub", true, false),
+                ("use-voice-card", true, false),
+            ]
+        );
         // Compositing overlays carry the positioning loss by name; the
         // full-frame card and the base do not.
         assert_eq!(projection.losses.len(), 1);
@@ -5413,6 +5440,11 @@ mod tests {
                     stream_index: index as u32 + 1,
                     clock_id: ren_protocol::project_model::ClockId("clock-source".into()),
                     metadata,
+                    source_digest: None,
+                    provenance_id: None,
+                    coverage: None,
+                    producer_version: None,
+                    freshness: None,
                 });
         }
         model
