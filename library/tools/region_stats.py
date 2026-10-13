@@ -61,6 +61,7 @@ row it rests on (`resolve_measured_basis`).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -77,7 +78,7 @@ from library.tools import source_memory
 from library.tools.ren_refusal import RenRefusal
 
 M3F_STATUS_MEASURED = "measured"
-M3F_METHOD = "region-stats-v1-m2"
+M3F_METHOD = "region-stats-v2-m2"
 """The slot version. `footage_analysis.slot_is_fresh` rebuilds a record
 stamped with anything else, so a change to what a reading means (the
 luma weights, the stencil rule, the OUTSIDE definition) bumps this."""
@@ -157,8 +158,19 @@ def measure_frame(rgb: np.ndarray, masks: Sequence[np.ndarray]) -> dict:
     union = np.zeros(luma.shape, dtype=bool)
     for mask in masks:
         union |= mask
-    return {"outside": region_reading(rgb, luma, lap, ~union),
+    whole = np.ones(luma.shape, dtype=bool)
+    return {"whole_frame": {**region_reading(rgb, luma, lap, whole),
+                             "mask_sha256": _mask_digest(whole)},
+            "outside": {**region_reading(rgb, luma, lap, ~union),
+                        "mask_sha256": _mask_digest(~union)},
             "regions": [region_reading(rgb, luma, lap, m) for m in masks]}
+
+
+def _mask_digest(mask: np.ndarray) -> str:
+    """Stable digest of the exact row-major mask raster that was measured."""
+    bits = np.asarray(mask, dtype=np.uint8)
+    header = f"{bits.shape[1]}x{bits.shape[0]}:".encode("ascii")
+    return hashlib.sha256(header + np.packbits(bits, bitorder="big").tobytes()).hexdigest()
 
 
 # ── Measuring a source ──────────────────────────────────────────────
@@ -191,11 +203,6 @@ def measure_samples(content_digest: str, m2: dict, m3d: dict,
         t = sample["t"]
         if times is not None and _key(t) not in times:
             continue
-        if sample.get("instances") is None:
-            out.append({"t": t, "regions": None,
-                        "unmeasured_because": "M3d did not measure this "
-                                              "sample"})
-            continue
         frame = frames.get(_key(t))
         rgb = (_frame_rgb(source_memory.frame_abspath(content_digest, frame,
                                                       root))
@@ -212,13 +219,28 @@ def measure_samples(content_digest: str, m2: dict, m3d: dict,
                             f"{rgb.shape[0]}, the M3d grid "
                             f"{grid[0]}x{grid[1]}")})
             continue
+        if sample.get("instances") is None:
+            luma = luma_of(rgb)
+            from library.tools.analysis.picture_quality import laplacian
+            lap = laplacian(luma)
+            whole = np.ones(luma.shape, dtype=bool)
+            out.append({"t": t, "whole_frame": {
+                **region_reading(rgb, luma, lap, whole),
+                "mask_sha256": _mask_digest(whole)},
+                "outside": None, "regions": None,
+                "unmeasured_because": "M3d did not measure this sample"})
+            continue
         instances = sample["instances"]
         decoded = [person_regions.decode_runs(masks[inst["mask"]], grid)
                    for inst in instances]
         measured = measure_frame(rgb, decoded)
-        out.append({"t": t, "outside": measured["outside"], "regions": [
-            {"track": inst["track"], "mask": inst["mask"], "inside": reading}
-            for inst, reading in zip(instances, measured["regions"])]})
+        out.append({"t": t, "whole_frame": measured["whole_frame"],
+                    "outside": measured["outside"], "regions": [
+            {"track": inst["track"], "mask": inst["mask"],
+             "mask_sha256": _mask_digest(mask),
+             "inside": {**reading, "mask_sha256": _mask_digest(mask)}}
+            for inst, mask, reading in zip(
+                instances, decoded, measured["regions"])]})
     return out
 
 

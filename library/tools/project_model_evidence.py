@@ -75,6 +75,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -252,7 +253,9 @@ class _Builder:
     def observation(self, digest: str, lane: str, asset_id: str,
                      clock_id: str, start: float, end: float, modality: str,
                      payload: dict[str, Any], confidence: Any,
-                     producer: str) -> str | None:
+                     producer: str,
+                     evidence: evidence_contract.EvidenceRecord | None = None,
+                     ) -> str | None:
         ticks = sec_to_ticks(start, end)
         if ticks is None:
             self.dropped.append({"digest": digest, "lane": lane,
@@ -264,6 +267,9 @@ class _Builder:
         # never an evaluation. Unmapped modalities pass through; the
         # check raises only on a genuine type violation.
         evidence_contract.audit_legacy_observation(modality, payload)
+        if evidence is not None:
+            payload = {**payload, "evidence_contract":
+                       evidence_contract.to_rust_evidence(evidence)}
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
         obs_id = f"obs-{key}-{self._obs_counter[key]:04d}"
@@ -1121,6 +1127,65 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
 
 REGION_STATS_PRODUCER = "library.tools.region_stats"
 REGION_STATS_MODALITY = "region_stats"
+IMAGE_MEASUREMENT_MODALITY = "image_measurement"
+
+
+def _migrate_region_measurements(builder: _Builder, digest: str,
+                                 asset_id: str, clock_id: str,
+                                 sample: dict, doc: dict) -> None:
+    """Expose M3f's exact raster measurements as typed, queryable evidence."""
+    grid = [int(v) for v in doc["grid"]]
+    method = f"{region_stats.M3F_METHOD}@{min(grid)}px"
+    instrument = doc["instrument"]
+    m3d_digest = instrument["m3d_sidecar_sha256"]
+    targets = [("whole_frame", None, sample["whole_frame"])]
+    if sample.get("outside") is not None:
+        targets.append(("outside_regions", None, sample["outside"]))
+    if sample.get("regions") is not None:
+        targets.extend((f"region:{entry['track']}",
+                        f"track-region-{digest}-{entry['track']}",
+                        entry["inside"]) for entry in sample["regions"])
+    metrics = (("luma_p50", "image.luma.rec709_p50"),
+               ("rgb_mean", "image.color.rgb_mean"),
+               ("sharpness", "image.sharpness.laplacian_variance"))
+    for target, entity_id, reading in targets:
+        for field, measurement_type in metrics:
+            value = reading[field]
+            if value is None:
+                continue
+            measured_cells = (reading["sharpness_cells"]
+                              if field == "sharpness" else reading["cells"])
+            coverage_fraction = measured_cells / (grid[0] * grid[1])
+            mask_digest = reading["mask_sha256"]
+            start = max(0.0, float(sample["t"])-M3_POINT_RADIUS_S)
+            end = float(sample["t"])+M3_POINT_RADIUS_S
+            ticks = sec_to_ticks(start, end)
+            if ticks is None:
+                continue
+            record = evidence_contract.new_measurement(
+                asset_id, clock_id, ticks[0], ticks[1], measurement_type,
+                {"value": value, "cells": measured_cells,
+                 "coverage_fraction": coverage_fraction,
+                 "mask_sha256": mask_digest,
+                 "m3d_sidecar_sha256": m3d_digest},
+                method, _prov_id(digest, "m3f"), sample_resolution=grid,
+                target_entity_id=entity_id, target_region=target,
+                coverage=evidence_contract.CoverageKind.SAMPLED,
+                coverage_samples=1, coverage_sample_rate_hz=0.0)
+            record = replace(
+                record,
+                source_reference=(f"m2-sample:{sample['t']};"
+                                  f"mask-sha256:{mask_digest};"
+                                  f"m3d-sidecar-sha256:{m3d_digest}"))
+            builder.observation(
+                digest, "m3f", asset_id, clock_id, start, end,
+                IMAGE_MEASUREMENT_MODALITY,
+                {"metric": measurement_type, "value": value,
+                 "target": target, "cells": measured_cells,
+                 "coverage_fraction": coverage_fraction,
+                 "mask_sha256": mask_digest,
+                 "m3d_sidecar_sha256": m3d_digest}, None,
+                REGION_STATS_PRODUCER, evidence=record)
 
 
 def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
@@ -1138,11 +1203,16 @@ def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M3f absent; no region stats")
         return
     for sample in doc.get("samples") or []:
-        if not isinstance(sample, dict) or sample.get("regions") is None:
+        if not isinstance(sample, dict):
             continue
         try:
             t = float(sample["t"])
         except (KeyError, TypeError, ValueError):
+            continue
+        if sample.get("whole_frame") is not None:
+            _migrate_region_measurements(builder, digest, asset_id,
+                                         clock_id, sample, doc)
+        if sample.get("regions") is None:
             continue
         for region in sample["regions"]:
             if not isinstance(region, dict) or not region.get("track"):

@@ -142,6 +142,68 @@ def test_the_view_reports_a_subject_darker_than_the_set(tmp_path,
     assert "legend" in view and "not_read" not in view
 
 
+def test_m3f_records_whole_frame_exact_mask_and_typed_region_evidence(
+        tmp_path, monkeypatch):
+    source, digest, root = _source(tmp_path, monkeypatch)
+    region_stats.build_source_region_stats(source, digest, root)
+    measured = region_stats.read_m3f(digest, root)
+    sample = measured["samples"][0]
+    assert sample["whole_frame"]["luma_p50"] > sample["regions"][0]["inside"]["luma_p50"]
+    assert sample["whole_frame"]["mask_sha256"] != sample["regions"][0]["mask_sha256"]
+    assert sample["outside"]["mask_sha256"] != sample["regions"][0]["mask_sha256"]
+
+    from library.tools.project_model_evidence import migrate_project_evidence
+
+    project = tmp_path / "evidence-project"
+    project.mkdir()
+    (project / "pipeline_data.json").write_text(json.dumps({
+        "capability_outputs": {"footage.catalog": {
+            "clip_catalog": [_clip(source)]}}}), encoding="utf-8")
+    model, _ = migrate_project_evidence(str(project), memory_root=root)
+    evidence = [o for o in model["observations"]
+                if o["modality"] == "image_measurement"]
+    assert evidence
+    whole = next(o for o in evidence
+                 if o["payload"]["target"] == "whole_frame"
+                 and o["payload"]["metric"] == "image.luma.rec709_p50")
+    contract = whole["payload"]["evidence_contract"]
+    assert contract["sample_resolution"] == list(GRID)
+    assert contract["method"] == f"{region_stats.M3F_METHOD}@18px"
+    assert contract["coverage"] == "sampled"
+    assert whole["payload"]["coverage_fraction"] == pytest.approx(1.0)
+    assert whole["payload"]["mask_sha256"] == sample["whole_frame"]["mask_sha256"]
+    region = next(o for o in evidence
+                  if o["payload"]["target"] == "region:region_001"
+                  and o["payload"]["metric"] == "image.color.rgb_mean")
+    assert region["payload"]["mask_sha256"] == sample["regions"][0]["mask_sha256"]
+    assert region["payload"]["evidence_contract"]["target_region"] == "region:region_001"
+    assert region["payload"]["coverage_fraction"] == pytest.approx(
+        sample["regions"][0]["inside"]["cells"] / (GRID[0] * GRID[1]))
+    subject_luma = next(o for o in evidence
+                        if o["payload"]["target"] == "region:region_001"
+                        and o["payload"]["metric"] == "image.luma.rec709_p50")
+    outside_luma = next(o for o in evidence
+                        if o["payload"]["target"] == "outside_regions"
+                        and o["payload"]["metric"] == "image.luma.rec709_p50")
+    assert subject_luma["payload"]["value"] < outside_luma["payload"]["value"]
+    assert outside_luma["payload"]["mask_sha256"] == sample["outside"]["mask_sha256"]
+    assert subject_luma["payload"]["mask_sha256"] != outside_luma["payload"]["mask_sha256"]
+    assert subject_luma["payload"]["evidence_contract"]["sample_resolution"] == list(GRID)
+
+
+def test_whole_frame_evidence_survives_a_missing_m3d_sample(
+        tmp_path, monkeypatch):
+    _, digest, root = _source(tmp_path, monkeypatch)
+    m2 = source_memory.read_m2(digest, root)
+    m3d = pr.read_m3d(digest, root)
+    m3d["samples"][0]["instances"] = None
+    [sample] = region_stats.measure_samples(digest, m2, m3d,
+                                            times={TIMES[0]}, root=root)
+    assert sample["whole_frame"]["cells"] == GRID[0] * GRID[1]
+    assert sample["outside"] is None
+    assert sample["regions"] is None
+
+
 def test_outside_is_the_set_never_another_person(tmp_path, monkeypatch):
     """A brighter second person (an unowned region) is not averaged into
     the speaker's surround."""

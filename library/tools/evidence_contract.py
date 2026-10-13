@@ -150,6 +150,16 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "downscaled greyscale frame. Resolution-bound: the same frame "
         "at 180px and at 720p yields different methods.",
     },
+    "image.luma.rec709_p50": {
+        "unit": "0_255", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Median Rec.709 luma over a named image region.",
+    },
+    "image.color.rgb_mean": {
+        "unit": "rgb_0_255", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Mean decoded RGB over a named image region.",
+    },
     "lens.focus_distance_m": {
         "unit": "m",
         "kind": EvidenceType.MEASUREMENT,
@@ -226,7 +236,7 @@ KNOWN_METHODS: tuple[str, ...] = (
     "expression-classifier-v2-m2-crops",
     "person-instance-mask-v1",
     "attention-saliency-v1-m2",
-    "region-stats-v1-m2",
+    "region-stats-v2-m2",
     "relationships-v2 over M3 pose + M3d regions",
     "picture-quality-deterministic_v1@180px",
 )

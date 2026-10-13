@@ -497,24 +497,32 @@ the cells whose whole stencil lies in the region.
   "samples_measured": 8191,
   "tracks": [{"track_id": "region_001", "face_track": "face_001"}],
   "samples": [{"t": 0.083,
+    "whole_frame": {"cells": 82944, "luma_p50": 0.0, "rgb_mean": [r, g, b],
+                    "sharpness": 0.0, "mask_sha256": "sha256 hex"},
     "outside": {"cells": 70000, "luma_p50": 0.0, "rgb_mean": [r, g, b],
                 "skin_rgb": null, "skin_fraction": 0.0,
                 "sharpness": 0.0, "sharpness_cells": 68000},
     "regions": [{"track": "region_001", "mask": 0,
-                 "inside": {"cells": 12000, "luma_p50": 0.0, "...": "..."}}]}],
-  "instrument": {"method": "region-stats-v1-m2",
+                 "mask_sha256": "sha256 hex",
+                 "inside": {"cells": 12000, "luma_p50": 0.0,
+                            "mask_sha256": "sha256 hex", "...": "..."}}]}],
+  "instrument": {"method": "region-stats-v2-m2",
                  "input": "m2-thumbnail + m3d masks", "luma": "rec709",
                  "m3d_sidecar_sha256": "sha256 hex", "wall_seconds": 0.0}
 }
 ```
 
 - `regions: null` on a sample means M3d did not measure it or its
-  thumbnail is gone; `[]` means measured and nobody there.
+  thumbnail is gone; `[]` means measured and nobody there. If M2 exists
+  when M3d did not measure, `whole_frame` is still recorded and `outside`
+  remains unavailable.
 - Readers: step 5.01's bridge (`clip_region_stats`, over the source
   seconds each clip plays; it measures the samples it needs in memory
   when this slot was not measured off the current M3d sidecar), and
   `project_model_evidence`, which migrates every reading into
-  `Observation(modality="region_stats")`.
+  compatibility `Observation(modality="region_stats")` rows and typed
+  `image_measurement` evidence with resolution, sample coverage, method,
+  and source/mask digests.
 - Freshness: the lane (`footage_analysis.LANES`, `region_stats`)
   rebuilds a record whose `instrument.method` is not the current slot
   version or that is older than its M2 or M3d input.

@@ -210,7 +210,7 @@ LANES: tuple = (
     Lane("region_stats", "M3f",
          "luma, colour, skin and sharpness inside each person region",
          (SM.SLOT_REGION_STATS,), (SM.SLOT_FRAMES_INDEX, SM.SLOT_REGIONS),
-         False, True, _build_region_stats, "region-stats-v1-m2"),
+         False, True, _build_region_stats, "region-stats-v2-m2"),
     Lane("depth", "M3g",
          "relative-depth medians inside each person region",
          (SM.SLOT_DEPTH,), (SM.SLOT_FRAMES_INDEX, SM.SLOT_REGIONS),
@@ -837,8 +837,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         sys.exit(main())
     except RenRefusal as refused:
