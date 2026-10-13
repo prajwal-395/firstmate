@@ -3018,7 +3018,9 @@ def run_pipeline(
             "native_stale": native_stale,
         }
         if want_json:
-            json.dump(summary, sys.stdout, indent=2)
+            # Keep the machine-readable plan readable while meeting the
+            # dry-run output budget pinned by LE-12.
+            json.dump(summary, sys.stdout, indent=1)
             return summary
         for node_id in steps_to_run:
             impl = get_step_implementation(get_step_dir(nodes[node_id]))

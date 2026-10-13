@@ -33,8 +33,6 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
@@ -96,6 +94,60 @@ def test_a_stray_thread_sleeping_does_not_answer_the_agent_wait(tmp_path):
         f"the global sleep reached the agent stub from another thread: "
         f"{len(stub_idents)} stub calls, "
         f"{sum(1 for i in stub_idents if i != main_ident)} off-thread")
+
+
+def test_a_wall_clock_step_does_not_fire_the_agent_timeout(tmp_path):
+    """The 2026-10-12 full-suite flake: a forward wall-clock step (an NTP
+    correction under load) fired a 60 s handshake timeout after ~6 s of
+    wall time, with the answer sitting on disk -
+    tests/scenarios/test_post_bridge_rejection_reaches_the_model.py.
+    The wait measures ELAPSED time, so its clock is monotonic and a wall
+    step is invisible: the answer arriving mid-step is still read.
+
+    This is the ONE deliberate `time.time` step in the suite, and it is
+    safe against the amplifier this file pins shut: the patch is a pure
+    clock (no sleep stub, so a stray thread can execute nothing
+    off-thread), it is context-managed (restored even on failure), and
+    the answering thread is joined here. It lives in this file because
+    the global-patch scan below skips this file.
+    """
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+    prompt_path = project_dir / "handoff.md"
+    prompt_path.write_text("Test prompt")
+    res_file = (project_dir / "pipeline_output" / "llm_responses"
+                / "test_step.json")
+    res_data = {"test_out": "agent_success"}
+
+    stop = threading.Event()
+
+    def answerer():
+        # Arrive mid-wait: after the loop's first check, before the step.
+        time.sleep(0.3)
+        res_file.parent.mkdir(parents=True, exist_ok=True)
+        res_file.write_text(json.dumps(res_data), encoding="utf-8")
+        stop.wait(10)
+
+    thread = threading.Thread(target=answerer, daemon=True)
+    real_time = time.time
+    stepped_at = real_time()
+
+    def stepped():
+        now = real_time()
+        return now + (70.0 if now - stepped_at > 1.0 else 0.0)
+
+    thread.start()
+    try:
+        with patch("time.time", side_effect=stepped):
+            output = run_pipeline.present_llm_step(
+                str(prompt_path), {"project_folder": str(project_dir)},
+                "test_step", full_auto="agent", llm_timeout=5)
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    assert output == res_data
+    assert not thread.is_alive(), "the answering thread leaked"
 
 
 def _global_time_patches(tree: ast.AST):
