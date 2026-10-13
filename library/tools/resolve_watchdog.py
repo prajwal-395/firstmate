@@ -67,7 +67,10 @@ class ResolveDegraded(RuntimeError):
 
 
 def _deadline_call(label: str, func: Callable, *args,
-                   timeout_s: float, **kwargs):
+                   timeout_s: float,
+                   deadline_waiter: Callable[[threading.Thread, float], None]
+                   | None = None,
+                   **kwargs):
     """Run `func(*args, **kwargs)` with a deadline.
 
     Returns the value, or raises `ResolveCallTimeout` naming the label.
@@ -85,7 +88,8 @@ def _deadline_call(label: str, func: Callable, *args,
                               name=f"resolve-watchdog:{label}",
                               daemon=True)
     worker.start()
-    worker.join(timeout_s)
+    (deadline_waiter or (lambda thread, timeout: thread.join(timeout)))(
+        worker, timeout_s)
     if worker.is_alive():
         from library.tools.resolve_deadline import ResolveCallTimeout
         raise ResolveCallTimeout(
@@ -107,11 +111,20 @@ class ResolveWatchdog:
     def __init__(self, connect: Callable[[], object],
                  probe_interval: float = PROBE_INTERVAL_S,
                  connect_budget: float = CONNECT_BUDGET_S,
-                 round_trip_budget: float = HEALTH_ROUND_TRIP_S):
+                 round_trip_budget: float = HEALTH_ROUND_TRIP_S,
+                 *, clock: Callable[[], float] = time.monotonic,
+                 probe_scheduler: Callable[[threading.Event, float], bool]
+                 | None = None,
+                 deadline_waiter: Callable[[threading.Thread, float], None]
+                 | None = None):
         self._connect = connect
         self._probe_interval = probe_interval
         self._connect_budget = connect_budget
         self._round_trip_budget = round_trip_budget
+        self._clock = clock
+        self._probe_scheduler = probe_scheduler or (
+            lambda stop, interval: stop.wait(interval))
+        self._deadline_waiter = deadline_waiter
         self._resolve = None
         self._degraded = False
         self._degraded_at: float | None = None
@@ -167,7 +180,7 @@ class ResolveWatchdog:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self._stop.wait(self._probe_interval)
+            self._probe_scheduler(self._stop, self._probe_interval)
             if self._stop.is_set():
                 break
             self._probe()
@@ -199,7 +212,8 @@ class ResolveWatchdog:
     def _probe_connected(self) -> None:
         try:
             resolve = _deadline_call("watchdog connect", self._connect,
-                                     timeout_s=self._connect_budget)
+                                     timeout_s=self._connect_budget,
+                                     deadline_waiter=self._deadline_waiter)
         except Exception as exc:  # noqa: BLE001 - any failure is a mark
             self._mark_degraded(f"connect failed: {exc}", "", "")
             return
@@ -209,7 +223,8 @@ class ResolveWatchdog:
             _deadline_call(
                 "watchdog probe",
                 lambda: resolve.GetProjectManager().GetCurrentProject(),
-                timeout_s=self._round_trip_budget)
+                timeout_s=self._round_trip_budget,
+                deadline_waiter=self._deadline_waiter)
         except Exception as exc:  # noqa: BLE001 - any failure is a mark
             self._mark_degraded(f"probe failed: {exc}", "", "")
             return
@@ -220,7 +235,7 @@ class ResolveWatchdog:
                        job_id: str) -> None:
         with self._lock:
             self._degraded = True
-            self._degraded_at = time.time()
+            self._degraded_at = self._clock()
             self._degraded_reason = reason
             self._holder = holder
             self._job_id = job_id
@@ -237,7 +252,7 @@ class ResolveWatchdog:
             self._degraded = False
             self._degraded_at = None
             self._degraded_reason = ""
-            self._recovered_at = time.time()
+            self._recovered_at = self._clock()
             holder = self._holder
             job_id = self._job_id
         print(f"resolve-watchdog: recovered - Resolve is responsive again "
@@ -245,7 +260,10 @@ class ResolveWatchdog:
               file=sys.stderr)
 
 
-def health_status(resolve) -> dict:
+def health_status(
+        resolve,
+        deadline_waiter: Callable[[threading.Thread, float], None]
+        | None = None) -> dict:
     """Separate `connected` from `responsive` with a short round trip.
 
     `connected` is True where a non-null handle exists. `responsive` is
@@ -258,7 +276,8 @@ def health_status(resolve) -> dict:
         _deadline_call(
             "health round trip",
             lambda: resolve.GetProjectManager().GetCurrentProject(),
-            timeout_s=HEALTH_ROUND_TRIP_S)
+            timeout_s=HEALTH_ROUND_TRIP_S,
+            deadline_waiter=deadline_waiter)
         return {"connected": True, "responsive": True}
     except Exception:  # noqa: BLE001 - unresponsive is the answer
         return {"connected": True, "responsive": False}
@@ -266,7 +285,9 @@ def health_status(resolve) -> dict:
 
 def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S,
                        per_timeline_s: float = POST_RESTART_PER_TIMELINE_S,
-                       store=None) -> dict:
+                       store=None,
+                       deadline_waiter: Callable[[threading.Thread, float], None]
+                       | None = None) -> dict:
     """A short read-only project/timeline/count check after a restart.
 
     Runs before builds resume after an operator restart. Reads the
@@ -285,7 +306,7 @@ def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S,
         project = _deadline_call(
             "post-restart project",
             lambda: resolve.GetProjectManager().GetCurrentProject(),
-            timeout_s=budget_s)
+            timeout_s=budget_s, deadline_waiter=deadline_waiter)
         if project is None:
             result["error"] = "no project open"
             return result
@@ -293,12 +314,12 @@ def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S,
         timeline = _deadline_call(
             "post-restart timeline",
             project.GetCurrentTimeline,
-            timeout_s=budget_s)
+            timeout_s=budget_s, deadline_waiter=deadline_waiter)
         result["timeline"] = timeline.GetName() if timeline else ""
         result["timeline_count"] = _deadline_call(
             "post-restart count",
             project.GetTimelineCount,
-            timeout_s=budget_s)
+            timeout_s=budget_s, deadline_waiter=deadline_waiter)
         result["ok"] = True
     except Exception as exc:  # noqa: BLE001 - report, don't raise
         result["error"] = f"{type(exc).__name__}: {exc}"
@@ -317,8 +338,12 @@ def _verify_timeline_contents(project, result: dict,
     hash. A mismatch is reported as a stale shadow and the shadow is
     re-observed. Read-only with respect to Resolve.
     """
-    from library.tools.timeline_shadow import (OBSERVED, ShadowStore,
-                                             read_live, snapshot_hash)
+    from library.tools.timeline_shadow import (
+        OBSERVED,
+        ShadowStore,
+        read_live,
+        snapshot_hash,
+    )
 
     store = store or ShadowStore()
     project_name = result["project"]
@@ -380,7 +405,7 @@ def _find_timeline_by_id(project, timeline_id: str):
     for i in range(1, count + 1):
         try:
             timeline = project.GetTimelineByIndex(i)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S112 - one missing timeline is isolated
             continue
         if timeline and timeline.GetUniqueId() == timeline_id:
             return timeline

@@ -19,11 +19,15 @@ from library.tools.marker_feedback import ResolveUnavailable
 from library.tools.resolve_locale import scriptapp_preserving_locale
 from library.tools.resolved import client
 from library.tools.resolved import jobs as job_kinds
-from library.tools.resolved.server import Broker
-from library.tools.resolved.server import serve
+from library.tools.resolved.server import Broker, serve
 from library.tools.resolved.store import JobStore
-from tests.resolve_double import (FakeResolve, FakeTimeline, make_pool_clip,
-                                 make_project, place_clip)
+from tests.resolve_double import (
+    FakeResolve,
+    FakeTimeline,
+    make_pool_clip,
+    make_project,
+    place_clip,
+)
 
 
 class _FakeDvr:
@@ -34,6 +38,10 @@ class _FakeDvr:
 
     def scriptapp(self, name: str = "Resolve"):
         return self._resolve
+
+
+def _do_not_wait_for_deadline(_thread, _timeout):
+    """Deterministic timeout scheduler for calls intentionally held open."""
 
 
 @pytest.fixture
@@ -55,21 +63,16 @@ def test_watchdog_marks_degraded_when_call_never_returns():
         release.wait()
         return FakeResolve()
 
-    watchdog = wd.ResolveWatchdog(connect=never_connect, probe_interval=0.01,
-                                  connect_budget=0.05)
-    watchdog.start()
-    try:
-        deadline = time.time() + 5
-        while not watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert watchdog.is_degraded()
-        status = watchdog.status()
-        assert status["connected"] is False
-        assert status["responsive"] is False
-        assert "connect failed" in status["degraded_reason"]
-    finally:
-        release.set()
-        watchdog.stop()
+    watchdog = wd.ResolveWatchdog(
+        connect=never_connect, probe_interval=0.01, connect_budget=0.05,
+        deadline_waiter=_do_not_wait_for_deadline)
+    watchdog._probe()
+    assert watchdog.is_degraded()
+    status = watchdog.status()
+    assert status["connected"] is False
+    assert status["responsive"] is False
+    assert "connect failed" in status["degraded_reason"]
+    release.set()
 
 
 def test_watchdog_marks_degraded_when_probe_never_returns():
@@ -84,22 +87,16 @@ def test_watchdog_marks_degraded_when_probe_never_returns():
     def connect():
         return StuckResolve()
 
-    watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01,
-                                  connect_budget=0.05,
-                                  round_trip_budget=0.05)
-    watchdog.start()
-    try:
-        deadline = time.time() + 5
-        while not watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert watchdog.is_degraded()
-        status = watchdog.status()
-        assert status["connected"] is True
-        assert status["responsive"] is False
-        assert "probe failed" in status["degraded_reason"]
-    finally:
-        release.set()
-        watchdog.stop()
+    watchdog = wd.ResolveWatchdog(
+        connect=connect, probe_interval=0.01, connect_budget=0.05,
+        round_trip_budget=0.05, deadline_waiter=_do_not_wait_for_deadline)
+    watchdog._probe()
+    assert watchdog.is_degraded()
+    status = watchdog.status()
+    assert status["connected"] is True
+    assert status["responsive"] is False
+    assert "probe failed" in status["degraded_reason"]
+    release.set()
 
 
 def test_watchdog_stays_healthy_when_resolve_answers():
@@ -110,15 +107,32 @@ def test_watchdog_stays_healthy_when_resolve_answers():
         return resolve
 
     watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01)
+    watchdog._probe()
+    assert not watchdog.is_degraded()
+    status = watchdog.status()
+    assert status["connected"] is True
+    assert status["responsive"] is True
+
+
+def test_watchdog_uses_injected_probe_scheduler():
+    """A fake scheduler advances one probe without a wall-clock wait."""
+    calls = []
+
+    def scheduler(stop, interval):
+        calls.append(interval)
+        if len(calls) == 2:
+            stop.set()
+        return stop.is_set()
+
+    watchdog = wd.ResolveWatchdog(
+        connect=FakeResolve, probe_interval=17, probe_scheduler=scheduler)
     watchdog.start()
-    try:
-        time.sleep(0.2)
-        assert not watchdog.is_degraded()
-        status = watchdog.status()
-        assert status["connected"] is True
-        assert status["responsive"] is True
-    finally:
-        watchdog.stop()
+    watchdog._thread.join(timeout=1)
+    assert not watchdog._thread.is_alive()
+    status = watchdog.status()
+    assert calls == [17, 17]
+    assert status["connected"] is True
+    assert status["responsive"] is True
 
 
 def test_health_status_connected_and_responsive():
@@ -133,12 +147,15 @@ def test_health_status_not_connected():
 
 
 def test_health_status_connected_but_not_responsive():
+    release = threading.Event()
+
     class StuckResolve(FakeResolve):
         def GetProjectManager(self):
-            time.sleep(999)
+            release.wait()
             return super().GetProjectManager()
 
-    status = wd.health_status(StuckResolve())
+    status = wd.health_status(StuckResolve(), _do_not_wait_for_deadline)
+    release.set()
     assert status == {"connected": True, "responsive": False}
 
 
@@ -160,12 +177,17 @@ def test_post_restart_check_no_project():
 
 
 def test_post_restart_check_never_returns():
+    release = threading.Event()
+
     class StuckResolve(FakeResolve):
         def GetProjectManager(self):
-            time.sleep(999)
+            release.wait()
             return super().GetProjectManager()
 
-    result = wd.post_restart_check(StuckResolve(), budget_s=0.01)
+    result = wd.post_restart_check(
+        StuckResolve(), budget_s=0.01,
+        deadline_waiter=_do_not_wait_for_deadline)
+    release.set()
     assert result["ok"] is False
     assert "did not return" in result["error"]
 
@@ -308,24 +330,16 @@ def test_watchdog_clears_degraded_when_probe_recovers():
     watchdog = wd.ResolveWatchdog(connect=lambda: TransientResolve(),
                                   probe_interval=0.01,
                                   connect_budget=0.05,
-                                  round_trip_budget=0.05)
-    watchdog.start()
-    try:
-        deadline = time.time() + 5
-        while not watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert watchdog.is_degraded()
-        assert "probe failed" in watchdog.status()["degraded_reason"]
+                                  round_trip_budget=0.05,
+                                  deadline_waiter=_do_not_wait_for_deadline)
+    watchdog._probe()
+    assert watchdog.is_degraded()
+    assert "probe failed" in watchdog.status()["degraded_reason"]
 
-        hang.set()
-        deadline = time.time() + 5
-        while watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert not watchdog.is_degraded()
-        assert watchdog.status()["responsive"] is True
-    finally:
-        hang.set()
-        watchdog.stop()
+    hang.set()
+    watchdog._probe()
+    assert not watchdog.is_degraded()
+    assert watchdog.status()["responsive"] is True
 
 
 def test_broker_resumes_submissions_after_watchdog_recovers(tmp_path):
@@ -349,31 +363,20 @@ def test_broker_resumes_submissions_after_watchdog_recovers(tmp_path):
     broker = Broker(store, connect=connect)
     watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01,
                                   connect_budget=0.05,
-                                  round_trip_budget=0.05)
+                                  round_trip_budget=0.05,
+                                  deadline_waiter=_do_not_wait_for_deadline)
     broker._watchdog = watchdog
-    watchdog.start()
-    try:
-        deadline = time.time() + 5
-        while not watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert watchdog.is_degraded()
-        try:
-            broker.submit("lease", {"exclusive": True})
-            assert False, "should have raised"
-        except job_kinds.JobRefused:
-            pass
+    watchdog._probe()
+    assert watchdog.is_degraded()
+    with pytest.raises(job_kinds.JobRefused):
+        broker.submit("lease", {"exclusive": True})
 
-        hang.set()
-        deadline = time.time() + 5
-        while watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        result = broker.submit("lease", {"exclusive": True})
-        assert "id" in result
-    finally:
-        hang.set()
-        broker.stop()
-        watchdog.stop()
-        store.close()
+    hang.set()
+    watchdog._probe()
+    result = broker.submit("lease", {"exclusive": True})
+    assert "id" in result
+    broker.stop()
+    store.close()
 
 
 def test_recovery_reaches_broker_within_one_probe_interval(tmp_path):
@@ -397,62 +400,45 @@ def test_recovery_reaches_broker_within_one_probe_interval(tmp_path):
     broker = Broker(store, connect=connect)
     watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.05,
                                   connect_budget=0.05,
-                                  round_trip_budget=0.05)
+                                  round_trip_budget=0.05,
+                                  deadline_waiter=_do_not_wait_for_deadline)
     broker._watchdog = watchdog
-    watchdog.start()
-    try:
-        deadline = time.time() + 5
-        while not watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        assert watchdog.is_degraded()
+    watchdog._probe()
+    assert watchdog.is_degraded()
+    with pytest.raises(job_kinds.JobRefused):
+        broker.submit("lease", {"exclusive": True})
 
-        hang.set()
-        recovered = time.time()
-        deadline = recovered + wd.PROBE_INTERVAL_S
-        while time.time() < deadline:
-            try:
-                result = broker.submit("lease", {"exclusive": True})
-                assert "id" in result
-                break
-            except job_kinds.JobRefused:
-                time.sleep(0.01)
-        else:
-            assert False, "broker did not resume within one probe interval"
-        assert time.time() - recovered < wd.PROBE_INTERVAL_S
-    finally:
-        hang.set()
-        broker.stop()
-        watchdog.stop()
-        store.close()
+    hang.set()
+    recovered = time.monotonic()
+    watchdog._probe()
+    result = broker.submit("lease", {"exclusive": True})
+    assert "id" in result
+    assert time.monotonic() - recovered < wd.PROBE_INTERVAL_S
+    broker.stop()
+    store.close()
 
 
 def test_status_records_degradation_and_recovery():
     """Status keeps the degradation and the recovery for post-mortem."""
     resolve = FakeResolve()
 
-    watchdog = wd.ResolveWatchdog(connect=lambda: resolve,
-                                  probe_interval=0.01)
-    watchdog.start()
-    try:
-        watchdog._mark_degraded("test degradation", "test-holder",
-                                  "test-job")
-        assert watchdog.is_degraded()
-        degraded_at = watchdog.status()["degraded_at"]
-        assert degraded_at is not None
+    now = [100.0]
+    watchdog = wd.ResolveWatchdog(connect=lambda: resolve, clock=lambda: now[0])
+    watchdog._mark_degraded("test degradation", "test-holder", "test-job")
+    assert watchdog.is_degraded()
+    degraded_at = watchdog.status()["degraded_at"]
+    assert degraded_at == 100.0
 
-        deadline = time.time() + 5
-        while watchdog.is_degraded() and time.time() < deadline:
-            time.sleep(0.01)
-        status = watchdog.status()
-        assert status["degraded"] is False
-        assert status["degraded_at"] is None
-        assert status["degraded_reason"] == ""
-        assert status["recovered_at"] is not None
-        assert status["recovered_at"] >= degraded_at
-        assert status["holder"] == "test-holder"
-        assert status["job_id"] == "test-job"
-    finally:
-        watchdog.stop()
+    now[0] = 101.5
+    watchdog._probe()
+    status = watchdog.status()
+    assert status["degraded"] is False
+    assert status["degraded_at"] is None
+    assert status["degraded_reason"] == ""
+    assert status["recovered_at"] == 101.5
+    assert status["recovered_at"] >= degraded_at
+    assert status["holder"] == "test-holder"
+    assert status["job_id"] == "test-job"
 
 
 def test_watchdog_probe_without_lease_does_not_mark_degraded(unguarded):
@@ -476,24 +462,12 @@ def test_watchdog_probe_without_lease_does_not_mark_degraded(unguarded):
 
     watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01,
                                   connect_budget=30.0)
-    watchdog.start()
-    try:
-        deadline = time.time() + 15
-        while "held" not in seen and time.time() < deadline:
-            time.sleep(0.01)
-        assert seen.get("held") is True
-        # `connect` runs on the deadline worker. It sets `seen` before
-        # returning to the watchdog thread, which publishes `_resolve`
-        # only after the deadline wrapper joins it. Wait for that
-        # handoff rather than racing the status read against it.
-        while not watchdog.status()["connected"] and time.time() < deadline:
-            time.sleep(0.01)
-        assert not watchdog.is_degraded()
-        status = watchdog.status()
-        assert status["connected"] is True
-        assert status["responsive"] is True
-    finally:
-        watchdog.stop()
+    watchdog._probe()
+    assert seen.get("held") is True
+    assert not watchdog.is_degraded()
+    status = watchdog.status()
+    assert status["connected"] is True
+    assert status["responsive"] is True
 
 
 def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
@@ -521,7 +495,7 @@ def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
         from contextlib import contextmanager
         from pathlib import Path
 
-        lock_dir, ready_path = sys.argv[1], sys.argv[2]
+        lock_dir, ready_path, release_path = sys.argv[1:]
         os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = lock_dir
         sys.path.insert(0, __REPO__)
 
@@ -539,10 +513,12 @@ def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
                 "contention holder", exclusive=True,
                 honor_captain=False, timeout=30):
             Path(ready_path).write_text("held", encoding="utf-8")
-            time.sleep(4)
+            while not Path(release_path).exists():
+                time.sleep(0.005)
         """).replace("__REPO__", repr(str(repo_root)))
     holder = subprocess.Popen(
-        [sys.executable, "-c", script, lock_dir, str(ready)],
+        [sys.executable, "-c", script, lock_dir, str(ready),
+         str(tmp_path / "holder-release")],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8")
     try:
@@ -562,7 +538,7 @@ def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
                                       connect_budget=0.2)
         watchdog.start()
         try:
-            time.sleep(0.8)
+            time.sleep(0.05)
             assert not watchdog.is_degraded()
         finally:
             watchdog.stop()
@@ -573,14 +549,15 @@ def test_watchdog_contention_does_not_mark_degraded(unguarded, tmp_path):
         assert holder.poll() is None, \
             "the holder exited mid-window, so contention is unproven"
     finally:
-        # The holder exits on its own after its hold lapses; reaping it
-        # here (rather than killing it) proves it held for the term.
+        (tmp_path / "holder-release").touch()
+        # Reaping the child after releasing its gate proves the exclusive
+        # lease overlapped each watchdog probe, without a multi-second hold.
         out, err = holder.communicate(timeout=30)
     assert holder.returncode == 0, (out, err)
 
 
 @contextlib.contextmanager
-def _serving_broker(connect):
+def _serving_broker(connect, probe_interval=0.01, probe_scheduler=None):
     """Run the real broker (`serve`) in a thread until the block exits.
 
     The watchdog inside the broker is the production one: it takes its
@@ -597,6 +574,14 @@ def _serving_broker(connect):
     socket_dir = Path("/tmp") / f"vep-wd-{os.getpid()}"
     socket_dir.mkdir(parents=True, exist_ok=True)
     socket_path = socket_dir / "b.sock"
+    watchdog_factory = wd.ResolveWatchdog
+    def make_watchdog(connect):
+        kwargs = {"probe_interval": probe_interval}
+        if probe_scheduler is not None:
+            kwargs["probe_scheduler"] = probe_scheduler
+        return watchdog_factory(connect, **kwargs)
+
+    wd.ResolveWatchdog = make_watchdog
     thread = threading.Thread(target=serve, args=(socket_path, connect),
                               daemon=True, name="test-broker-serve")
     thread.start()
@@ -610,6 +595,7 @@ def _serving_broker(connect):
     finally:
         client.call({"op": "shutdown"}, path=socket_path)
         thread.join(timeout=15)
+        wd.ResolveWatchdog = watchdog_factory
         shutil.rmtree(socket_dir, ignore_errors=True)
 
 
@@ -715,7 +701,17 @@ def test_watchdog_probe_survives_concurrent_exclusive_release(
     resolve = FakeResolve()
     connect_started = threading.Event()
     release_connect = threading.Event()
+    permit_probe = threading.Event()
     held_seen = []
+    first_probe = [True]
+
+    def probe_scheduler(stop, interval):
+        if first_probe[0]:
+            first_probe[0] = False
+            permit_probe.wait()
+        else:
+            stop.wait(interval)
+        return stop.is_set()
 
     def connect():
         connect_started.set()
@@ -733,11 +729,16 @@ def test_watchdog_probe_survives_concurrent_exclusive_release(
     # be the watchdog's probe, not the watcher's.
     monkeypatch.setenv("REN_SHADOW_WATCHER", "0")
 
-    with _serving_broker(connect) as socket_path:
-        with resolve_lock.resolve_lease("live run", exclusive=True,
-                                       honor_captain=False, timeout=15.0):
-            assert connect_started.wait(45.0), "watchdog never probed"
-        release_connect.set()
+    with _serving_broker(connect, probe_scheduler=probe_scheduler) as socket_path:
+        try:
+            with resolve_lock.resolve_lease("live run", exclusive=True,
+                                           honor_captain=False, timeout=15.0):
+                permit_probe.set()
+                assert connect_started.wait(1.0), "watchdog never probed"
+            release_connect.set()
+        finally:
+            permit_probe.set()
+            release_connect.set()
         status = _wait_watchdog(
             socket_path,
             lambda s: s.get("connected") and s.get("responsive"),
