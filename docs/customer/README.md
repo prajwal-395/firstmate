@@ -55,6 +55,13 @@ A run that takes a while posts a macOS notification when it ends
 - **`ren setup` configures the detected harness** automatically. To do
   it by hand: `ren setup-hooks --app <host> --write`.
 
+## MCP access (optional)
+
+Ren's verb catalog is also a [typed MCP server](mcp.md): one tool per
+verb, read-only and `--dry-run` verbs runnable, write verbs refused
+with the shell equivalent named. Nothing starts it automatically - add
+it to your host's configuration to opt in.
+
 ## Troubleshooting
 
 ### Setup
