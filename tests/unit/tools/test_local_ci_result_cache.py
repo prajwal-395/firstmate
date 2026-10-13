@@ -117,6 +117,29 @@ def test_transitive_library_closure_change_invalidates(checkout, state_dir):
     assert _lookup(state_dir, checkout, rel) is None
 
 
+def test_key_builder_parses_shared_imports_once_per_checkout(
+        checkout, monkeypatch):
+    rel = "tests/unit/foo/test_widget.py"
+    second_rel = "tests/unit/foo/test_widget_2.py"
+    (checkout / second_rel).write_text(PLAIN_TEST, encoding="utf-8")
+    parsed = []
+    original = result_cache._parse_import_stems
+
+    def counted(path):
+        parsed.append(path)
+        return original(path)
+
+    monkeypatch.setattr(result_cache, "_parse_import_stems", counted)
+    builder = result_cache.KeyBuilder(str(checkout))
+
+    builder.closure(rel)
+    first_parse_count = len(parsed)
+    builder.closure(second_rel)
+
+    assert first_parse_count > 0
+    assert len(parsed) == len(set(parsed))
+
+
 def test_unrelated_library_change_preserves_reuse(checkout, state_dir):
     # Precision: a file nothing in the closure imports must NOT evict.
     rel = "tests/unit/foo/test_widget.py"

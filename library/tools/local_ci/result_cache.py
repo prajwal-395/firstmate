@@ -196,6 +196,20 @@ class KeyBuilder:
     def __init__(self, checkout: str) -> None:
         self.checkout = os.path.abspath(checkout)
         self._index: dict[str, list[str]] | None = None
+        self._imports_by_path: dict[str, set[str]] = {}
+
+    def _imports(self, path: str) -> set[str]:
+        """Parse each source file at most once for this immutable checkout.
+
+        `closure()` walks overlapping dependency graphs for every test in
+        a selection. Keeping the parsed edges beside the filename index
+        avoids reparsing shared dependencies for each selected test.
+        """
+        imports = self._imports_by_path.get(path)
+        if imports is None:
+            imports = _parse_import_stems(path)
+            self._imports_by_path[path] = imports
+        return imports
 
     def _stem_index(self) -> dict[str, list[str]]:
         if self._index is None:
@@ -231,7 +245,7 @@ class KeyBuilder:
         while stack:
             current = stack.pop()
             absolute = os.path.join(self.checkout, current)
-            for stem in _parse_import_stems(absolute):
+            for stem in self._imports(absolute):
                 for candidate in index.get(stem, []):
                     if candidate in seen:
                         continue
