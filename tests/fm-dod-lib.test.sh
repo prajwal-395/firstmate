@@ -414,6 +414,10 @@ EOF
       # shellcheck disable=SC2016
       assert_grep 'against the base branch `feature/hub`' "$home/data/$id/ship-instructions.md" \
         "promotion did not target the PR at the recorded base"
+      assert_grep 'checkpoint-sha=<full-pushed-commit-sha>' "$home/data/$id/ship-instructions.md" \
+        "promotion omitted the ship checkpoint requirement"
+      assert_grep 'checkpoint-sha=<full-pushed-commit-sha>' "$home/data/$id/brief.md" \
+        "the relaunched promoted brief omitted the ship checkpoint requirement"
       assert_grep 'base_branch=feature/hub' "$meta" "promotion dropped the recorded base"
     else
       [ "$status" -ne 0 ] || fail "promoting a based scout to local-only should be refused"

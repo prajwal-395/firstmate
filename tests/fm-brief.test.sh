@@ -205,6 +205,12 @@ test_ship_modes_generate_clean_briefs() {
     FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1; status=$?
     expect_code 0 "$status" "fm-brief.sh $id --mode $mode should exit 0"
     brief="$home/data/$id/brief.md"
+    assert_grep 'commit your task work and push your task branch without opening a PR' "$brief" \
+      "$id brief lost the checkpoint-before-blocked-or-paused instruction"
+    assert_grep 'checkpoint-sha=<full-pushed-commit-sha>' "$brief" \
+      "$id brief lost the pushed-commit SHA requirement"
+    assert_grep 'end your turn so the pushed branch is the durable resume point' "$brief" \
+      "$id brief lost the turn-ending checkpoint instruction"
     assert_present "$brief" "$id: brief was not scaffolded"
     assert_grep "# Definition of done" "$brief" "$id: brief missing Definition of done section"
     grep -qx "Delivery contract: mode=$mode" "$brief" \
