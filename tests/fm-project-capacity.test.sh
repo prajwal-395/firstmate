@@ -235,7 +235,7 @@ test_exhausted_capacity_defers_without_leaving_anything_behind() {
   write_live "$home" live-b "$case_dir/project"
   before=$(call_count "$case_dir")
   worktrees=$(worktree_list "$case_dir")
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code "$DEFER_EXIT" "$rc" "a spawn beyond capacity was not deferred: $out"
   assert_contains "$out" "deferred: project project admits 2 worker(s) at once on this machine ($home/config/project-capacity) and 2 already hold a place (live-a, live-b)" \
     "the deferral did not name the capacity and its holders"
@@ -252,7 +252,7 @@ test_checkpointed_blocked_or_paused_worker_releases_capacity() {
   declare_capacity "$home" "project 1"
   write_live "$home" live-a "$case_dir/project"
   printf 'blocked [at=1791867513]: waiting on access checkpoint-sha=%040d\n' 1 > "$home/state/live-a.status"
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "a pushed blocked checkpoint kept holding project capacity: $out"
   assert_contains "$out" "spawned task-c" "the freed capacity did not admit the next worker"
   printf 'working [at=1791867514]: resumed from pushed branch\n' >> "$home/state/live-a.status"
