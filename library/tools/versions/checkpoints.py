@@ -14,6 +14,7 @@ import os
 import re
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -59,6 +60,76 @@ def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_.-") or "project"
 
 
+def _folder_path(manager) -> str:
+    value = manager.GetCurrentFolder()
+    if value is None:
+        raise RuntimeError("Resolve did not report its current project folder")
+    value = str(value).strip("/")
+    if not value or "/" in value:
+        return value
+    if manager.GotoRootFolder() is False:
+        raise RuntimeError("Resolve refused to navigate to the project root folder")
+    matches = _find_folder_paths(manager, value)
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Resolve current folder {value!r} maps to {len(matches)} paths; refusing ambiguous restore")
+    return matches[0]
+
+
+def _find_folder_paths(manager, name: str, parent: str = "") -> list[str]:
+    paths = []
+    folders = manager.GetFolderListInCurrentFolder() or []
+    if len(folders) != len(set(folders)):
+        raise RuntimeError(f"Resolve reported ambiguous child folders under {parent!r}")
+    for folder in folders:
+        path = f"{parent}/{folder}".strip("/")
+        if folder == name:
+            paths.append(path)
+        _go_to_folder(manager, path)
+        paths.extend(_find_folder_paths(manager, name, path))
+    _go_to_folder(manager, parent)
+    return paths
+
+
+def _go_to_folder(manager, path: str) -> None:
+    if manager.GotoRootFolder() is False:
+        raise RuntimeError("Resolve refused to navigate to the project root folder")
+    for part in (part for part in path.split("/") if part):
+        folders = manager.GetFolderListInCurrentFolder() or []
+        if folders.count(part) != 1 or manager.OpenFolder(part) is False:
+            raise RuntimeError(f"Resolve could not navigate to project folder {path!r}")
+
+
+def _find_project_folders(manager, name: str, parent: str = "") -> list[str]:
+    projects = manager.GetProjectListInCurrentFolder() or []
+    found = [parent] if name in projects else []
+    folders = manager.GetFolderListInCurrentFolder() or []
+    if len(folders) != len(set(folders)):
+        raise RuntimeError(f"Resolve reported ambiguous child folders under {parent!r}")
+    for folder in folders:
+        path = f"{parent}/{folder}".strip("/")
+        _go_to_folder(manager, path)
+        found.extend(_find_project_folders(manager, name, path))
+    _go_to_folder(manager, parent)
+    return found
+
+
+@contextmanager
+def _project_folder(manager, project_name: str):
+    """Run a by-name ProjectManager call in its unique containing folder."""
+    previous = _folder_path(manager)
+    try:
+        _go_to_folder(manager, "")
+        matches = _find_project_folders(manager, project_name)
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Project {project_name!r} was found in {len(matches)} folders; refusing ambiguous lookup")
+        _go_to_folder(manager, matches[0])
+        yield
+    finally:
+        _go_to_folder(manager, previous)
+
+
 def project_checkpoint(manager, project, project_folder: str,
                        checkpoint_id: str) -> dict:
     """Export the current exact project, verify it, hash it, then ledger it."""
@@ -79,7 +150,8 @@ def project_checkpoint(manager, project, project_folder: str,
     os.close(fd)
     os.unlink(staged)  # Resolve requires a fresh, nonexistent destination.
     try:
-        exported = manager.ExportProject(project.GetName(), staged)
+        with _project_folder(manager, project.GetName()):
+            exported = manager.ExportProject(project.GetName(), staged)
         artifact = Path(staged)
         if exported is not True or not artifact.is_file() or artifact.stat().st_size == 0:
             raise RuntimeError(f"Resolve project export failed or was empty: {exported!r}")
@@ -105,7 +177,7 @@ def restore_project(manager, project_folder: str, checkpoint_id: str,
     """Import a checkpoint only under a previously unused project name."""
     if not new_name.strip():
         raise ValueError("restore requires a new project name")
-    scratch, ledger = _paths(project_folder)
+    _scratch, ledger = _paths(project_folder)
     entry = next((row for row in _entries(ledger)
                   if row.get("id") == checkpoint_id and row.get("kind") == "project"), None)
     if entry is None:
@@ -113,10 +185,11 @@ def restore_project(manager, project_folder: str, checkpoint_id: str,
     artifact = Path(entry["path"])
     if not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != entry["sha256"]:
         raise RuntimeError("checkpoint artifact is missing or failed its SHA-256 check")
-    names = manager.GetProjectListInCurrentFolder() or []
-    if new_name in names:
-        raise FileExistsError(f"project {new_name!r} already exists; restore never replaces projects")
-    imported = manager.ImportProject(str(artifact), new_name)
+    with _project_folder(manager, entry["project"]):
+        names = manager.GetProjectListInCurrentFolder() or []
+        if new_name in names:
+            raise FileExistsError(f"project {new_name!r} already exists; restore never replaces projects")
+        imported = manager.ImportProject(str(artifact), new_name)
     if not imported:
         raise RuntimeError("Resolve refused project import")
     return {"checkpoint_id": checkpoint_id, "project": new_name, "restored": True}
@@ -127,7 +200,7 @@ def timeline_checkpoint(project, timeline, project_folder: str,
     """Idempotently duplicate a timeline and export that copy as a .drt."""
     if not checkpoint_id.strip():
         raise ValueError("checkpoint id must not be empty")
-    scratch, ledger = _paths(project_folder)
+    _scratch, ledger = _paths(project_folder)
     rows = _entries(ledger)
     old = next((row for row in rows
                 if row.get("id") == checkpoint_id
