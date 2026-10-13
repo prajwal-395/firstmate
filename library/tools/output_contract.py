@@ -88,6 +88,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from library.tools.ast_cache import parse_file
+
 _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _LIBRARY_ROOT.parent
 
@@ -366,7 +368,7 @@ def _string_constants(path: Path) -> dict[str, list[int]]:
     the opposite of a read.  The `code` route uses `_read_literals`.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parse_file(path)
     except (OSError, SyntaxError, ValueError):
         return {}
     found: dict[str, list[int]] = {}
@@ -403,7 +405,7 @@ def _read_literals(path: Path) -> dict[str, list[int]]:
     stops being able to fail.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parse_file(path)
     except (OSError, SyntaxError, ValueError):
         return {}
     found: dict[str, list[int]] = {}
@@ -620,7 +622,7 @@ def uncalled_functions() -> list[tuple[str, str, int]]:
         if path.name.startswith("test_"):
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except (OSError, SyntaxError, ValueError):
             continue
         rel = path.relative_to(_REPO_ROOT).as_posix()
@@ -643,7 +645,7 @@ def uncalled_functions() -> list[tuple[str, str, int]]:
         if not path.is_file():
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except (OSError, SyntaxError, ValueError):
             continue
         aliases = {}

@@ -68,6 +68,9 @@ TESTS = os.path.join(REPO_ROOT, "tests")
 # feed entries through it. Any change to the resolver runs the whole
 # set. Pinned by `tests/tooling/test_select_dependent_tests.py`.
 CONTRACT_SETS = {
+    "contract_audit_surveys": [
+        "tests/contracts/test_contract_audit_surveys.py",
+    ],
     "qualification_workflow": [
         "tests/unit/reels/test_reel_build_whole_lease.py",
         "tests/unit/resolve/test_reel_promotion_job.py",
@@ -110,6 +113,12 @@ SCENARIO_HELPERS = {
         "tests/scenarios/golden.py"],
     "tests/scenarios/golden_edit.py": SCENARIO_DEPENDENCIES[
         "tests/scenarios/golden_edit.py"],
+}
+# The source surveys scan repository Python files dynamically, so the
+# static import graph cannot express their dependency one module at a
+# time. Any library source change selects the survey explicitly.
+SOURCE_SCAN_PREFIX_SETS = {
+    "library/": "contract_audit_surveys",
 }
 
 # These nested tests are intentionally outside the routine guard modules.
@@ -704,6 +713,7 @@ def _select_with_distances(changed, use_coverage=True):
                     else os.path.join(REPO_ROOT, path))
         stem = os.path.splitext(os.path.basename(abs_path))[0]
         rel_path = os.path.relpath(os.path.abspath(abs_path), REPO_ROOT)
+        rel_posix = rel_path.replace(os.sep, "/")
 
         # Recipe helpers and answer data are read by the scenario at runtime,
         # not imported as Python modules. Keep those media checks selected.
@@ -725,6 +735,9 @@ def _select_with_distances(changed, use_coverage=True):
             keep(os.path.relpath(absolute, REPO_ROOT), 0)
 
         resolvers = set()
+        for prefix, resolver in SOURCE_SCAN_PREFIX_SETS.items():
+            if rel_posix.startswith(prefix):
+                resolvers.add(resolver)
         if stem in CONTRACT_SETS:
             resolvers.add(stem)
 
@@ -770,7 +783,12 @@ def _select_with_distances(changed, use_coverage=True):
 
         for resolver in resolvers:
             for entry in CONTRACT_SETS[resolver]:
-                keep(entry, 2)
+                # Never select a path the checkout being selected
+                # against does not have (test_selection_roots_at_ren_select_root):
+                # fixture trees have no survey file, so a library/
+                # prefix match there must not select this repo's surveys.
+                if os.path.isfile(os.path.join(REPO_ROOT, entry)):
+                    keep(entry, 2)
 
     # Pytest treats conftest.py as configuration, not a test module. It can
     # enter the import graph as a carrier, but passing it as a path causes

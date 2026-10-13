@@ -57,6 +57,7 @@ from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
 
+from library.tools.ast_cache import parse_file, parse_source
 from library.tools import dag_adapter
 from library.tools.operations import PatchSemantics
 from library.tools.scope import PROJECT
@@ -385,7 +386,7 @@ def get(capability_id: str) -> CapabilitySpec:
 
 
 def _top_level_defs(path: Path) -> frozenset:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parse_file(path)
     return frozenset(n.name for n in tree.body
                      if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
 
@@ -428,7 +429,7 @@ def heavy_lock_sites() -> frozenset:
         if "heavy_work_lock" not in text or path.name == "heavy_work_lock.py":
             continue
         module = ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
-        for fn in ast.parse(text).body:
+        for fn in parse_source(text, path=path).body:
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             locked = any(_names_the_lock(d) for d in fn.decorator_list) or any(
@@ -450,7 +451,7 @@ def heavy_lock_profiles() -> dict:
         if "heavy_work_lock" not in text or path.name == "heavy_work_lock.py":
             continue
         module = ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
-        for fn in ast.parse(text).body:
+        for fn in parse_source(text, path=path).body:
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             calls = [node for node in ast.walk(fn)

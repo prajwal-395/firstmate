@@ -523,6 +523,14 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qa/timeline_sync_qa.py',
         'library/tools/treatment_verify.py',
         'library/tools/fusion/transition_frames.py',
+        # Imported by the declared input/output contract surveys: the
+        # session-local AST parse cache this audit split reads through,
+        # so a fix here changes what the declared surveys parse.
+        'library/tools/ast_cache.py',
+        # Imported by the declared temporal-index step: the FI-14
+        # camera/subject evidence reader, so a fix here changes what
+        # the cached rows resolve through it.
+        'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
         # enumerate_footage produces raw_footage_files, the step's output.
@@ -974,6 +982,14 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qa/timeline_sync_qa.py',
         'library/tools/treatment_verify.py',
         'library/tools/fusion/transition_frames.py',
+        # Imported by the declared input/output contract surveys: the
+        # session-local AST parse cache this audit split reads through,
+        # so a fix here changes what the declared surveys parse.
+        'library/tools/ast_cache.py',
+        # Imported by the declared temporal-index step: the FI-14
+        # camera/subject evidence reader, so a fix here changes what
+        # the cached rows resolve through it.
+        'library/tools/motion_evidence.py',
     ),
     "step_1_02_catalog_footage": (
         # The exact-file probe cache changes the measurement reused for
@@ -1433,6 +1449,14 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qa/timeline_sync_qa.py',
         'library/tools/treatment_verify.py',
         'library/tools/fusion/transition_frames.py',
+        # Imported by the declared input/output contract surveys: the
+        # session-local AST parse cache this audit split reads through,
+        # so a fix here changes what the declared surveys parse.
+        'library/tools/ast_cache.py',
+        # Imported by the declared temporal-index step: the FI-14
+        # camera/subject evidence reader, so a fix here changes what
+        # the cached catalog rows resolve through it.
+        'library/tools/motion_evidence.py',
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
@@ -1901,6 +1925,14 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qa/timeline_sync_qa.py',
         'library/tools/treatment_verify.py',
         'library/tools/fusion/transition_frames.py',
+        # Imported by the declared input/output contract surveys: the
+        # session-local AST parse cache this audit split reads through,
+        # so a fix here changes what the declared surveys parse.
+        'library/tools/ast_cache.py',
+        # Imported by the declared temporal-index step: the FI-14
+        # camera/subject evidence reader, so a fix here changes what
+        # the cached rows resolve through it.
+        'library/tools/motion_evidence.py',
     ),
     "step_1_04_temporal_index": (
         # FI-14 camera/subject and novelty evidence derived from M2.
@@ -2418,6 +2450,10 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qa/timeline_sync_qa.py',
         'library/tools/treatment_verify.py',
         'library/tools/fusion/transition_frames.py',
+        # Imported by the declared input/output contract surveys: the
+        # session-local AST parse cache they read through, so a fix
+        # here changes what the declared surveys parse.
+        'library/tools/ast_cache.py',
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.

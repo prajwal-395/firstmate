@@ -49,6 +49,14 @@ def test_workflow_qualification_selects_the_october_failure_classes():
         assert contract in selected, contract
 
 
+def test_library_source_changes_select_the_contract_source_surveys():
+    survey = "tests/contracts/test_contract_audit_surveys.py"
+    for changed in ("library/tools/input_contract.py",
+                    "library/tools/output_contract.py",
+                    "library/steps/step_5_04_compile_manifest/step.py"):
+        assert survey in select([changed]), changed
+
+
 def test_dependent_selection_never_passes_conftest_as_a_test():
     selected = select(["library/tools/qualification_workflow.py"])
     assert not any(path.endswith("/conftest.py") for path in selected)

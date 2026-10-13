@@ -613,11 +613,14 @@ def test_capped_selection_is_recorded_on_the_status(
 
 
 def test_success_status_names_the_tier2_only_files(tmp_path, faked_github):
-    # The five slow files Tier-1 skips on purpose are named on the
+    # The four slow files Tier-1 skips on purpose are named on the
     # status line, by slug (full paths cannot fit the 140-char
     # description); the report line's marker carries the full paths.
+    # (The contract audit was fifth until its fast graph half moved
+    # into the universal set; only its source surveys are selected
+    # for library changes now.)
     assert daemon.tier2_only_slugs() == [
-        "contract-audit", "gate-smoke", "resolve-watchdog",
+        "gate-smoke", "resolve-watchdog",
         "golden-monologue", "golden-conversation"]
     marker = daemon.tier2_only_marker()
     for path in config.TIER1_TIER2_ONLY:
@@ -627,8 +630,8 @@ def test_success_status_names_the_tier2_only_files(tmp_path, faked_github):
                                  _outcome(pr), seen_at=1.0, slot=0)
     assert record["ok"] is True
     description = faked_github.posts[-1][2]
-    assert "contract-audit" in description
     assert "gate-smoke" in description
+    assert "resolve-watchdog" in description
     assert len(description) <= 140
 
 

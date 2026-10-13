@@ -91,6 +91,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
+from library.tools.ast_cache import parse_file
 from library.tools import run_scope
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
@@ -519,7 +520,7 @@ def read_step_code(step_dir: Path) -> Tuple[Dict[str, str], Set[str]]:
         if path.name.startswith("test_"):
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except (OSError, SyntaxError):
             continue
         file_refusals, file_reads = _refusals_and_reads(tree, path.name)
@@ -533,7 +534,7 @@ def read_step_code(step_dir: Path) -> Tuple[Dict[str, str], Set[str]]:
         if path is None:
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except (OSError, SyntaxError):
             continue
         _, module_reads = _refusals_and_reads(tree, path.name)
@@ -694,8 +695,7 @@ def trace_step_values(step_dir: Path) -> Tuple[Set[str], Dict[str, str]]:
         if path.name.startswith("test_"):
             continue
         try:
-            trees.append((path.name, ast.parse(
-                path.read_text(encoding="utf-8"))))
+            trees.append((path.name, parse_file(path)))
         except (OSError, SyntaxError):
             continue
 

@@ -382,12 +382,14 @@ def test_always_run_stays_mandatory_outside_the_budget(
 
 
 def test_tier2_only_files_never_run_in_tier1(monkeypatch, tmp_path):
-    # The 301s contract audit alone vetoes any small budget, so it and
-    # the other slow files are Tier-2-only: excluded even when the
+    # The slow files are Tier-2-only: excluded even when the
     # import graph selects them, and their cost never spends the
     # budget. Tier-2 runs them on the exact stacked tree.
+    # (The contract audit used to be fifth here at 301s serial;
+    # its fast graph half now runs in the universal set and only
+    # its source surveys are selected for library changes.)
     slow = list(config.TIER1_TIER2_ONLY)
-    assert len(slow) >= 5
+    assert len(slow) >= 4
     distances = {path: 1 for path in slow}
     distances["tests/unit/x/test_fast.py"] = 1
     durations = {path: 200.0 for path in slow}
@@ -409,9 +411,9 @@ def test_tier2_only_files_never_run_in_tier1(monkeypatch, tmp_path):
 
 
 def test_tier2_only_beats_the_direct_floor(monkeypatch, tmp_path):
-    # Even a change to the audit file itself does not run it in
-    # Tier-1: the direct floor stops at the Tier-2 boundary.
-    audit = "tests/contracts/test_contract_audit.py"
+    # The gate smoke suite stays on the full-suite lane even when it is
+    # a direct test of its own change.
+    audit = "tests/tooling/test_gate_smoke.py"
     assert audit in config.TIER1_TIER2_ONLY
     monkeypatch.setattr(selection, "dependent_distances",
                         lambda paths, repo: {audit: 0})

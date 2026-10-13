@@ -61,7 +61,7 @@ optional edges from `requirements.OPTIONALS` (captain, 2026-09-23).  A
 composer working backwards from requirements alone can never select an
 empty-effect operation, and declaring an effect a capability does not
 have would be the defect this module removes.  The graph-wide proof is
-`tests/contracts/test_contract_audit.py::test_the_graph_is_sound`.
+`tests/contracts/test_contract_audit_graph.py::test_the_graph_is_sound`.
 
 Executing
 ---------

@@ -13,13 +13,15 @@ evaluation of the graph, one `problems() == []` assertion.
 
 Two speeds, and the split is deliberate
 ---------------------------------------
-`problems()` is FAST (registry + requirements + DAG + manifests, no
-source parsing, no subprocesses): the shape of the contract.  A broken
-shape refuses every run, so this is the continuously-run half.
+`problems()` is FAST (registries, requirements, DAG, manifests and the
+targeted source checks needed to validate executor functions and lock
+sites; no repository-wide input/output survey): the shape of the
+contract. A broken shape refuses every run, so this is the
+continuously-run half.
 
 `survey_problems()` is SLOW (the `output_contract` reader survey and
-the `input_contract` declaration survey, each re-parsing `library/`
-from scratch): the substance of the contract - every produced value
+the `input_contract` declaration survey, sharing cached parses of
+`library/`): the substance of the contract - every produced value
 really has a reader, every declared input really refuses.  Same
 assertion shape, run beside the fast one rather than inside it, so a
 slow survey can never make the shape check late.

@@ -1,10 +1,10 @@
-"""The contract auditor holds, and each of its sections can FAIL.
+"""The fast graph half of the contract auditor holds, and can FAIL.
 
 `library/tools/contract_audit.py` evaluates the capability graph once -
 producers, consumers, requirements, scopes, outputs, effects and machine
-needs - while the slow survey checks readers and declarations.  These
-cases plant broken inputs into that public audit surface so a green tree
-check cannot stand in for proof that the guard refuses.
+needs. The source surveys live in `test_contract_audit_surveys.py`.
+These cases plant broken inputs into the public graph audit surface so
+a green tree check cannot stand in for proof that the guard refuses.
 """
 
 from dataclasses import replace
@@ -23,10 +23,6 @@ from library.tools import (
 
 def test_the_graph_is_sound():
     assert contract_audit.problems() == []
-
-
-def test_the_surveys_agree():
-    assert contract_audit.survey_problems() == []
 
 
 def _ghost_req(**over):

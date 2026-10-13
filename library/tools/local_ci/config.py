@@ -33,16 +33,17 @@ READY_LABEL = "ren-ci-ready"
 # Chosen value, from the measured Tier-1 latency distribution
 # (2026-10-10, 231 checks in `~/.ren-ci/checks.json`): elapsed median
 # 364s, mean 541s, passing median 249s. The old 30s budget could not
-# hold: the mandatory set alone cost 360s serial (contract_audit
-# 301s), so every run was "over budget" before selecting anything.
-# With the audit and the other slow files moved to Tier-2-only below,
-# the mandatory core costs ~59s serial (~30s wall at -n 2), and the
+# hold: the old audit file measured 301s serial because it repeated the
+# graph checks with the source surveys. The fast graph check now runs in
+# the universal set; source surveys are selected for library changes.
+# The other slow files remain Tier-2-only below. The mandatory core costs
+# ~59s serial (~30s wall at -n 2), and the
 # corpus median selection (48 files, mostly sub-second) costs
 # seconds. 300s of serial dependent test time (~2-3 min wall at -n 2)
 # keeps ordinary PRs fully covered - the budget binds only hub-PR
 # breadth, which Tier-2 already judges before any merge. Cheapest-
 # first fill at 300s keeps 398 of 469 measured files reachable, so
-# the exclusion list below stays at the five files that dominate it.
+# the exclusion list below stays at the four files that dominate it.
 TIER1_TIME_BUDGET_SECONDS = 300
 
 # A dependent file with no measured duration still costs the budget
@@ -121,6 +122,7 @@ RESOLVE_DRIVING = (
 # resolve_guard_wiring 15.7s - ~21s serial together (~10s wall at
 # -n 2), so they stay mandatory OUTSIDE the dependent time budget.
 ALWAYS_RUN_UNIVERSAL = (
+    "tests/contracts/test_contract_audit_graph.py",
     "tests/tooling/test_parallel_lane_routing.py",
     "tests/unit/resolve/test_composer.py",
     "tests/unit/resolve/test_ren_core_parity.py",
@@ -169,17 +171,16 @@ STRUCTURAL_FANOUT_SUBSYSTEMS = 4
 
 # Tier-1 never runs these files; the Tier-2 batched full suite always
 # does. Each dominates the time budget alone (measured serial seconds
-# in `~/.cache/ren/pytest-file-durations.json`, 2026-10-10: audit
-# 301s, gate_smoke 232s, watchdog 127s, monologue 87s, conversation
-# 75s - 822s together, 39% of the whole suite), so keeping any of
+# in `~/.cache/ren/pytest-file-durations.json`, 2026-10-10: gate_smoke
+# 232s, watchdog 127s, monologue 87s, conversation 75s - 521s together),
+# so keeping any of
 # them mandatory vetoes every budget under ~5 min, and keeping them
 # selectable lets one hub-PR fan-out bill them per push. Tier-1 names
 # them on its status line (`daemon.run_tier1`'s tier2-only marker) so
 # a partial run never reads as full coverage, and the runner passes
-# them as `--ignore` so the `tests/contracts` directory entry above
-# does not re-admit the audit through directory expansion.
+# them as `--ignore` so a mandatory directory entry does not re-admit
+# one through directory expansion.
 TIER1_TIER2_ONLY = (
-    "tests/contracts/test_contract_audit.py",
     "tests/tooling/test_gate_smoke.py",
     "tests/unit/resolve/test_resolve_watchdog.py",
     "tests/scenarios/test_golden_monologue.py",
