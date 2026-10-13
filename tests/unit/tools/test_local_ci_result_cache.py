@@ -258,6 +258,22 @@ def test_all_skipped_never_reuses(checkout, state_dir, tmp_path):
     assert _lookup(state_dir, checkout, rel) is None
 
 
+def test_partial_skip_drops_prior_pass_and_is_not_cached(
+        checkout, state_dir, tmp_path):
+    # A partial pass does not capture why the remaining test skipped.
+    # Drop any older verdict too, so the same key cannot mask a changed
+    # skip condition on the next integration plan.
+    rel = "tests/unit/foo/test_widget.py"
+    _store_hit(state_dir, checkout, rel)
+    junit = tmp_path / "partial.xml"
+    _junit(junit, [(rel, "passed"), (rel, "skipped")])
+    summary = result_cache.record_from_junit(
+        state_dir, str(checkout), str(junit), [rel], **PINNED)
+    assert summary["stored"] == []
+    assert summary["dropped"] == [rel]
+    assert _lookup(state_dir, checkout, rel) is None
+
+
 def test_missing_junit_stores_nothing(checkout, state_dir):
     rel = "tests/unit/foo/test_widget.py"
     summary = result_cache.record_from_junit(
@@ -507,7 +523,8 @@ def test_tier2_always_executes_despite_the_cache(monkeypatch, tmp_path,
     assert result["ok"] is True
     assert calls and calls[0][1] == "scripts/full_suite_gate.sh"
     assert "--junitxml" not in calls[0]
-    text = open(log_path, encoding="utf-8").read()
+    with open(log_path, encoding="utf-8") as handle:
+        text = handle.read()
     assert "reused 1/2" in text and "execut" in text
     hit = _lookup(state_dir, checkout, rel)
     assert hit is not None and hit["source"] == "batch"
