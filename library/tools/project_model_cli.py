@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import filmcraft_preconform as fcp
+from library.tools.native_overlay_media import prepare_projection
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 FILMCRAFT_REVISION = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1"
@@ -1059,6 +1060,12 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     create = _describe(native, {"kind": "create_project",
                                 "path": project_str, "name": project.stem})
     media_dir = str(media_root or project_root)
+    projection, overlay_preparation = prepare_projection(
+        projection, media_dir,
+        out.parent / f".{out.stem}.native_overlay_cache")
+    if overlay_preparation:
+        print("native overlay preparation: " + json.dumps(
+            overlay_preparation, sort_keys=True), file=sys.stderr)
     try:
         resolved = native.filmcraft_verify_media(projection, media_dir)
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
@@ -1240,6 +1247,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         "losses": projection["losses"] + [{"code": "engine_note", "detail": str(note)[:300]}
                                            for note in engine_losses],
         "preconform": preconform_report,
+        "overlay_preparation": overlay_preparation,
         "executed": True,
     }
     if export_path is not None:

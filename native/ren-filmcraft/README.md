@@ -109,9 +109,13 @@ keyframed
 transforms keep their timed writes. `verify_media`
 gates overlay and card codecs through ffprobe before anything runs:
 ProRes with alpha composites (measured), while QuickTime Animation and
-PNG decode to nothing and refuse as `overlay_codec_not_supported` -
-transcode those to ProRes 4444 first (H264 is accepted for opaque end
-cards). Overlays needing V4/V5 plan one `sequence.addTracks` operation
+PNG decode to nothing. At execute time, qtrle compositing overlays are
+transcoded to ProRes 4444 by `library/tools/native_overlay_media.py`,
+cached beside the requested `--out` path by source-content hash, then
+passed through the same codec gate. The execution receipt records cache
+hit, per-overlay transcode time and preparation time. PNG and unmeasured
+formats still refuse as `overlay_codec_not_supported` (H264 is accepted
+for opaque end cards). Overlays needing V4/V5 plan one `sequence.addTracks` operation
 (`add_tracks_operation`, driven once after create) because fresh projects
 carry three video tracks. The Project Model CLI's optional
 `--sequence-size WIDTHxHEIGHT` sets and reads back the sequence frame
