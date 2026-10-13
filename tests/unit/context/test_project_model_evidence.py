@@ -61,7 +61,9 @@ def _lane_docs(digest: str, faces: list[dict], voices: list[dict],
             "content_digest": digest, "status": "measured",
             "face_match_threshold": 0.25,
             "faces": faces, "voices": voices,
-            "speech_face_links": links, "instrument": {},
+            "speech_face_links": links,
+            "instrument": {"face": "fixture-face", "voice": "fixture-voice",
+                           "frame_pixels": [384, 216]},
         },
         "scenes.json": {
             "content_digest": digest, "status": "measured",
@@ -150,6 +152,14 @@ def _write_m3e(memory: Path, digest: str, method: str) -> None:
         "instrument": {"method": method}})
 
 
+def _write_m3c(memory: Path, digest: str, method: str) -> None:
+    _write(memory / digest / "expressions.json", {
+        "content_digest": digest, "status": "measured",
+        "frames": [{"t": 1.0, "faces": []},
+                    {"t": 2.0, "faces": [{"expression": "happy"}]}],
+        "instrument": {"method": method}})
+
+
 @pytest.fixture()
 def fixture_project(tmp_path):
     project = tmp_path / "proj"
@@ -226,6 +236,18 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
                 if o["modality"] == "speech_word")
     assert word["payload"]["evidence_contract"]["measurement_type"] == (
         "speech.word")
+    source_metadata = [o for o in model["observations"]
+                       if o["modality"] == "source_metadata"]
+    assert len(source_metadata) == 2
+    assert source_metadata[0]["payload"]["evidence_contract"]["freshness"] == (
+        "unknown")
+    assert all(o["payload"]["evidence_contract"]["measurement_type"] ==
+               "media.source_metadata" for o in source_metadata)
+    assert all(o["payload"]["evidence_contract"]["coverage"] == "complete"
+               for o in source_metadata)
+    assert all(o["payload"]["evidence_contract"]["contract_version"] == 1
+               for o in model["observations"]
+               if o["modality"] in ("face", "voice_turn"))
     assert report["counts"]["identity_links"] > 0
     assert report["counts"]["masks"] >= 3
     assert report["counts"]["tracks"] == 3
@@ -374,7 +396,7 @@ def test_m3e_migrates_native_coverage_and_refuses_stale_method(
     assert coverage["lanes"][D1]["freshness"]["m3"] == "fresh"
     assert coverage["lanes"][D1]["native_migrated_observations"]["m3"] == 2
     assert sum(coverage["lanes"][D1][
-        "native_migrated_observations"].values()) == 5
+        "native_migrated_observations"].values()) == 6
 
     _write_m3e(memory, D1, "retired-attention-method")
     stale_model, stale_report = _migrate(fixture)
@@ -385,6 +407,75 @@ def test_m3e_migrates_native_coverage_and_refuses_stale_method(
         str(fixture["project"]), stale_model, stale_report,
         memory_root=str(memory))
     assert stale_coverage["lanes"][D1]["freshness"]["m3e"] == "stale"
+
+
+def test_m0_m3b_m3c_m3d_migrate_freshness_and_absence(fixture_project):
+    from library.tools.attention_saliency import M3E_METHOD
+    from library.tools.expression_classifier import M3C_METHOD
+    from library.tools.person_measurements import M3_METHOD
+    from library.tools.person_regions import M3D_METHOD, write_sidecar
+
+    fixture = fixture_project
+    memory = fixture["memory"]
+    _write_m3e(memory, D1, M3E_METHOD)
+    # Identity is rewritten after M2 so the fixture models a current M3b.
+    identity_path = memory / D1 / "identity.json"
+    _write(identity_path, json.loads(identity_path.read_text(encoding="utf-8")))
+    _write(memory / D1 / "persons.json", {
+        "content_digest": D1,
+        "instrument": {"method": M3_METHOD},
+        "frames": [{"t": 1.0, "faces": [], "hands": []},
+                    {"t": 2.0, "faces": [{"box": [0.1, 0.1, 0.3, 0.4]}],
+                     "hands": []}]})
+    _write_m3c(memory, D1, M3C_METHOD)
+    sidecar = write_sidecar(memory / D1, [], [2, 2])
+    _write(memory / D1 / "regions.json", {
+        "content_digest": D1, "grid": [2, 2], "sidecar": sidecar,
+        "samples": [{"t": 1.0, "instances": []},
+                    {"t": 2.0, "instances": None}],
+        "tracks": [], "instrument": {"method": M3D_METHOD}})
+
+    model, report = _migrate(fixture)
+    by_modality = {}
+    for obs in model["observations"]:
+        by_modality.setdefault(obs["modality"], []).append(obs)
+    assert by_modality["source_metadata"]
+    assert by_modality["face"][0]["payload"]["evidence_contract"][
+        "measurement_type"] == "person.face_box"
+    assert by_modality["voice_turn"][0]["payload"]["evidence_contract"][
+        "measurement_type"] == "person.voice_turn"
+    expression = by_modality["expression_frame"]
+    assert expression[0]["payload"]["evidence_contract"]["value"] == []
+    regions = by_modality["region_frame"]
+    assert regions[0]["payload"]["evidence_contract"]["value"] == []
+    assert regions[1]["payload"]["evidence_contract"]["coverage"] == (
+        "unavailable")
+    coverage = evidence.evidence_coverage(
+        str(fixture["project"]), model, report, memory_root=str(memory))
+    assert coverage["lanes"][D1]["freshness"]["m3b"] == "fresh"
+    assert coverage["lanes"][D1]["freshness"]["m3c"] == "fresh"
+    assert coverage["lanes"][D1]["freshness"]["m3d"] == "fresh"
+
+    _write_m3c(memory, D1, "retired-expression-method")
+    stale_m3c, stale_report = _migrate(fixture)
+    assert not [o for o in stale_m3c["observations"]
+                if o["modality"] == "expression_frame"]
+    stale_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_m3c, stale_report,
+        memory_root=str(memory))
+    assert stale_coverage["lanes"][D1]["freshness"]["m3c"] == "stale"
+
+    _write(memory / D1 / "regions.json", {
+        "content_digest": D1, "grid": [2, 2], "sidecar": sidecar,
+        "samples": [{"t": 1.0, "instances": []}], "tracks": [],
+        "instrument": {"method": "retired-region-method"}})
+    stale_m3d, stale_report = _migrate(fixture)
+    assert not [o for o in stale_m3d["observations"]
+                if o["modality"] == "region_frame"]
+    stale_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_m3d, stale_report,
+        memory_root=str(memory))
+    assert stale_coverage["lanes"][D1]["freshness"]["m3d"] == "stale"
 
 
 def _model_with_editorial(model: dict, person_id: str) -> dict:

@@ -142,6 +142,12 @@ class TemporalAlignmentError(EvidenceContractError):
 # versioned evaluation policy (FI-22), never a registry constant.
 
 _REGISTRY: dict[str, dict[str, Any]] = {
+    "media.source_metadata": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "M0 source streams, duration and recorded program-track measurements.",
+    },
     "image.sharpness.laplacian_variance": {
         "unit": "variance",
         "kind": EvidenceType.MEASUREMENT,
@@ -200,6 +206,18 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "A face and hand sample from one M2 frame. "
         "A null face value is a measured absence on that frame.",
+    },
+    "image.expression_frame": {
+        "unit": "labels",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Expression labels classified on one M2 frame.",
+    },
+    "person.region_frame": {
+        "unit": "regions",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Person regions measured on one M2 frame; an empty list is a measured absence.",
     },
     "image.salient_boxes": {
         "unit": "normalized",
@@ -676,6 +694,9 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "face_frame": "person.face_frame",
     "voice_turn": "person.voice_turn",
     "saliency": "image.salient_boxes",
+    "source_metadata": "media.source_metadata",
+    "expression_frame": "image.expression_frame",
+    "region_frame": "person.region_frame",
 }
 
 

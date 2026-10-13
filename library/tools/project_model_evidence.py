@@ -73,6 +73,7 @@ through masks and A-roll to a rendered range with provenance.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 from dataclasses import replace
@@ -319,6 +320,17 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
         "frame_rate": None,
     })
     m0 = source_memory.read_m0(digest, root)
+    m0_freshness = "unknown"
+    if m0 is not None and m0.get("content_digest") != digest:
+        builder.notes.append(f"{digest[:12]}: M0 digest mismatch; refused")
+        m0 = None
+        m0_freshness = "stale"
+    elif m0 is not None and asset_uri and Path(asset_uri).is_file():
+        m0_freshness = ("fresh" if source_memory.is_fresh(m0, asset_uri)
+                        else "stale")
+        if m0_freshness == "stale":
+            builder.notes.append(f"{digest[:12]}: M0 stale against source; refused")
+            m0 = None
     if m0 is not None:
         video_streams = m0.get("video_streams") or []
         kind = "video" if video_streams else "audio"
@@ -371,15 +383,122 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
         "provenance": [builder.provenance(
             digest, "m0", "library.tools.source_memory")],
     })
+    _migrate_source_metadata(builder, digest, asset_id, clock_id, m0,
+                             m0_freshness)
 
     _migrate_transcript(builder, digest, asset_id, clock_id, root)
     _migrate_identity(builder, digest, asset_id, clock_id, root)
+    _migrate_expressions(builder, digest, asset_id, clock_id, root)
     _migrate_scenes(builder, digest, asset_id, clock_id, root)
     _migrate_sound(builder, digest, asset_id, clock_id, root)
     _migrate_events(builder, digest, asset_id, clock_id, root)
     _migrate_relationships(builder, digest, asset_id, clock_id, root)
     _migrate_multicam(builder, digest, asset_id, clock_id, duration, root)
     _migrate_saliency(builder, digest, asset_id, clock_id, root)
+
+
+def _migrate_source_metadata(builder: _Builder, digest: str, asset_id: str,
+                             clock_id: str, m0: dict | None,
+                             freshness: str) -> None:
+    if m0 is None:
+        builder.notes.append(f"{digest[:12]}: M0 absent; no source metadata")
+        return
+    duration = m0.get("duration_seconds")
+    ticks = sec_to_ticks(0.0, duration) if duration is not None else None
+    if ticks is None:
+        builder.notes.append(
+            f"{digest[:12]}: M0 duration unavailable; source metadata has no interval")
+        return
+    streams = (m0.get("video_streams") or []) + (m0.get("audio_streams") or [])
+    native = evidence_contract.new_measurement(
+        asset_id=asset_id, clock_id=clock_id,
+        start_tick=ticks[0], end_tick=ticks[1],
+        # Keep the native value independent from the legacy payload: the
+        # evidence contract is embedded into that payload just below.
+        measurement_type="media.source_metadata", value=copy.deepcopy(m0),
+        method="library.tools.source_primitives",
+        provenance_id=_prov_id(digest, "m0"),
+        coverage=evidence_contract.CoverageKind.COMPLETE,
+        coverage_samples=len(streams), coverage_sample_rate_hz=0.0)
+    native = replace(native, freshness=freshness)
+    builder.observation(
+        digest, "m0", asset_id, clock_id, 0.0, duration,
+        "source_metadata", m0, None,
+        "library.tools.source_primitives", evidence=native)
+
+
+def _migrate_expressions(builder: _Builder, digest: str, asset_id: str,
+                         clock_id: str, root: Path | None) -> None:
+    from library.tools import expression_classifier, footage_analysis
+
+    doc = expression_classifier.read_m3c(digest, root)
+    if doc is None:
+        builder.notes.append(f"{digest[:12]}: M3c absent or unreadable")
+        return
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "expressions")
+    if not footage_analysis.slot_is_fresh(lane, digest, root):
+        builder.notes.append(
+            f"{digest[:12]}: M3c stale; method or M2/M3 input changed, refused")
+        return
+    from library.tools.person_measurements import read_m3
+    m3 = read_m3(digest, root)
+    m3_frames = {round(float(frame["t"]), 3): frame
+                 for frame in (m3 or {}).get("frames") or []
+                 if isinstance(frame, dict) and "t" in frame}
+    method = doc["instrument"]["method"]
+    for index, frame in enumerate(doc["frames"]):
+        timestamp = float(frame["t"])
+        if not math.isfinite(timestamp) or timestamp < 0:
+            continue
+        sample_start = math.floor(timestamp * TICKS_PER_SECOND)
+        bounds = (sample_start, sample_start + 1)
+        faces = frame["faces"]
+        source_frame = m3_frames.get(round(timestamp, 3))
+        source_faces = (source_frame["faces"] if source_frame else None)
+        if faces:
+            coverage = (evidence_contract.CoverageKind.COMPLETE
+                        if source_faces is not None
+                        and len(faces) >= len(source_faces)
+                        else evidence_contract.CoverageKind.SAMPLED)
+            record = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                measurement_type="image.expression_frame", value=faces,
+                method=method, provenance_id=_prov_id(digest, "m3c"),
+                coverage=coverage, coverage_samples=len(faces),
+                coverage_sample_rate_hz=0.0)
+        elif source_faces == []:
+            record = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                measurement_type="image.expression_frame", value=[],
+                method=method, provenance_id=_prov_id(digest, "m3c"),
+                coverage=evidence_contract.CoverageKind.COMPLETE,
+                coverage_samples=0, coverage_sample_rate_hz=0.0)
+        else:
+            record = evidence_contract.EvidenceRecord(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                target_entity_id=None, target_region=None,
+                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                measurement_type="image.expression_frame", value=None,
+                unit="labels", method=method, sample_resolution=None,
+                coverage=evidence_contract.CoverageKind.UNAVAILABLE,
+                coverage_samples=0, coverage_sample_rate_hz=0.0,
+                provenance_id=_prov_id(digest, "m3c"),
+                processing_status=evidence_contract.ProcessingStatus.INCONCLUSIVE)
+        record = replace(
+            record, freshness="fresh",
+            references=({"kind": "source_frame",
+                         "stream_id": _stream_id(digest),
+                         "frame_index": index},))
+        builder.observation(
+            digest, "m3c", asset_id, clock_id,
+            bounds[0] / TICKS_PER_SECOND,
+            bounds[1] / TICKS_PER_SECOND, "expression_frame",
+            {"faces": faces, "sample_index": index}, None,
+            "library.tools.expression_classifier", evidence=record)
 
 
 def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
@@ -550,11 +669,22 @@ def _identity_docs(digest: str, root: Path | None) -> tuple[dict | None, dict | 
 
 def _migrate_identity(builder: _Builder, digest: str, asset_id: str,
                       clock_id: str, root: Path | None) -> None:
+    from library.tools import footage_analysis
+
     identity, speakers = _identity_docs(digest, root)
     if identity is None and speakers is None:
         builder.notes.append(f"{digest[:12]}: M3b/M1b absent; no "
                              f"face or voice observations")
         return
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "identity")
+    identity_fresh = (identity is not None
+                      and footage_analysis.slot_is_fresh(lane, digest, root))
+    if identity is not None and not identity_fresh:
+        builder.notes.append(f"{digest[:12]}: M3b stale against M2 input; "
+                             "native evidence refused")
+    instrument = ((identity or {}).get("instrument")
+                  or (speakers or {}).get("instrument") or {})
     voices: list[dict] = []
     voice_lane = "m3b"
     if identity is not None:
@@ -581,10 +711,29 @@ def _migrate_identity(builder: _Builder, digest: str, asset_id: str,
         for turn in voice.get("spans") or []:
             start, end = (turn if isinstance(turn, (list, tuple)) and len(turn) == 2
                           else (None, None))
+            method = instrument.get("voice")
+            ticks = sec_to_ticks(start, end)
+            if ticks is None:
+                builder.observation(
+                    digest, voice_lane, asset_id, clock_id, start, end,
+                    "voice_turn", {"voice_track": track_id}, None,
+                    "library.tools.person_entity")
+                continue
+            native = (evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=ticks[0], end_tick=ticks[1],
+                measurement_type="person.voice_turn",
+                value={"voice_track": track_id}, method=str(method),
+                provenance_id=_prov_id(digest, voice_lane),
+                coverage=evidence_contract.CoverageKind.SAMPLED,
+                coverage_samples=1, coverage_sample_rate_hz=0.0)
+                       if identity_fresh and method else None)
+            if native is not None:
+                native = replace(native, freshness="fresh")
             obs_id = builder.observation(
                 digest, voice_lane, asset_id, clock_id, start, end,
                 "voice_turn", {"voice_track": track_id},
-                None, "library.tools.person_entity")
+                None, "library.tools.person_entity", evidence=native)
             if obs_id is not None:
                 builder.link(speaker_id, obs_id, "diarization",
                              digest, voice_lane,
@@ -631,6 +780,21 @@ def _migrate_faces(builder: _Builder, digest: str, asset_id: str,
     identity = person_entity.read_identity(digest, root)
     if identity is None:
         return
+    from library.tools import footage_analysis
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "identity")
+    identity_fresh = footage_analysis.slot_is_fresh(lane, digest, root)
+    if not identity_fresh:
+        builder.notes.append(f"{digest[:12]}: M3b stale against M2 input; "
+                             "native face evidence refused")
+    instrument = identity["instrument"]
+    method = instrument.get("face")
+    resolution = instrument.get("frame_pixels")
+    native_face_ready = (bool(method) and isinstance(resolution, list)
+                         and len(resolution) == 2)
+    if identity_fresh and not native_face_ready:
+        builder.notes.append(f"{digest[:12]}: M3b face lacks method or "
+                             "resolution; native evidence refused")
     for face in identity.get("faces") or []:
         if not isinstance(face, dict):
             continue
@@ -642,11 +806,24 @@ def _migrate_faces(builder: _Builder, digest: str, asset_id: str,
         for span in face.get("spans") or []:
             if not isinstance(span, dict):
                 continue
+            try:
+                native = (evidence_contract.migrate_m3_face_span(
+                    span, track_id, asset_id, clock_id,
+                    _prov_id(digest, "m3b"), str(method), resolution)
+                          if identity_fresh and native_face_ready else None)
+                if native is not None:
+                    native = replace(native, freshness="fresh")
+            except (ValueError, TypeError) as exc:
+                builder.dropped.append({"digest": digest, "lane": "m3b",
+                                        "track": track_id,
+                                        "reason": f"invalid-face-evidence: {exc}"})
+                continue
             obs_id = builder.observation(
                 digest, "m3b", asset_id, clock_id,
                 span.get("start"), span.get("end"), "face",
                 {"face_track": track_id, "box": span.get("box")},
-                span.get("det_score"), "library.tools.person_entity")
+                span.get("det_score"), "library.tools.person_entity",
+                evidence=native)
             if obs_id is not None and person_id is not None:
                 builder.link(person_id, obs_id, "face_embedding_cluster",
                              digest, "m3b", "library.tools.person_entity",
@@ -1135,6 +1312,60 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
     if doc is None:
         builder.notes.append(f"{digest[:12]}: M3d absent; no region tracks")
         return
+    from library.tools import footage_analysis
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "regions")
+    instrument = doc.get("instrument") or {}
+    method = instrument.get("method")
+    if method is not None and method != lane.method:
+        builder.notes.append(f"{digest[:12]}: M3d stale method; refused")
+        return
+    fresh = (method == lane.method
+             and footage_analysis.slot_is_fresh(lane, digest, root))
+    if not fresh:
+        builder.notes.append(f"{digest[:12]}: M3d stale against method or "
+                             "inputs; native evidence refused")
+    for index, sample in enumerate(doc["samples"]):
+        timestamp = float(sample["t"])
+        if not math.isfinite(timestamp) or timestamp < 0:
+            continue
+        sample_start = math.floor(timestamp * TICKS_PER_SECOND)
+        bounds = (sample_start, sample_start + 1)
+        instances = sample["instances"]
+        native = None
+        if fresh and method and instances is None:
+            native = evidence_contract.EvidenceRecord(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                target_entity_id=None, target_region=None,
+                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                measurement_type="person.region_frame", value=None,
+                unit="regions", method=method, sample_resolution=None,
+                coverage=evidence_contract.CoverageKind.UNAVAILABLE,
+                coverage_samples=0, coverage_sample_rate_hz=0.0,
+                provenance_id=_prov_id(digest, "m3d"),
+                processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE)
+        elif fresh and method:
+            native = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                measurement_type="person.region_frame", value=instances,
+                method=method, provenance_id=_prov_id(digest, "m3d"),
+                coverage=evidence_contract.CoverageKind.COMPLETE,
+                coverage_samples=len(instances),
+                coverage_sample_rate_hz=0.0)
+        if native is not None:
+            native = replace(
+                native, freshness="fresh",
+                references=({"kind": "source_frame",
+                             "stream_id": _stream_id(digest),
+                             "frame_index": index},))
+        builder.observation(
+            digest, "m3d", asset_id, clock_id,
+            bounds[0] / TICKS_PER_SECOND,
+            bounds[1] / TICKS_PER_SECOND, "region_frame",
+            {"instances": instances, "sample_index": index}, None,
+            REGION_TRACK_PRODUCER, evidence=native)
     sidecar = doc.get("sidecar") or {}
     grid = doc.get("grid") or []
     try:
@@ -1595,6 +1826,32 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
                      footage_analysis.slot_is_fresh(saliency_lane, digest,
                                                     root)
                      else "stale" if saliency is not None else "unknown")
+        m0_doc = source_memory.read_m0(digest, root)
+        m0_path = ((m0_doc or {}).get("observed_paths") or [None])[0]
+        m0_freshness = ("fresh" if m0_path and Path(m0_path).is_file()
+                        and source_memory.is_fresh(m0_doc, m0_path)
+                        else "stale" if m0_path and Path(m0_path).is_file()
+                        else "unknown")
+        identity_lane = next(item for item in footage_analysis.LANES
+                             if item.name == "identity")
+        identity_freshness = (
+            "fresh" if _identity is not None and
+            footage_analysis.slot_is_fresh(identity_lane, digest, root)
+            else "stale" if _identity is not None else "unknown")
+        m3c_doc = expression_classifier.read_m3c(digest, root)
+        expression_lane = next(item for item in footage_analysis.LANES
+                               if item.name == "expressions")
+        m3c_freshness = (
+            "fresh" if m3c_doc is not None and
+            footage_analysis.slot_is_fresh(expression_lane, digest, root)
+            else "stale" if m3c_doc is not None else "unknown")
+        m3d_doc = person_regions.read_m3d(digest, root)
+        region_lane = next(item for item in footage_analysis.LANES
+                           if item.name == "regions")
+        m3d_freshness = (
+            "fresh" if m3d_doc is not None and
+            footage_analysis.slot_is_fresh(region_lane, digest, root)
+            else "stale" if m3d_doc is not None else "unknown")
         m7 = event_spans.read_m7(digest, root)
         presence["m7"] = m7 is not None
         try:
@@ -1609,7 +1866,9 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
                         else "stale" if m1_status == "stale" else "unknown")
         lanes[digest] = {
             "present": presence,
-            "freshness": {"m1": m1_freshness, "m3": m3_freshness,
+            "freshness": {"m0": m0_freshness, "m1": m1_freshness,
+                          "m3": m3_freshness, "m3b": identity_freshness,
+                          "m3c": m3c_freshness, "m3d": m3d_freshness,
                           "m3e": freshness},
             "processing_status": {"m1": m1_status},
             "migrated_observations": migrated,
