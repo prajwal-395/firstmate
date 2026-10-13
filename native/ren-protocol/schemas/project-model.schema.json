@@ -278,6 +278,16 @@
         "ticks_per_second"
       ]
     },
+    "CoverageKind": {
+      "description": "FI-03 provenance + coverage semantics (plan C4 + A2 item 7).\n`Unavailable` means unmeasured - the lane never looked. A measured\nabsence is `Complete` with zero samples instead.",
+      "type": "string",
+      "enum": [
+        "complete",
+        "sampled",
+        "inferred",
+        "unavailable"
+      ]
+    },
     "EditOperation": {
       "type": "object",
       "properties": {
@@ -429,6 +439,109 @@
         "speaker",
         "camera",
         "other"
+      ]
+    },
+    "EvidenceContract": {
+      "description": "FI-03: one versioned measurement record (plan A2) - asset, interval\non a named clock (the observation's own), target entity/region,\ntype/value/unit/method/sample-resolution, coverage and provenance.\nMirrors `library/tools/evidence_contract.py::to_rust_evidence`;\nthe Python key set is pinned by test against these serde names.",
+      "type": "object",
+      "properties": {
+        "basis_measurement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contract_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "coverage": {
+          "$ref": "#/$defs/CoverageKind"
+        },
+        "coverage_sample_rate_hz": {
+          "type": "number",
+          "format": "double"
+        },
+        "coverage_samples": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "evidence_type": {
+          "$ref": "#/$defs/EvidenceType"
+        },
+        "measurement_type": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "policy_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sample_resolution": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "target_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "evidence_type",
+        "measurement_type",
+        "value",
+        "unit",
+        "method",
+        "coverage",
+        "coverage_samples",
+        "coverage_sample_rate_hz",
+        "basis_measurement_ids",
+        "contract_version"
+      ]
+    },
+    "EvidenceType": {
+      "description": "FI-03: the four evidence types (plan A1). A raw instrument value\nlives under `Measurement` and must never inhabit `Evaluation`.",
+      "type": "string",
+      "enum": [
+        "measurement",
+        "inference",
+        "evaluation",
+        "creative_judgment"
       ]
     },
     "FrameMap": {
@@ -731,6 +844,17 @@
             "null"
           ],
           "format": "double"
+        },
+        "evidence": {
+          "description": "FI-03 evidence contract, additive: `None` for every observation\nmigrated before the contract existed, so older documents still\ndecode. `skip_serializing_if` keeps the round-trip byte-identical\nfor contract-less payloads.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceContract"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "id": {
           "type": "string"

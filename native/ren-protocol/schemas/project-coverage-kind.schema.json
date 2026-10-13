@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoverageKind",
+  "description": "FI-03 provenance + coverage semantics (plan C4 + A2 item 7).\n`Unavailable` means unmeasured - the lane never looked. A measured\nabsence is `Complete` with zero samples instead.",
+  "type": "string",
+  "enum": [
+    "complete",
+    "sampled",
+    "inferred",
+    "unavailable"
+  ]
+}
