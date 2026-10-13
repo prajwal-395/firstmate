@@ -36,9 +36,9 @@
 # undifferentiated: the switch-back horizon IS that limit's reset whatever
 # window it was. Each plan's monthly reset comes from the gitignored
 # config/opencode-go-resets (one `<main|secondary> <ISO-8601>` line per plan,
-# projected forward by calendar month) with the live quota-axi monthly window
-# filling the main plan's gap when that file is silent; a plan with neither
-# reads as unknown. All durable reset records use
+# projected forward by calendar month) with the matching fresh quota-axi
+# monthly window filling either plan's gap when that file is silent; a plan
+# with neither source reads as unknown. All durable reset records use
 # the same state/.opencode-cap-<rung> store and become eligible exactly at
 # reset. Each Go workspace keeps its own cap record and reset time, so
 # capping one never marks the other capped.
@@ -220,8 +220,8 @@ fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
 # verdict. A blocked sidecar bound to the Go tier on a secondary-workspace
 # lane preserves a go-second rung cap; the rung's own record also counts, so
 # a cap outlives its discovering lane. Returns 0 when the fourth rung is
-# proven capped, 1 otherwise. The second workspace has no quota-axi row, so
-# this reactive evidence is the whole of the fourth rung's exhaustion signal.
+# proven capped, 1 otherwise. Reactive evidence remains a fallback for the
+# fourth rung when predictive quota evidence cannot establish exhaustion.
 fm_opencode_ladder_go_second_reactive_capped() {  # <state-dir>
   local state_dir=$1 f id out status horizon model go_bare model_bare lane_ws
   [ -d "$state_dir" ] || return 1
@@ -333,25 +333,25 @@ fm_opencode_go_next_monthly() {  # <anchor-iso> [<now-epoch>]
 }
 
 # fm_opencode_ladder_go_monthly <workspace> [config-dir]: the plan's next
-# overall (monthly) reset epoch, or nothing when unknown. The configured
-# anchor wins for the second workspace always; for the main workspace the
-# live quota-axi monthly window wins when fresh and the configured anchor
-# fills the gap.
+# overall (monthly) reset epoch, or nothing when unknown. A fresh quota-axi
+# row for that workspace wins; the configured anchor fills the gap.
 fm_opencode_ladder_go_monthly() {  # <workspace> [config-dir]
-  local workspace=${1:-} config_arg=${2:-} anchor report monthly now
+  local workspace=${1:-} config_arg=${2:-} account anchor report monthly now
   [ -n "$workspace" ] || return 1
   now=$(date +%s)
-  if [ "$workspace" = "$FM_OPENCODE_WORKSPACE_MAIN" ] \
-    && command -v quota-axi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  account=main
+  [ "$workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ] && account=second
+  if command -v quota-axi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     report=$(quota-axi --json 2>/dev/null) || report=
     if [ -n "$report" ]; then
-      monthly=$(printf '%s' "$report" | jq -r '
+      monthly=$(printf '%s' "$report" | jq -r --arg account "$account" '
         .providers[]?
         | select(.provider == "opencode-go" and (.state.stale == false or .state.status == "fresh")
-                 and (.accountKey == "main" or .accountKey == null))
+                 and ((.accountKey // "main") == $account))
         | .windows[]?
         | select(.id == "monthly")
         | .resetsAt? // empty
+        | sub("\\.[0-9]+(?=Z|[+-][0-9]{2}:[0-9]{2}$)"; "")
         | try fromdateiso8601 catch empty' 2>/dev/null | head -n 1) || monthly=
       case "$monthly" in ''|*[!0-9]*) : ;; *)
         [ "$monthly" -gt "$now" ] && { printf '%s\n' "$monthly"; return 0; } ;;
@@ -384,26 +384,6 @@ fm_opencode_ladder_go_priority() {  # <state-dir> [config-dir]
   fi
 }
 
-# fm_opencode_ladder_go_quota_preference: prints the workspace with the
-# greater fresh known all-models availability when quota-axi supplies both
-# accountKey rows. Missing or unknown workspace values leave timing priority
-# in charge.
-fm_opencode_ladder_go_quota_preference() {
-  local report preference
-  command -v quota-axi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
-  report=$(quota-axi --json 2>/dev/null) || return 1
-  preference=$(printf '%s' "$report" | jq -r '
-    reduce (.providers[]? | select(.provider == "opencode-go" and (.state.stale == false or .state.status == "fresh"))
-      | select(.accountKey == "main" or .accountKey == "second")
-      | . as $p | .quotaSemantics.effectiveAvailability[]?
-      | select(.scope == "all_models" and .status == "known" and (.effectivePercentRemaining | type == "number"))
-      | {account: $p.accountKey, percent: .effectivePercentRemaining}) as $row
-      ({}; .[$row.account] //= $row.percent)
-    | select(.main != null and .second != null)
-    | if .second > .main then "secondary" else "main" end' 2>/dev/null) || return 1
-  case "$preference" in main|secondary) printf '%s\n' "$preference" ;; *) return 1 ;; esac
-}
-
 # fm_opencode_ladder_pick_go_workspace <state-dir> [config-dir]: the Go
 # workspace the next spawn or descending relaunch serves. Prints
 # main|secondary. This is the SINGLE owner of the tier choice: a proven cap
@@ -415,15 +395,12 @@ fm_opencode_ladder_go_quota_preference() {
 # than through this choice, and the free-model fallback stays reachable only
 # there.
 fm_opencode_ladder_pick_go_workspace() {  # <state-dir> [config-dir]
-  local state_dir=$1 config_arg=${2:-} priority other_ws quota_priority
+  local state_dir=$1 config_arg=${2:-} priority other_ws
   local priority_capped=0 other_capped=0
   fm_opencode_second_configured "$config_arg" \
     || { printf '%s\n' "$FM_OPENCODE_WORKSPACE_MAIN"; return 0; }
   priority=$(fm_opencode_ladder_go_priority "$state_dir" "$config_arg" 2>/dev/null) \
     || priority=$FM_OPENCODE_WORKSPACE_MAIN
-  if quota_priority=$(fm_opencode_ladder_go_quota_preference 2>/dev/null); then
-    priority=$quota_priority
-  fi
   if [ "$priority" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
     other_ws=$FM_OPENCODE_WORKSPACE_MAIN
   else

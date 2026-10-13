@@ -884,8 +884,8 @@ test_go_capped_routes_to_second_workspace() {
   pass "a capped Go rung routes the next spawn to the second workspace"
 }
 
-test_workspace_quota_rows_split_caps_and_prefer_more_remaining() {
-  local state out cfg fixture healthy pick
+test_workspace_quota_rows_split_caps() {
+  local state out cfg fixture
   state=$(fresh_state workspace-quota-split)
   cfg=$(second_config workspacequotasplit)
   cap_free_plus "$state"
@@ -901,17 +901,59 @@ JSON
   [ -f "$state/.opencode-cap-go" ] || fail "zero main-workspace quota must keep the main Go cap"
   [ ! -e "$state/.opencode-cap-go-second" ] || fail "positive second-workspace quota must not cap its Go rung"
 
-  state=$(fresh_state workspace-quota-preference)
-  cfg=$(priority_config workspacequotapreference '2026-11-08T02:02:34Z' '2026-12-01T00:00:00Z')
-  healthy="$TMP_ROOT/workspace-quota-healthy.json"
-  cat > "$healthy" <<'JSON'
-{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":25}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50}]}}]}
+  pass "workspace-keyed quota caps main at zero and leaves secondary available"
+}
+
+test_fractional_monthly_reset_timestamp_is_parsed() {
+  local cfg fixture reset
+  cfg=$(second_config fractionalreset)
+  fixture="$TMP_ROOT/fractional-monthly-reset.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-08T02:02:34.000Z"}]},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-06T15:22:44.000Z"}]}]}
 JSON
-  pick=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$healthy" PATH="$QUOTA_BIN:$PATH" \
+  reset=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
+    fm_opencode_ladder_go_monthly main "$cfg") || fail "fractional main monthly reset must parse"
+  [ "$reset" -eq "$(jq -nr '"2026-11-08T02:02:34Z" | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime')" ] \
+    || fail "fractional seconds must parse to the correct epoch, got '$reset'"
+  pass "fractional-second monthly reset timestamps parse"
+}
+
+test_secondary_quota_axi_monthly_row_is_read() {
+  local cfg fixture reset
+  cfg=$(priority_config secondrow '2026-11-08T02:02:34Z' '2026-12-01T00:00:00Z')
+  fixture="$TMP_ROOT/secondary-monthly-reset.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-08T02:02:34.000Z"}]},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-06T15:22:44.000Z"}]}]}
+JSON
+  reset=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
+    fm_opencode_ladder_go_monthly secondary "$cfg") || fail "the secondary quota-axi monthly row must be read"
+  [ "$reset" -eq "$(jq -nr '"2026-11-06T15:22:44Z" | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime')" ] \
+    || fail "the live secondary row must beat its later configured anchor, got '$reset'"
+  pass "the secondary workspace monthly reset comes from its fresh quota-axi row"
+}
+
+test_screenshot_quota_prefers_soonest_reset_over_more_remaining() {
+  local state cfg fixture pick out note
+  state=$(fresh_state screenshotreset)
+  cfg=$(second_config screenshotreset)
+  cap_free_plus "$state"
+  fixture="$TMP_ROOT/screenshot-reset-priority.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-08T02:02:34.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":33}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-06T15:22:44.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50}]}}]}
+JSON
+  pick=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
     fm_opencode_ladder_pick_go_workspace "$state" 2>/dev/null) \
-    || fail "the workspace pick must accept two fresh known quota rows"
-  [ "$pick" = secondary ] || fail "the higher-quota second workspace must beat the earlier monthly reset, got '$pick'"
-  pass "workspace-keyed quota caps main at zero and dispatches through the higher-quota second workspace"
+    || fail "the workspace pick must accept fresh quota rows with fractional resets"
+  [ "$pick" = secondary ] \
+    || fail "the screenshot's earlier-resetting secondary plan must win despite more remaining quota, got '$pick'"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
+    fm_opencode_ladder_model "$FREE" "$state" 2>"$TMP_ROOT/screenshot-reset-notice") \
+    || fail "dispatch must route to the remaining Go plan"
+  [ "$out" = "$GO" ] || fail "capped free and Plus must dispatch on Go, got '$out'"
+  note=$(cat "$TMP_ROOT/screenshot-reset-notice")
+  case "$note" in *'priority Go plan resets soonest on the second workspace'*) : ;; *)
+    fail "dispatch notice must explain the soonest reset choice: $note" ;; esac
+  pass "the screenshot's sooner reset selects secondary and the notice explains why"
 }
 
 test_unlabelled_go_quota_row_keeps_main_meaning() {
@@ -1310,7 +1352,10 @@ test_expired_rung_cap_climbs_back_to_free
 test_free_then_codex_cap_skips_to_go_and_returns_after_reset
 test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not
 test_go_capped_routes_to_second_workspace
-test_workspace_quota_rows_split_caps_and_prefer_more_remaining
+test_workspace_quota_rows_split_caps
+test_fractional_monthly_reset_timestamp_is_parsed
+test_secondary_quota_axi_monthly_row_is_read
+test_screenshot_quota_prefers_soonest_reset_over_more_remaining
 test_unlabelled_go_quota_row_keeps_main_meaning
 test_fourth_rung_exhaustion_refuses
 test_second_rung_cap_never_marks_main_go
