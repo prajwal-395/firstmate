@@ -161,6 +161,8 @@ def test_edit_dry_run_prints_json_once_when_stdout_is_not_a_tty(
     assert parsed["steps_to_run"] == summary["steps_to_run"]
     # The human per-step plan stays quiet in JSON mode.
     assert "validate_sfx_library (" not in captured.err
+    assert str(project) not in captured.err
+    assert "pipeline_output/scratch/timeline_transcript/transcript.json" in captured.err
     combined = (captured.out + captured.err).encode("utf-8")
     assert len(combined) <= 3000
 

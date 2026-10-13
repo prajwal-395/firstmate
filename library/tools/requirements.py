@@ -547,7 +547,8 @@ def _timeline_transcript_on_file(ctx: Context) -> Satisfaction:
         # A run with no project to look at yet, that schedules the scan:
         # footage is the scan's to refuse, and it runs first.
         return SATISFIED(MEASURED)
-    where = str(transcript_path(folder)) if folder else "the project"
+    where = (str(transcript_path(folder).relative_to(folder))
+             if folder else "the project")
     return UNSATISFIED(
         f"there is no transcript at {where}, and NO STEP MAKES ONE: it is "
         f"written off a Resolve cut by `python3 -m library.tools."
