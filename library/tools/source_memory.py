@@ -18,7 +18,7 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9 and M10 are
+**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10 and M11 are
 written now; every later lane writes into its named slot without
 inventing its own shape:
 
@@ -65,6 +65,9 @@ M10      `relationships.json`         relationship CANDIDATES       `library/too
                                        (holding, pointing,           relationships.py`
                                        looking_at; over M3 + M3b
                                        + M3d)
+M11      `audio_quality.json`         per-channel LUFS/true-peak/    `library/tools/
+                                       clipping/noise/SNR/silence/    audio_quality.py`
+                                       spectral/dynamics + intervals
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
@@ -169,6 +172,7 @@ SLOT_EVENTS = "events.json"                    # M7 - written by event_spans.py
 SLOT_VERDICTS = "verdicts.json"                # M8 - written by span_verification.py
 SLOT_WORLD_MODEL = "world_model.json"          # M9 - written by world_model.py
 SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships.py
+SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality.py
 
 # No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
 # (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
@@ -182,8 +186,8 @@ SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships
 # SLOT_SALIENCY (M3e) (`attention_saliency.py`),
 # SLOT_REGION_STATS (M3f) (`region_stats.py`), SLOT_DEPTH (M3g)
 # (`depth.py`),
-# SLOT_WORLD_MODEL (M9) (`world_model.py`) and SLOT_RELATIONSHIPS (M10)
-# (`relationships.py`).
+# SLOT_WORLD_MODEL (M9) (`world_model.py`), SLOT_RELATIONSHIPS (M10)
+# (`relationships.py`) and SLOT_AUDIO_QUALITY (M11) (`audio_quality.py`).
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.
@@ -857,6 +861,21 @@ def read_sound(content_digest: str,
                root: Optional[Path] = None) -> Optional[dict]:
     """The M5 sound lane for a digest, or None when never written."""
     doc = _load_json(source_dir(content_digest, root) / SLOT_SOUND)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_audio_quality(content_digest: str, record: dict,
+                        root: Optional[Path] = None) -> None:
+    """Write M11 deterministic audio measurements for one source."""
+    if record["content_digest"] != content_digest:
+        raise ValueError("audio quality digest does not match its slot")
+    write_json(source_dir(content_digest, root) / SLOT_AUDIO_QUALITY, record)
+
+
+def read_audio_quality(content_digest: str,
+                       root: Optional[Path] = None) -> Optional[dict]:
+    """M11 measurements, or None when audio quality has not been measured."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_AUDIO_QUALITY)
     return doc if isinstance(doc, dict) else None
 
 
