@@ -433,6 +433,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
+Before reporting the PR ready, confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`).
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft$pr_base, then look at the PR's check rollup before reporting done.
 ${base_push_guard}When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
@@ -501,7 +502,7 @@ Two firstmate-specific rules layer on top of that guidance:
 - NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
-After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done [at=<epoch>]: PR {url} checks green changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop. You are finished.
+After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`), then append \`done [at=<epoch>]: PR {url} checks green changed {what changed}; left {what of the brief was left undone, or nothing left}\` and stop. You are finished.
 When this task works on the firstmate repo, that PR must target the fork \`prajwal-395/firstmate\`, never upstream \`kunchenguid/firstmate\`: read the returned URL back before reporting it, and if it names the upstream repo, append \`blocked [at=<epoch>]: PR targets upstream, not the fork\` instead of done.
 The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 EOF
