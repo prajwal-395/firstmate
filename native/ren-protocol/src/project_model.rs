@@ -150,6 +150,60 @@ pub struct Observation {
     pub payload: Value,
     pub confidence: Option<f64>,
     pub provenance_id: ProvenanceId,
+    /// FI-03 evidence contract, additive: `None` for every observation
+    /// migrated before the contract existed, so older documents still
+    /// decode. `skip_serializing_if` keeps the round-trip byte-identical
+    /// for contract-less payloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<EvidenceContract>,
+}
+
+/// FI-03: the four evidence types (plan A1). A raw instrument value
+/// lives under `Measurement` and must never inhabit `Evaluation`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceType {
+    Measurement,
+    Inference,
+    Evaluation,
+    CreativeJudgment,
+}
+
+/// FI-03 provenance + coverage semantics (plan C4 + A2 item 7).
+/// `Unavailable` means unmeasured - the lane never looked. A measured
+/// absence is `Complete` with zero samples instead.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverageKind {
+    Complete,
+    Sampled,
+    Inferred,
+    Unavailable,
+}
+
+/// FI-03: one versioned measurement record (plan A2) - asset, interval
+/// on a named clock (the observation's own), target entity/region,
+/// type/value/unit/method/sample-resolution, coverage and provenance.
+/// Mirrors `library/tools/evidence_contract.py::to_rust_evidence`;
+/// the Python key set is pinned by test against these serde names.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EvidenceContract {
+    pub evidence_type: EvidenceType,
+    pub measurement_type: String,
+    pub value: Value,
+    pub unit: String,
+    pub method: String,
+    pub sample_resolution: Option<[u32; 2]>,
+    pub coverage: CoverageKind,
+    pub coverage_samples: u64,
+    pub coverage_sample_rate_hz: f64,
+    pub target_entity_id: Option<EntityId>,
+    pub target_region: Option<String>,
+    pub uncertainty: Option<f64>,
+    pub policy_id: Option<String>,
+    pub basis_measurement_ids: Vec<String>,
+    pub contract_version: u32,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -358,6 +412,10 @@ pub struct ProjectModel {
 }
 
 pub const PROJECT_MODEL_SCHEMA_VERSION: u32 = 1;
+/// FI-03 evidence contract version. Observation documents keep schema
+/// version 1: the contract rides the additive `evidence` field, and a
+/// record stamped newer than this is refused by validation.
+pub const EVIDENCE_CONTRACT_VERSION: u32 = 1;
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProjectModelDecodeError {
     InvalidJson(String),
@@ -472,6 +530,48 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
             .is_some_and(|rate| rate.denominator == 0)
         {
             return Err("frame map rate denominator must be positive".into());
+        }
+    }
+    for evidence in model.observations.iter().filter_map(|x| x.evidence.as_ref()) {
+        if evidence.contract_version != EVIDENCE_CONTRACT_VERSION {
+            return Err(format!(
+                "unsupported evidence contract version {}",
+                evidence.contract_version
+            ));
+        }
+        if evidence.unit.is_empty() || evidence.method.is_empty() {
+            return Err("evidence must carry unit and method".into());
+        }
+        if evidence
+            .uncertainty
+            .is_some_and(|v| !(0.0..=1.0).contains(&v))
+        {
+            return Err("evidence uncertainty must be between 0 and 1".into());
+        }
+        match evidence.evidence_type {
+            EvidenceType::Inference => {
+                if evidence.uncertainty.is_none() {
+                    return Err(
+                        "an inference without uncertainty is not evidence".into(),
+                    );
+                }
+            }
+            EvidenceType::Evaluation => {
+                if evidence.policy_id.as_ref().is_none_or(|p| p.is_empty()) {
+                    return Err("an evaluation must name its policy".into());
+                }
+                if evidence.basis_measurement_ids.is_empty() {
+                    return Err("an evaluation must cite its measurements".into());
+                }
+            }
+            EvidenceType::CreativeJudgment => {
+                if evidence.policy_id.as_ref().is_none_or(|p| p.is_empty()) {
+                    return Err(
+                        "a creative judgment must name its authorizing brief".into(),
+                    );
+                }
+            }
+            EvidenceType::Measurement => {}
         }
     }
     Ok(())
