@@ -172,7 +172,7 @@ def test_tier2_failure_evicts_but_unreported_files_keep_their_rows(
         state_dir, red, _key(checkout, red), 1, 1, source="pr")
     result_cache.store(
         state_dir, quiet, _key(checkout, quiet), 1, 1, source="pr")
-    calls, run_logged = _gate_run(
+    _calls, run_logged = _gate_run(
         [(red, "failed")],
         verdict="FULL-SUITE GATE: FAIL  |  unit: 1 failed")
     monkeypatch.setattr(runner, "_run_logged", run_logged)
@@ -250,6 +250,43 @@ def test_pooled_verify_reports_reuse_before_executing(
     assert events == ["consult", "gate"]
     out = capsys.readouterr().out
     assert "reused 1/2" in out
+
+
+def test_incremental_shadow_keeps_contracts_in_execution_set(tmp_path):
+    checkout = _checkout(tmp_path)
+    contracts = checkout / "tests" / "contracts"
+    contracts.mkdir()
+    (contracts / "test_contract.py").write_text(
+        "def test_contract(): pass\n", encoding="utf-8")
+    scenarios = checkout / "tests" / "scenarios"
+    scenarios.mkdir()
+    (scenarios / "test_flow.py").write_text(
+        "def test_flow(): pass\n", encoding="utf-8")
+    consulted = {"expanded": ["tests/unit/test_widget.py",
+                              "tests/unit/test_other.py",
+                              "tests/contracts/test_contract.py",
+                              "tests/scenarios/test_flow.py"],
+                 "reused": [{"path": "tests/unit/test_widget.py"}],
+                 "total": 4}
+    outcomes = {
+        "tests/unit/test_widget.py": {"total": 4},
+        "tests/unit/test_other.py": {"total": 2},
+        "tests/contracts/test_contract.py": {"total": 3},
+        "tests/scenarios/test_flow.py": {"total": 1},
+    }
+
+    plan = runner.tier2_incremental_plan(
+        str(checkout), consulted, observed_outcomes=outcomes)
+
+    assert plan["executed"] == ["tests/contracts/test_contract.py",
+                                 "tests/scenarios/test_flow.py",
+                                 "tests/unit/test_other.py"]
+    assert plan["reused"] == ["tests/unit/test_widget.py"]
+    assert plan["integration"] == ["tests/contracts/test_contract.py",
+                                    "tests/scenarios/test_flow.py"]
+    assert plan["total_tests"] == 10
+    assert plan["skipped_tests"] == 4
+    assert plan["skipped_fraction"] == pytest.approx(0.4)
 
 
 def test_main_baseline_verify_consults_and_files_as_batch(

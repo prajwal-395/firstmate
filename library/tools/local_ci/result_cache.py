@@ -8,11 +8,10 @@ of origin - a worker-local `ren ci check`, a PR Tier-1 run, a Tier-2
 integration batch, or a periodic full validation: they all read and
 write the same rows, keyed identically for the same tree.
 
-Test security (until CI-08 lands): Tier-2 still EXECUTES everything.
-Sharing evidence is not skipping execution yet - the Tier-2 write hook
-files verdicts from the gate's own JUnit report after the full run,
-and the pooled verify step consults the cache only to REPORT reuse
-(`reused N/M`) before executing.
+Tier-2 remains in CI-08 shadow mode: it records the cache hits it would
+reuse and the tests it would execute, while the full gate still executes
+everything and remains the merge authority. The Tier-2 write hook files
+verdicts from the gate's own JUnit report after the full run.
 
 The key (report section 7, plus the prototype-bug fix it proves): the
 test file itself, its static closure INCLUDING tests-helpers (the

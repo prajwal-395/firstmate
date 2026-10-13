@@ -45,6 +45,7 @@ a unit test, not an integration prayer.
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 
 from library.tools.local_ci import config, history, runner, state
@@ -136,11 +137,10 @@ class World:
         """Evaluate main+members stacked: Tier-2 runs the FULL suite once
         on the exact tree the ordered merges would produce.
 
-        The pooled-run verify step consults the shared cache FIRST and
-        reports `reused N/M` before executing - then executes everything
-        anyway (the gate still runs each file even on a cache hit until
-        CI-08 lands) and files the gate's per-file verdicts as `batch`
-        evidence for cross-source reuse."""
+        The pooled-run verify step consults the shared cache, records the
+        CI-08 shadow plan and audit, then executes the full gate as the
+        only merge authority. The gate's per-file verdicts are filed as
+        `batch` evidence for cross-source reuse."""
         from library.tools.local_ci import hygiene, result_cache
         # The daemon keeps one mirror across queue passes. Main can move
         # after the mirror's last refresh, so fetch this exact base SHA
@@ -160,14 +160,43 @@ class World:
                 checkout, self.state_dir, interpreter, builder)
             print(f"ren-ci Tier-2 verify: reused "
                   f"{len(consulted['reused'])}/{consulted['total']} "
-                  f"test files from shared cache; executing the full gate "
-                  f"anyway (CI-08 not landed)", flush=True)
+                  f"test files from shared cache; full gate remains "
+                  f"the merge authority", flush=True)
             gate = runner.run_gate(
                 checkout, log,
                 timeout=history.default_tier2_timeout(self.state_dir),
                 cache={"state_dir": self.state_dir, "source": "batch",
                        "builder": builder, "interpreter": interpreter,
                        "consulted": consulted})
+            from library.tools.local_ci import shadow
+            try:
+                outcomes = gate.get("outcomes", {})
+                if not isinstance(outcomes, dict):
+                    outcomes = {}
+                plan = runner.tier2_incremental_plan(
+                    checkout, consulted, observed_outcomes=outcomes)
+                head_result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=checkout,
+                    capture_output=True, encoding="utf-8", check=False,
+                    timeout=30).stdout.strip()
+                head = head_result or base
+                audit = shadow.record_tier2_audit(
+                    self.state_dir, head, plan,
+                    {"verdict": gate.get("verdict", "DID NOT RUN")},
+                    outcomes)
+                print(f"ren-ci CI-08 shadow: hypothetical "
+                      f"{audit['incremental_verdict']}; full gate "
+                      f"{audit['full_gate_verdict']}; disagreement="
+                      f"{audit['disagreement']}; would skip "
+                      f"{audit['skipped_tests']}/{audit['total_tests']} "
+                      f"test cases ({audit['skipped_fraction']:.1%}), "
+                      f"{audit['skipped_files']}/{audit['total_files']} "
+                      f"files", flush=True)
+            except Exception as exc:  # noqa: BLE001 - observational audit
+                # Shadow bookkeeping is observational and must never
+                # alter the full-gate merge decision.
+                print(f"ren-ci CI-08 shadow audit unavailable: {exc}",
+                      flush=True)
             return TestResult(gate["ok"], reason=gate["reason"], log=log,
                               requeue=gate["requeue"],
                               failed_tests=gate.get("failed_tests") or [])
@@ -312,10 +341,10 @@ class World:
             interpreter = runner._tier2_interpreter(checkout)
             consulted = runner.tier2_consult(
                 checkout, self.state_dir, interpreter, builder)
-            print(f"ren-ci Tier-2 verify (main): reused "
+            print(f"ren-ci Tier-2 verify (main): cache reports reused "
                   f"{len(consulted['reused'])}/{consulted['total']} "
-                  f"test files from shared cache; executing the full gate "
-                  f"anyway (CI-08 not landed)", flush=True)
+                  f"test files; full gate remains the merge authority",
+                  flush=True)
             gate = runner.run_gate(
                 checkout, log,
                 cache={"state_dir": self.state_dir, "source": "batch",
@@ -594,9 +623,7 @@ def relevant_partition_by_map(changed_by_pr: dict, failing_tests: list,
                 else None
         except Exception:  # noqa: BLE001 - widen on selector failure
             affected = None
-        if affected is None:
-            relevant.append(pr)
-        elif set(affected) & failing:
+        if affected is None or set(affected) & failing:
             relevant.append(pr)
         else:
             irrelevant.append(pr)
@@ -1099,7 +1126,7 @@ def _advise_grouping(world: World, fresh: list, select=None) -> None:
                 continue
             try:
                 files = world.pr_files(member["pr"])
-            except Exception:  # noqa: BLE001 - unknown, not unjudgeable
+            except Exception:  # noqa: BLE001, S112 - unknown, not unjudgeable
                 continue
             if files:
                 member["files"] = list(files)

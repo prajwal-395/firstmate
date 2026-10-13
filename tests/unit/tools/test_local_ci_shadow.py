@@ -358,6 +358,38 @@ def test_findings_are_bounded_oldest_first(tmp_path):
     assert stored[-1]["sha"] == f"{shadow.SHADOW_FINDINGS_KEEP + 4:040d}"
 
 
+def test_automated_tier2_audit_records_plan_rate_and_every_disagreement(
+        tmp_path):
+    plan = {"executed": ["tests/contracts/test_api.py"],
+            "reused": ["tests/unit/test_cached.py"],
+            "integration": ["tests/contracts/test_api.py"],
+            "total_files": 2, "skipped_files": 1,
+            "total_tests": 4, "skipped_tests": 2,
+            "skipped_fraction": 0.5}
+    outcomes = {
+        "tests/contracts/test_api.py": {"passed": 2, "failed": 0},
+        "tests/unit/test_cached.py": {"passed": 0, "failed": 1},
+    }
+
+    first = shadow.record_tier2_audit(
+        str(tmp_path), SHA, plan, {"verdict": "FAIL"}, outcomes)
+    second = shadow.record_tier2_audit(
+        str(tmp_path), SHA, plan, {"verdict": "FAIL"}, outcomes)
+
+    assert first["incremental_verdict"] == "PASS"
+    assert first["disagreement"] is True
+    assert first["defect_type"] == "test-intelligence"
+    assert first["missed_failed_tests"] == ["tests/unit/test_cached.py"]
+    assert first["skipped_fraction"] == 0.5
+    assert first["total_tests"] == 4
+    assert first["skipped_tests"] == 2
+    assert second["disagreement"] is True
+    with open(tmp_path / shadow.TIER2_AUDIT_FILENAME,
+              encoding="utf-8") as handle:
+        assert len(handle.readlines()) == 2
+    assert len(shadow.read_findings(str(tmp_path))) == 2
+
+
 # -- the read-only junit handoff on run_gate --------------------------
 
 def test_run_gate_junit_out_sees_outcomes_without_filing(

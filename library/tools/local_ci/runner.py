@@ -445,17 +445,46 @@ def tier2_consult(checkout: str, state_dir: str, interpreter: str,
                   builder=None) -> dict:
     """Consult the shared cache for the Tier-2 inventory, read-only.
 
-    Returns the `partition` result (`reused N/M` reads off it). Never
-    decides anything: the gate executes everything regardless until
-    CI-08 lands. The pooled verify step (`queue.World.test_stack`)
-    reports these counts BEFORE executing; `run_gate` reuses a passed
-    partition through its `cache` dict instead of consulting twice.
+    Returns the `partition` result (`reused N/M` reads off it). The
+    shadow planner derives its hypothetical execution set from this
+    partition and the full-gate report; every eligible test still runs.
     """
     from library.tools.local_ci import result_cache
     own = builder or result_cache.KeyBuilder(checkout)
     return result_cache.partition(
         state_dir, checkout, tier2_inventory(checkout), builder=own,
         interpreter=interpreter)
+
+
+def tier2_incremental_plan(checkout: str, consulted: dict,
+                          observed_outcomes=None) -> dict:
+    """Return the shadow-only CI-08 plan for a Tier-2 tree.
+
+    Contract and scenario tests are the conservative integration set
+    and always run, even when a content key hits. The full gate remains
+    the sole merge authority; this plan only measures files an
+    incremental run could have omitted.
+    """
+    from library.tools.local_ci import result_cache
+    observed = (set(consulted["expanded"]) if observed_outcomes is None
+                else set(observed_outcomes))
+    integration = set(result_cache.expand_selection(
+        checkout, ["tests/contracts", "tests/scenarios"])) & observed
+    reused = {item["path"] for item in consulted["reused"]} & observed
+    run = sorted((observed - reused) | integration)
+    skipped = sorted(observed - set(run))
+    total_files = len(observed)
+    skipped_files = len(skipped)
+    total_tests = sum(int(outcome["total"])
+                      for outcome in (observed_outcomes or {}).values())
+    skipped_tests = sum(int((observed_outcomes or {})[path]["total"])
+                        for path in skipped)
+    return {"executed": run, "reused": skipped,
+            "integration": sorted(integration & set(consulted["expanded"])),
+            "total_files": total_files, "skipped_files": skipped_files,
+            "total_tests": total_tests, "skipped_tests": skipped_tests,
+            "skipped_fraction": (skipped_tests / total_tests
+                                 if total_tests else 0.0)}
 
 
 def _tier2_record(checkout: str, state_dir: str, junit_path: str,
@@ -484,14 +513,14 @@ def _tier2_record(checkout: str, state_dir: str, junit_path: str,
 def _tier2_cache_line(consulted: dict, stored: int, outcomes: int) -> str:
     """The gate log's account of what the shared cache said and did.
 
-    Always cites reuse AND execution: until CI-08 lands the full gate
-    runs every file even on a cache hit, so a hit is never a skip.
+    Always cites reuse AND execution: the full gate runs every file as
+    the shadow comparator, so a hit is not an actual skip yet.
     """
     reused = len(consulted.get("reused", []))
     total = consulted.get("total", 0)
     line = (f"ren-ci shared cache: reused {reused}/{total} test files"
-            f" from prior evidence; full gate executed regardless"
-            f" (incremental verdict lands in CI-08)")
+            f" from prior evidence; full gate executed for the shadow "
+            f"audit (incremental mode remains shadow-only)")
     if outcomes == 0:
         line += " - no gate JUnit report to file, stored nothing"
     else:
@@ -527,9 +556,8 @@ def run_gate(checkout: str, log_path: str,
     dict `{"state_dir": ..., "source": ..., "head": ...}` (plus an
     optional prebuilt `"builder"` and `"consulted"` partition from the
     caller) consults FIRST, executes ALWAYS, and files the gate's
-    per-file verdicts AFTER: the consult only reports (`reused N/M`
-    on the log line below), never skips - skipping execution on a
-    cache hit waits for CI-08's incremental verdict. A falsy
+    per-file verdicts AFTER. The separate CI-08 shadow planner reports
+    the files it would skip, but the cache hook itself never skips. A falsy
     `state_dir` disables the hook, so direct callers without a state
     dir stay hermetic and file nothing.
 
@@ -575,6 +603,7 @@ def run_gate(checkout: str, log_path: str,
          "-n", "2"], checkout, log_path, timeout, env=child_env)
     timed_out = result["timed_out"]
     verdict = _read_verdict(log_path)
+    outcomes = result_cache.parse_junit(junit_path) if hook is not None else {}
     if hook is not None and consulted is not None:
         from library.tools.local_ci import result_cache
         summary = _tier2_record(
@@ -591,7 +620,7 @@ def run_gate(checkout: str, log_path: str,
     if certifiable_verdict(verdict) and result["group_clean"]:
         return {"ok": True, "requeue": False, "verdict": verdict,
                 "reason": "", "timed_out": False, "log": log_path,
-                "failed_tests": []}
+                "failed_tests": [], "outcomes": outcomes}
     if (verdict in ("NARROWED PASS", "DID NOT RUN") or timed_out
             or not result["group_clean"]):
         return {"ok": False, "requeue": True, "verdict": verdict,
@@ -601,11 +630,12 @@ def run_gate(checkout: str, log_path: str,
                              if not result["group_clean"] else "")
                           + f", log {log_path}",
                 "timed_out": timed_out, "log": log_path,
-                "failed_tests": []}
+                "failed_tests": [], "outcomes": outcomes}
     return {"ok": False, "requeue": False, "verdict": verdict,
             "reason": f"full gate FAIL, log {log_path}",
             "timed_out": False, "log": log_path,
-            "failed_tests": failed_tests_from_junit(junit_path)}
+            "failed_tests": failed_tests_from_junit(junit_path),
+            "outcomes": outcomes}
 
 
 def failed_tests_from_junit(junit_path: str) -> list:

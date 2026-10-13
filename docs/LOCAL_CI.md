@@ -208,19 +208,23 @@ startup. Pinned by
 
 ## Shadow validation (the full suite, after the verdict)
 
-Once incremental evidence starts judging trees, a second full-suite
-run checks its homework: `ren ci shadow <sha> --claim <file>`
-re-runs `scripts/full_suite_gate.sh` on that tree when the machine is
-idle (no Tier-1 job, no gate in flight, no Tier-2 member under test -
-a busy machine refuses with the reason) and diffs the outcomes
-against the claim's green (`{verdict, executed, reused}` JSON, until
-the incremental verdict produces it). A red gate files a defect in
-`~/.ren-ci/shadow_findings.json` naming the missed edge(s) - red
-files the evidence never executed; a matching green files nothing.
-Shadows never block merges and never change verdicts: they write only
-their findings ledger (plus the gate log), never the queue, the
-checks, the baselines, or the shared cache. `ren ci status` shows the
-newest findings. Pinned by
+Tier-2 now records a CI-08 shadow plan for every batch. A file is
+reusable only when the shared content-key cache has a valid pass;
+`tests/contracts/` and `tests/scenarios/` always stay in the execution
+set as the conservative integration set. `~/.ren-ci/tier2_shadow_audits.jsonl` records the
+hypothetical incremental verdict, executed and skipped files, individual
+test case counts, and the fraction of test cases it would skip. The same
+batch's full-gate JUnit report audits that verdict,
+and every disagreement is appended as a test-intelligence defect. This
+audit runs in the local ren-ci service. The full gate still executes and
+remains the only merge authority; these measurements do not change
+queue or merge decisions.
+
+The manual `ren ci shadow <sha> --claim <file>` command remains available
+for a separate clean-room rerun when the machine is idle. It diffs a
+supplied `{verdict, executed, reused}` claim against the rerun's outcomes
+and files findings in `~/.ren-ci/shadow_findings.json`. `ren ci status`
+shows the newest findings. Pinned by
 `tests/unit/tools/test_local_ci_shadow.py`.
 
 ## End-to-end proof (post-merge, on throwaway PRs)

@@ -1,23 +1,18 @@
-"""CI-10 shadow validation: re-run the full suite after a verdict lands.
+"""CI-10 shadow validation for incremental Tier-2 evidence.
 
-A shadow run re-executes `scripts/full_suite_gate.sh` on the same tree
-a pooled (or Tier-2) verdict already judged, when the machine is idle,
-and diffs the outcomes against the incremental evidence's claim for
-that tree: any regression the incremental evidence missed is recorded
-as a test-intelligence defect (a missing edge - a selector fix or a
-never-narrow rule). Shadows never block merges and never change
-verdicts; they only write findings to their own ledger
-(`shadow_findings.json`).
+The Tier-2 service uses the full gate already required for the merge
+decision as its same-tree comparator. It records every hypothetical
+incremental verdict and skipped-file set, then appends every disagreement
+to `tier2_shadow_audits.jsonl` and files test-intelligence defects in
+`shadow_findings.json`. This adds no second full-suite run and cannot
+change the queue or merge verdict.
 
 Trigger is manual first: `ren ci shadow <sha> --claim <file>`, where
 the claim file is the incremental evidence's JSON
 (`{"verdict": "green", "executed": [...], "reused": [...]}` - the test
 files it executed vs the ones it counted green without executing).
-Until CI-08 lands there is no automatic producer for that file, so the
-operator supplies it (e.g. from the pooled verify step's consult
-report); CI-08 will produce it. Idle-window automation waits on the
-captain's C1 call (revive the ren-ci service or stay pooled-manual) -
-this module schedules nothing by itself.
+The manual command remains available for a separate clean-room rerun
+when desired.
 
 A shadow touches exactly two things on disk: its gate log under the
 state dir's `logs/` and its findings ledger. It never writes the
@@ -43,6 +38,7 @@ SHADOW_FINDINGS_FILENAME = "shadow_findings.json"
 # (state.MAIN_BASELINE_KEEP). Bounded so the ledger cannot grow with
 # every shadow run.
 SHADOW_FINDINGS_KEEP = 20
+TIER2_AUDIT_FILENAME = "tier2_shadow_audits.jsonl"
 
 
 def _findings_path(state_dir: str) -> str:
@@ -78,6 +74,62 @@ def record_finding(state_dir: str, finding: dict) -> dict:
         handle.write("\n")
     os.replace(tmp, path)
     return stored
+
+
+def record_tier2_audit(state_dir: str, sha: str, plan: dict,
+                       gate: dict, outcomes: dict) -> dict:
+    """Record the hypothetical incremental verdict beside the full gate.
+
+    This is the service's automated CI-10 path. The full gate already
+    ran on this exact tree, so its report is the shadow comparator and
+    no second full-suite execution is needed. Every audit is appended;
+    disagreements are retained indefinitely as test-intelligence defects.
+    """
+    executed = set(plan["executed"])
+    reused = set(plan["reused"])
+    failed = set(failed_files(outcomes))
+    required_missing = executed - set(outcomes)
+    if not plan["total_tests"] or required_missing:
+        incremental = "unknown"
+    elif failed & executed:
+        incremental = "FAIL"
+    else:
+        incremental = "PASS"
+    full = gate.get("verdict", "DID NOT RUN")
+    comparable = full in ("PASS", "FAIL") and incremental in ("PASS", "FAIL")
+    disagreement = comparable and incremental != full
+    record = {
+        "sha": sha,
+        "incremental_verdict": incremental,
+        "full_gate_verdict": full,
+        "executed": sorted(executed),
+        "reused": sorted(reused),
+        "integration": sorted(plan["integration"]),
+        "total_tests": plan["total_tests"],
+        "skipped_tests": plan["skipped_tests"],
+        "total_files": plan["total_files"],
+        "skipped_files": plan["skipped_files"],
+        "skipped_fraction": plan["skipped_fraction"],
+        "disagreement": bool(disagreement),
+        "defect_type": "test-intelligence" if disagreement else None,
+        "missed_failed_tests": sorted(failed & reused),
+        "recorded_at": time.time(),
+    }
+    os.makedirs(state_dir, exist_ok=True)
+    with open(os.path.join(state_dir, TIER2_AUDIT_FILENAME), "a",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if disagreement:
+        record_finding(state_dir, {
+            "sha": sha,
+            "claimed": incremental,
+            "shadow_verdict": full,
+            "missed": record["missed_failed_tests"],
+            "executed_failed": sorted(failed & executed),
+            "per_file": bool(outcomes),
+            "source": "automated-tier2",
+        })
+    return record
 
 
 def check_claim(claim: dict | None) -> tuple:

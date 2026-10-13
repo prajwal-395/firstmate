@@ -155,11 +155,6 @@ REPORTED_NOT_CONSUMED = {
         "001). Routing it would give a consumer a second, weaker copy of "
         "a refusal that has already happened.",
 
-    ("scan", "total_files"):
-        "A count. DECISION: it stays unread - it is `len(raw_footage_files)`, "
-        "which travels on every edge out of 1.01. 17 and 17 on 001's run "
-        "of record. `direction_contradiction.DECLINED_OUTPUTS` says the "
-        "same of it from the other side.",
     ("scan", "skipped_files"):
         "A listing of what was NOT read. DECISION: it stays unread - a "
         "reader would act on the files that ARE in "
