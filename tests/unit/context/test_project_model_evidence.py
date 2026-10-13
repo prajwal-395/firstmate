@@ -217,6 +217,48 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
     assert before == after
 
 
+def test_migration_registers_each_m0_stream_and_technical_tables(
+        fixture_project):
+    """M0 stream identity and bounded source tables reach the Project Model."""
+    from library.tools import source_memory
+
+    memory = fixture_project["memory"] / D1
+    _write(memory / source_memory.SLOT_SOURCE, {
+        "content_digest": D1, "size_bytes": 100, "duration_seconds": 4.0,
+        "video_streams": [{"index": 0, "codec_type": "video"}],
+        "audio_streams": [{"index": 1, "codec_type": "audio"}],
+        "streams": [
+            {"index": 0, "codec_type": "video", "pix_fmt": "yuv420p10le",
+             "color_transfer": "smpte2084",
+             "capture_metadata_status": "unavailable"},
+            {"index": 1, "codec_type": "audio", "channels": 6,
+             "capture_metadata_status": "available",
+             "capture_metadata": {"creation_time": "recorded"},
+             "capture_metadata_provenance": {
+                 "producer": "ffprobe", "basis": "recorded_container_metadata"}},
+            {"index": 2, "codec_type": "subtitle", "codec": "mov_text"},
+        ],
+        "packet_table": [{"stream_index": 0, "pts": 1}],
+        "frame_table": [{"stream_index": 0, "pts_time": "0.033"}],
+        "timestamp_discontinuities": [{"stream_index": 0,
+                                        "kind": "missing_pts"}],
+        "file_integrity": {"probe_status": "warning",
+                            "corrupt_packet_count": 1},
+    })
+
+    model, _ = _migrate(fixture_project)
+    streams = {row["stream_index"]: row for row in model["streams"]
+               if row["asset_id"] == f"asset-{D1}"}
+    assert set(streams) == {0, 1, 2}
+    assert streams[0]["metadata"]["color_transfer"] == "smpte2084"
+    assert streams[1]["metadata"]["capture_metadata_status"] == "available"
+    assert streams[1]["source_digest"] == D1
+    assert streams[1]["provenance_id"]
+    asset = next(row for row in model["assets"] if row["id"] == f"asset-{D1}")
+    assert asset["metadata"]["packet_table"] == [{"stream_index": 0, "pts": 1}]
+    assert asset["metadata"]["file_integrity"]["corrupt_packet_count"] == 1
+
+
 def test_unmeasured_identity_stays_absent(fixture_project):
     model, _report = _migrate(fixture_project)
 

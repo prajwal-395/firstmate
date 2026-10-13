@@ -84,6 +84,73 @@ def _m0_doc(path: Path, digest: str, size: int) -> dict:
     }
 
 
+def test_m0_records_bounded_vfr_multistream_hdr_and_unavailable_capture(
+        tmp_path, monkeypatch):
+    """VFR/HDR stream inventory survives M0; absent capture stays unavailable."""
+    from types import SimpleNamespace
+
+    fixture = {
+        "streams": [
+            {"index": 0, "codec_type": "video", "codec_name": "hevc",
+             "profile": "Main 10", "width": 3840, "height": 2160,
+             "pix_fmt": "yuv420p10le", "bits_per_raw_sample": "10",
+             "r_frame_rate": "60/1", "avg_frame_rate": "30000/1001",
+             "color_primaries": "bt2020", "color_transfer": "smpte2084",
+             "color_space": "bt2020nc", "color_range": "tv",
+             "side_data_list": [{"side_data_type": "Mastering display metadata",
+                                  "max_luminance": "1000 cd/m2"}]},
+            {"index": 1, "codec_type": "audio", "codec_name": "aac",
+             "sample_rate": "48000", "channels": 6,
+             "channel_layout": "5.1(side)", "bits_per_sample": 0,
+             "tags": {"creation_time": "2026-10-13T10:00:00Z"}},
+            {"index": 2, "codec_type": "subtitle", "codec_name": "mov_text"},
+        ],
+        "format": {"duration": "3.0", "size": "123456"},
+        "packets": [
+            {"stream_index": 0, "pts": 0, "pts_time": "0.000",
+             "dts": 0, "duration": 1},
+            {"stream_index": 0, "pts": 2, "pts_time": "0.067",
+             "dts": 2, "duration": 2},
+            {"stream_index": 0, "pts": 1, "pts_time": "0.033",
+             "dts": 1, "duration": 1, "flags": "K_"},
+            {"stream_index": 0, "pts": None, "flags": "_C"},
+        ],
+        "frames": [
+            {"stream_index": 0, "best_effort_timestamp_time": "0.000"},
+            {"stream_index": 0, "best_effort_timestamp_time": "0.033"},
+            {"stream_index": 0, "best_effort_timestamp_time": "0.100"},
+        ],
+    }
+    calls = []
+    monkeypatch.setattr(source_memory.subprocess, "run", lambda *args, **kwargs: (
+        calls.append((args, kwargs)) or SimpleNamespace(
+            returncode=0, stdout=json.dumps(fixture), stderr="")))
+
+    result = source_memory.probe_streams("fixture-vfr-hdr.mov")
+    streams = result["streams"]
+    assert [row["codec_type"] for row in streams] == ["video", "audio", "subtitle"]
+    video = streams[0]
+    assert (video["pix_fmt"], video["color_transfer"], video["width"]) == (
+        "yuv420p10le", "smpte2084", 3840)
+    assert video["capture_metadata_status"] == "unavailable"
+    assert "capture_metadata_provenance" not in video
+    assert streams[1]["channels"] == 6
+    assert streams[1]["capture_metadata_status"] == "available"
+    assert streams[1]["capture_metadata_provenance"]["producer"] == "ffprobe"
+    assert result["frame_timing"]["streams"][0][
+        "variable_frame_rate_observed"] is True
+    assert result["timestamp_discontinuities"] == [
+        {"stream_index": 0, "kind": "non_monotonic_dts",
+         "previous_dts": 2, "dts": 1},
+        {"stream_index": 0, "kind": "missing_pts"},
+        {"stream_index": 0, "kind": "missing_dts"},
+    ]
+    assert result["file_integrity"]["corrupt_packet_count"] == 1
+    command = calls[0][0][0]
+    assert "-read_intervals" in command and "0%+#64" in command
+    assert "-show_packets" in command and "-show_frames" in command
+
+
 def _project_with_clip(tmp_path: Path, clip_id: str, media: Path,
                        digest: str) -> Path:
     """A project whose runner record names one clip and its digest."""

@@ -293,17 +293,18 @@ def digest_for_clip(project_folder: str, clip: dict,
 
 
 def probe_streams(source_file: str) -> dict:
-    """Video/audio streams and duration off ffprobe, or a refusal.
+    """Bounded source registry probe from ffprobe, or a refusal.
 
     Raises RuntimeError when ffprobe itself fails - a broken probe is
-    not a streamless file.
+    not a streamless file. Stream metadata is complete, while packet and
+    decoded-frame tables are capped to the first 64 packets. This keeps M0
+    useful for technical inventory without turning ingestion into a full
+    media decode.
     """
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries",
-             "stream=index,codec_type,codec_name,width,height,"
-             "avg_frame_rate,channels,sample_rate:"
-             "format=duration,size",
+            ["ffprobe", "-v", "warning", "-show_streams", "-show_format",
+             "-show_packets", "-show_frames", "-read_intervals", "0%+#64",
              "-of", "json", source_file],
             capture_output=True, encoding="utf-8", errors="replace",
             timeout=120, check=False,
@@ -323,19 +324,35 @@ def probe_streams(source_file: str) -> dict:
     streams = []
     audio_ordinal = 0
     for stream in probe.get("streams") or []:
-        entry = {
-            "index": stream.get("index"),
-            "codec_type": stream.get("codec_type"),
-            "codec": stream.get("codec_name", "unknown"),
+        entry = dict(stream)
+        entry["codec"] = stream.get("codec_name", "unknown")
+        tags = stream.get("tags") or {}
+        side_data = stream.get("side_data_list") or []
+        recorded_capture = {
+            key: value for key, value in tags.items()
+            if key.lower() in {"creation_time", "make", "model",
+                               "encoder", "lens_model", "focal_length",
+                               "aperture", "iso"}
         }
-        if stream.get("codec_type") == "video":
-            entry["width"] = stream.get("width")
-            entry["height"] = stream.get("height")
-            entry["avg_frame_rate"] = stream.get("avg_frame_rate")
+        recorded_capture["side_data"] = [
+            dict(item) for item in side_data
+            if any(k in item for k in (
+                "rotation", "displaymatrix", "camera_make", "camera_model",
+                "lens", "focal_length", "aperture", "iso"))
+        ]
+        recorded_capture = {key: value for key, value in recorded_capture.items()
+                            if value not in ({}, [])}
+        entry["capture_metadata"] = recorded_capture
+        entry["capture_metadata_status"] = (
+            "available" if recorded_capture else "unavailable")
+        if recorded_capture:
+            entry["capture_metadata_provenance"] = {
+                "producer": "ffprobe", "source_digest": None,
+                "basis": "recorded_container_metadata",
+            }
         if stream.get("codec_type") == "audio":
             audio_ordinal += 1
             entry["channel"] = audio_ordinal
-            entry["channels"] = stream.get("channels")
             try:
                 entry["sample_rate"] = int(stream.get("sample_rate"))
             except (TypeError, ValueError):
@@ -345,7 +362,90 @@ def probe_streams(source_file: str) -> dict:
         duration = float((probe.get("format") or {}).get("duration"))
     except (TypeError, ValueError):
         duration = None
-    return {"streams": streams, "duration_seconds": duration}
+    packets = probe.get("packets") or []
+    frames = probe.get("frames") or []
+    warnings = [line.strip() for line in (out.stderr or "").splitlines()
+                if line.strip()]
+    discontinuities = _timestamp_discontinuities(packets)
+    return {
+        "streams": streams,
+        "duration_seconds": duration,
+        "packet_table": packets[:64],
+        "frame_table": frames[:64],
+        "frame_timing": _frame_timing_summary(frames[:64]),
+        "timestamp_discontinuities": discontinuities,
+        "file_integrity": {
+            "probe_status": ("warning" if warnings or discontinuities or any(
+                "C" in str(packet.get("flags", ""))
+                for packet in packets) else "clean"),
+            "probe_warnings": warnings,
+            "corrupt_packet_count": sum(
+                ("corrupt" in str(packet.get("flags", ""))
+                 or "C" in str(packet.get("flags", "")))
+                for packet in packets),
+            "sampled_packet_count": len(packets[:64]),
+            "sampled_frame_count": len(frames[:64]),
+            "sample_scope": "first_64_packets",
+        },
+    }
+
+
+def _frame_timing_summary(frames: list) -> dict:
+    """Describe cadence only across sampled decoded frame timestamps."""
+    by_stream = {}
+    for frame in frames[:64]:
+        stream_index = frame.get("stream_index")
+        value = frame.get("best_effort_timestamp_time", frame.get("pts_time"))
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            continue
+        by_stream.setdefault(stream_index, []).append(timestamp)
+    rows = []
+    for stream_index, timestamps in sorted(by_stream.items(),
+                                            key=lambda row: str(row[0])):
+        deltas = [round(b - a, 9) for a, b in zip(timestamps, timestamps[1:])]
+        positive = [delta for delta in deltas if delta > 0]
+        rows.append({
+            "stream_index": stream_index,
+            "sampled_timestamps_seconds": timestamps,
+            "sampled_deltas_seconds": deltas,
+            "variable_frame_rate_observed": (
+                len(set(positive)) > 1 if positive else None),
+        })
+    return {"status": "measured" if rows else "unavailable",
+            "sample_scope": "first_64_frames", "streams": rows}
+
+
+def _timestamp_discontinuities(packets: list) -> list:
+    """Report missing PTS and non-monotonic decode timestamps in sample.
+
+    Packet PTS can legitimately move backwards in decode order when a video
+    uses B-frames, so ordering checks use DTS. Presentation timestamps remain
+    intact in the packet and frame tables.
+    """
+    prior_dts = {}
+    findings = []
+    for packet in packets[:64]:
+        stream_index = packet.get("stream_index")
+        pts = packet.get("pts")
+        if pts is None:
+            findings.append({"stream_index": stream_index,
+                             "kind": "missing_pts"})
+        dts = packet.get("dts")
+        try:
+            dts = int(dts)
+        except (TypeError, ValueError):
+            findings.append({"stream_index": stream_index,
+                             "kind": "missing_dts"})
+            continue
+        if stream_index in prior_dts and dts <= prior_dts[stream_index]:
+            findings.append({"stream_index": stream_index,
+                             "kind": "non_monotonic_dts",
+                             "previous_dts": prior_dts[stream_index],
+                             "dts": dts})
+        prior_dts[stream_index] = dts
+    return findings
 
 
 def demux_audio_tracks(source_file: str, audio_channels: List[int],
@@ -455,11 +555,36 @@ def build_source_record(source_file: str, content_digest: str,
                         levels_db: Dict[int, float],
                         selection: dict) -> dict:
     """The M0 document: everything cheaply known about one source."""
+    streams = []
+    for stream in probe.get("streams", []):
+        entry = dict(stream)
+        capture_provenance = entry.get("capture_metadata_provenance")
+        if capture_provenance:
+            entry["capture_metadata_provenance"] = {
+                **capture_provenance, "source_digest": content_digest}
+        streams.append(entry)
+    file_integrity = dict(probe.get("file_integrity") or {
+        "probe_status": "unavailable", "sample_scope": "unavailable"})
+    file_integrity.update({
+        "content_digest": content_digest,
+        "size_bytes": size_bytes,
+        "digest_method": "sha256_size_plus_first_and_last_mib",
+        "integrity_scope": "bounded_probe_sample_not_full_decode",
+    })
     return {
         "content_digest": content_digest,
         "size_bytes": size_bytes,
         "observed_paths": [os.path.abspath(source_file)],
         "duration_seconds": probe.get("duration_seconds"),
+        "streams": streams,
+        "packet_table": probe.get("packet_table", []),
+        "frame_table": probe.get("frame_table", []),
+        "frame_timing": probe.get("frame_timing", {
+            "status": "unavailable", "sample_scope": "unavailable",
+            "streams": []}),
+        "timestamp_discontinuities": probe.get(
+            "timestamp_discontinuities", []),
+        "file_integrity": file_integrity,
         "video_streams": [s for s in probe.get("streams", [])
                           if s.get("codec_type") == "video"],
         "audio_streams": [s for s in probe.get("streams", [])

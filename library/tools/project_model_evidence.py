@@ -194,8 +194,8 @@ def _clock_id(digest: str) -> str:
     return f"clock-{digest}"
 
 
-def _stream_id(digest: str) -> str:
-    return f"stream-{digest}"
+def _stream_id(digest: str, stream_index: int = 0) -> str:
+    return f"stream-{digest}" if stream_index == 0 else f"stream-{digest}-{stream_index}"
 
 
 def _prov_id(digest: str, lane: str) -> str:
@@ -314,23 +314,38 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
         "ticks_per_second": TICKS_PER_SECOND,
         "frame_rate": None,
     })
-    builder.model["streams"].append({
-        "id": _stream_id(digest),
-        "asset_id": asset_id,
-        "stream_index": 0,
-        "clock_id": clock_id,
-        "metadata": {},
-    })
-
     m0 = source_memory.read_m0(digest, root)
     if m0 is not None:
         video_streams = m0.get("video_streams") or []
         kind = "video" if video_streams else "audio"
         duration = m0.get("duration_seconds") or duration
+        source_streams = m0.get("streams") or video_streams + (m0.get("audio_streams") or [])
+        if not source_streams:
+            source_streams = [{"index": 0, "codec_type": kind,
+                               "legacy_metadata_unavailable": True}]
     else:
         kind = "other"
+        source_streams = [{"index": 0, "metadata_status": "unavailable"}]
         builder.notes.append(f"{digest[:12]}: M0 absent; asset kept for "
                              f"catalog parity with kind other")
+    for source_stream in source_streams:
+        stream_index = int(source_stream.get("index", 0))
+        capture_provenance = source_stream.get("capture_metadata_provenance")
+        stream_record = {
+            "id": _stream_id(digest, stream_index),
+            "asset_id": asset_id,
+            "stream_index": stream_index,
+            "clock_id": clock_id,
+            "metadata": source_stream,
+            "source_digest": digest,
+            "coverage": "analyzed" if m0 is not None else "unavailable",
+            "producer_version": "ffprobe",
+            "freshness": "fresh" if m0 is not None else "unknown",
+        }
+        if capture_provenance:
+            stream_record["provenance_id"] = builder.provenance(
+                digest, "m0", capture_provenance.get("producer", "ffprobe"))
+        builder.model["streams"].append(stream_record)
     m2 = source_memory.read_m2(digest, root)
     builder.model["assets"].append({
         "id": asset_id,
@@ -342,6 +357,12 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
             "duration_seconds": duration,
             "m0_present": m0 is not None,
             "m2_frames": len((m2 or {}).get("frames") or []) if m2 else 0,
+            "packet_table": (m0 or {}).get("packet_table", []),
+            "frame_table": (m0 or {}).get("frame_table", []),
+            "timestamp_discontinuities": (m0 or {}).get(
+                "timestamp_discontinuities", []),
+            "file_integrity": (m0 or {}).get("file_integrity", {
+                "status": "unavailable"}),
         },
         "provenance": [builder.provenance(
             digest, "m0", "library.tools.source_memory")],
