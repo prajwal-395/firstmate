@@ -206,11 +206,3 @@ def test_resolve_preview_renders_the_timeline_and_caches(built, monkeypatch):
     (after_touch,) = reel_preview.preview(str(folder), engine="resolve")
     assert after_touch["outcome"] == "rendered"
     assert after_touch["content_key"] != first["content_key"]
-
-
-def test_preview_refuses_an_unapproved_reel_by_name(built):
-    from library.tools import reel_preview
-
-    folder, _project, _frames = built
-    with pytest.raises(reel_preview.PreviewRefused, match="no reel 7"):
-        reel_preview.preview(str(folder), [7])

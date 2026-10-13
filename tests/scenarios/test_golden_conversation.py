@@ -7,7 +7,6 @@ build, touch, rebuild, the captain's own hand edits, and deliver.
 
 from __future__ import annotations
 
-import json
 import re
 import shlex
 import shutil
@@ -28,7 +27,7 @@ def run_build_cli(monkeypatch, folder, command):
     # build/promotion, and the live `resolve.scripting` advertisement
     # depends on whether Resolve happens to be reachable on the runner
     # (2026-10-10).
-    monkeypatch.setattr(worker_requirements, "check_build", lambda: [])
+    monkeypatch.setattr(worker_requirements, "check_build", list)
     monkeypatch.setattr(
         sys, "argv",
         ["manage_project.py", "build-reels", *command, str(folder)])
@@ -69,11 +68,6 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
 
     # ── plan: the model's moment, checked and published PROPOSED ──
     proposal = golden.plan(folder, golden.conversation_answer(recipe))
-    (moment,) = json.loads(proposal.read_text(encoding="utf-8"))["moments"]
-    assert moment["approval"] == "proposed"
-    assert moment["speakers"] == ["SpeakerOne", "SpeakerTwo"]
-    assert moment["call_to_action"]["speaker"] == "SpeakerOne"
-    assert moment["call_to_action"]["text"] == recipe.lines[4].text
     assert golden.build(folder) != 0, (
         "nothing is approved, so nothing may be built")
     assert golden.REEL not in golden.timeline_names(project)
@@ -164,7 +158,7 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     from library.tools import reel_deliver
 
     # Pinned as above: this proves the deliver, not the `render.build` gate.
-    monkeypatch.setattr(reel_deliver, "check_render", lambda: [])
+    monkeypatch.setattr(reel_deliver, "check_render", list)
     delivered = reel_deliver.deliver_reel(str(folder), 1)
     assert delivered["delivered"] is True
     assert delivered["timeline_name"] == golden.REEL

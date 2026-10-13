@@ -77,6 +77,41 @@ def test_a_producer_change_selects_the_resolver_contract_set():
         assert contract in selected, contract
 
 
+def test_golden_recipe_sources_select_their_media_scenarios():
+    expected = {
+        "tests/scenarios/golden.py": {
+            "tests/scenarios/test_golden_conversation.py",
+            "tests/scenarios/test_reel_preview.py",
+            "tests/scenarios/test_golden_structure.py",
+        },
+        "tests/scenarios/golden_edit.py": {
+            "tests/scenarios/test_golden_monologue.py",
+            "tests/scenarios/test_golden_structure.py",
+        },
+        "tests/scenarios/golden_monologue_answers.json": {
+            "tests/scenarios/test_golden_monologue.py",
+            "tests/scenarios/test_golden_structure.py",
+        },
+    }
+    for source, scenarios in expected.items():
+        assert scenarios <= set(select([source]))
+
+
+def test_golden_helper_runtime_imports_select_media_scenarios():
+    expected = {
+        "library/tools/timeline_transcript.py":
+            "tests/scenarios/test_golden_conversation.py",
+        "library/tools/reel_preview.py":
+            "tests/scenarios/test_reel_preview.py",
+        "library/processes/edit_video/run_pipeline.py":
+            "tests/scenarios/test_golden_monologue.py",
+        "library/processes/reels/run_reels.py":
+            "tests/scenarios/test_golden_conversation.py",
+    }
+    for source, scenario in expected.items():
+        assert scenario in select([source])
+
+
 def test_a_binary_changed_file_contributes_no_stems_and_crashes_nothing(tmp_path):
     """ren-ci shells the selector per PR, and PRs carry images: a PNG
     in the diff must select by stem only (nothing), never UnicodeDecode

@@ -86,6 +86,32 @@ CONTRACT_SETS = {
     ],
 }
 
+# These shared scenario helpers generate the cached source media and define
+# the deterministic seams used by the golden end-to-end checks. They are
+# dependencies rather than pytest tests themselves, so the import graph cannot
+# discover their callers when non-Python recipe data changes.
+SCENARIO_DEPENDENCIES = {
+    "tests/scenarios/golden.py": [
+        "tests/scenarios/test_golden_conversation.py",
+        "tests/scenarios/test_reel_preview.py",
+        "tests/scenarios/test_golden_structure.py",
+    ],
+    "tests/scenarios/golden_edit.py": [
+        "tests/scenarios/test_golden_monologue.py",
+        "tests/scenarios/test_golden_structure.py",
+    ],
+    "tests/scenarios/golden_monologue_answers.json": [
+        "tests/scenarios/test_golden_monologue.py",
+        "tests/scenarios/test_golden_structure.py",
+    ],
+}
+SCENARIO_HELPERS = {
+    "tests/scenarios/golden.py": SCENARIO_DEPENDENCIES[
+        "tests/scenarios/golden.py"],
+    "tests/scenarios/golden_edit.py": SCENARIO_DEPENDENCIES[
+        "tests/scenarios/golden_edit.py"],
+}
+
 
 def _imported_stems(tree: ast.Module) -> set[str]:
     """Every module stem imported anywhere in the tree, at any depth.
@@ -636,6 +662,17 @@ def _select_with_distances(changed, use_coverage=True):
         abs_path = (path if os.path.isabs(path)
                     else os.path.join(REPO_ROOT, path))
         stem = os.path.splitext(os.path.basename(abs_path))[0]
+        rel_path = os.path.relpath(os.path.abspath(abs_path), REPO_ROOT)
+
+        # Recipe helpers and answer data are read by the scenario at runtime,
+        # not imported as Python modules. Keep those media checks selected.
+        for dependent in SCENARIO_DEPENDENCIES.get(rel_path, ()):
+            keep(dependent, 2)
+        for helper, dependents in SCENARIO_HELPERS.items():
+            helper_path = os.path.join(REPO_ROOT, helper)
+            if stem in _imported_by_module(helper_path):
+                for dependent in dependents:
+                    keep(dependent, 2)
 
         # A changed test is itself part of the dependent selection. The
         # import graph below finds tests that exercise changed modules,
