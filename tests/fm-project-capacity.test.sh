@@ -245,6 +245,36 @@ test_exhausted_capacity_defers_without_leaving_anything_behind() {
   pass "a spawn beyond capacity is deferred before any record, brief, endpoint, worktree, or backlog move exists"
 }
 
+test_checkpointed_blocked_or_paused_worker_releases_capacity() {
+  local case_dir home out rc=0
+  case_dir=$(make_case checkpoint-release task-c)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  write_live "$home" live-a "$case_dir/project"
+  printf 'blocked [at=1791867513]: waiting on access checkpoint-sha=%040d\n' 1 > "$home/state/live-a.status"
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  expect_code 0 "$rc" "a pushed blocked checkpoint kept holding project capacity: $out"
+  assert_contains "$out" "spawned task-c" "the freed capacity did not admit the next worker"
+  printf 'working [at=1791867514]: resumed from pushed branch\n' >> "$home/state/live-a.status"
+  rc=0
+  out=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-d "$case_dir/project" --mode no-mistakes --yolo off) || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "a resumed worker did not retake project capacity: $out"
+  pass "a blocked worker releases project capacity only after naming its pushed checkpoint SHA"
+}
+
+test_checkpointed_paused_worker_releases_capacity() {
+  local case_dir home out rc=0
+  case_dir=$(make_case paused-checkpoint-release task-c)
+  home="$case_dir/home"
+  declare_capacity "$home" "project 1"
+  write_live "$home" live-a "$case_dir/project"
+  printf 'paused [at=1791867513]: waiting for review checkpoint-sha=%040d\n' 2 > "$home/state/live-a.status"
+  out=$(spawn_ship "$case_dir" task-c) || rc=$?
+  expect_code 0 "$rc" "a pushed paused checkpoint kept holding project capacity: $out"
+  assert_contains "$out" "spawned task-c" "the freed capacity did not admit the next worker"
+  pass "a paused worker releases project capacity after naming its pushed checkpoint SHA"
+}
+
 # The capacity is the last field, so a project whose clone directory name holds
 # spaces can be declared. An indented '#' line is still a comment.
 test_spaced_project_name_is_declared() {
@@ -380,6 +410,7 @@ test_occupancy_counts_only_this_projects_workers() {
   fm_write_meta "$home/state/legacy-b.meta" "window=firstmate:fm-legacy-b" "project=$case_dir/project"
   write_live "$home" other-c "$case_dir/other-project"
   fm_write_meta "$home/state/mate-d.meta" "window=remote:mate-d" "project=$case_dir/project" "kind=secondmate"
+  printf 'blocked [at=1791867513]: waiting checkpoint-sha=%040d\n' 3 > "$home/state/scout-a.status"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "records outside this project's workers took a place: $out"
   rc=0
@@ -627,6 +658,8 @@ SH
 test_undeclared_capacity_keeps_dispatch_uncapped
 test_available_capacity_admits_the_worker
 test_exhausted_capacity_defers_without_leaving_anything_behind
+test_checkpointed_blocked_or_paused_worker_releases_capacity
+test_checkpointed_paused_worker_releases_capacity
 test_spaced_project_name_is_declared
 test_hash_prefixed_project_name_is_declared
 test_symlinked_home_counts_each_worker_once

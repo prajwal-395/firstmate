@@ -44,11 +44,14 @@
 #     are counted, and
 #   - has no recorded PR handoff: the pr= line bin/fm-pr-check.sh records when a
 #     worker's PR is ready, after which the worker waits on review or merge and
-#     no longer uses local resources.
-# A place therefore frees when a PR-based ship records its ready PR, or when any
-# task is cleaned up and its record removed. A local-only ship and a scout have
-# no recorded handoff and hold their place until cleanup. A worker that is
-# steered back into work after its PR handoff is not counted again.
+#     no longer uses local resources, and
+#   - is a ship with no latest blocked or paused status line carrying a
+#     checkpoint-sha token, which its instructions require only after a push.
+# A place therefore frees when a PR-based ship records its ready PR, a blocked
+# or paused ship reports its pushed checkpoint, or a task is cleaned up and its
+# record removed. A local-only ship and a scout hold their place until cleanup
+# or a ship checkpoint handoff. A resumed ship is counted again because its
+# latest status line no longer declares the checkpointed wait.
 # The declaration is matched by the spawning clone's directory name, so clones
 # of one origin share the cap only when they use that same directory name. A
 # clone of that origin under a different directory name finds no declaration
@@ -219,6 +222,9 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
       fi
       [ -n "$lock" ] && [ "$lock" = "$want" ] || continue
       id=$(basename "$meta" .meta)
+      if [ "$kind" = ship ] && fm_project_capacity_checkpoint_released "$state" "$id"; then
+        continue
+      fi
       label=$id
       [ "$state" = "$first" ] || label="$id in $(dirname "$state")"
       FM_PROJECT_CAPACITY_OCCUPANTS=$((FM_PROJECT_CAPACITY_OCCUPANTS + 1))
@@ -226,4 +232,19 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
     done
   done
   return 0
+}
+
+# A ship releases its declared project-capacity place only with a terminal
+# blocked/paused status event that names the SHA it pushed to its task branch.
+# Scouts have no task branch, and a later event supersedes this declaration.
+fm_project_capacity_checkpoint_released() {  # <state-dir> <task-id>
+  local line verb
+  line=$(last_status_line "$1/$2.status")
+  [ -n "$line" ] || return 1
+  status_line_verb "$line" verb
+  case "$verb" in
+    blocked) ;;
+    *) status_is_paused "$line" || return 1 ;;
+  esac
+  [[ "$line" =~ checkpoint-sha=[0-9a-fA-F]{40}([[:space:]]|$) ]]
 }

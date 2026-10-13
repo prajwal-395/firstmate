@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Single owner of a ship task's mode-specific "Definition of done" block and of
-# the named-head reachability gate that accepts a ship `done:` claim.
+# Single owner of a ship task's checkpoint status instructions, mode-specific
+# "Definition of done" block, and named-head reachability gate for a ship `done:` claim.
 # Sourced by bin/fm-brief.sh, which renders it into a generated ship brief, and by
 # bin/fm-promote.sh, which renders it into the ship instructions a promoted scout
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
+# fm_ship_checkpoint_instructions [<paused-verb>] prints the shared checkpoint
+# requirement used by ordinary and promoted ship briefs.
 # fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
 # prints the block on stdout with no trailing blank line. The caller validates the
 # mode; an unknown mode is refused rather than silently rendered as the pipeline
@@ -402,6 +404,13 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
    \`needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=$data/$id/nm-<run>-findings.txt\`
    naming every ask-user finding id from that gate. The status line only points at the file; it never restates or summarizes a finding's content.
 EOF
+}
+
+fm_ship_checkpoint_instructions() {  # [<paused-verb>]
+  local paused=${1:-${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}}
+  printf '%s\n' \
+    "   Before appending any \`blocked:\` or \`$paused:\` event, commit your task work and push your task branch without opening a PR; if there is nothing to commit, say the worktree is clean and push the existing branch tip." \
+    '   Include `checkpoint-sha=<full-pushed-commit-sha>` in the event only after the push succeeds, then end your turn so the pushed branch is the durable resume point.'
 }
 
 fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]

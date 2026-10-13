@@ -272,6 +272,8 @@ EOF
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
   printf '\n'
+  fm_ship_checkpoint_instructions
+  printf '\n\n'
   fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH"
 }
 mkdir -p "$DATA/$ID"
