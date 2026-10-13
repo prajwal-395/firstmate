@@ -424,6 +424,28 @@ EOF
   pass "promotion keeps a scout's recorded base branch and refuses local-only for it"
 }
 
+# A no-mistakes worker waiting inside an active pipeline run must not push its
+# own checkpoint: while the run owns the branch (branch_sync state
+# pipeline_owned) the pipeline already holds the work durably, so the worker's
+# own push diverges the pipeline's validated head (pc-12-capability-inventory,
+# 2026-10-13).
+test_pipeline_owned_paused_skips_push_checkpoint() {
+  local out
+  out="$TMP_ROOT/checkpoint-pipeline-owned.txt"
+  fm_ship_checkpoint_instructions paused > "$out"
+  assert_grep 'push your task branch without opening a PR' "$out" \
+    "the ordinary blocked/paused push-then-checkpoint rule was lost"
+  assert_grep 'checkpoint-sha=<full-pushed-commit-sha>' "$out" \
+    "the ordinary checkpoint-sha rule was lost"
+  assert_grep 'branch_sync state pipeline_owned' "$out" \
+    "the pipeline-owned exception did not name its branch_sync trigger"
+  assert_grep 'reports `paused:` without pushing and without a checkpoint-sha' "$out" \
+    "a pipeline-owned no-mistakes worker was not told to report paused without pushing"
+  assert_grep 'would diverge its validated head' "$out" \
+    "the pipeline-owned exception did not say why a worker push diverges"
+  pass "a pipeline-owned paused worker skips the checkpoint push"
+}
+
 test_scout_done_is_not_gated
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_not_gated
@@ -443,6 +465,7 @@ test_non_done_lines_are_not_gated
 test_fenced_and_indented_captain_lines_are_not_intent
 test_pr_based_dod_draft_check_uses_gh_axi
 test_promotion_keeps_the_recorded_base_branch
+test_pipeline_owned_paused_skips_push_checkpoint
 
 # The launch role is the generated text a worker receives. It must keep the
 # skill name, so a session that registers the skill loads it by name, and must
