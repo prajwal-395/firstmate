@@ -5864,6 +5864,46 @@ def cmd_project_set(args) -> int:
         return 0
 
 
+def cmd_project_checkpoint(args) -> int:
+    """Create or restore a Resolve project checkpoint through the store."""
+    if not args.apply:
+        return fail("checkpoint operations write an artifact or import a project; pass --apply only after reviewing the target.",
+                    f"{TOOL} project checkpoint --help")
+    try:
+        resolve = _connect()
+        manager = resolve.GetProjectManager()
+        from library.tools.versions import checkpoints
+        if args.restore:
+            result = checkpoints.restore_project(
+                manager, args.project_folder, args.checkpoint_id, args.new_name)
+        else:
+            project = _project(resolve, args.project)
+            result = checkpoints.project_checkpoint(
+                manager, project, args.project_folder, args.checkpoint_id)
+        emit([kv_block("project_checkpoint", result)])
+        return 0
+    except Exception as exc:  # noqa: BLE001 - report a bounded refusal
+        return fail(f"project checkpoint failed: {exc}", f"{TOOL} project")
+
+
+def cmd_timeline_checkpoint(args) -> int:
+    """Duplicate and export a timeline checkpoint under the Resolve lease."""
+    if not args.apply:
+        return fail("timeline checkpoint writes a duplicate and a .drt; pass --apply only after reviewing the target.",
+                    f"{TOOL} timeline list")
+    try:
+        resolve = _connect()
+        project = _project(resolve, args.project)
+        timeline, _is_current, _note = _target_timeline(project, args.timeline)
+        from library.tools.versions import checkpoints
+        result = checkpoints.timeline_checkpoint(
+            project, timeline, args.project_folder, args.checkpoint_id, resolve)
+        emit([kv_block("timeline_checkpoint", result)])
+        return 0
+    except Exception as exc:  # noqa: BLE001 - report a bounded refusal
+        return fail(f"timeline checkpoint failed: {exc}", f"{TOOL} timeline list")
+
+
 def cmd_timeline_duplicate(args) -> int:
     """Version a reel: duplicate the timeline under a new exact name.
 
@@ -7699,6 +7739,14 @@ def build_parser() -> Parser:
                          "is a dry-run plan)")
     pd.set_defaults(func=cmd_timeline_duplicate)
 
+    pc = tsubs.add_parser("checkpoint", help="duplicate and export an idempotent timeline checkpoint")
+    pc.add_argument("--project", default="", help="expect this Resolve project open")
+    pc.add_argument("--timeline", required=True, help="source timeline name")
+    pc.add_argument("--project-folder", required=True, help="Ren project folder holding the version ledger")
+    pc.add_argument("--checkpoint-id", required=True, help="stable idempotency key for this checkpoint")
+    pc.add_argument("--apply", action="store_true", help="duplicate and export under the Resolve lease")
+    pc.set_defaults(func=cmd_timeline_checkpoint)
+
     p = subs.add_parser("edit", help="mutating verbs on reel items - "
                                      "dry-run default, --apply writes")
     esubs = p.add_subparsers(dest="edit_command", required=True)
@@ -8143,6 +8191,15 @@ def build_parser() -> Parser:
                    help="write under the Resolve lease (default is a "
                         "dry-run plan)")
     q.set_defaults(func=cmd_project_set)
+
+    q = psubs.add_parser("checkpoint", help="export a project checkpoint or restore it under a new name")
+    q.add_argument("--project", default="", help="expect this Resolve project open for checkpoint creation")
+    q.add_argument("--project-folder", required=True, help="Ren project folder holding the version ledger")
+    q.add_argument("--checkpoint-id", required=True, help="stable idempotency key for this checkpoint")
+    q.add_argument("--restore", action="store_true", help="restore the named checkpoint into a new project")
+    q.add_argument("--new-name", default="", help="unused Resolve project name required with --restore")
+    q.add_argument("--apply", action="store_true", help="write the checkpoint or import a new project")
+    q.set_defaults(func=cmd_project_checkpoint)
 
     p = subs.add_parser(
         "ownership",
