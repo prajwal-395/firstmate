@@ -225,8 +225,8 @@ class KeyBuilder:
                         rel = os.path.relpath(
                             os.path.join(dirpath, name), self.checkout)
                         index.setdefault(stem, []).append(rel)
-            for stem in index:
-                index[stem] = sorted(index[stem])
+            for stem, paths in index.items():
+                index[stem] = sorted(paths)
             self._index = index
         return self._index
 
@@ -765,9 +765,11 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
                       **overrides) -> dict:
     """Store PASS rows for executed files the junit report clears.
 
-    A file with any failure/error, with zero executed tests (all
-    skipped), or absent from the report is DROPPED, never stored. Keys
-    recompute here (not reused from partition) so a tree that moved
+    A file with any failure/error, any skipped test, or absent from the
+    report is DROPPED, never stored. A partial pass does not establish
+    that a later skip decision will be the same: unless that condition
+    is represented in the key, reuse could hide a newly runnable test.
+    Keys recompute here (not reused from partition) so a tree that moved
     mid-run cannot file a verdict under a stale key. `source` records
     which executor produced the evidence without changing any key.
     """
@@ -784,7 +786,8 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
             drop(state_dir, rel)
             continue
         executed_count = outcome["total"] - outcome["skipped"]
-        if outcome["failed"] == 0 and executed_count > 0:
+        if (outcome["failed"] == 0 and executed_count > 0
+                and outcome["skipped"] == 0):
             key = compute_key(checkout, rel, own, **overrides)
             store(state_dir, rel, key, executed_count, outcome["total"],
                   head, source)

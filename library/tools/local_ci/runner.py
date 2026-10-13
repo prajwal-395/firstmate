@@ -460,16 +460,20 @@ def tier2_incremental_plan(checkout: str, consulted: dict,
                           observed_outcomes=None) -> dict:
     """Return the shadow-only CI-08 plan for a Tier-2 tree.
 
-    Contract and scenario tests are the conservative integration set
-    and always run, even when a content key hits. The full gate remains
-    the sole merge authority; this plan only measures files an
-    incremental run could have omitted.
+    Contract, scenario, and tooling tests are the conservative
+    integration set and always run, even when a content key hits.
+    Tooling tests inspect repository-wide behavior and subprocess
+    targets, so they are not reusable without an explicit complete
+    dependency declaration. The full gate remains the sole merge
+    authority; this plan only measures files an incremental run could
+    have omitted.
     """
     from library.tools.local_ci import result_cache
     observed = (set(consulted["expanded"]) if observed_outcomes is None
                 else set(observed_outcomes))
     integration = set(result_cache.expand_selection(
-        checkout, ["tests/contracts", "tests/scenarios"])) & observed
+        checkout, ["tests/contracts", "tests/scenarios",
+                   "tests/tooling"])) & observed
     reused = {item["path"] for item in consulted["reused"]} & observed
     run = sorted((observed - reused) | integration)
     skipped = sorted(observed - set(run))
