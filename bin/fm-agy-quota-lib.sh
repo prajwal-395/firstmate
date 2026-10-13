@@ -146,7 +146,7 @@ fm_agy_quota_record() {  # <model> <percent> <reset-window> <state_dir> [<now>]
 # "<model>\t<quota-percent>\t<reset-window>" for the last footer line in
 # <text>, or nothing at all.
 #
-# Format: Gemini 3.1 Pro (High) | ctx: 10.5% | quota: 94.7% (4h 24m)
+# Format: Gemini 3.8 Flash (High) | ctx: 10.5% | quota: 94.7% (4h 24m)
 #
 # One extraction for all three fields, so a partial match can never record a
 # model against another line's percentage. The reset window is optional: the

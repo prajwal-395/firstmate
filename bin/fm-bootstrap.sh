@@ -1233,17 +1233,24 @@ crew_dispatch_validate() {
   fi
   # The checks above validate dispatch PROFILES. This one validates the agy
   # LADDER order the same file also defines: a model the gate cannot rank
-  # makes it discard the captain's whole order and enforce the built-in one
-  # instead, and nothing at dispatch time says so. A file that states its
-  # order only through the legacy default field keeps resolving, and is named
+  # is skipped while the remaining rungs still enforce, and nothing at dispatch
+  # time says so. A file that states its order only through the legacy default
+  # field keeps resolving, and is named
   # as legacy so the coupled read is reported rather than silent.
   if err=$(fm_agy_ladder_config_problem "$file"); then
     if legacy_notice=$(fm_agy_ladder_legacy_notice "$file"); then
       [ -n "$legacy_notice" ] && echo "CREW_DISPATCH: legacy config/crew-dispatch.json - $legacy_notice"
     fi
   else
-    echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
-    return 0
+    case "$err" in
+      *"those rungs are skipped and the remaining order is enforced")
+        echo "CREW_DISPATCH: agy ladder notice - $err"
+        ;;
+      *)
+        echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
+        return 0
+        ;;
+    esac
   fi
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
     jq -r '

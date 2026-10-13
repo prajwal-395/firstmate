@@ -44,9 +44,9 @@ echo "# agy $AGY_VERSION"
 # The rungs this guard moves between. Deliberately NOT rung 1: the captain's
 # reserved quarter of Opus 4.6 is exactly what the descent protects, and a test
 # must never be the thing that spends it.
-FROM_KEBAB=gemini-3.1-pro-high
-FROM_DISPLAY='Gemini 3.1 Pro (High)'
-TO_DISPLAY='Gemini 3.7 Flash (High)'
+FROM_KEBAB=gemini-3.8-flash-high
+FROM_DISPLAY='Gemini 3.8 Flash (High)'
+TO_DISPLAY='Claude Sonnet 4.6 (Thinking)'
 CODEWORD="FM-LIVE-$$"
 
 HELPER="$ROOT/bin/fm-herdr-lab.sh"

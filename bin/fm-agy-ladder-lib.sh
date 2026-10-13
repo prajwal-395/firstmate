@@ -4,7 +4,7 @@
 # Sourced by bin/fm-spawn.sh. This file has no side effects on source beyond
 # pulling in its own quota-reading dependency and loading the ladder from config.
 #
-# THE POLICY. The captain's standing rule for agy dispatch is a fixed three-rung
+# THE POLICY. The captain's standing rule for agy dispatch is a fixed two-rung
 # ladder run by STRICT EXHAUSTION, not load balancing.
 # The rung order is DERIVED from config/crew-dispatch.json's "agy_ladder"
 # array, which is the one place the captain sets it. The "default" array in
@@ -108,9 +108,9 @@
 # and does not reach, and why. fm_agy_ladder_gate below records the reservation
 # itself, under the same lock it decides on.
 #
-# OFF-LADDER MODELS. agy offers models the ladder does not name (Gemini 3.1 Pro
-# (Low), Claude Sonnet 4.6, GPT-OSS 120B, and so on), and a launch with no
-# --model at all lets agy pick its own. The ladder governs the three rungs; it
+# OFF-LADDER MODELS. agy offers models the ladder does not name (Gemini 3.8 Flash
+# (Medium and Low), Claude Sonnet 4.6, GPT-OSS 120B, and so on), and a launch with no
+# --model at all lets agy pick its own. The ladder governs the two rungs; it
 # does not silently extend to models the captain never ranked, so those launches
 # are ALLOWED - but they are reported, because an unranked model is also the
 # obvious way to end up outside the policy without noticing.
@@ -151,7 +151,7 @@ fi
 # THE KEBAB IDS are the alternative spellings agy accepts for each display name.
 # They are properties of the model catalogue, not of the order, and cannot be
 # derived mechanically from a display name (e.g. "4.6" becomes "4-6" in Claude
-# but stays "3.1" in Gemini). _fm_agy_ladder_kebab_to_display is that map, and
+# but stays "3.8" in Gemini). _fm_agy_ladder_kebab_to_display is that map, and
 # _fm_agy_ladder_is_known_display is the set it draws from; both are stated
 # once, as arms of a case, so the two spellings of one model cannot drift.
 #
@@ -165,7 +165,6 @@ fi
 _FM_LADDER_DISPLAYS=''
 # _FM_LADDER_COUNT: how many rungs the ladder has.
 _FM_LADDER_COUNT=0
-
 # _fm_agy_ladder_model_floor: the floor for a model by display name, and the
 # ONE place the captain's reserved quarter is written down. Only a model with a
 # non-zero floor needs an arm; every other model exhausts to 0. The reserve
@@ -184,8 +183,7 @@ _fm_agy_ladder_model_floor() {  # <display-name>
 _fm_agy_ladder_kebab_to_display() {  # <model>
   case "$1" in
     claude-opus-4-6-thinking)  printf 'Claude Opus 4.6 (Thinking)' ;;
-    gemini-3.1-pro-high)       printf 'Gemini 3.1 Pro (High)' ;;
-    gemini-3.7-flash-high)     printf 'Gemini 3.7 Flash (High)' ;;
+    gemini-3.8-flash-high)     printf 'Gemini 3.8 Flash (High)' ;;
     *) return 1 ;;
   esac
 }
@@ -213,11 +211,12 @@ _fm_agy_ladder_init() {
   fi
 
   # Validate: every model from config must be one the ladder knows about.
-  # An unknown model in the config is a configuration error, not a silent
-  # acceptance of something the gate cannot enforce. Fall back to defaults
-  # if validation fails.
+  # A rung naming a model agy no longer lists is SKIPPED with a notice naming
+  # it, never a refusal of the whole ladder, so a future rename degrades to the
+  # remaining rungs instead of blocking all work. Fall back to defaults only
+  # when nothing usable remains.
   #
-  # The fallback is deliberate here and is NOT where the error is reported.
+  # The fallback is deliberate here and is NOT where the skip is reported.
   # This function runs at source time inside bin/fm-spawn.sh, bin/fm-watch.sh,
   # and bin/fm-agy-ladder-tick.sh, whose output is parsed; a library that
   # complained on load would put its complaint into a wake reason. So the
@@ -234,9 +233,8 @@ _fm_agy_ladder_init() {
         if resolved=$(_fm_agy_ladder_kebab_to_display "$m"); then
           m=$resolved
         else
-          # Unknown model in config - fall back to defaults entirely.
-          displays=''
-          break
+          # Unknown model in config - skip this rung, keep the rest.
+          continue
         fi
       fi
       if [ -n "$validated" ]; then
@@ -253,9 +251,8 @@ EOF
 
   # Fall back to built-in defaults when the config is absent or unusable.
   if [ -z "$displays" ]; then
-    displays='Gemini 3.1 Pro (High)
-Claude Opus 4.6 (Thinking)
-Gemini 3.7 Flash (High)'
+    displays='Claude Opus 4.6 (Thinking)
+Gemini 3.8 Flash (High)'
   fi
 
   # Count the rungs.
@@ -275,8 +272,7 @@ EOF
 _fm_agy_ladder_is_known_display() {  # <name>
   case "$1" in
     'Claude Opus 4.6 (Thinking)') return 0 ;;
-    'Gemini 3.1 Pro (High)') return 0 ;;
-    'Gemini 3.7 Flash (High)') return 0 ;;
+    'Gemini 3.8 Flash (High)') return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -284,8 +280,12 @@ _fm_agy_ladder_is_known_display() {  # <name>
 # fm_agy_ladder_config_problem: why <config-file>'s ladder order cannot be used,
 # or nothing at all when it can.
 #   0  the config states a usable ladder, or states none and the defaults apply
-#   1  the config states a ladder this gate cannot enforce; the printed line is
-#      the reason
+#   1  the config states a ladder this gate cannot enforce as written; the
+#      printed line is the reason
+#
+# A rung naming a model agy no longer lists is skipped with a notice naming
+# it, while the remaining rungs still enforce in order. Only when nothing
+# usable remains is the whole order set aside for the built-in one.
 #
 # WHY THIS IS SEPARATE FROM THE LOADER. _fm_agy_ladder_init must never refuse:
 # a home whose config it cannot read still has to dispatch, so it falls back to
@@ -344,7 +344,12 @@ $models
 EOF
 
   if [ -n "$unknown" ]; then
-    printf '%s names agy model(s) the ladder cannot rank: %s - the whole ladder order is being ignored and the built-in order used instead' \
+    if [ -z "$seen" ]; then
+      printf '%s names agy model(s) the ladder cannot rank: %s - every rung was skipped and the built-in order used instead' \
+        "$field" "$(printf '%s' "$unknown" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
+      return 1
+    fi
+    printf '%s names agy model(s) the ladder no longer lists: %s - those rungs are skipped and the remaining order is enforced' \
       "$field" "$(printf '%s' "$unknown" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
     return 1
   fi
@@ -516,8 +521,17 @@ fm_agy_ladder_check() {  # <model> <state-dir> [<now>]
     return 2
   fi
   if ! rung=$(fm_agy_ladder_rung "$model"); then
-    printf 'model %s is not on the ladder (rung 1 %s, rung 2 %s, rung 3 %s), so strict exhaustion does not govern this launch' \
-      "$model" "$(fm_agy_ladder_display 1)" "$(fm_agy_ladder_display 2)" "$(fm_agy_ladder_display 3)"
+    local ladder_desc='' i=1 d
+    while d=$(fm_agy_ladder_display "$i" 2>/dev/null); do
+      if [ -n "$ladder_desc" ]; then
+        ladder_desc="$ladder_desc, rung $i $d"
+      else
+        ladder_desc="rung $i $d"
+      fi
+      i=$((i + 1))
+    done
+    printf 'model %s is not on the ladder (%s), so strict exhaustion does not govern this launch' \
+      "$model" "$ladder_desc"
     return 2
   fi
   display=$(fm_agy_ladder_display "$rung")

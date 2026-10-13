@@ -187,8 +187,8 @@ fm_agy_list_models() {  # <agy-binary>
 
 # fm_agy_catalog_has_model: 0 when <model> is a model the account can select.
 # BOTH accepted spellings are checked, because agy accepts either: the kebab id
-# in column 1 (gemini-3.1-pro-high) and the display name in column 2
-# ("Gemini 3.1 Pro (High)"). Reads the catalogue on stdin.
+# in column 1 (gemini-3.8-flash-high) and the display name in column 2
+# ("Gemini 3.8 Flash (High)"). Reads the catalogue on stdin.
 fm_agy_catalog_has_model() {  # <model>
   local want=$1 line id display
   while IFS= read -r line; do
@@ -254,7 +254,7 @@ fm_agy_ensure_plugin_enabled() {
 #
 # agy accepts either spelling of every model, so firstmate's durable record can
 # name a model one way while the worker's own footer draws it the other:
-# `--model gemini-3.1-pro-high` launches a worker that reports "Gemini 3.1 Pro
+# `--model gemini-3.8-flash-high` launches a worker that reports "Gemini 3.8 Flash
 # (High)". A byte comparison of those two reads as a disagreement, and a caller
 # that refuses on a disagreement then refuses on a pair that never disagreed.
 #

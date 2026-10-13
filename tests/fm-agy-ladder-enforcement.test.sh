@@ -66,9 +66,8 @@ export FM_AGY_INFLIGHT_TTL=300
 export FM_AGY_SHARED_ROOT="$TMP_ROOT/agy-shared"
 export FM_AGY_LADDER_INFLIGHT_MARGIN=1
 
-RUNG1='Gemini 3.1 Pro (High)'
-RUNG2='Claude Opus 4.6 (Thinking)'
-RUNG3='Gemini 3.7 Flash (High)'
+RUNG1='Claude Opus 4.6 (Thinking)'
+RUNG2='Gemini 3.8 Flash (High)'
 
 # Readings are written through the real observer, which stamps them with the
 # wall clock, so this suite never encodes the on-disk format and takes its own
@@ -113,19 +112,22 @@ test_both_spellings_resolve_to_one_rung() {
   local rung
   rung=$(fm_agy_ladder_rung "$RUNG1") || fail "rung 1 display name must resolve"
   [ "$rung" = 1 ] || fail "expected rung 1 for '$RUNG1', got '$rung'"
-  rung=$(fm_agy_ladder_rung gemini-3.1-pro-high) || fail "rung 1 kebab id must resolve"
+  rung=$(fm_agy_ladder_rung claude-opus-4-6-thinking) || fail "rung 1 kebab id must resolve"
   [ "$rung" = 1 ] || fail "expected rung 1 for the kebab id, got '$rung'"
 
   rung=$(fm_agy_ladder_rung "$RUNG2") || fail "rung 2 display name must resolve"
   [ "$rung" = 2 ] || fail "expected rung 2 for '$RUNG2', got '$rung'"
-  rung=$(fm_agy_ladder_rung claude-opus-4-6-thinking) || fail "rung 2 kebab id must resolve"
+  rung=$(fm_agy_ladder_rung gemini-3.8-flash-high) || fail "rung 2 kebab id must resolve"
   [ "$rung" = 2 ] || fail "expected rung 2 for the kebab id, got '$rung'"
 
-  rung=$(fm_agy_ladder_rung "$RUNG3") || fail "rung 3 display name must resolve"
-  [ "$rung" = 3 ] || fail "expected rung 3 for '$RUNG3', got '$rung'"
-  rung=$(fm_agy_ladder_rung gemini-3.7-flash-high) || fail "rung 3 kebab id must resolve"
-  [ "$rung" = 3 ] || fail "expected rung 3 for the kebab id, got '$rung'"
-
+  ! fm_agy_ladder_rung 'Gemini 3.1 Pro (High)' >/dev/null \
+    || fail "a retired model agy no longer lists must not resolve to a rung"
+  ! fm_agy_ladder_rung gemini-3.1-pro-high >/dev/null \
+    || fail "a retired kebab id must not resolve to a rung"
+  ! fm_agy_ladder_rung 'Gemini 3.7 Flash (High)' >/dev/null \
+    || fail "a retired model agy no longer lists must not resolve to a rung"
+  ! fm_agy_ladder_rung gemini-3.7-flash-high >/dev/null \
+    || fail "a retired kebab id must not resolve to a rung"
   ! fm_agy_ladder_rung 'Gemini 3.1 Pro (Low)' >/dev/null \
     || fail "a reasoning class the ladder does not rank must not resolve to a rung"
   ! fm_agy_ladder_rung 'Claude Sonnet 4.6 (Thinking)' >/dev/null \
@@ -136,9 +138,8 @@ test_both_spellings_resolve_to_one_rung() {
 test_floors_are_the_captains_floors() {
   # The floor follows the MODEL, not the rung position. Opus carries the 25%
   # reserve wherever it sits; every other model exhausts to 0.
-  [ "$(fm_agy_ladder_floor 1)" = 0 ] || fail "rung 1 (Gemini Pro) exhausts to 0"
-  [ "$(fm_agy_ladder_floor 2)" = 25 ] || fail "rung 2 (Opus) carries the captain's reserved 25%"
-  [ "$(fm_agy_ladder_floor 3)" = 0 ] || fail "rung 3 (Flash) exhausts to 0"
+  [ "$(fm_agy_ladder_floor 1)" = 25 ] || fail "rung 1 (Opus) carries the captain's reserved 25%"
+  [ "$(fm_agy_ladder_floor 2)" = 0 ] || fail "rung 2 (Flash) exhausts to 0"
   pass "fm_agy_ladder_floor: Opus carries 25% at its rung, the rest run to 0"
 }
 
@@ -152,16 +153,10 @@ test_refuses_descending_past_an_available_rung() {
   out=$(gate_out "$state" "$RUNG2") || rc=$?
   [ "$rc" -eq 1 ] || fail "rung 2 must be refused while rung 1 still has headroom (rc=$rc)"
   assert_contains "$out" "error: agy ladder refuses" "the refusal must be an error line"
-  assert_contains "$out" "rung 1 (Gemini 3.1 Pro (High))" "the reason must name the rung above"
+  assert_contains "$out" "rung 1 (Claude Opus 4.6 (Thinking))" "the reason must name the rung above"
   assert_contains "$out" "80.0%" "the reason must carry the evidence it acted on"
-  assert_contains "$out" "0% floor" "the reason must name the floor it compared against"
+  assert_contains "$out" "25% floor" "the reason must name the floor it compared against"
   [ "$(printf '%s' "$out" | wc -l)" -eq 0 ] || fail "the refusal must be one line"
-
-  # Rung 3 is refused for the same reason, from the topmost offending rung.
-  rc=0
-  out=$(gate_out "$state" "$RUNG3") || rc=$?
-  [ "$rc" -eq 1 ] || fail "rung 3 must be refused while rung 1 still has headroom (rc=$rc)"
-  assert_contains "$out" "rung 1 (Gemini 3.1 Pro (High))" "rung 3's refusal must name rung 1"
   pass "refuses a descent while a rung above still has headroom, naming the rung and the evidence"
 }
 
@@ -171,7 +166,7 @@ test_refuses_descending_on_no_evidence() {
 
   out=$(gate_out "$state" "$RUNG2") || rc=$?
   [ "$rc" -eq 1 ] || fail "rung 2 must be refused when nothing is known about rung 1 (rc=$rc)"
-  assert_contains "$out" "rung 1 (Gemini 3.1 Pro (High)) has no current quota reading" \
+  assert_contains "$out" "rung 1 (Claude Opus 4.6 (Thinking)) has no current quota reading" \
     "the reason must say the rung above is unproven"
 
   # A reading that has outlived its own reset window is not evidence either:
@@ -188,28 +183,26 @@ test_refuses_descending_on_no_evidence() {
 test_refuses_opus_at_the_captains_floor() {
   local state out rc=0
   state=$(fresh_state floor)
-  # Rung 1 (Gemini Pro) must be exhausted first so rung 2 is the highest
-  # available. Then test that Opus's 25% floor is enforced at rung 2.
-  record "$state" "$RUNG1" 0.0 '4h 0m'
-  record "$state" "$RUNG2" 24.9 '4h 0m'
+  # Opus sits at rung 1, so its 25% floor is enforced with no rung above needed.
+  record "$state" "$RUNG1" 24.9 '4h 0m'
 
-  out=$(gate_out "$state" "$RUNG2") || rc=$?
+  out=$(gate_out "$state" "$RUNG1") || rc=$?
   [ "$rc" -eq 1 ] || fail "Opus must be refused below its 25% floor (rc=$rc)"
-  assert_contains "$out" "rung 2 (Claude Opus 4.6 (Thinking)) is at 24.9%" \
+  assert_contains "$out" "rung 1 (Claude Opus 4.6 (Thinking)) is at 24.9%" \
     "the reason must name the rung and the reading"
   assert_contains "$out" "reserved for the captain" "the reason must say whose quarter it is"
 
   # The floor is inclusive: exactly 25% is already spent, as far as automatic
   # dispatch is concerned.
-  record "$state" "$RUNG2" 25.0 '4h 0m'
+  record "$state" "$RUNG1" 25.0 '4h 0m'
   rc=0
-  gate_out "$state" "$RUNG2" >/dev/null || rc=$?
+  gate_out "$state" "$RUNG1" >/dev/null || rc=$?
   [ "$rc" -eq 1 ] || fail "Opus at exactly 25% must be refused; the floor is inclusive"
 
   # And just above it, Opus runs.
-  record "$state" "$RUNG2" 25.1 '4h 0m'
+  record "$state" "$RUNG1" 25.1 '4h 0m'
   rc=0
-  gate_out "$state" "$RUNG2" >/dev/null || rc=$?
+  gate_out "$state" "$RUNG1" >/dev/null || rc=$?
   [ "$rc" -eq 0 ] || fail "Opus at 25.1% is above the floor and must launch (rc=$rc)"
   pass "refuses Opus at or below the captain's reserved 25% at its rung, and runs it just above"
 }
@@ -217,23 +210,22 @@ test_refuses_opus_at_the_captains_floor() {
 test_refuses_an_exhausted_lower_rung() {
   local state out rc=0
   state=$(fresh_state lower-spent)
-  # Exhaust rung 1 (Gemini Pro, floor=0) and put Opus at 0%.
-  record "$state" "$RUNG1" 0.0 '4h 0m'
+  # Exhaust rung 1 (Opus, floor=25) below its reserve and put Flash at 0%.
+  record "$state" "$RUNG1" 10.0 '4h 0m'
   record "$state" "$RUNG2" 0.0 '4h 0m'
 
-  # Opus at 0% is below its own 25% floor.
-  out=$(gate_out "$state" "$RUNG2") || rc=$?
-  [ "$rc" -eq 1 ] || fail "Opus at 0% must be refused even with rung 1 exhausted (rc=$rc)"
+  # Opus at 10% is below its own 25% floor.
+  out=$(gate_out "$state" "$RUNG1") || rc=$?
+  [ "$rc" -eq 1 ] || fail "Opus at 10% must be refused even with no rung above it (rc=$rc)"
   assert_contains "$out" "reserved for the captain" \
     "the reason must name the captain's reserve"
 
-  # Also test rung 3 (Flash) at 0% with its own 0% floor - that is a plain
+  # Rung 2 (Flash) at 0% with its own 0% floor - that is a plain
   # exhaustion, distinct from the captain's reserved quarter.
-  record "$state" "$RUNG3" 0.0 '4h 0m'
   rc=0
-  out=$(gate_out "$state" "$RUNG3") || rc=$?
-  [ "$rc" -eq 1 ] || fail "rung 3 at 0% must be refused on its own 0% floor (rc=$rc)"
-  assert_contains "$out" "rung 3 (Gemini 3.7 Flash (High)) is exhausted at 0.0%" \
+  out=$(gate_out "$state" "$RUNG2") || rc=$?
+  [ "$rc" -eq 1 ] || fail "rung 2 at 0% must be refused on its own 0% floor (rc=$rc)"
+  assert_contains "$out" "rung 2 (Gemini 3.8 Flash (High)) is exhausted at 0.0%" \
     "the reason must name the spent rung and its reading"
   pass "refuses a rung that is itself exhausted, whether on its own floor or the captain's"
 }
@@ -270,27 +262,14 @@ test_rung_one_launches_on_a_fresh_home() {
 test_lower_rung_launches_once_every_rung_above_is_spent() {
   local state rc=0 out
   state=$(fresh_state descend-ok)
-  # Rung 1 (Gemini Pro, floor=0) at 0% is exhausted.
-  record "$state" "$RUNG1" 0.0 '4h 0m'
+  # Rung 1 (Opus, floor=25) below its reserve is exhausted.
+  record "$state" "$RUNG1" 12.0 '4h 0m'
 
-  # Rung 2 (Opus) with healthy quota launches, because rung 1 above is spent.
+  # Rung 2 (Flash) with healthy quota launches, because rung 1 above is spent.
   record "$state" "$RUNG2" 60.0 '4h 0m'
   out=$(gate_out "$state" "$RUNG2") || rc=$?
   [ "$rc" -eq 0 ] || fail "rung 2 must launch once rung 1 is below its floor (rc=$rc)"
   [ -z "$out" ] || fail "an authorized descent must stay quiet, got '$out'"
-
-  # Rung 3 needs BOTH rungs above spent, not just the top one.
-  rc=0
-  out=$(gate_out "$state" "$RUNG3") || rc=$?
-  [ "$rc" -eq 1 ] || fail "rung 3 must still be refused while rung 2 is unproven (rc=$rc)"
-  assert_contains "$out" "rung 2 (Claude Opus 4.6 (Thinking))" "rung 3's refusal must name rung 2"
-
-  # Now exhaust rung 2 (Opus) below its 25% floor.
-  record "$state" "$RUNG2" 12.0 '4h 0m'
-  rc=0
-  out=$(gate_out "$state" "$RUNG3") || rc=$?
-  [ "$rc" -eq 0 ] || fail "rung 3 must launch once rungs 1 and 2 are both spent (rc=$rc)"
-  [ -z "$out" ] || fail "an authorized two-rung descent must stay quiet, got '$out'"
   pass "a lower rung launches only once every rung above it is recorded exhausted"
 }
 
@@ -304,6 +283,13 @@ test_off_ladder_models_are_allowed_but_reported() {
   assert_contains "$out" "notice: agy ladder not applied" \
     "an off-ladder launch must be reported, not silent"
   assert_contains "$out" "is not on the ladder" "the notice must say why the ladder did not apply"
+
+  # A retired model agy no longer lists is off the ladder too: allowed, but
+  # reported, so a future rename degrades instead of blocking all work.
+  rc=0
+  out=$(gate_out "$state" 'Gemini 3.1 Pro (High)') || rc=$?
+  [ "$rc" -eq 0 ] || fail "a retired model must not be refused by the ladder (rc=$rc)"
+  assert_contains "$out" "is not on the ladder" "a retired model must be reported as off-ladder"
 
   # No model at all: agy picks its own, so there is nothing to enforce - and
   # that is exactly the case worth saying out loud.
@@ -319,19 +305,18 @@ test_off_ladder_models_are_allowed_but_reported() {
 test_override_launches_and_is_visible() {
   local state rc=0 out
   state=$(fresh_state override)
-  # Exhaust rung 1 so rung 2 (Opus) is reachable, then put Opus below its floor.
-  record "$state" "$RUNG1" 0.0 '4h 0m'
-  record "$state" "$RUNG2" 8.0 '4h 0m'
+  # Put Opus (rung 1) below its floor.
+  record "$state" "$RUNG1" 8.0 '4h 0m'
 
   # Without the override, the captain's reserved quarter is unreachable.
-  out=$(gate_out "$state" "$RUNG2") || rc=$?
+  out=$(gate_out "$state" "$RUNG1") || rc=$?
   [ "$rc" -eq 1 ] || fail "Opus below its floor must be refused without the override"
   assert_contains "$out" "FM_AGY_LADDER_OVERRIDE" "the refusal must name the way past it"
 
   # Set inside the command substitution's own subshell so the override cannot
   # leak into any later case and quietly pass a test that should refuse.
   rc=0
-  out=$(FM_AGY_LADDER_OVERRIDE='captain asked for the reserve'; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG2" "$state") || rc=$?
+  out=$(FM_AGY_LADDER_OVERRIDE='captain asked for the reserve'; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG1" "$state") || rc=$?
   [ "$rc" -eq 0 ] || fail "the override must let the refused launch through (rc=$rc)"
   assert_contains "$out" "OVERRIDDEN" "the override must announce itself"
   assert_contains "$out" "captain asked for the reserve" "the override's stated reason must be printed"
@@ -341,7 +326,7 @@ test_override_launches_and_is_visible() {
   local empty
   empty=$(fresh_state override-descend)
   rc=0
-  out=$(FM_AGY_LADDER_OVERRIDE=1; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG3" "$empty") || rc=$?
+  out=$(FM_AGY_LADDER_OVERRIDE=1; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG2" "$empty") || rc=$?
   [ "$rc" -eq 0 ] || fail "the override must also cover an unproven descent (rc=$rc)"
   assert_contains "$out" "OVERRIDDEN" "the override must announce itself on a descent too"
   pass "the override reaches the captain's reserve and every other refusal, and never silently"
@@ -350,13 +335,12 @@ test_override_launches_and_is_visible() {
 test_override_must_be_deliberate() {
   local state rc=0
   state=$(fresh_state override-empty)
-  record "$state" "$RUNG1" 0.0 '4h 0m'
-  record "$state" "$RUNG2" 8.0 '4h 0m'
+  record "$state" "$RUNG1" 8.0 '4h 0m'
 
   # An exported-but-empty variable is not an override. Reaching the reserved
   # quarter has to be an act, not a leftover in the environment.
   rc=0
-  ( FM_AGY_LADDER_OVERRIDE=; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG2" "$state" >/dev/null ) || rc=$?
+  ( FM_AGY_LADDER_OVERRIDE=; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG1" "$state" >/dev/null ) || rc=$?
   [ "$rc" -eq 1 ] || fail "an empty FM_AGY_LADDER_OVERRIDE must not override anything"
   pass "an empty override variable is not an override"
 }
@@ -371,18 +355,17 @@ test_override_must_be_deliberate() {
 test_a_burst_just_above_the_floor_is_refused() {
   local state rc=0 out
   state=$(fresh_state burst)
-  record "$state" "$RUNG1" 0.0 '4h 0m'
-  record "$state" "$RUNG2" 26.0 '4h 0m'
+  record "$state" "$RUNG1" 26.0 '4h 0m'
 
   # The first launch fits: 26% really is above 25%.
-  out=$(gate_out "$state" "$RUNG2") || rc=$?
+  out=$(gate_out "$state" "$RUNG1") || rc=$?
   [ "$rc" -eq 0 ] || fail "the first launch at 26% must be allowed (rc=$rc)"
 
   # Nothing hand-writes the ledger here. The gate reserves each launch's own
   # margin as it authorizes it, so the burst is refused by the same calls that
   # made it - which is the whole point: a caller cannot forget to reserve.
   rc=0
-  out=$(gate_out "$state" "$RUNG2") || rc=$?
+  out=$(gate_out "$state" "$RUNG1") || rc=$?
 
   [ "$rc" -eq 1 ] || fail "a burst at 26% must be refused before it crosses the floor (rc=$rc)"
   assert_contains "$out" "is at 26.0%" "the refusal must still report the evidence it read"
@@ -392,7 +375,7 @@ test_a_burst_just_above_the_floor_is_refused() {
 
   # The reading itself never moved, so this is the reservation refusing and not
   # some other change of evidence.
-  case "$(fm_agy_quota_read "$RUNG2" "$state")" in
+  case "$(fm_agy_quota_read "$RUNG1" "$state")" in
     '26.0 '*) ;;
     *) fail "the burst must be refused on the SAME reading that allowed the first launch" ;;
   esac
@@ -402,24 +385,28 @@ test_a_burst_just_above_the_floor_is_refused() {
 test_in_flight_reservations_expire() {
   local state rc=0 now
   state=$(fresh_state inflight-expire)
-  # Rung 1 (Gemini Pro, floor=0) at 1.0% - above the floor but barely.
-  record "$state" "$RUNG1" 1.0 '4h 0m'
+  # Rung 2 (Flash, floor=0) at 1.0% - above the floor but barely.
+  # Rung 1 (Opus) sits below its reserve so rung 2 is reachable and the case
+  # turns on headroom alone.
+  record "$state" "$RUNG1" 10.0 '4h 0m'
+  record "$state" "$RUNG2" 1.0 '4h 0m'
   now=$(date +%s)
 
   # Two inflight records at margin=1 reserve 2%, so effective = 1.0 - 2 = -1.0,
   # which is below the 0% floor. This must be refused.
-  fm_agy_inflight_record "$RUNG1" "$state" "$now"
-  fm_agy_inflight_record "$RUNG1" "$state" "$now"
+  fm_agy_inflight_record "$RUNG2" "$state" "$now"
+  fm_agy_inflight_record "$RUNG2" "$state" "$now"
   rc=0
-  fm_agy_ladder_check "$RUNG1" "$state" "$now" >/dev/null || rc=$?
+  fm_agy_ladder_check "$RUNG2" "$state" "$now" >/dev/null || rc=$?
   [ "$rc" -eq 1 ] || fail "two launches in flight at 1% must be refused (rc=$rc)"
 
   # Once a reading could have seen them, they stop being reserved - otherwise
-  # every past launch would permanently shrink the rung. The reading is re-taken
-  # at the same moment so this turns on expiry alone.
-  record "$state" "$RUNG1" 1.0 '4h 0m'
+  # every past launch would permanently shrink the rung. Both readings are
+  # re-taken at the check instant so this turns on expiry alone.
+  fm_agy_quota_observe "$RUNG1 | ctx: 3.0% | quota: 10.0% (4h 0m)" "$state" "$((now + 301))"
+  fm_agy_quota_observe "$RUNG2 | ctx: 3.0% | quota: 1.0% (4h 0m)" "$state" "$((now + 301))"
   rc=0
-  fm_agy_ladder_check "$RUNG1" "$state" "$((now + 301))" >/dev/null || rc=$?
+  fm_agy_ladder_check "$RUNG2" "$state" "$((now + 301))" >/dev/null || rc=$?
   [ "$rc" -eq 0 ] || fail "expired reservations must stop reserving headroom (rc=$rc)"
   pass "headroom is reserved only for launches a current reading cannot have seen"
 }
@@ -431,7 +418,7 @@ test_in_flight_reservations_expire() {
 # descent must PROVE the rungs above are spent. Both halves are fixed by the
 # same fresh reading, and one poll answers every rung at once.
 
-# stub_agy_quota <dir> <rung1-fraction> <rung2-fraction>: an `agy` on PATH that
+# stub_agy_quota <dir> <opus-fraction> <flash-fraction>: an `agy` on PATH that
 # answers /quota with the real command's JSON shape and runs no turn.
 stub_agy_quota() {
   local dir=$1 f1=$2 f2=$3 fakebin
@@ -442,14 +429,13 @@ stub_agy_quota() {
 case "\$*" in
   *models*)
     printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
-    printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
-    printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+    printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
     ;;
   */quota*)
     cat <<'JSON'
 {"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"All Models","buckets":[
 {"id":"claude-opus-4-6-thinking","name":"Claude Opus 4.6 (Thinking)","remaining_fraction":$f1,"reset_time":""},
-{"id":"gemini-3.1-pro-high","name":"Gemini 3.1 Pro (High)","remaining_fraction":$f2,"reset_time":""}
+{"id":"gemini-3.8-flash-high","name":"Gemini 3.8 Flash (High)","remaining_fraction":$f2,"reset_time":""}
 ]}]}}}
 JSON
     ;;
@@ -466,10 +452,10 @@ test_the_poll_unblocks_a_descent_stale_evidence_refused() {
 
   state=$(fresh_state poll-descent)
 
-  # Rung 1 (Gemini Pro) was observed spent, but long enough ago that the reading
+  # Rung 1 (Opus) was observed spent, but long enough ago that the reading
   # is no longer evidence. This is the state a home sits in whenever no agy pane
   # is running.
-  record "$state" "$RUNG1" 0.0 '5h 0m'
+  record "$state" "$RUNG1" 10.0 '5h 0m'
   rc=0
   out=$(fm_agy_ladder_check "$RUNG2" "$state" "$(( $(date +%s) + 400 ))") || rc=$?
   [ "$rc" -eq 1 ] || fail "a descent on a reading past the ceiling must be refused (rc=$rc)"
@@ -478,8 +464,8 @@ test_the_poll_unblocks_a_descent_stale_evidence_refused() {
 
   # The same request, with the poll allowed to answer: rung 1 really is spent,
   # so the descent is now PROVEN rather than merely likely, and it proceeds.
-  # Stub: Opus (f1) at 60%, Gemini Pro (f2) at 0%.
-  fakebin=$(stub_agy_quota "$TMP_ROOT/poll-descent-bin" 0.60 0.00)
+  # Stub: Opus (f1) at 10%, Flash (f2) at 60%.
+  fakebin=$(stub_agy_quota "$TMP_ROOT/poll-descent-bin" 0.10 0.60)
   rc=0
   out=$(PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on fm_agy_ladder_gate "$RUNG2" "$state") || rc=$?
   [ "$rc" -eq 0 ] || fail "a live poll proving rung 1 spent must permit the descent (rc=$rc)"
@@ -492,17 +478,15 @@ test_the_poll_holds_the_floor_a_stale_reading_would_have_missed() {
   command -v jq >/dev/null 2>&1 || { echo "skip - the intake poll needs jq, which is absent"; return 0; }
 
   state=$(fresh_state poll-floor)
-  # Rung 1 (Gemini Pro) is exhausted so rung 2 (Opus) is reachable.
-  record "$state" "$RUNG1" 0.0 '4h 0m'
-  # An hours-old reading says rung 2 (Opus) is healthy. Under the window-only
+  # An hours-old reading says rung 1 (Opus) is healthy. Under the window-only
   # rule this authorised every launch for the rest of its window; the account
   # has since fallen below the captain's reserve.
-  record "$state" "$RUNG2" 95.0 '5h 0m'
-  # Stub: Opus (f1) at 20.3%, Gemini Pro (f2) at 0%.
-  fakebin=$(stub_agy_quota "$TMP_ROOT/poll-floor-bin" 0.203 0.00)
+  record "$state" "$RUNG1" 95.0 '5h 0m'
+  # Stub: Opus (f1) at 20.3%, Flash (f2) at 90%.
+  fakebin=$(stub_agy_quota "$TMP_ROOT/poll-floor-bin" 0.203 0.90)
 
   rc=0
-  out=$(PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on fm_agy_ladder_gate "$RUNG2" "$state") || rc=$?
+  out=$(PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on fm_agy_ladder_gate "$RUNG1" "$state") || rc=$?
   [ "$rc" -eq 1 ] || fail "the poll's current reading must hold the floor the stale one missed (rc=$rc)"
   assert_contains "$out" "is at 20.3%" "the refusal must act on the polled figure, not the stale one"
   assert_not_contains "$out" "95.0" "the stale reading must not survive the poll"
@@ -510,7 +494,7 @@ test_the_poll_holds_the_floor_a_stale_reading_would_have_missed() {
   # And the descent it implies is now available, which is the whole point of
   # polling every rung at once rather than only the requested one.
   rc=0
-  out=$(PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on fm_agy_ladder_gate "$RUNG3" "$state") || rc=$?
+  out=$(PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on fm_agy_ladder_gate "$RUNG2" "$state") || rc=$?
   [ "$rc" -eq 0 ] || fail "the same poll must authorize the descent it just justified (rc=$rc)"
   pass "one poll both holds Opus's floor and authorizes the descent that follows from it"
 }
@@ -584,8 +568,7 @@ spawn_agy() {  # <state-dir> <model> [<env-assignment>...]
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
   printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
-  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
-  printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+  printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
 fi
 exit 0
 SH
@@ -606,11 +589,11 @@ test_spawn_refuses_a_ladder_violation() {
   state=$(fresh_state spawn-refuse)
   record "$state" "$RUNG1" 91.0 '4h 0m'
 
-  out=$(spawn_agy "$state" "$RUNG3") || rc=$?
+  out=$(spawn_agy "$state" "$RUNG2") || rc=$?
   [ "$rc" -ne 0 ] || fail "fm-spawn.sh must refuse an agy launch that violates the ladder"
   assert_contains "$out" "error: agy ladder refuses this launch" \
     "fm-spawn.sh did not report the ladder refusal"
-  assert_contains "$out" "rung 1 (Gemini 3.1 Pro (High))" \
+  assert_contains "$out" "rung 1 (Claude Opus 4.6 (Thinking))" \
     "the spawn refusal must name the rung and the evidence"
   pass "fm-spawn.sh: refuses an agy launch that violates the ladder, on the ordinary dispatch path"
 }
@@ -645,9 +628,9 @@ test_spawn_reserves_headroom_for_the_launch_it_authorized() {
 
   # A refused launch spends nothing, so it must reserve nothing either.
   rc=0
-  spawn_agy "$state" "$RUNG3" >/dev/null 2>&1 || rc=$?
-  [ "$rc" -ne 0 ] || fail "the rung-3 probe must be refused while rung 1 is healthy"
-  [ "$(fm_agy_inflight_count "$RUNG3" "$state")" = 0 ] \
+  spawn_agy "$state" "$RUNG2" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "the rung-2 probe must be refused while rung 1 is healthy"
+  [ "$(fm_agy_inflight_count "$RUNG2" "$state")" = 0 ] \
     || fail "a refused launch must not reserve headroom"
   pass "fm-spawn.sh: an authorized launch reserves its headroom and a refused one does not"
 }
@@ -657,7 +640,7 @@ test_spawn_records_the_override() {
   state=$(fresh_state spawn-override)
   record "$state" "$RUNG1" 91.0 '4h 0m'
 
-  out=$(spawn_agy "$state" "$RUNG3" FM_AGY_LADDER_OVERRIDE='captain: drain flash tonight') || rc=$?
+  out=$(spawn_agy "$state" "$RUNG2" FM_AGY_LADDER_OVERRIDE='captain: drain flash tonight') || rc=$?
   assert_contains "$out" "OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=captain: drain flash tonight" \
     "fm-spawn.sh must print the override and its stated reason"
   assert_contains "$out" "no brief at" \
@@ -692,8 +675,7 @@ spawn_agy_home() {  # <home-name> <state-dir> <model> [<env-assignment>...]
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
   printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
-  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
-  printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+  printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
 fi
 exit 0
 SH
@@ -706,10 +688,10 @@ SH
 }
 
 # two_home_second_launch: set up two homes that each independently believe Opus
-# is at 26%, run an authorized rung-2 launch in the first, then return what the
-# SECOND home's gate says about the same launch. The extra environment is passed
-# through to both, so a case can run this against the shared ledger and against
-# the home-local one and compare.
+# (rung 1) is at 26%, run an authorized rung-1 launch in the first, then return
+# what the SECOND home's gate says about the same launch. The extra environment
+# is passed through to both, so a case can run this against the shared ledger
+# and against the home-local one and compare.
 two_home_second_launch() {  # <tag> [<env-assignment>...]
   local tag=$1
   shift
@@ -720,21 +702,18 @@ two_home_second_launch() {  # <tag> [<env-assignment>...]
   rm -f "$(fm_agy_inflight_path "$a")" 2>/dev/null || true
 
   # Each home records its own readings, because state/ is per-home and stays so.
-  # Both see the identical account: rung 1 spent, so rung 2 is reachable, and
-  # rung 2 at 26% - one point of room above the captain's 25%, which fits
-  # exactly one launch.
-  record "$a" "$RUNG1" 0.0 '4h 0m'
-  record "$a" "$RUNG2" 26.0 '4h 0m'
-  record "$b" "$RUNG1" 0.0 '4h 0m'
-  record "$b" "$RUNG2" 26.0 '4h 0m'
+  # Both see the identical account: rung 1 at 26% - one point of room above the
+  # captain's 25%, which fits exactly one launch.
+  record "$a" "$RUNG1" 26.0 '4h 0m'
+  record "$b" "$RUNG1" 26.0 '4h 0m'
 
-  out=$(spawn_agy_home "$tag-a" "$a" "$RUNG2" "$@")
+  out=$(spawn_agy_home "$tag-a" "$a" "$RUNG1" "$@")
   case "$out" in
     *'no brief at'*) ;;
     *) fail "the first home's launch at 26% must be authorized, got: $out" ;;
   esac
 
-  spawn_agy_home "$tag-b" "$b" "$RUNG2" "$@"
+  spawn_agy_home "$tag-b" "$b" "$RUNG1" "$@"
 }
 
 test_two_homes_cannot_authorize_past_each_other() {
@@ -789,28 +768,51 @@ test_a_config_the_ladder_cannot_enforce_is_reported() {
   local f out rc=0
 
   # The control: the captain's real order reports nothing.
-  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (High)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"Gemini 3.8 Flash (High)"}]}')
   out=$(fm_agy_ladder_config_problem "$f") || rc=$?
   [ "$rc" -eq 0 ] || fail "a usable ladder order must report nothing (rc=$rc)"
   [ -z "$out" ] || fail "a usable ladder order must print nothing, got '$out'"
 
-  # A mistyped model. The gate discards the WHOLE order over one bad entry, so
-  # the report has to say that rather than merely naming the entry.
+  # A mistyped model. The bad rung is SKIPPED with a notice naming it while the
+  # remaining rungs still enforce, so a future rename degrades instead of
+  # blocking all work.
   rc=0
   f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (Hgih)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"}]}')
   out=$(fm_agy_ladder_config_problem "$f") || rc=$?
   [ "$rc" -eq 1 ] || fail "a model the ladder cannot rank must be reported (rc=$rc)"
   assert_contains "$out" "Gemini 3.1 Pro (Hgih)" "the report must name the model it could not rank"
-  assert_contains "$out" "whole ladder order is being ignored" \
-    "the report must say the captain's order is not the one being enforced"
+  assert_contains "$out" "skipped" \
+    "the report must say the bad rung is skipped rather than the whole order ignored"
+  assert_contains "$out" "remaining order is enforced" \
+    "the report must say the remaining rungs still enforce"
 
-  # And the runtime really does silently ignore it, which is what makes the
+  # And the runtime really does skip just that rung, which is what makes the
   # report necessary rather than decorative. Asserting both halves keeps the
   # case from passing while the loader quietly changed behaviour.
   out=$(FM_AGY_LADDER_CONFIG="$f" ROOT="$ROOT" bash -c '. "$ROOT/bin/fm-agy-ladder-lib.sh" 2>&1; fm_agy_ladder_display 1')
   [ "$out" = "$RUNG1" ] \
-    || fail "the loader must still fall back silently to the built-in order, got '$out'"
-  pass "a model the ladder cannot rank is reported, while dispatch still falls back silently"
+    || fail "the loader must keep the remaining rung, got '$out'"
+  out=$(FM_AGY_LADDER_CONFIG="$f" ROOT="$ROOT" bash -c '. "$ROOT/bin/fm-agy-ladder-lib.sh" 2>&1; fm_agy_ladder_display 2; printf "rc=%s" "$?"')
+  assert_contains "$out" "rc=1" \
+    "the loader must enforce a single remaining rung, not fall back to the built-in two"
+  pass "a model the ladder cannot rank is reported as skipped, while dispatch keeps the remaining rungs"
+}
+
+test_a_retired_model_is_skipped_with_a_notice() {
+  local f out rc=0
+  # The old three-rung order names models agy no longer lists. Those rungs are
+  # skipped with a notice naming them while Opus still enforces.
+  f=$(ladder_config '{"agy_ladder":["Gemini 3.1 Pro (High)","Claude Opus 4.6 (Thinking)","Gemini 3.7 Flash (High)"]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 1 ] || fail "retired models must be reported (rc=$rc)"
+  assert_contains "$out" "Gemini 3.1 Pro (High)" "the report must name the first retired rung"
+  assert_contains "$out" "Gemini 3.7 Flash (High)" "the report must name the second retired rung"
+  assert_contains "$out" "skipped" "the report must say the retired rungs are skipped"
+
+  out=$(FM_AGY_LADDER_CONFIG="$f" ROOT="$ROOT" bash -c '. "$ROOT/bin/fm-agy-ladder-lib.sh" 2>&1; fm_agy_ladder_display 1')
+  [ "$out" = 'Claude Opus 4.6 (Thinking)' ] \
+    || fail "the loader must keep the remaining Opus rung, got '$out'"
+  pass "a retired model is skipped with a notice naming it, while the remaining rung still enforces"
 }
 
 test_a_repeated_rung_is_reported() {
@@ -818,7 +820,7 @@ test_a_repeated_rung_is_reported() {
 
   # Both spellings agy accepts name one model, so a config using one of each is
   # a duplicate the gate would otherwise accept as two distinct rungs.
-  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"claude-opus-4-6-thinking"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"claude-opus-4-6-thinking"},{"harness":"agy","model":"Gemini 3.8 Flash (High)"}]}')
   out=$(fm_agy_ladder_config_problem "$f") || rc=$?
   [ "$rc" -eq 1 ] || fail "a model listed twice must be reported (rc=$rc)"
   assert_contains "$out" "Claude Opus 4.6 (Thinking)" "the report must name the repeated model"
@@ -844,21 +846,21 @@ test_a_repeated_rung_is_reported() {
 # that split: an old single-field file still resolves exactly as before, and a
 # split file follows agy_ladder whatever default says.
 
-# ladder_order_and_floor <config-file>: "display1|display2|display3|floor1" as
+# ladder_order_and_floor <config-file>: "display1|display2|floor1" as
 # one fresh shell reads it, so each case asserts the enforced order plus the
 # floor the rung-1 model carries.
 ladder_order_and_floor() {  # <config-file>
   FM_AGY_LADDER_CONFIG="$1" ROOT="$ROOT" bash -c \
-    '. "$ROOT/bin/fm-agy-ladder-lib.sh"; printf "%s|%s|%s|%s\n" "$(fm_agy_ladder_display 1)" "$(fm_agy_ladder_display 2)" "$(fm_agy_ladder_display 3)" "$(fm_agy_ladder_floor 1)"'
+    '. "$ROOT/bin/fm-agy-ladder-lib.sh"; printf "%s|%s|%s\n" "$(fm_agy_ladder_display 1)" "$(fm_agy_ladder_display 2)" "$(fm_agy_ladder_floor 1)"'
 }
 
 test_the_legacy_default_field_still_sets_the_ladder() {
   local f out rc=0 order
   # The old single-field form: agy rungs in default, no agy_ladder, Opus first
   # so the case also proves the reserve travels with the model, not the rung.
-  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)","effort":"high"},{"harness":"agy","model":"Gemini 3.1 Pro (High)","effort":"high"},{"harness":"agy","model":"Gemini 3.7 Flash (High)","effort":"high"}]}')
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)","effort":"high"},{"harness":"agy","model":"Gemini 3.8 Flash (High)","effort":"high"}]}')
   order=$(ladder_order_and_floor "$f")
-  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.8 Flash (High)|25' ] \
     || fail "the legacy default order must still resolve with the reserve on Opus at rung 1, got '$order'"
 
   # A usable legacy order is not broken, so the problem check stays silent.
@@ -882,9 +884,9 @@ test_the_split_form_sets_order_independently_of_default() {
   # The split form, shaped like the captain's ruling: default dispatches to
   # the opencode ladder while agy_ladder sets an order the built-in default
   # does not share, so only the split field can account for the result.
-  f=$(ladder_config '{"default":[{"harness":"opencode","model":"opencode/muse-spark-1.3-contributor-free","provider":"opencode"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  f=$(ladder_config '{"default":[{"harness":"opencode","model":"opencode/muse-spark-1.3-contributor-free","provider":"opencode"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.8 Flash (High)"]}')
   order=$(ladder_order_and_floor "$f")
-  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.8 Flash (High)|25' ] \
     || fail "the split order must follow agy_ladder with the reserve on Opus at rung 1, got '$order'"
 
   out=$(fm_agy_ladder_config_problem "$f") || rc=$?
@@ -901,9 +903,9 @@ test_agy_ladder_wins_when_both_fields_state_an_order() {
   local f out rc=0 order
   # Both fields state an order and they disagree: default's agy rows run
   # Flash-first while agy_ladder runs Opus-first. The split field decides.
-  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.7 Flash (High)"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.8 Flash (High)"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.8 Flash (High)"]}')
   order=$(ladder_order_and_floor "$f")
-  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.8 Flash (High)|25' ] \
     || fail "agy_ladder must decide when both fields state an order, got '$order'"
 
   out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
@@ -924,7 +926,7 @@ test_the_legacy_notice_stays_silent_outside_the_legacy_form() {
   out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
   [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "a file with no agy rung must stay silent, got rc=$rc out='$out'"
 
-  f=$(ladder_config '{"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  f=$(ladder_config '{"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.8 Flash (High)"]}')
   out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
   [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "an agy_ladder-only file must stay silent, got rc=$rc out='$out'"
   pass "the legacy notice stays silent outside the legacy form"
@@ -945,8 +947,7 @@ test_simultaneous_launches_across_homes_are_serialized() {
   for i in $(seq 1 "$n"); do
     mkdir -p "$dir/h$i"
     # Each home records its own readings, as each really does.
-    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG1" 0.0 '4h 0m'
-    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG2" 26.0 '4h 0m'
+    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG1" 26.0 '4h 0m'
   done
 
   # A file every worker spins on, so they are released together rather than
@@ -955,7 +956,7 @@ test_simultaneous_launches_across_homes_are_serialized() {
   for i in $(seq 1 "$n"); do
     (
       while [ -f "$dir/go" ]; do :; done
-      if FM_AGY_SHARED_ROOT="$root" fm_agy_ladder_gate "$RUNG2" "$dir/h$i" >/dev/null 2>&1; then
+      if FM_AGY_SHARED_ROOT="$root" fm_agy_ladder_gate "$RUNG1" "$dir/h$i" >/dev/null 2>&1; then
         echo allowed > "$dir/out.$i"
       else
         echo refused > "$dir/out.$i"
@@ -1000,6 +1001,7 @@ test_spawn_reserves_headroom_for_the_launch_it_authorized
 test_two_homes_cannot_authorize_past_each_other
 test_the_refusal_is_the_shared_ledger_and_not_some_other_rule
 test_a_config_the_ladder_cannot_enforce_is_reported
+test_a_retired_model_is_skipped_with_a_notice
 test_a_repeated_rung_is_reported
 test_the_legacy_default_field_still_sets_the_ladder
 test_the_split_form_sets_order_independently_of_default
