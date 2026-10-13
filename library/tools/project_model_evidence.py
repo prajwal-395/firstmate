@@ -273,7 +273,7 @@ class _Builder:
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
         obs_id = f"obs-{key}-{self._obs_counter[key]:04d}"
-        self.model["observations"].append({
+        observation = {
             "id": obs_id,
             "asset_id": asset_id,
             "interval": {"clock_id": clock_id,
@@ -282,7 +282,11 @@ class _Builder:
             "payload": payload,
             "confidence": _confidence(confidence),
             "provenance_id": self.provenance(digest, lane, producer),
-        })
+        }
+        if evidence is not None:
+            observation["payload"]["evidence_contract"] = (
+                evidence_contract.to_rust_evidence(evidence))
+        self.model["observations"].append(observation)
         return obs_id
 
     def link(self, entity_id: str, observation_id: str, method: str,
@@ -375,6 +379,82 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
     _migrate_events(builder, digest, asset_id, clock_id, root)
     _migrate_relationships(builder, digest, asset_id, clock_id, root)
     _migrate_multicam(builder, digest, asset_id, clock_id, duration, root)
+    _migrate_saliency(builder, digest, asset_id, clock_id, root)
+
+
+def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
+                      clock_id: str, root: Path | None) -> None:
+    """Migrate only current M3e samples; stale method/input records refuse."""
+    from library.tools import attention_saliency, footage_analysis
+
+    doc = attention_saliency.read_m3e(digest, root)
+    if doc is None:
+        builder.notes.append(f"{digest[:12]}: M3e absent or unreadable")
+        return
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "saliency")
+    if not footage_analysis.slot_is_fresh(lane, digest, root):
+        builder.notes.append(
+            f"{digest[:12]}: M3e stale; method or M2 input changed, refused")
+        return
+    instrument = doc.get("instrument")
+    if not isinstance(instrument, dict) or not instrument:
+        builder.notes.append(f"{digest[:12]}: M3e has no method; refused")
+        return
+    method = instrument["method"]
+    samples = doc["samples"]
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict) or "t" not in sample:
+            builder.dropped.append({"digest": digest, "lane": "m3e",
+                                    "reason": "invalid-sample",
+                                    "sample_index": index})
+            continue
+        try:
+            timestamp = float(sample["t"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(timestamp) or timestamp < 0:
+            continue
+        sample_start = math.floor(timestamp * TICKS_PER_SECOND)
+        bounds = (sample_start, sample_start + 1)
+        boxes = sample["boxes"]
+        if boxes is None:
+            record = evidence_contract.EvidenceRecord(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                target_entity_id=None, target_region=None,
+                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                measurement_type="image.salient_boxes", value=None,
+                unit="normalized", method=method, sample_resolution=None,
+                coverage=evidence_contract.CoverageKind.UNAVAILABLE,
+                coverage_samples=0, coverage_sample_rate_hz=0.0,
+                provenance_id=_prov_id(digest, "m3e"),
+                processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
+                references=({"kind": "source_frame",
+                             "stream_id": _stream_id(digest),
+                             "frame_index": index},),
+                freshness="fresh")
+            payload_boxes = None
+        else:
+            record = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                measurement_type="image.salient_boxes", value=boxes,
+                method=method, provenance_id=_prov_id(digest, "m3e"),
+                coverage=evidence_contract.CoverageKind.COMPLETE,
+                coverage_samples=1, coverage_sample_rate_hz=0.0)
+            record = replace(
+                record, freshness="fresh",
+                references=({"kind": "source_frame",
+                             "stream_id": _stream_id(digest),
+                             "frame_index": index},))
+            payload_boxes = boxes
+        builder.observation(
+            digest, "m3e", asset_id, clock_id,
+            bounds[0] / TICKS_PER_SECOND,
+            bounds[1] / TICKS_PER_SECOND, "saliency",
+            {"boxes": payload_boxes, "sample_index": index}, None,
+            "library.tools.attention_saliency", evidence=record)
 
 
 def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
@@ -384,6 +464,11 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M1 {status}; no speech "
                              f"observations")
         return
+    instrument = doc.get("instrument")
+    if not isinstance(instrument, dict) or not instrument:
+        builder.notes.append(f"{digest[:12]}: M1 has no method; refused")
+        return
+    method = json.dumps(instrument, sort_keys=True, separators=(",", ":"))
     # Lane B (cascade report 2.1): one Observation per utterance, with
     # the deterministic lane key `footage_model_link.utterance_obs_id`
     # both the footage index and timeline transcripts mint. Word-level
@@ -403,15 +488,27 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
                 words = utt.get("words") or []
                 text = utt.get("text")
                 if isinstance(text, str) and text.strip():
+                    payload = {"text": text, "utterance_index": u_idx,
+                               "word_count": len(words)}
+                    native = evidence_contract.new_measurement(
+                        asset_id=asset_id, clock_id=clock_id,
+                        start_tick=ticks[0], end_tick=ticks[1],
+                        measurement_type="speech.utterance", value=payload,
+                        method=method,
+                        provenance_id=_prov_id(digest, "m1"),
+                        coverage=evidence_contract.CoverageKind.COMPLETE,
+                        coverage_samples=len(words),
+                        coverage_sample_rate_hz=0.0)
                     builder.model["observations"].append({
                         "id": obs_id,
                         "asset_id": asset_id,
                         "interval": {"clock_id": clock_id,
                                      "start": ticks[0], "end": ticks[1]},
                         "modality": "speech",
-                        "payload": {"text": text,
-                                    "utterance_index": u_idx,
-                                    "word_count": len(words)},
+                        "payload": {**payload,
+                                    "evidence_contract":
+                                        evidence_contract.to_rust_evidence(
+                                            native)},
                         "confidence": None,
                         "provenance_id": builder.provenance(
                             digest, "m1",
@@ -421,13 +518,25 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
         for word in utt.get("words") or []:
             if not isinstance(word, dict):
                 continue
+            ticks = sec_to_ticks(word.get("start"), word.get("end"))
+            if ticks is None:
+                builder.observation(
+                    digest, "m1", asset_id, clock_id,
+                    word.get("start"), word.get("end"), "speech_word",
+                    {"text": word.get("text", word.get("word")),
+                     "utterance_index": u_idx}, word.get("confidence"),
+                    "library.tools.source_memory:M1")
+                continue
+            native = evidence_contract.migrate_m1_word(
+                word, asset_id, clock_id, _prov_id(digest, "m1"), method,
+                utterance_index=u_idx)
             builder.observation(
                 digest, "m1", asset_id, clock_id,
                 word.get("start"), word.get("end"), "speech_word",
                 {"text": word.get("text", word.get("word")),
                  "utterance_index": u_idx},
                 word.get("confidence"),
-                "library.tools.source_memory:M1")
+                "library.tools.source_memory:M1", evidence=native)
 
 
 def _identity_docs(digest: str, root: Path | None) -> tuple[dict | None, dict | None]:
@@ -782,31 +891,59 @@ def _migrate_multicam(builder: _Builder, digest: str, asset_id: str,
 
 def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
                        clock_id: str, root: Path | None) -> None:
-    """M3 frames ride the shared M2 sample: each frame's faces (box, lips)
-    and hands become one observation at the frame's own time. Point
-    samples take the module's stated neighbourhood interval."""
+    """M3 frames ride M2 samples with one native record per sampled frame."""
+    from library.tools import footage_analysis
+
     m3 = person_measurements.read_m3(digest, root)
     if m3 is None:
         builder.notes.append(f"{digest[:12]}: M3 absent; no frame geometry")
         return
-    for frame in m3.get("frames") or []:
+    lane = next(item for item in footage_analysis.LANES
+                if item.name == "persons")
+    if not footage_analysis.slot_is_fresh(lane, digest, root):
+        builder.notes.append(f"{digest[:12]}: M3 stale; method or M2 input changed, refused")
+        return
+    from library.tools.person_measurements import M3_METHOD
+    m2 = source_memory.read_m2(digest, root)
+    resolution = None
+    if m2 and isinstance(m2.get("width"), int) and isinstance(
+            m2.get("height"), int):
+        resolution = [m2["width"], m2["height"]]
+    for index, frame in enumerate(m3.get("frames") or []):
         if not isinstance(frame, dict) or "t" not in frame:
             continue
         try:
             t = float(frame["t"])
         except (TypeError, ValueError):
             continue
-        faces = frame.get("faces") or []
-        for j, face in enumerate(faces):
-            if not isinstance(face, dict):
-                continue
+        if not math.isfinite(t) or t < 0:
+            continue
+        sample_start = math.floor(t * TICKS_PER_SECOND)
+        bounds = (sample_start, sample_start + 1)
+        faces = [face for face in (frame.get("faces") or [])
+                 if isinstance(face, dict)]
+        rows = list(enumerate(faces)) if faces else [(None, None)]
+        for face_index, face in rows:
+            payload = {"face_index": face_index, "face": face,
+                       "hands": frame.get("hands") or []}
+            native = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=bounds[0], end_tick=bounds[1],
+                measurement_type="person.face_frame", value=payload,
+                method=M3_METHOD, provenance_id=_prov_id(digest, "m3"),
+                sample_resolution=resolution,
+                coverage=evidence_contract.CoverageKind.COMPLETE,
+                coverage_samples=1, coverage_sample_rate_hz=0.0)
+            native = replace(
+                native, freshness="fresh",
+                references=({"kind": "source_frame",
+                             "stream_id": _stream_id(digest),
+                             "frame_index": index},))
             builder.observation(
                 digest, "m3", asset_id, clock_id,
-                max(0.0, t - M3_POINT_RADIUS_S), t + M3_POINT_RADIUS_S,
-                "face_frame",
-                {"face_index": j, "face": face,
-                 "hands": frame.get("hands") or []},
-                None, "library.tools.person_measurements")
+                bounds[0] / TICKS_PER_SECOND,
+                bounds[1] / TICKS_PER_SECOND, "face_frame", payload, None,
+                "library.tools.person_measurements", evidence=native)
 
 
 def _subject_person_for_clip(roster: list[dict], digest: str,
@@ -1400,6 +1537,7 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
     """
     root = Path(memory_root).expanduser() if memory_root else None
     counted: dict[str, dict[str, int]] = {}
+    native_counted: dict[str, dict[str, int]] = {}
     for obs in model.get("observations") or []:
         prov = str(obs.get("provenance_id") or "")
         if prov.startswith("prov-"):
@@ -1409,18 +1547,34 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             if digest and lane:
                 counted.setdefault(digest, {}).setdefault(lane, 0)
                 counted[digest][lane] += 1
+                if (obs.get("payload") or {}).get("evidence_contract"):
+                    native_counted.setdefault(digest, {}).setdefault(lane, 0)
+                    native_counted[digest][lane] += 1
     lanes: dict[str, dict[str, Any]] = {}
     for digest in report.get("digests") or []:
         m1, m1_status = source_memory.read_m1(digest, root)
         _identity, _speakers = _identity_docs(digest, root)
+        from library.tools import (
+            attention_saliency,
+            expression_classifier,
+            footage_analysis,
+        )
+        m3_doc = person_measurements.read_m3(digest, root)
+        m3_lane = next(item for item in footage_analysis.LANES
+                       if item.name == "persons")
+        m3_freshness = ("fresh" if m3_doc is not None and
+                        footage_analysis.slot_is_fresh(m3_lane, digest, root)
+                        else "stale" if m3_doc is not None else "unknown")
         presence = {
             "m0": source_memory.read_m0(digest, root) is not None,
             "m1": m1 is not None and m1_status == "fresh",
             "m1_status": m1_status,
             "m1b": _speakers is not None,
             "m2": source_memory.read_m2(digest, root) is not None,
-            "m3": person_measurements.read_m3(digest, root) is not None,
+            "m3": m3_doc is not None,
+            "m3c": expression_classifier.read_m3c(digest, root) is not None,
             "m3b": _identity is not None,
+            "m3e": None,
             "m3d": person_regions.read_m3d(digest, root) is not None,
             "m3f": region_stats.read_m3f(digest, root) is not None,
             "m3g": depth.read_m3g(digest, root) is not None,
@@ -1433,6 +1587,14 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "m10": source_memory.read_relationships(digest, root) is not None,
         }
         presence["m6"] = conversation_clock.read_clock(digest, root) is not None
+        saliency = attention_saliency.read_m3e(digest, root)
+        saliency_lane = next(item for item in footage_analysis.LANES
+                             if item.name == "saliency")
+        presence["m3e"] = saliency is not None
+        freshness = ("fresh" if saliency is not None and
+                     footage_analysis.slot_is_fresh(saliency_lane, digest,
+                                                    root)
+                     else "stale" if saliency is not None else "unknown")
         m7 = event_spans.read_m7(digest, root)
         presence["m7"] = m7 is not None
         try:
@@ -1441,8 +1603,22 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
                 verdicts, dict) else 0
         except (OSError, ValueError):
             presence["m8_verdicts"] = 0
-        lanes[digest] = {"present": presence,
-                         "migrated_observations": counted.get(digest, {})}
+        migrated = counted.get(digest, {})
+        native = native_counted.get(digest, {})
+        m1_freshness = ("fresh" if m1 is not None and m1_status == "fresh"
+                        else "stale" if m1_status == "stale" else "unknown")
+        lanes[digest] = {
+            "present": presence,
+            "freshness": {"m1": m1_freshness, "m3": m3_freshness,
+                          "m3e": freshness},
+            "processing_status": {"m1": m1_status},
+            "migrated_observations": migrated,
+            "native_migrated_observations": native,
+            "legacy_only_migrated_observations": {
+                lane: total - native.get(lane, 0)
+                for lane, total in migrated.items()
+                if total > native.get(lane, 0)},
+        }
     return {"project": str(project_folder),
             "model_id": model.get("id"),
             "schema_version": model.get("schema_version"),

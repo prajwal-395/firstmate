@@ -111,7 +111,8 @@ def test_utterance_observation_resolves_index_and_transcript_ids(
     recompute those); the utterance row carries the deterministic lane
     key the index and the transcript mint identically.
     """
-    doc = {"utterances": [
+    doc = {"instrument": {"arm": "fixture", "aligner": "fixture"},
+           "utterances": [
         {"text": "hello world", "start": 1.0, "end": 2.5,
          "words": [{"word": "hello", "start": 1.0, "end": 1.5,
                     "confidence": 0.9}]},
@@ -128,6 +129,8 @@ def test_utterance_observation_resolves_index_and_transcript_ids(
     assert rows[0]["interval"] == {"clock_id": "clock-abc123",
                                    "start": 1000, "end": 2500}
     assert rows[0]["modality"] == "speech"
+    assert rows[0]["payload"]["evidence_contract"]["method"] == (
+        '{"aligner":"fixture","arm":"fixture"}')
     # An empty utterance mints no Observation: honestly absent, never
     # an empty row a transcript segment could resolve to.
     assert not [o for o in builder.model["observations"]

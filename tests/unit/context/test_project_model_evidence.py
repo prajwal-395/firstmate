@@ -43,6 +43,7 @@ def _lane_docs(digest: str, faces: list[dict], voices: list[dict],
         },
         "transcript.words.json": {
             "content_digest": digest, "status": "transcribed",
+            "instrument": {"arm": "fixture", "aligner": "fixture"},
             "utterances": [{"words": [
                 {"start": 1.0, "end": 1.5, "text": "hello",
                  "confidence": 0.9}]}]},
@@ -135,6 +136,20 @@ def _seg_blob(object_id: str = "obj_9") -> dict:
     return doc
 
 
+def _write_m3e(memory: Path, digest: str, method: str) -> None:
+    source = memory / digest
+    (source / "frames").mkdir(parents=True, exist_ok=True)
+    _write(source / "frames.index.json", {
+        "content_digest": digest, "frames": [
+            {"t": 1.0, "file": "frames/0001.jpg"},
+            {"t": 2.0, "file": "frames/0002.jpg"}]})
+    _write(source / "saliency.json", {
+        "content_digest": digest, "status": "measured",
+        "samples": [{"t": 1.0, "boxes": []},
+                    {"t": 2.0, "boxes": None}],
+        "instrument": {"method": method}})
+
+
 @pytest.fixture()
 def fixture_project(tmp_path):
     project = tmp_path / "proj"
@@ -207,6 +222,10 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
     persons = [e for e in model["entities"] if e["kind"] == "person"]
     assert len(persons) == 3
     assert report["counts"]["observations"] > 0
+    word = next(o for o in model["observations"]
+                if o["modality"] == "speech_word")
+    assert word["payload"]["evidence_contract"]["measurement_type"] == (
+        "speech.word")
     assert report["counts"]["identity_links"] > 0
     assert report["counts"]["masks"] >= 3
     assert report["counts"]["tracks"] == 3
@@ -313,6 +332,61 @@ def test_sec_to_ticks_refuses_empty_intervals():
     assert evidence.sec_to_ticks(float("nan"), 2.0) is None
 
 
+def test_m3e_migrates_native_coverage_and_refuses_stale_method(
+        fixture_project):
+    from library.tools.attention_saliency import M3E_METHOD
+    from library.tools.person_measurements import M3_METHOD
+
+    fixture = fixture_project
+    memory = fixture["memory"]
+    _write_m3e(memory, D1, M3E_METHOD)
+    _write(memory / D1 / "persons.json", {
+        "content_digest": D1,
+        "instrument": {"method": M3_METHOD},
+        "frames": [{"t": 1.0, "faces": [], "hands": []},
+                    {"t": 2.0, "faces": [{"box": [0.1, 0.1, 0.3, 0.4]}],
+                     "hands": []}]})
+    model, report = _migrate(fixture)
+    face_frames = [o for o in model["observations"]
+                   if o["modality"] == "face_frame"]
+    assert len(face_frames) == 2
+    assert face_frames[0]["payload"]["evidence_contract"]["value"][
+        "face"] is None
+    assert face_frames[0]["payload"]["evidence_contract"]["coverage"] == (
+        "complete")
+    observations = [o for o in model["observations"]
+                    if o["modality"] == "saliency"]
+    assert len(observations) == 2
+    by_tick = {o["interval"]["start"]: o for o in observations}
+    evidence_contract = by_tick[1000]["payload"]["evidence_contract"]
+    assert evidence_contract["measurement_type"] == "image.salient_boxes"
+    assert evidence_contract["coverage"] == "complete"
+    assert evidence_contract["value"] == []
+    assert evidence_contract["freshness"] == "fresh"
+    assert by_tick[1000]["interval"] == {
+        "clock_id": f"clock-{D1}", "start": 1000, "end": 1001}
+    assert by_tick[2000]["payload"]["evidence_contract"]["coverage"] == (
+        "unavailable")
+    coverage = evidence.evidence_coverage(
+        str(fixture["project"]), model, report,
+        memory_root=str(memory))
+    assert coverage["lanes"][D1]["freshness"]["m3e"] == "fresh"
+    assert coverage["lanes"][D1]["freshness"]["m3"] == "fresh"
+    assert coverage["lanes"][D1]["native_migrated_observations"]["m3"] == 2
+    assert sum(coverage["lanes"][D1][
+        "native_migrated_observations"].values()) == 5
+
+    _write_m3e(memory, D1, "retired-attention-method")
+    stale_model, stale_report = _migrate(fixture)
+    assert not [o for o in stale_model["observations"]
+                if o["modality"] == "saliency"]
+    assert any("M3e stale" in note for note in stale_report["notes"])
+    stale_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_model, stale_report,
+        memory_root=str(memory))
+    assert stale_coverage["lanes"][D1]["freshness"]["m3e"] == "stale"
+
+
 def _model_with_editorial(model: dict, person_id: str) -> dict:
     model = json.loads(json.dumps(model))
     model["clocks"].extend([
@@ -403,6 +477,8 @@ def test_coverage_and_bridge_parity_dual_read(fixture_project):
                                               fixture_project["memory"]))
     assert coverage["lanes"][D1]["present"]["m9"] is True
     assert coverage["lanes"][D1]["migrated_observations"]["m1"] == 1
+    assert coverage["lanes"][D1]["native_migrated_observations"]["m1"] == 1
+    assert coverage["lanes"][D1]["legacy_only_migrated_observations"]["m4"] > 0
     assert coverage["counts"]["observations"] == len(
         stored["observations"])
     assert coverage["absent_identity"], "withheld links must be named"

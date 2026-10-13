@@ -194,6 +194,20 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "One measured face box, image-normalised top-left "
         "origin (M3/M3b). Resolution names the pixels measured.",
     },
+    "person.face_frame": {
+        "unit": "normalized",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "A face and hand sample from one M2 frame. "
+        "A null face value is a measured absence on that frame.",
+    },
+    "image.salient_boxes": {
+        "unit": "normalized",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Attention-saliency boxes measured on an M2 frame. "
+        "An empty list is a measured absence; unavailable samples carry no value.",
+    },
     "person.voice_turn": {
         "unit": "span",
         "kind": EvidenceType.MEASUREMENT,
@@ -659,7 +673,9 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "speech_word": "speech.word",
     "speech": "speech.utterance",
     "face": "person.face_box",
+    "face_frame": "person.face_frame",
     "voice_turn": "person.voice_turn",
+    "saliency": "image.salient_boxes",
 }
 
 
