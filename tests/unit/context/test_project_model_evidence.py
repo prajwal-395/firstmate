@@ -371,6 +371,20 @@ def test_migration_registers_each_m0_stream_and_technical_tables(
 
 
 def test_unmeasured_identity_stays_absent(fixture_project):
+    # Cross-source voice identity only activates for tracks with the
+    # measured minimum speech duration. These same-embedding tracks are
+    # face-linked to different persons, so the resulting conflict must
+    # remain a candidate link and preserve the face-backed contradiction.
+    for digest in (D1, D2):
+        identity_path = fixture_project["memory"] / digest / "identity.json"
+        identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
+        identity_doc["voices"][0]["spans"] = [[0.0, 22.0]]
+        _write(identity_path, identity_doc)
+        speakers_path = fixture_project["memory"] / digest / "speakers.json"
+        speakers_doc = json.loads(speakers_path.read_text(encoding="utf-8"))
+        speakers_doc["speakers"][0]["spans"] = [[0.0, 22.0]]
+        _write(speakers_path, speakers_doc)
+
     model, _report = _migrate(fixture_project)
 
     persons = {e["id"] for e in model["entities"] if e["kind"] == "person"}
@@ -386,6 +400,18 @@ def test_unmeasured_identity_stays_absent(fixture_project):
     # provenance, and no voice match bridges the two persons.
     assert not [link for link in model["identity_links"]
                 if link["method"] == "cross_source_voice_match"]
+    conflicts = [link for link in model["identity_links"]
+                 if link["method"] ==
+                 "cross_source_voice_match_candidate"]
+    assert len(conflicts) == 2
+    observations = {row["id"]: row for row in model["observations"]}
+    for link in conflicts:
+        assert link["status"] == "candidate"
+        assert len(link["supporting_observation_ids"]) == 2
+        assert link["contradicting_observation_ids"]
+        assert all(observations[obs_id]["modality"] == "face"
+                   for obs_id in link["contradicting_observation_ids"])
+        assert link["scope"]["start"] < link["scope"]["end"]
     for link in voice_obs_links:
         prov = next(o for o in model["observations"]
                     if o["id"] == link["observation_id"])["provenance_id"]
@@ -405,6 +431,47 @@ def test_unmeasured_identity_stays_absent(fixture_project):
                 if m["id"] == "mask-clip_001-obj_1")
     owner = next(e for e in model["entities"] if e["id"] == mask["entity_id"])
     assert owner["kind"] == "person"
+
+
+def test_same_looking_object_tracks_keep_separate_scoped_identity(fixture_project):
+    """Class and appearance are not object identity; tracker evidence is
+    scoped to its own track and never joins another same-looking instance."""
+    seg_path = (ProjectLayout(str(fixture_project["project"]))
+                .step_dir("object_segmentation")
+                / "clip_001_segmentation.json")
+    doc = json.loads(seg_path.read_text(encoding="utf-8"))
+    twin = _seg_subject("obj_2")
+    twin["label"] = "face_seeded_subject"
+    twin["category"] = "person"
+    doc["objects"].append(twin)
+    _write(seg_path, doc)
+
+    model, _report = _migrate(fixture_project)
+    same_class = {entity["id"] for entity in model["entities"]
+                  if entity["kind"] == "object"
+                  and entity["object_class_id"] == "class-person"}
+    assert {"object-clip_001-obj_1", "object-clip_001-obj_2",
+            "object-clip_002-obj_1"} <= same_class
+
+    continuity = [link for link in model["identity_links"]
+                  if link["method"] == "sam2_track_continuity"]
+    assert len(continuity) == 4
+    assert sum(row["modality"] == "object_track_sample"
+               for row in model["observations"]) == 16
+    by_entity = {link["entity_id"]: link for link in continuity}
+    assert set(by_entity) >= {"object-clip_001-obj_1",
+                              "object-clip_001-obj_2",
+                              "object-clip_002-obj_1"}
+    observations = {row["id"]: row for row in model["observations"]}
+    for entity_id in ("object-clip_001-obj_1", "object-clip_001-obj_2",
+                      "object-clip_002-obj_1"):
+        link = by_entity[entity_id]
+        assert link["observation_id"] in link["supporting_observation_ids"]
+        assert link["scope"]["clock_id"] == observations[
+            link["observation_id"]]["interval"]["clock_id"]
+        assert all(observations[obs_id]["payload"]["track_id"]
+                   == f"track-{entity_id.removeprefix('object-')}"
+                   for obs_id in link["supporting_observation_ids"])
 
 
 def test_verified_spans_carry_their_verdicts(fixture_project):

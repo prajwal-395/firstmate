@@ -94,6 +94,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #
 STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
+        # The temporal-index step is part of the cached dependency closure.
+        "library/tools/motion_evidence.py",
         # The executed measurement: the SAM 2 tracker the step segments
         # each triggered clip with.
         "library/tools/analysis/object_segmentation.py",
@@ -533,6 +535,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
+        # The temporal-index step is part of the cached dependency closure.
+        "library/tools/motion_evidence.py",
         # enumerate_footage produces raw_footage_files, the step's output.
         "library/tools/footage_identity.py",
         # Its declaration parsing: which directory counts as the footage
@@ -992,6 +996,10 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_02_catalog_footage": (
+        # Cache identity's dependency inventory includes each declared
+        # preflight implementation path; preserve coverage when that
+        # inventory names a newly added shared measurement module.
+        "library/tools/motion_evidence.py",
         # The exact-file probe cache changes the measurement reused for
         # unchanged footage, so changes here must invalidate catalog rows.
         "library/tools/file_measurements.py",
@@ -1459,6 +1467,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_03_semantic_analysis": (
+        # The temporal-index step is part of the cached dependency closure.
+        "library/tools/motion_evidence.py",
         # The executed measurement (D1: the usable-ranges gate lives here).
         "library/tools/analysis/vision_pipeline_v3.py",
         # The model run is serialized against other local heavy work.

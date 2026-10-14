@@ -26,8 +26,9 @@ Identity policy (fail-closed, never guessed):
   measured ``VOICE_MATCH_THRESHOLD`` to a voice already linked to that
   person (``person_entity.join_voices_across_sources``) - never by
   merging two persons.
-- Object instances stay per-clip: no cross-clip object re-identification
-  is measured, so no link is minted for one.
+- Object instances stay per-clip: MU-15's existing SAM 2 track samples
+  support continuity only within that track. No cross-clip object
+  re-identification is measured, so no cross-clip link is minted.
 - A face-seeded (1.06) subject mask reaches the roster Person only when
   exactly one roster person holds a face span covering the track's first
   sample; otherwise it stays on its per-clip object entity and the
@@ -325,9 +326,18 @@ class _Builder:
 
     def link(self, entity_id: str, observation_id: str, method: str,
              digest: str, lane: str, producer: str,
-             confidence: Any = None, status: str = "verified") -> str:
+             confidence: Any = None, status: str = "verified", *,
+             supporting_observation_ids: list[str] | None = None,
+             contradicting_observation_ids: list[str] | None = None,
+             scope: dict[str, Any] | None = None,
+             uncertainty: float | None = None) -> str:
         link_id = f"link-{entity_id}-{observation_id}-{method}"
-        self.model["identity_links"].append({
+        observation = next((row for row in self.model["observations"]
+                            if row["id"] == observation_id), None)
+        if observation is None:
+            raise ValueError(f"identity link anchor observation missing: {observation_id}")
+        interval = observation["interval"]
+        link = {
             "id": link_id,
             "entity_id": entity_id,
             "observation_id": observation_id,
@@ -335,7 +345,17 @@ class _Builder:
             "method": method,
             "status": status,
             "provenance_id": self.provenance(digest, lane, producer),
-        })
+            "supporting_observation_ids": (supporting_observation_ids
+                                           if supporting_observation_ids is not None
+                                           else [observation_id]),
+            "scope": scope or {"clock_id": interval["clock_id"],
+                                "start": interval["start"],
+                                "end": interval["end"]},
+            "uncertainty": uncertainty,
+        }
+        if contradicting_observation_ids:
+            link["contradicting_observation_ids"] = contradicting_observation_ids
+        self.model["identity_links"].append(link)
         return link_id
 
 
@@ -948,6 +968,115 @@ def _migrate_voice_matches(builder: _Builder, roster: list[dict]) -> None:
                     builder.link(person["person_id"], obs["id"],
                                  "cross_source_voice_match", digest, "m3b",
                                  "library.tools.person_entity")
+
+
+def _migrate_voice_match_conflicts(builder: _Builder,
+                                   conflicts: list[dict],
+                                   root: Path | None) -> None:
+    """Keep M3b's cross-source voice conflicts as candidate identity
+    links, with both matching voice observations as support and the
+    competing person's face observations as contradictions.
+
+    These links never merge people. They preserve the measured voice
+    similarity for review while making the face-backed disagreement
+    explicit in the canonical evidence graph.
+    """
+    voice_obs: dict[tuple[str, str], list[str]] = {}
+    digest_by_asset = {asset["id"]: asset["id"].removeprefix("asset-")
+                       for asset in builder.model["assets"]}
+    for observation in builder.model["observations"]:
+        if observation["modality"] != "voice_turn":
+            continue
+        digest = digest_by_asset[observation["asset_id"]]
+        track_id = str(observation["payload"].get("voice_track"))
+        voice_obs.setdefault((digest, track_id), []).append(observation["id"])
+
+    owner_by_voice: dict[tuple[str, str], set[str]] = {}
+    face_obs_by_person: dict[str, list[str]] = {}
+    observations = {row["id"]: row for row in builder.model["observations"]}
+    for link in builder.model["identity_links"]:
+        observation = observations[link["observation_id"]]
+        if link["method"] == "speech_face_cooccurrence":
+            digest = digest_by_asset[observation["asset_id"]]
+            track_id = str(observation["payload"].get("voice_track"))
+            owner_by_voice.setdefault((digest, track_id), set()).add(
+                link["entity_id"])
+        elif link["method"] == "face_embedding_cluster":
+            face_obs_by_person.setdefault(link["entity_id"], []).append(
+                observation["id"])
+
+    # The M3b roster reports conflicts only when a voice group also has
+    # an unlinked track. Reuse its measured matcher to retain conflicts
+    # where every matched voice is already attached to a face-backed
+    # person as well.
+    voices_by_digest: dict[str, list[dict]] = {}
+    for asset in builder.model["assets"]:
+        digest = digest_by_asset[asset["id"]]
+        identity = person_entity.read_identity(digest, root)
+        if not isinstance(identity, dict):
+            continue
+        eligible = []
+        for voice in identity.get("voices") or []:
+            if not isinstance(voice, dict):
+                continue
+            spans = voice.get("spans") or []
+            if sum(float(end) - float(start) for start, end in spans) \
+                    >= person_entity.VOICE_MATCH_MIN_SECONDS:
+                eligible.append(voice)
+        if eligible:
+            voices_by_digest[digest] = eligible
+    matches = person_entity.match_voices_across_sources(
+        voices_by_digest, person_entity.VOICE_MATCH_THRESHOLD)
+    for match in matches:
+        left_key = (match["source_a"], match["voice_a"])
+        right_key = (match["source_b"], match["voice_b"])
+        left_owners = owner_by_voice.get(left_key, set())
+        right_owners = owner_by_voice.get(right_key, set())
+        if left_owners and right_owners and left_owners != right_owners:
+            conflicts.append({
+                "voice_tracks": [
+                    {"content_digest": left_key[0],
+                     "voice_track": left_key[1]},
+                    {"content_digest": right_key[0],
+                     "voice_track": right_key[1]}],
+                "persons": sorted(left_owners | right_owners),
+            })
+
+    for conflict in conflicts:
+        tracks = [track for track in conflict.get("voice_tracks", [])
+                  if isinstance(track, dict)]
+        for left_index, left in enumerate(tracks):
+            left_key = (str(left.get("content_digest")),
+                        str(left.get("voice_track")))
+            left_obs = voice_obs.get(left_key, [])
+            for right in tracks[left_index + 1:]:
+                right_key = (str(right.get("content_digest")),
+                             str(right.get("voice_track")))
+                right_obs = voice_obs.get(right_key, [])
+                for left_owner in owner_by_voice.get(left_key, set()):
+                    for right_owner in owner_by_voice.get(right_key, set()):
+                        if left_owner == right_owner:
+                            continue
+                        for entity_id, candidate_obs, matched_obs, \
+                                contradicting_obs, digest in (
+                                (left_owner, right_obs, left_obs,
+                                 face_obs_by_person.get(right_owner, []),
+                                 right_key[0]),
+                                (right_owner, left_obs, right_obs,
+                                 face_obs_by_person.get(left_owner, []),
+                                 left_key[0])):
+                            if not candidate_obs or not matched_obs:
+                                continue
+                            builder.link(
+                                entity_id, candidate_obs[0],
+                                "cross_source_voice_match_candidate",
+                                digest, "m3b",
+                                "library.tools.person_entity",
+                                status="candidate",
+                                supporting_observation_ids=(
+                                    matched_obs + candidate_obs),
+                                contradicting_observation_ids=(
+                                    contradicting_obs))
 
 
 def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
@@ -1645,16 +1774,29 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         clock_id = _clock_id(digest)
         bboxes = obj.get("bboxes") or {}
         samples = []
+        sample_observation_ids = []
         for frame_idx in frames:
             box = bboxes.get(frame_idx, bboxes.get(str(frame_idx)))
             if box is None:
                 continue
-            tick = round(frame_idx / sample_fps * TICKS_PER_SECOND)
+            sample_time = frame_idx / sample_fps
+            tick = round(sample_time * TICKS_PER_SECOND)
             samples.append({"tick": tick,
                             "geometry": {"bbox_pixels": list(box)},
                             "confidence": None,
                             "coordinate_space":
                                 f"source_pixels_{width}x{height}"})
+            sample_observation_id = builder.observation(
+                digest, "segmentation", _asset_id(digest), clock_id,
+                sample_time, sample_time + period,
+                "object_track_sample",
+                {"track_id": f"track-{clip_id}-{object_id}",
+                 "object_id": object_id, "bbox_pixels": list(box),
+                 "coordinate_space": f"source_pixels_{width}x{height}",
+                 "seed": obj.get("seed"), "category": category},
+                None, "library.steps.step_1_06_object_segmentation")
+            if sample_observation_id is not None:
+                sample_observation_ids.append(sample_observation_id)
         if not samples:
             builder.dropped.append({"digest": digest, "lane": "segmentation",
                                     "clip_id": clip_id, "object": object_id,
@@ -1678,6 +1820,14 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                                     "clip_id": clip_id, "object": object_id,
                                     "reason": "non-positive-interval"})
             continue
+        if sample_observation_ids:
+            builder.link(
+                entity_id, sample_observation_ids[0], "sam2_track_continuity",
+                digest, "segmentation",
+                "library.steps.step_1_06_object_segmentation",
+                supporting_observation_ids=sample_observation_ids,
+                scope={"clock_id": clock_id,
+                       "start": ticks[0], "end": ticks[1]})
         mask_entity = entity_id
         if (obj.get("label") == FACE_SEED_LABEL
                 and category == FACE_SEED_CATEGORY):
@@ -2289,8 +2439,8 @@ def migrate_project_evidence(project_folder: str, *,
     if not isinstance(catalog, list):
         catalog = []
     recorded = source_memory.load_recorded_fingerprints(project_folder)
-    roster = person_entity.resolve_person_tracks(
-        project_folder, root)["persons"]
+    roster_result = person_entity.resolve_person_tracks(project_folder, root)
+    roster = roster_result["persons"]
     for person in roster:
         builder.model["entities"].append({
             "id": person["person_id"],
@@ -2340,6 +2490,8 @@ def migrate_project_evidence(project_folder: str, *,
     for digest in seen:
         _migrate_speech_face_links(builder, digest, roster, root)
     _migrate_voice_matches(builder, roster)
+    _migrate_voice_match_conflicts(
+        builder, roster_result.get("voice_match_conflicts") or [], root)
     for clip_id, digest in clip_digest.items():
         _migrate_segmentation(builder, project_folder, clip_id, digest,
                               roster, root)
