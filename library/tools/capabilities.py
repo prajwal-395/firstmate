@@ -111,6 +111,9 @@ UNCAPABLE_LOCK_SITES: dict = {
         "`select_reels`/`judge_reels` read when no Resolve cut's is on file "
         "- input gathering (`run_pipeline.gather_step_inputs`), not a "
         "registered capability's execution",
+    "library.tools.query_directed_acquisition:execute_query_acquisition":
+        "query-directed evidence refinement is an on-demand evidence-query "
+        "service, not a pipeline capability execution",
 }
 
 @dataclass(frozen=True)

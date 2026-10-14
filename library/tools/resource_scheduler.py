@@ -161,6 +161,14 @@ def profiles() -> Dict[str, Dict[str, int]]:
             "ram_gb": min(8, cap["ram_gb"]),
             "disk": 2,
         },
+        # VI-12 targeted evidence refinement may admit one bounded model /
+        # decode pass while leaving capacity for the rest of the machine.
+        "query_refinement": {
+            "cpu": min(4, cap["cpu"]),
+            "ram_gb": min(8, cap["ram_gb"]),
+            "disk": 1,
+            **({"gpu": 1} if cap.get("gpu", 0) else {}),
+        },
         # `ren preview` (module docstring): a bounded engine render plus
         # one proxy encode, serialised against every other GPU tenant.
         "reel_preview": {
