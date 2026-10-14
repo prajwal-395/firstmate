@@ -320,3 +320,30 @@ def test_a_row_with_no_verdict_is_not_read_as_clean():
     """An absent judgement is not a judgement of fine."""
     read = qa.read_qa_report([{"metric": "lufs", "detail": "no verdict"}])
     assert read.findings[0].verdict == qa.FAILING
+
+
+def test_edit_verifications_are_evidence_linked_and_unknown_never_reads_as_pass():
+    measurements = [
+        {"metric": metric, "passed": True, "severity": "info",
+         "value": 1, "detail": "measured", "evidence_ids": [f"e:{metric}"]}
+        for metric in ("speech_above_bed", "black_frames", "frame_occupancy",
+                       "caption_obscuring", "graphics_render")
+    ]
+    rows = qa.edit_verification_rows(measurements)
+    assert all(row["metric"] == "edit_verification" for row in rows)
+    assert [row["category"] for row in rows] == [
+        "speech", "coverage", "sync", "visual_conflict", "continuity", "graphics"]
+    assert [row["status"] for row in rows] == [
+        "pass", "pass", "unmeasurable", "pass", "unmeasurable", "pass"]
+    assert rows[0]["evidence_ids"] == ["e:speech_above_bed"]
+    missed = [dict(row, severity=("warning" if row["metric"] == "graphics_render"
+                                 else row["severity"]))
+              for row in measurements]
+    assert qa.edit_verification_rows(missed)[-1]["status"] == "fail"
+    parsed = qa.read_qa_report(measurements + rows)
+    assert parsed.edit_verifications == [
+        {key: row[key] for key in ("category", "status", "evidence_ids", "reason")}
+        for row in rows]
+    summary = "\n".join(qa.summary_lines(parsed))
+    assert "edit sync: unmeasurable" in summary
+    assert "edit continuity: unmeasurable" in summary

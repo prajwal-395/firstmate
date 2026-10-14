@@ -20,6 +20,7 @@ Input:  { "rendered_output": {...}, "assembly_manifest": {...} }
 Output: { "validation_result": { status, checks, ... } }
 """
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -1038,13 +1039,19 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     
     for r in qa_results:
         # Convert dataclass to dict
+        evidence_id = ("render-qa:" + hashlib.sha256(
+            json.dumps([r.metric, r.value, r.threshold, r.detail], sort_keys=True,
+                       default=str, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()[:20]) if r.value is not None else None
+        r.evidence_ids = [evidence_id] if evidence_id else []
         r_dict = {
             "metric": r.metric,
             "passed": r.passed,
             "value": r.value,
             "threshold": r.threshold,
             "severity": r.severity,
-            "detail": r.detail
+            "detail": r.detail,
+            "evidence_ids": list(r.evidence_ids),
         }
         qa_report.append(r_dict)
         
@@ -1157,6 +1164,11 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
         checks.get(k, {}).get("pass", False)
         for k in ["file_exists", "technical", "framing", "black_frames"]
     )
+
+    # FI-21: every edit-critical dimension is explicit. Missing or
+    # unsupported measurements remain unmeasurable with a reason.
+    from library.tools.qa_findings import edit_verification_rows
+    qa_report.extend(edit_verification_rows(qa_report))
 
     all_issues = []
     for name, check in checks.items():

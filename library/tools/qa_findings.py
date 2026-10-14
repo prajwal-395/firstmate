@@ -361,6 +361,7 @@ class Finding:
     detail: str
     value: Any = None
     threshold: Any = None
+    evidence_ids: List[str] = field(default_factory=list)
 
     @property
     def verdict(self) -> str:
@@ -397,6 +398,7 @@ class Finding:
             "verdict": self.verdict,
             "owned_by": reader.owner if reader else "",
             "detail": self.detail,
+            "evidence_ids": list(self.evidence_ids),
         }
 
     def reading(self) -> str:
@@ -427,6 +429,7 @@ class QAFindings:
     findings: List[Finding] = field(default_factory=list)
     source: str = SOURCE_NONE
     source_detail: str = "no render QA has been recorded for this project"
+    edit_verifications: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def unrouted(self) -> List[Finding]:
@@ -456,7 +459,7 @@ class QAFindings:
                       key=_sort_key)
 
     def __bool__(self) -> bool:
-        return bool(self.findings)
+        return bool(self.findings or self.edit_verifications)
 
     def counts(self) -> Dict[str, int]:
         return {
@@ -479,8 +482,18 @@ def read_qa_report(rows: Optional[Sequence[Mapping[str, Any]]],
     absent judgement of one.
     """
     findings: List[Finding] = []
+    verifications: List[Dict[str, Any]] = []
     for row in rows or []:
         if not isinstance(row, Mapping):
+            continue
+        if row.get("record_type") == "edit_verification":
+            verifications.append({
+                "category": str(row.get("category", "")),
+                "status": (row.get("status") if row.get("status") in
+                           {"pass", "fail", "unmeasurable"} else "unmeasurable"),
+                "evidence_ids": list(row.get("evidence_ids") or []),
+                "reason": str(row.get("reason", "")),
+            })
             continue
         metric = str(row.get("metric", "")) or "(unnamed)"
         severity = str(row.get("severity", "")) or "info"
@@ -491,11 +504,53 @@ def read_qa_report(rows: Optional[Sequence[Mapping[str, Any]]],
             detail=str(row.get("detail", "")),
             value=row.get("value"),
             threshold=row.get("threshold"),
+            evidence_ids=list(row.get("evidence_ids") or []),
         ))
-    if not findings:
+    if not findings and not verifications:
         return QAFindings()
     return QAFindings(findings=findings, source=source,
-                      source_detail=source_detail or source)
+                      source_detail=source_detail or source,
+                      edit_verifications=verifications)
+
+
+EDIT_VERIFICATION_EVIDENCE = {
+    "speech": ("speech_above_bed",),
+    "coverage": ("black_frames", "frame_occupancy"),
+    "sync": (),
+    "visual_conflict": ("caption_obscuring",),
+    "continuity": (),
+    "graphics": ("graphics_render",),
+}
+
+
+def edit_verification_rows(findings: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Build explicit, evidence-linked edit checks; missing measures stay unknown."""
+    by_metric = {str(row["metric"]): row for row in findings
+                 if isinstance(row, Mapping) and row.get("metric")}
+    records = []
+    for category, metrics in EDIT_VERIFICATION_EVIDENCE.items():
+        present = [by_metric[metric] for metric in metrics if metric in by_metric]
+        missing = [metric for metric in metrics if metric not in by_metric]
+        evidence_ids = [evidence_id for row in present
+                        for evidence_id in row.get("evidence_ids", [])]
+        if not present or missing or not evidence_ids:
+            status = "unmeasurable"
+            reason = ("No direct render measurement is available" if not present
+                      else "Required measurements or evidence IDs are missing")
+        else:
+            # Report-only render checks keep `passed=True` by contract;
+            # their non-info severity is the recorded measured miss.
+            status = ("fail" if any(row.get("passed") is not True
+                                    or row.get("severity", "info") != "info"
+                                    for row in present) else "pass")
+            reason = "Measured by: " + ", ".join(row["metric"] for row in present)
+        records.append({"record_type": "edit_verification",
+                        # Keep the historical qa_report row contract: downstream
+                        # readers index metric directly even for extension rows.
+                        "metric": "edit_verification", "category": category,
+                        "status": status, "evidence_ids": evidence_ids,
+                        "reason": reason})
+    return records
 
 
 def load_findings(project_folder: str = "",
@@ -568,6 +623,11 @@ def summary_lines(qa: QAFindings) -> List[str]:
              f"{counts[FAILING]} failing, {counts[ADVISORY]} advisory, "
              f"{counts[CLEAN]} clean"]
     lines.append(f"      source: {qa.source_detail}")
+    for verification in qa.edit_verifications:
+        refs = ", ".join(verification["evidence_ids"]) or "none"
+        lines.append(f"      edit {verification['category']}: "
+                     f"{verification['status']} (evidence: {refs}; "
+                     f"{verification['reason']})")
 
     unrouted = qa.unrouted
     if unrouted:
@@ -617,6 +677,7 @@ def findings_for_review(qa: QAFindings) -> Dict[str, Any]:
         "counts": qa.counts(),
         "unrouted_metrics": [f.metric for f in qa.unrouted],
         "findings": [f.as_dict() for f in ordered],
+        "edit_verifications": qa.edit_verifications,
         # Keyed rather than a sixth column: the reading is a constant per
         # metric, so a column repeats it on every clean row for nothing,
         # and a blank cell there would read as an absent measurement

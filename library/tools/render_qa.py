@@ -133,7 +133,7 @@ import os
 import statistics
 import tempfile
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterator, List, NamedTuple, Optional, Sequence
 
 try:
@@ -179,6 +179,7 @@ class RenderQAResult:
     threshold: Any  # pass/fail threshold
     severity: str  # "error", "warning", "info"
     detail: str
+    evidence_ids: List[str] = field(default_factory=list)
 
 # ── P4: deliverable at platform loudness, without clipping ──
 #
