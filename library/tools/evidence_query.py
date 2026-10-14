@@ -20,14 +20,17 @@ is ``confidently_absent``; a lane that never ran is
 filter keeps its semantics unchanged, and parity tests pin that. VLM
 facets (framing, camera mode, stability labels) have no evidence
 equivalent and are refused at compile time rather than mapped onto
-measurements. Cross-clock joins are refused (VI-02 owns the transform
-graph). Interpretations and evaluations are never query evidence: a
+measurements. Synchronized cross-clock joins are refused (VI-02 owns
+the transform graph); independent mode returns per-observation results
+without comparing their clock ticks. Interpretations and evaluations are never query evidence: a
 result is carried by measurements, never by taste or a verdict.
 
 **Time.** Source seconds on the way in and out; model intervals are
 millisecond ticks on their own clock, converted without rounding the
 evidence (ticks are integers already). Joins intersect half-open
-``[start, end)`` tick ranges within ONE clock only.
+``[start, end)`` tick ranges within ONE clock only. ``join_mode`` defaults
+to ``synchronized``; ``independent`` answers each predicate observation
+separately and supports results from multiple source clocks.
 
 **Reads.** The model dict only, plus an optional ``lane_presence``
 hook ``{(digest, lane): {"present": bool, "freshness": str}}`` that
@@ -210,7 +213,8 @@ def _producer_version_of(model: dict[str, Any],
 
 def compile_plan(predicates: list[dict[str, Any]], *,
                  scope: dict[str, Any] | None = None,
-                 level: str | None = None) -> dict[str, Any]:
+                 level: str | None = None,
+                 join_mode: str = "synchronized") -> dict[str, Any]:
     """Compile typed predicates into a query plan, or raise.
 
     A predicate is ``{"predicate": "measurement", "measurement_type",
@@ -248,11 +252,14 @@ def compile_plan(predicates: list[dict[str, Any]], *,
         if ("start_s" in plan_scope and "end_s" in plan_scope
                 and plan_scope["end_s"] <= plan_scope["start_s"]):
             raise EvidenceQueryError("scope end_s must follow start_s")
+    if join_mode not in ("synchronized", "independent"):
+        raise EvidenceQueryError(
+            "join_mode must be 'synchronized' or 'independent'")
     compiled = [_compile_predicate(predicate) for predicate in predicates]
     lanes = sorted({lane for lane in
                     (_required_lane(p) for p in compiled) if lane})
     return {"predicates": compiled, "required_lanes": lanes,
-            "scope": plan_scope, "level": level}
+            "scope": plan_scope, "level": level, "join_mode": join_mode}
 
 
 def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
@@ -585,7 +592,8 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                      for compiled in plan["predicates"]]
     clocks = sorted({match["clock_id"] for matches in per_predicate
                      for match in matches})
-    if len(clocks) > 1:
+    join_mode = plan.get("join_mode", "synchronized")
+    if len(clocks) > 1 and join_mode == "synchronized":
         return {"status": INCONCLUSIVE, "results": [],
                 "completeness_basis": [],
                 "required_missing_lanes": sorted(set(
@@ -593,11 +601,15 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                 "reasons": [(f"predicates span clocks {clocks}: interval "
                              f"joins need one clock, and cross-clock "
                              f"transforms belong to VI-02, not this query")]}
-    joined = _intersect(per_predicate) if all(per_predicate) else []
+    if join_mode == "independent":
+        joined = [(match["start"], match["end"], [match])
+                  for matches in per_predicate for match in matches]
+    else:
+        joined = _intersect(per_predicate) if all(per_predicate) else []
     fresh_results: list[dict[str, Any]] = []
     stale_dropped = 0
     for lo, hi, contributors in joined:
-        if all(match["freshness"] == "stale" for match in contributors):
+        if any(match["freshness"] == "stale" for match in contributors):
             stale_dropped += 1
             continue
         clock_id = contributors[0]["clock_id"]
@@ -619,8 +631,8 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
         })
     reasons: list[str] = []
     if stale_dropped:
-        reasons.append(f"{stale_dropped} joined interval(s) rest on stale "
-                       f"evidence only and carry no answer")
+        reasons.append(f"{stale_dropped} joined interval(s) include stale "
+                       f"required evidence and carry no answer")
     if fresh_results:
         return {"status": PRESENT, "results": fresh_results,
                 "completeness_basis": _basis_for(
@@ -778,9 +790,14 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
         required = _required_lane(compiled)
         if required is None or required in states:
             continue
-        records = lane_records.get(required, [])
+        records = [obs for obs in lane_records.get(required, [])
+                   if (not scope.get("asset_id")
+                       or obs.get("asset_id") == scope["asset_id"])
+                   and (not scope.get("clock_id")
+                        or _observation_clock(obs) == scope["clock_id"])]
         fresh = [obs for obs in records if _freshness_of(obs) == "fresh"]
-        if any(_covers_scope(obs, scope) for obs in fresh):
+        if any(_record_answers_predicate(obs, compiled)
+               and _covers_scope(obs, scope) for obs in fresh):
             states[required] = "covers_absent"
             continue
         if fresh:
@@ -798,6 +815,24 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
         else:
             states[required] = "missing"
     return states
+
+
+def _record_answers_predicate(obs: dict[str, Any],
+                              compiled: dict[str, Any]) -> bool:
+    """Keep lane completeness evidence scoped to the requested measurement."""
+    if compiled["predicate"] == "measurement":
+        return _record_kind(obs) == compiled["measurement_type"]
+    payload = obs.get("payload") or {}
+    if compiled["event"] in MEASURED_EVENTS:
+        return (obs.get("modality") == "event_span"
+                and payload.get("predicate") == compiled["event"])
+    return (obs.get("modality") == "event_candidate"
+            and payload.get("predicate") == compiled["event"])
+
+
+def _observation_clock(obs: dict[str, Any]) -> str | None:
+    ticks = _observation_interval(obs)
+    return ticks[0] if ticks is not None else None
 
 
 def _covers_scope(obs: dict[str, Any], scope: dict[str, Any]) -> bool:

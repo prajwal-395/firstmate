@@ -126,6 +126,25 @@ def test_measured_absence_is_confidently_absent():
                for basis in answer["completeness_basis"])
 
 
+def test_absence_from_another_asset_in_same_lane_is_not_confident():
+    plan = evidence_query.compile_plan(
+        [{"predicate": "event_span", "event": "speaking"}],
+        scope={"asset_id": f"asset-{D1}"})
+    answer = evidence_query.evidence_for(_silent_model(), plan)
+    assert answer["status"] != CONFIDENTLY_ABSENT
+
+
+def test_absence_marker_for_another_predicate_is_not_confident():
+    model = _model(_obs(
+        "obs-absence-other-predicate", "event_span",
+        {"predicate": "speaking", "spans": []}, digest=D1,
+        native=_native("event.speaking_span", [], digest=D1, lane="m7",
+                       samples=0)))
+    plan = evidence_query.compile_plan(
+        [{"predicate": "event_span", "event": "pointing"}])
+    assert evidence_query.evidence_for(model, plan)["status"] != CONFIDENTLY_ABSENT
+
+
 def test_lane_that_never_ran_is_not_yet_analysed():
     answer = evidence_query.evidence_for(_model(), _speaking_plan())
     assert answer["status"] == NOT_YET_ANALYSED
@@ -290,6 +309,42 @@ def test_cross_clock_join_is_refused():
     assert answer["status"] == INCONCLUSIVE
     assert answer["results"] == []
     assert any("clock" in reason for reason in answer["reasons"])
+
+
+def test_independent_results_can_span_clocks():
+    model = _model(
+        _obs("obs-a", "event_span",
+             {"predicate": "speaking", "voice_track": "v1"},
+             digest=D1, start_s=1, end_s=2,
+             native=_native("event.speaking_span", {"predicate": "speaking"},
+                            digest=D1, lane="m7", start_tick=1000,
+                            end_tick=2000)),
+        _obs("obs-b", "event_span",
+             {"predicate": "speaking", "voice_track": "v2"},
+             digest=D2, start_s=3, end_s=4,
+             native=_native("event.speaking_span", {"predicate": "speaking"},
+                            digest=D2, lane="m7", start_tick=3000,
+                            end_tick=4000)))
+    plan = evidence_query.compile_plan(
+        [{"predicate": "event_span", "event": "speaking"}],
+        join_mode="independent")
+    answer = evidence_query.evidence_for(model, plan)
+    assert answer["status"] == PRESENT
+    assert {row["interval"]["clock_id"] for row in answer["results"]} == {
+        f"clock-{D1}", f"clock-{D2}"}
+
+
+def test_any_stale_required_join_contributor_blocks_present():
+    model = _sound_model()
+    next(obs for obs in model["observations"]
+         if obs["id"] == "obs-sound-1")["payload"]["evidence_contract"][
+             "freshness"] = "stale"
+    plan = evidence_query.compile_plan([
+        {"predicate": "event_span", "event": "speaking"},
+        {"predicate": "measurement",
+         "measurement_type": "audio.sound_event"}])
+    answer = evidence_query.evidence_for(model, plan)
+    assert answer["status"] != PRESENT
 
 
 def test_windowed_scope_clips_and_keeps_measured_absence():
