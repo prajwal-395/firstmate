@@ -14,7 +14,7 @@ import pytest
 
 from library.tools import filmcraft_patches
 
-REVISION = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1"
+REVISION = "cee1feb185e675a108f78067f71ad86a640ace3d"
 
 
 def _write(directory: Path, name: str, text: str) -> Path:

@@ -46,8 +46,8 @@ from library.tools import filmcraft_preconform as fcp
 from library.tools.native_overlay_media import prepare_projection
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
-FILMCRAFT_REVISION = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1"
-FILMCRAFT_VERSION = "0.6.0"
+FILMCRAFT_REVISION = "cee1feb185e675a108f78067f71ad86a640ace3d"
+FILMCRAFT_VERSION = "0.7.2"
 EFFECTCRAFT_REVISION = "549e9d825132986d6167c1432cd3328efcbb0278"
 EFFECTCRAFT_VERSION = "0.9.2"
 

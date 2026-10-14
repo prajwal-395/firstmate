@@ -260,6 +260,73 @@ read-only capability check; Ren integration is not part of this intake.
 Promoted the pin to `549e9d825132986d6167c1432cd3328efcbb0278`, CLI version
 0.9.2, in the Rust driver, manifest and project-model adapters; updated the
 adapter fixtures and `THIRD_PARTY_NOTICES` accordingly.
+## Intake record: 2026-10-14 FilmCraft `0800a8b` -> `cee1feb`
+
+Upstream `main` was resolved at the start and rechecked before promotion:
+`cee1feb185e675a108f78067f71ad86a640ace3d` (release `0.7.2`). The
+[v0.7.2 release notes](https://github.com/storytold/filmcraft/releases/tag/v0.7.2)
+and candidate code confirm the changes below.
+
+Gate (candidate on the captain's M5 Pro):
+
+- `cargo build --release -p filmcraft-cli -j4`: clean in 152.620 s;
+  `--version` prints `filmcraft-cli 0.7.2`.
+- `cargo test --release -p filmcraft-interchange -j4`: 78 passed, 0 failed.
+  `cargo test --release -p filmcraft-golden -j4`: 33 passed, 0 failed.
+- Patch replay: `001-sequential-batch-render.patch` applied cleanly at the
+  candidate.
+- The committed corpus (`2026-10-10.1`) passed independently at the old pin
+  and candidate. All five still frames were pixel-identical pin-to-candidate
+  (max channel delta 0); the stereo WAV was byte-identical, with 2 channels,
+  1.001 s duration and -0.001 dB level at each pin. `filmcraft-edit-50` was
+  0.685 s / 103.5 MB at the old pin and 0.678 s / 102.6 MB at the candidate
+  (candidate ratio 0.99 for both wall time and RSS). Total corpus time was
+  3.009 s / 2.873 s respectively. No fidelity or performance finding.
+- Adapter suites against the candidate CLI (`REN_FILMCRAFT_CLI`): 76 unit,
+  24 `adapter_qualification`, 3 `mono_to_dual` and 6 `pinned_cli` tests
+  passed, 0 failed. `ren qualification pm-e2e --no-resolve` also passed,
+  including all five named failure injections.
+- Dependency closure measured with
+  `cargo tree -p filmcraft-cli --target aarch64-apple-darwin --prefix none`:
+  211 unique name/version packages, all with license metadata. No UI crate,
+  GPL/AGPL/LGPL-only, noncommercial or proprietary dependency; symphonia x13
+  is MPL-2.0 (weak file-scoped copyleft, used under its notice terms).
+
+The adapter exposed one candidate response addition: `file.exportMedia` now
+returns `offlineMedia`. Ren accepts an absent or empty array and refuses a
+nonempty one because FilmCraft has rendered placeholder frames for those
+items. The adapter re-run passed after this fail-closed compatibility change.
+
+Plan section 5 findings and the Ren paths they affect:
+
+- Landed: the clean-room DNG/CinemaDNG decoder and folder import (PR #1068),
+  HEVC in-place motion compensation/deblocking (#1039), AV1 row-band
+  postfilters (#847), HDR/wide-gamut playback and signalled H.264/HEVC colour
+  primaries (#965/#924), AAC channel reporting/order (#922/#721), gapless
+  codec-delay/MP3 encoder-delay trimming (#790/#1137), loudness preservation
+  after peak limiting (#952), and timeline grid/tick precision (#1139/#1303).
+- Decoder, colour, audio and frame/tick fixes can affect Ren's FilmCraft
+  `file.import`, edit, preview and export path. The primary production
+  timeline builder still targets Resolve. The corpus exercises SDR stills,
+  stereo WAV and edit operations; it does not measure HDR, compressed audio,
+  or multichannel decode. Ren sets `gpuRendering:off` for export.
+- Ren recognizes `.dng` as camera RAW but deliberately does not probe it in
+  preflight because that path uses ffprobe, so the new decoder is not reached
+  by ordinary footage analysis. No DNG files are present in the repository's
+  fixtures/assets; no captain project media was scanned. No CinemaDNG work or
+  benchmark was done.
+- Scene Edit Detection is exposed from the desktop timeline context menu,
+  not the headless adapter. New export formats such as FLAC and 32-bit audio
+  are not in Ren's `ExportFormat` operation. Those changes do not alter the
+  current Ren path.
+
+Pin moved in every Ren mirror: `FILMCRAFT_REVISION` and
+`FILMCRAFT_CLI_VERSION` in `native/ren-filmcraft/src/lib.rs`,
+`qualified_sha`/`last_seen_upstream_sha` in
+`library/tools/upstream_engines.json`, `FILMCRAFT_REVISION`/
+`FILMCRAFT_VERSION` in `library/tools/project_model_qualification.py` and
+`library/tools/project_model_cli.py`, and the version, revision and measured
+dependency closure in `THIRD_PARTY_NOTICES`. Project schema remains 15.
 
 ## Qualification gate
 

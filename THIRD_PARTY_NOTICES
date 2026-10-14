@@ -567,9 +567,9 @@ hash-verified: no (pinned npm release; npm transport)
 
 component-id : engine.filmcraft_cli
 edition      : public
-component   : FilmCraft headless CLI 0.6.0; Ren's adapter does not
+component   : FilmCraft headless CLI 0.7.2; Ren's adapter does not
               package or invoke the desktop application.
-pin         : 0800a8b0aa4a703ba42172f415b45a61f8d8a5e1
+pin         : cee1feb185e675a108f78067f71ad86a640ace3d
               (native/ren-filmcraft/src/lib.rs)
 source      : https://github.com/storytold/filmcraft
 license     : MIT OR Apache-2.0
@@ -582,20 +582,20 @@ hash-verified: yes (cargo install pins the immutable revision; the
               patch set is replayed from the Ren tree and keyed into
               the cache directory)
 note        : Cargo.lock at the pinned source revision identifies its
-              transitive Rust dependencies. Measured 2026-10-11 over
-              `cargo tree -p filmcraft-cli` at the pinned revision
-              (267 unique packages): all upstream workspace crates MIT OR
-              Apache-2.0 (including the new filmcraft-tts/narration
-              crates; the whisper/download features stay off, so no
-              model is downloaded or bundled); registry crates
-              MIT/Apache-2.0/BSD/Zlib/Unlicense/0BSD/Unicode-3.0/ISC
-              plus symphonia x16 MPL-2.0 (weak file-scoped copyleft,
-              reached through filmcraft-codecs audio decode; commercial
-              use with notice). No GPL/AGPL/LGPL-only, noncommercial or
-              proprietary dependency. No desktop UI crate in the CLI
-              closure (no filmcraft-ui-egui, egui, eframe, winit, rfd,
-              cpal, muda); objc2-* entries are Apple media platform
-              bindings (CoreMedia/VideoToolbox/Metal), not desktop UI.
+              transitive Rust dependencies. Measured 2026-10-14 over
+              `cargo tree -p filmcraft-cli --target aarch64-apple-darwin
+              --prefix none` at the pinned revision (211 unique
+              name/version packages): all upstream workspace crates MIT OR
+              Apache-2.0; registry crates MIT/Apache-2.0/BSD/Zlib/
+              Unlicense/0BSD/Unicode-3.0/ISC plus symphonia x13 MPL-2.0
+              (weak file-scoped copyleft, reached through
+              filmcraft-codecs audio decode; commercial use with notice).
+              Every package had license metadata. No GPL/AGPL/LGPL-only,
+              noncommercial or proprietary dependency. No desktop UI crate
+              in the CLI closure (no filmcraft-ui-egui, egui, eframe,
+              winit, rfd, cpal, muda); objc2-* entries are Apple media
+              platform bindings (CoreMedia/VideoToolbox/Metal), not desktop
+              UI.
               The headless binary embeds the upstream OFL-1.1 fonts
               (Inter x5, JetBrainsMono-Regular, NotoSerif-Regular via
               include_bytes in crates/text); CRAFT_FONTS is empty

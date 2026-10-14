@@ -18,8 +18,8 @@ use thiserror::Error;
 pub const FILMCRAFT_REPOSITORY: &str = "https://github.com/storytold/filmcraft.git";
 /// Mirrored by library/tools/upstream_engines.json; the upstream intake refuses
 /// promotion when the manifest drifts from this constant. Keep this as the sole pin source.
-pub const FILMCRAFT_REVISION: &str = "0800a8b0aa4a703ba42172f415b45a61f8d8a5e1";
-pub const FILMCRAFT_CLI_VERSION: &str = "0.6.0";
+pub const FILMCRAFT_REVISION: &str = "cee1feb185e675a108f78067f71ad86a640ace3d";
+pub const FILMCRAFT_CLI_VERSION: &str = "0.7.2";
 pub const FILMCRAFT_PROJECT_FORMAT: &str = "filmcraft.project";
 pub const FILMCRAFT_PROJECT_SCHEMA: u32 = 15;
 pub const ADAPTER_SCHEMA: u32 = 1;
@@ -1796,7 +1796,7 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
             "strips",
         ],
         "sequence.settings" => &["scaledClips"],
-        "file.exportMedia" => &["job", "path", "preset", "result"],
+        "file.exportMedia" => &["job", "path", "preset", "result", "offlineMedia"],
         "sequence.inspect" => &[
             "id",
             "name",
@@ -1840,6 +1840,23 @@ pub fn validate_response_contract(command: &str, value: &Value) -> Result<()> {
             command: command.into(),
             detail: format!("unknown response field `{key}`"),
         });
+    }
+    if command == "file.exportMedia" {
+        if let Some(offline) = object.get("offlineMedia") {
+            let items = offline.as_array().ok_or_else(|| Error::UnknownResponse {
+                command: command.into(),
+                detail: "`offlineMedia` must be an array".into(),
+            })?;
+            if !items.is_empty() {
+                return Err(Error::Command {
+                    command: command.into(),
+                    detail: format!(
+                        "refusing export with {} offline media item(s); FilmCraft rendered placeholders",
+                        items.len()
+                    ),
+                });
+            }
+        }
     }
     let required: &[&str] = match command {
         "file.newSequence" => &["sequence"],
@@ -2302,6 +2319,31 @@ mod tests {
         let losses = detect_move_loss(&dirty).unwrap();
         assert_eq!(losses.len(), 1);
         assert_eq!(losses[0].code, "move_overwrote");
+    }
+
+    #[test]
+    fn export_reports_offline_media_and_refuses_placeholder_frames() {
+        let base = json!({"job": 1, "path": "out.mp4"});
+        assert!(validate_response_contract("file.exportMedia", &base).is_ok());
+
+        let empty = json!({"job": 1, "path": "out.mp4", "offlineMedia": []});
+        assert!(validate_response_contract("file.exportMedia", &empty).is_ok());
+
+        let offline = json!({
+            "job": 1,
+            "path": "out.mp4",
+            "offlineMedia": [{"item": 7, "status": "missing"}]
+        });
+        assert!(matches!(
+            validate_response_contract("file.exportMedia", &offline),
+            Err(Error::Command { .. })
+        ));
+
+        let malformed = json!({"job": 1, "path": "out.mp4", "offlineMedia": {}});
+        assert!(matches!(
+            validate_response_contract("file.exportMedia", &malformed),
+            Err(Error::UnknownResponse { .. })
+        ));
     }
 
     #[test]
