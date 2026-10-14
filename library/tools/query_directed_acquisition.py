@@ -9,22 +9,21 @@ measured cost and peak RSS in the returned mapping.
 
 from __future__ import annotations
 
-import math
-import hashlib
 import fcntl
+import hashlib
+import math
 import time
-from contextlib import contextmanager
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
 
+from library.tools import source_memory
 from library.tools.evidence_query import (
     CONFIDENTLY_ABSENT,
     NOT_YET_ANALYSED,
     PRESENT,
 )
 from library.tools.heavy_work_lock import heavy_work_lock
-from library.tools import source_memory
 
 SCHEMA_VERSION = 1
 DEFAULT_RSS_CEILING_GB = 8.0
@@ -63,6 +62,8 @@ def plan_query_acquisition(
     resolvable_ambiguities: Sequence[Mapping[str, Any]] = (),
     available_lanes: Sequence[str] | None = None,
     producer_budgets: Mapping[str, float] | None = None,
+    window_seconds_by_lane: Mapping[str, float] | None = None,
+    producer_cost_per_window_seconds: Mapping[str, float] | None = None,
     max_cost_seconds: float | None = None,
     max_peak_rss_gb: float = DEFAULT_RSS_CEILING_GB,
 ) -> dict[str, Any]:
@@ -130,9 +131,26 @@ def plan_query_acquisition(
             return _no_run(f"producer budget is not declared for lane {lane}",
                            status)
         lane_budget = _finite_nonnegative(budgets[lane], f"{lane} producer budget")
-        for window in _merge(intervals[lane]):
-            cost_budget = lane_budget * (
-                (window["end_s"] - window["start_s"]) / duration)
+        lane_windows = _merge(intervals[lane])
+        window_size = (window_seconds_by_lane or {}).get(lane)
+        if window_size is not None:
+            window_size = _finite_nonnegative(window_size, f"{lane} window size")
+            if window_size <= 0:
+                raise ValueError(f"{lane} window size must be positive")
+            aligned = []
+            for row in lane_windows:
+                start = math.floor(row["start_s"] / window_size) * window_size
+                while start < row["end_s"]:
+                    aligned.append({"start_s": round(start, 3),
+                                    "end_s": round(min(start + window_size,
+                                                       duration), 3)})
+                    start += window_size
+            lane_windows = aligned
+        for window in lane_windows:
+            cost_budget = (float((producer_cost_per_window_seconds or {}).get(lane,
+                                                                            lane_budget))
+                           if window_size is not None else lane_budget *
+                           ((window["end_s"] - window["start_s"]) / duration))
             steps.append({"lane": lane, "interval": window,
                           "cost_budget_seconds": round(cost_budget, 3),
                           "order": ["cached", "targeted"]})
@@ -221,7 +239,9 @@ def execute_query_acquisition(
                          "cost_seconds": round(cache_elapsed, 6),
                          "peak_rss_gb": 0.0})
             continue
-        if cost_ceiling is not None and spent >= cost_ceiling:
+        step_budget = float(step["cost_budget_seconds"])
+        if (cost_ceiling is not None
+                and spent + step_budget > cost_ceiling):
             rows.append({**args, "status": "deferred",
                          "reason": "query cost budget exhausted",
                          "cost_seconds": 0.0, "peak_rss_gb": 0.0})
@@ -247,6 +267,12 @@ def execute_query_acquisition(
         rss = _finite_nonnegative(result.get("peak_rss_gb"), "producer peak_rss_gb")
         producer_version = result.get("model_version") or result.get("producer_version")
         spent += cost
+        if result.get("measured") is False:
+            rows.append({**args, "status": "deferred",
+                         "reason": "producer did not establish complete coverage",
+                         "cost_seconds": cost, "peak_rss_gb": rss,
+                         "model_version": producer_version})
+            continue
         if not isinstance(producer_version, str) or not producer_version.strip():
             rows.append({**args, "status": "deferred",
                          "reason": "producer/model version unavailable",
@@ -272,3 +298,54 @@ def execute_query_acquisition(
             "peak_rss_gb": round(max((r.get("peak_rss_gb", 0) for r in rows),
                                       default=0.0), 3),
             "rss_ceiling_gb": rss_ceiling, "steps": rows}
+
+
+def query_with_acquisition(
+    model: Mapping[str, Any],
+    query_plan: Mapping[str, Any],
+    *,
+    source_digest: str,
+    duration_seconds: float,
+    cached: Callable[..., Mapping[str, Any] | None],
+    producers: Mapping[str, Callable[..., Mapping[str, Any]]],
+    refresh_model: Callable[[Mapping[str, Any]], Mapping[str, Any]],
+    max_cost_seconds: float,
+    available_lanes: Sequence[str] | None = None,
+    producer_budgets: Mapping[str, float] | None = None,
+    window_seconds_by_lane: Mapping[str, float] | None = None,
+    producer_cost_per_window_seconds: Mapping[str, float] | None = None,
+    resolvable_ambiguities: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Opt-in query -> bounded acquisition -> refreshed-model query flow.
+
+    ``refresh_model`` is called only after at least one producer was
+    accepted as acquired or cached. It owns migration/Project Model commit;
+    a failed or over-budget producer cannot be represented as new evidence.
+    Callers that do not explicitly invoke this function remain read-only.
+    """
+    from library.tools.evidence_query import evidence_for
+
+    before = evidence_for(dict(model), dict(query_plan))
+    plan = plan_query_acquisition(
+        before, query_plan, source_digest=source_digest,
+        duration_seconds=duration_seconds,
+        resolvable_ambiguities=resolvable_ambiguities,
+        available_lanes=available_lanes,
+        producer_budgets=producer_budgets,
+        window_seconds_by_lane=window_seconds_by_lane,
+        producer_cost_per_window_seconds=producer_cost_per_window_seconds,
+        max_cost_seconds=max_cost_seconds)
+    execution = execute_query_acquisition(
+        plan, cached=cached, producers=producers,
+        max_cost_seconds=max_cost_seconds)
+    acquired = any(row.get("status") in ("acquired", "cached")
+                   for row in execution.get("steps", []))
+    if not acquired:
+        return {"answer": before, "acquisition_plan": plan,
+                "acquisition": execution, "requery": None,
+                "edit_ready": before.get("status") == PRESENT}
+    refreshed = refresh_model(model)
+    after = evidence_for(dict(refreshed), dict(query_plan))
+    return {"answer": before, "acquisition_plan": plan,
+            "acquisition": execution, "requery": after,
+            "edit_ready": after.get("status") == PRESENT}

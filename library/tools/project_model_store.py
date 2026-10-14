@@ -189,6 +189,55 @@ def append_model_patch(project: Path, patch: dict[str, Any], *, expected_revisio
         return revision + 1
 
 
+def merge_evidence_records(project: Path, *, observations: list[dict[str, Any]],
+                           events_to_merge: list[dict[str, Any]] | None = None,
+                           provenance: list[dict[str, Any]] | None = None,
+                           expected_revision: int,
+                           author: str = "ren",
+                           reason: str = "incremental evidence acquisition") -> int:
+    """Idempotently merge evidence rows by stable ID into the current model."""
+    events_path, snapshot_path, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        current_events = _read_events(events_path)
+        revision = len(current_events)
+        if revision != expected_revision:
+            raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
+        model = _replay(current_events)
+        if model is None:
+            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+        changed = False
+        for key, rows in (("observations", observations),
+                          ("events", events_to_merge or []),
+                          ("provenance", provenance or [])):
+            by_id = {row["id"]: row for row in model.get(key, [])}
+            for row in rows:
+                old = by_id.get(row["id"])
+                if old != row:
+                    by_id[row["id"]] = row
+                    changed = True
+            model[key] = list(by_id.values())
+        if not changed:
+            return revision
+        validate_project_model(model)
+        patch = {key: model[key] for key in
+                 ("observations", "events", "provenance")}
+        event = {"revision": revision + 1,
+                 "previous_hash": current_events[-1]["event_hash"],
+                 "kind": "merge_patch", "author": author,
+                 "reason": reason, "schema_version": model["schema_version"],
+                 "payload": patch}
+        event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
+        with events_path.open("ab") as stream:
+            stream.write(_json_bytes(event))
+            stream.flush()
+            os.fsync(stream.fileno())
+        current_events.append(event)
+        _write_snapshot(snapshot_path, current_events, model)
+        return revision + 1
+
+
 def _read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))

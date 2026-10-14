@@ -642,6 +642,33 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                          lane_presence, reasons)
 
 
+def evidence_for_with_acquisition(model: dict[str, Any], plan: dict[str, Any], *,
+                                  source_digest: str,
+                                  duration_seconds: float,
+                                  cached: Any,
+                                  producers: dict[str, Any],
+                                  refresh_model: Any,
+                                  max_cost_seconds: float,
+                                  available_lanes: list[str] | None = None,
+                                  producer_budgets: dict[str, float] | None = None,
+                                  resolvable_ambiguities: list[dict[str, Any]] | None = None
+                                  ) -> dict[str, Any]:
+    """Opt-in evidence query that can refine missing evidence within VI-12 budgets.
+
+    Ordinary ``evidence_for`` remains a read-only query. This entry point
+    requires explicit producer callbacks and a model refresh/commit callback.
+    """
+    from library.tools.query_directed_acquisition import query_with_acquisition
+
+    return query_with_acquisition(
+        model, plan, source_digest=source_digest,
+        duration_seconds=duration_seconds, cached=cached,
+        producers=producers, refresh_model=refresh_model,
+        max_cost_seconds=max_cost_seconds, available_lanes=available_lanes,
+        producer_budgets=producer_budgets,
+        resolvable_ambiguities=resolvable_ambiguities or ())
+
+
 def _basis_for(model: dict[str, Any], plan: dict[str, Any],
                per_predicate: list[list[dict[str, Any]]],
                level: str | None) -> list[dict[str, Any]]:

@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 from dataclasses import replace
@@ -295,6 +296,7 @@ class _Builder:
                      payload: dict[str, Any], confidence: Any,
                      producer: str,
                      evidence: evidence_contract.EvidenceRecord | None = None,
+                     observation_id: str | None = None,
                      ) -> str | None:
         ticks = sec_to_ticks(start, end)
         if ticks is None:
@@ -312,7 +314,7 @@ class _Builder:
                        evidence_contract.to_rust_evidence(evidence)}
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
-        obs_id = f"obs-{key}-{self._obs_counter[key]:04d}"
+        obs_id = observation_id or f"obs-{key}-{self._obs_counter[key]:04d}"
         observation = {
             "id": obs_id,
             "asset_id": asset_id,
@@ -1274,7 +1276,48 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M4 boundary method absent or stale; "
                              "boundary evidence refused")
     scenes = m4.get("scenes") or []
-    if not scenes and duration and method_fresh and freshness != "stale":
+    window_coverage = [row for row in m4.get("window_coverage", [])
+                       if isinstance(row, dict)
+                       and row.get("status") == "complete"
+                       and row.get("source_digest") == digest
+                       and isinstance(row.get("producer_version"), str)]
+    window_versions = {row["producer_version"] for row in window_coverage}
+    if len(window_versions) == 1 and method_fresh and freshness != "stale":
+        provenance_id = builder.provenance(
+            digest, "m4", "library.tools.analysis.vision_pipeline_v3")
+        for provenance in builder.model["provenance"]:
+            if provenance["id"] == provenance_id:
+                provenance["producer_version"] = next(iter(window_versions))
+    for window in window_coverage:
+        start, end = float(window["start_s"]), float(window["end_s"])
+        scoped_scenes = [scene for scene in scenes
+                         if isinstance(scene, dict)
+                         and float(scene.get("start", 0)) < end
+                         and float(scene.get("end", 0)) > start]
+        if scoped_scenes:
+            continue
+        ticks = sec_to_ticks(start, end)
+        if ticks is None:
+            continue
+        version = window["producer_version"]
+        native = evidence_contract.new_measurement(
+            asset_id=asset_id, clock_id=clock_id,
+            start_tick=ticks[0], end_tick=ticks[1],
+            measurement_type="video.scene_segment", value=[], method=method,
+            provenance_id=_prov_id(digest, "m4"),
+            coverage=evidence_contract.CoverageKind.COMPLETE,
+            coverage_samples=0, coverage_sample_rate_hz=0.0)
+        native = replace(native, freshness=freshness,
+                          producer_version=version)
+        stable_id = (f"obs-{digest}-m4-window-"
+                     f"{ticks[0]}-{ticks[1]}-empty")
+        builder.observation(
+            digest, "m4", asset_id, clock_id, start, end, "scene",
+            {"scenes": []}, None,
+            "library.tools.analysis.vision_pipeline_v3", evidence=native,
+            observation_id=stable_id)
+    if (not scenes and not window_coverage and duration and method_fresh
+            and freshness != "stale"):
         ticks = sec_to_ticks(0.0, duration)
         if ticks is not None:
             native = evidence_contract.new_measurement(
@@ -1298,6 +1341,11 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         start, end = scene.get("start"), scene.get("end")
         ticks = sec_to_ticks(start, end)
         if method_fresh and freshness != "stale" and ticks is not None:
+            scene_version = next((window["producer_version"]
+                                  for window in window_coverage
+                                  if float(scene.get("start", 0)) < float(window["end_s"])
+                                  and float(scene.get("end", 0)) > float(window["start_s"])),
+                                 None)
             native = evidence_contract.new_measurement(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
@@ -1306,14 +1354,20 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 provenance_id=_prov_id(digest, "m4"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
-            native = replace(native, freshness=freshness)
+            native = replace(native, freshness=freshness,
+                             producer_version=scene_version)
+        stable_id = None
+        if ticks is not None:
+            stable_id = (f"obs-{digest}-m4-scene-"
+                         f"{ticks[0]}-{ticks[1]}-"
+                         f"{hashlib.sha256(json.dumps(scene, sort_keys=True).encode()).hexdigest()[:12]}")
         builder.observation(
             digest, "m4", asset_id, clock_id,
             start, end, "scene",
             {k: scene.get(k) for k in
              ("location", "type", "lighting", "notable_features")},
             None, "library.tools.analysis.vision_pipeline_v3",
-            evidence=native)
+            evidence=native, observation_id=stable_id)
     if (method_fresh and boundary_method == sm.M4_BOUNDARY_METHOD
             and freshness != "stale"):
         boundaries = m4.get("scene_boundaries") or []

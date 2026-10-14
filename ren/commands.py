@@ -68,6 +68,11 @@ MCP_ENGINE_SOURCE = McpArg(
     "engine_source", "string", "A Ren checkout or built engine tree",
     required=True)
 
+MCP_EVIDENCE_PLAN = McpArg(
+    "plan", "string",
+    "Path to a JSON file containing a compiled Project Model evidence query plan",
+    required=True)
+
 
 @dataclass(frozen=True)
 class Verb:
@@ -575,6 +580,10 @@ VERBS = (
          effects=("read", "heavy_lock", "network"), json=True,
          module_argv=(_FOOTAGE_QUERY, "search"),
          params=(MCP_PROJECT,)),
+    Verb("evidence", "Footage", "Query typed Project Model evidence; --acquire opts in to one bounded M4 window",
+         effects=("read", "project_write", "heavy_lock"), json=True,
+         module_argv=("library.tools.analysis.footage_evidence_query",),
+         params=(MCP_PROJECT, MCP_EVIDENCE_PLAN)),
     Verb("where", "Footage", "Where is this person in the footage (region tracks, or the region at --at)",
          effects=("read",), json=True,
          module_argv=(_FOOTAGE_QUERY, "where"),

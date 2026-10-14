@@ -976,6 +976,57 @@ def write_scenes(content_digest: str, source_file: str, status: str,
     })
 
 
+def merge_scene_window(content_digest: str, source_file: str, *,
+                       start_s: float, end_s: float, scenes: list,
+                       producer_version: str, source_digest: str,
+                       measured: bool,
+                       root: Optional[Path] = None) -> None:
+    """Merge one measured M4 window without replacing source-wide records."""
+    path = source_dir(content_digest, root) / SLOT_SCENES
+    existing = _load_json(path)
+    if not isinstance(existing, dict) or existing.get("content_digest") != content_digest:
+        existing = {"content_digest": content_digest,
+                    "source_file": os.path.abspath(source_file),
+                    "status": "measured", "scenes": [],
+                    "scene_boundaries": [], "scene_coverage": None,
+                    "instrument": {}}
+    start_s, end_s = round(float(start_s), 3), round(float(end_s), 3)
+    old_scenes = []
+    for row in existing.get("scenes", []):
+        if not isinstance(row, dict):
+            continue
+        try:
+            old_start, old_end = float(row["start"]), float(row["end"])
+        except (KeyError, TypeError, ValueError):
+            old_scenes.append(row)
+            continue
+        if old_start < start_s or old_end > end_s:
+            if old_start < start_s:
+                old_scenes.append({**row, "end": min(old_end, start_s)})
+            if old_end > end_s:
+                old_scenes.append({**row, "start": max(old_start, end_s)})
+    incoming = [dict(row) for row in scenes]
+    existing["scenes"] = sorted(old_scenes + incoming,
+                                key=lambda row: (float(row.get("start", 0)),
+                                                 float(row.get("end", 0))))
+    coverage = list(existing.get("window_coverage") or [])
+    item = {"start_s": start_s, "end_s": end_s,
+            "status": "complete" if measured else "incomplete",
+            "producer_version": producer_version,
+            "source_digest": source_digest}
+    coverage = [row for row in coverage if not (
+        row.get("start_s") == start_s and row.get("end_s") == end_s)]
+    coverage.append(item)
+    existing["window_coverage"] = sorted(
+        coverage, key=lambda row: (row["start_s"], row["end_s"]))
+    existing["status"] = "measured"
+    instrument = dict(existing.get("instrument") or {})
+    instrument["scene_pass"] = M4_SCENE_PASS_METHOD
+    instrument["window_producer_version"] = producer_version
+    existing["instrument"] = instrument
+    write_json(path, existing)
+
+
 def read_scenes(content_digest: str,
                 root: Optional[Path] = None) -> Optional[dict]:
     """The M4 scene lane for a digest, or None when never written."""
