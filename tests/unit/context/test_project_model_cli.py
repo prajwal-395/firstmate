@@ -45,6 +45,7 @@ FILMCRAFT_FUNCTIONS = (
     "filmcraft_import_operation",
     "filmcraft_placement_operations",
     "filmcraft_plan_dual_mono_mapping",
+    "filmcraft_expand_span_freezes",
 )
 
 
@@ -201,7 +202,8 @@ def test_filmcraft_plan_equals_the_adapter_projection(
     plan = json.loads(out.read_text(encoding="utf-8"))
     assert plan["executed"] is False
     for key in ("adapter_version", "engine_revision", "timeline_clock",
-                "imports", "placements", "losses"):
+                "span_shortfall_policy", "span_shortfalls", "generated_span_freezes", "imports",
+                "placements", "losses"):
         assert plan[key] == expected[key], key
     assert not list(tmp_path.glob("*.fcproj"))
     printed = json.loads(capsys.readouterr().out)
@@ -340,6 +342,61 @@ def test_mask_polygonization_reports_raster_agreement():
     paths, agreement = _mask_contour_paths(image.tobytes(), 64, 64)
     assert len(paths) == 1
     assert agreement >= 0.99
+
+
+def test_filmcraft_plan_records_explicit_span_shortfall_choice(
+        tmp_path, monkeypatch):
+    import library.tools.project_model_cli as pmc
+
+    _no_engine(monkeypatch)
+    monkeypatch.setattr(pmc, "filmcraft_native", _stub_native)
+    root = _project(tmp_path)
+    out = tmp_path / "plan.json"
+    assert main([
+        "project", str(root), "--engine", "filmcraft",
+        "--model", str(FIXTURE_MODEL), "--out", str(out),
+        "--span-shortfall-policy", "freeze_last_frame",
+    ]) == 0
+    plan = json.loads(out.read_text(encoding="utf-8"))
+    assert plan["span_shortfall_policy"] == "freeze_last_frame"
+    assert plan["span_shortfalls"] == []
+
+
+def test_freeze_shortfall_extracts_each_last_source_frame(tmp_path, monkeypatch):
+    import subprocess
+    import library.tools.project_model_cli as pmc
+
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    model["clip_uses"][0]["source_interval"]["end"] = 35
+    mg_use = json.loads(json.dumps(model["clip_uses"][0]))
+    mg_use.update(id="use-mg", role="motion_graphic")
+    mg_use["source_interval"].update(start=48, end=131)
+    model["clip_uses"].append(mg_use)
+    projection = {
+        "span_shortfall_policy": "freeze_last_frame",
+        "span_shortfalls": [
+            {"clip_use_id": "use-ada", "source_frames": 35,
+             "timeline_frames": 36, "missing_frames": 1},
+            {"clip_use_id": "use-mg", "source_frames": 83,
+             "timeline_frames": 84, "missing_frames": 1},
+        ],
+    }
+    media = tmp_path / "source.mp4"
+    media.touch()
+    commands = []
+
+    def extract(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(b"png")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", extract)
+    paths = pmc._extract_span_freeze_stills(
+        model, projection, {"asset-ada": media}, tmp_path / "execution")
+    assert set(paths) == {"use-ada", "use-mg"}
+    assert all(path.is_file() and path.read_bytes() == b"png" for path in paths.values())
+    assert "1.416666666667" in commands[0]
+    assert "5.416666666667" in commands[1]
 
 
 def test_filmcraft_edit_rows_match_the_adapter_verdicts(tmp_path, monkeypatch):
@@ -518,12 +575,15 @@ def _stub_native():
         "adapter_version": "test-1",
         "engine_revision": "test-rev",
         "timeline_clock": "clock-project",
+        "span_shortfall_policy": "freeze_last_frame",
+        "span_shortfalls": [],
         "imports": [],
         "placements": [],
         "losses": [],
     }
     native = types.SimpleNamespace()
-    native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_projection = lambda model, policy="freeze_last_frame": {
+        **projection, "span_shortfall_policy": policy}
     native.filmcraft_plan_picture_effects = lambda *args: []
     native.filmcraft_add_tracks_operation = lambda *args: None
     native.filmcraft_plan_ren_edit = lambda *args: []
@@ -531,7 +591,13 @@ def _stub_native():
         "command": op["kind"],
         "params": ({"path": op["path"]} if op.get("path") else {}),
         "save": False}
-    native.filmcraft_verify_media = lambda _projection, _media_dir: {}
+    def verify_media(projection, _media_dir):
+        assert projection["span_shortfall_policy"] in (
+            "refuse", "freeze_last_frame")
+        assert projection["span_shortfalls"] == []
+        return {}
+
+    native.filmcraft_verify_media = verify_media
     native.filmcraft_import_operation = lambda *args: {"kind": "import"}
     native.filmcraft_placement_operations = lambda *args: []
     native.filmcraft_plan_dual_mono_mapping = lambda *args: None
@@ -882,6 +948,8 @@ def _batch_native():
         "adapter_version": "test-1",
         "engine_revision": "test-rev",
         "timeline_clock": "clock-project",
+        "span_shortfall_policy": "freeze_last_frame",
+        "span_shortfalls": [],
         "imports": [{"asset_id": "a1", "uri": "a1.mp4"}],
         "placements": [
             {"clip_use_id": "u1"}, {"clip_use_id": "u2"},
@@ -889,7 +957,8 @@ def _batch_native():
         "losses": [],
     }
     native = types.SimpleNamespace()
-    native.filmcraft_plan_projection = lambda model: dict(projection)
+    native.filmcraft_plan_projection = lambda model, policy="freeze_last_frame": {
+        **projection, "span_shortfall_policy": policy}
     native.filmcraft_plan_picture_effects = lambda *args: []
     native.filmcraft_add_tracks_operation = lambda *args: None
     native.filmcraft_plan_ren_edit = lambda *args: [{"kind": "timeline.move"}]
@@ -1261,7 +1330,7 @@ def _mini_projection():
     }
 
 
-def test_execute_without_preconform_never_preconforms(tmp_path, monkeypatch):
+def test_execute_records_span_policy_without_preconforming(tmp_path, monkeypatch):
     """Default off means untouched: no transcode call, no cache dir,
     and the receipt says so."""
     import library.tools.filmcraft_preconform as fcp
@@ -1277,8 +1346,11 @@ def test_execute_without_preconform_never_preconforms(tmp_path, monkeypatch):
     assert main(["project", str(root), "--engine", "filmcraft",
                  "--model", str(FIXTURE_MODEL), "--out", str(out),
                  "--media-root", str(FIXTURE_MODEL.parent),
-                 "--execute", "--export", str(export)]) == 0
+                 "--execute", "--export", str(export),
+                 "--span-shortfall-policy", "freeze_last_frame"]) == 0
     receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["plan"]["span_shortfall_policy"] == "freeze_last_frame"
+    assert receipt["plan"]["span_shortfalls"] == []
     assert receipt["preconform"] == {"enabled": False}
     assert not (root / "pipeline_output").exists()
     assert export.is_file()

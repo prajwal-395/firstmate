@@ -969,13 +969,25 @@ fn filmcraft_decode_projection(
 /// Project a model onto the pinned FilmCraft headless driver: imports,
 /// placements and losses, exactly what the driver executes.
 #[pyfunction]
+#[pyo3(signature = (model, shortfall_policy="freeze_last_frame"))]
 fn filmcraft_plan_projection<'py>(
     model: &Bound<'_, PyAny>,
+    shortfall_policy: &str,
     py: Python<'py>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let model = filmcraft_decode_model(model)?;
-    let projection = ren_filmcraft::adapter::plan_projection(&model)
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let shortfall_policy = match shortfall_policy {
+        "refuse" => ren_filmcraft::adapter::SpanShortfallPolicy::Refuse,
+        "freeze_last_frame" => ren_filmcraft::adapter::SpanShortfallPolicy::FreezeLastFrame,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown span-shortfall policy `{other}`; choose `refuse` or `freeze_last_frame`"
+            )))
+        }
+    };
+    let projection =
+        ren_filmcraft::adapter::plan_projection_with_shortfall_policy(&model, shortfall_policy)
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
     let value =
         serde_json::to_value(&projection).map_err(|err| PyValueError::new_err(err.to_string()))?;
     json_to_py(py, &value)
@@ -1183,6 +1195,27 @@ fn filmcraft_plan_dual_mono_mapping<'py>(
     json_to_py(py, &value)
 }
 
+/// Expand the native freeze policy after Python extracts each final source
+/// frame. All placement math and track selection stay in the FilmCraft adapter.
+#[pyfunction]
+#[pyo3(signature = (projection, still_paths))]
+fn filmcraft_expand_span_freezes<'py>(
+    projection: &Bound<'_, PyAny>,
+    still_paths: std::collections::HashMap<String, String>,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let projection = filmcraft_decode_projection(projection)?;
+    let stills: std::collections::BTreeMap<String, std::path::PathBuf> = still_paths
+        .into_iter()
+        .map(|(key, value)| (key, std::path::PathBuf::from(value)))
+        .collect();
+    let expanded = ren_filmcraft::adapter::expand_span_freezes(&projection, &stills)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let value =
+        serde_json::to_value(&expanded).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    json_to_py(py, &value)
+}
+
 /// The `ren_native` extension module.
 #[pymodule]
 fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1216,5 +1249,6 @@ fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(filmcraft_import_operation, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_placement_operations, m)?)?;
     m.add_function(wrap_pyfunction!(filmcraft_plan_dual_mono_mapping, m)?)?;
+    m.add_function(wrap_pyfunction!(filmcraft_expand_span_freezes, m)?)?;
     Ok(())
 }

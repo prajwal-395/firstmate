@@ -28,7 +28,7 @@
 //! - Anything the engine cannot represent is a projection [`super::LossReport`]
 //!   (model effects, unsupported masks, object tracks, overlay positioning) or an
 //!   [`AdapterError::Unsupported`] refusal (overlapping timeline ranges on one
-//!   track, overlapping base picture, unknown roles, short sources,
+//!   track, overlapping base picture, unknown roles, unsupported short sources,
 //!   undecodable overlay codecs, inexact tick conversion, unknown edit
 //!   operations). Nothing is guessed.
 //! - Legacy editorial operation strings (for example `clip.trim` without
@@ -78,10 +78,10 @@
 //!   ripples once; this adapter
 //!   never swallows a driver loss.
 //! - Retimed playback has no representation in `timeline.place`: a clip use
-//!   whose source holds fewer frames than its timeline range refuses with
-//!   `source_too_short` UNLESS a logged `retime`/`span_retime` edit explains
-//!   the exact ratio (slow motion keeps the whole source window and plays
-//!   it slower). A longer source is a trim and plays its leading
+//!   whose source holds fewer frames than its timeline range uses the named
+//!   `freeze_last_frame` policy, implemented as a generated still over the
+//!   missing tail, unless a logged `retime`/`span_retime` edit explains the
+//!   exact ratio. A longer source is a trim and plays its leading
 //!   timeline-length portion. The timeline-to-render frame map marks
 //!   retimed placements [`MappingKind::Retimed`] with the exact playback
 //!   speed as the rational rate (2/1 at 200%); spans stay timeline-to-render
@@ -114,7 +114,7 @@ use super::{
 /// FilmCraft's fixed project clock, ticks per second (see pinned CLI tests).
 pub const ENGINE_TICKS_PER_SECOND: i64 = 254_016_000_000;
 /// Version of this projection contract. Bump on any planning-rule change.
-pub const ADAPTER_VERSION: u32 = 5;
+pub const ADAPTER_VERSION: u32 = 7;
 
 /// Audio strips on a fresh FilmCraft sequence (`file.newSequence` defaults
 /// to three audio tracks). A1 carries production dialogue (linked audio,
@@ -188,6 +188,40 @@ pub struct Placement {
     pub timeline_end: i64,
 }
 
+/// Declared handling for a source interval shorter than its timeline span.
+/// Native execution materializes a still from the final available source
+/// frame and places it over the missing timeline frames.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpanShortfallPolicy {
+    Refuse,
+    #[default]
+    FreezeLastFrame,
+}
+
+/// One measured source/timeline length mismatch carried by a projection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpanShortfall {
+    pub clip_use_id: String,
+    pub source_frames: i64,
+    pub timeline_frames: i64,
+    pub missing_frames: i64,
+}
+
+/// One still generated at execution time to fill a declared picture shortfall.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpanFreeze {
+    pub clip_use_id: String,
+    pub asset_id: String,
+    pub uri: String,
+    pub source_frame: i64,
+    pub track: String,
+    pub hold_start_frame: i64,
+    pub held_frames: i64,
+}
+
 /// Deterministic plan over a Project Model. Serialize with [`projection_json`]
 /// for byte-stable comparison.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +230,13 @@ pub struct Projection {
     pub adapter_version: u32,
     pub engine_revision: String,
     pub timeline_clock: String,
+    /// Recorded choice used when source footage is shorter than its play.
+    pub span_shortfall_policy: SpanShortfallPolicy,
+    /// Every accepted mismatch, with frame counts, for an auditable render.
+    pub span_shortfalls: Vec<SpanShortfall>,
+    /// Execution-created still placements that fill each accepted mismatch.
+    #[serde(default)]
+    pub generated_span_freezes: Vec<SpanFreeze>,
     pub imports: Vec<AssetImport>,
     pub placements: Vec<Placement>,
     pub losses: Vec<LossReport>,
@@ -427,6 +468,16 @@ pub fn add_audio_tracks_operation(
 /// Pure, deterministic plan over `model`. No I/O, no CLI: the same model
 /// document always yields the same projection bytes.
 pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
+    plan_projection_with_shortfall_policy(model, SpanShortfallPolicy::FreezeLastFrame)
+}
+
+/// Plan a projection with an explicit, serializable span-shortfall choice.
+/// The chosen policy is recorded in `Projection` so downstream execution and
+/// audit artifacts cannot silently disagree about how a short source plays.
+pub fn plan_projection_with_shortfall_policy(
+    model: &ProjectModel,
+    shortfall_policy: SpanShortfallPolicy,
+) -> Result<Projection> {
     validate_project_model(model)
         .map_err(|detail| invalid(format!("project model rejected: {detail}")))?;
     if model.clip_uses.is_empty() {
@@ -545,6 +596,7 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
 
     let mut imports = BTreeMap::new();
     let mut placements = Vec::new();
+    let mut span_shortfalls = Vec::new();
     for clip_use in ordered {
         let asset = assets.get(clip_use.asset_id.0.as_str()).ok_or_else(|| {
             unsupported(
@@ -578,13 +630,30 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
         if source_frames < timeline_frames
             && !retime_explains(model, &clip_use.id.0, source_frames, timeline_frames)
         {
-            return Err(unsupported(
-                "source_too_short",
-                format!(
-                    "clip use `{}` holds {source_frames} source frames for {timeline_frames} timeline frames; freeze, repeat, or retimed playback has no `timeline.place` representation",
-                    clip_use.id.0
-                ),
-            ));
+            if shortfall_policy == SpanShortfallPolicy::Refuse {
+                return Err(unsupported(
+                    "source_too_short",
+                    format!(
+                        "clip use `{}` holds {source_frames} source frames for {timeline_frames} timeline frames; choose and record a span-shortfall policy",
+                        clip_use.id.0
+                    ),
+                ));
+            }
+            if is_stem_role(&clip_use.role) {
+                return Err(unsupported(
+                    "audio_span_shortfall_policy_unsupported",
+                    format!(
+                        "clip use `{}` is an audio stem; `freeze_last_frame` only applies to picture",
+                        clip_use.id.0
+                    ),
+                ));
+            }
+            span_shortfalls.push(SpanShortfall {
+                clip_use_id: clip_use.id.0.clone(),
+                source_frames,
+                timeline_frames,
+                missing_frames: timeline_frames - source_frames,
+            });
         }
         let frame = scale_exact(
             clip_use.timeline_interval.start,
@@ -708,6 +777,9 @@ pub fn plan_projection(model: &ProjectModel) -> Result<Projection> {
         adapter_version: ADAPTER_VERSION,
         engine_revision: FILMCRAFT_REVISION.into(),
         timeline_clock,
+        span_shortfall_policy: shortfall_policy,
+        span_shortfalls,
+        generated_span_freezes: Vec::new(),
         imports: imports.into_values().collect(),
         placements,
         losses,
@@ -2442,6 +2514,140 @@ pub fn placement_operations(
     Ok(operations)
 }
 
+/// Add one generated final-frame still for each declared source shortfall.
+/// The Python bridge only extracts the image; all placement math and policy
+/// choices remain in this native adapter.
+pub fn expand_span_freezes(
+    projection: &Projection,
+    still_paths: &BTreeMap<String, PathBuf>,
+) -> Result<Projection> {
+    if projection.span_shortfalls.is_empty() {
+        if !still_paths.is_empty() {
+            return Err(invalid(
+                "freeze stills were supplied for a projection with no shortfalls".into(),
+            ));
+        }
+        return Ok(projection.clone());
+    }
+    if projection.span_shortfall_policy != SpanShortfallPolicy::FreezeLastFrame {
+        return Err(unsupported(
+            "span_freeze_policy_mismatch",
+            "still images were supplied while the projection policy is not freeze_last_frame"
+                .into(),
+        ));
+    }
+    if still_paths.len() != projection.span_shortfalls.len() {
+        return Err(invalid(format!(
+            "{} shortfalls do not match {} extracted stills",
+            projection.span_shortfalls.len(),
+            still_paths.len()
+        )));
+    }
+    let shortfall_ids: BTreeSet<&str> = projection
+        .span_shortfalls
+        .iter()
+        .map(|row| row.clip_use_id.as_str())
+        .collect();
+    if still_paths
+        .keys()
+        .any(|id| !shortfall_ids.contains(id.as_str()))
+    {
+        return Err(invalid("freeze still map names an unknown clip use".into()));
+    }
+
+    let mut expanded = projection.clone();
+    expanded.generated_span_freezes.clear();
+    for shortfall in &projection.span_shortfalls {
+        let path = still_paths.get(&shortfall.clip_use_id).ok_or_else(|| {
+            invalid(format!(
+                "no extracted freeze still for `{}`",
+                shortfall.clip_use_id
+            ))
+        })?;
+        let index = expanded
+            .placements
+            .iter()
+            .position(|p| p.clip_use_id == shortfall.clip_use_id)
+            .ok_or_else(|| invalid(format!("no placement for `{}`", shortfall.clip_use_id)))?;
+        let original = expanded.placements[index].clone();
+        let timeline_frames = shortfall.timeline_frames;
+        let source_frames = shortfall.source_frames;
+        let missing_frames = shortfall.missing_frames;
+        if timeline_frames <= 0
+            || source_frames <= 0
+            || missing_frames <= 0
+            || source_frames + missing_frames != timeline_frames
+        {
+            return Err(invalid(format!(
+                "invalid freeze frame counts for `{}`",
+                shortfall.clip_use_id
+            )));
+        }
+        let (engine_per_frame, engine_remainder) = (
+            original.duration_ticks / timeline_frames,
+            original.duration_ticks % timeline_frames,
+        );
+        let model_span = original.timeline_end - original.timeline_start;
+        let (model_per_frame, model_remainder) =
+            (model_span / timeline_frames, model_span % timeline_frames);
+        if engine_remainder != 0
+            || model_remainder != 0
+            || engine_per_frame <= 0
+            || model_per_frame <= 0
+        {
+            return Err(unsupported(
+                "span_freeze_inexact_frame",
+                format!(
+                    "clip use `{}` does not land on whole frames",
+                    shortfall.clip_use_id
+                ),
+            ));
+        }
+        let short_engine_span = engine_per_frame * source_frames;
+        let short_model_span = model_per_frame * source_frames;
+        let hold_track = if original.role == "a_roll" {
+            // Keep linked dialogue at full duration. Base-picture tracks do
+            // not overlap, so V2 is clear while A-roll owns V1.
+            "V2".to_owned()
+        } else {
+            expanded.placements[index].duration_ticks = short_engine_span;
+            expanded.placements[index].timeline_end = original.timeline_start + short_model_span;
+            original.track.clone()
+        };
+        let hold_start_frame = original.frame + source_frames;
+        let hold_start_tick = original.timeline_start + short_model_span;
+        let asset_id = format!("freeze:{}", shortfall.clip_use_id);
+        let hold = Placement {
+            clip_use_id: shortfall.clip_use_id.clone(),
+            asset_id: asset_id.clone(),
+            role: original.role.clone(),
+            track: hold_track.clone(),
+            audio_track: None,
+            frame: hold_start_frame,
+            source_in_ticks: 0,
+            duration_ticks: engine_per_frame * missing_frames,
+            timeline_start: hold_start_tick,
+            timeline_end: hold_start_tick + model_per_frame * missing_frames,
+        };
+        expanded.placements.insert(index + 1, hold);
+        expanded.imports.push(AssetImport {
+            asset_id: asset_id.clone(),
+            uri: path.to_string_lossy().into_owned(),
+        });
+        expanded.generated_span_freezes.push(SpanFreeze {
+            clip_use_id: shortfall.clip_use_id.clone(),
+            asset_id,
+            uri: path.to_string_lossy().into_owned(),
+            source_frame: source_frames - 1,
+            track: hold_track,
+            hold_start_frame,
+            held_frames: missing_frames,
+        });
+    }
+    expanded.imports.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+    Ok(expanded)
+}
+
 /// Highest video track number a projection addresses (`V3` -> 3). Fresh
 /// FilmCraft projects carry three video tracks; anything above needs
 /// [`add_tracks_operation`] before the first place, or the engine refuses
@@ -2622,7 +2828,9 @@ pub fn reconcile_clip_ids(
                 placement.clip_use_id
             )));
         }
-        map.insert(placement.clip_use_id.clone(), clips.clone());
+        map.entry(placement.clip_use_id.clone())
+            .or_insert_with(Vec::new)
+            .extend(clips.iter().copied());
     }
     Ok(map)
 }
@@ -5043,13 +5251,19 @@ mod tests {
     }
 
     #[test]
-    fn short_sources_and_unknown_roles_refuse() {
+    fn default_policy_records_short_sources_and_unknown_roles_refuse() {
         let mut model = minimal_model();
         model.clip_uses[0].source_interval.end = 4;
-        let err = plan_projection(&model).unwrap_err();
-        assert!(
-            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "source_too_short")
+        let projection = plan_projection(&model).unwrap();
+        assert_eq!(
+            projection.span_shortfall_policy,
+            SpanShortfallPolicy::FreezeLastFrame
         );
+        assert_eq!(projection.span_shortfalls.len(), 1);
+        let refused =
+            plan_projection_with_shortfall_policy(&model, SpanShortfallPolicy::Refuse).unwrap_err();
+        assert!(matches!(refused, AdapterError::Unsupported { ref code, .. }
+            if code == "source_too_short"));
 
         let mut model = minimal_model();
         model.clip_uses[0].role = "interview".into();
@@ -5280,16 +5494,14 @@ mod tests {
     }
 
     #[test]
-    fn overlay_short_sources_refuse_like_base() {
+    fn overlay_short_sources_are_recorded_like_base() {
         let short = model_with_uses(serde_json::json!([
             clip_use("use-a", "asset-a", "a_roll", (0, 24), (0, 24)),
             clip_use("use-sub", "asset-b", "subtitle_overlay", (0, 10), (0, 70)),
         ]));
-        let err = plan_projection(&short).unwrap_err();
-        assert!(
-            matches!(err, AdapterError::Unsupported { ref code, .. } if code == "source_too_short"),
-            "a subtitle file shorter than its play must refuse, got {err:?}"
-        );
+        let projection = plan_projection(&short).unwrap();
+        assert_eq!(projection.span_shortfalls.len(), 1);
+        assert_eq!(projection.span_shortfalls[0].clip_use_id, "use-sub");
     }
 
     #[test]
@@ -5319,7 +5531,11 @@ mod tests {
                 ),
             ])
         };
-        let err = plan_projection(&model_with_uses(uses(87284))).unwrap_err();
+        let err = plan_projection_with_shortfall_policy(
+            &model_with_uses(uses(87284)),
+            SpanShortfallPolicy::Refuse,
+        )
+        .unwrap_err();
         match &err {
             AdapterError::Unsupported { code, detail } => {
                 assert_eq!(code, "source_too_short");
@@ -5340,6 +5556,89 @@ mod tests {
             255 * ENGINE_TICKS_PER_SECOND / 24
         );
         assert!(fixed.losses.is_empty());
+    }
+
+    #[test]
+    fn reel_22_one_frame_shortfall_requires_and_records_freeze_policy() {
+        let model = model_with_uses(serde_json::json!([
+            clip_use("use-craig", "asset-a", "a_roll", (87030, 87284), (0, 255)),
+            clip_use(
+                "use-akshita",
+                "asset-b",
+                "a_roll",
+                (87375, 88303),
+                (255, 1183)
+            ),
+        ]));
+        let refused =
+            plan_projection_with_shortfall_policy(&model, SpanShortfallPolicy::Refuse).unwrap_err();
+        assert!(matches!(refused, AdapterError::Unsupported { ref code, .. }
+            if code == "source_too_short"));
+
+        let frozen = plan_projection(&model).unwrap();
+        assert_eq!(
+            frozen.span_shortfall_policy,
+            SpanShortfallPolicy::FreezeLastFrame
+        );
+        assert_eq!(frozen.placements[0].clip_use_id, "use-craig");
+        assert_eq!(
+            frozen.placements[0].duration_ticks,
+            255 * ENGINE_TICKS_PER_SECOND / 24
+        );
+        assert_eq!(
+            frozen.span_shortfalls,
+            vec![SpanShortfall {
+                clip_use_id: "use-craig".into(),
+                source_frames: 254,
+                timeline_frames: 255,
+                missing_frames: 1,
+            }]
+        );
+        assert!(
+            projection_json(&frozen).contains("\"span_shortfall_policy\":\"freeze_last_frame\"")
+        );
+
+        let temp = tempfile::tempdir().unwrap();
+        let still = temp.path().join("craig-last.png");
+        std::fs::write(&still, b"fixture still").unwrap();
+        let expanded = expand_span_freezes(
+            &frozen,
+            &BTreeMap::from([("use-craig".into(), still.clone())]),
+        )
+        .unwrap();
+        assert_eq!(expanded.placements.len(), 3);
+        assert_eq!(
+            expanded.placements[0].duration_ticks,
+            frozen.placements[0].duration_ticks
+        );
+        assert_eq!(expanded.placements[1].frame, 254);
+        assert_eq!(expanded.placements[1].track, "V2");
+        assert_eq!(
+            expanded.placements[1].duration_ticks,
+            ENGINE_TICKS_PER_SECOND / 24
+        );
+        assert_eq!(expanded.generated_span_freezes[0].source_frame, 253);
+
+        let mg_model = model_with_uses(serde_json::json!([
+            clip_use("use-base", "asset-b", "a_roll", (0, 84), (0, 84)),
+            clip_use("use-mg", "asset-a", "motion_graphic", (0, 83), (0, 84)),
+        ]));
+        let mg_projection = plan_projection(&mg_model).unwrap();
+        let mg_still = temp.path().join("mg-last.png");
+        std::fs::write(&mg_still, b"fixture still").unwrap();
+        let mg_expanded = expand_span_freezes(
+            &mg_projection,
+            &BTreeMap::from([("use-mg".into(), mg_still)]),
+        )
+        .unwrap();
+        assert_eq!(mg_expanded.placements.len(), 3);
+        assert_eq!(
+            mg_expanded.placements[1].duration_ticks,
+            83 * ENGINE_TICKS_PER_SECOND / 24
+        );
+        assert_eq!(mg_expanded.placements[2].frame, 83);
+        assert_eq!(mg_expanded.placements[2].track, "V4");
+        assert_eq!(mg_expanded.generated_span_freezes[0].held_frames, 1);
     }
 
     #[test]
@@ -5845,6 +6144,11 @@ mod tests {
         assert_eq!(map.get("use-a"), Some(&vec![11, 12]));
         assert_eq!(primary_clip_id(&map["use-a"], "use-a").unwrap(), 11);
         assert_eq!(map.get("use-b"), Some(&vec![22]));
+
+        let mut split = projection.clone();
+        split.placements.push(split.placements[0].clone());
+        let split_map = reconcile_clip_ids(&split, &[vec![11], vec![22], vec![12]]).unwrap();
+        assert_eq!(split_map.get("use-a"), Some(&vec![11, 12]));
     }
 
     #[test]

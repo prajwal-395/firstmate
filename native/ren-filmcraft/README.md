@@ -92,8 +92,12 @@ engine's inspected timeline against Ren's expected clip uses frame-exact
 and the render's frame map against the mutated model's map. Constant
 retimes log into `model.edits` so the map carries their exact rational
 rate as `Retimed` segments; a slow-motion span longer than its source
-re-projects exactly when its logged retime explains the ratio, and still
-refuses as `source_too_short` otherwise. A model with overlays but no
+re-projects exactly when its logged retime explains the ratio, and otherwise
+uses the selected `freeze_last_frame` policy for source-short picture spans.
+Execution extracts the last available source frame to a scratch PNG and
+places it over the missing tail, preserving timeline length and later cut
+frames; audio shortfalls refuse. Explicit `refuse` remains available. A model
+with overlays but no
 `a_roll`/`b_roll`/`end_card` spine refuses as `no_base_spine`, and the
 frame map packs the spine alone - overlays draw onto the base frames and
 add no render time. Model effects,

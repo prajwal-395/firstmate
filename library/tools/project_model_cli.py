@@ -31,6 +31,7 @@ work, it never serves live-project state.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -61,6 +62,7 @@ FILMCRAFT_FUNCTIONS = (
     "filmcraft_import_operation",
     "filmcraft_placement_operations",
     "filmcraft_plan_dual_mono_mapping",
+    "filmcraft_expand_span_freezes",
 )
 """The ``ren_native`` entry points the FilmCraft half plans through."""
 
@@ -183,10 +185,11 @@ def filmcraft_native():
                   code="REN_PM_CLI_NO_NATIVE")
 
 
-def plan_filmcraft_projection(model: dict, native) -> dict:
+def plan_filmcraft_projection(model: dict, native,
+                              shortfall_policy: str = "freeze_last_frame") -> dict:
     """The adapter's own projection for this model, as a dict."""
     try:
-        return native.filmcraft_plan_projection(model)
+        return native.filmcraft_plan_projection(model, shortfall_policy)
     except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
         raise _refuse_from_adapter("FilmCraft projection refused", exc) from exc
 
@@ -206,10 +209,11 @@ def classify_filmcraft_edit(model: dict, projection: dict, edit: dict, native) -
     return True, None
 
 
-def plan_filmcraft(model: dict, native, project_root: Path | None = None, *, sequence_size: str | None = None) -> dict:
+def plan_filmcraft(model: dict, native, project_root: Path | None = None,
+                   shortfall_policy: str = "freeze_last_frame", *, sequence_size: str | None = None) -> dict:
     """The plan: the adapter's projection plus per-edit executability."""
     model = _model_with_native_moves(model, sequence_size)
-    projection = plan_filmcraft_projection(model, native)
+    projection = plan_filmcraft_projection(model, native, shortfall_policy)
     dummy_ids = {placement["clip_use_id"]: [0]
                  for placement in projection["placements"]}
     picture_effects = translate_filmcraft_picture_effects(
@@ -229,6 +233,9 @@ def plan_filmcraft(model: dict, native, project_root: Path | None = None, *, seq
             "adapter_version": projection["adapter_version"],
             "engine_revision": projection["engine_revision"],
             "timeline_clock": projection["timeline_clock"],
+            "span_shortfall_policy": projection["span_shortfall_policy"],
+            "span_shortfalls": projection["span_shortfalls"],
+            "generated_span_freezes": projection.get("generated_span_freezes", []),
             "imports": projection["imports"],
             "placements": projection["placements"],
             "losses": projection["losses"],
@@ -1001,6 +1008,70 @@ def _with_measured_aroll_audio_streams(model: dict, media_map: dict) -> dict:
     return augmented
 
 
+def _extract_span_freeze_stills(model: dict, projection: dict,
+                                media_map: dict[str, Path], out_dir: Path) -> dict[str, Path]:
+    """Extract the final available source frame for each native shortfall plan.
+
+    Placement math and track choice remain in the Rust adapter. This bridge
+    only turns each native shortfall's source interval into an image file.
+    """
+    shortfalls = {row["clip_use_id"]: row
+                  for row in projection["span_shortfalls"]}
+    if projection["span_shortfall_policy"] != "freeze_last_frame" or not shortfalls:
+        return {}
+    clocks = {clock["id"]: clock for clock in model["clocks"]}
+    uses = {use["id"]: use for use in model["clip_uses"]}
+    freeze_dir = out_dir / "span-freezes"
+    freeze_dir.mkdir(parents=True, exist_ok=True)
+    still_paths = {}
+    for use_id, shortfall in shortfalls.items():
+        use = uses[use_id]
+        source_clock = clocks[use["source_interval"]["clock_id"]]
+        fps = source_clock["frame_rate"]
+        fps_num, fps_den = int(fps["numerator"]), int(fps["denominator"])
+        tps = int(source_clock["ticks_per_second"])
+        source_frames = int(shortfall["source_frames"])
+        if source_frames <= 0:
+            raise _refuse("invalid shortfall geometry", str(shortfall),
+                          "rebuild the Project Model projection",
+                          code="REN_PM_CLI_SPAN_FREEZE")
+        still_id = "span_freeze_" + hashlib.sha256(use_id.encode("utf-8")).hexdigest()[:16]
+        still_path = freeze_dir / f"{still_id}.png"
+        if still_path.exists():
+            raise _refuse("refusing to replace an existing freeze frame",
+                          str(still_path), "execute to a fresh output directory",
+                          code="REN_PM_CLI_SPAN_FREEZE_EXISTS")
+        # The final available source frame ends one source frame before the
+        # source interval's exclusive end. -ss seeks to that frame boundary.
+        end_ticks = int(use["source_interval"]["end"])
+        frame_ticks = tps * fps_den
+        if frame_ticks % fps_num:
+            raise _refuse("source frame duration is not integral in its clock",
+                          use_id, "use an exactly representable source clock",
+                          code="REN_PM_CLI_SPAN_FREEZE")
+        last_frame_ticks = end_ticks - frame_ticks // fps_num
+        if last_frame_ticks < int(use["source_interval"]["start"]):
+            raise _refuse("source shortfall contains no frame to freeze", use_id,
+                          "provide at least one source frame",
+                          code="REN_PM_CLI_SPAN_FREEZE")
+        seconds = last_frame_ticks / tps
+        # Single-frame extraction needs no vsync/fps-mode flag: `-frames:v 1`
+        # ends the stream after one decoded frame on any ffmpeg vintage
+        # (ffmpeg 9 removed `-vsync` entirely).
+        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                   "-ss", f"{seconds:.12f}", "-i", str(media_map[use["asset_id"]]),
+                   "-frames:v", "1", str(still_path)]
+        done = subprocess.run(command, capture_output=True, text=True,
+                              encoding="utf-8", timeout=180, check=False)
+        if done.returncode != 0 or not still_path.is_file() or not still_path.stat().st_size:
+            raise _refuse("could not extract the last source frame",
+                          done.stderr.strip()[-500:],
+                          "check ffmpeg and the source interval",
+                          code="REN_PM_CLI_SPAN_FREEZE")
+        still_paths[use_id] = still_path
+    return still_paths
+
+
 def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       out: Path, media_root: Path | None,
                       filmcraft_project: Path | None,
@@ -1032,7 +1103,8 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                 code="REN_PM_CLI_MASTERING_OUTPUT_EXISTS")
     projection = {key: plan[key] for key in
                   ("adapter_version", "engine_revision", "timeline_clock",
-                   "imports", "placements", "losses")}
+                   "span_shortfall_policy", "span_shortfalls", "generated_span_freezes", "imports",
+                   "placements", "losses")}
     project = filmcraft_project or (out.parent / f"{out.stem}.fcproj")
     project_str = str(project)
     if project.suffix != ".fcproj":
@@ -1081,6 +1153,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     if planner_model is not model:
         planner_model = _model_with_native_moves(planner_model, sequence_size)
         projection = plan_filmcraft_projection(planner_model, native)
+    source_media_map = dict(media_map)
     preconform_report: dict[str, Any] = {"enabled": False}
     if preconform:
         if preconform_size is None:
@@ -1101,6 +1174,16 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                       if asset["status"] == "preconformed")
         print(f"pre-conform: {proxied}/{len(preconform_report['assets'])} asset(s) proxied "
               f"(cache {preconform_report['cache_dir']})", file=sys.stderr)
+    still_paths = _extract_span_freeze_stills(
+        model, projection, source_media_map, out.parent)
+    if still_paths:
+        try:
+            projection = native.filmcraft_expand_span_freezes(
+                projection, {key: str(value) for key, value in still_paths.items()})
+        except Exception as exc:  # noqa: BLE001 - policy math stays in Rust
+            raise _refuse_from_adapter("span freeze expansion refused", exc) from exc
+        for freeze in projection["generated_span_freezes"]:
+            media_map[freeze["asset_id"]] = Path(freeze["uri"])
     dummy_ids = {placement["clip_use_id"]: [0] for placement in projection["placements"]}
     translate_filmcraft_picture_effects(
         model, projection, dummy_ids, project_str, native)
@@ -1164,14 +1247,20 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     # FilmCraft imports discrete mono MXF streams as stereo pairs. Query the
     # actual engine mapping, then let the native adapter decide whether a
     # mono source needs Resolve-style dual-mono before any timeline placement.
-    if item_by_asset:
+    model_asset_ids = {asset["id"] for asset in planner_model["assets"]}
+    # Generated freeze stills (asset `freeze:<use>`) are execution-created PNGs
+    # with no model asset and no audio mapping; skip only those, so every real
+    # import still reaches the dual-mono query exactly as before the freeze path.
+    source_items = {asset_id: item for asset_id, item in item_by_asset.items()
+                    if asset_id in model_asset_ids or not asset_id.startswith("freeze:")}
+    if source_items:
         mapping_operation = {"kind": "audio_channels", "project": project_str,
-                             "items": list(item_by_asset.values()),
+                             "items": list(source_items.values()),
                              "format": None, "clips": None}
         mapping_command = _describe(native, mapping_operation)
         channel_mapping = _fc_exec(cli, project, mapping_command["command"],
                                    mapping_command["params"], save=False)
-        for asset_id, item in item_by_asset.items():
+        for asset_id, item in source_items.items():
             try:
                 dual_mono = native.filmcraft_plan_dual_mono_mapping(
                     planner_model, asset_id, item, project_str, channel_mapping)
@@ -1244,7 +1333,10 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         "engine_revision": FILMCRAFT_REVISION,
         "engine_version": FILMCRAFT_VERSION,
         "project": project_str,
-        "plan": {"imports": projection["imports"],
+        "plan": {"span_shortfall_policy": projection["span_shortfall_policy"],
+                 "span_shortfalls": projection["span_shortfalls"],
+                 "generated_span_freezes": projection.get("generated_span_freezes", []),
+                 "imports": projection["imports"],
                  "placements": projection["placements"]},
         "clip_ids": clip_ids,
         "edit_commands": [{"command": c["command"], "params": c["params"]}
@@ -1793,6 +1885,9 @@ def build_parser() -> argparse.ArgumentParser:
                          help="explicit model JSON path (default: the project's model store)")
     project.add_argument("--execute", action="store_true",
                          help="run the plan on the pinned engine CLI (default: plan and print only)")
+    project.add_argument("--span-shortfall-policy", default="freeze_last_frame",
+                         choices=("refuse", "freeze_last_frame"),
+                         help="choose how to fill source-short picture spans (default: freeze_last_frame)")
     project.add_argument("--media-root", default=None, type=Path,
                          help="footage directory for relative asset URIs (default: the project root)")
     project.add_argument("--comp", default="Main", help="EffectCraft comp name")
@@ -1903,7 +1998,9 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
         return 0
 
     native = filmcraft_native()
-    plan = plan_filmcraft(model, native, project_root=root, sequence_size=args.sequence_size)
+    plan = plan_filmcraft(model, native, project_root=root,
+                          shortfall_policy=args.span_shortfall_policy,
+                          sequence_size=args.sequence_size)
     plan["model_source"] = source
     if args.execute:
         receipt = execute_filmcraft(
