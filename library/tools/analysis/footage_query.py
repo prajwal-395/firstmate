@@ -1889,7 +1889,8 @@ class FootageIndex:
                     break
         return scores
 
-    def _raw_scores(self, query: str, mode: str, signal_merge: bool = False):
+    def _raw_scores(self, query: str, mode: str, signal_merge: bool = False,
+                    candidate_mask=None):
         """``(combined, dense, lexical, sound, ocr, object, person, shot)`` or why not.
 
         `dense` is None when this index carries no embeddings or the
@@ -1903,13 +1904,24 @@ class FootageIndex:
                 "use --mode hybrid, --mode dense or --mode lexical")
 
         lexical = self.bm25.scores(query)
+        if candidate_mask is None:
+            candidate_mask = np.ones(len(self.segments), dtype=bool)
+        else:
+            candidate_mask = np.asarray(candidate_mask, dtype=bool)
+            if candidate_mask.shape != (len(self.segments),):
+                raise ValueError("candidate mask must have one entry per segment")
         dense = None
         if mode in ("hybrid", "dense"):
             matrix = self.matrix
-            if matrix is not None and len(matrix) == len(self.segments):
+            # Deterministic constraints are the first retrieval stage. In
+            # particular, do not load an encoder or issue a matrix operation
+            # for an empty candidate set.
+            if (candidate_mask.any() and matrix is not None
+                    and len(matrix) == len(self.segments)):
                 vector = self._encode_query(query)
                 if vector is not None and vector.shape[-1] == matrix.shape[1]:
-                    dense = matrix @ vector
+                    dense = np.zeros(len(self.segments), dtype="float32")
+                    dense[candidate_mask] = matrix[candidate_mask] @ vector
                 # A query vector whose width is not the matrix's - a
                 # MiniLM query against an EmbeddingGemma matrix, or the
                 # reverse - is not evidence for anything.  Dense stays
@@ -2106,7 +2118,8 @@ class FootageIndex:
                       floor: float | None = None, filters: dict | None = None,
                       weak_k: int = WEAK_BAND_LIMIT,
                       external_hits: list | None = None,
-                      signal_merge: bool = False) -> dict:
+                      signal_merge: bool = False,
+                      before_embedding=None) -> dict:
         """`search`, plus everything needed to explain an empty answer.
 
         Returns a dict carrying the results, the WEAK band beneath the
@@ -2152,6 +2165,9 @@ class FootageIndex:
             "weak": [],
             "considered": 0,
             "retained": 0,
+            "constraint_candidates": 0,
+            "constraint_reduction": len(self.segments),
+            "embedding_candidates": 0,
             "abstained": False,
             "degraded": None,
             "error": None,
@@ -2184,14 +2200,6 @@ class FootageIndex:
             return report
 
         merge_signals = signal_merge and mode == "hybrid"
-        combined, dense, lexical, sound, ocr, obj, person, shot = self._raw_scores(
-            query, mode, signal_merge=merge_signals)
-        if combined is None:
-            report["error"] = "This index has no embeddings; use mode='lexical'."
-            if external_hits is not None:
-                merge_external_evidence(report, external_hits)
-            return report
-
         # A filter left unset is not a filter.  Stripping the Nones here
         # means a caller can hand over its whole form without deciding
         # which boxes the reviewer bothered to fill in.
@@ -2201,17 +2209,38 @@ class FootageIndex:
             report["filters"] = dict(filters)
             allowed = {h["segment_id"] for h in self.filter(**filters)}
             report["filtered_to"] = len(allowed)
-            if not allowed:
-                report["abstained"] = True
-                report["error_hint"] = "no segment passes the facet filters"
-                if external_hits is not None:
-                    merge_external_evidence(report, external_hits)
-                return report
-
         mask = np.ones(len(self.segments), dtype=bool)
         if allowed is not None:
             mask = np.array([s["segment_id"] in allowed for s in self.segments], dtype=bool)
         report["considered"] = int(mask.sum())
+        report["constraint_candidates"] = int(mask.sum())
+        report["constraint_reduction"] = len(self.segments) - int(mask.sum())
+        if before_embedding is not None:
+            before_embedding({
+                "index_candidates": len(self.segments),
+                "constraint_candidates": int(mask.sum()),
+                "constraint_reduction": len(self.segments) - int(mask.sum()),
+                "embedding_candidates": int(mask.sum()),
+            })
+        if not mask.any():
+            report["abstained"] = True
+            report["error_hint"] = "no segment passes the facet filters"
+            report["embedding_candidates"] = 0
+            report["answer_status"] = "abstained"
+            if external_hits is not None:
+                merge_external_evidence(report, external_hits)
+            return report
+
+        # The count is recorded before the query encoder is invoked, so a
+        # caller can audit that deterministic reduction preceded retrieval.
+        report["embedding_candidates"] = int(mask.sum())
+        combined, dense, lexical, sound, ocr, obj, person, shot = self._raw_scores(
+            query, mode, signal_merge=merge_signals, candidate_mask=mask)
+        if combined is None:
+            report["error"] = "This index has no embeddings; use mode='lexical'."
+            if external_hits is not None:
+                merge_external_evidence(report, external_hits)
+            return report
 
         if dense is None and mode in ("hybrid", "dense"):
             report["degraded"] = (
@@ -2787,11 +2816,14 @@ class FootageIndex:
         max_speech_level: float | None = None,
         music_genre: str | None = None,
         ambience_type: str | None = None,
+        kinds: list[str] | tuple[str, ...] | None = None,
     ) -> list:
         """Select footage by measurable properties, with no query at all.
 
         Args:
             kind: one of speech, action, scene, camera, object, chunk.
+            kinds: any set of segment kinds, useful when a request accepts
+                several evidence types but must exclude others before ranking.
             clip_id: restrict to one clip ("clip_012").
             framing: shot size as the vision pass reported it
                 ("close-up", "medium", "wide").
@@ -2833,6 +2865,13 @@ class FootageIndex:
                 f"unknown kind {kind!r}",
                 f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
                 f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}")
+        if kinds is not None:
+            unknown = set(kinds) - set(SEGMENT_KINDS)
+            if unknown:
+                raise RenRefusal(
+                    f"unknown kinds {sorted(unknown)!r}",
+                    f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
+                    f"use kinds from {sorted(SEGMENT_KINDS)}")
 
         person_windows = self._person_windows(person) if person else None
 
@@ -2866,6 +2905,8 @@ class FootageIndex:
         def keeps(segment: dict) -> bool:
             facets = segment.get("facets", {})
             if kind is not None and segment["kind"] != kind:
+                return False
+            if kinds is not None and segment["kind"] not in kinds:
                 return False
             if person_windows is not None and not _overlaps_person(segment):
                 return False
@@ -3066,6 +3107,11 @@ class FootageIndex:
                     "'chunk' (one fixed 8s window joining what it overlaps - "
                     "the coarse guarantee every span of footage has a row)."
                 ),
+            },
+            "kinds": {
+                "type": "array",
+                "items": {"type": "string", "enum": list(SEGMENT_KINDS)},
+                "description": "Restrict to any of these segment kinds before ranking.",
             },
             "clip_id": {"type": "string", "description": "Restrict to one clip, e.g. 'clip_012'."},
             "framing": {"type": "string", "description": "Shot size: close-up, medium, wide."},
@@ -3578,6 +3624,10 @@ def _print_report(report):
             f"floor={report['floor']:.2f}",
             f"{report['considered']}/{report['segment_count']} segments considered"]
     print("  ".join(bits))
+    if "constraint_candidates" in report:
+        print("retrieval candidates: "
+              f"{report['segment_count']} -> {report['constraint_candidates']} "
+              f"by constraints; {report['embedding_candidates']} to embedding")
     print(f"backend: {report.get('backend_answered') or 'unknown'}")
     coverage = report.get("coverage", {})
     per_clip = coverage.get("per_clip", {})
@@ -4058,6 +4108,12 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
         weak_floor=report["weak_floor"], abstained=report["abstained"],
         hits=_text_json_hits(report, sources),
         error=report.get("error"))
+    answer["retrieval"] = {
+        "index_candidates": report["segment_count"],
+        "constraint_candidates": report["constraint_candidates"],
+        "constraint_reduction": report["constraint_reduction"],
+        "embedding_candidates": report["embedding_candidates"],
+    }
     for key in ("external_source", "external_evidence", "external_rejected"):
         if report.get(key) is not None:
             answer[key] = report[key]

@@ -13,6 +13,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -142,6 +144,93 @@ def test_visual_slot_fills_with_the_right_clip(tmp_path):
         "timecode": "00:00.000-00:05.000",
     }
     assert result["evidence"]["backend_answered"] == "bm25", result
+
+
+def test_broll_constraints_reduce_candidates_before_embedding(
+    tmp_path, monkeypatch, capsys
+):
+    """The B-roll slot excludes transcript rows before dense ranking."""
+    project = _analysed_project(tmp_path)
+    path = project / INDEX_REL
+    original = json.loads((path / SEGMENTS_FILE).read_text())
+    original.update({"embed_model": "all-MiniLM-L6-v2",
+                     "embed_backend": "sentence-transformers",
+                     "embed_dimension": 2})
+    (path / SEGMENTS_FILE).write_text(json.dumps(original), encoding="utf-8")
+    events = []
+    import builtins
+
+    real_print = builtins.print
+
+    def tracking_print(*args, **kwargs):
+        if args and str(args[0]).startswith("  Footage retrieval candidates:"):
+            events.append("constraints-logged")
+        return real_print(*args, **kwargs)
+
+    monkeypatch.setattr(builtins, "print", tracking_print)
+
+    class SelectedRows:
+        def __init__(self, scores):
+            self.scores = scores
+
+        def __matmul__(self, vector):
+            events.append(("dot", len(self.scores)))
+            return np.asarray(self.scores, dtype="float32")
+
+    class Matrix:
+        shape = (4, 2)
+
+        def __len__(self):
+            return self.shape[0]
+
+        def __matmul__(self, vector):
+            events.append(("whole-index-dot", self.shape[0]))
+            return np.ones(self.shape[0], dtype="float32")
+
+        def __getitem__(self, mask):
+            count = int(np.asarray(mask).sum())
+            events.append(("candidate-slice", count))
+            return SelectedRows([0.9] * count)
+
+    monkeypatch.setattr(sip.FootageIndex, "matrix", property(lambda self: Matrix()))
+    monkeypatch.setattr(
+        sip.FootageIndex, "_encode_query",
+        lambda self, query: events.append("encode") or np.asarray([1.0, 0.0]),
+    )
+    result = sip.slot_search(
+        str(project), "show me the parked cars", catalog=_catalog())
+    captured = capsys.readouterr()
+
+    assert result["status"] == "filled"
+    assert events == ["constraints-logged", "encode",
+                      ("candidate-slice", 2), ("dot", 2)]
+    assert "4 -> 2 by constraints; 2 to embedding" in captured.err
+    assert result["retrieval"] == {
+        "index_candidates": 4,
+        "constraint_candidates": 2,
+        "constraint_reduction": 2,
+        "embedding_candidates": 2,
+    }
+
+
+def test_empty_constraint_set_never_calls_embedding(tmp_path, monkeypatch):
+    """An impossible constraint exits before loading the encoder."""
+    project = _analysed_project(tmp_path)
+    index = sip.FootageIndex(str(project))
+    monkeypatch.setattr(
+        index, "_encode_query",
+        lambda query: (_ for _ in ()).throw(AssertionError("encoded empty set")),
+    )
+    report = index.search_report(
+        "parked cars", filters={"kind": "chunk"},
+        before_embedding=lambda counts: assert_empty_counts(counts))
+    assert report["embedding_candidates"] == 0
+    assert report["constraint_reduction"] == 4
+
+
+def assert_empty_counts(counts):
+    assert counts["constraint_candidates"] == 0
+    assert counts["embedding_candidates"] == 0
 
 
 def test_visual_slot_on_transcript_only_corpus_is_refused(tmp_path):

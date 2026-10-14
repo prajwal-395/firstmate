@@ -38,6 +38,8 @@ does.
 
 from __future__ import annotations
 
+import sys
+
 from library.tools.analysis.footage_query import FootageIndex
 from library.tools.ren_refusal import RenRefusal
 
@@ -110,6 +112,7 @@ def slot_search(
     mode: str = "hybrid",
     index_dir=None,
     catalog: list | None = None,
+    filters: dict | None = None,
 ) -> dict:
     """Resolve one planning slot through the footage index.
 
@@ -143,7 +146,21 @@ def slot_search(
             if index_dir is not None
             else FootageIndex(project_folder)
         )
-        report = index.search_report(intent, top_k=top_k, mode=mode)
+        # Visual planning requests need picture rows. Apply that cheap
+        # deterministic constraint inside the index before dense ranking.
+        effective_filters = dict(filters or {})
+        if slot_kind == "visual":
+            effective_filters.setdefault(
+                "kinds", sorted(VISUAL_EVIDENCE_KINDS - {"ocr"}))
+        report = index.search_report(
+            intent, top_k=top_k, mode=mode,
+            filters=effective_filters or None,
+            before_embedding=lambda counts: print(
+                "  Footage retrieval candidates: "
+                f"{counts['index_candidates']} -> "
+                f"{counts['constraint_candidates']} by constraints; "
+                f"{counts['embedding_candidates']} to embedding",
+                file=sys.stderr))
     except (RenRefusal, FileNotFoundError, OSError) as exc:
         return {"status": "fallback_no_index", "query": intent, "reason": str(exc)}
     except Exception as exc:  # noqa: BLE001 - best-effort assist
@@ -158,6 +175,7 @@ def slot_search(
             "query": intent,
             "reason": report.get("error") or "index has no visual evidence coverage",
             "query_intent": report.get("query_intent"),
+            "retrieval": _retrieval_counts(report),
         }
     if report.get("error") and not report.get("results"):
         return {
@@ -165,6 +183,7 @@ def slot_search(
             "query": intent,
             "reason": report.get("error"),
             "degraded": report.get("degraded"),
+            "retrieval": _retrieval_counts(report),
         }
     candidates = report.get("results") or []
     if slot_kind == "visual":
@@ -178,6 +197,7 @@ def slot_search(
                 "transcript hits are not picture evidence",
                 "degraded": report.get("degraded"),
                 "backend_answered": report.get("backend_answered"),
+                "retrieval": _retrieval_counts(report),
             }
     degraded = report.get("degraded")
     if degraded and slot_kind == "visual":
@@ -188,6 +208,7 @@ def slot_search(
             "query": intent,
             "reason": degraded,
             "backend_answered": report.get("backend_answered"),
+            "retrieval": _retrieval_counts(report),
         }
     catalog = catalog or []
     for hit in candidates:
@@ -215,6 +236,7 @@ def slot_search(
                 "backend_answered": report.get("backend_answered"),
             },
             "degraded": degraded,
+            "retrieval": _retrieval_counts(report),
         }
     if not candidates:
         return {
@@ -223,12 +245,24 @@ def slot_search(
             "reason": "the index retained nothing for this intent",
             "degraded": degraded,
             "backend_answered": report.get("backend_answered"),
+            "retrieval": _retrieval_counts(report),
         }
     return {
         "status": "abstained_unverified",
         "query": intent,
         "reason": "evidence existed but no span verified against the catalog",
         "degraded": degraded,
+        "retrieval": _retrieval_counts(report),
+    }
+
+
+def _retrieval_counts(report: dict) -> dict:
+    """Auditable deterministic reduction before embedding retrieval."""
+    return {
+        "index_candidates": report["segment_count"],
+        "constraint_candidates": report["constraint_candidates"],
+        "constraint_reduction": report["constraint_reduction"],
+        "embedding_candidates": report["embedding_candidates"],
     }
 
 
