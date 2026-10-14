@@ -130,6 +130,7 @@ _INTERVAL = re.compile(
     re.DOTALL,
 )
 _TIER = re.compile(r"item \[\d+\]:")
+_PHONE_INTERVAL = _INTERVAL
 
 
 def covers(language: str) -> bool:
@@ -429,6 +430,102 @@ def parse_textgrid(path: Path) -> List[Tuple[str, float, float]]:
         if word:
             out.append((word, float(match.group(1)), float(match.group(2))))
     return out
+
+
+def parse_phone_tier(path: Path) -> list[tuple[str, float, float]]:
+    """Read MFA's `phones` tier as `(phone, start, end)` in chunk time.
+
+    Empty TextGrid intervals are silence. Keep only non-empty intervals;
+    the caller maps these back to their containing word spans.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    blocks = _TIER.split(text)
+    phones_block = next(
+        (block for block in blocks if 'name = "phones"' in block), "")
+    phones = []
+    for match in _PHONE_INTERVAL.finditer(phones_block):
+        label = match.group(3).strip()
+        if label:
+            start, end = float(match.group(1)), float(match.group(2))
+            if end > start:
+                phones.append((label, start, end))
+    return phones
+
+
+def _phone_records(phones: Sequence[tuple[str, float, float]],
+                   words: Sequence[dict], offset: float) -> list[dict]:
+    """Attach phones to their aligned word and publish explicit uncertainty.
+
+    MFA supplies a model-placed boundary, not a calibrated error interval.
+    Until an annotated corpus calibrates absolute error, the uncertainty is
+    deliberately `unmeasured`; the 10 ms figure is only TextGrid's storage
+    resolution and is not misrepresented as accuracy.
+    """
+    records = []
+    for phone, start, end in phones:
+        absolute_start, absolute_end = round(start + offset, 3), round(end + offset, 3)
+        owner_index = next((index for index, w in enumerate(words)
+                      if w.get("start") is not None and w.get("end") is not None
+                      and float(w["start"]) <= absolute_start + 0.02
+                      and float(w["end"]) >= absolute_end - 0.02), None)
+        if owner_index is None:
+            continue
+        owner = words[owner_index]
+        records.append({
+            "phone": phone,
+            "start": absolute_start,
+            "end": absolute_end,
+            "word": owner.get("word", ""),
+            "word_index": owner_index,
+            "method": "Montreal Forced Aligner phone tier",
+            "boundary_uncertainty": {
+                "estimate_ms": None,
+                "status": "uncalibrated",
+                "textgrid_resolution_ms": 10,
+            },
+        })
+    return records
+
+
+_VOWEL_PHONE = re.compile(
+    r"^(?:AA|AE|AH|AO|AW|AY|EH|ER|EY|IH|IY|OW|OY|UH|UW)[0-2]?$",
+    re.IGNORECASE,
+)
+
+
+def _syllable_records(phones: Sequence[dict]) -> list[dict]:
+    """Group aligned phones into model-derived syllable nuclei per word.
+
+    Syllables are a deterministic pronunciation-tier grouping, not a
+    separately validated pronunciation or language interpretation.
+    """
+    by_word: dict[tuple, list] = {}
+    for phone in phones:
+        key = (int(phone.get("word_index", len(by_word))),
+               str(phone["word"]))
+        by_word.setdefault(key, []).append(phone)
+    result = []
+    for (_, word), items in by_word.items():
+        nuclei = [i for i, p in enumerate(items)
+                  if _VOWEL_PHONE.fullmatch(str(p["phone"]).strip())]
+        for number, nucleus_index in enumerate(nuclei, 1):
+            start = items[0]["start"] if number == 1 else items[nuclei[number - 2]]["end"]
+            end = items[-1]["end"] if number == len(nuclei) else items[nucleus_index]["end"]
+            result.append({
+                "word": word, "index": number,
+                "start": round(float(start), 3),
+                "end": round(float(end), 3),
+                "nucleus": items[nucleus_index]["phone"],
+                "method": "MFA ARPAbet vowel-nucleus grouping",
+                "boundary_uncertainty": {
+                    "estimate_ms": None, "status": "uncalibrated",
+                    "textgrid_resolution_ms": 10,
+                },
+            })
+    return result
 
 
 def _chunk_words(textgrid: Path) -> List[Tuple[str, float, float]]:
@@ -798,6 +895,14 @@ def _merge_all(
             offset,
             source_words=window.get("source_words"),
         )
+        phones = _phone_records(
+            parse_phone_tier(out_dir / f"{name}.TextGrid"), words, offset)
+        if not phones and index in recovered:
+            phones = _phone_records(
+                parse_phone_tier(scratch / "recovery_out" /
+                                 f"recovered_{index:04d}.TextGrid"),
+                words, offset)
+        syllables = _syllable_records(phones)
         timed = [w for w in words if "start" in w and "end" in w]
         out_segments.append(
             {
@@ -805,6 +910,8 @@ def _merge_all(
                 "end": timed[-1]["end"] if timed else float(window["end"]),
                 "text": str(window.get("text") or ""),
                 "words": words,
+                "phonemes": phones,
+                "syllables": syllables,
             }
         )
     return {

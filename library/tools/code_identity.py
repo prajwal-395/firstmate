@@ -134,6 +134,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/person_measurements.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
+        "library/tools/speech_measurements.py",
         # Imported by source_memory: the transcript lanes a fresh M1
         # resolves through.
         "library/tools/hybrid_transcription.py",
@@ -594,6 +595,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/person_measurements.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
+        "library/tools/speech_measurements.py",
         # Imported by source_memory: the transcript lanes a fresh M1
         # resolves through.
         "library/tools/hybrid_transcription.py",
@@ -1071,6 +1073,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/person_measurements.py",
         "library/tools/project_model_store.py",
         "library/tools/source_memory.py",
+        "library/tools/speech_measurements.py",
         "library/tools/hybrid_transcription.py",
         "library/tools/protocol_conformance.py",
         "library/tools/shared_environment.py",
@@ -1500,6 +1503,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # reserved lanes are written under, so a fix here changes which
         # stored layers a compose reuses.
         "library/tools/source_memory.py",
+        "library/tools/speech_measurements.py",
         # The source-memory chain: source_memory writes and reads the
         # canonical audio and the measured transcripts, so a fix to any
         # of these changes the stored layers a compose reuses.
@@ -2053,6 +2057,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # stored hearings live under, so a fix here changes which
         # hearings the cached segments are served from.
         "library/tools/source_memory.py",
+        "library/tools/speech_measurements.py",
         # Imported by step.py: a single-stream source's 16 kHz audio is
         # the source primitive's canonical WAV, so a fix here changes
         # the samples every cached measurement was taken from.

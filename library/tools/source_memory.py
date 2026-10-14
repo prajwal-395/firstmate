@@ -137,9 +137,11 @@ from typing import Dict, List, Optional, Tuple
 try:
     from library.tools.shared_environment import vep_home
     from library.tools import footage_identity
+    from library.tools.speech_measurements import nonverbal_vocalizations
 except ImportError:  # imported as `tools.*` from inside library/
     from tools.shared_environment import vep_home
     from tools import footage_identity
+    from tools.speech_measurements import nonverbal_vocalizations
 
 MEMORY_DIRNAME = "source_memory"
 """The store directory name under `vep_home()` (AGENTS.md 9: one shared
@@ -634,15 +636,39 @@ def utterances_from_aligned(aligned: dict, method: str) -> list:
                 continue
             words.append({"word": token, "start": start, "end": end})
         if not words:
+            vocalizations = nonverbal_vocalizations(
+                text, float(segment.get("start", 0.0)),
+                float(segment.get("end", segment.get("start", 0.0))))
+            if vocalizations:
+                regions.append({
+                    "start": vocalizations[0]["start"],
+                    "end": vocalizations[0]["end"],
+                    "text": text.lower().strip(), "words": [],
+                    "vocalizations": vocalizations,
+                    "confidence": 0.0, "method": method,
+                })
             continue
-        regions.append({
+        region = {
             "start": words[0]["start"],
             "end": words[-1]["end"],
             "text": text.lower().strip(),
             "words": words,
             "confidence": 0.0,
             "method": method,
-        })
+        }
+        # VI-08 records are optional for legacy aligners and are passed
+        # through only when the forced aligner actually emitted them.
+        phonemes = segment.get("phonemes")
+        syllables = segment.get("syllables")
+        if phonemes:
+            region["phonemes"] = phonemes
+        if syllables:
+            region["syllables"] = syllables
+        vocalizations = nonverbal_vocalizations(
+            text, region["start"], region["end"])
+        if vocalizations:
+            region["vocalizations"] = vocalizations
+        regions.append(region)
     return regions
 
 
