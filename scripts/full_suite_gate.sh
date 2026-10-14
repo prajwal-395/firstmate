@@ -128,7 +128,10 @@ RESOLVE_DRIVING=(
 RUN_REAL_MODEL=1
 REAL_MODEL_EXCLUDED_BY_POLICY=0
 PARALLEL=1
-WORKERS="auto"
+# Six workers: the 2026-10-13 worker-count benchmark on the captain's
+# 10-core Mac measured 306.4 s at -n 6 versus 571.5 s at -n 2 (46%
+# less), with a 6.69 GiB process-tree RSS peak. Override with -n.
+WORKERS="6"
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --skip-real-model|--skip-heavy-ml) RUN_REAL_MODEL=0; shift ;;

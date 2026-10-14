@@ -60,6 +60,22 @@ TESTS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = TESTS_DIR.parent
 
 
+def _project_conftest(pytestconfig):
+    """Return pytest's loaded conftest, independent of the ``tests`` package.
+
+    ``tests`` is an implicit namespace package, so a site-installed regular
+    package with the same name can win import resolution in an xdist worker.
+    Resolve the hook by its file to keep this test bound to pytest's session
+    guard instead of an unrelated ``tests.conftest`` module.
+    """
+    conftest_path = TESTS_DIR / "conftest.py"
+    for module in pytestconfig.pluginmanager.get_plugins():
+        module_path = getattr(module, "__file__", None)
+        if module_path and Path(module_path).resolve() == conftest_path:
+            return module
+    raise AssertionError(f"pytest did not register {conftest_path} as a plugin")
+
+
 def _production_socket() -> Path:
     """The default socket, whatever this process isolated."""
     return Path(tempfile.gettempdir()) / SOCKET_NAME
@@ -292,14 +308,14 @@ def _broker_pids() -> set:
 
 # ── 3. The session-end leak guard ──────────────────────────────────
 
-def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
+def test_the_session_guard_fails_where_a_tracked_broker_is_alive(pytestconfig):
     """The session-end guard names a tracked broker that is still alive.
 
     A live pid (this process) stands in for a leaked broker; a dead
     entry and an empty session change nothing. Only tracked entries
     are read - the production broker is never touched.
     """
-    from tests import conftest
+    conftest = _project_conftest(pytestconfig)
 
     kept = list(conftest._SESSION_BROKERS)
     try:
@@ -317,9 +333,9 @@ def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
         conftest._SESSION_BROKERS[:] = kept
 
 
-def test_the_session_guard_passes_where_nothing_tracked_is_alive():
+def test_the_session_guard_passes_where_nothing_tracked_is_alive(pytestconfig):
     """Dead tracked entries and an empty session are not failures."""
-    from tests import conftest
+    conftest = _project_conftest(pytestconfig)
 
     kept = list(conftest._SESSION_BROKERS)
     try:

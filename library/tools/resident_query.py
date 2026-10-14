@@ -231,6 +231,34 @@ def ensure_started(
     return proc
 
 
+def _pid_exited(pid: int) -> bool:
+    """Whether a pid has exited; a zombie counts as exited.
+
+    `os.kill(pid, 0)` still succeeds for a zombie - the worker has
+    already exited but its spawner has not reaped it yet (the test
+    fixture reaps with `proc.wait()` right after `stop()`). Waiting
+    on the reap measured six ~10 s teardowns in one file, so a
+    zombie reads as gone here; the spawner's own wait still owns
+    the leak check, which this does not weaken.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8",
+            check=False).stdout.strip()
+        if out:
+            return out.startswith("Z")
+    except OSError:
+        pass
+    return False
+
+
 def stop(socket_dir, timeout: float = 10.0) -> dict:
     """Ask the worker to exit, then wait for its PID to be gone."""
     try:
@@ -246,9 +274,7 @@ def stop(socket_dir, timeout: float = 10.0) -> dict:
         return reply
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except (ProcessLookupError, PermissionError):
+        if _pid_exited(pid):
             break
         time.sleep(0.05)
     else:

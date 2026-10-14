@@ -193,6 +193,31 @@ def test_status_reports_generations_counts_and_budget(runtime):
     assert info["rss_mb"] > 0
 
 
+def test_stop_returns_promptly_while_the_child_is_still_unreaped(runtime):
+    """stop() must not wait out the spawner's reap.
+
+    The worker exits on the shutdown op but stays a zombie until the
+    spawner reaps it (this fixture reaps with `proc.wait()` after
+    `stop()`); `os.kill(pid, 0)` still succeeds for a zombie, so the
+    old wait consumed the full 10 s timeout on every teardown - six
+    ~10 s teardowns in this file. A zombie reads as exited, and the
+    spawner's own wait below still owns the leak check.
+    """
+    import shutil
+
+    if shutil.which("ps") is None:
+        pytest.skip("zombie detection reads `ps` output")
+    proc = runtime["start"](_serve_args(runtime))
+    assert proc is not None
+    started = time.monotonic()
+    resident_query.stop(runtime["socket_dir"], timeout=10.0)
+    elapsed = time.monotonic() - started
+    assert elapsed < 5.0, (
+        f"stop() waited {elapsed:.1f}s for a worker that already exited")
+    proc.wait(timeout=10)
+    assert proc.poll() is not None, "worker process leaked"
+
+
 def test_socket_dir_is_opt_in_only(tmp_path):
     """Nothing is listening where nobody served: a cold socket dir
     refuses with the exact start command, and status agrees."""

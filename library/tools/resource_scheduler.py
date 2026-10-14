@@ -28,8 +28,10 @@ Capability phases declare their resource demand on
 admits. An exclusive Resolve phase also reserves `resolve_cursor`, so
 the resource scheduler and Resolve router cannot disagree. `machine` is
 the default and the old mutex exactly. Two workload profiles are not
-capabilities. `full_suite_gate` is a test runner. Its 6 GB RAM ceiling
-was measured at 5.30 GB resident across 243 samples. Its CPU demand
+capabilities. `full_suite_gate` is a test runner. Its 8 GB RAM ceiling
+was measured at 6.69 GiB process-tree RSS peak at -n 6 across the
+2026-10-13 worker-count benchmark (the old 6 GB reservation predates
+that measurement). Its CPU demand
 stays declared: a noisy shared-machine run showed what the gate
 obtained, not what it asked for. `reel_preview` is `ren preview`'s
 headless engine render and proxy encode (`library/tools/reel_preview.py`),
@@ -155,7 +157,7 @@ def profiles() -> Dict[str, Dict[str, int]]:
         # The full-suite runner is infrastructure, not a pipeline capability.
         "full_suite_gate": {
             "cpu": max(cap["cpu"] - 2, cap["cpu"] // 2 + 1),
-            "ram_gb": min(6, cap["ram_gb"]),
+            "ram_gb": min(8, cap["ram_gb"]),
             "disk": 2,
         },
         # `ren preview` (module docstring): a bounded engine render plus
