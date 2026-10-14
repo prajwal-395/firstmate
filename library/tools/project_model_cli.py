@@ -32,10 +32,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
 import sys
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -204,8 +206,9 @@ def classify_filmcraft_edit(model: dict, projection: dict, edit: dict, native) -
     return True, None
 
 
-def plan_filmcraft(model: dict, native, project_root: Path | None = None) -> dict:
+def plan_filmcraft(model: dict, native, project_root: Path | None = None, *, sequence_size: str | None = None) -> dict:
     """The plan: the adapter's projection plus per-edit executability."""
+    model = _model_with_native_moves(model, sequence_size)
     projection = plan_filmcraft_projection(model, native)
     dummy_ids = {placement["clip_use_id"]: [0]
                  for placement in projection["placements"]}
@@ -1076,6 +1079,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     # measure them before finalizing placements so the adapter assigns A1.
     planner_model = _with_measured_aroll_audio_streams(model, media_map)
     if planner_model is not model:
+        planner_model = _model_with_native_moves(planner_model, sequence_size)
         projection = plan_filmcraft_projection(planner_model, native)
     preconform_report: dict[str, Any] = {"enabled": False}
     if preconform:
@@ -1106,7 +1110,9 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     translate_filmcraft_edits(model, projection, dummy_ids, project_str, native)
     add_tracks_command = translate_filmcraft_add_tracks(
         projection, project_str, native)
-    treatments_plan = _plan_native_treatments(project_root)
+    treatments_plan = _plan_native_treatments(
+        project_root, model=model, sequence_size=sequence_size)
+    model = _model_with_native_moves(model, sequence_size)
 
     cli = _filmcraft_cli()
     _check_cli_version(cli, FILMCRAFT_VERSION, "FilmCraft")
@@ -1407,17 +1413,131 @@ def _master_filmcraft_export(project_root: Path, export_path: Path) -> dict:
     return mastering
 
 
-def _plan_native_treatments(project_root: Path) -> dict:
+def _plan_native_treatments(project_root: Path, *, model: dict,
+                             sequence_size: str | None) -> dict:
     """The declared grade/bezel plan, or refuse before any mutation."""
     from library.tools import native_effects_composite as nec
 
     try:
-        return nec.plan_declared_treatments(str(project_root))
+        planned = nec.plan_declared_treatments(str(project_root))
+        compositions = _project_model_compositions(model, sequence_size)
+        return {**planned, **compositions}
     except Exception as exc:  # noqa: BLE001 - declaration errors become refusals
         raise _refuse(f"native treatments refused: {exc}",
                       "the project's series_look/tv_frame declaration cannot be delivered as written",
                       "fix the declaration in project.yaml (or the named brand template) and retry",
                       code="REN_PM_CLI_NATIVE_TREATMENTS") from exc
+
+
+def _project_model_compositions(model: dict, sequence_size: str | None) -> dict:
+    """Resolve verified moves for the native render pass.
+
+    Move curves are sampled through the same measured Fusion projection
+    used by EffectCraft; only scale-only curves lower to FilmCraft's
+    native picture keys. Model `color.grade` effects are NOT lowered:
+    the per-clip BrightnessContrast proxy, stacked on the declared
+    project look in the composite, moves the picture away from the
+    deliverable by measured 0.07 SSIM-Y (see benchmark note), so grades
+    stay refused as `effect_not_projected` until the proxy is calibrated.
+    """
+    from library.tools.project_model_effectcraft_moves import (
+        MOVE_CLASS_IDS,
+        move_comp_frames,
+        project_move,
+    )
+
+    sizes = _parse_sequence_size(sequence_size) if sequence_size else None
+    clocks = {clock["id"]: clock for clock in model["clocks"]}
+    uses = {use["id"]: use for use in model["clip_uses"]}
+    max_frames = 0
+    frame_rates: set[Fraction] = set()
+    for use in model["clip_uses"]:
+        interval = use["timeline_interval"]
+        clock = clocks[interval["clock_id"]]
+        rate = Fraction(clock["frame_rate"]["numerator"],
+                        clock["frame_rate"]["denominator"])
+        frame_rates.add(rate)
+        end = Fraction(interval["end"] * rate.numerator,
+                       clock["ticks_per_second"] * rate.denominator)
+        max_frames = max(max_frames, math.ceil(end))
+    if len(frame_rates) > 1:
+        raise ValueError(f"native model timeline has inconsistent frame rates: {frame_rates}")
+    frame_rate = float(next(iter(frame_rates))) if frame_rates else 0.0
+
+    grade_spans: list[dict] = []
+    native_moves = []
+    lowered_move_ids = []
+    for effect in model["effects"]:
+        class_id = effect["class_id"]
+        interval = effect["interval"]
+        clock = clocks[interval["clock_id"]]
+        if clock["domain"]["kind"] not in ("timeline", "project"):
+            continue
+        if class_id not in MOVE_CLASS_IDS:
+            continue
+        if not sizes:
+            raise ValueError(
+                f"move effect {effect['id']!r} needs --sequence-size WIDTHxHEIGHT to compose its curve")
+        if effect["target_id"] not in uses:
+            raise ValueError(
+                f"move effect {effect['id']!r} targets absent use {effect['target_id']!r}")
+        first_frame, last_frame = move_comp_frames(
+            interval, clock["ticks_per_second"], frame_rate, effect["id"])
+        ops = project_move(
+            class_id=class_id, effect_id=effect["id"],
+            parameters=effect["parameters"], layer=effect["target_id"],
+            first_frame=first_frame, last_frame=last_frame,
+            comp_frames=max_frames, comp_width=sizes[0], comp_height=sizes[1],
+            frame_rate=frame_rate)
+        scale_ops = [op for op in ops if op["path"] == "transform/scale"]
+        other_ops = [op for op in ops if op["path"] != "transform/scale"]
+        if other_ops or not scale_ops:
+            continue
+        target_use = uses[effect["target_id"]]
+        timeline = target_use["timeline_interval"]
+        timeline_clock = clocks[timeline["clock_id"]]
+        timeline_rate = Fraction(timeline_clock["frame_rate"]["numerator"],
+                                 timeline_clock["frame_rate"]["denominator"])
+        ticks_per_frame = Fraction(timeline_clock["ticks_per_second"] * timeline_rate.denominator,
+                                   timeline_rate.numerator)
+        clip_start_frame = math.floor(
+            Fraction(timeline["start"] * timeline_rate.numerator,
+                     timeline_clock["ticks_per_second"] * timeline_rate.denominator))
+        clip_end_frame = math.ceil(
+            Fraction(timeline["end"] * timeline_rate.numerator,
+                     timeline_clock["ticks_per_second"] * timeline_rate.denominator))
+        keyframes = []
+        for op in scale_ops:
+            frame = round(float(op["time"]) * frame_rate)
+            if not clip_start_frame <= frame < clip_end_frame:
+                continue
+            tick = frame * ticks_per_frame
+            if tick.denominator != 1:
+                raise ValueError(f"move effect {effect['id']!r} keyframe falls between timeline ticks")
+            keyframes.append({"tick": int(tick), "value": float(op["value"][0]) / 100.0})
+        if not keyframes:
+            raise ValueError(f"move effect {effect['id']!r} has no scale keys inside its target clip")
+        native_moves.append({
+            "id": effect["id"], "class_id": "transform.scale",
+            "target_id": effect["target_id"],
+            "interval": dict(timeline), "parameters": {}, "keyframes": keyframes,
+        })
+        lowered_move_ids.append(effect["id"])
+    return {"grade_spans": grade_spans, "native_moves": native_moves,
+            "lowered_move_ids": lowered_move_ids}
+
+
+def _model_with_native_moves(model: dict, sequence_size: str | None) -> dict:
+    """Lower measured scale-only moves to FilmCraft's native picture keys."""
+    planned = _project_model_compositions(model, sequence_size)
+    lowered_ids = set(planned["lowered_move_ids"])
+    if not lowered_ids:
+        return model
+    lowered = dict(model)
+    lowered["effects"] = [effect for effect in model["effects"]
+                          if effect["id"] not in lowered_ids]
+    lowered["effects"].extend(planned["native_moves"])
+    return lowered
 
 
 def _composite_intermediate_to_final(
@@ -1456,6 +1576,8 @@ def _composite_intermediate_to_final(
     composited["intermediate_removed"] = not intermediate.exists()
     composited["engine_format"] = "prores"
     composited["lossy_encodes"] = 1
+    composited["native_move_effect_ids"] = [row["id"]
+                                             for row in planned["native_moves"]]
     return composited
 
 
@@ -1781,7 +1903,7 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
         return 0
 
     native = filmcraft_native()
-    plan = plan_filmcraft(model, native, project_root=root)
+    plan = plan_filmcraft(model, native, project_root=root, sequence_size=args.sequence_size)
     plan["model_source"] = source
     if args.execute:
         receipt = execute_filmcraft(

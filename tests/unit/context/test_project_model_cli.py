@@ -88,6 +88,53 @@ def _no_engine(monkeypatch) -> None:
     monkeypatch.setattr(subprocess, "run", boom)
 
 
+def test_native_composition_projects_measured_zoom_and_leaves_grade_refused(tmp_path):
+    from library.tools.project_model_cli import (
+        _model_with_native_moves,
+        _project_model_compositions,
+    )
+
+    model = json.loads(FIXTURE_MODEL.read_text(encoding="utf-8"))
+    timeline = next(c for c in model["clocks"]
+                    if c["id"] == model["clip_uses"][0]["timeline_interval"]["clock_id"])
+    use = model["clip_uses"][0]
+    span = use["timeline_interval"]
+    model["effects"].extend([
+        {"id": "grade-a", "class_id": "color.grade",
+         "target_id": use["id"], "interval": dict(span),
+         "parameters": {"gain": 1.0, "contrast": 0.12,
+                        "brightness": 0.0, "saturation": 1.0},
+         "keyframes": []},
+        {"id": "zoom-a", "class_id": "move.zoom_emphasis",
+         "target_id": use["id"],
+         "interval": {"clock_id": timeline["id"], "start": 0,
+                      "end": span["end"]},
+         "parameters": {"zoom_start": 1.0, "zoom_mid": 1.018,
+                         "zoom_end": 1.0,
+                         "zoom_in_duration_frames": 12,
+                         "zoom_release_offset_frames": 14,
+                         "zoom_out_duration_frames": 10,
+                         "zoom_easing": "Linear"},
+         "keyframes": []},
+    ])
+
+    plan = _project_model_compositions(model, "1080x1920")
+    assert plan["grade_spans"] == []
+    assert [row["id"] for row in plan["native_moves"]] == ["zoom-a"]
+    keys = plan["native_moves"][0]["keyframes"]
+    assert len(keys) > 30
+    assert keys[0] == {"tick": 0, "value": 1.0}
+    assert max(key["value"] for key in keys) == pytest.approx(1.018, abs=1e-6)
+    assert keys[-1]["value"] == 1.0
+    lowered = _model_with_native_moves(model, "1080x1920")
+    assert "color.grade" in {effect["class_id"] for effect in lowered["effects"]}
+    assert "move.zoom_emphasis" not in {effect["class_id"] for effect in lowered["effects"]}
+    native_zoom = next(effect for effect in lowered["effects"]
+                       if effect["id"] == "zoom-a")
+    assert native_zoom["class_id"] == "transform.scale"
+    assert native_zoom["keyframes"] == keys
+
+
 # ── Registration ────────────────────────────────────────────
 
 
