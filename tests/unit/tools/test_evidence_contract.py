@@ -345,9 +345,8 @@ def test_evidence_links_refuse_unknown_kinds_and_ranges():
 
 
 def test_migration_path_audits_mapped_modalities():
-    """The real caller: the migration builder audits every mapped
-    modality, passes measurements through, and leaves unmapped
-    modalities (M4/M5/M7/M10 prose) untouched."""
+    """The builder audits mapped modalities and leaves unmapped M7/M10
+    prose untouched."""
     builder = evidence._Builder("test-project")
     assert builder.observation(
         "d", "m1", ASSET, CLOCK, 1.0, 1.5, "speech_word",
@@ -359,4 +358,7 @@ def test_migration_path_audits_mapped_modalities():
     assert builder.observation(
         "d", "m4", ASSET, CLOCK, 0.0, 5.0, "scene",
         {"location": "studio"}, None, "v3") is not None
-    assert contract.audit_legacy_observation("scene", {}) is None
+    assert contract.audit_legacy_observation("scene", {}) == (
+        "video.scene_segment")
+    assert contract.audit_legacy_observation("sound_event", {}) == (
+        "audio.sound_event")

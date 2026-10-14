@@ -160,6 +160,76 @@ def _write_m3c(memory: Path, digest: str, method: str) -> None:
         "instrument": {"method": method}})
 
 
+def _write_m3fgm4m5(memory: Path, digest: str) -> None:
+    from library.tools import depth, person_regions, region_stats, source_memory
+    from library.tools.analysis.sound_event_pipeline import METHOD as M5_METHOD
+
+    source = memory / digest
+    source.mkdir(parents=True, exist_ok=True)
+    frames = []
+    for index, timestamp in enumerate((1.0, 2.0, 3.0)):
+        relative = f"frames/{index:04d}.jpg"
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture frame")
+        frames.append({"t": timestamp, "file": relative})
+    _write(source / "frames.index.json", {
+        "content_digest": digest, "frames": frames})
+    sidecar = person_regions.write_sidecar(source, [[4, 0]], [2, 2])
+    regions = {
+        "content_digest": digest, "grid": [2, 2], "sidecar": sidecar,
+        "tracks": [{"track_id": "region_001"}],
+        "samples": [{"t": 1.0, "instances": []},
+                    {"t": 2.0, "instances": [{"track": "region_001",
+                                               "mask": 0}]},
+                    {"t": 3.0, "instances": None}],
+        "instrument": {"method": person_regions.M3D_METHOD},
+    }
+    _write(source / "regions.json", regions)
+    _write(source / "region_stats.json", {
+        "content_digest": digest, "status": "measured", "grid": [2, 2],
+        "outside": "cells no person instance holds",
+        "samples": [
+            {"t": 1.0, "outside": {}, "regions": []},
+            {"t": 2.0, "outside": {"luma_p50": 10},
+             "regions": [{"track": "region_001", "mask": 0,
+                          "inside": {"luma_p50": 100,
+                                     "sharpness": 12.0}}]},
+            {"t": 3.0, "regions": None,
+             "unmeasured_because": "fixture unavailable"}],
+        "instrument": {"method": region_stats.M3F_METHOD,
+                       "m3d_sidecar_sha256": sidecar["sha256"]},
+    })
+    _write(source / "depth.json", {
+        "content_digest": digest, "status": "measured", "grid": [2, 2],
+        "direction": "brighter-is-nearer",
+        "samples": [
+            {"t": 1.0, "regions": []},
+            {"t": 2.0, "regions": [{"track": "region_001", "mask": 0,
+                                     "median_depth": 0.75}]},
+            {"t": 3.0, "regions": None,
+             "unmeasured_because": "fixture unavailable"}],
+        "instrument": {"method": depth.M3G_METHOD,
+                       "m3d_sidecar_sha256": sidecar["sha256"],
+                       "depth_percentiles": {"p02": 0.0, "p98": 1.0}},
+    })
+    _write(source / "scenes.json", {
+        "content_digest": digest, "status": "measured",
+        "scenes": [{"start": 0.0, "end": 5.0, "location": "studio",
+                    "type": "interview", "lighting": "soft",
+                    "notable_features": []}],
+        "scene_boundaries": [{"time": 4.0, "score": 0.7,
+                              "type": "scene_change"}],
+        "instrument": {
+            "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+            "boundary_method": source_memory.M4_BOUNDARY_METHOD},
+    })
+    _write(source / "sound.json", {
+        "content_digest": digest, "status": "measured",
+        "sound_events": [], "method": M5_METHOD,
+    })
+
+
 @pytest.fixture()
 def fixture_project(tmp_path):
     project = tmp_path / "proj"
@@ -478,6 +548,94 @@ def test_m0_m3b_m3c_m3d_migrate_freshness_and_absence(fixture_project):
     assert stale_coverage["lanes"][D1]["freshness"]["m3d"] == "stale"
 
 
+def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
+        fixture_project):
+    fixture = fixture_project
+    _write_m3fgm4m5(fixture["memory"], D1)
+    model, report = _migrate(fixture)
+    observations = [obs for obs in model["observations"]
+                    if obs["provenance_id"].endswith(("-m3f", "-m3g", "-m4", "-m5"))]
+    by_lane = {}
+    for obs in observations:
+        lane = obs["provenance_id"].rsplit("-", 1)[-1]
+        by_lane.setdefault(lane, []).append(obs)
+    assert by_lane["m3f"]
+    assert by_lane["m3g"]
+    assert by_lane["m4"]
+    assert by_lane["m5"]
+    native = lambda lane: [
+        obs["payload"]["evidence_contract"] for obs in by_lane[lane]
+        if "evidence_contract" in obs["payload"]]
+    m3f_records = native("m3f")
+    assert any(record["value"] == [] and record["coverage"] == "complete"
+               for record in m3f_records)
+    assert any(record["coverage"] == "unavailable"
+               for record in m3f_records)
+    m3g_records = native("m3g")
+    assert any(record["value"] == 0.75 for record in m3g_records)
+    assert any(record["coverage"] == "unavailable"
+               for record in m3g_records)
+    m4_records = native("m4")
+    assert any(record["measurement_type"] == "video.scene_segment"
+               for record in m4_records)
+    assert any(record["measurement_type"] == "video.scene_boundary"
+               for record in m4_records)
+    m5_records = native("m5")
+    assert len(m5_records) == 1
+    assert m5_records[0]["value"] == []
+    assert m5_records[0]["coverage"] == "complete"
+
+    scene_doc = json.loads((fixture["memory"] / D1 / "scenes.json").read_text(
+        encoding="utf-8"))
+    scene_doc["scenes"] = []
+    scene_doc["scene_boundaries"] = []
+    _write(fixture["memory"] / D1 / "scenes.json", scene_doc)
+    empty_scene_model, _empty_scene_report = _migrate(fixture)
+    empty_scene_records = [
+        obs["payload"]["evidence_contract"]
+        for obs in empty_scene_model["observations"]
+        if obs["provenance_id"].endswith("-m4")
+        and "evidence_contract" in obs["payload"]]
+    assert len(empty_scene_records) == 2
+    assert all(record["value"] == [] and record["coverage"] == "complete"
+               for record in empty_scene_records)
+
+    coverage = evidence.evidence_coverage(
+        str(fixture["project"]), model, report,
+        memory_root=str(fixture["memory"]))
+    lane_freshness = coverage["lanes"][D1]["freshness"]
+    assert lane_freshness["m3f"] == "fresh"
+    assert lane_freshness["m3g"] == "fresh"
+    assert lane_freshness["m4"] == "unknown"
+    assert lane_freshness["m5"] == "unknown"
+
+    memory = fixture["memory"]
+    _write(memory / D1 / "region_stats.json", {
+        **json.loads((memory / D1 / "region_stats.json").read_text(
+            encoding="utf-8")),
+        "instrument": {"method": "retired-region-stats-method"}})
+    _write(memory / D1 / "depth.json", {
+        **json.loads((memory / D1 / "depth.json").read_text(
+            encoding="utf-8")),
+        "instrument": {"method": "retired-depth-method"}})
+    _write(memory / D1 / "scenes.json", {
+        **json.loads((memory / D1 / "scenes.json").read_text(
+            encoding="utf-8")),
+        "instrument": {"scene_pass": "retired-scene-method"}})
+    _write(memory / D1 / "sound.json", {
+        **json.loads((memory / D1 / "sound.json").read_text(
+            encoding="utf-8")), "method": "retired-sound-method"})
+    stale_model, stale_report = _migrate(fixture)
+    assert not [obs for obs in stale_model["observations"]
+                if obs["provenance_id"].endswith(("-m3f", "-m3g", "-m4", "-m5"))
+                and "evidence_contract" in obs["payload"]]
+    stale_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_model, stale_report,
+        memory_root=str(memory))
+    for lane in ("m3f", "m3g", "m4", "m5"):
+        assert stale_coverage["lanes"][D1]["freshness"][lane] == "stale"
+
+
 def _model_with_editorial(model: dict, person_id: str) -> dict:
     model = json.loads(json.dumps(model))
     model["clocks"].extend([
@@ -665,3 +823,171 @@ def test_migrate_cli_writes_and_commits(fixture_project, capsys):
     assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
     revision, _stored = load_project_model(project)
     assert revision == 1
+
+
+def _write_m6m7m8m10(memory: Path, digest: str) -> None:
+    """Current M6/M7/M8/M10 lane documents: a grouped M6 offset, M7
+    with an empty speaking predicate (measured absence) beside a
+    measured on-screen span, one matched and one unmatched M8 verdict,
+    and a method-stamped M10 with one span and two empty relations."""
+    from library.tools.relationships import M10_METHOD
+
+    _write(memory / digest / "clock.json", {
+        "content_digest": digest, "source_file": "/nonexistent/a.mov",
+        "group_id": "group-1", "group_members": [digest, "digest-bbb-002"],
+        "reference_digest": "digest-bbb-002",
+        "offset_to_reference_seconds": 0.5,
+        "path_to_reference": [digest],
+        "direct_measurement": {"agreement": 0.9},
+        "resolve_cross_check": None, "timecode_cross_check": None,
+        "ngram_size": 4, "built_at": "2026-10-13T00:00:00+00:00"})
+    _write(memory / digest / "events.json", {
+        "content_digest": digest, "size_bytes": 100,
+        "source_file": "/nonexistent/a.mov", "status": "built",
+        "frame_count": 2, "faces_assigned": 1, "faces_unassigned": 0,
+        "predicates": {
+            "speaking": {"basis": "fixture", "spans": []},
+            "on_screen": {
+                "basis": "fixture",
+                "spans": [{"start": 0.0, "end": 5.0,
+                           "face_track": "face_001"}]}},
+        "candidates": {
+            "hand_near_mouth": {"basis": "fixture", "spans": [
+                {"start": 1.0, "end": 2.0, "face_track": "face_001",
+                 "frames": [{"t": 1.0}, {"t": 1.5}]}]}},
+        "built_at": "2026-10-13T00:00:00+00:00"})
+    _write(memory / digest / "verdicts.json", {
+        "content_digest": digest,
+        "verdicts": {
+            "k1": {"statement": "hand near mouth", "answer": True,
+                   "reason": "seen", "model": "fixture",
+                   "frames": [1.0, 1.5]},
+            "k2": {"statement": "hand near mouth", "answer": False,
+                   "reason": "other moment", "model": "fixture",
+                   "frames": [9.0]}}})
+    _write(memory / digest / "relationships.json", {
+        "content_digest": digest, "source_file": "/nonexistent/a.mov",
+        "relationships": {
+            "holding": {"basis": "fixture", "spans": [
+                {"owners": ["face_001"], "start": 2.0, "end": 3.0}]},
+            "pointing": {"basis": "fixture", "spans": []},
+            "looking_at": {"basis": "fixture", "spans": []}},
+        "instrument": {"method": M10_METHOD,
+                       "reads": ["persons.json", "identity.json",
+                                 "regions.json"]},
+        "built_at": "2026-10-13T00:00:00+00:00"})
+
+
+def test_m6_m7_m8_m10_migrate_native_coverage_and_refusals(
+        fixture_project):
+    from library.tools.project_model import validate_project_model
+
+    fixture = fixture_project
+    memory = fixture["memory"]
+    _write_m6m7m8m10(memory, D1)
+    model, report = _migrate(fixture)
+    validate_project_model(model)
+
+    d1_obs = [o for o in model["observations"]
+              if o["provenance_id"].startswith(f"prov-{D1}-")]
+    contracts = {
+        lane: [o["payload"]["evidence_contract"] for o in d1_obs
+               if o["provenance_id"].endswith(f"-{lane}")
+               and "evidence_contract" in (o.get("payload") or {})]
+        for lane in ("m6", "m7", "m10")}
+
+    m6_records = contracts["m6"]
+    assert len(m6_records) == 1
+    assert m6_records[0]["measurement_type"] == "sync.multicam_offset"
+    assert m6_records[0]["coverage"] == "complete"
+    assert m6_records[0]["method"] == "conversation-clock-ngram-v4"
+    assert m6_records[0]["value"]["offset_to_reference_seconds"] == 0.5
+
+    m7_records = contracts["m7"]
+    by_type = {record["measurement_type"] for record in m7_records}
+    assert by_type == {"event.speaking_span", "event.visible_span",
+                       "event.candidate_span"}
+    speaking = [record for record in m7_records
+                if record["measurement_type"] == "event.speaking_span"]
+    assert len(speaking) == 1
+    assert speaking[0]["value"] == []
+    assert speaking[0]["coverage"] == "complete"
+    candidate = [record for record in m7_records
+                 if record["measurement_type"] == "event.candidate_span"]
+    assert len(candidate) == 1
+    assert candidate[0]["value"]["verified"] is True
+    assert len(candidate[0]["value"]["verdicts"]) == 1
+
+    m10_records = contracts["m10"]
+    holding = [record for record in m10_records
+               if record["value"] != []]
+    assert len(holding) == 1
+    assert holding[0]["value"] == {"relation": "holding",
+                                   "owners": ["face_001"]}
+    absent = [record for record in m10_records
+              if record["value"] == []]
+    assert len(absent) == 2
+    assert all(record["coverage"] == "complete" for record in absent)
+
+    assert any("M8 1 verdict(s) match no M7 candidate span" in note
+               for note in report["notes"])
+    coverage = evidence.evidence_coverage(
+        str(fixture["project"]), model, report,
+        memory_root=str(memory))
+    lane = coverage["lanes"][D1]
+    assert lane["present"]["m8_verdicts"] == 2
+    assert lane["present"]["m8_unmatched_verdicts"] == 1
+    assert lane["freshness"]["m6"] == "unknown"
+    assert lane["freshness"]["m7"] == "unknown"
+    assert lane["freshness"]["m8"] == "unknown"
+    assert lane["freshness"]["m10"] == "unknown"
+    assert lane["native_migrated_observations"]["m6"] == 1
+    assert lane["native_migrated_observations"]["m7"] == 3
+    assert lane["native_migrated_observations"]["m10"] == 3
+    assert "m6" not in lane["legacy_only_migrated_observations"]
+    assert "m7" not in lane["legacy_only_migrated_observations"]
+    assert "m10" not in lane["legacy_only_migrated_observations"]
+
+    _write(memory / D1 / "relationships.json", {
+        **json.loads((memory / D1 / "relationships.json").read_text(
+            encoding="utf-8")),
+        "instrument": {"method": "retired-relationship-method"}})
+    stale_m10, stale_report = _migrate(fixture)
+    assert not [o for o in stale_m10["observations"]
+                if o["provenance_id"].startswith(f"prov-{D1}-")
+                and o["provenance_id"].endswith("-m10")]
+    assert any("M10 stale method" in note
+               for note in stale_report["notes"])
+    stale_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_m10, stale_report,
+        memory_root=str(memory))
+    assert stale_coverage["lanes"][D1]["freshness"]["m10"] == "stale"
+
+    clock_doc = json.loads((memory / D1 / "clock.json").read_text(
+        encoding="utf-8"))
+    clock_doc["ngram_size"] = 2
+    _write(memory / D1 / "clock.json", clock_doc)
+    stale_m6, stale_m6_report = _migrate(fixture)
+    assert not [o for o in stale_m6["observations"]
+                if o["provenance_id"].startswith(f"prov-{D1}-")
+                and o["provenance_id"].endswith("-m6")]
+    assert any("M6 stale n-gram method" in note
+               for note in stale_m6_report["notes"])
+    stale_m6_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_m6, stale_m6_report,
+        memory_root=str(memory))
+    assert stale_m6_coverage["lanes"][D1]["freshness"]["m6"] == "stale"
+
+    _write(memory / D1 / "persons.json", json.loads(
+        (memory / D1 / "persons.json").read_text(encoding="utf-8")))
+    stale_m7, stale_m7_report = _migrate(fixture)
+    assert not [o for o in stale_m7["observations"]
+                if o["provenance_id"].startswith(f"prov-{D1}-")
+                and o["provenance_id"].endswith("-m7")]
+    assert any("M7 stale against its M3/M3b inputs" in note
+               for note in stale_m7_report["notes"])
+    stale_m7_coverage = evidence.evidence_coverage(
+        str(fixture["project"]), stale_m7, stale_m7_report,
+        memory_root=str(memory))
+    assert stale_m7_coverage["lanes"][D1]["freshness"]["m7"] == "stale"
+    assert stale_m7_coverage["lanes"][D1]["freshness"]["m8"] == "stale"

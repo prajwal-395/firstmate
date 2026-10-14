@@ -3980,7 +3980,8 @@ def write_scene_memory(clip_path, profile, temporal_index, root=None):
         scenes=profile.get("scene") or [],
         scene_boundaries=(temporal_index or {}).get("scene_boundaries") or [],
         scene_coverage=profile.get("scene_coverage"),
-        instrument={"scene_pass": "folded window call (PROMPT_WINDOW_ALL_COMPACT)"},
+        instrument={"scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+                    "boundary_method": source_memory.M4_BOUNDARY_METHOD},
         root=root)
 
 

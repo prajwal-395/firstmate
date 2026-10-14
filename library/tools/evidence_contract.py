@@ -219,6 +219,42 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "Person regions measured on one M2 frame; an empty list is a measured absence.",
     },
+    "image.region_stats": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "M3f luma, colour, skin and sharpness measured inside a person region against outside.",
+    },
+    "image.relative_depth": {
+        "unit": "normalized",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "M3g median relative depth measured within a person region on the declared mask grid.",
+    },
+    "person.region_depth_frame": {
+        "unit": "regions",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "M3g relative-depth coverage for all regions measured on one M2 frame.",
+    },
+    "video.scene_segment": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "M4 scene segment and its measured visual descriptors.",
+    },
+    "video.scene_boundary": {
+        "unit": "tick",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "M4 ffmpeg scene boundary at a source time.",
+    },
+    "audio.sound_event": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "M5 timed PANNs sound event, or a complete empty event set over the measured source interval.",
+    },
     "image.salient_boxes": {
         "unit": "normalized",
         "kind": EvidenceType.MEASUREMENT,
@@ -231,6 +267,46 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "kind": EvidenceType.MEASUREMENT,
         "requires_resolution": False,
         "description": "One diarized voice turn span (M3b/M1b).",
+    },
+    "sync.multicam_offset": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "M6 n-gram offset between one source's clock and its "
+        "group reference. A null group is a measured absence of group "
+        "membership, never a zero offset.",
+    },
+    "event.speaking_span": {
+        "unit": "span",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One M7 speaking span: a diarized voice turn "
+        "attributed to a face by lip motion. An empty span set over the "
+        "measured source interval is a measured absence.",
+    },
+    "event.visible_span": {
+        "unit": "span",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One M7 on-screen span: a face track visible at the "
+        "M2 cadence. An empty span set over the measured source interval "
+        "is a measured absence.",
+    },
+    "event.candidate_span": {
+        "unit": "span",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One M7 geometric candidate span for VLM "
+        "verification, with the M8 verdicts recorded against it and "
+        "whether any affirms it. Candidates are never answers.",
+    },
+    "relation.candidate_span": {
+        "unit": "span",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One M10 geometric relationship candidate span "
+        "(holding, pointing, looking-at). Candidates stay observations "
+        "until an object instance resolves the object end.",
     },
     "eval.sharpness_pass": {
         "unit": "boolean",
@@ -277,6 +353,9 @@ KNOWN_METHODS: tuple[str, ...] = (
     "attention-saliency-v1-m2",
     "region-stats-v2-m2",
     "relationships-v2 over M3 pose + M3d regions",
+    "conversation-clock-ngram-v4",
+    "event-spans-v1 over M3+M3b",
+    "span-verification-prompt-v2",
     "picture-quality-deterministic_v1@180px",
 )
 
@@ -697,6 +776,13 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "source_metadata": "media.source_metadata",
     "expression_frame": "image.expression_frame",
     "region_frame": "person.region_frame",
+    "region_stats": "image.region_stats",
+    "region_stats_frame": "image.region_stats",
+    "depth": "image.relative_depth",
+    "depth_frame": "person.region_depth_frame",
+    "scene": "video.scene_segment",
+    "scene_boundary": "video.scene_boundary",
+    "sound_event": "audio.sound_event",
 }
 
 
