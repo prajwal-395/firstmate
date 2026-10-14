@@ -356,9 +356,21 @@ def inverse_operations(operations, before: dict) -> list:
     return list(reversed(inverses))
 
 
+def _conflict_domains(operations, declared=None) -> tuple[str, ...]:
+    """Include every EditPatch facet written by the feedback operations."""
+    from library.tools import edit_algebra
+
+    domains = set(declared or ())
+    for operation in operations:
+        spec = edit_algebra.ALGEBRA.get(operation.get("op"))
+        if spec is not None:
+            domains.add(spec.domain)
+    return tuple(sorted(domains))
+
+
 def guarded_apply(*, project, timeline, operations, scope: dict,
                   idempotency_key: str, capability: str = CAPABILITY,
-                  conflict_domains=("markers",), preconditions=(),
+                  conflict_domains=None, preconditions=(),
                   postconditions=(), store=None,
                   project_folder=None) -> dict:
     """Apply `operations` on the existing timeline, guarded end to end.
@@ -374,6 +386,10 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     require_qualification(project)
     require_exclusive_lease()
     operations = [dict(op) for op in operations]
+    # Declare every facet the operations actually write. A mixed feedback
+    # patch (for example, a marker plus a clip transform) must contend on
+    # both facets in the scheduler and pass EditPatch's domain validation.
+    conflict_domains = _conflict_domains(operations, conflict_domains)
     if not operations:
         raise PatchRefused("a feedback patch needs at least one operation")
     if not idempotency_key:

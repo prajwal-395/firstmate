@@ -1,12 +1,12 @@
-"""`feedback_patch_flow.handle_note` against a REAL running Resolve.
+"""`ren revise` against a REAL running Resolve.
 
 Live proof for slice 3, only in Ren Qualification (the `resolve_session`
 fixture: exclusive lease, qual project, skip rather than contend).
 
-What it proves live: a patchable note patches the existing "Q Markers"
-timeline in place, the planted blue marker reads back untouched, the
-green reply lands beside it only after the verified record, and the
-timeline is left exactly as found.
+What it proves live: a pulled marker note enters through `ren revise`,
+patches the existing "Q Markers" timeline in place, its source marker is
+removed after verification, the green reply lands beside it, and cleanup
+restores the timeline exactly as found.
 """
 
 from __future__ import annotations
@@ -14,7 +14,8 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-from dataclasses import asdict
+import json
+from pathlib import Path
 
 import pytest
 
@@ -22,11 +23,10 @@ pytestmark = pytest.mark.resolve_live
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from library.tools import feedback_patch  # noqa: E402
 from library.tools import feedback_patch_apply  # noqa: E402
-from library.tools import feedback_patch_flow as flow  # noqa: E402
-from library.tools import marker_resolution as resolution  # noqa: E402
-from library.tools import marker_routing as routing  # noqa: E402
+from library.tools import llm_handshake  # noqa: E402
+from library.tools import marker_feedback  # noqa: E402
+from library.tools import revise  # noqa: E402
 from library.tools import timeline_shadow as shadow  # noqa: E402
 
 TIMELINE = "Q Markers"
@@ -54,10 +54,31 @@ def _marker_texts(timeline) -> dict:
             for raw, marker in (timeline.GetMarkers() or {}).items()}
 
 
-def test_patch_flow_leaves_blue_and_writes_green(
-        resolve_session, tmp_path):
+def _live_head_generation(project, timeline) -> int:
+    """The shadow head for the LIVE handles, never a name lookup.
+
+    The machine shadow store can hold several timeline ids that were
+    all named "Q Markers" by other lanes' resets, so resolving the
+    head by name refuses rather than picks one. The live handles
+    already identify the exact timeline.
+    """
+    store = shadow.ShadowStore()
+    project_name, timeline_id, _name = shadow.timeline_key(
+        project, timeline)
+    head = store.head(project_name, timeline_id)
+    assert head is not None, "the planted patch observes the timeline first"
+    return head.generation
+
+
+def test_ren_revise_removes_pulled_source_marker_and_writes_reply(
+        resolve_session, tmp_path, monkeypatch):
     from library.tools import edit_patch, resolve_lock
     from library.tools.marker_feedback import connect_resolve
+
+    # A private shadow store, as the report's scratch broker used: the
+    # machine store can hold several timeline ids all named "Q Markers"
+    # from other lanes' resets, and `revise` resolves its reel by name.
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
 
     resolve = connect_resolve()
     project = resolve.GetProjectManager().GetCurrentProject()
@@ -90,54 +111,60 @@ def test_patch_flow_leaves_blue_and_writes_green(
             idempotency_key=f"feedback-patch-flow-proof-blue-{RUN}")
         assert planted["status"] == "committed"
 
-        raw = {
-            "source": "timeline_marker", "name": "feedback", "note": WORDS,
-            "text": f"feedback\n\n{WORDS}",
-            "frame": start + BLUE_FRAME_KEY,
-            "timecode": "00:00:00:00",
-            "frame_in_timeline_space": BLUE_FRAME_KEY,
-            "unplaced_reason": "", "color": "Blue", "duration_frames": 1,
-            "custom_data": {}, "custom_data_raw": "", "clips": [],
-            "attachments": [], "read_at": "",
-        }
-        routed = asdict(routing.route_note(raw, TIMELINE, "proof"))
-        assert routed["steps"] == ["plan_subtitles"], (
-            f"the proof note must route patchable, routed {routed}")
-        assert feedback_patch.decide(routed)["verdict"] == "patch"
-        out = flow.handle_note(
-            routed_note=routed, project_folder=str(tmp_path),
-            operations=[{"op": "marker.add", "frame": PROBE_FRAME_KEY,
-                         "color": "Green", "name": "proof patch",
-                         "note": "proof", "duration": 1,
-                         "custom_data": ""}],
-            scope={"clips": [], "marker_frames": [PROBE_FRAME_KEY],
-                   "clip_markers": []},
-            idempotency_key=f"feedback-patch-flow-proof-{RUN}",
-            project=project, timeline=timeline)
-        assert out["action"] == flow.ACTION_PATCHED
-        assert (out["record"]["status"] == "resolved_verified"
-                and out["record"]["check"]
-                == resolution.CHECK_FEEDBACK_PATCH)
-
+        root = tmp_path / "qualification-project"
+        root.mkdir()
+        (root / "project.yaml").write_text(
+            'name: "Ren Qualification"\nslug: qualification\n'
+            'project_format_version: 1\nresolve:\n  project: '
+            '"Ren Qualification"\n', encoding="utf-8")
+        marker_feedback.pull(str(root), timeline=timeline, project=project)
+        pulled = next(note for note in revise._routed_notes(str(root))
+                      if note.frame == start + BLUE_FRAME_KEY)
+        note_id = pulled.note_id
+        started_code = revise.main([str(root), "--note-id", note_id])
+        assert started_code == 0
+        record = revise.newest_open(str(root))
+        assert record and record["note_id"] in (
+            pulled.note_id, pulled.edit_link_id)
+        program = {"kind": "edit_program", "reel": TIMELINE,
+                   "base_generation": str(_live_head_generation(
+                       project, timeline)),
+                   "idempotency_key": f"ren-revise-live-{RUN}",
+                   "anchor": {"kind": "reel"},
+                   "ops": [{"op": "marker.add", "text": "proof patch",
+                            "params": {"frame": PROBE_FRAME_KEY,
+                                       "color": "Green", "name": "proof patch",
+                                       "note": "proof", "duration": 1,
+                                       "custom_data": ""}}]}
+        Path(llm_handshake.response_path(str(root), record["spec_id"])) \
+            .write_text(json.dumps({"format": "edit_spec/1",
+                                    "request": pulled.text,
+                                    "program": program}),
+                        encoding="utf-8")
+        result_code = revise.main([str(root)])
+        assert result_code == 0
+        revision = revise.newest_open(str(root))
+        assert revision is None
         after = _marker_texts(timeline)
-        assert after[BLUE_FRAME_KEY]["note"] == WORDS, (
-            "the planted blue marker must read back untouched")
+        assert BLUE_FRAME_KEY not in after, "verified source marker remains"
         green = after[REPLY_FRAME_KEY]
         assert green["color"] == "Green" and WORDS in (
             green.get("customData") or ""), (
             "no green reply beside the answered note")
     finally:
-        cleanup = feedback_patch_apply.guarded_apply(
-            project=project, timeline=timeline,
-            operations=[{"op": "marker.delete", "frame": PROBE_FRAME_KEY},
-                        {"op": "marker.delete", "frame": REPLY_FRAME_KEY},
-                        {"op": "marker.delete", "frame": BLUE_FRAME_KEY}],
-            scope={"clips": [],
-                   "marker_frames": [PROBE_FRAME_KEY, REPLY_FRAME_KEY,
-                                     BLUE_FRAME_KEY],
-                   "clip_markers": []},
-            idempotency_key=f"feedback-patch-flow-proof-cleanup-{RUN}")
-        assert cleanup["outside_scope"] == []
+        live_markers = _marker_texts(timeline)
+        cleanup_frames = [key for key in
+                          (PROBE_FRAME_KEY, REPLY_FRAME_KEY, BLUE_FRAME_KEY)
+                          if key in live_markers]
+        if cleanup_frames:
+            cleanup = feedback_patch_apply.guarded_apply(
+                project=project, timeline=timeline,
+                operations=[{"op": "marker.delete", "frame": frame}
+                            for frame in cleanup_frames],
+                scope={"clips": [], "marker_frames": cleanup_frames,
+                       "clip_markers": []},
+                idempotency_key=f"feedback-patch-flow-proof-cleanup-{RUN}")
+            assert cleanup["outside_scope"] == []
 
     assert (feedback_patch_apply.inventory_changes(
         backup_snapshot, shadow.read_live(project, timeline)) == [])

@@ -158,6 +158,40 @@ def test_patch_records_then_replies_in_order(calls, live_snapshot):
     assert calls == ["decide", "apply", "record", "reply"]
 
 
+def test_verified_patch_passes_live_handles_to_marker_resolution(
+        calls, live_snapshot):
+    project, timeline = _live()
+    seen = {}
+
+    def record(*args, **kwargs):
+        seen.update(kwargs)
+        return {"record": {"status": "resolved_verified"}}
+
+    flow.handle_note(
+        routed_note=_note(), project_folder="/tmp/nowhere",
+        operations=[{"op": "marker.add", "frame": 713}],
+        scope={"clips": [], "marker_frames": [713], "clip_markers": []},
+        idempotency_key="k-live-handles", project=project, timeline=timeline,
+        decide=lambda note: _decide_patch(note, calls=calls),
+        apply_patch=_apply(calls=calls), record=record,
+        write_reply=_reply(calls=calls))
+
+    assert seen["timeline"] is timeline
+    assert seen["resolve_project"] is project
+
+
+def test_feedback_patch_declares_transform_facet():
+    from library.tools import feedback_patch_apply
+
+    operations = [{"op": "clip.set_property", "unique_id": "v1",
+                   "key": "ZoomX", "value": 1.1}]
+    assert feedback_patch_apply._conflict_domains(operations) == (
+        "picture_transform",)
+    assert feedback_patch_apply._conflict_domains(
+        operations + [{"op": "marker.add", "frame": 24}],
+        ("markers",)) == ("markers", "picture_transform")
+
+
 def test_apply_refusal_records_nothing(calls, live_snapshot):
     project, timeline = _live()
 

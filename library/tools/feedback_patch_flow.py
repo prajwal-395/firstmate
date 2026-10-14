@@ -311,6 +311,7 @@ def handle_note(*, routed_note: dict, project_folder: str,
         rationale=str(verdict.get("reason", "")),
         check=marker_resolution.CHECK_FEEDBACK_PATCH, measured=measured,
         verifier="feedback_patch_flow.handle_note",
+        timeline=timeline, resolve_project=project,
         outcome_details=outcome_details, outcome_id=outcome_id)
     record_doc = record_out.get("record", record_out)
     if record_doc.get("status") != "resolved_verified":

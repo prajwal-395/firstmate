@@ -315,6 +315,27 @@ def test_a_clip_set_property_addresses_a_just_placed_clip_by_its_client_id(world
     assert placed[0]["transform"]["Tilt"] == -870.0
 
 
+def test_clip_property_patch_measures_its_span_and_transform_facet(
+        world, monkeypatch):
+    project, timeline, item, store, _base = world
+    captured = {}
+
+    def capture(patch, **_kwargs):
+        captured.update(patch.to_dict())
+        return {"status": "committed"}
+
+    monkeypatch.setattr(edit_patch, "apply_patch", capture)
+    edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="reel.touchup",
+        operations=[{"op": "clip.set_property",
+                     "unique_id": item.GetUniqueId(),
+                     "key": "ZoomX", "value": 1.1}],
+        conflict_domains=("picture_transform",),
+        idempotency_key="revise:clip-property-span-facet", store=store)
+    assert captured["affected_spans"] == [[0, 48]]
+    assert captured["conflict_domains"] == ["picture_transform"]
+
+
 def test_a_placed_caption_carries_scaling_1_crop(world):
     """Defect: the master caption placement wrote Scaling through
     `clip.set_property`, but Scaling was not in TRANSFORM_KEYS and the
