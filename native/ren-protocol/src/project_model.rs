@@ -824,6 +824,7 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
         }
         policy_rules.insert(policy_ref, ids);
     }
+    crate::transform_graph::validate_graph(model)?;
     let valid_interval = |interval: &Interval| interval.start < interval.end;
     for (name, valid) in [
         (

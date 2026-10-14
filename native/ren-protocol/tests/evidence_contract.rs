@@ -73,6 +73,7 @@ fn model_with_observations(observations: Vec<Observation>) -> ProjectModel {
         nle_bindings: vec![],
         receipts: vec![],
         provenance: vec![],
+        evaluation_policies: vec![],
         signals: vec![],
         events: vec![],
         interpretations: vec![],

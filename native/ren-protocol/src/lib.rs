@@ -19,6 +19,7 @@ pub mod project_model;
 pub mod receipt;
 pub mod resource;
 pub mod scope;
+pub mod transform_graph;
 pub mod verification;
 
 pub mod schemas;
