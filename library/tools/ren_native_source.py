@@ -17,10 +17,11 @@ running from. A mismatch falls back to the Python implementation - the
 switch is an optimisation, never a prerequisite - and says so once.
 
 The fingerprint covers exactly what the extension is built from: the
-`ren-core` and `ren-protocol` sources and build manifests, and the
-workspace manifest. `ren-cli` and `ren-graphics-fframes` are not part of
-the extension and are not covered; `ren-protocol`'s generated schemas
-and fixtures are derived from its sources and are not covered either.
+`ren-core`, `ren-protocol` and linked `ren-filmcraft` sources and build
+manifests, and the workspace manifest. `ren-cli` and
+`ren-graphics-fframes` are not part of the extension and are not covered;
+`ren-protocol`'s generated schemas and fixtures are derived from its
+sources and are not covered either.
 
 One implementation: `scripts/build_ren_native.sh` calls this module to
 compute the fingerprint at build time, and `edit_backend.rust()` and
@@ -37,13 +38,16 @@ NATIVE_DIR = "native"
 
 #: What the extension is built from, relative to `native/`. A directory
 #: is walked recursively (skipping any `target/` build cache); a file is
-#: hashed directly. Everything else under `native/` - the other crates,
-#: the generated schemas, the fixtures - does not reach the extension.
+#: hashed directly. The extension links `ren-filmcraft`; its adapter is
+#: in the build scope. Other crates, generated schemas and fixtures do
+#: not reach the extension.
 SCOPE = (
     "ren-core/src",
     "ren-core/Cargo.toml",
     "ren-core/build.rs",
     "ren-core/pyproject.toml",
+    "ren-filmcraft/src",
+    "ren-filmcraft/Cargo.toml",
     "ren-protocol/src",
     "ren-protocol/Cargo.toml",
     "Cargo.toml",

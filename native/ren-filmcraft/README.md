@@ -41,8 +41,9 @@ The deterministic bridge between Ren's canonical Project Model
 uses into ordered imports plus `timeline.place` operations with no I/O, so
 the same model always plans identical bytes. Roles map onto fixed tracks:
 `a_roll` on V1, `b_roll` on V2, `subtitle_overlay` on V3,
-`motion_graphic` on V4, `frame_overlay` on V5, and full-frame `end_card`s
-beside the footage on V1. Anything else refuses as `unsupported_role`.
+`motion_graphic` on V4, `frame_overlay` on V5, and `post_header` on V6.
+Full-frame `end_card`s sit beside the footage on V1. Anything else refuses
+as `unsupported_role`.
 Source-segmented person masks (`sam2_rle_track` and `region_rle`) are
 projected only when their source clock and entity link match a placed
 picture clip and a seed covers its source start. The raster seed becomes

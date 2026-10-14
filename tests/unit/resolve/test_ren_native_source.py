@@ -17,6 +17,7 @@ def _tree(root: Path) -> None:
     """A minimal native/ tree covering the build scope."""
     ren_core = root / "native" / "ren-core"
     ren_proto = root / "native" / "ren-protocol"
+    ren_filmcraft = root / "native" / "ren-filmcraft"
     (ren_core / "src").mkdir(parents=True)
     (ren_core / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
     (ren_core / "build.rs").write_text("fn main() {}\n", encoding="utf-8")
@@ -25,6 +26,10 @@ def _tree(root: Path) -> None:
     (ren_proto / "src").mkdir(parents=True)
     (ren_proto / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
     (ren_proto / "src" / "lib.rs").write_text("fn main() {}\n", encoding="utf-8")
+    (ren_filmcraft / "src").mkdir(parents=True)
+    (ren_filmcraft / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+    (ren_filmcraft / "src" / "adapter.rs").write_text(
+        "fn adapter() {}\n", encoding="utf-8")
     (root / "native" / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
 
 
@@ -46,6 +51,16 @@ def test_the_fingerprint_moves_when_a_build_manifest_changes(tmp_path):
 
     (tmp_path / "native" / "ren-core" / "Cargo.toml").write_text(
         "[package]\nversion = \"0.2.0\"\n", encoding="utf-8")
+    assert ren_native_source.source_fingerprint(tmp_path) != before
+
+
+def test_the_fingerprint_moves_when_the_linked_filmcraft_adapter_changes(tmp_path):
+    """The Python extension links FilmCraft, so its adapter is in scope."""
+    _tree(tmp_path)
+    before = ren_native_source.source_fingerprint(tmp_path)
+
+    (tmp_path / "native" / "ren-filmcraft" / "src" / "adapter.rs").write_text(
+        "fn adapter() { true; }\n", encoding="utf-8")
     assert ren_native_source.source_fingerprint(tmp_path) != before
 
 

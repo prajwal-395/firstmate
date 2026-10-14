@@ -114,6 +114,27 @@ def test_audio_clip_use_roles_follow_recorded_track_plan():
         0, 120_000]
 
 
+def test_recorded_post_header_placement_keeps_resolve_timing_and_transform():
+    model = rpm.blank_model("project-x")
+    reel_clock = rpm._reel_clock(model, "reel-22", "Reel 22", 24.0)
+    out = rpm.overlay_uses_from_records(model, "reel-22", reel_clock, [{
+        "kind": "post header", "overlay_path": "/media/header_tight.png",
+        "timeline_start_frame": 12, "source_start_frame": 0,
+        "duration_frames": 72,
+        "transform": {"ZoomX": 1.25, "ZoomY": 1.25},
+        "native_position": [540.0, 310.0],
+    }], 24.0)
+    use = model["clip_uses"][0]
+    assert use["role"] == "post_header"
+    assert use["timeline_interval"] == {
+        "clock_id": reel_clock, "start": 60_000, "end": 420_000}
+    effects = {row["class_id"]: row for row in model["effects"]}
+    assert effects["transform.scale"]["parameters"] == {"scale": 1.25}
+    assert effects["transform.position"]["parameters"] == {
+        "position": [540.0, 310.0]}
+    assert out["skipped"] == []
+
+
 def test_declared_word_gap_ducking_targets_music_clip_use():
     model = rpm.blank_model("project-x")
     placements = [

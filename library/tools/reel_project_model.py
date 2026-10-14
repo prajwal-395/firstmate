@@ -824,7 +824,15 @@ def static_transforms_from_placements(
 def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
                               reel_clock: str, records: list[dict[str, Any]],
                               fps: float) -> dict[str, Any]:
-    """Migrate measured tight overlay placements as clip uses and effects."""
+    """Migrate the Resolve build's measured overlay placements.
+
+    `place_overlay_segments` records the held Resolve transform, exact reel
+    frame span and `native_position` of the tight canvas center. That center
+    already includes the tight-canvas offset: native FilmCraft positions its
+    source around that center, scales source pixels by the held ZoomX, and
+    uses the recorded frame span. Do not rebuild this geometry from the
+    header declaration here; the Resolve read-back is the shared placement.
+    """
     use_ids: list[str] = []
     effect_ids: list[str] = []
     skipped: list[dict[str, Any]] = []
@@ -863,6 +871,7 @@ def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
                     (start_frame + duration_frames) * reel_frame_ticks)
         kind = str(record.get("kind") or "").lower()
         role = ("end_card" if "end_card" in kind or kind == "logo"
+                else "post_header" if "post header" in kind or "post_header" in kind
                 else "subtitle_overlay" if "caption" in kind or "subtitle" in kind
                 else "frame_overlay" if "frame" in kind
                 else "motion_graphic")
@@ -881,6 +890,8 @@ def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
         overlay_transform = record.get("transform")
         native_scale = record.get("native_scale")
         if (native_scale is None and isinstance(overlay_transform, dict)):
+            # Tight overlays are placed at Resolve Scaling=1; its read-back
+            # ZoomX is the native pixel scale and stays the scale authority.
             native_scale = overlay_transform.get("ZoomX")
         transform_place = {
             "transform": overlay_transform,

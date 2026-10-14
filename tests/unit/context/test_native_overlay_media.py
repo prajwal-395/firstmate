@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from library.tools.native_overlay_media import prepare_projection
-
+from library.tools.native_overlay_media import _probe, prepare_projection
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
@@ -73,3 +72,30 @@ def test_only_used_compositing_qtrle_assets_are_rewritten(tmp_path):
     prepared, records = prepare_projection(projection, tmp_path, tmp_path / "cache")
     assert prepared == projection
     assert records == []
+
+
+def test_post_header_still_is_looped_to_its_recorded_span(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "post-header.png"
+    Image.new("RGBA", (16, 16), (200, 30, 40, 128)).save(source)
+    projection = {
+        "imports": [{"asset_id": "header", "uri": source.name}],
+        "placements": [{"asset_id": "header", "role": "post_header",
+                        "timeline_start": 0, "timeline_end": 2_000_000}],
+    }
+    prepared, records = prepare_projection(
+        projection, tmp_path, tmp_path / "cache", ticks_per_second=1_000_000,
+        frame_rate=24.0)
+    cached = Path(prepared["imports"][0]["uri"])
+    assert records[0]["still_looped"] is True
+    assert _probe(cached)["codec_name"] == "prores"
+    assert "a" in _probe(cached)["pix_fmt"]
+    probe = subprocess.run(
+        [FFPROBE, "-v", "error", "-show_entries",
+         "format=duration:stream=avg_frame_rate,nb_frames",
+         "-of", "json", str(cached)], check=True, capture_output=True,
+        text=True, encoding="utf-8")
+    assert 1.9 <= float(json.loads(probe.stdout)["format"]["duration"]) <= 2.1
+    assert json.loads(probe.stdout)["streams"][0]["avg_frame_rate"] == "24/1"
+    assert json.loads(probe.stdout)["streams"][0]["nb_frames"] == "48"

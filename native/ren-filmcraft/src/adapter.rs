@@ -318,9 +318,10 @@ fn has_audio_stream(model: &ProjectModel, asset_id: &str) -> bool {
 /// Base picture (`a_roll`, `b_roll`, `end_card`) owns the timeline spine on
 /// V1/V2; compositing overlays ride fixed upper tracks so a reel with
 /// B-roll and captions never collides: `subtitle_overlay` on V3,
-/// `motion_graphic` on V4, `frame_overlay` on V5. An `end_card` is full-frame
+/// `motion_graphic` on V4, `frame_overlay` on V5 and `post_header` on V6.
+/// An `end_card` is full-frame
 /// tail/head content beside the footage, so it shares V1 and the same-track
-/// rule forces it sequential with the base. V4/V5 exceed a fresh project's
+/// rule forces it sequential with the base. V4-V6 exceed a fresh project's
 /// three video tracks: plan [`add_tracks_operation`] before placing when
 /// [`required_video_tracks`] reports more than three. Audio stems (`music`,
 /// `sfx`) never reach this function: they allocate across the audio pool
@@ -333,10 +334,11 @@ fn track_for_role(role: &str, clip_use_id: &str) -> Result<String> {
         "subtitle_overlay" => Ok("V3".into()),
         "motion_graphic" => Ok("V4".into()),
         "frame_overlay" => Ok("V5".into()),
+        "post_header" => Ok("V6".into()),
         "end_card" => Ok("V1".into()),
         _ => Err(unsupported(
             "unsupported_role",
-            format!("clip use `{clip_use_id}` has role `{role}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay` and `end_card` to picture and `music`/`sfx` to audio stems"),
+            format!("clip use `{clip_use_id}` has role `{role}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay`, `post_header` and `end_card` to picture and `music`/`sfx` to audio stems"),
         )),
     }
 }
@@ -348,7 +350,7 @@ fn track_for_role(role: &str, clip_use_id: &str) -> Result<String> {
 fn is_compositing_overlay(role: &str) -> bool {
     matches!(
         role,
-        "subtitle_overlay" | "motion_graphic" | "frame_overlay"
+        "subtitle_overlay" | "motion_graphic" | "frame_overlay" | "post_header"
     )
 }
 
@@ -517,13 +519,14 @@ pub fn plan_projection_with_shortfall_policy(
                 | "subtitle_overlay"
                 | "motion_graphic"
                 | "frame_overlay"
+                | "post_header"
                 | "music"
                 | "sfx"
         ) {
             return Err(unsupported(
                 "unsupported_role",
                 format!(
-                    "clip use `{}` has role `{}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay` and `end_card` to picture and `music`/`sfx` to audio stems",
+                    "clip use `{}` has role `{}`; projection maps `a_roll`, `b_roll`, `subtitle_overlay`, `motion_graphic`, `frame_overlay`, `post_header` and `end_card` to picture and `music`/`sfx` to audio stems",
                     clip_use.id.0, clip_use.role
                 ),
             ));
@@ -2368,7 +2371,7 @@ pub fn verify_media_with_probe(
     for placement in &projection.placements {
         if matches!(
             placement.role.as_str(),
-            "subtitle_overlay" | "motion_graphic" | "frame_overlay" | "end_card"
+            "subtitle_overlay" | "motion_graphic" | "frame_overlay" | "post_header" | "end_card"
         ) {
             overlay_assets.insert(placement.asset_id.as_str(), placement.role.as_str());
         }
@@ -2412,7 +2415,9 @@ pub fn overlay_codec_compliant(
 ) -> Result<()> {
     let alpha = pix_fmt.contains('a');
     let ok = match role {
-        "subtitle_overlay" | "motion_graphic" | "frame_overlay" => codec == "prores" && alpha,
+        "subtitle_overlay" | "motion_graphic" | "frame_overlay" | "post_header" => {
+            codec == "prores" && alpha
+        }
         "end_card" => codec == "prores" || codec == "h264",
         _ => {
             return Err(invalid(format!(
@@ -5416,6 +5421,28 @@ mod tests {
     }
 
     #[test]
+    fn post_header_uses_its_own_compositing_track_and_grows_the_sequence() {
+        let model = model_with_uses(serde_json::json!([
+            clip_use("use-a", "asset-a", "a_roll", (0, 48), (0, 48)),
+            clip_use("use-header", "asset-b", "post_header", (0, 48), (0, 48)),
+        ]));
+        let projection = plan_projection(&model).unwrap();
+        let header = projection
+            .placements
+            .iter()
+            .find(|placement| placement.clip_use_id == "use-header")
+            .unwrap();
+        assert_eq!(header.track, "V6");
+        assert_eq!(required_video_tracks(&projection), 6);
+        match add_tracks_operation(Path::new("project"), &projection) {
+            Some(Operation::AddTracks { video, audio, .. }) => {
+                assert_eq!((video, audio), (3, 0));
+            }
+            other => panic!("post_header requires three tracks beyond the default, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn overlay_overlap_discipline() {
         // Same-track overlay stacking refuses, even non-adjacent in sort
         // order: the V1 pair below has the V3 subtitle between them.
@@ -5707,7 +5734,12 @@ mod tests {
         // and H264 are full-frame decodes, fine for cards but a box over
         // the picture for compositing roles. `qtrle` and PNG decode to
         // nothing. Anything unmeasured refuses.
-        for role in ["subtitle_overlay", "motion_graphic", "frame_overlay"] {
+        for role in [
+            "subtitle_overlay",
+            "motion_graphic",
+            "frame_overlay",
+            "post_header",
+        ] {
             overlay_codec_compliant(role, "use-x", "prores", "yuva444p10le").unwrap();
             overlay_codec_compliant(role, "use-x", "prores", "yuva444p12le").unwrap();
             for (codec, pix_fmt) in [

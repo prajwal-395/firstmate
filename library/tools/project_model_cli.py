@@ -172,9 +172,8 @@ def filmcraft_native():
     entry); a missing or stale build is refused, never worked around
     with a Python copy of the adapter.
     """
-    from ren.engine_root import find_engine_root
-
     from library.tools import ren_native_cache
+    from ren.engine_root import find_engine_root
 
     module = ren_native_cache.select(find_engine_root())
     if module is not None and all(hasattr(module, name) for name in FILMCRAFT_FUNCTIONS):
@@ -190,7 +189,7 @@ def plan_filmcraft_projection(model: dict, native,
     """The adapter's own projection for this model, as a dict."""
     try:
         return native.filmcraft_plan_projection(model, shortfall_policy)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("FilmCraft projection refused", exc) from exc
 
 
@@ -262,12 +261,12 @@ def translate_filmcraft_edits(model: dict, projection: dict, clip_ids: dict[str,
         try:
             operations = native.filmcraft_plan_ren_edit(
                 model, projection, edit, clip_ids, project)
-        except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+        except Exception as exc:
             raise _refuse_from_adapter(f"edit `{edit.get('id')}` refused", exc) from exc
         for operation in operations:
             try:
                 described = native.filmcraft_describe_operation(operation)
-            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+            except Exception as exc:
                 raise _refuse_from_adapter(
                     f"edit `{edit.get('id')}` describes no engine command", exc) from exc
             commands.append({"command": described["command"],
@@ -284,7 +283,7 @@ def translate_filmcraft_picture_effects(
         operations = native.filmcraft_plan_picture_effects(
             model, projection, clip_ids, project)
         return [_describe(native, operation) for operation in operations]
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("model picture effect refused", exc) from exc
 
 
@@ -342,7 +341,7 @@ def translate_filmcraft_masks(
                     runs = masks_api.region_frame_at(samples, seed_tick, mask["id"])
                     alpha = masks_api.decode_region_runs(runs, width, height, mask["id"])
                 paths, agreement = _mask_contour_paths(alpha, width, height)
-            except Exception as exc:  # noqa: BLE001 - refuse an unmeasured matte before execution
+            except Exception as exc:
                 raise _refuse(
                     f"mask `{mask['id']}` has no usable native seed",
                     str(exc)[:400],
@@ -430,7 +429,7 @@ def translate_filmcraft_add_tracks(projection: dict, project: str, native):
     try:
         operation = native.filmcraft_add_tracks_operation(projection, project)
         return _describe(native, operation) if operation is not None else None
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("overlay track provisioning refused", exc) from exc
 
 
@@ -934,7 +933,7 @@ def _describe(native, operation: dict) -> dict:
     """The engine invocation for one adapter operation."""
     try:
         described = native.filmcraft_describe_operation(operation)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("operation describes no engine command", exc) from exc
     return {"command": described["command"], "params": described["params"],
             "save": described["save"]}
@@ -1135,15 +1134,22 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     create = _describe(native, {"kind": "create_project",
                                 "path": project_str, "name": project.stem})
     media_dir = str(media_root or project_root)
+    timeline_clock = next(
+        clock for clock in model["clocks"]
+        if clock["id"] == projection["timeline_clock"])
+    timeline_rate = timeline_clock["frame_rate"]
+    frame_rate = (timeline_rate["numerator"] / timeline_rate["denominator"])
     projection, overlay_preparation = prepare_projection(
         projection, media_dir,
-        out.parent / f".{out.stem}.native_overlay_cache")
+        out.parent / f".{out.stem}.native_overlay_cache",
+        ticks_per_second=ENGINE_TICKS_PER_SECOND,
+        frame_rate=frame_rate)
     if overlay_preparation:
         print("native overlay preparation: " + json.dumps(
             overlay_preparation, sort_keys=True), file=sys.stderr)
     try:
         resolved = native.filmcraft_verify_media(projection, media_dir)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("media verification refused", exc) from exc
     media_map = {key: Path(value) for key, value in resolved.items()}
     # The prebuilt plan can only name streams declared by the input model.
@@ -1180,7 +1186,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         try:
             projection = native.filmcraft_expand_span_freezes(
                 projection, {key: str(value) for key, value in still_paths.items()})
-        except Exception as exc:  # noqa: BLE001 - policy math stays in Rust
+        except Exception as exc:
             raise _refuse_from_adapter("span freeze expansion refused", exc) from exc
         for freeze in projection["generated_span_freezes"]:
             media_map[freeze["asset_id"]] = Path(freeze["uri"])
@@ -1225,7 +1231,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
         import_operation = native.filmcraft_import_operation(
             projection, {key: str(value) for key, value in media_map.items()},
             project_str)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("import operation refused", exc) from exc
     described_import = _describe(native, import_operation)
 
@@ -1264,7 +1270,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
             try:
                 dual_mono = native.filmcraft_plan_dual_mono_mapping(
                     planner_model, asset_id, item, project_str, channel_mapping)
-            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+            except Exception as exc:
                 raise _refuse_from_adapter("dual-mono mapping refused", exc) from exc
             if dual_mono is not None:
                 described = _describe(native, dual_mono)
@@ -1274,7 +1280,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
     try:
         pairs = native.filmcraft_placement_operations(
             projection, item_by_asset, project_str)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("placement operations refused", exc) from exc
     receipts: list[list[int]] = []
     described_pairs = [(use_id, _describe(native, operation))
@@ -1297,7 +1303,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
             receipts.append(_placement_clips(use_id, placed))
     try:
         clip_ids = native.filmcraft_reconcile_clip_ids(projection, receipts)
-    except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+    except Exception as exc:
         raise _refuse_from_adapter("clip id reconciliation refused", exc) from exc
 
     mask_commands = translate_filmcraft_masks(
@@ -1380,7 +1386,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                                                "path": str(intermediate),
                                                "format": EXPORT_FORMATS["prores"],
                                                "hardware_encoder": "auto"})
-            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+            except Exception as exc:
                 raise _refuse_from_adapter("export operation refused", exc) from exc
             exported = _fc_exec(cli, project, export_op["command"],
                                 export_op["params"], save=export_op["save"])
@@ -1398,7 +1404,7 @@ def execute_filmcraft(model: dict, plan: dict, *, project_root: Path,
                                                "path": str(export_path),
                                                "format": EXPORT_FORMATS[export_format],
                                                "hardware_encoder": "auto"})
-            except Exception as exc:  # noqa: BLE001 - adapter errors become refusals
+            except Exception as exc:
                 raise _refuse_from_adapter("export operation refused", exc) from exc
             exported = _fc_exec(cli, project, export_op["command"],
                                 export_op["params"], save=export_op["save"])
@@ -1464,7 +1470,9 @@ def _master_filmcraft_export(project_root: Path, export_path: Path) -> dict:
     # measured mastering stage as `ren deliver`, using the project's spec.
     from library.tools.delivery_spec import resolve_delivery_spec_for_project
     from library.tools.master_loudness import (
-        _loudnorm_measure, normalize_to_delivery, result_as_dict,
+        _loudnorm_measure,
+        normalize_to_delivery,
+        result_as_dict,
     )
 
     spec = resolve_delivery_spec_for_project(str(project_root))
@@ -1514,7 +1522,7 @@ def _plan_native_treatments(project_root: Path, *, model: dict,
         planned = nec.plan_declared_treatments(str(project_root))
         compositions = _project_model_compositions(model, sequence_size)
         return {**planned, **compositions}
-    except Exception as exc:  # noqa: BLE001 - declaration errors become refusals
+    except Exception as exc:
         raise _refuse(f"native treatments refused: {exc}",
                       "the project's series_look/tv_frame declaration cannot be delivered as written",
                       "fix the declaration in project.yaml (or the named brand template) and retry",
@@ -1652,7 +1660,7 @@ def _composite_intermediate_to_final(
             intermediate, final, planned=planned, video_codec=video_codec)
     except ProjectModelCliRefused:
         raise
-    except Exception as exc:  # noqa: BLE001 - composite errors become refusals
+    except Exception as exc:
         raise _refuse(f"native treatments failed: {exc}",
                       "the ProRes intermediate is on disk; only the "
                       "grade/bezel delivery encode failed",
@@ -1742,7 +1750,10 @@ def execute_effectcraft(model: dict, *, project_root: Path, out: Path,
                         render_format: str, project_id: str | None) -> dict:
     """Run the EffectCraft projection on the pinned CLI. Mutating."""
     from library.tools.project_model_effectcraft import (
-        CompSpec, RenderSpec, ingest_receipt, project_to_request,
+        CompSpec,
+        RenderSpec,
+        ingest_receipt,
+        project_to_request,
     )
 
     comp = CompSpec(name=comp_name, width=width, height=height,
@@ -1958,7 +1969,9 @@ def cmd_project(parser: argparse.ArgumentParser, args: argparse.Namespace) -> in
             print(json.dumps(report, indent=2, ensure_ascii=False))
             return 0
         from library.tools.project_model_effectcraft import (
-            CompSpec, RenderSpec, project_to_request,
+            CompSpec,
+            RenderSpec,
+            project_to_request,
         )
         comp = CompSpec(name=args.comp, width=args.width, height=args.height,
                         frame_rate=args.fps, duration_seconds=args.duration)
@@ -2030,8 +2043,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:
