@@ -96,6 +96,7 @@ try:
         region_stats,
         source_memory,
         span_verification,
+        speech_take,
     )
     from library.tools.project_model import SCHEMA_VERSION, validate_project_model
 except ImportError:  # imported as `tools.*` from inside library/
@@ -113,6 +114,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         region_stats,
         source_memory,
         span_verification,
+        speech_take,
     )
     from tools.project_model import SCHEMA_VERSION, validate_project_model
 
@@ -440,6 +442,7 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
                              m0_freshness)
 
     _migrate_transcript(builder, digest, asset_id, clock_id, root)
+    _migrate_speech_take(builder, digest, asset_id, clock_id, root)
     _migrate_identity(builder, digest, asset_id, clock_id, root)
     _migrate_expressions(builder, digest, asset_id, clock_id, root)
     _migrate_scenes(builder, digest, asset_id, clock_id, duration, root)
@@ -710,6 +713,168 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
                  "utterance_index": u_idx},
                 word.get("confidence"),
                 "library.tools.source_memory:M1", evidence=native)
+
+
+SPEECH_TAKE_METHOD = "speech-take-v1 over M1 transcript words"
+"""Method stamp for FI-13 derived speech/take records: a deterministic
+computation over M1 words, never a new instrument. The transcript run
+it read travels on the shared ``prov-{digest}-m1`` provenance; a stale
+M1 refuses the whole derivation rather than re-stamping old words."""
+
+
+def _speech_take_native(builder: _Builder, digest: str, asset_id: str,
+                        clock_id: str, start: float, end: float,
+                        modality: str, measurement_type: str, value: Any,
+                        samples: int) -> evidence_contract.EvidenceRecord | None:
+    """One FI-13 native record, or None (with a dropped row) when the
+    span cannot sit on the clock. Callers that only emit positive spans
+    still route through here so the refusal path is one place."""
+    ticks = sec_to_ticks(start, end)
+    if ticks is None:
+        builder.dropped.append({"digest": digest, "lane": "m1",
+                                "modality": modality,
+                                "reason": "non-positive-interval",
+                                "start": start, "end": end})
+        return None
+    record = evidence_contract.new_measurement(
+        asset_id=asset_id, clock_id=clock_id,
+        start_tick=ticks[0], end_tick=ticks[1],
+        measurement_type=measurement_type, value=value,
+        method=SPEECH_TAKE_METHOD, provenance_id=_prov_id(digest, "m1"),
+        coverage=evidence_contract.CoverageKind.COMPLETE,
+        coverage_samples=samples, coverage_sample_rate_hz=0.0)
+    return replace(record, freshness="fresh")
+
+
+def _migrate_speech_take(builder: _Builder, digest: str, asset_id: str,
+                         clock_id: str, root: Path | None) -> None:
+    """FI-13 per-source speech/take records: rate, pause, disfluency,
+    repetition and completeness over every M1 utterance, plus
+    same-source take links. Both instances of every take stay as full
+    utterance observations (migrated by ``_migrate_transcript``); the
+    links only point at them.
+
+    A stale or method-less M1 refuses the derivation: derived numbers
+    off a superseded transcript would disagree with the words beside
+    them. Dropped utterances land in the report, never in silence.
+    """
+    doc, status = source_memory.read_m1(digest, root)
+    if doc is None or status != "fresh":
+        builder.notes.append(f"{digest[:12]}: M1 {status}; no speech/take "
+                             f"records")
+        return
+    instrument = doc.get("instrument")
+    if not isinstance(instrument, dict) or not instrument:
+        builder.notes.append(f"{digest[:12]}: M1 has no method; speech/take "
+                             f"records refused")
+        return
+    utterances, dropped = speech_take.utterance_spans(doc)
+    for entry in dropped:
+        builder.dropped.append({"digest": digest, "lane": "m1",
+                                "modality": "speech_take",
+                                **entry})
+    for utterance in utterances:
+        start, end = utterance["start"], utterance["end"]
+        rate = speech_take.rate_of(utterance)
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, start, end,
+            "speech_rate", "speech.rate", rate, rate["word_count"])
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, start, end,
+                "speech_rate", dict(rate), None,
+                "library.tools.speech_take", evidence=native)
+        completeness = speech_take.completeness_of(utterance)
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, start, end,
+            "speech_completeness", "speech.completeness",
+            dict(completeness), 1)
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, start, end,
+                "speech_completeness", dict(completeness), None,
+                "library.tools.speech_take", evidence=native)
+        disfluencies = speech_take.disfluencies_in(utterance)
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, start, end,
+            "speech_disfluency", "speech.disfluency",
+            list(disfluencies), len(disfluencies))
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, start, end,
+                "speech_disfluency", {"disfluencies": disfluencies,
+                                      "utterance_index":
+                                      utterance["utterance_index"]},
+                None, "library.tools.speech_take", evidence=native)
+        repeat = speech_take.repetition_in(utterance)
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, start, end,
+            "speech_repetition", "speech.repetition",
+            copy.deepcopy(repeat), 1 if repeat is not None else 0)
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, start, end,
+                "speech_repetition", {"repeat": repeat,
+                                      "utterance_index":
+                                      utterance["utterance_index"]},
+                None, "library.tools.speech_take", evidence=native)
+    for pause in speech_take.pauses_between(utterances):
+        value = dict(pause)
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, pause["start"],
+            pause["end"], "speech_pause", "speech.pause", value, 1)
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, pause["start"],
+                pause["end"], "speech_pause", value, None,
+                "library.tools.speech_take", evidence=native)
+    for link in speech_take.same_source_links(digest, utterances):
+        anchor = link["utterance_a"]
+        native = _speech_take_native(
+            builder, digest, asset_id, clock_id, anchor["start_s"],
+            anchor["end_s"], "speech_take_link", "speech.take_link",
+            copy.deepcopy(link), 1)
+        if native is not None:
+            builder.observation(
+                digest, "m1", asset_id, clock_id, anchor["start_s"],
+                anchor["end_s"], "speech_take_link", copy.deepcopy(link),
+                None, "library.tools.speech_take", evidence=native)
+
+
+def _migrate_take_links(builder: _Builder, digests: list[str],
+                        root: Path | None) -> None:
+    """FI-13 cross-source take links: identical/rephrased/repeated
+    utterances across digests, anchored on the lesser (digest, index).
+
+    A digest without a fresh M1 contributes nothing and is noted; a
+    pair with no shared M6 group still links (text needs no clock)
+    with an explicit unmeasured uncertainty basis. Both instances stay
+    untouched: the link cites utterance indexes, never winning spans.
+    """
+    by_digest: dict[str, list[dict]] = {}
+    clocks: dict[str, dict | None] = {}
+    for digest in digests:
+        doc, status = source_memory.read_m1(digest, root)
+        if doc is None or status != "fresh":
+            builder.notes.append(f"{digest[:12]}: M1 {status}; no "
+                                 f"cross-source take links")
+            continue
+        utterances, _ = speech_take.utterance_spans(doc)
+        by_digest[digest] = utterances
+        clocks[digest] = conversation_clock.read_clock(digest, root)
+    for link in speech_take.cross_source_links(by_digest, clocks):
+        anchor = link["utterance_a"]
+        digest = anchor["digest"]
+        native = _speech_take_native(
+            builder, digest, _asset_id(digest), _clock_id(digest),
+            anchor["start_s"], anchor["end_s"], "speech_take_link",
+            "speech.take_link", copy.deepcopy(link), 1)
+        if native is not None:
+            builder.observation(
+                digest, "m1", _asset_id(digest), _clock_id(digest),
+                anchor["start_s"], anchor["end_s"], "speech_take_link",
+                copy.deepcopy(link), None, "library.tools.speech_take",
+                evidence=native)
 
 
 def _identity_docs(digest: str, root: Path | None) -> tuple[dict | None, dict | None]:
@@ -2489,6 +2654,7 @@ def migrate_project_evidence(project_folder: str, *,
                        _clock_id(digest), root)
     for digest in seen:
         _migrate_speech_face_links(builder, digest, roster, root)
+    _migrate_take_links(builder, sorted(seen), root)
     _migrate_voice_matches(builder, roster)
     _migrate_voice_match_conflicts(
         builder, roster_result.get("voice_match_conflicts") or [], root)

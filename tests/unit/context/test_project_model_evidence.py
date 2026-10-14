@@ -532,8 +532,11 @@ def test_m3e_migrates_native_coverage_and_refuses_stale_method(
     assert coverage["lanes"][D1]["freshness"]["m3e"] == "fresh"
     assert coverage["lanes"][D1]["freshness"]["m3"] == "fresh"
     assert coverage["lanes"][D1]["native_migrated_observations"]["m3"] == 2
+    # FI-13 adds four per-utterance speech records (rate, completeness,
+    # disfluency, repetition) plus the cross-source identical "hello"
+    # link both fixture digests share, anchored on D1: 1 + 4 + 1.
     assert sum(coverage["lanes"][D1][
-        "native_migrated_observations"].values()) == 6
+        "native_migrated_observations"].values()) == 11
 
     _write_m3e(memory, D1, "retired-attention-method")
     stale_model, stale_report = _migrate(fixture)
@@ -792,8 +795,11 @@ def test_coverage_and_bridge_parity_dual_read(fixture_project):
                                           memory_root=str(
                                               fixture_project["memory"]))
     assert coverage["lanes"][D1]["present"]["m9"] is True
-    assert coverage["lanes"][D1]["migrated_observations"]["m1"] == 1
-    assert coverage["lanes"][D1]["native_migrated_observations"]["m1"] == 1
+    # FI-13: one M1 word plus four per-utterance speech records (rate,
+    # completeness, disfluency, repetition) plus the cross-source
+    # identical "hello" link anchored on D1.
+    assert coverage["lanes"][D1]["migrated_observations"]["m1"] == 6
+    assert coverage["lanes"][D1]["native_migrated_observations"]["m1"] == 6
     assert coverage["lanes"][D1]["legacy_only_migrated_observations"]["m4"] > 0
     assert coverage["counts"]["observations"] == len(
         stored["observations"])

@@ -193,6 +193,54 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "One transcribed utterance: words plus text (M1).",
     },
+    "speech.rate": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 words-per-second over one utterance span, "
+        "read off M1 word timings. Transcript data only.",
+    },
+    "speech.pause": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 one measured silence gap: a positive "
+        "inter-word or inter-utterance interval with its duration. "
+        "Abutting words carry no gap; judging gaps is the reader's job.",
+    },
+    "speech.disfluency": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 fillers and aborted words heard in one "
+        "utterance, each with its seconds. An empty list over the "
+        "utterance span is a measured absence.",
+    },
+    "speech.repetition": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 longest ordered token repeat inside one "
+        "utterance. A null repeat over the span is a measured absence.",
+    },
+    "speech.completeness": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 whether the transcriber closed one telling "
+        "with terminal punctuation. A punctuation reading, never a "
+        "verdict on the thought.",
+    },
+    "speech.take_link": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "FI-13 one identical/rephrased/repeated take "
+        "relation between two utterances, both instances preserved. "
+        "Cross-source links carry each side's M6 offset and the "
+        "measured direct-edge spread, or an explicit unmeasured basis. "
+        "The link authorises no cut.",
+    },
     "person.face_box": {
         "unit": "normalized",
         "kind": EvidenceType.MEASUREMENT,
@@ -769,6 +817,12 @@ def make_provenance(source_digest: str, lane: str, producer: str,
 MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "speech_word": "speech.word",
     "speech": "speech.utterance",
+    "speech_rate": "speech.rate",
+    "speech_pause": "speech.pause",
+    "speech_disfluency": "speech.disfluency",
+    "speech_repetition": "speech.repetition",
+    "speech_completeness": "speech.completeness",
+    "speech_take_link": "speech.take_link",
     "face": "person.face_box",
     "face_frame": "person.face_frame",
     "voice_turn": "person.voice_turn",
