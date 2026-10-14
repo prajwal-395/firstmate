@@ -11,28 +11,75 @@ structurally out of reach, the picture really decides, and the candidate
 rows stay in a shape a model could be handed (route 2).
 """
 import ast
-import os
-from library.tools.cutaway_window import (
-    AUDIO_SIGNALS,
-    BASES,
-    candidate_windows,
-    choose_window,
-)
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
 from library.tools.broll_coverage import (
     VIDEO_ONLY_AUDIO_READING,
     coverage_by_block,
     covering_assignment,
     picture_clip_id,
 )
-import sys
-import pytest
-import json
-import subprocess
-
+from library.tools.cutaway_window import (
+    AUDIO_SIGNALS,
+    BASES,
+    candidate_windows,
+    choose_window,
+    filter_broll_candidates,
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+
+def test_policy_filters_only_measured_facets_and_reports_each_rule():
+    from library.tools.evaluation_policy import EvaluationPolicy, PolicyRule
+
+    candidates = [
+        {"clip_id": "steady"}, {"clip_id": "shaky"}, {"clip_id": "unknown"},
+    ]
+    facets = {
+        "steady": {"stability": "stable", "duration_s": 3.0,
+                   "subject_visible": True},
+        "shaky": {"stability": "shaky", "duration_s": 4.0,
+                  "subject_visible": True},
+        "unknown": {"stability": "unknown", "duration_s": 4.0,
+                    "subject_visible": None},
+    }
+    policy = EvaluationPolicy(
+        id="steady-broll", version=1, project_id="project",
+        requirements=(
+            PolicyRule("steady", "requirement", "stability", "eq", "stable",
+                       "user_instruction", "brief#steady"),
+            PolicyRule("long-enough", "requirement", "duration_s", "gte", 2.5,
+                       "user_instruction", "brief#duration"),
+            PolicyRule("subject", "requirement", "subject_visible", "eq", True,
+                       "user_instruction", "brief#subject"),
+        ),
+    )
+    filtered, report = filter_broll_candidates(candidates, facets, policy)
+    assert filtered == [candidates[0]]
+    assert report == {
+        "policy": "steady-broll@v1",
+        "rules": [
+            {"rule_id": "steady", "measurement_type": "stability", "removed": 2},
+            {"rule_id": "long-enough", "measurement_type": "duration_s", "removed": 0},
+            {"rule_id": "subject", "measurement_type": "subject_visible", "removed": 0},
+        ],
+    }
+
+
+def test_no_broll_policy_preserves_candidate_list_and_order_exactly():
+    candidates = [{"clip_id": "b"}, {"clip_id": "a"}]
+    filtered, report = filter_broll_candidates(candidates, {}, None)
+    assert filtered is candidates
+    assert filtered == [{"clip_id": "b"}, {"clip_id": "a"}]
+    assert report == {"policy": None, "rules": []}
 WINDOW_SOURCES = (
     os.path.join(REPO_ROOT, "library", "tools", "cutaway_window.py"),
     os.path.join(REPO_ROOT, "library", "steps", "step_3_02_select_broll",
@@ -95,13 +142,14 @@ def _keys_read_from_state(path):
     could not tell a name from an access would have to be written so
     loosely it stopped catching anything.
     """
-    tree = ast.parse(open(path, encoding="utf-8").read())
+    with open(path, encoding="utf-8") as source:
+        tree = ast.parse(source.read())
     found = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.slice,
-                                                          ast.Constant):
-            if isinstance(node.slice.value, str):
-                found.add(node.slice.value)
+        if (isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)):
+            found.add(node.slice.value)
         if (isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr == "get"
@@ -488,15 +536,16 @@ BROLL_STEP = REPO / "library" / "steps" / "step_3_02_select_broll"
 
 sys.path.insert(0, str(REPO))
 
-from library.processes.edit_video.run_pipeline import (  # noqa: E402
+from library.processes.edit_video.run_pipeline import (
     project_step_context,
 )
-from library.tools.brief_reference import reference_path  # noqa: E402
+from library.tools.brief_reference import reference_path
+
 try:  # Absent before #339 moved the structure to a reference document.
-    from library.tools.footage_reference import DOCUMENT_NAME  # noqa: E402
+    from library.tools.footage_reference import DOCUMENT_NAME
 except ModuleNotFoundError:  # pragma: no cover - pre-fix trees only
     DOCUMENT_NAME = "footage_analysis.md"
-from library.tools.toon_serializer import json_to_toon  # noqa: E402
+from library.tools.toon_serializer import json_to_toon
 
 
 def _document(n: int) -> dict:

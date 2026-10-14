@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from library.schemas.project_config import load_project_config
+from library.schemas.project_config import load_project_config, project_config_to_dict
 from library.tools import project_format as pf
 from library.tools.project_format import (
     MIN_SUPPORTED_FORMAT_VERSION,
@@ -206,6 +206,15 @@ def test_new_projects_stamp_the_current_format(tmp_path):
     reread = load_project_config(tmp_path / "fresh" / "project.yaml")
     assert reread.project_format_version == PROJECT_FORMAT_VERSION
     assert reread.validate() == []
+
+
+def test_broll_policy_reference_is_explicit_and_round_trips(tmp_path):
+    config = create_project("policy", name="Policy", root=tmp_path)
+    assert config.pipeline.broll_evaluation_policy_ref == ""
+    config.pipeline.broll_evaluation_policy_ref = "steady@v1"
+    assert config.validate() == []
+    serialized = project_config_to_dict(config)
+    assert serialized["pipeline"]["broll_evaluation_policy_ref"] == "steady@v1"
 
 
 def test_direct_config_open_migrates_and_records_a_revert(tmp_path):

@@ -256,6 +256,9 @@ class PipelineConfig:
     # unknown name raises rather than quietly reverting - a silent
     # fallback is how a master ships to the wrong platform's spec.
     delivery_platform: str = ""
+    # Exact FI-22 policy version used to prefilter B-roll candidates. Empty
+    # means the current candidate ranking is untouched.
+    broll_evaluation_policy_ref: str = ""
     # The deliver verb's preset and file naming (`deliver-reel` reads
     # them through library/tools/reel_deliver.py). Both UNDECLARED by
     # default: an empty preset / empty naming means the captain has not
@@ -658,6 +661,12 @@ class ProjectConfig:
                         errors.append(
                             f"pipeline.creative_tasks[{i}] names no task: "
                             f"each entry needs a non-empty string `name`.")
+        if (not isinstance(self.pipeline.broll_evaluation_policy_ref, str)
+                or (self.pipeline.broll_evaluation_policy_ref
+                    and "@v" not in self.pipeline.broll_evaluation_policy_ref)):
+            errors.append(
+                "pipeline.broll_evaluation_policy_ref must be an exact "
+                "policy reference such as `steady-broll@v1`.")
         return errors
 
 
@@ -770,6 +779,8 @@ def _dict_to_project_config(data: dict,
         brand_template=pipeline_data.get("brand_template", ""),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
         delivery_platform=pipeline_data.get("delivery_platform", "") or "",
+        broll_evaluation_policy_ref=(
+            pipeline_data.get("broll_evaluation_policy_ref", "") or ""),
         deliver_preset=pipeline_data.get("deliver_preset"),
         deliver_naming=pipeline_data.get("deliver_naming", "") or "",
         framing_intent=pipeline_data.get("framing_intent"),
@@ -896,6 +907,9 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             # would read as a decision nobody made.
             **({} if not config.pipeline.delivery_platform
                else {"delivery_platform": config.pipeline.delivery_platform}),
+            **({} if not config.pipeline.broll_evaluation_policy_ref
+               else {"broll_evaluation_policy_ref":
+                     config.pipeline.broll_evaluation_policy_ref}),
             # Only when declared: an empty preset/naming in every
             # project.yaml would read as decisions nobody made.
             **({} if not config.pipeline.deliver_preset
@@ -1011,7 +1025,9 @@ def load_project_config(yaml_path: str | Path, *,
         data = _minimal_yaml_parse(yaml_path)
 
     if not isinstance(data, dict):
-        raise ValueError(f"Project config is not a YAML mapping: {yaml_path}")
+        # Retain this parser boundary's established ValueError contract.
+        raise ValueError(  # noqa: TRY004
+            f"Project config is not a YAML mapping: {yaml_path}")
 
     project_root = yaml_path.parent
     config = _dict_to_project_config(data, project_root=project_root)

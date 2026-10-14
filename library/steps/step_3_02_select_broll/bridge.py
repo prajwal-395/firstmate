@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Step 3.02 pre-bridge: build the B-roll candidate table for the LLM.
 
 The table lists what the vision analysis actually measured about each
@@ -35,11 +34,15 @@ is prose about what a clip DOES; a strip is a picture of what the window
 LOOKS like, which is the half no step choosing a picture has ever been
 shown. See `library/tools/window_frames.py`.
 """
+import json
 import os
 import sys
-import json
+from pathlib import Path
 
+from library.tools import window_frames as wf
 from library.tools.brief_reference import build_reference
+from library.tools.cutaway_window import filter_broll_candidates
+from library.tools.evaluation_policy import load_policy
 from library.tools.footage_reference import (
     DOCUMENT_NAME,
     REFERENCE_DOCUMENT_NAME,
@@ -50,7 +53,7 @@ from library.tools.pipeline_validation import require_keys
 from library.tools.project_layout import Area, ProjectLayout, layout_for
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
 from library.tools.transition_carriers import block_reaches_v1
-from library.tools import window_frames as wf
+from library.tools.vision_schema_adapter import adapt_semantic_document
 
 # Upper bound on the candidate table. One row per clip, so this only binds
 # on unusually large catalogs; whatever it drops is reported, never
@@ -245,7 +248,7 @@ def build_search_hints(data: dict, catalog_entries: list) -> str:
 def main():
     try:
         data = json.loads(sys.stdin.read())
-    except Exception as e:
+    except json.JSONDecodeError as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
 
@@ -304,6 +307,7 @@ def main():
     aroll_clips = {_slot_aroll_clip(s) for s in slots}
 
     candidates_rows = []
+    candidate_facets = {}
     clips_without_description = []
 
     for clip_id, clip_info in catalog.items():
@@ -313,7 +317,7 @@ def main():
         if not desc:
             clips_without_description.append(clip_id)
             continue
-        candidates_rows.append({
+        candidate_row = {
             "clip_id": clip_id,
             "duration_s": round(clip_info.get("duration_seconds", 0.0), 2),
             "used_as_aroll": "yes" if clip_id in aroll_clips else "no",
@@ -324,7 +328,38 @@ def main():
             "usable_range": _cell(observed.get("usable_ranges")),
             "subjects": _cell(observed.get("subjects")),
             "description": _cell(desc, MAX_DESCRIPTION_CHARS),
-        })
+        }
+        candidates_rows.append(candidate_row)
+        candidate_facets[clip_id] = {
+            "duration_s": candidate_row["duration_s"],
+            "framing": observed.get("framing"),
+            "stability": observed.get("stability"),
+            # FI-15 names this measured camera facet `movement`.
+            "movement": observed.get("movement"),
+            "content_type": observed.get("content_type"),
+        }
+        adapted = adapt_semantic_document(doc)
+        assessment = adapted.get("assessment") or {}
+        if "primary_subject_visible" in assessment:
+            candidate_facets[clip_id]["subject_visible"] = bool(
+                assessment["primary_subject_visible"])
+
+    # A policy is opt-in by exact reference from project_config. The Project
+    # Model is the authority; never synthesize a default or pick a policy.
+    project_config = data.get("project_config") or {}
+    pipeline_config = project_config.get("pipeline") or {}
+    policy_ref = pipeline_config.get("broll_evaluation_policy_ref")
+    if policy_ref:
+        from library.tools.project_model_store import load_project_model
+        project_folder = data.get("project_folder") or ""
+        if not project_folder:
+            raise ValueError("B-roll policy selection requires project_folder")
+        _revision, model = load_project_model(Path(project_folder))
+        policy = load_policy(model, policy_ref)
+    else:
+        policy = None
+    candidates_rows, broll_policy_report = filter_broll_candidates(
+        candidates_rows, candidate_facets, policy)
 
     if slots and not candidates_rows:
         # An empty candidate table means the LLM has nothing to choose
@@ -380,6 +415,7 @@ def main():
 
     out = {
         "broll_candidates_toon": candidates_toon,
+        "broll_policy_filter_report": broll_policy_report,
         "footage_analysis_reference": write_footage_reference(
             project_folder,
             data.get("semantic_analysis_documents", {}),

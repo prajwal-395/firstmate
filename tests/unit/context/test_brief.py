@@ -4,28 +4,29 @@ The tests FOLLOW the reference (path and line range parsed out of it, the
 printed command run) - reachability is the property. History:
 docs/evidence/brief_reference.md.
 """
+import hashlib
 import json
+import os
+import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
+
 import pytest
-import os
-import hashlib
+
 from library.tools import brief_snapshot
-import re
+from library.tools import decided_value as dv
+from library.tools import taste_profile as tp
 from library.tools.brief_reference import REFERENCED_INPUTS, reference_path
 from library.tools.context_projector import project_fields
 from library.tools.reel_diagnostics_reference import FIELDS
-import stat
-from library.tools import decided_value as dv
-from library.tools import taste_profile as tp
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from library.tools import model_task  # noqa: E402
-from library.tools.brief_reference import (  # noqa: E402
+from library.tools import model_task
+from library.tools.brief_reference import (
     INLINE_WHEN_UNDER_BYTES,
     build_reference,
     is_inline,
@@ -63,7 +64,7 @@ def test_the_preamble_and_a_section_under_the_threshold_are_inline(tmp_path):
     """Clause 1: the document's own statement of what it is; clause 2: a
     section quoting which costs about what describing it costs."""
     _, sections = parse_sections(DOCUMENT)
-    small = [s for s in sections if s.title == "Volume Targets"][0]
+    small = next(s for s in sections if s.title == "Volume Targets")
     assert small.body_bytes < INLINE_WHEN_UNDER_BYTES
     inline, reason = is_inline(small, set())
     assert inline and str(INLINE_WHEN_UNDER_BYTES) in reason
@@ -109,7 +110,7 @@ def test_following_the_reference_reaches_a_section_it_was_not_handed(tmp_path):
     the command is the one the reference tells the model to run.  Nothing
     is smuggled in from the test.
     """
-    brief, ref = _reference(tmp_path)
+    _brief, ref = _reference(tmp_path)
 
     path = reference_path(ref)
     assert Path(path).is_absolute() or Path(path).exists()
@@ -121,7 +122,8 @@ def test_following_the_reference_reaches_a_section_it_was_not_handed(tmp_path):
     start, end = m.groups()
 
     body = subprocess.run(["sed", "-n", f"{start},{end}p", path],
-                          capture_output=True, encoding="utf-8").stdout
+                          capture_output=True, encoding="utf-8",
+                          check=False).stdout
 
     assert "UNIQUE_DEEP_SENTENCE_7c21" in body, (
         "the line range in the map does not hold the section it names")
@@ -139,9 +141,9 @@ def test_the_example_command_the_reference_prints_actually_runs(tmp_path):
     brief.write_text(DOCUMENT, encoding="utf-8")
     ref = build_reference(str(brief), DOCUMENT)
 
-    command = [l.strip() for l in ref.split("\n") if "sed -n" in l][0]
+    command = next(l.strip() for l in ref.split("\n") if "sed -n" in l)
     out = subprocess.run(["bash", "-c", command],
-                         capture_output=True, encoding="utf-8")
+                         capture_output=True, encoding="utf-8", check=False)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip(), "the example command returned nothing"
 
@@ -200,15 +202,15 @@ def test_the_agent_restore_states_the_series_ahead_of_the_document(tmp_path):
 
     with patch.object(model_task, "_agent_sleep"), patch.object(
             model_task, "_agent_clock",
-            side_effect=[0, 0, 10, 10, 10, 10]):
-        with pytest.raises(run_pipeline.LLMError, match="Timeout"):
-            run_pipeline.present_llm_step(
-                str(prompt),
-                {"creative_brief": ref, "project_folder": str(project)},
-                "plan_vfx",
-                manifest={"interface": {"inputs": [{"name": "creative_brief"}],
-                                        "outputs": [{"name": "vfx_plan"}]}},
-                full_auto="agent", llm_timeout=1)
+            side_effect=[0, 0, 10, 10, 10, 10]), \
+            pytest.raises(run_pipeline.LLMError, match="Timeout"):
+        run_pipeline.present_llm_step(
+            str(prompt),
+            {"creative_brief": ref, "project_folder": str(project)},
+            "plan_vfx",
+            manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                    "outputs": [{"name": "vfx_plan"}]}},
+            full_auto="agent", llm_timeout=1)
 
     req = json.loads((project / "pipeline_output" / "llm_requests"
                       / "plan_vfx.json").read_text(encoding="utf-8"))
@@ -253,7 +255,8 @@ def test_a_top_level_series_is_kept_not_dropped(tmp_path):
     so the schema must honour a top-level declaration rather than lose
     it on the next rewrite."""
     from library.schemas.project_config import (
-        load_project_config, project_config_to_dict,
+        load_project_config,
+        project_config_to_dict,
     )
     project = _project_with(
         tmp_path, 'name: "T"\nslug: "t"\nseries: "Night Owls"\n')
@@ -478,7 +481,7 @@ def test_no_brief_clears_a_stale_snapshot(tmp_path):
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.tools import briefing_interview as bi  # noqa: E402
+from library.tools import briefing_interview as bi
 
 
 def test_select_reels_is_interviewed_without_a_brief():
@@ -588,11 +591,11 @@ def test_every_not_attached_reading_leads_to_an_interview():
 REPO = Path(__file__).resolve().parents[3]
 BROLL_STEP = REPO / "library" / "steps" / "step_3_02_select_broll"
 
-from library.processes.edit_video.run_pipeline import (  # noqa: E402
+from library.processes.edit_video.run_pipeline import (
     project_step_context,
 )
-from library.tools.footage_reference import DOCUMENT_NAME  # noqa: E402
-from library.tools.toon_serializer import json_to_toon  # noqa: E402
+from library.tools.footage_reference import DOCUMENT_NAME
+from library.tools.toon_serializer import json_to_toon
 
 # What the prompt may spend on READINGS of the vision analysis, as a
 # multiple of what that analysis costs carried inline. 001 measured
@@ -704,17 +707,72 @@ def project(tmp_path):
     return folder
 
 
-def _bridge(project: Path) -> dict:
+def _bridge(project: Path, routed_inputs: dict | None = None) -> dict:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.run(
         [sys.executable, str(BROLL_STEP / "bridge.py")],
-        input=json.dumps(_routed_inputs(project)),
+        input=json.dumps(routed_inputs or _routed_inputs(project)),
         capture_output=True, text=True, encoding="utf-8",
-        cwd=str(REPO), env=env,
+        cwd=str(REPO), env=env, check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return json.loads(proc.stdout)
+
+
+def test_policy_prefilters_the_candidate_table_and_reports_rule_counts(project):
+    """Explicit FI-22 constraints run before the creative candidate list."""
+    from library.tools.project_model_store import commit_project_model
+
+    routed = _routed_inputs(project)
+    docs = [dict(doc) for doc in DOCUMENTS]
+    docs[0] = {**docs[0], "assessment": {
+        **docs[0]["assessment"], "primary_subject_visible": ["person"]}}
+    routed["semantic_analysis_documents"] = docs
+
+    model = json.loads((REPO / "tests/fixtures/project_model_e2e"
+                        / "expected-project-model.json").read_text(
+                            encoding="utf-8"))
+    policy = {
+        "format": "evaluation_policy/1", "id": "steady-broll", "version": 1,
+        "project_id": model["id"],
+        "requirements": [
+            {"id": "steady", "kind": "requirement",
+             "measurement_type": "stability", "operator": "eq",
+             "expected": "stable", "origin": "user_instruction",
+             "origin_ref": "brief#steady"},
+            {"id": "long-enough", "kind": "requirement",
+             "measurement_type": "duration_s", "operator": "gte",
+             "expected": 2.5, "origin": "user_instruction",
+             "origin_ref": "brief#duration"},
+            {"id": "subject", "kind": "requirement",
+             "measurement_type": "subject_visible", "operator": "eq",
+             "expected": True, "origin": "user_instruction",
+             "origin_ref": "brief#subject"},
+        ],
+        "preferences": [],
+    }
+    model["evaluation_policies"] = [policy]
+    commit_project_model(project, model, expected_revision=0)
+    routed["project_config"] = {"pipeline": {
+        "broll_evaluation_policy_ref": "steady-broll@v1"}}
+
+    baseline = _bridge(project)
+    selected = _bridge(project, routed)
+    assert baseline["broll_candidates_toon"].splitlines()[0].startswith("[17]")
+    assert selected["broll_candidates_toon"].splitlines()[0].startswith("[1]")
+    assert "clip_000" in selected["broll_candidates_toon"]
+    assert selected["broll_policy_filter_report"] == {
+        "policy": "steady-broll@v1",
+        "rules": [
+            {"rule_id": "steady", "measurement_type": "stability",
+             "removed": 0},
+            {"rule_id": "long-enough", "measurement_type": "duration_s",
+             "removed": 0},
+            {"rule_id": "subject", "measurement_type": "subject_visible",
+             "removed": 16},
+        ],
+    }
 
 
 def _manifest() -> dict:
@@ -886,7 +944,7 @@ def test_the_bridge_refuses_when_there_is_nowhere_to_write_it():
     proc = subprocess.run(
         [sys.executable, str(BROLL_STEP / "bridge.py")],
         input=json.dumps(payload), capture_output=True, text=True,
-        encoding="utf-8", cwd=str(REPO), env=env,
+        encoding="utf-8", cwd=str(REPO), env=env, check=False,
     )
     assert proc.returncode == 1
     assert "project_folder" in json.loads(proc.stdout)["error"]

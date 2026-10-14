@@ -61,6 +61,12 @@
         "description": "The project's context folder plus the learnings routed to this step, as a MAP the model follows with its shell (never a copy). Injected by the runner from the project's context/ folder and learned_context/ store when this step declares it; a stated absence when the project has neither. See library/tools/project_context.py."
       },
       {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "Project declarations, including optional pipeline.broll_evaluation_policy_ref for explicit FI-22 B-roll requirements. No policy is selected by default."
+      },
+      {
         "name": "timeline_notes",
         "type": "object",
         "required": false,
@@ -88,6 +94,11 @@
           "broll_creative": "list",
           "b_roll_interjections": "list"
         }
+      },
+      {
+        "name": "broll_policy_filter_report",
+        "type": "object",
+        "description": "Prompt-only audit of the explicit B-roll evaluation policy and the number of candidates removed by each requirement; empty when no policy was selected."
       },
       {
         "name": "footage_analysis_reference",

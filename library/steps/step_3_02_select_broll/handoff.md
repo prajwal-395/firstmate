@@ -25,6 +25,11 @@ that do (speech and picture blocks). You have access to:
   vision analysis measured: `framing`, `stability`, `camera_move`,
   `content_type`, `usable_range`, `subjects` and a time-bounded
   `description`. This is the primary source of WHAT is in each clip.
+- **`broll_policy_filter_report`** — the exact project policy version and
+  per-requirement removal counts. Requirements are applied before creative
+  selection; a missing or unknown facet cannot satisfy a requirement.
+  Preferences do not remove candidates. With no explicit policy this report
+  names no policy and the candidate ordering is unchanged.
 - **`broll_search_hints`** — per must-cover slot, the clip the footage
   index vouches for when one cleared its evidence floor with real
   visual evidence, or the catalog-fallback said aloud when the index is

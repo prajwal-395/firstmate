@@ -50,8 +50,8 @@ One enumeration, `library/tools/cutaway_window.py`. A cutaway is placed `video_o
 - The candidate rows plus `CANDIDATE_LEGEND` are the shape a prompt would carry, so letting the model
 """
 
-from dataclasses import dataclass, field
 
+from dataclasses import dataclass, field
 
 # ── What may never choose a window ────────────────────────────────────
 #
@@ -143,6 +143,61 @@ DECLINED_TO_RANK = {
         "precisely because somebody is; neither is an engine default"
     ),
 }
+
+
+# FI-15 facets accepted by an explicitly authored FI-22 B-roll requirement.
+BROLL_POLICY_FACETS = frozenset({
+    "duration_s", "stability", "movement", "framing", "content_type",
+    "subject_visible",
+})
+_POLICY_COMPARATORS = {
+    "eq": lambda left, right: left == right,
+    "ne": lambda left, right: left != right,
+    "lt": lambda left, right: left < right,
+    "lte": lambda left, right: left <= right,
+    "gt": lambda left, right: left > right,
+    "gte": lambda left, right: left >= right,
+}
+
+
+def filter_broll_candidates(candidates, facets_by_clip, policy=None):
+    """Apply policy requirements backed by measured candidate facets.
+
+    Returns filtered rows and per-rule removal counts. Preferences remain
+    available to creative selection and do not remove candidates. No policy
+    returns the original rows unchanged.
+    """
+    if policy is None:
+        return candidates, {"policy": None, "rules": []}
+    if not getattr(policy, "ref", None) or not hasattr(policy, "requirements"):
+        raise ValueError("B-roll policy must be a validated FI-22 policy")
+
+    kept = list(candidates)
+    report = []
+    for rule in policy.requirements:
+        if rule.measurement_type not in BROLL_POLICY_FACETS:
+            raise ValueError(
+                f"B-roll rule {rule.id!r} uses unsupported facet "
+                f"{rule.measurement_type!r}")
+        before = len(kept)
+        survivors = []
+        for candidate in kept:
+            measured = facets_by_clip.get(candidate["clip_id"], {}).get(
+                rule.measurement_type)
+            known = measured is not None and measured != "" and measured != "unknown"
+            try:
+                passed = known and _POLICY_COMPARATORS[rule.operator](
+                    measured, rule.expected)
+            except (TypeError, KeyError) as exc:
+                raise ValueError(
+                    f"B-roll rule {rule.id!r} cannot compare its measured facet") from exc
+            if passed:
+                survivors.append(candidate)
+        kept = survivors
+        report.append({"rule_id": rule.id,
+                       "measurement_type": rule.measurement_type,
+                       "removed": before - len(kept)})
+    return kept, {"policy": policy.ref, "rules": report}
 
 
 @dataclass
