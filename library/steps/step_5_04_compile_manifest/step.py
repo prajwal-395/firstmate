@@ -98,6 +98,7 @@ from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools import cross_department, edit_graph
 from library.tools import music_over_speech
+from library.tools.audio_preserving_replacement import apply_replacements
 from library.tools.music_behavior import resolve_music_behavior
 from library.tools.transition_carriers import block_reaches_v1, v2_pair_at
 from library.tools.vfx_plan_basis import (
@@ -1917,6 +1918,45 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                         clip.get("source_out", 0.0))))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(block), clip)
+
+    # FI-18 proposals are made by editorial planning and are applied only
+    # after the source A-roll span has been materialized.  The proposal
+    # validator requires cited picture, synchronization and continuity
+    # evidence; the A1 mirror below remains the original dialogue span.
+    audio_replacement_plan = broll_data.get(
+        "audio_preserving_replacements", []) or []
+    replacement_result = apply_replacements(
+        v1_clips, audio_replacement_plan, fps=float(fps))
+    replacement_audio_clips = replacement_result["speech_audio_clips"]
+    _replacement_blocks = {
+        block.get("position"): block for block in structure
+        if isinstance(block, dict)}
+    _conform_keys = {
+        "needs_conform", "framing_intent", "framing_delivered",
+        "source_width", "source_height", "fill_zoom",
+        "framing_crop_factor", "subject_width", "subject_safe_zoom",
+        "framing_backdrop", "framing_pan_x",
+    }
+    for _replacement_clip in v1_clips:
+        if not _replacement_clip.get("audio_preserving_replacement"):
+            continue
+        _pos = _replacement_clip["spine_position"]
+        _block = _replacement_blocks[_pos]
+        _replacement_id = get_clip_id(_replacement_clip)
+        if _replacement_id not in clip_metadata:
+            raise ValueError(
+                f"FI-18 replacement for block {_pos} is absent from the "
+                "clip catalog; its picture geometry cannot be conformed")
+        for _key in _conform_keys:
+            _replacement_clip.pop(_key, None)
+        _fi, _fp, _cf = _resolve_framing(_block)
+        _replacement_clip.update(_conform_fields(
+            clip_metadata, _replacement_id, proj_res,
+            framing_intent=_fi, framing_pan_x=_fp,
+            framing_crop_factor=_cf,
+            **_subject_framing(
+                _replacement_id, _replacement_clip["source_in"],
+                _replacement_clip["source_out"])))
 
     # ── V2: B-Roll clips ──
     # step_3_02 emits video_in/video_out (source domain) and
@@ -3798,6 +3838,7 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                 # clip, so no mirror entry exists for them.
                 "clips": sorted(
                     ([c for c in v1_clips if not c.get("video_only")]
+                     + replacement_audio_clips
                      + voiceover_clips),
                     key=lambda c: c["timeline_in"]),
             },
@@ -4061,7 +4102,13 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     V1_clips = [c for c in manifest["tracks"]["V1"]["clips"]
                 if not c.get("video_only")]
     voiceover_count = sum(1 for c in A1_clips if c.get("voiceover"))
-    assert len(A1_clips) == len(V1_clips) + voiceover_count, f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)} voiceover={voiceover_count}"
+    replacement_audio_count = sum(
+        1 for c in A1_clips if c.get("replacement_audio"))
+    assert len(A1_clips) == (len(V1_clips) + voiceover_count
+                             + replacement_audio_count), (
+        f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)} "
+        f"voiceover={voiceover_count} replacement_audio="
+        f"{replacement_audio_count}")
 
     assert_overlay_segments_on_disk(manifest)
 

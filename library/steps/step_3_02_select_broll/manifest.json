@@ -87,6 +87,12 @@
         "expected_schema": "broll_selections.b_roll_interjections: standalone cutaways inserted as a visual break (AGENTS.md section 7). The window that plays is library/tools/cutaway_window.py."
       },
       {
+        "name": "audio_preserving_replacements",
+        "type": "array",
+        "required": false,
+        "description": "FI-18 evidence-backed picture replacements. The original dialogue source span is retained on A1; compile_manifest validates exact coverage, evidence and continuity before substituting V1 picture."
+      },
+      {
         "name": "broll_candidates_toon",
         "type": "string",
         "description": "State output: broll_candidates_toon",
@@ -127,7 +133,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale, plus OPTIONAL slip_seconds / slip_frames (rung 7, CT3.3: a stated source slip shifting the chosen window at the same timeline position and duration - seconds or frames as the request states them, both agreeing; a slip past the file's ends refuses). NEVER select the clip the block's A-roll already shows. Empty is a legitimate answer when every block already plays its own picture and no interjection is earned (the handoff sets no required number, captain's ruling 2026-08-20); the post-bridge still refuses a block with no V1 picture left uncovered."
+        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale, plus OPTIONAL slip_seconds / slip_frames (rung 7, CT3.3: a stated source slip shifting the chosen window at the same timeline position and duration - seconds or frames as the request states them, both agreeing; a slip past the file's ends refuses). NEVER select the clip the block's A-roll already shows. Empty is a legitimate answer when every block already plays its own picture and no interjection is earned (the handoff sets no required number, captain's ruling 2026-08-20); the post-bridge still refuses a block with no V1 picture left uncovered. A selection may also carry optional audio_preserving_replacement with FI-18's original/replacement source and timeline spans, cited bad-picture and synchronization evidence IDs, and a verified continuity record; omit it when any evidence is missing."
       },
       {
         "name": "b_roll_interjections",

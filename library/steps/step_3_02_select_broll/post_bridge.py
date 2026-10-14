@@ -61,6 +61,9 @@ BROLL_ENTRY_KEYS = frozenset({
     # past the file's ends refuses rather than clamping onto silence.
     "slip_seconds",
     "slip_frames",
+    # FI-18 is optional per selection. Keeping it nested means an absent
+    # proposal is a valid empty default, not a missing model answer.
+    "audio_preserving_replacement",
 })
 INTERJECTION_ENTRY_KEYS = frozenset({
     "clip_id",
@@ -639,6 +642,14 @@ def main():
         target_resolution=(target_width, target_height),
         project_folder=data.get("project_folder", ""),
     )
+
+    # FI-18 proposals pass through as explicit editorial decisions. The
+    # compile manifest owns the final span match and refuses missing
+    # synchronization, bad-picture or continuity evidence.
+    result["audio_preserving_replacements"] = [
+        item["audio_preserving_replacement"]
+        for item in broll_creative
+        if item.get("audio_preserving_replacement") is not None]
 
     # There is NO minimum B-roll count. The creative direction decides how
     # many cutaways a piece gets; nothing is padded to satisfy a number.

@@ -241,6 +241,21 @@ creative selections.
 | Reads | `style_specification` |
 | Writes | `broll_creative` |
 | Writes | `b_roll_interjections` |
+| Writes | `audio_preserving_replacements` (optional FI-18 proposals with cited bad-picture, sync and continuity evidence, carried on a B-roll selection) |
+
+### Audio-preserving picture replacement (FI-18)
+
+When measured evidence marks a speech picture unusable while its dialogue
+remains usable, you may add `audio_preserving_replacement` to that block's
+`broll_creative` selection only if an alternate
+source is synchronized to the exact dialogue interval and continuity is
+verified. Include the original and replacement source file and source span,
+the exact timeline span, bad-picture evidence IDs, synchronization evidence
+IDs, and continuity evidence IDs. The timeline spans must match exactly.
+Do not propose a replacement from a visual description or timestamp overlap
+alone. Leave the list empty when evidence is incomplete. The compiler keeps
+the original dialogue source span on A1 and refuses proposals that do not
+match the placed A-roll interval.
 
 ---
 
