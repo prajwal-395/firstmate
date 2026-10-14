@@ -126,6 +126,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/ocr_project_model.py",
+        "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
@@ -590,6 +592,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/ocr_project_model.py",
+        "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
@@ -1074,6 +1078,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/ocr_project_model.py",
+        "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
@@ -1547,6 +1553,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/ocr_project_model.py",
+        "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
@@ -2023,6 +2031,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/ocr_project_model.py",
+        "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.

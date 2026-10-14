@@ -16,6 +16,7 @@ Two behaviours the brief pins, plus the defect they close:
 from __future__ import annotations
 
 import json
+import hashlib
 import struct
 import zlib
 from pathlib import Path
@@ -250,10 +251,44 @@ def test_producer_consumer_drift_every_produced_kind_rasterizes(tmp_path):
     model["masks"].extend(extra)
     model["masks"].append(_region_mask_row(
         tmp_path, memory, entity, clock, sam2_mask["provenance_id"]))
+    from library.tools.project_layout import ProjectLayout
+    ocr_artifact = (ProjectLayout(str(project)).step_dir(
+        "ocr_extraction", create=True) / "clip_ocr" / "ocr_result.json")
+    ocr_artifact.parent.mkdir(parents=True, exist_ok=True)
+    ocr_payload = {
+        "schema_version": 2, "resolution": [WIDTH, HEIGHT],
+        "detections": [{"track_id": "text-0001", "samples": [{
+            "timestamp": 0.0, "bbox_normalized": [0.1, 0.2, 0.3, 0.2],
+            "polygon_normalized": [[0.1, 0.2], [0.4, 0.2],
+                                   [0.4, 0.4], [0.1, 0.4]],
+        }]}], "graphics": [],
+    }
+    ocr_bytes = json.dumps(ocr_payload).encode("utf-8")
+    ocr_artifact.write_bytes(ocr_bytes)
+    model["masks"].append({
+        "id": "mask-drift-ocr", "entity_id": entity,
+        "interval": {"clock_id": clock, "start": 0, "end": 1000},
+        "representation": {
+            "kind": masks.OCR_POLYGON_TRACK_KIND,
+            "content_digest": "fixture-ocr", "track_id": "text-0001",
+            "artifact_path": ocr_artifact.relative_to(project).as_posix(),
+            "artifact_sha256": hashlib.sha256(ocr_bytes).hexdigest(),
+            "sample_ticks": [0], "sample_indices": [0],
+            "coordinate_space": "source-normalised-tl",
+        },
+        "source_model": "fixture-ocr",
+        "provenance_id": sam2_mask["provenance_id"],
+    })
     validate_project_model(model)
     kinds = {row["representation"]["kind"] for row in extra}
     kinds.add("region_rle")
+    kinds.add(masks.OCR_POLYGON_TRACK_KIND)
     assert kinds | produced == set(masks.MASK_KINDS)
+    width, height, ocr_frames = masks.ocr_polygon_track_frames(
+        model["masks"][-1]["representation"], project_folder=project)
+    assert (width, height, ocr_frames) == (
+        WIDTH, HEIGHT, [(0, [[0.1, 0.2], [0.4, 0.2],
+                             [0.4, 0.4], [0.1, 0.4]])])
     for row in extra:
         rasterized = ec.write_matte_sequence(
             row, model, comp, out_dir / row["id"], project_folder=project)

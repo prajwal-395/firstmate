@@ -30,7 +30,8 @@ class TestOcrLanes:
                 with open(os.path.join(out_subdir,
                                        "ocr_result.json"), "w",
                           encoding="utf-8") as fh:
-                    json.dump({"stub_clip": self.clip_id}, fh)
+                    json.dump({"schema_version": 2,
+                               "stub_clip": self.clip_id}, fh)
 
         class StubExtractor:
             def _get_reader(self):
@@ -70,7 +71,8 @@ class TestOcrLanes:
 
         docs = result["ocr_extraction"]
         assert list(docs) == ["clip_001", "clip_003", "clip_004"]
-        assert docs["clip_001"] == {"stub_clip": "C001"}
+        assert docs["clip_001"] == {"schema_version": 2,
+                                    "stub_clip": "C001"}
 
         width = lane_width()
         peak, depth, events = 0, 0, sorted(

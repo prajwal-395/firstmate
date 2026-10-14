@@ -1,9 +1,12 @@
-"""One mask-kind registry shared by every Project Model mask producer/consumer.
+"""One mask-kind registry shared by Project Model mask producers/consumers.
 
 Today's kinds are ``ellipse``, ``rect``, ``face_bbox_track``, inline
-``rle``, ``sam2_rle_track`` and ``region_rle``. Each kind has a rasterizer
-here, so a producer cannot write a kind a consumer cannot read (the drift
-that left migrated SAM masks refused by EffectCraft's matte writer).
+``rle``, ``sam2_rle_track``, ``region_rle`` and sparse OCR/UI polygon tracks.
+Each kind has a resolver here, so a producer cannot write a kind a consumer
+cannot read (the drift that left migrated SAM masks refused by EffectCraft's
+matte writer). OCR/UI polygons are measured sparse geometry; their resolver
+returns source points and their artifact reference, without claiming dense
+matte coverage.
 
 ``sam2_rle_track`` resolves the referenced 1.06 segmentation file and
 decodes its ``encode_rle`` blobs; ``region_rle`` resolves the referenced
@@ -20,6 +23,7 @@ never for writing.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from pathlib import Path
 from typing import Any
@@ -30,6 +34,8 @@ FACE_BBOX_TRACK_KIND = "face_bbox_track"
 RLE_KIND = "rle"
 SAM2_RLE_TRACK_KIND = "sam2_rle_track"
 REGION_RLE_KIND = "region_rle"
+OCR_POLYGON_TRACK_KIND = "ocr_polygon_track"
+"""Sparse text/UI polygon samples resolved from the versioned 1.07 artifact."""
 """M3d person-region track: one instance's masks across its samples.
 
 The bytes stay in the source-memory sidecar; the model carries the
@@ -55,6 +61,7 @@ MASK_KINDS = (
     RLE_KIND,
     SAM2_RLE_TRACK_KIND,
     REGION_RLE_KIND,
+    OCR_POLYGON_TRACK_KIND,
 )
 """Every mask representation kind a producer may write.
 
@@ -385,6 +392,84 @@ def region_frame_at(frames: list[tuple[int, list[int]]], tick: int,
             f"{tick}; refusing rather than inventing one"
         )
     return covered[-1][1]
+
+
+def ocr_polygon_track_frames(representation: dict[str, Any], *,
+                             project_folder: str | Path,
+                             mask_id: str = "mask"
+                             ) -> tuple[int, int, list[tuple[int, list[list[float]]]]]:
+    """Resolve OCR/UI polygon samples from the referenced 1.07 artifact.
+
+    The Project Model carries only the artifact path, sha256, track id and
+    sample indices; the OCR result owns the polygon bytes. A changed or
+    escaped artifact refuses rather than silently returning a different mask.
+    """
+    path_ref = representation.get("artifact_path")
+    wanted_hash = representation.get("artifact_sha256")
+    track_id = representation.get("track_id")
+    ticks = representation.get("sample_ticks")
+    indices = representation.get("sample_indices")
+    if (not isinstance(path_ref, str) or not path_ref
+            or not isinstance(wanted_hash, str) or not wanted_hash
+            or not isinstance(track_id, str) or not track_id
+            or not isinstance(ticks, list) or not isinstance(indices, list)
+            or not ticks or len(ticks) != len(indices)):
+        raise UnresolvableMask(f"mask {mask_id!r} has an incomplete OCR artifact reference")
+    root = Path(project_folder).resolve()
+    path = (root / path_ref).resolve()
+    if not path.is_relative_to(root):
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact escapes its project")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise UnresolvableMask(f"mask {mask_id!r} cannot read OCR artifact {path}: {exc}") from exc
+    if hashlib.sha256(raw).hexdigest() != wanted_hash:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact hash changed; rebuild Project Model")
+    try:
+        doc = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact is invalid JSON") from exc
+    if not isinstance(doc, dict) or doc.get("schema_version") != 2:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact is not schema version 2")
+    candidates = [*(doc.get("detections") or []), *(doc.get("graphics") or [])]
+    track = next((row for row in candidates
+                  if isinstance(row, dict) and row.get("track_id") == track_id), None)
+    if track is None:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR track {track_id!r} is absent")
+    samples = track.get("samples") or []
+    try:
+        resolution = list(doc["resolution"])
+        width, height = int(resolution[0]), int(resolution[1])
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact has no resolution") from exc
+    if width <= 0 or height <= 0:
+        raise UnresolvableMask(f"mask {mask_id!r} OCR artifact has invalid resolution")
+    frames = []
+    for tick, index in zip(ticks, indices):
+        try:
+            sample_index = int(index)
+            if sample_index < 0 or sample_index >= len(samples):
+                raise IndexError
+            sample = samples[sample_index]
+            polygon = sample.get("polygon_normalized") or []
+            if not polygon:
+                x, y, w, h = sample["bbox_normalized"]
+                polygon = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+            points = [[float(x), float(y)] for x, y in polygon]
+            if len(points) < 3 or any(not math.isfinite(v) for point in points for v in point):
+                raise ValueError
+            if any(x < 0 or x > 1 or y < 0 or y > 1 for x, y in points):
+                raise ValueError
+            tick_value = int(tick)
+            if tick_value < 0:
+                raise ValueError
+            frames.append((tick_value, points))
+        except (TypeError, ValueError, KeyError, IndexError) as exc:
+            raise UnresolvableMask(f"mask {mask_id!r} OCR sample {index!r} has no valid polygon") from exc
+    frames.sort(key=lambda row: row[0])
+    if any(first[0] >= second[0] for first, second in zip(frames, frames[1:])):
+        raise UnresolvableMask(f"mask {mask_id!r} OCR sample ticks are not strictly ordered")
+    return width, height, frames
 
 
 def sample_tick_to_frame_index(tick: int, sample_fps: float) -> int:

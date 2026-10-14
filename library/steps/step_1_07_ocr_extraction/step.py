@@ -11,7 +11,7 @@ import sys
 import os
 import glob
 from pathlib import Path
-from library.tools.analysis.ocr_extractor import OCRExtractor
+from library.tools.analysis.ocr_extractor import OCRExtractor, OCR_SCHEMA_VERSION
 from library.tools.concurrency_routing import run_lanes
 from library.tools.project_layout import Area, ProjectLayout
 
@@ -72,16 +72,32 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
     # Warm the shared reader only when a clip actually needs measuring:
     # a fully-cached run must stay a file-existence check, not a model
     # load.
-    if any(not os.path.exists(_paths(p)[2]) for p in all_clips):
+    def _cache_is_current(path):
+        try:
+            with open(path, encoding="utf-8") as stream:
+                version = json.load(stream).get("schema_version", 0)
+                if version > OCR_SCHEMA_VERSION:
+                    raise ValueError(
+                        f"OCR artifact schema {version} is newer than "
+                        f"supported schema {OCR_SCHEMA_VERSION}: {path}")
+                return version == OCR_SCHEMA_VERSION
+        except ValueError as exc:
+            if str(exc).startswith("OCR artifact schema"):
+                raise
+            return False
+        except (OSError, AttributeError):
+            return False
+
+    if any(not _cache_is_current(_paths(p)[2]) for p in all_clips):
         extractor._get_reader()
 
     def _one(clip_path):
         clip_id, out_subdir, out_file = _paths(clip_path)
 
-        if os.path.exists(out_file):
+        if _cache_is_current(out_file):
             print(f"Skipping {clip_id}, OCR already extracted.",
                   file=sys.stderr)
-            with open(out_file) as fp:
+            with open(out_file, encoding="utf-8") as fp:
                 return clip_id, json.load(fp)
 
         print(f"Extracting OCR for {clip_id}...", file=sys.stderr)
@@ -107,7 +123,7 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
                 scene_boundaries=scene_boundaries)
             result.save(out_subdir)
 
-            with open(out_file) as fp:
+            with open(out_file, encoding="utf-8") as fp:
                 return clip_id, json.load(fp)
 
         except Exception as e:

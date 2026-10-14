@@ -1178,6 +1178,11 @@ def write_matte_sequence(
     fps = Fraction(comp.frame_rate)
 
     kind = representation.get("kind")
+    if kind == project_model_masks.OCR_POLYGON_TRACK_KIND:
+        raise UnprojectableMask(
+            f"mask {mask_id!r} is sparse OCR/UI evidence; dense matte "
+            "coverage requires targeted frame verification"
+        )
     if _mask_is_static(mask):
         # One unchanging box: every frame rasterizes the same state, so
         # no keyframe lookup can fail. This is what the addMask fast

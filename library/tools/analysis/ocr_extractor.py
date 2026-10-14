@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import TYPE_CHECKING, Tuple, List, Dict, Optional
+from dataclasses import dataclass, asdict, field
+from typing import TYPE_CHECKING, Tuple, List, Dict, Optional, Any
 import json
 import math
 import os
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only, for the frame hint
     import numpy as np
+
+OCR_SCHEMA_VERSION = 2
 
 @dataclass
 class TextDetection:
@@ -17,6 +20,9 @@ class TextDetection:
     confidence: float
     bbox: Tuple[int, int, int, int]
     bbox_normalized: Tuple[float, float, float, float]
+    polygon_normalized: Tuple[Tuple[float, float], ...] = ()
+    language: Optional[str] = None
+    alternatives: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class TrackedText:
@@ -26,6 +32,11 @@ class TrackedText:
     bbox: Tuple[int, int, int, int]
     bbox_normalized: Tuple[float, float, float, float]
     is_static: bool
+    track_id: str = ""
+    alternatives: List[Dict[str, Any]] = field(default_factory=list)
+    language: Optional[str] = None
+    samples: List[Dict[str, Any]] = field(default_factory=list)
+    appearance_intervals: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class OCRResult:
@@ -35,30 +46,51 @@ class OCRResult:
     sample_fps: float
     detections: List[TrackedText]
     raw_frame_detections: Dict[int, List[TextDetection]]
+    graphics: List[Dict[str, Any]] = field(default_factory=list)
+    raw_frame_graphics: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
 
     def save(self, output_dir: str):
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, "ocr_result.json")
         data = {
+            "schema_version": OCR_SCHEMA_VERSION,
             "video_path": self.video_path,
             "frame_count": self.frame_count,
             "resolution": self.resolution,
             "sample_fps": self.sample_fps,
             "detections": [asdict(d) for d in self.detections],
-            "raw_frame_detections": {k: [asdict(d) for d in v] for k, v in self.raw_frame_detections.items()}
+            "raw_frame_detections": {k: [asdict(d) for d in v] for k, v in self.raw_frame_detections.items()},
+            "graphics": self.graphics,
+            "raw_frame_graphics": self.raw_frame_graphics,
         }
-        with open(out_path, 'w') as f:
+        with open(out_path, 'w', encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
     @classmethod
     def load(cls, output_dir: str) -> 'OCRResult':
         in_path = os.path.join(output_dir, "ocr_result.json")
-        with open(in_path, 'r') as f:
+        with open(in_path, 'r', encoding="utf-8") as f:
             data = json.load(f)
+        if data.get("schema_version", 1) > OCR_SCHEMA_VERSION:
+            raise ValueError(
+                f"OCR artifact schema {data['schema_version']} is newer "
+                f"than supported schema {OCR_SCHEMA_VERSION}")
         
-        detections = [TrackedText(**d) for d in data["detections"]]
+        detections = [TrackedText(**{
+            **d,
+            "samples": d.get("samples", []),
+            "alternatives": d.get("alternatives", []),
+            "track_id": d.get("track_id", ""),
+            "language": d.get("language"),
+            "appearance_intervals": d.get("appearance_intervals", []),
+        }) for d in data["detections"]]
         raw_frame_detections = {
-            int(k): [TextDetection(**d) for d in v] 
+            int(k): [TextDetection(**{
+                **d,
+                "polygon_normalized": tuple(tuple(p) for p in d.get("polygon_normalized", ())),
+                "language": d.get("language"),
+                "alternatives": d.get("alternatives", []),
+            }) for d in v]
             for k, v in data["raw_frame_detections"].items()
         }
         return cls(
@@ -67,7 +99,9 @@ class OCRResult:
             resolution=tuple(data["resolution"]),
             sample_fps=data["sample_fps"],
             detections=detections,
-            raw_frame_detections=raw_frame_detections
+            raw_frame_detections=raw_frame_detections,
+            graphics=data.get("graphics", []),
+            raw_frame_graphics={int(k): v for k, v in data.get("raw_frame_graphics", {}).items()},
         )
 
 def bbox_iou(bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float, float, float]) -> float:
@@ -90,26 +124,43 @@ def bbox_iou(bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float
     return intersection / union if union > 0 else 0.0
 
 class Track:
-    def __init__(self, detection: TextDetection, timestamp: float):
+    def __init__(self, detection: TextDetection, timestamp: float,
+                 frame_index: Optional[int] = None):
         self.text = detection.text
-        self.confidences = [detection.confidence]
-        self.bboxes_norm = [detection.bbox_normalized]
-        self.bboxes_pixel = [detection.bbox]
-        self.appearances = [[timestamp, timestamp]]
+        self.confidences = []
+        self.bboxes_norm = []
+        self.bboxes_pixel = []
+        self.appearances = []
         self.last_timestamp = timestamp
+        self.samples = []
+        self.add(detection, timestamp, frame_index)
         
-    def add(self, detection: TextDetection, timestamp: float):
+    def add(self, detection: TextDetection, timestamp: float,
+            frame_index: Optional[int] = None):
         self.confidences.append(detection.confidence)
         self.bboxes_norm.append(detection.bbox_normalized)
         self.bboxes_pixel.append(detection.bbox)
         
         # If gap <= 2.0 seconds, extend current appearance
-        if timestamp - self.appearances[-1][1] <= 2.0:
+        if not self.appearances:
+            self.appearances.append([timestamp, timestamp])
+        elif timestamp - self.appearances[-1][1] <= 2.0:
             self.appearances[-1][1] = timestamp
         else:
             self.appearances.append([timestamp, timestamp])
             
         self.last_timestamp = timestamp
+        self.samples.append({
+            "timestamp": float(timestamp),
+            "frame_index": frame_index,
+            "bbox": list(detection.bbox),
+            "bbox_normalized": list(detection.bbox_normalized),
+            "polygon_normalized": [list(p) for p in detection.polygon_normalized],
+            "confidence": float(detection.confidence),
+            "text": detection.text,
+            "language": detection.language,
+            "alternatives": detection.alternatives,
+        })
         
     def to_tracked_text(self) -> TrackedText:
         avg_conf = sum(self.confidences) / len(self.confidences)
@@ -139,8 +190,118 @@ class Track:
             appearances=[(float(a[0]), float(a[1])) for a in self.appearances],
             bbox=rep_bbox,
             bbox_normalized=rep_bbox_norm,
-            is_static=is_static
+            is_static=is_static,
+            track_id="",  # Assigned deterministically after tracking.
+            alternatives=list({
+                json.dumps(candidate, sort_keys=True): candidate
+                for sample in self.samples
+                for candidate in sample.get("alternatives", [])
+            }.values()),
+            language=_language_hint(self.text),
+            samples=self.samples,
         )
+
+
+def _language_hint(text: str) -> Optional[str]:
+    """Return a script-specific language hint only when the script supports it.
+
+    Latin text is deliberately left unknown: OCR configuration is not proof
+    that the visible language is English.
+    """
+    for char in text:
+        name = unicodedata.name(char, "")
+        if "CYRILLIC" in name:
+            return "und-Cyrl"
+        if "HIRAGANA" in name or "KATAKANA" in name:
+            return "ja"
+        if "HANGUL" in name:
+            return "ko"
+        if "CJK UNIFIED IDEOGRAPH" in name:
+            return "und-Hani"
+        if "ARABIC" in name:
+            return "und-Arab"
+        if "HEBREW" in name:
+            return "he"
+        if "DEVANAGARI" in name:
+            return "hi"
+    return None
+
+
+def _polygon_iou(a: List[List[float]], b: List[List[float]]) -> float:
+    """A conservative overlap proxy from polygon bounding boxes."""
+    if not a or not b:
+        return 0.0
+    def bounds(points):
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        return min(xs), min(ys), max(xs), max(ys)
+    ax1, ay1, ax2, ay2 = bounds(a)
+    bx1, by1, bx2, by2 = bounds(b)
+    intersection = max(0.0, min(ax2, bx2) - max(ax1, bx1)) * max(0.0, min(ay2, by2) - max(ay1, by1))
+    union = max(0.0, (ax2 - ax1) * (ay2 - ay1)) + max(0.0, (bx2 - bx1) * (by2 - by1)) - intersection
+    return intersection / union if union else 0.0
+
+
+def _graphic_candidates(frame, text_boxes: List[TextDetection]) -> List[Dict[str, Any]]:
+    """Find conservative UI/graphic candidates from contours without a model.
+
+    These are measured shapes, not semantic button or cursor claims. A
+    triangle can be a cursor candidate; a rectangle can be a control or
+    graphic candidate. Labels preserve that uncertainty.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return []
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+    edges = cv2.Canny(gray, 60, 160)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    out = []
+    for contour in contours:
+        area = float(cv2.contourArea(contour))
+        x, y, bw, bh = cv2.boundingRect(contour)
+        if bw < 5 or bh < 5 or area < 25 or area > w * h * 0.12:
+            continue
+        approx = cv2.approxPolyDP(contour, 0.035 * cv2.arcLength(contour, True), True)
+        vertices = len(approx)
+        if vertices not in (3, 4, 5, 6) or not cv2.isContourConvex(approx):
+            continue
+        norm = [
+            [float(x / w), float(y / h)],
+            [float((x + bw) / w), float(y / h)],
+            [float((x + bw) / w), float((y + bh) / h)],
+            [float(x / w), float((y + bh) / h)],
+        ]
+        box = (x / w, y / h, bw / w, bh / h)
+        if any(bbox_iou(box, d.bbox_normalized) > 0.6 for d in text_boxes):
+            continue
+        ratio = bw / bh
+        kind = ("cursor_candidate" if vertices <= 6 and area <= 1000
+                and bw <= 28 and bh <= 32 and 0.45 <= ratio <= 2.2
+                else None)
+        if kind is None and vertices == 4 and bw >= 30 and bh >= 16:
+            kind = "ui_control_candidate" if ratio <= 12 else "graphic_region_candidate"
+        if kind is None:
+            continue
+        roi = gray[y:y + bh, x:x + bw]
+        color = (np.median(frame[y:y + bh, x:x + bw], axis=(0, 1)).round().astype(int).tolist()
+                 if len(frame.shape) == 3 else [int(round(float(np.median(roi))))])
+        out.append({"kind": kind, "bbox_normalized": list(box),
+                    "polygon_normalized": norm, "median_color": color,
+                    "visual_state": ",".join(map(str, color)),
+                    "contour_area": area, "vertices": vertices})
+    # Canny contours commonly return both sides of one outlined control.
+    # Keep the largest contour for highly overlapping same-kind regions.
+    selected = []
+    for candidate in sorted(out, key=lambda row: row["contour_area"], reverse=True):
+        if any(old["kind"] == candidate["kind"]
+               and bbox_iou(tuple(old["bbox_normalized"]),
+                            tuple(candidate["bbox_normalized"])) > 0.65
+               for old in selected):
+            continue
+        selected.append(candidate)
+    return selected
 
 class OCRExtractor:
     _instance = None
@@ -162,7 +323,9 @@ class OCRExtractor:
                     "(docs/ML_ENVIRONMENT.md) or "
                     "`pip install -r requirements.txt`."
                 ) from exc
-            self.reader = easyocr.Reader(['en'])
+            # Model acquisition is an explicit environment setup step. A
+            # pipeline run must never download weights implicitly.
+            self.reader = easyocr.Reader(['en'], download_enabled=False)
         return self.reader
         
     def extract_text_from_frame(self, frame: np.ndarray) -> List[TextDetection]:
@@ -172,7 +335,10 @@ class OCRExtractor:
         h, w = frame.shape[:2]
         detections = []
         
-        for bbox, text, conf in results:
+        for results_item in results:
+            if not isinstance(results_item, (list, tuple)) or len(results_item) < 3:
+                continue
+            bbox, text, conf = results_item[:3]
             x_coords = [pt[0] for pt in bbox]
             y_coords = [pt[1] for pt in bbox]
             
@@ -192,11 +358,17 @@ class OCRExtractor:
                 float(box_h / h)
             )
             
+            polygon = tuple((float(pt[0] / w), float(pt[1] / h)) for pt in bbox)
             detections.append(TextDetection(
                 text=text,
                 confidence=float(conf),
                 bbox=pixel_bbox,
-                bbox_normalized=norm_bbox
+                bbox_normalized=norm_bbox,
+                polygon_normalized=polygon,
+                language=_language_hint(text),
+                alternatives=(list(results_item[3]) if len(results_item) > 3
+                              and isinstance(results_item[3], (list, tuple))
+                              else []),
             ))
             
         return detections
@@ -234,7 +406,9 @@ class OCRExtractor:
         target_frames.sort()
         
         raw_detections = {}
+        raw_graphics = {}
         tracks: List[Track] = []
+        graphic_tracks: List[Dict[str, Any]] = []
         
         for frame_idx in target_frames:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -246,6 +420,8 @@ class OCRExtractor:
             
             frame_dets = self.extract_text_from_frame(frame)
             raw_detections[frame_idx] = frame_dets
+            graphic_dets = _graphic_candidates(frame, frame_dets)
+            raw_graphics[frame_idx] = graphic_dets
             
             for det in frame_dets:
                 matched = False
@@ -253,16 +429,74 @@ class OCRExtractor:
                     if track.text.lower() == det.text.lower():
                         iou = bbox_iou(track.bboxes_norm[-1], det.bbox_normalized)
                         if iou > 0.3:
-                            track.add(det, timestamp)
+                            track.add(det, timestamp, frame_idx)
                             matched = True
                             break
                 
                 if not matched:
-                    tracks.append(Track(det, timestamp))
+                    tracks.append(Track(det, timestamp, frame_idx))
+
+            for graphic in graphic_dets:
+                candidates = [track for track in graphic_tracks
+                              if track["kind"] == graphic["kind"]
+                              and timestamp - track["last_timestamp"] <= 2.0]
+                best = max(candidates,
+                           key=lambda track: _polygon_iou(
+                               track["samples"][-1]["polygon_normalized"],
+                               graphic["polygon_normalized"]),
+                           default=None)
+                overlap = (_polygon_iou(best["samples"][-1]["polygon_normalized"],
+                                        graphic["polygon_normalized"])
+                           if best else 0.0)
+                if graphic["kind"] == "cursor_candidate" and best and overlap < 0.2:
+                    old_box = best["samples"][-1]["bbox_normalized"]
+                    new_box = graphic["bbox_normalized"]
+                    old_center = (old_box[0] + old_box[2] / 2,
+                                  old_box[1] + old_box[3] / 2)
+                    new_center = (new_box[0] + new_box[2] / 2,
+                                  new_box[1] + new_box[3] / 2)
+                    distance = math.dist(old_center, new_center)
+                    if distance > 0.15:
+                        best = None
+                elif best and overlap < 0.1:
+                    best = None
+                if best is None:
+                    best = {"kind": graphic["kind"], "samples": [],
+                            "appearances": [[timestamp, timestamp]],
+                            "last_timestamp": timestamp}
+                    graphic_tracks.append(best)
+                elif timestamp - best["last_timestamp"] <= 2.0:
+                    best["appearances"][-1][1] = timestamp
+                else:
+                    best["appearances"].append([timestamp, timestamp])
+                best["samples"].append({"timestamp": timestamp,
+                                         "frame_index": frame_idx, **graphic})
+                best["last_timestamp"] = timestamp
                     
         cap.release()
         
-        final_detections = [t.to_tracked_text() for t in tracks]
+        final_detections = []
+        for index, track in enumerate(tracks, 1):
+            item = track.to_tracked_text()
+            item.track_id = f"text-{index:04d}"
+            period = 1.0 / sample_fps if sample_fps > 0 else 0.001
+            item.appearance_intervals = [{
+                "start_seconds": float(start),
+                "end_seconds": min(duration, float(end) + period),
+                "boundary_basis": "sampled_presence_lower_bound",
+                "end_exclusive": True,
+            } for start, end in track.appearances
+                if min(duration, float(end) + period) > float(start)]
+            final_detections.append(item)
+        final_graphics = []
+        for index, track in enumerate(graphic_tracks, 1):
+            final_graphics.append({
+                "track_id": f"graphic-{index:04d}",
+                "kind": track["kind"],
+                "appearance_intervals": track["appearances"],
+                "appearance_interval_basis": "sampled_presence_lower_bound",
+                "samples": track["samples"],
+            })
         
         return OCRResult(
             video_path=video_path,
@@ -270,5 +504,7 @@ class OCRExtractor:
             resolution=(width, height),
             sample_fps=sample_fps,
             detections=final_detections,
-            raw_frame_detections=raw_detections
+            raw_frame_detections=raw_detections,
+            graphics=final_graphics,
+            raw_frame_graphics=raw_graphics,
         )

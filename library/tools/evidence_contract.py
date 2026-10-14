@@ -335,6 +335,16 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Attention-saliency boxes measured on an M2 frame. "
         "An empty list is a measured absence; unavailable samples carry no value.",
     },
+    "image.ocr_text_track": {
+        "unit": "record", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Sampled OCR text track with language evidence, alternative readings, normalized boxes and source-frame references.",
+    },
+    "image.graphic_region_track": {
+        "unit": "record", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Sampled graphic/UI candidate track with normalized geometry and source-frame references; candidate labels are not semantic verification.",
+    },
     "person.voice_turn": {
         "unit": "span",
         "kind": EvidenceType.MEASUREMENT,
@@ -888,6 +898,8 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "face_frame": "person.face_frame",
     "voice_turn": "person.voice_turn",
     "saliency": "image.salient_boxes",
+    "visual_text_track": "image.ocr_text_track",
+    "visual_graphic_candidate": "image.graphic_region_track",
     "source_metadata": "media.source_metadata",
     "expression_frame": "image.expression_frame",
     "region_frame": "person.region_frame",

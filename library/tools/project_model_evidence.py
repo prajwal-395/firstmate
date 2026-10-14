@@ -3114,6 +3114,11 @@ def migrate_project_evidence(project_folder: str, *,
     for clip_id, digest in clip_digest.items():
         _migrate_segmentation(builder, project_folder, clip_id, digest,
                               roster, root)
+        try:
+            from library.tools.ocr_project_model import migrate_ocr_artifact
+        except ImportError:
+            from tools.ocr_project_model import migrate_ocr_artifact
+        migrate_ocr_artifact(builder, project_folder, clip_id, digest)
     _derive_track_motion_events(builder)
     from library.tools import cross_modal_grounding
     cross_modal_grounding.apply_project_model(builder.model)

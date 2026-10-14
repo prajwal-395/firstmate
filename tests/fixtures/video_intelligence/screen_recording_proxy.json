@@ -1,0 +1,9 @@
+{
+  "fixture": "synthetic-screen-recording-proxy",
+  "claim_scope": "plumbing and temporal-state smoke tests only; accuracy claims require real tutorial or screen recordings",
+  "frames": [
+    {"time_seconds": 0.0, "text": "Save", "control_state": "blue", "cursor_center": [0.70, 0.70]},
+    {"time_seconds": 1.0, "text": "Save", "control_state": "blue", "cursor_center": [0.77, 0.70]},
+    {"time_seconds": 2.0, "text": "Saved", "control_state": "green", "cursor_center": [0.84, 0.70]}
+  ]
+}

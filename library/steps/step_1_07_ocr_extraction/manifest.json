@@ -1,8 +1,8 @@
 {
   "id": "step_1_07_ocr_extraction",
   "name": "OCR Extraction",
-  "version": "1.0.0",
-  "description": "Extracts exact on-screen text with bounding boxes and temporal tracking using EasyOCR. Wired into the DAG but deselected by default - see library/tools/run_scope.DESELECTED_BY_DEFAULT.",
+  "version": "1.1.0",
+  "description": "Extracts sampled on-screen text and conservative graphic/UI candidates with temporal boxes and polygon masks using installed EasyOCR and OpenCV. Wired into the DAG but deselected by default - see library/tools/run_scope.DESELECTED_BY_DEFAULT. Project Model tracks reference the SHA-256 checked OCR artifact.",
   "level": "step",
   "interface": {
     "inputs": [
