@@ -3051,6 +3051,8 @@ def migrate_project_evidence(project_folder: str, *,
         _migrate_segmentation(builder, project_folder, clip_id, digest,
                               roster, root)
     _derive_track_motion_events(builder)
+    from library.tools import cross_modal_grounding
+    cross_modal_grounding.apply_project_model(builder.model)
     validate_project_model(builder.model)
     report = {
         "project": str(project_folder),

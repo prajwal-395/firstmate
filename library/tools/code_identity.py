@@ -126,6 +126,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
         "library/tools/attention_saliency.py",
@@ -587,6 +588,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
         "library/tools/attention_saliency.py",
@@ -1065,6 +1067,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
         "library/tools/attention_saliency.py",
@@ -1531,6 +1534,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
         "library/tools/attention_saliency.py",
@@ -2004,6 +2008,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/cross_modal_grounding.py",
         # Imported by project_model_evidence for native visual measurements;
         # changes to these readers alter the evidence and must invalidate it.
         "library/tools/attention_saliency.py",
@@ -2502,7 +2507,7 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/analysis/music_pipeline.py",
         # Cached step output now includes typed intervals and its source
         # memory sidecar, so both serializers participate in cache identity.
-        "library/tools/" "audio_interval_evidence.py",
+        "library/tools/audio_interval_evidence.py",
         "library/tools/source_memory.py",
     ),
 }

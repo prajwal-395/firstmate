@@ -289,6 +289,41 @@ def _migrate(fixture_project):
         memory_root=str(fixture_project["memory"]))
 
 
+def test_m1_utterance_is_grounded_through_m3b_voice_and_m7_lips(
+        fixture_project, monkeypatch):
+    from library.tools import footage_analysis
+
+    monkeypatch.setattr(footage_analysis, "slot_is_fresh",
+                        lambda _lane, _digest, _root: True)
+    transcript_path = (fixture_project["memory"] / D1
+                       / "transcript.words.json")
+    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+    transcript["utterances"][0]["text"] = "look at this"
+    transcript["utterances"][0]["start"] = 1.0
+    transcript["utterances"][0]["end"] = 1.5
+    _write(transcript_path, transcript)
+
+    model, _report = _migrate(fixture_project)
+
+    utterance = next(row for row in model["observations"]
+                     if row["modality"] == "speech"
+                     and row["payload"].get("text") == "look at this")
+    assert any(row["payload"].get("predicate") == "speaking"
+               for row in model["observations"]
+               if row["modality"] == "event_span"), _report["notes"]
+    assert any(row["modality"] == "face"
+               for row in model["observations"]), _report["notes"]
+    grounding = next(row for row in model["identity_links"]
+                     if row["observation_id"] == utterance["id"]
+                     and row["method"] == "cross-modal-grounding-v1")
+    assert grounding["status"] == "verified"
+    assert len(grounding["supporting_observation_ids"]) == 3
+    relation = next(row for row in model["relations"]
+                    if row["predicate"] == "speaks_as")
+    assert utterance["id"] in relation["evidence_ids"]
+    validate_project_model(model)
+
+
 def test_migration_validates_and_covers_the_catalog(fixture_project):
     before = {path: path.read_bytes()
               for path in fixture_project["memory"].rglob("*") if path.is_file()}
