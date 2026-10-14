@@ -884,17 +884,9 @@ def measure_subject_in_window(video_path: str, source_in: float,
 # the picture. Scratch is the honest place: the record is regenerable,
 # and deleting it only costs a re-probe.
 #
-# Why this sidecar and not the banked `face_present_times` /
-# `face_absent_times`: those were never produced for this project's
-# footage (no preflight ran), and where they exist they are the wrong
-# shape for the aim - timestamps of presence and absence carry no
-# position, and the punch-in needs two axes plus a multiplicity count
-# (`SubjectPoint.center_y`, `others`) that no banked signal carries.
-# Wiring absence timestamps into the aim would gate what the probe's
-# own None already refuses, with a staler measurement. The verdict is
-# recorded here so nobody re-opens it: absence times answer "does the
-# shot hold", nobody asks that of any gate, and the aim needs the
-# centre, not the calendar.
+# The temporal index keeps only the per-sample presence and position
+# tracks. Aggregate presence/absence timestamps carried no position and
+# had no reader; the aim needs the centre plus a multiplicity count.
 
 SUBJECT_MEASUREMENTS_FILENAME = "reel_subject_measurements.json"
 """The sidecar file, under the project's scratch area."""

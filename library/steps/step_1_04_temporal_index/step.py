@@ -2179,6 +2179,22 @@ def shed_retired_vision_keys(index: dict) -> bool:
     return dropped
 
 
+def shed_unread_analysis_fields(index: dict) -> bool:
+    """Remove retired derived fields from a cached temporal index."""
+    dropped = False
+    face = index.get("face_presence")
+    if isinstance(face, dict):
+        for key in ("face_present_times", "face_absent_times"):
+            if key in face:
+                del face[key]
+                dropped = True
+    color = index.get("color_curves")
+    if isinstance(color, dict) and "temperature_curve" in color:
+        del color["temperature_curve"]
+        dropped = True
+    return dropped
+
+
 # ── 9. Camera motion decomposition (5Hz) ─────────────────────────────
 
 def decompose_camera_motion(
@@ -2394,8 +2410,6 @@ def compute_face_presence(
                                                  # normalized [x1, y1, x2, y2]
                                                  # box (each 0..1); None where
                                                  # no face was located
-            "face_present_times": [float, ...],  # timestamps where value > 0.5
-            "face_absent_times": [float, ...]    # timestamps where value < 0.5
         }
 
     `face_center_x` and `face_width` are parallel to `values` and the same
@@ -2453,8 +2467,6 @@ def compute_face_presence(
                     "face_center_x": [],
                     "face_width": [],
                     "face_boxes": [],
-                    "face_present_times": [],
-                    "face_absent_times": [],
                 }
             raw = np.frombuffer(result.stdout, dtype=np.uint8)
 
@@ -2468,8 +2480,6 @@ def compute_face_presence(
                 "face_center_x": [],
                 "face_width": [],
                 "face_boxes": [],
-                "face_present_times": [],
-                "face_absent_times": [],
             }
 
         frames = raw[:n_frames * frame_size].reshape(
@@ -2538,24 +2548,12 @@ def compute_face_presence(
                 face_width.append(None)
                 face_boxes.append(None)
 
-        # Derive presence/absence time arrays
-        face_present_times = [
-            round(i / sample_rate_hz, 3)
-            for i, v in enumerate(face_values) if v > 0.5
-        ]
-        face_absent_times = [
-            round(i / sample_rate_hz, 3)
-            for i, v in enumerate(face_values) if v <= 0.1
-        ]
-
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": face_values,
             "face_center_x": face_center_x,
             "face_width": face_width,
             "face_boxes": face_boxes,
-            "face_present_times": face_present_times,
-            "face_absent_times": face_absent_times,
         }
 
     except ImportError:
@@ -2569,8 +2567,6 @@ def compute_face_presence(
             "face_center_x": [],
             "face_width": [],
             "face_boxes": [],
-            "face_present_times": [],
-            "face_absent_times": [],
         }
     except Exception as e:
         print(
@@ -2583,8 +2579,6 @@ def compute_face_presence(
             "face_center_x": [],
             "face_width": [],
             "face_boxes": [],
-            "face_present_times": [],
-            "face_absent_times": [],
         }
 
 
@@ -2610,7 +2604,6 @@ def compute_dominant_hue_curve(
             "hue_values": [float, ...],         # dominant hue 0-360 per sample
             "saturation_values": [float, ...],  # mean saturation 0-1
             "brightness_values": [float, ...],  # mean luminance 0-1
-            "temperature_curve": ["warm"|"neutral"|"cool", ...]  # derived
         }
     """
     try:
@@ -2636,7 +2629,6 @@ def compute_dominant_hue_curve(
                     "hue_values": [],
                     "saturation_values": [],
                     "brightness_values": [],
-                    "temperature_curve": [],
                 }
             raw = np.frombuffer(result.stdout, dtype=np.uint8)
 
@@ -2649,14 +2641,12 @@ def compute_dominant_hue_curve(
                 "hue_values": [],
                 "saturation_values": [],
                 "brightness_values": [],
-                "temperature_curve": [],
             }
 
         frames = raw[:n_frames * frame_size].reshape(n_frames, 45, 80, 3)
         hue_vals = []
         sat_vals = []
         bright_vals = []
-        temp_vals = []
 
         for frame_rgb in frames:
             r = frame_rgb[:, :, 0].astype(np.float32) / 255.0
@@ -2701,28 +2691,15 @@ def compute_dominant_hue_curve(
             else:
                 dominant_hue = 0.0  # achromatic / desaturated
 
-            # Temperature classification from hue
-            # Warm: reds, oranges, yellows (0-60 or 300-360)
-            # Cool: blues, cyans (180-260)
-            # Neutral: greens, magentas (everything else)
-            if dominant_hue < 60 or dominant_hue > 300:
-                temp = "warm"
-            elif 180 <= dominant_hue <= 260:
-                temp = "cool"
-            else:
-                temp = "neutral"
-
             hue_vals.append(round(dominant_hue, 1))
             sat_vals.append(round(mean_sat, 3))
             bright_vals.append(round(mean_bright, 3))
-            temp_vals.append(temp)
 
         return {
             "sample_rate_hz": sample_rate_hz,
             "hue_values": hue_vals,
             "saturation_values": sat_vals,
             "brightness_values": bright_vals,
-            "temperature_curve": temp_vals,
         }
 
     except ImportError:
@@ -2735,7 +2712,6 @@ def compute_dominant_hue_curve(
             "hue_values": [],
             "saturation_values": [],
             "brightness_values": [],
-            "temperature_curve": [],
         }
     except Exception as e:
         print(
@@ -2747,7 +2723,6 @@ def compute_dominant_hue_curve(
             "hue_values": [],
             "saturation_values": [],
             "brightness_values": [],
-            "temperature_curve": [],
         }
 
 
@@ -3122,10 +3097,10 @@ def index_clip(
         decoded_frames_path=(media.face_rgb if media is not None else None),
         sample_dimensions=sample_dimensions,
     )
-    face_pct = (
-        round(len(face['face_present_times']) / len(face['values']) * 100)
-        if face['values'] else 0
-    )
+    face_pct = round(
+        sum(value > 0.5 for value in face["values"])
+        / len(face["values"]) * 100
+    ) if face["values"] else 0
     print(
         f"            {face_pct}% of samples with face detected",
         file=sys.stderr,
@@ -3211,13 +3186,9 @@ def index_clip(
         "camera_motion_decomposition": cam_motion,
 
         # Face presence (5Hz): 0-1 confidence score per sample.
-        # face_present_times: timestamps where confidence > 0.5
-        # face_absent_times: timestamps where confidence < 0.1 (no face)
         "face_presence": face,
 
-        # Hue/brightness/temperature per second (1Hz).
-        # Useful for detecting color grade, lighting transitions,
-        # and scene changes that scene detection missed.
+        # Hue/brightness per second (1Hz).
         "color_curves": color_curves,
 
         # Binary speech activity at frame rate (30Hz), derived from
@@ -3709,6 +3680,10 @@ def build_temporal_index(
                 # A cached document from when this step ran its own
                 # Vision pass sheds the keys nothing read (MU-12).
                 if shed_retired_vision_keys(index):
+                    _atomic_json_write(index_path, index)
+                # Older cached indexes also shed the unused aggregate
+                # face timestamps and temperature labels.
+                if shed_unread_analysis_fields(index):
                     _atomic_json_write(index_path, index)
                 if not motion_due and not sound_due:
                     print(f"  reusing {os.path.basename(index_path)}",

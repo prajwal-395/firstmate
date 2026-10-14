@@ -20,7 +20,6 @@ import sys
 import pytest
 import shutil
 import subprocess
-import json
 import stat
 from library.steps.step_1_04_temporal_index.step import (
     decompose_camera_motion,
@@ -70,6 +69,80 @@ def test_every_return_path_carries_face_center_x():
     assert returns, "no dict returns found"
     missing = [ks for ks in returns if "face_center_x" not in ks]
     assert not missing, f"return sites without face_center_x: {missing}"
+
+
+def test_face_presence_keeps_only_consumed_tracks(tmp_path, monkeypatch):
+    import numpy as np
+
+    from library.steps.step_1_04_temporal_index import step as s
+
+    frames = np.zeros((2, 2, 2, 3), dtype=np.uint8)
+    frames[0, :, :, 0] = 255
+    frames[1, :, :, 2] = 255
+    raw_path = tmp_path / "face.rgb"
+    raw_path.write_bytes(frames.tobytes())
+    monkeypatch.setattr(s, "_load_face_cascade", lambda: None)
+
+    actual = s.compute_face_presence(
+        "unused.mp4", decoded_frames_path=str(raw_path),
+        sample_dimensions=(2, 2),
+    )
+
+    assert actual == {
+        "sample_rate_hz": 5,
+        "values": [0.0, 0.0],
+        "face_center_x": [None, None],
+        "face_width": [None, None],
+        "face_boxes": [None, None],
+    }
+
+
+def test_color_curve_keeps_consumed_measurements(tmp_path):
+    import numpy as np
+
+    from library.steps.step_1_04_temporal_index import step as s
+
+    frames = np.zeros((2, 45, 80, 3), dtype=np.uint8)
+    frames[0, :, :, 0] = 255
+    frames[1, :, :, 2] = 255
+    raw_path = tmp_path / "hue.rgb"
+    raw_path.write_bytes(frames.tobytes())
+
+    actual = s.compute_dominant_hue_curve(
+        "unused.mp4", decoded_frames_path=str(raw_path),
+    )
+
+    assert actual == {
+        "sample_rate_hz": 1,
+        "hue_values": [0.0, 240.0],
+        "saturation_values": [1.0, 1.0],
+        "brightness_values": [0.299, 0.114],
+    }
+
+
+def test_cached_temporal_index_sheds_unread_analysis_fields():
+    from library.steps.step_1_04_temporal_index.step import (
+        shed_unread_analysis_fields,
+    )
+
+    index = {
+        "face_presence": {
+            "values": [0.0, 1.0],
+            "face_present_times": [0.2],
+            "face_absent_times": [0.0],
+        },
+        "color_curves": {
+            "hue_values": [30.0],
+            "temperature_curve": ["warm"],
+        },
+    }
+
+    assert shed_unread_analysis_fields(index)
+    assert index == {
+        "face_presence": {"values": [0.0, 1.0]},
+        "color_curves": {"hue_values": [30.0]},
+    }
+    assert not shed_unread_analysis_fields(index)
 
 
 class TestCascadeAvailability:

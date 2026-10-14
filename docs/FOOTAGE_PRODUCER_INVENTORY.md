@@ -75,7 +75,27 @@ duplication is already retired and only leftovers are listed.
 
 Retired with the browser: nothing in this inventory is a dashboard surface.
 
-## 4. Machine-checked lane roster
+## 4. Field-level unused analysis outputs (examined 2026-10-14)
+
+The M0-M10 producers, plus the text/frame indexes and the non-lane M4/M5/M8/M1b
+writers above, each have a named consumer. I also traced the derived fields in
+the expensive step 1.04 temporal index because FI-02's producer roster does
+not enumerate fields within a slot.
+
+| Candidate | Producer and code trace | Decision |
+|---|---|---|
+| `face_presence.face_present_times` | `compute_face_presence` (`step.py`) built a list of rounded timestamps. No step, tool, query, planner, render path, or test fixture read it. The only in-repository use was the step's own percentage log in `index_clip`; `values` already carries that signal. | Remove the timestamp list and calculate the log percentage from `values`. Drop it from cached temporal indexes on reuse. |
+| `face_presence.face_absent_times` | Same producer; no in-repository consumer, including tests. Position-aware planning consumes `face_center_x`, `face_width`, and `face_boxes`; presence consumers read `values`. | Remove and shed from cached temporal indexes. |
+| `color_curves.temperature_curve` | `compute_dominant_hue_curve` classified each already-computed hue into warm/cool/neutral and serialized the labels. No in-repository reader or test fixture exists. Consumers use `hue_values`, `saturation_values`, and/or `brightness_values`. | Remove classification and labels; shed from cached temporal indexes. |
+| Other lane outputs and temporal-index fields | Traced through the readers named in sections 1-2 and the call sites for temporal-index fields (`scene_cinematography`, segment search, cutaway selection, framing, object segmentation, motion analysis, and project graph). The remaining persisted fields have consumers; D1-D9 above also identify retained duplication, defects, or work assigned to other items. | Keep. No producer-only or fixture-only output was removed. |
+
+On future temporal-index builds, the three fields are no longer computed or
+written. Cache reuse removes the old fields and rewrites the index. Outputs
+that consumers read remain the same: the face percentage log is derived from
+the same `values > 0.5` predicate, and hue, saturation, brightness, and face
+tracks are unchanged.
+
+## 5. Machine-checked lane roster
 
 The test `tests/contracts/test_producer_inventory.py` parses this block
 and requires it to equal `footage_analysis.LANE_NAMES` exactly. A lane
@@ -99,7 +119,7 @@ text_index
 frame_index
 FI02-LANE-ROSTER-END -->
 
-## 5. Stale sentences corrected with this item
+## 6. Stale sentences corrected with this item
 
 Three sentences found during grounding, corrected in this PR (not here -
 in the files named):
