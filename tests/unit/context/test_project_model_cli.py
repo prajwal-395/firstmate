@@ -477,7 +477,7 @@ def test_effectcraft_plan_projects_the_request_without_executing(
                  "--media-root", str(FIXTURE_MODEL.parent)]) == 0
     plan = json.loads(out.read_text(encoding="utf-8"))
     assert plan["executed"] is False
-    assert plan["engine_revision"] == "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
+    assert plan["engine_revision"] == "549e9d825132986d6167c1432cd3328efcbb0278"
     kinds = [op["op"] for op in plan["request"]["operations"]]
     assert kinds[0] == "new_comp"
     assert "add_mask" in kinds and "apply_effect" in kinds

@@ -101,11 +101,11 @@ except ImportError:  # imported as ``tools.*`` from inside library/
 ADAPTER_VERSION = 1
 """Version of this projection/ingest contract (``details.adapter_version``)."""
 
-PINNED_EFFECTCRAFT_REV = "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
+PINNED_EFFECTCRAFT_REV = "549e9d825132986d6167c1432cd3328efcbb0278"
 """Immutable upstream revision qualified by the EffectCraft capability
 scout. Sole pin source beside ``native/ren-effectcraft/src/lib.rs``."""
 
-PINNED_EFFECTCRAFT_VERSION = "0.7.0"
+PINNED_EFFECTCRAFT_VERSION = "0.9.2"
 """Engine version the pinned CLI must report (driver's ``info`` gate)."""
 
 REQUEST_VERSION = 1

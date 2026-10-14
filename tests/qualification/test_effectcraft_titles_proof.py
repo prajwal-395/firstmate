@@ -29,7 +29,7 @@ from library.tools import project_model_effectcraft_titles as titles
 from library.tools.project_model_effectcraft import CompSpec
 from library.tools.safe_area import resolve_safe_area
 
-PINNED_REV = "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
+PINNED_REV = "549e9d825132986d6167c1432cd3328efcbb0278"
 WIDTH, HEIGHT, FPS, DURATION = 540, 960, 30.0, 0.5
 FRAMES = int(round(DURATION * FPS))
 

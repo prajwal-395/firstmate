@@ -19,7 +19,7 @@ fn cli_build_lock() -> &'static Mutex<()> {
 }
 
 /// Immutable upstream revision qualified by the EffectCraft capability scout.
-pub const PINNED_EFFECTCRAFT_REV: &str = "813c7c4650f0d4c805da620c8d5837c9600ad2e3";
+pub const PINNED_EFFECTCRAFT_REV: &str = "549e9d825132986d6167c1432cd3328efcbb0278";
 pub const REQUEST_VERSION: u32 = 1;
 pub const RECEIPT_VERSION: u32 = 1;
 const UPSTREAM: &str = "https://github.com/storytold/effectcraft.git";
@@ -321,9 +321,9 @@ impl Driver {
             .as_str()
             .ok_or_else(|| Error::Protocol("CLI info omitted version".into()))?
             .to_owned();
-        if version != "0.7.0" {
+        if version != "0.9.2" {
             return Err(Error::Version {
-                expected: "0.7.0".into(),
+                expected: "0.9.2".into(),
                 actual: version,
             });
         }

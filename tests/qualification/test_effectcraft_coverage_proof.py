@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/fixtures/effectcraft_coverage"
 CHECKER = ROOT / "native/ren-effectcraft/tests/fixtures/checker.bmp"
 
-PINNED_REV = "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
+PINNED_REV = "549e9d825132986d6167c1432cd3328efcbb0278"
 WIDTH, HEIGHT = 1920, 1080
 
 

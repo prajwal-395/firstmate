@@ -612,9 +612,9 @@ note        : Ren invokes only headless surfaces (exec/run/render/info);
 
 component-id : engine.effectcraft_cli
 edition      : public
-component   : EffectCraft headless CLI 0.7.0; Ren's adapter does not
+component   : EffectCraft headless CLI 0.9.2; Ren's adapter does not
               package or invoke the desktop application.
-pin         : 813c7c4650f0d4c805da620c8d5837c9600ad2e3
+pin         : 549e9d825132986d6167c1432cd3328efcbb0278
               (native/ren-effectcraft/src/lib.rs)
 source      : https://github.com/storytold/effectcraft
 license     : MIT OR Apache-2.0
@@ -643,7 +643,11 @@ note        : Cargo.lock at the pinned source revision identifies its
               include_bytes in crates/text). The ArtCraft
               name/wordmark/logos in docs/brand/ are trademarks, not
               open source (docs/brand/LICENSE-brand.txt); Ren packages
-              no upstream source, docs or marks.
+              no upstream source, docs or marks. On the 2026-10-14
+              candidate, the M5 host-resolved cargo tree grew from 363 to
+              364 crates; `craft-ui` (MIT OR Apache-2.0) is the only new
+              package name. Cargo metadata found a declared license for
+              every reachable package and no new restricted license.
 note        : Ren invokes only headless surfaces (run/render/info/mcp);
               the desktop `effectcraft` and web `effectcraft-web`
               packages are never built by Ren (intake builds

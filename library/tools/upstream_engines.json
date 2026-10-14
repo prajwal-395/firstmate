@@ -9,8 +9,8 @@
     },
     "effectcraft": {
       "upstream_url": "https://github.com/storytold/effectcraft.git",
-      "qualified_sha": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
-      "last_seen_upstream_sha": "813c7c4650f0d4c805da620c8d5837c9600ad2e3",
+      "qualified_sha": "549e9d825132986d6167c1432cd3328efcbb0278",
+      "last_seen_upstream_sha": "549e9d825132986d6167c1432cd3328efcbb0278",
       "last_qualification_record": "docs/UPSTREAM_ENGINE_INTAKE.md"
     }
   }

@@ -69,7 +69,7 @@ fn animated_title_exports_rgba_png_sequence_and_prores_4444_alpha() {
     let receipt = driver.execute(&request, temp.path()).unwrap();
     assert_eq!(
         receipt.upstream_revision,
-        "813c7c4650f0d4c805da620c8d5837c9600ad2e3"
+        "549e9d825132986d6167c1432cd3328efcbb0278"
     );
     assert_eq!(receipt.renders[0].width, 96);
     assert_eq!(receipt.renders[0].height, 64);

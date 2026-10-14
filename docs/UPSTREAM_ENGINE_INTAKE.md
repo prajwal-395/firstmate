@@ -205,6 +205,62 @@ packages, symphonia x16 MPL-2.0, no GPL/AGPL/LGPL-only, no UI crates),
 plus the `gapSelection` tolerance and the `auto`-refusal lift with their
 unit tests.
 
+## Intake record: 2026-10-14 EffectCraft `813c7c4` -> `549e9d8`
+
+Upstream EffectCraft `main` was observed at
+`549e9d825132986d6167c1432cd3328efcbb0278` (version 0.9.2; release tag
+`v0.9.2` is `470ea7a3af82ee1dd1d2f86c777fe6891bd0c37b`). Intake used the
+existing gate with a task-local state directory; the repo pin moved only
+after the build, upstream tests, corpus, adapter and M5 measurements passed.
+There are no Ren-only EffectCraft patches to replay.
+
+- `cargo build --release -p effectcraft-cli -j4`: passed in 253.9 s.
+- Upstream tests: `effectcraft-effects --lib` passed 449, ignored 1;
+  `effectcraft-cli` passed 25 (2 + 15 + 8), no failures.
+- Committed `effectcraft-alpha-title` corpus passed in 1.809 s: five 96x64
+  RGBA frames, transparent first frame, visible last frame, deterministic
+  repeat above the 60 dB floor, and ProRes 4444 `yuva444p12le` retained
+  transparent and visible pixels.
+- Ren adapter tests against the candidate passed: 8 unit, 5 conformance,
+  and 9 headless tests. This exercises Ren's title, footage, mask, effect,
+  track-matte, PNG sequence, ProRes 4444 and GPU-preference commands.
+- M5 Pro GPU comparison used the actual 64x64, three-frame Ren fixture:
+  checker footage with Gaussian Blur (6) and Hue/Saturation (-100). After
+  the first candidate GPU run (24.081 s while Metal initialized), three warm
+  runs measured 608, 642 and 651 ms (median 642 ms, 214 ms/frame); the old
+  pin measured 612, 649 and 701 ms (median 649 ms, 216 ms/frame). CPU medians
+  were 124 ms candidate and 123 ms old. Warm CLI peak RSS observed by `ps`
+  was 90.7 MB candidate and 97.9 MB old. Both pins selected the GPU. GPU
+  versus CPU differed by at most one channel LSB on 36 of 49,152 values.
+  Old-to-candidate CPU and GPU sequences matched exactly, including alpha:
+  SSIM 1.000000 and PSNR infinite. The first-use Metal initialization cost
+  is recorded separately from the stable warm renders.
+- M5 host-resolved `cargo tree -p effectcraft-cli` grew from 363 to 364
+  package names; the only new package name is `craft-ui` (MIT OR
+  Apache-2.0). Cargo metadata declared licenses for all reachable packages;
+  no new restricted license appeared.
+
+The GPU-resident effects merge, PR #688, is present in this candidate: its
+footprint-key fix (`eec81bb`), in-frame texture reuse (`9c5c187`), upload
+budget (`d8ff118`) and resident effect stacks (`bc6a145`) are all in the
+checkout. GPU readback cap PR #713 and the GPU allocation follow-up for
+issue #879 are also in `main`. Export scheduler PR #898 is still open and
+is not part of this candidate, so the upstream 17.2x whole-series Windows
+result does not describe this qualified head.
+
+Object Matte PR #792 is present. Headless CLI commands include
+`objectMatte.apply`, `objectMatte.propagate`, `objectMatte.freeze`,
+`objectMatte.unfreeze` and `objectMatte.status`; they use the existing
+MobileSAM model when installed or the classical fallback. Propagation and
+freeze can be completed before a headless RGBA PNG-sequence render, whose
+alpha frames export the spatial matte. Status exposes tracked/computed frame
+coverage, not a structured mask file or track-curve export. This was a
+read-only capability check; Ren integration is not part of this intake.
+
+Promoted the pin to `549e9d825132986d6167c1432cd3328efcbb0278`, CLI version
+0.9.2, in the Rust driver, manifest and project-model adapters; updated the
+adapter fixtures and `THIRD_PARTY_NOTICES` accordingly.
+
 ## Qualification gate
 
 For each engine with a candidate newer than its qualified pin, intake builds

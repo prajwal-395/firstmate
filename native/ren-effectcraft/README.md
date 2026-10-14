@@ -7,7 +7,7 @@ EffectCraft UI crate and never opens the desktop application.
 `PINNED_EFFECTCRAFT_REV` is the qualified immutable upstream revision until the upstream intake
 lane lands its pin manifest. `Driver::resolve` honors `REN_EFFECTCRAFT_CLI`, otherwise it clones that
 revision into `~/.cache/ren/effectcraft/<sha>/source` and builds only `effectcraft-cli`. The CLI must
-report version 0.7.0 and its Git checkout must match the pinned SHA. A standalone binary override
+report version 0.9.2 and its Git checkout must match the pinned SHA. A standalone binary override
 also requires `REN_EFFECTCRAFT_REV` to declare that exact SHA. Effect support and parameter identifiers/types are read at startup from the
 headless CLI's `list_effects` registry; unknown effect ids, parameters and JSON value kinds refuse.
 
