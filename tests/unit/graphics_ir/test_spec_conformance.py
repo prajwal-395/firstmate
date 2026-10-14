@@ -20,7 +20,6 @@ frame-exact, the way motion-on-twos measured frame-exact.
 """
 
 import json
-import shutil
 import subprocess
 
 import numpy as np
@@ -30,6 +29,7 @@ from PIL import Image
 from library.graphics_ir.lowering import lower_staged_scene
 from library.graphics_ir.serialization import serialize
 from library.tools import fframes_render
+from tests.unit.graphics_ir.remotion_test_project import stage_remotion_test_project
 
 POSITION_TOLERANCE_PX = 1.0
 """Ceiling of the worst measured Chrome-vs-Chrome geometry offset."""
@@ -58,11 +58,8 @@ _DECLARATION = {
 
 
 def _fframes_available() -> bool:
-    try:
-        usable, _ = fframes_render.fframes_available()
-        return bool(usable)
-    except Exception:
-        return False
+    usable, _ = fframes_render.fframes_available()
+    return bool(usable)
 
 
 def _pilot_root():
@@ -152,14 +149,16 @@ def test_remotion_conforms_to_the_scene_ir(tmp_path):
     props_path.write_text(json.dumps(_DECLARATION), encoding="utf-8")
     output_dir = tmp_path / "remotion"
     output_dir.mkdir()
+    remotion_root = stage_remotion_test_project(
+        _pilot_root() / "remotion-subtitles", tmp_path / "remotion-project")
     command = [
-        "npx", "--yes", "remotion", "render",
+        "npx", "--no-install", "remotion", "render",
         "src/index.ts", "StagedScene", str(output_dir),
         "--sequence", "--image-format=png", "--timeout=120000",
         f"--props={props_path}",
     ]
     done = subprocess.run(
-        command, cwd=str(_pilot_root() / "remotion-subtitles"),
+        command, cwd=str(remotion_root),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=300, check=False,
     )

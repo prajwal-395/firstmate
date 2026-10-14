@@ -37,11 +37,8 @@ from library.tools import fframes_render
 
 
 def _fframes_available() -> bool:
-    try:
-        usable, _ = fframes_render.fframes_available()
-        return bool(usable)
-    except Exception:
-        return False
+    usable, _ = fframes_render.fframes_available()
+    return bool(usable)
 
 
 def _bundled_font():

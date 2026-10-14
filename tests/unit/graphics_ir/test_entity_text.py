@@ -133,11 +133,8 @@ class TestEntityCopyThroughLowerings:
 
 
 def _fframes_available() -> bool:
-    try:
-        usable, _ = fframes_render.fframes_available()
-        return bool(usable)
-    except Exception:
-        return False
+    usable, _ = fframes_render.fframes_available()
+    return bool(usable)
 
 
 def _binary_freshness() -> tuple:
@@ -153,7 +150,7 @@ def _binary_freshness() -> tuple:
     root = Path(__file__).resolve().parent.parent.parent.parent
     try:
         binary = Path(fframes_render.fframes_binary()).resolve()
-    except Exception as exc:
+    except fframes_render.FFramesUnavailable as exc:
         return False, f"FFrames binary not resolvable: {exc}"
     try:
         binary.relative_to(root)

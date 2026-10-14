@@ -7,6 +7,8 @@ size, and words drifting 1-2px off the browser's because kerning was
 not measured.
 """
 
+from itertools import pairwise
+
 import pytest
 
 from library.graphics_ir.fonts import advances, static_instance
@@ -32,13 +34,13 @@ def _caption(words, max_width=760):
 
 @needs_font
 def test_caption_words_flow_in_reading_order_inside_the_max_width():
-    words = "the quick brown fox jumps over the lazy dog".split()
+    words = ["the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"]
     scene = lower_subtitle_overlay(_caption(words))
     boxes = [n.bounds for n in scene.nodes if n.id.startswith("subtitle_0_word_")]
     assert len(boxes) == len(words)
     rows = sorted({round(b.y + b.height / 2) for b in boxes})
     assert len(rows) > 1, "nine words at 64px must wrap inside 760px"
-    for prev, cur in zip(boxes, boxes[1:]):
+    for prev, cur in pairwise(boxes):
         same_row = abs((prev.y + prev.height / 2) - (cur.y + cur.height / 2)) < 1
         if same_row:
             assert cur.x > prev.x + prev.width, "a word must sit right of the one before it"
@@ -66,7 +68,7 @@ def test_static_instance_is_pinned_at_the_declared_weight():
     from fontTools.ttLib import TTFont
 
     heavy, heavy_family = static_instance(str(BUNDLED), 800)
-    thin, thin_family = static_instance(str(BUNDLED), 100)
+    _thin, thin_family = static_instance(str(BUNDLED), 100)
     face = TTFont(BytesIO(heavy))
     assert "fvar" not in face
     assert face["OS/2"].usWeightClass == 800

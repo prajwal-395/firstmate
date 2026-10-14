@@ -12,10 +12,8 @@ mean pct8 under 1%, worst frame under 5%, motion-on-twos counts equal.
 """
 
 import json
-import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +23,7 @@ from PIL import Image
 from library.graphics_ir.lowering import lower_staged_scene
 from library.graphics_ir.serialization import serialize
 from library.tools import fframes_render
+from tests.unit.graphics_ir.remotion_test_project import stage_remotion_test_project
 
 _PILOT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -69,11 +68,8 @@ _STAGED_SCENE = {
 
 
 def _fframes_available() -> bool:
-    try:
-        usable, _ = fframes_render.fframes_available()
-        return bool(usable)
-    except Exception:
-        return False
+    usable, _ = fframes_render.fframes_available()
+    return bool(usable)
 
 
 def _remotion_available() -> bool:
@@ -168,9 +164,10 @@ def _render_remotion(tmp_path: Path, output_dir: str) -> None:
     """Render the StagedScene declaration through Remotion."""
     props_path = tmp_path / "props.json"
     props_path.write_text(json.dumps(_STAGED_SCENE), encoding="utf-8")
-    remotion_root = _PILOT_ROOT / "remotion-subtitles"
+    remotion_root = stage_remotion_test_project(
+        _PILOT_ROOT / "remotion-subtitles", tmp_path / "remotion-project")
     command = [
-        "npx", "--yes", "remotion", "render",
+        "npx", "--no-install", "remotion", "render",
         "src/index.ts", "StagedScene", output_dir,
         "--sequence", "--image-format=png", "--timeout=120000",
         f"--props={props_path}",

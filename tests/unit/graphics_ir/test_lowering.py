@@ -1,7 +1,6 @@
 import pytest
 
 from library.graphics_ir.evaluator import evaluate
-from library.graphics_ir.model import Node, NodeType, Scene
 from library.graphics_ir.lowering import (
     lower_brand_motion,
     lower_full_frame_card,
@@ -10,6 +9,7 @@ from library.graphics_ir.lowering import (
     lower_subtitle_overlay,
     lower_timed_text_overlay,
 )
+from library.graphics_ir.model import Node, NodeType, Scene
 
 
 def _subtitle_props():
@@ -842,7 +842,7 @@ class TestSubjectEmblemLowering:
 
 class TestReviewPanelLowering:
     def test_review_panel_card_size_is_border_box(self):
-        from library.graphics_ir.lowering import _MGContext, _mg_review_card_size
+        from library.graphics_ir.lowering import _mg_review_card_size, _MGContext
         from library.tools.mg_tight_box import review_panel_size
         props = _mg_review_props()
         el = props["elements"][0]

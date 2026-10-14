@@ -7,7 +7,14 @@ error, which the parity gate caught again on StagedScene). Staging
 names each run's own face instead.
 """
 
-from library.graphics_ir.model import Bounds, Node, NodeType, Scene, TextContent, TextRun
+from library.graphics_ir.model import (
+    Bounds,
+    Node,
+    NodeType,
+    Scene,
+    TextContent,
+    TextRun,
+)
 from library.tools import fframes_render
 from library.tools.hyperframes_render import bundled_font_file
 
