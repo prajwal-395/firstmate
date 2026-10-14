@@ -2822,6 +2822,18 @@ def get_duration(video_path: str) -> float:
     return 0.0
 
 
+class _PreparedBatch(dict):
+    """Clip-keyed preparation rows plus non-row producer counters."""
+
+    def __init__(self, *args, resource_counters=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resource_counters = resource_counters or {
+            "audio_decode_requests": 0,
+            "audio_unique_digests": 0,
+            "audio_duplicate_decodes_avoided": 0,
+        }
+
+
 def _pretranscribe_misses(items: list, layout: ProjectLayout,
                           whisper_model_size: str,
                           language: str) -> dict:
@@ -2839,16 +2851,27 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
     """
     audio_dir = str(layout.write_dir(Area.AUDIO_CACHE,
                                      step="temporal_index"))
-    needs = []
+    # One producer invocation per content digest.  Clip ids are project
+    # references, not media identity: duplicate catalog rows must share
+    # extraction, onset measurement and transcription.
+    from library.tools.footage_identity import fingerprint
+    needs_by_digest = {}
     for key, source_path, index_path, require_picture in items:
         if not source_path or not os.path.isfile(source_path):
             continue
         if _load_cached_index(index_path, expected_language=language,
                               require_picture=require_picture) is not None:
             continue
-        needs.append((key, source_path))
-    if not needs:
-        return {}
+        digest = fingerprint(source_path)["content_digest"]
+        needs_by_digest.setdefault(digest, {"source_path": source_path,
+                                            "keys": []})["keys"].append(key)
+    if not needs_by_digest:
+        return _PreparedBatch()
+    # Keep the producer's public request key as a catalog clip id. The
+    # digest controls decode reuse, but transcription providers and test
+    # seams use the request key to resolve the clip's identity.
+    needs = [(digest, row["keys"][0], row["source_path"])
+             for digest, row in needs_by_digest.items()]
     # Extraction + onset detection, one lane per clip: ffmpeg writes
     # each clip's own WAV (distinct names) and onset detection is pure
     # compute over the file, so the prep loop runs on the bounded FREE
@@ -2857,10 +2880,12 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
     from library.tools.concurrency_routing import run_lanes
 
     def _prep_one(job):
-        key, source_path = job
+        digest, key, source_path = job
         try:
+            # The digest is the producer cache key, independent of a
+            # project's clip numbering.
             audio_path = clip_audio_16k(source_path, audio_dir,
-                                        clip_id=key)
+                                        clip_id=f"source-{key}")
             onsets, onset_strengths = detect_onsets_with_strength(
                 audio_path)
         except Exception as e:
@@ -2870,14 +2895,19 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
             print(f"  WARNING: batch prep failed for {key} ({e}); "
                   f"single-shot fallback", file=sys.stderr)
             return None
-        return {"key": key, "audio_path": audio_path,
+        return {"digest": digest, "key": key, "audio_path": audio_path,
                 "onsets": onsets,
                 "onset_strengths": onset_strengths}
 
     prepared = [row for row in run_lanes(_prep_one, needs)
                 if row is not None]
     if not prepared:
-        return {}
+        return _PreparedBatch(resource_counters={
+            "audio_decode_requests": 0,
+            "audio_unique_digests": len(needs_by_digest),
+            "audio_duplicate_decodes_avoided": sum(
+                len(row["keys"]) - 1 for row in needs_by_digest.values()),
+        })
     print(f"    Transcribing {len(prepared)} clip(s) in one batch...",
           file=sys.stderr)
     try:
@@ -2892,7 +2922,7 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
               f"single-shot fallback for {len(prepared)} clip(s)",
               file=sys.stderr)
         batched = {}
-    out = {}
+    out = _PreparedBatch()
     for row in prepared:
         if row["key"] not in batched:
             regions, transcription = detect_speech_regions(
@@ -2903,8 +2933,18 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
                 language=language)
             batched[row["key"]] = (regions, transcription)
         regions, transcription = batched[row["key"]]
-        out[row["key"]] = (row["audio_path"], row["onsets"],
-                           row["onset_strengths"], regions, transcription)
+        digest = row["digest"]
+        measurement = (row["audio_path"], row["onsets"],
+                       row["onset_strengths"], regions, transcription)
+        for clip_key in needs_by_digest[digest]["keys"]:
+            out[clip_key] = measurement
+    # Count producer requests by digest, not the number of clip aliases.
+    out.resource_counters = {
+        "audio_decode_requests": len(needs_by_digest),
+        "audio_unique_digests": len(needs_by_digest),
+        "audio_duplicate_decodes_avoided": sum(
+            len(row["keys"]) - 1 for row in needs_by_digest.values()),
+    }
     return out
 
 
@@ -2915,6 +2955,8 @@ def index_clip(
     whisper_model_size: str = "large-v3",
     language: str = "en",
     pretranscribed: dict = None,
+    shared_temporal_media=None,
+    shared_media_attempted: bool = False,
 ) -> dict:
     """
     Build temporal event index for a single clip.
@@ -2945,14 +2987,17 @@ def index_clip(
     # established independent paths as a fallback if ffmpeg cannot produce
     # the complete frame set.
     sample_dimensions = None
-    media = None
-    try:
-        sample_dimensions = face_sample_dimensions(video_path)
-        media = decode_temporal_media(
-            video_path, *sample_dimensions, duration=duration)
-    except Exception as e:
-        print(f"  WARNING: shared video decode setup failed ({e}); "
-              "using individual measurements", file=sys.stderr)
+    media = shared_temporal_media
+    if media is not None:
+        sample_dimensions = (media.face_width, media.face_height)
+    elif not shared_media_attempted:
+        try:
+            sample_dimensions = face_sample_dimensions(video_path)
+            media = decode_temporal_media(
+                video_path, *sample_dimensions, duration=duration)
+        except Exception as e:
+            print(f"  WARNING: shared video decode setup failed ({e}); "
+                  "using individual measurements", file=sys.stderr)
 
     # 1. Scene detection
     print("    [1/12] Scene detection...", file=sys.stderr)
@@ -3098,7 +3143,7 @@ def index_clip(
     from library.tools.scene_cinematography import segment_and_profile
     scene_cinematography = segment_and_profile(
         duration, scenes, motion, cam_motion, face, color_curves)
-    if media is not None:
+    if media is not None and shared_temporal_media is None:
         media.close()
     print(
         f"            {len(color_curves['hue_values'])} samples",
@@ -3560,7 +3605,8 @@ def build_temporal_index(
     # `load_or_build` sees the changed inputs - never once per clip.
     from library.tools.concurrency_routing import run_lanes
 
-    def _index_one(job):
+    def _index_one(job, shared_temporal_media=None,
+                   shared_media_attempted=False):
         i, file_info = job
         if isinstance(file_info, dict):
             filepath = file_info["path"]
@@ -3672,6 +3718,8 @@ def build_temporal_index(
                     filepath, clip_id, layout, whisper_model_size,
                     language=language,
                     pretranscribed=pretranscribed.get(clip_id),
+                    shared_temporal_media=shared_temporal_media,
+                    shared_media_attempted=shared_media_attempted,
                 )
                 # Write per-clip JSON
                 _atomic_json_write(index_path, index)
@@ -3819,14 +3867,105 @@ def build_temporal_index(
                 "error": str(e),
             }, False
 
-    for record, was_reused in run_lanes(
-            _index_one, enumerate(raw_footage_files)):
-        if record is not None:
-            results.append(record)
-        reused += was_reused
+    from library.tools.footage_identity import fingerprint
+
+    jobs_by_digest = {}
+    for position, file_info in enumerate(raw_footage_files):
+        filepath = (file_info["path"] if isinstance(file_info, dict)
+                    else file_info)
+        try:
+            digest = fingerprint(filepath)["content_digest"]
+        except OSError:
+            digest = f"offline:{position}"
+        jobs_by_digest.setdefault(digest, []).append((position, file_info))
+
+    video_decode_counters = {
+        "video_unique_digests": len(jobs_by_digest),
+        "video_decode_requests": 0,
+        "video_duplicate_decodes_avoided": 0,
+        "video_shared_decode_failures": 0,
+    }
+
+    def _index_source_group(group):
+        shared_media = None
+        shared_attempted = False
+        group_counters = {
+            "video_decode_requests": 0,
+            "video_duplicate_decodes_avoided": 0,
+            "video_shared_decode_failures": 0,
+        }
+        misses = []
+        for position, file_info in group:
+            filepath = (file_info["path"] if isinstance(file_info, dict)
+                        else file_info)
+            clip_id = (file_info.get("clip_id", f"clip_{position + 1:03d}")
+                       if isinstance(file_info, dict)
+                       else f"clip_{position + 1:03d}")
+            index_path = os.path.join(index_dir, f"{clip_id}.json")
+            if os.path.isfile(filepath) and _load_cached_index(
+                    index_path, expected_language=language) is None:
+                misses.append((position, file_info))
+
+        # Clip indexes and inference remain independent. Only their
+        # read-only frame representations are shared by source digest.
+        if len(group) > 1 and misses:
+            shared_attempted = True
+            filepath = (misses[0][1]["path"]
+                        if isinstance(misses[0][1], dict)
+                        else misses[0][1])
+            try:
+                sample_dimensions = face_sample_dimensions(filepath)
+                duration = get_duration(filepath)
+                shared_media = decode_temporal_media(
+                    filepath, *sample_dimensions, duration=duration)
+                group_counters["video_decode_requests"] += 1
+                if shared_media is not None:
+                    group_counters[
+                        "video_duplicate_decodes_avoided"] += len(misses) - 1
+                else:
+                    group_counters["video_shared_decode_failures"] += 1
+            except Exception as error:
+                print(f"  WARNING: shared source decode failed ({error}); "
+                      "using individual measurements", file=sys.stderr)
+                group_counters["video_shared_decode_failures"] += 1
+        elif misses:
+            group_counters["video_decode_requests"] += len(misses)
+
+        try:
+            source_results = [
+                _index_one(job, shared_media, shared_attempted)
+                for job in group
+            ]
+            return source_results, group_counters
+        finally:
+            if shared_media is not None:
+                shared_media.close()
+
+    grouped_results = run_lanes(
+        _index_source_group, jobs_by_digest.values())
+    for source_results, group_counters in grouped_results:
+        for record, was_reused in source_results:
+            if record is not None:
+                results.append(record)
+            reused += was_reused
+        for counter, count in group_counters.items():
+            video_decode_counters[counter] += count
+
+    order_by_clip = {
+        (file_info.get("clip_id", f"clip_{position + 1:03d}")
+         if isinstance(file_info, dict) else f"clip_{position + 1:03d}"):
+        position
+        for position, file_info in enumerate(raw_footage_files)
+    }
+    results.sort(key=lambda record: order_by_clip.get(
+        record["clip_id"], len(order_by_clip)))
 
     return {
         "temporal_event_indices": results,
+        "resource_counters": {
+            **pretranscribed.resource_counters,
+            **video_decode_counters,
+        },
         "total_indexed": sum(1 for r in results if "error" not in r),
         "total_failed": sum(1 for r in results if "error" in r),
         "total_reused": reused,

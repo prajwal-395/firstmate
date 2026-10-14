@@ -95,7 +95,7 @@ def test_nothing_transcribed_is_empty_with_an_honest_none_stamp(monkeypatch):
     An empty region list is not a measurement of silence."""
     import library.tools.timeline_transcript as tt
 
-    heard_nothing = lambda *a, **k: (  # noqa: E731
+    heard_nothing = lambda *a, **k: (
         {"segments": []},
         hybrid_transcription.fallback_record(
             hybrid_transcription.FallbackRequired(
@@ -356,7 +356,9 @@ def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
     from library.tools.project_layout import ProjectLayout
 
     for name in ("a.mov", "b.mov", "c.mov"):
-        (tmp_path / name).write_bytes(b"\x00")
+        # Digest batching treats byte-identical files as one source, so
+        # each independent failure fixture needs distinct media bytes.
+        (tmp_path / name).write_bytes(name.encode("utf-8"))
     items = [(f"clip_{i:03d}", str(tmp_path / name),
               str(tmp_path / f"clip_{i:03d}.json"), True)
              for i, name in enumerate(("a.mov", "b.mov", "c.mov"), 1)]
@@ -393,7 +395,8 @@ def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
                                                "en")
 
     assert list(out) == ["clip_001", "clip_003"]
-    assert out["clip_001"][0].endswith("clip_001.wav")
+    assert os.path.basename(out["clip_001"][0]).startswith("source-")
+    assert os.path.splitext(out["clip_001"][0])[1] == ".wav"
     assert out["clip_001"][1] == [0.5]
 
     width = lane_width()

@@ -1438,9 +1438,19 @@ def build_project(project_folder: str,
         rows[clip_id] = account
     failed = [clip_id for clip_id in order
               if "failed" in rows.get(clip_id, {})]
+    measured = [rows[clip_id] for clip_id in order
+                if rows.get(clip_id, {}).get("content_digest")]
+    unique_digests = {row["content_digest"] for row in measured}
     return {"project_folder": os.path.abspath(project_folder),
             "memory_root": str(source_dir("x", root).parent),
             "clips": [rows[clip_id] for clip_id in order],
+            "resource_counters": {
+                "frame_unique_digests": len(unique_digests),
+                "frame_decode_requests": sum(
+                    not row.get("reused", False) for row in measured),
+                "frame_duplicate_decodes_avoided": (
+                    len(measured) - len(unique_digests)),
+            },
             "failed": failed}
 
 

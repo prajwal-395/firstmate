@@ -978,7 +978,9 @@ class TestParallelLanesKeepTheSerialContract:
         clips = []
         for name in ("clip_001", "clip_002", "clip_003"):
             media = tmp_path / f"{name}.mov"
-            media.write_bytes(b"\x00")
+            media.write_bytes(
+                b"duplicate-source" if name in ("clip_002", "clip_003")
+                else name.encode("utf-8"))
             clips.append({"path": str(media), "filename": f"{name}.mov",
                           "clip_id": name})
         catalog = [{"clip_id": c["clip_id"], "path": c["path"],
@@ -986,21 +988,42 @@ class TestParallelLanesKeepTheSerialContract:
 
         def fake_cached(index_path, expected_language=None,
                         require_picture=True):
-            # Clips 001 and 003 hit the cache (counted as reused);
-            # clip_002 misses it and then fails in `index_clip`
+            # Clip 001 hits the cache. Clips 002 and 003 share one
+            # source digest, both miss, and 002 then fails in `index_clip`
             # below, the way a clip whose media breaks mid-index
             # fails in production.
-            if "clip_002" in index_path:
+            if "clip_002" in index_path or "clip_003" in index_path:
                 return None
             clip_id = os.path.splitext(os.path.basename(index_path))[0]
             return dict(self._canned_index(clip_id))
 
+        shared_media_ids = []
+
         def fake_index_clip(video_path, clip_id, layout,
                             whisper_model_size="large-v3", language="en",
-                            pretranscribed=None):
+                            pretranscribed=None, shared_temporal_media=None,
+                            shared_media_attempted=False):
+            if clip_id in ("clip_002", "clip_003"):
+                shared_media_ids.append(id(shared_temporal_media))
+                assert shared_media_attempted is True
             if clip_id == "clip_002":
                 raise RuntimeError("unreadable media file")
             return dict(self._canned_index(clip_id))
+
+        class FakeMedia:
+            face_width = 320
+            face_height = 180
+
+            def close(self):
+                pass
+
+        decode_calls = []
+        monkeypatch.setattr(ti, "face_sample_dimensions",
+                            lambda _path: (320, 180))
+        monkeypatch.setattr(ti, "get_duration", lambda _path: 4.0)
+        monkeypatch.setattr(
+            ti, "decode_temporal_media",
+            lambda *args, **kwargs: decode_calls.append(args[0]) or FakeMedia())
 
         monkeypatch.setattr(ti, "_load_cached_index", fake_cached)
         monkeypatch.setattr(ti, "index_clip", fake_index_clip)
@@ -1034,4 +1057,9 @@ class TestParallelLanesKeepTheSerialContract:
         assert rows[0]["motion_evidence"]["index_path"] == rows[0]["index_path"]
         assert result["total_indexed"] == 2
         assert result["total_failed"] == 1
-        assert result["total_reused"] == 2
+        assert result["total_reused"] == 1
+        assert len(decode_calls) == 1
+        assert shared_media_ids[0] == shared_media_ids[1]
+        assert result["resource_counters"]["video_decode_requests"] == 1
+        assert result["resource_counters"][
+            "video_duplicate_decodes_avoided"] == 1
