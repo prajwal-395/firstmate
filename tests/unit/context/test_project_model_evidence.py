@@ -220,6 +220,36 @@ def _write_m3fgm4m5(memory: Path, digest: str) -> None:
                     "notable_features": []}],
         "scene_boundaries": [{"time": 4.0, "score": 0.7,
                               "type": "scene_change"}],
+        "scene_cinematography": {
+            "method": "scene-cinematography-measurements-v1",
+            "status": "measured",
+            "scenes": [{"id": "scene-0001", "start": 0.0, "end": 5.0,
+                        "certainty": "interpreted",
+                        "location": "studio", "type": "interview",
+                        "boundary_basis_ids": ["m4_scene:semantic:0"],
+                        "attributes": {"lighting_level": {
+                            "value": "balanced", "evidence_ids": ["brightness:proxy:0"]}}}],
+            "shots": [{"id": "shot-0001", "start": 0.0, "end": 5.0,
+                       "certainty": "measured",
+                       "boundary_basis_ids": [], "attributes": {
+                           "camera_movement": {"value": "static",
+                                                "evidence_ids": ["camera_motion:proxy:0"]}}}],
+            "subshots": [{"id": "shot-0001-sub-01", "start": 0.0,
+                           "certainty": "inferred",
+                           "end": 5.0, "parent_shot_id": "shot-0001",
+                           "attributes": {}}],
+            "sequences": [{"id": "sequence-0001", "start": 0.0, "end": 5.0,
+                            "certainty": "interpreted",
+                            "scene_ids": ["scene-0001"],
+                            "basis_measurement_ids": ["m4_scene:semantic:0"]}],
+            "measurement_catalog": [
+                {"id": "m4_scene:semantic:0", "lane": "m4_scene", "time": 0.0,
+                 "value": {"location": "studio"}, "method": "m4-scene-profile"},
+                {"id": "brightness:proxy:0", "lane": "brightness", "time": 0.0,
+                 "value": 0.5, "method": "proxy"},
+                {"id": "camera_motion:proxy:0", "lane": "camera_motion", "time": 0.0,
+                 "value": "static", "method": "proxy"}],
+        },
         "instrument": {
             "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
             "boundary_method": source_memory.M4_BOUNDARY_METHOD},
@@ -828,6 +858,16 @@ def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
                for record in m4_records)
     assert any(record["measurement_type"] == "video.scene_boundary"
                for record in m4_records)
+    vi09 = [obs for obs in model["observations"]
+            if obs["provenance_id"].endswith("-vi09")]
+    assert {obs["payload"]["level"] for obs in vi09} == {
+        "scene", "shot", "subshot", "sequence"}
+    assert {obs["payload"]["record"]["certainty"] for obs in vi09} == {
+        "measured", "inferred", "interpreted"}
+    assert {record["kind"] for record in model["interpretations"]} == {
+        "cinematography_profile", "same_scene_context_sequence_hypothesis"}
+    for record in model["interpretations"]:
+        assert record["evidence_ids"][0] in {obs["id"] for obs in vi09}
     m5_records = native("m5")
     assert len(m5_records) == 1
     assert m5_records[0]["value"] == []

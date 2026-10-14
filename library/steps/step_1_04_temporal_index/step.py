@@ -3092,6 +3092,12 @@ def index_clip(
         video_path,
         decoded_frames_path=(media.hue_rgb if media is not None else None),
     )
+    # VI-09 consumes only the deterministic temporal measurements above.
+    # Any later semantic interpretation receives these fixed intervals;
+    # it cannot move a boundary by replacing measured evidence with prose.
+    from library.tools.scene_cinematography import segment_and_profile
+    scene_cinematography = segment_and_profile(
+        duration, scenes, motion, cam_motion, face, color_curves)
     if media is not None:
         media.close()
     print(
@@ -3130,6 +3136,7 @@ def index_clip(
 
         # ── Original signal outputs ──────────────────────────────────
         "scene_boundaries": scenes,
+        "scene_cinematography": scene_cinematography,
         "speech_regions": speech,
         "energy_curve": energy,
         "audio_events": audio_events,
@@ -3604,6 +3611,24 @@ def build_temporal_index(
             index = _load_cached_index(index_path, expected_language=language)
             if index is not None:
                 was_reused = True
+                if not isinstance(index.get("scene_cinematography"), dict):
+                    required_measurements = (
+                        "duration", "scene_boundaries", "motion_energy",
+                        "camera_motion_decomposition", "face_presence", "color_curves")
+                    if all(key in index for key in required_measurements):
+                        from library.tools.scene_cinematography import segment_and_profile
+                        index["scene_cinematography"] = segment_and_profile(
+                            index["duration"], index["scene_boundaries"],
+                            index["motion_energy"],
+                            index["camera_motion_decomposition"],
+                            index["face_presence"], index["color_curves"])
+                    else:
+                        index["scene_cinematography"] = {
+                            "method": "scene-cinematography-measurements-v1",
+                            "status": "unavailable",
+                            "reason": "legacy index lacks required measurements",
+                        }
+                    _atomic_json_write(index_path, index)
                 # A cached document predating dense motion is UPGRADED,
                 # not re-transcribed: the backfill measures only the
                 # flow and rewrites the same file, so old projects gain
@@ -3650,6 +3675,28 @@ def build_temporal_index(
                 )
                 # Write per-clip JSON
                 _atomic_json_write(index_path, index)
+
+            # M4 owns semantic scene intervals. Join those already-produced
+            # intervals to the deterministic shot measurement after both
+            # producers have yielded; scene labels cannot alter shot cuts.
+            semantic_scenes = (semantic_document.get("scene")
+                               or (semantic_document.get("analysis") or {}).get("scene")
+                               or []) if isinstance(semantic_document, dict) else []
+            if semantic_scenes and all(key in index for key in (
+                    "duration", "scene_boundaries", "motion_energy",
+                    "camera_motion_decomposition", "face_presence", "color_curves")):
+                from library.tools.scene_cinematography import segment_and_profile
+                index["scene_cinematography"] = segment_and_profile(
+                    index["duration"], index["scene_boundaries"],
+                    index["motion_energy"], index["camera_motion_decomposition"],
+                    index["face_presence"], index["color_curves"],
+                    scene_intervals=semantic_scenes)
+                _atomic_json_write(index_path, index)
+            source_fingerprint = recorded_fingerprints.get(clip_id) or {}
+            if source_fingerprint.get("content_digest"):
+                source_memory.write_scene_cinematography(
+                    source_fingerprint["content_digest"],
+                    index["scene_cinematography"])
 
             motion_clip = dict(clip_by_id.get(clip_id) or {})
             motion_clip.setdefault("clip_id", clip_id)
@@ -3827,6 +3874,7 @@ def compress_for_downstream(
         # Temporal metrics
         speech_regions = idx.get("speech_regions", [])
         scenes = idx.get("scene_boundaries", [])
+        scene_cinematography = idx.get("scene_cinematography", {})
         energy = idx.get("energy_curve", {})
         audio_events = idx.get("audio_events", [])
         motion = idx.get("motion_energy", {})
@@ -3843,6 +3891,8 @@ def compress_for_downstream(
             "score": assessment.get("interest_score", 0),
             "moment": assessment.get("moment_type", "unknown"),
             "scene_count": len(scenes),
+            "shot_count": len(scene_cinematography.get("shots", [])),
+            "sequence_count": len(scene_cinematography.get("sequences", [])),
             "has_speech": len(speech_regions) > 0,
             "speech_duration": round(speech_dur, 1),
             "energy_peaks": len(energy.get("peak_times", [])),

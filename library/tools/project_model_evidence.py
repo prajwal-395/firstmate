@@ -1358,6 +1358,55 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 "library.tools.analysis.vision_pipeline_v3",
                 evidence=native)
 
+    # VI-09's measured hierarchy is carried by M4 and projected as
+    # interval observations. Its profile interpretation cites those
+    # observations; source measurement IDs remain in the payload and are
+    # not promoted to Project Model evidence IDs without a native record.
+    hierarchy = m4.get("scene_cinematography")
+    if (method_fresh and freshness != "stale"
+            and isinstance(hierarchy, dict)
+            and hierarchy.get("status") == "measured"
+            and hierarchy.get("method") == "scene-cinematography-measurements-v1"):
+        for collection in ("scenes", "shots", "subshots", "sequences"):
+            for item in hierarchy[collection]:
+                cited_ids = set(item.get("boundary_basis_ids", []))
+                cited_ids.update(item.get("basis_measurement_ids", []))
+                for attribute in item.get("attributes", {}).values():
+                    cited_ids.update(attribute.get("evidence_ids", []))
+                measurement_catalog = {measurement["id"]: measurement
+                                       for measurement in hierarchy["measurement_catalog"]}
+                observation_id = builder.observation(
+                    digest, "vi09", asset_id, clock_id,
+                    item["start"], item["end"], "cinematography_interval",
+                    {"level": collection[:-1], "record": copy.deepcopy(item),
+                     "source_measurements": [copy.deepcopy(measurement_catalog[evidence_id])
+                                             for evidence_id in sorted(cited_ids)
+                                             if evidence_id in measurement_catalog]},
+                    None, "library.tools.scene_cinematography")
+                if observation_id is not None:
+                    builder.model["observations"][-1]["certainty"] = item["certainty"]
+                if observation_id is not None and collection in ("shots", "sequences"):
+                    kind = ("cinematography_profile" if collection == "shots"
+                            else "same_scene_context_sequence_hypothesis")
+                    objective = (
+                        "describe evidence-linked measured visual attributes"
+                        if collection == "shots" else
+                        "group adjacent M4 scenes with matching location and type")
+                    builder.model.setdefault("interpretations", []).append({
+                        "id": f"interpretation-{observation_id}",
+                        "kind": kind,
+                        "author": "library.tools.scene_cinematography",
+                        "objective": objective,
+                        "policy_id": None,
+                        "evidence_ids": [observation_id],
+                        "scope": {"asset_id": asset_id,
+                                  "interval": {"clock_id": clock_id,
+                                               "start": sec_to_ticks(item["start"], item["end"])[0],
+                                               "end": sec_to_ticks(item["start"], item["end"])[1]}},
+                        "uncertainty": None,
+                        "certainty": "interpreted",
+                    })
+
 
 def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
                    clock_id: str, duration: float | None,

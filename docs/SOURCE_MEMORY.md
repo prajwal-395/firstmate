@@ -31,6 +31,7 @@ copy it; nothing goes into `pipeline_data.json`.
   depth.json                     # M3g - written (library/tools/depth.py)
   scenes.json                    # M4  - written (step 1.03 via write_scene_memory in
                                  #   library/tools/analysis/vision_pipeline_v3.py)
+  scene_cinematography.json      # VI-09 - measured scene/shot hierarchy, intervals and attributes
   sound.json                     # M5  - written (step 1.04 via write_sound_memory in
                                  #   library/steps/step_1_04_temporal_index/step.py)
   clock.json                     # M6  - written

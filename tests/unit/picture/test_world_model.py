@@ -101,11 +101,12 @@ def _m3b_doc(digest: str, faces: list, voices: list) -> dict:
     }
 
 
-def _m4_doc(digest: str, scenes: list) -> dict:
+def _m4_doc(digest: str, scenes: list, scene_cinematography: dict | None = None) -> dict:
     return {
         "content_digest": digest, "source_file": "/nowhere/FILE.MXF",
         "status": "measured", "scenes": scenes,
         "scene_boundaries": [], "scene_coverage": {"ratio": 1.0},
+        "scene_cinematography": scene_cinematography,
         "instrument": {"scene_pass": "folded window call"},
     }
 
@@ -175,7 +176,8 @@ def _build_all_lanes(root: Path, digest: str, **kwargs) -> None:
         _write(target / source_memory.SLOT_IDENTITY, _m3b_doc(
             digest, kwargs.get("m3b_faces", []), kwargs.get("m3b_voices", [])))
     if "m4_scenes" in kwargs:
-        _write(target / source_memory.SLOT_SCENES, _m4_doc(digest, kwargs["m4_scenes"]))
+        _write(target / source_memory.SLOT_SCENES, _m4_doc(
+            digest, kwargs["m4_scenes"], kwargs.get("scene_cinematography")))
     if "m5_events" in kwargs:
         _write(target / source_memory.SLOT_SOUND, _m5_doc(digest, kwargs["m5_events"]))
     if "m7_on_screen" in kwargs or "m7_speaking" in kwargs or "m7_candidates" in kwargs:
@@ -301,7 +303,16 @@ def test_the_scene_segment_containing_the_second_is_joined(
                          {"start": 3.0, "end": 10.0, "location": "office",
                           "type": "indoor", "lighting": "dim",
                           "notable_features": []},
-                     ])
+                     ], scene_cinematography={
+                         "method": "scene-cinematography-measurements-v1",
+                         "status": "measured",
+                         "scenes": [],
+                         "shots": [{"id": "shot-0001", "start": 0.0, "end": 3.0},
+                                   {"id": "shot-0002", "start": 3.0, "end": 10.0}],
+                         "subshots": [{"id": "sub-0001", "start": 0.0, "end": 3.0}],
+                         "sequences": [{"id": "sequence-0001", "start": 0.0,
+                                        "end": 3.0}],
+                     })
     world_model.build_source_world_model(digest, "/nowhere/FILE.MXF",
                                          memory_root)
     entry2 = world_model.query_at_time(
@@ -310,6 +321,9 @@ def test_the_scene_segment_containing_the_second_is_joined(
         source_memory.read_world_model(digest, memory_root), 5.0)
     assert entry2["scene"]["location"] == "studio"
     assert entry5["scene"]["location"] == "office"
+    assert entry2["cinematography"]["shots"] == ["shot-0001"]
+    assert entry5["cinematography"]["shots"] == ["shot-0002"]
+    assert entry2["cinematography"]["subshots"] == ["sub-0001"]
 
 
 def test_hand_near_mouth_candidates_are_joined_with_verdicts(

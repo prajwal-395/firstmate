@@ -1,0 +1,29 @@
+{
+  "fixture_kind": "C6 labeled proxy; synthetic labels, not real footage",
+  "duration": 12.0,
+  "ground_truth": {
+    "shot_boundaries": [4.0, 8.0],
+    "subshot_boundaries": [9.0],
+    "scenes": [
+      {"start": 0.0, "end": 4.0, "location": "studio", "type": "interview"},
+      {"start": 4.0, "end": 8.0, "location": "studio", "type": "interview"},
+      {"start": 8.0, "end": 12.0, "location": "kitchen", "type": "demonstration"}
+    ],
+    "attributes": {
+      "shot-0001": {"framing": "wide", "camera_movement": "static"},
+      "shot-0002": {"framing": "close", "camera_movement": "pan_right"},
+      "shot-0003": {"framing": "medium", "camera_movement": "pan_right"}
+    }
+  },
+  "measurements": {
+    "scene_boundaries": [
+      {"time": 0.0, "score": 1.0, "type": "start"},
+      {"time": 4.0, "score": 0.91, "type": "scene_change"},
+      {"time": 8.0, "score": 0.87, "type": "scene_change"}
+    ],
+    "motion": {"sample_rate_hz": 1, "method": "proxy-frame-difference-v1", "values": [0.1,0.1,0.2,0.1,0.4,0.5,0.4,0.5,0.1,0.1,0.2,0.1]},
+    "camera_motion": {"sample_rate_hz": 1, "method": "proxy-flow-v1", "values": ["static","static","static","static","pan_right","pan_right","pan_right","pan_right","static","pan_right","pan_right","pan_right"]},
+    "face_presence": {"sample_rate_hz": 1, "method": "proxy-face-width-v1", "face_width": [0.1,0.1,0.1,0.1,0.8,0.8,0.8,0.8,0.3,0.3,0.3,0.3]},
+    "color_curves": {"sample_rate_hz": 1, "method": "proxy-color-v1", "hue_values": [30,30,30,30,210,210,210,210,120,120,120,120], "brightness_values": [0.5,0.5,0.5,0.5,0.25,0.25,0.25,0.25,0.8,0.8,0.8,0.8]}
+  }
+}

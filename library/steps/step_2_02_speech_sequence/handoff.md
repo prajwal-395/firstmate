@@ -39,8 +39,14 @@ speech sequence for the video.
    use "hook"-tagged clips for the opening
 3. **Never select a partial sentence** — passage boundaries must align to
    complete thoughts
-4. **Adjacent passages must logically follow** — no non-sequiturs without
+4. **Adjacent passages must logically follow**: no non-sequiturs without
    narrative motivation
+
+The temporal index may also include VI-09's measured shot spans and
+evidence-linked framing, camera movement and lighting values. Use these
+only as visual continuity context when choosing adjacent passages. They do
+not establish narrative meaning or speech timing, and an `unknown` value
+must remain unknown.
 
 The post-bridge checks the aligned head and tail against transcript
 sentence terminals. If a body selection starts or ends mid-sentence, it

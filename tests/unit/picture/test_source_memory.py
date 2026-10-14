@@ -1984,6 +1984,17 @@ def test_write_scenes_serializes_the_measured_scene_pass(tmp_path, memory_root):
     assert doc["scene_coverage"] == {"ratio": 1.0}
 
 
+def test_vi09_hierarchy_merges_into_m4_without_racing_its_writer(memory_root):
+    digest = "d" * 64
+    hierarchy = {"method": "scene-cinematography-measurements-v1",
+                 "status": "measured", "scenes": [], "shots": [],
+                 "subshots": [], "sequences": [], "measurement_catalog": []}
+    source_memory.write_scene_cinematography(digest, hierarchy, memory_root)
+    source_memory.write_scenes(
+        digest, "/src/A.MXF", "measured", [], root=memory_root)
+    assert source_memory.read_scenes(digest, memory_root)["scene_cinematography"] == hierarchy
+
+
 class TestConcurrentSameSlotWrites:
     """Two clips cut from one camera file share a digest slot, and the
     read-only lanes index them at once. The slot writer used a

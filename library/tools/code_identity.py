@@ -96,6 +96,8 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
         # The temporal-index step is part of the cached dependency closure.
         "library/tools/motion_evidence.py",
+        # VI-09 is part of the same cached preflight dependency closure.
+        "library/tools/scene_cinematography.py",
         # The executed measurement: the SAM 2 tracker the step segments
         # each triggered clip with.
         "library/tools/analysis/object_segmentation.py",
@@ -541,6 +543,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
+        # VI-09 extends the cached temporal-index dependency represented here.
+        "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.
         "library/tools/motion_evidence.py",
         # enumerate_footage produces raw_footage_files, the step's output.
@@ -1015,6 +1019,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # preflight implementation path; preserve coverage when that
         # inventory names a newly added shared measurement module.
         "library/tools/motion_evidence.py",
+        # VI-09's deterministic profiles are joined to M4 before its
+        # source-memory sidecar is exposed by the temporal-index step.
+        "library/tools/scene_cinematography.py",
         # The exact-file probe cache changes the measurement reused for
         # unchanged footage, so changes here must invalidate catalog rows.
         "library/tools/file_measurements.py",
@@ -1488,6 +1495,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_03_semantic_analysis": (
+        # VI-09's temporal intervals are joined into the M4 scene read.
+        "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.
         "library/tools/motion_evidence.py",
         # The executed measurement (D1: the usable-ranges gate lives here).
@@ -1978,6 +1987,8 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_04_temporal_index": (
         # FI-14 camera/subject and novelty evidence derived from M2.
         "library/tools/motion_evidence.py",
+        # Deterministic shot hierarchy and evidence-linked profiles.
+        "library/tools/scene_cinematography.py",
         # The project's declared transcription language: a fix here
         # changes which language every cached index is heard in.
         "library/tools/footage_identity.py",

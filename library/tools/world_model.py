@@ -297,11 +297,25 @@ def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
                        "speaker": _speaker_at(m7, lo, hi)},
             "faces": _faces_at(m3, assignment, lo, hi, m3c),
             "scene": _scene_at(m4, lo),
+            "cinematography": _cinematography_at(m4, lo),
             "sound": {"events": _sound_at(m5, lo, hi)},
             "events": _events_at(m7, m8, lo, hi),
             "relationships": _relationships_at(m10, lo, hi),
         })
     return timeline
+
+
+def _cinematography_at(m4: Optional[dict], time_seconds: float) -> Optional[dict]:
+    """Expose M4's measured hierarchy at this M9 second without re-labeling it."""
+    hierarchy = (m4 or {}).get("scene_cinematography")
+    if not isinstance(hierarchy, dict) or hierarchy.get("status") != "measured":
+        return None
+    result = {"method": hierarchy["method"]}
+    for key in ("scenes", "shots", "subshots", "sequences"):
+        active = [item for item in hierarchy[key]
+                  if item["start"] <= time_seconds < item["end"]]
+        result[key] = [item["id"] for item in active]
+    return result
 
 
 def build_source_world_model(content_digest: str, source_file: str,

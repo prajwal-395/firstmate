@@ -18,7 +18,7 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10, M11 and VI-03 are
+**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10, M11, VI-03 and VI-09 are
 written now; every later lane writes into its named slot without
 inventing its own shape:
 
@@ -53,6 +53,10 @@ M3f      `region_stats.json`          luma, colour, skin, sharpness `library/too
 M4       `scenes.json`                scene observations (VLM) +    `library/tools/
                                        ffmpeg scene boundaries       analysis/
                                                                 vision_pipeline_v3.py`
+VI-09    `scene_cinematography.json`  scene/shot/sub-shot/sequence  `library/tools/
+                                      intervals and measured          scene_cinematography.py`
+                                      attributes, citing M4 and
+                                      temporal measurements
 M5       `sound.json`                 environmental sound events   `library/steps/
                                       and music interval evidence   step_1_04_temporal_index/
                                                                     + step 2.06`
@@ -172,6 +176,7 @@ SLOT_SALIENCY = "saliency.json"                # M3e - written by attention_sali
 SLOT_REGION_STATS = "region_stats.json"        # M3f - written by region_stats.py
 SLOT_DEPTH = "depth.json"                      # M3g - written by depth.py
 SLOT_SCENES = "scenes.json"                    # M4 - written by vision_pipeline_v3.py
+SLOT_SCENE_CINEMATOGRAPHY = "scene_cinematography.json"  # VI-09 deterministic intervals
 SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 M4_SCENE_PASS_METHOD = "folded window call (PROMPT_WINDOW_ALL_COMPACT)"
 M4_BOUNDARY_METHOD = "ffmpeg-select-scene-gt-0.3"
@@ -975,7 +980,22 @@ def read_scenes(content_digest: str,
                 root: Optional[Path] = None) -> Optional[dict]:
     """The M4 scene lane for a digest, or None when never written."""
     doc = _load_json(source_dir(content_digest, root) / SLOT_SCENES)
-    return doc if isinstance(doc, dict) else None
+    if not isinstance(doc, dict):
+        return None
+    hierarchy = _load_json(source_dir(content_digest, root) / SLOT_SCENE_CINEMATOGRAPHY)
+    if (isinstance(hierarchy, dict)
+            and hierarchy.get("content_digest") == content_digest):
+        doc["scene_cinematography"] = hierarchy["scene_cinematography"]
+    return doc
+
+
+def write_scene_cinematography(content_digest: str, hierarchy: dict,
+                               root: Optional[Path] = None) -> None:
+    """Write VI-09 beside M4 so parallel producers cannot overwrite each other."""
+    write_json(source_dir(content_digest, root) / SLOT_SCENE_CINEMATOGRAPHY, {
+        "content_digest": content_digest,
+        "scene_cinematography": hierarchy,
+    })
 
 
 def write_sound(content_digest: str, source_file: str, status: str,

@@ -153,6 +153,11 @@
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "semantic_analysis_documents.*.assessment.unusable_ranges",
     "temporal_index.*.clip_id",
+    "temporal_index.*.scene_cinematography.shots.*.start",
+    "temporal_index.*.scene_cinematography.shots.*.end",
+    "temporal_index.*.scene_cinematography.shots.*.attributes.framing.value",
+    "temporal_index.*.scene_cinematography.shots.*.attributes.camera_movement.value",
+    "temporal_index.*.scene_cinematography.shots.*.attributes.lighting_level.value",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
   ]
