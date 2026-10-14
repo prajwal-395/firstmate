@@ -1,0 +1,15 @@
+{
+  "real_corpus_status": "pending human-annotated argument footage",
+  "rows": [
+    {"id":"p1","text":"I believe clear captions make interviews easier to follow.","labels":["claim"]},
+    {"id":"p2","text":"The main topic today is camera stabilization.","topic":"camera stabilization","labels":["topic"]},
+    {"id":"p3","text":"The image shakes because the camera operator is walking.","labels":["explanation"]},
+    {"id":"p4","text":"For example, this handheld shot shows the problem.","labels":["demonstration","context_dependency"]},
+    {"id":"p5","text":"This happens whenever the shutter is too slow.","labels":["context_dependency"]},
+    {"id":"p6","text":"We should keep the speaker in frame.","labels":["claim"]},
+    {"id":"p7","text":"A wider lens gives us more room for reframing.","labels":[]},
+    {"id":"p8","text":"That is why we record a little wider.","labels":["explanation","context_dependency"]},
+    {"id":"p9","text":"Such as the example on screen, this crop loses the hand.","labels":["demonstration","context_dependency"]},
+    {"id":"p10","text":"The speaker describes the process in detail.","labels":[]}
+  ]
+}

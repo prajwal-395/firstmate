@@ -1188,6 +1188,16 @@
         "kind": {
           "type": "string"
         },
+        "narrative_relation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NarrativeRelation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "objective": {
           "type": [
             "string",
@@ -1297,6 +1307,53 @@
         "representation",
         "source_model",
         "provenance_id"
+      ]
+    },
+    "NarrativeHypothesisStatus": {
+      "type": "string",
+      "enum": [
+        "candidate"
+      ]
+    },
+    "NarrativeRelation": {
+      "description": "Typed narrative relation hypothesis scoped to speech and event evidence.",
+      "type": "object",
+      "properties": {
+        "event_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "relation_type": {
+          "$ref": "#/$defs/NarrativeRelationKind"
+        },
+        "speech_passage_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/NarrativeHypothesisStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "relation_type",
+        "speech_passage_ids",
+        "event_ids",
+        "status"
+      ]
+    },
+    "NarrativeRelationKind": {
+      "type": "string",
+      "enum": [
+        "claim",
+        "topic",
+        "explanation",
+        "demonstration",
+        "context_dependency"
       ]
     },
     "NleBinding": {

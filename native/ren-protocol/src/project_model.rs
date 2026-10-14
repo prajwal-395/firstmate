@@ -279,6 +279,34 @@ pub struct Interpretation {
     pub scope: Value,
     pub uncertainty: Option<f64>,
     pub certainty: CertaintyState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrative_relation: Option<NarrativeRelation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NarrativeRelationKind {
+    Claim,
+    Topic,
+    Explanation,
+    Demonstration,
+    ContextDependency,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NarrativeHypothesisStatus {
+    Candidate,
+}
+
+/// Typed narrative relation hypothesis scoped to speech and event evidence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NarrativeRelation {
+    pub relation_type: NarrativeRelationKind,
+    pub speech_passage_ids: Vec<String>,
+    pub event_ids: Vec<String>,
+    pub status: NarrativeHypothesisStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

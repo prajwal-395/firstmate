@@ -86,7 +86,9 @@
         "description": "State output: speech_sequence",
         "expected_schema": {
           "body_sequence": "list",
-          "excluded_passages": "list"
+          "excluded_passages": "list",
+          "narrative_relations": "list of typed candidate hypotheses with speech/event evidence and uncertainty",
+          "interpretations": "list of Project Model Interpretation records for the hypotheses"
         }
       },
       {

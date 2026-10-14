@@ -159,12 +159,39 @@ def validate_project_model(model: dict[str, Any]) -> None:
                 raise ValueError("event state change requires evidence")
             if not set(change["evidence_ids"]) <= observation_ids:
                 raise ValueError("event state change references unknown observation")
+    event_ids = {event["id"] for event in model.get("events", [])}
     for interpretation in model.get("interpretations", []):
         if interpretation["certainty"] != "interpreted":
             raise ValueError("interpretation certainty must be interpreted")
         uncertainty = interpretation.get("uncertainty")
         if uncertainty is not None and not 0 <= uncertainty <= 1:
             raise ValueError("interpretation uncertainty must be between 0 and 1")
+        if interpretation["kind"].startswith("narrative_"):
+            relation_kind = interpretation["kind"][len("narrative_"):]
+            if relation_kind not in {"claim", "topic", "explanation", "demonstration", "context_dependency"}:
+                raise ValueError("narrative interpretation must use a supported relation type")
+            scope = interpretation["scope"]
+            if (not isinstance(scope, dict) or not scope.get("speech_passage_ids")
+                    or not isinstance(scope.get("event_ids", []), list)):
+                raise ValueError("narrative interpretation requires speech passage and event scope")
+            relation = interpretation.get("narrative_relation")
+            if (not isinstance(relation, dict)
+                    or relation.get("relation_type") != relation_kind
+                    or relation.get("status") != "candidate"
+                    or relation.get("speech_passage_ids") != scope.get("speech_passage_ids")
+                    or relation.get("event_ids") != scope.get("event_ids", [])):
+                raise ValueError("narrative interpretation requires a matching typed candidate relation")
+            if interpretation["certainty"] != "interpreted" or uncertainty is None:
+                raise ValueError("narrative hypotheses require interpreted certainty and explicit uncertainty")
+            if not interpretation["evidence_ids"] or not any(
+                str(evidence_id).startswith("speech:")
+                for evidence_id in interpretation["evidence_ids"]
+            ):
+                raise ValueError("narrative hypotheses require speech evidence")
+            if not set(scope.get("event_ids", [])) <= set(interpretation["evidence_ids"]):
+                raise ValueError("narrative event scope must be included in evidence_ids")
+            if not set(scope.get("event_ids", [])) <= event_ids:
+                raise ValueError("narrative interpretation references an unknown event")
     signal_ids = {signal["id"] for signal in model.get("signals", [])}
     source_links = {}
     for signal in model.get("signals", []):

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Step 2.02 Bridge: Enrich Speech Sequence with Word Timestamps
 
@@ -27,8 +26,8 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from library.tools import capability_outputs, intent_model
-from library.tools.project_layout import Area, ProjectLayout
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.project_layout import Area, ProjectLayout
 
 # No engagement score is attached here any more.  `engagement_scorer` read
 # `prosody_data.get("energy_rms", 0)` off step 1.05's whole output - a key
@@ -371,7 +370,7 @@ def _extend_passage_to_sentence_edges(
     *,
     extend_head: bool,
     extend_tail: bool,
-    prior_claim: tuple = None,
+    prior_claim: tuple | None = None,
 ) -> dict:
     """Include punctuation-bounded context omitted at a passage edge.
 
@@ -616,9 +615,9 @@ def _align_from(candidates: list, passage_words: list, c_idx: int) -> list:
 def _align_words_to_text(
     candidates: list,
     passage_text: str,
-    hint_start: float = None,
-    hint_end: float = None,
-    notes: dict = None,
+    hint_start: float | None = None,
+    hint_end: float | None = None,
+    notes: dict | None = None,
 ) -> list:
     """Align candidate word timestamps to the passage text.
 
@@ -827,8 +826,8 @@ def _report_anchor(label: str, clip_id: str, enrichment: dict,
 def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
-    audio_index_errors: dict = None,
-    frame_rate: float = None,
+    audio_index_errors: dict | None = None,
+    frame_rate: float | None = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
@@ -894,7 +893,7 @@ def enrich_speech_sequence(
     alignment_report = []
 
     def enrich_passage(passage: dict, label: str,
-                       prior_claim: tuple = None) -> dict:
+                       prior_claim: tuple | None = None) -> dict:
         """Resolve a passage's real source timings from the temporal index.
 
         The LLM's `source_start`/`source_end` are a HINT only - they
@@ -1021,7 +1020,7 @@ def enrich_speech_sequence(
         # Faithfulness check: the aligned words must actually be this
         # passage, not a nearby run of words that happened to match.
         passage_words = set(normalize(passage_text).split())
-        found_words = set(normalize(w["word"]) for w in words)
+        found_words = {normalize(w["word"]) for w in words}
         ratio = len(passage_words & found_words) / max(len(passage_words), 1)
         if ratio < MIN_TEXT_OVERLAP:
             raise PassageAlignmentError(
@@ -1168,12 +1167,12 @@ def main():
     data = json.loads(sys.stdin.read())
 
     if not isinstance(data, dict):
-        raise ValueError("Input data must be a dictionary")
+        raise TypeError("Input data must be a dictionary")
     # C2 fix: State provides temporal_index as an object with index_dir,
     # not temporal_index_dir at root level.
     _require_keys(data, ["speech_sequence", "temporal_index"], "Input data")
     if not isinstance(data["speech_sequence"], dict):
-        raise ValueError("speech_sequence must be a dictionary")
+        raise TypeError("speech_sequence must be a dictionary")
 
     speech_sequence = data.get("speech_sequence")
     if not speech_sequence:
@@ -1264,6 +1263,16 @@ def main():
                 file=sys.stderr,
             )
 
+    # Candidate relations are produced only after passages have been aligned
+    # and ordered, so their source ranges and stable passage references are
+    # grounded in the actual speech sequence.
+    from library.tools import narrative_relations
+    relation_candidates = narrative_relations.deterministic_candidates(
+        enriched.get("body_sequence", []), data.get("events") or [])
+    enriched["narrative_relations"] = relation_candidates
+    enriched["interpretations"] = narrative_relations.to_interpretations(
+        relation_candidates)
+
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.
     # Captain's directive 2026-09-02: remove hardcoded creative values.
@@ -1275,8 +1284,8 @@ def main():
     # the zone check below is skipped and the absence is stated.
     body = enriched.get("body_sequence", [])
     if not body:
-        print(f"NOTE: empty body_sequence - the edit carries no speech; "
-              f"mesh_spine plans the spine from music and picture.",
+        print("NOTE: empty body_sequence - the edit carries no speech; "
+              "mesh_spine plans the spine from music and picture.",
               file=sys.stderr)
         json.dump({
             "speech_sequence": enriched,
@@ -1286,8 +1295,10 @@ def main():
     total_duration = total_speech_seconds(body)
 
     from library.tools.duration_targets import (
-        NO_TARGET_DECLARED, get_speech_duration_zone,
-        get_target_duration_zone)
+        NO_TARGET_DECLARED,
+        get_speech_duration_zone,
+        get_target_duration_zone,
+    )
     zone = get_speech_duration_zone(data)
     total_zone = get_target_duration_zone(data)
 
