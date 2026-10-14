@@ -200,6 +200,23 @@ def test_real_gate_calls_verdict_module_and_propagates_its_pass_exit(tmp_path):
     assert result.returncode == 0
 
 
+def test_real_gate_fails_when_ren_native_tests_skip(tmp_path):
+    shim = _report_shim(
+        tmp_path,
+        textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <testsuites><testsuite name="pytest" tests="1" skipped="1"
+              failures="0" errors="0"><testcase name="parity"
+              classname="ren_native"><skipped message="the ren_native extension is stale"/>
+            </testcase></testsuite></testsuites>
+        """),
+    )
+    result = _run_gate(shim, "--exclude-real-model", "--no-parallel")
+    assert "FULL-SUITE GATE: FAIL" in result.stdout
+    assert "ren_native was missing or stale" in result.stdout
+    assert result.returncode != 0
+
+
 def test_native_tool_preparation_test_switch_keeps_production_ordering():
     source = LOCAL_GATE.read_text(encoding="utf-8")
     lock = source.index("heavy_work_lock owns --profile full_suite_gate")
@@ -212,6 +229,9 @@ def test_native_tool_preparation_test_switch_keeps_production_ordering():
         "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
         in source
     )
+    assert "export PIPELINE_REN_NATIVE_CACHE=" in source
+    assert "native_ci_cache.py" in source
+    assert '. "${HOME}/.cargo/env"' in source
     assert "DIRECT_SHADOW_PLAN" in source
     assert '"${REN_CI_SHADOW_AUDIT:-}" != "queue"' in source
     assert "tier2_shadow_audit.py" in source

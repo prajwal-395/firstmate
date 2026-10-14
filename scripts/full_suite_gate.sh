@@ -63,7 +63,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-cd "${REPO_ROOT}"
+cd "${REPO_ROOT}" || exit
 
 # `bin/vep` runs with PYTHONSAFEPATH=1 and exports the installed engine
 # root in PYTHONPATH. A local CI gate runs from a disposable worktree,
@@ -151,6 +151,20 @@ done
 if [ "${FULL_SUITE_GATE_SKIP_NATIVE_PREP:-0}" = "1" ]; then
   echo "=== full-suite gate: native test tool preparation skipped by test switch ==="
 else
+  # Preparation runs as a child shell, while pytest runs below. Both
+  # must select the same content-addressed ren_native entry; exporting
+  # the key here keeps pytest from silently falling back to the default
+  # cache after preparation has populated a different one.
+  if ! command -v cargo >/dev/null 2>&1 && [ -f "${HOME}/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "${HOME}/.cargo/env"
+  fi
+  NATIVE_CACHE="${REN_CI_NATIVE_CACHE:-${HOME}/.cache/ren/native-ci}"
+  mkdir -p "${NATIVE_CACHE}/ren-native"
+  NATIVE_CACHE="$(cd "${NATIVE_CACHE}" && pwd -P)"
+  REN_NATIVE_KEY="$(python3 "${REPO_ROOT}/library/tools/native_ci_cache.py" \
+    "${REPO_ROOT}" ren-native "${PYTHON}")"
+  export PIPELINE_REN_NATIVE_CACHE="${NATIVE_CACHE}/ren-native/${REN_NATIVE_KEY}"
   echo "=== full-suite gate: prepare native test tools ==="
   if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh" "${PYTHON}"; then
     echo "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
@@ -192,6 +206,8 @@ fi
 # once during #597: `main: 5078 executed, 1 failed` and no way to name
 # the test.  Same defect class as the audit that found it (a measurement
 # computed and then dropped), in the gate itself.
+# Invoked by the EXIT trap below.
+# shellcheck disable=SC2329
 _keep_report_on_failure() {
   local status=$?
   if [ -n "${DIRECT_SHADOW_PLAN}" ]; then
@@ -506,14 +522,27 @@ REAL_MODEL_DETAIL="${REAL_MODEL_RESULT#* }"
 # available environment. Report it in the same vocabulary as the skips.
 NARROWED_CAPS=""
 NARROWED_COUNT=0
+REN_NATIVE_SKIP_COUNT=0
 for report in "${MAIN_XML}" "${REAL_MODEL_XML:-}"; do
   [ -f "${report}" ] || continue
   while IFS=$'\t' read -r cap_name cap_count cap_hint; do
     [ -z "${cap_name}" ] && continue
     NARROWED_CAPS="${NARROWED_CAPS}  ${cap_name} (${cap_count} tests skipped) - install: ${cap_hint}"$'\n'
     NARROWED_COUNT=$((NARROWED_COUNT + 1))
+    if [ "${cap_name}" = "ren_native" ]; then
+      REN_NATIVE_SKIP_COUNT=$((REN_NATIVE_SKIP_COUNT + cap_count))
+    fi
   done < <(REPO_ROOT="${REPO_ROOT}" missing_caps "${report}")
 done
+
+# Unlike external measurements, ren_native is built from this exact tree
+# by native preparation above. A skip here means preparation and pytest
+# disagreed about the artifact (or the build was stale), so it is a gate
+# failure rather than a narrowed pass.
+if [ "${REN_NATIVE_SKIP_COUNT}" -gt 0 ]; then
+  MAIN_STATE="bad"
+  MAIN_DETAIL="${REN_NATIVE_SKIP_COUNT} tests skipped because ren_native was missing or stale"
+fi
 
 if [ "${RUN_REAL_MODEL}" -eq 0 ]; then
   if [ "${REAL_MODEL_EXCLUDED_BY_POLICY}" -eq 0 ]; then
@@ -557,7 +586,11 @@ if [ "${NARROWED_COUNT}" -gt 0 ]; then
   echo "--------------------------------------------------------------------"
   echo "MISSING CAPABILITIES (${NARROWED_COUNT}):"
   echo "The following environment capabilities were absent or not measured."
-  echo "The verdict is NARROWED PASS, not PASS."
+  if [ "${REN_NATIVE_SKIP_COUNT}" -gt 0 ]; then
+    echo "ren_native skips are gate failures; other capabilities may narrow the verdict."
+  else
+    echo "The verdict is NARROWED PASS, not PASS."
+  fi
   echo ""
   printf '%s' "${NARROWED_CAPS}"
   echo "--------------------------------------------------------------------"
