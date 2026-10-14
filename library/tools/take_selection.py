@@ -23,6 +23,87 @@ measurements a state carries, the same reader every consumer has.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+
+def rank_take_instances(comparisons: list[dict], *, policy,
+                        project_id: str, measurements_by_instance: Mapping,
+                        provenance_id: str) -> list[dict]:
+    """Rank preserved take instances under an explicit FI-22 policy.
+
+    A take instance is identified by its coverage-group id and member span,
+    not just its clip id: repeated recordings and duplicate media instances
+    therefore remain separate candidates. Requirements remove failing
+    candidates; preferences rank the survivors by count of passing rules.
+    Ties remain ties. No delivery attribute (including pause count) gets an
+    implicit preference.
+
+    ``measurements_by_instance`` maps that instance id to stable
+    ``measurement_id: EvidenceRecord`` entries. Missing policy or evidence
+    fails closed through the FI-22 evaluator.
+    """
+    from library.tools import evaluation_policy
+
+    if isinstance(policy, Mapping):
+        policy = evaluation_policy.EvaluationPolicy.from_dict(policy)
+    if policy is None:
+        raise evaluation_policy.EvaluationPolicyError(
+            "take ranking requires an explicit evaluation policy")
+    if policy.project_id != project_id:
+        raise evaluation_policy.EvaluationPolicyError(
+            f"policy {policy.ref!r} is scoped to {policy.project_id!r}, "
+            f"not {project_id!r}")
+
+    candidates = []
+    for comparison in comparisons:
+        group_id = comparison["group_id"]
+        for member_index, member in enumerate(comparison["members"]):
+            if member["clip_id"] is None:
+                continue
+            start, end = member["source_start"], member["source_end"]
+            instance_id = (f"{group_id}:{member_index}:"
+                           f"{member['content_digest']}:{start}:{end}")
+            measurements = measurements_by_instance.get(instance_id, {})
+            if not isinstance(measurements, Mapping):
+                raise evaluation_policy.EvaluationPolicyError(
+                    f"measurements for {instance_id!r} must be a mapping")
+            # All rows for one take must refer to its source asset/clock.
+            records = list(measurements.values())
+            if not records:
+                raise evaluation_policy.EvaluationPolicyError(
+                    f"take {instance_id!r} has no typed measurements")
+            asset_id, clock_id = records[0].asset_id, records[0].clock_id
+            evaluations = evaluation_policy.evaluate(
+                policy, asset_id=asset_id, clock_id=clock_id,
+                project_id=project_id,
+                start_tick=round(float(start) * 1000),
+                end_tick=round(float(end) * 1000),
+                measurements=measurements, provenance_id=provenance_id)
+            by_rule = {
+                rule_id: value
+                for result in evaluations
+                for rule_id in result.basis_rule_ids
+                for value in [result.value]
+            }
+            candidates.append({
+                "instance_id": instance_id,
+                "clip_id": member["clip_id"],
+                "source_start": start,
+                "source_end": end,
+                "group_id": group_id,
+                "policy_id": policy.ref,
+                "rule_evaluations": by_rule,
+                "eligible": all(by_rule[rule.id]
+                                for rule in policy.requirements),
+                "preference_score": sum(
+                    by_rule[rule.id] for rule in policy.preferences),
+                "evaluation_evidence": evaluations,
+            })
+    candidates.sort(key=lambda row: (
+        not row["eligible"], -row["preference_score"],
+        row["group_id"], row["source_start"], row["instance_id"]))
+    return candidates
+
 
 def index_semantic_documents(raw: dict | list | None) -> dict:
     """Index semantic analysis output by clip_id.
@@ -165,10 +246,44 @@ def collect_take_alternates(
     """
     from library.tools import project_graph
 
-    alternates = project_graph.find_alternate_takes(graph, clip_id)
+    comparisons = project_graph.find_take_comparisons(graph, clip_id)
     semantic_by_clip = index_semantic_documents(semantic_docs)
 
     results = []
+    # FI-16 groups retain occurrences, including repeated instances of the
+    # same clip. Keep the source spans and coverage relation attached to the
+    # planning payload instead of collapsing it to a clip-level alternate.
+    for comparison in comparisons:
+        for member_index, member in enumerate(comparison["members"]):
+            alt_id = member["clip_id"]
+            if alt_id is None:
+                continue
+            sem = semantic_by_clip.get(str(alt_id), {})
+            idx = (temporal_indices or {}).get(str(alt_id), {})
+            desc = _delivery_description(sem)
+            results.append({
+                "clip_id": str(alt_id),
+                "instance_id": (
+                    f"{comparison['group_id']}:{member_index}:"
+                    f"{member['content_digest']}:{member['source_start']}:"
+                    f"{member['source_end']}"),
+                "group_id": comparison["group_id"],
+                "take_relation": comparison["kind"],
+                "same_instant": comparison["same_instant"],
+                "source_start": member["source_start"],
+                "source_end": member["source_end"],
+                "speech_evidence": member["speech_evidence"],
+                "picture_evidence": member["picture_evidence"],
+                "audio_evidence": member["audio_evidence"],
+                "speech_cue": desc["speech_cue"],
+                "body_language": desc["body_language"],
+                "face_presence": _face_presence_mean(idx),
+                "speech_spans": _speech_spans(idx),
+            })
+    if comparisons:
+        return results
+
+    alternates = project_graph.find_alternate_takes(graph, clip_id)
     for alt in alternates or []:
         if not isinstance(alt, dict):
             continue

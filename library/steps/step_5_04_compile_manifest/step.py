@@ -3715,14 +3715,11 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         reaction_cutaways_error = str(exc)
         print(f"  Reaction cutaway analysis failed: {exc}", file=sys.stderr)
 
-    # ── Take alternates: delivery descriptions for comparison ──
-    # For each spine block, find alternate takes and collect their
-    # measured delivery descriptions (speech_cue, body_language, face
-    # presence, speech spans). Delivery is a judgment - whether one
-    # performance is stronger than another - and this module does not
-    # make it. It presents the descriptions side by side so the model
-    # or the reviewer can compare them and choose. Consumes
-    # project_graph.find_alternate_takes. Report-only.
+    # ── Take alternates: measured instances for policy based selection ──
+    # FI-16 coverage groups retain each source span, including repeated
+    # instances of one clip. FI-19's ranker consumes this payload with an
+    # explicit FI-22 policy and typed measurements; this report-only
+    # manifest path never invents a default objective.
     take_alternates = []
     take_alternates_error = None
     try:
