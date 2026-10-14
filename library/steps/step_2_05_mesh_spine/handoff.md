@@ -55,6 +55,15 @@ If the speech content is longer than the target duration, you may need to adjust
 Given the speech sequence, music selections, and creative direction,
 construct the complete audio spine.
 
+### Evidence-linked narrative interpretations
+
+`speech_sequence.interpretations` contains candidate claim, topic,
+explanation, demonstration and context-dependency readings. They are
+interpretations with explicit uncertainty, linked to speech passages by
+ID; they are not measured facts. Use them as optional context when
+deciding which passages belong together or where the spine should breathe.
+Keep passage references intact and do not promote a candidate to a fact.
+
 ### Key decisions to make:
 1. **How does the video open?** (hook → music intro → speech start)
 2. **Where do music-driven moments go?** (between speech blocks)

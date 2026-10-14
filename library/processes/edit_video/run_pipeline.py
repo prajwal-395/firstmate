@@ -3981,6 +3981,30 @@ def run_pipeline(
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 continue
 
+            if (node_id == "speech_sequence"
+                    and "speech_sequence" in output):
+                try:
+                    from library.tools import project_model_narrative
+                    sequence = output["speech_sequence"]
+                    persisted = project_model_narrative.persist_speech_sequence(
+                        project_dir, sequence)
+                except Exception as exc:  # noqa: BLE001 - canonical write is required
+                    message = f"Project Model narrative persistence failed: {exc}"
+                    print(f"     ✗ FAILED: {message}", file=sys.stderr)
+                    _record_step_failure(state, node_id, message,
+                                         project_dir=project_dir)
+                    save_pipeline_state(project_dir, state)
+                    settle_semantic_stream(node_id, "failed")
+                    failed.append(node_id)
+                    progress.record_progress_event(
+                        project_dir, node_id, "failed")
+                    continue
+                print(
+                    f"     Project Model narrative interpretations: "
+                    f"{len(persisted['interpretation_ids'])} persisted "
+                    f"at revision {persisted['revision']}",
+                    file=sys.stderr,
+                )
             capability_outputs.record(state, node_id, output)
             _clear_step_failure(state, node_id)
             entry = {

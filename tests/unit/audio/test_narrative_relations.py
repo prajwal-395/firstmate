@@ -1,4 +1,6 @@
 import json
+import io
+import sys
 from pathlib import Path
 
 from library.tools.narrative_relations import (
@@ -6,6 +8,9 @@ from library.tools.narrative_relations import (
     to_interpretations,
 )
 from library.tools.project_model import validate_project_model
+from library.tools.project_model_narrative import persist_speech_sequence
+from library.tools.project_model_store import load_project_model
+import library.steps.step_2_02_speech_sequence.post_bridge as speech_bridge
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "narrative_relations_proxy.json"
 
@@ -79,4 +84,41 @@ def test_narrative_interpretations_validate_as_project_model_records():
         assert "unknown event" in str(error)
     else:
         raise AssertionError("narrative interpretation with unknown event was accepted")
+
+
+def test_speech_sequence_run_persists_interpretations_for_project_model_query(
+        tmp_path, monkeypatch):
+    model_path = Path(__file__).parents[2] / "fixtures" / "project_model_e2e" / "expected-project-model.json"
+    project = tmp_path / "project"
+    project.mkdir()
+    from library.tools.project_model_store import commit_project_model
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    commit_project_model(project, model, expected_revision=0, reason="test fixture")
+
+    ti_dir = tmp_path / "temporal_index"
+    ti_dir.mkdir()
+    passage = {"position": 7, "text": "I believe this works because it is measured.",
+               "source_start": 1.0, "source_end": 3.0,
+               "start_time": 1.0, "end_time": 3.0}
+    monkeypatch.setattr(speech_bridge, "enrich_speech_sequence",
+                        lambda *_args, **_kwargs: {"body_sequence": [passage]})
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({
+        "speech_sequence": {"body_sequence": [passage]},
+        "temporal_index": {"index_dir": str(ti_dir)},
+    })))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    speech_bridge.main()
+    sequence = json.loads(output.getvalue())["speech_sequence"]
+    result = persist_speech_sequence(project, sequence)
+
+    revision, queried = load_project_model(project)
+    records = [row for row in queried["interpretations"]
+               if row["author"] == "narrative_relations.rules/1"]
+    assert result["status"] == "committed"
+    assert revision == 2
+    assert [row["id"] for row in records] == [row["id"] for row in sequence["interpretations"]]
+    assert records[0]["evidence_ids"] == ["speech:7"]
+    assert records[0]["uncertainty"] == 0.5
+    assert records[0]["certainty"] == "interpreted"
 
