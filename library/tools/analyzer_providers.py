@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from library.tools import evidence_contract as evidence
@@ -76,6 +77,160 @@ class ProviderResult:
     selection: Selection
     records: tuple[evidence.EvidenceRecord, ...]
     provenance: evidence.ProvenanceRecord
+
+
+class PromotionTrigger(StrEnum):
+    """Reasons an analyzer may spend for a higher fidelity tier."""
+
+    LOW_CONFIDENCE = "low_confidence"
+    EDIT_CRITICAL = "edit_critical_request"
+    NAMED_OBJECT = "named_object_or_query_need"
+    AMBIGUOUS = "ambiguous_result"
+
+
+@dataclass(frozen=True)
+class AnalyzerTier:
+    """One ordered tier with measured quality and resource costs."""
+
+    tier_id: str
+    provider_id: str
+    fidelity_metric: str
+    fidelity: float
+    time_seconds: float | None
+    peak_memory_mb: float | None
+    promotes_on: frozenset[PromotionTrigger] = frozenset()
+
+    def __post_init__(self) -> None:
+        if not self.tier_id or not self.provider_id or not self.fidelity_metric:
+            raise ValueError("analyzer tier needs ids and a fidelity metric")
+        if not 0 <= self.fidelity <= 1:
+            raise ValueError("tier fidelity must be in 0..1")
+        if ((self.time_seconds is not None and self.time_seconds < 0)
+                or (self.peak_memory_mb is not None and self.peak_memory_mb < 0)):
+            raise ValueError("tier time and memory must be non-negative")
+
+
+@dataclass(frozen=True)
+class CapabilityTiers:
+    """Measured, ordered tiers for one capability."""
+
+    capability: str
+    tiers: tuple[AnalyzerTier, ...]
+
+    def __post_init__(self) -> None:
+        if not self.capability or not self.tiers:
+            raise ValueError("tier plan needs a capability and at least one tier")
+        if len({tier.tier_id for tier in self.tiers}) != len(self.tiers):
+            raise ValueError("tier ids must be unique within a capability")
+
+
+@dataclass(frozen=True)
+class ExecutionPlan:
+    """A measured combination of tiers that can meet a task quality bar."""
+
+    plan_id: str
+    capability: str
+    tier_ids: tuple[str, ...]
+    fidelity_metric: str
+    fidelity: float
+    time_seconds: float
+    peak_memory_mb: float
+    candidate_retention: float | None = None
+    coverage: float | None = None
+    false_negative_rate: float | None = None
+    inputs: tuple[str, ...] = ()
+    output_evidence_types: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not all((self.plan_id, self.capability, self.tier_ids,
+                    self.fidelity_metric)):
+            raise ValueError("execution plan needs an id, capability, tiers and metric")
+        if not 0 <= self.fidelity <= 1:
+            raise ValueError("plan fidelity must be in 0..1")
+        if self.time_seconds < 0 or self.peak_memory_mb < 0:
+            raise ValueError("plan time and memory must be non-negative")
+        for label, value in (("candidate_retention", self.candidate_retention),
+                             ("coverage", self.coverage),
+                             ("false_negative_rate", self.false_negative_rate)):
+            if value is not None and not 0 <= value <= 1:
+                raise ValueError(f"{label} must be in 0..1")
+
+
+@dataclass(frozen=True)
+class CapabilityPlans:
+    """Candidate measured plans for a capability, with deterministic choice."""
+
+    capability: str
+    plans: tuple[ExecutionPlan, ...]
+
+    def __post_init__(self) -> None:
+        if not self.capability or not self.plans:
+            raise ValueError("capability plans need a capability and plans")
+        if any(plan.capability != self.capability for plan in self.plans):
+            raise ValueError("all execution plans must match their capability")
+        if len({plan.plan_id for plan in self.plans}) != len(self.plans):
+            raise ValueError("execution plan ids must be unique")
+
+
+def select_execution_plan(
+    plans: CapabilityPlans,
+    *,
+    fidelity_metric: str,
+    minimum_fidelity: float,
+    required_tier_ids: frozenset[str] = frozenset(),
+    required_output_evidence_types: frozenset[str] = frozenset(),
+) -> ExecutionPlan:
+    """Choose the cheapest measured plan meeting a task-declared quality bar."""
+    if not 0 <= minimum_fidelity <= 1:
+        raise ValueError("minimum_fidelity must be in 0..1")
+    qualified = [
+        plan for plan in plans.plans
+        if plan.fidelity_metric == fidelity_metric
+        and plan.fidelity >= minimum_fidelity
+        and required_tier_ids.issubset(plan.tier_ids)
+        and required_output_evidence_types.issubset(
+            plan.output_evidence_types)
+    ]
+    if not qualified:
+        raise ProviderSelectionError(
+            f"no measured {plans.capability} plan meets {fidelity_metric} "
+            f">= {minimum_fidelity:g}")
+    return min(qualified, key=lambda plan: (
+        plan.time_seconds, plan.peak_memory_mb, plan.plan_id))
+
+
+@dataclass(frozen=True)
+class TierRecord:
+    """A result with the tier that produced it and its promotion reason."""
+
+    tier_id: str
+    provider_id: str
+    promoted_because: str | None
+    value: Any
+
+
+def run_ordered_tiers(
+    plan: CapabilityTiers,
+    run: Callable[[AnalyzerTier], Any],
+    *,
+    triggers: frozenset[PromotionTrigger] = frozenset(),
+) -> tuple[TierRecord, ...]:
+    """Always run the cheapest declared tier first, then promote on named triggers."""
+    rows: list[TierRecord] = []
+    promotion_reason: str | None = None
+    for index, tier in enumerate(plan.tiers):
+        if index and (promotion_reason is None or
+                      not (plan.tiers[index - 1].promotes_on & triggers)):
+            break
+        rows.append(TierRecord(tier.tier_id, tier.provider_id,
+                               promotion_reason, run(tier)))
+        if index + 1 < len(plan.tiers):
+            matched = plan.tiers[index].promotes_on & triggers
+            if not matched:
+                break
+            promotion_reason = ",".join(sorted(trigger.value for trigger in matched))
+    return tuple(rows)
 
 
 class ProviderRegistry:

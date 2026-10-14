@@ -27,9 +27,21 @@ nothing there". Every detection is a normalised top-left
 
 from __future__ import annotations
 
+import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+
+from library.tools.analyzer_providers import (
+    AnalyzerTier,
+    CapabilityPlans,
+    CapabilityTiers,
+    ExecutionPlan,
+    PromotionTrigger,
+    run_ordered_tiers,
+    select_execution_plan,
+)
 
 DETECTORS = ("vision_foreground", "florence2", "owlv2", "grounding_dino")
 """Every open-vocabulary detector the bakeoff scores, in doc order."""
@@ -72,6 +84,16 @@ class Detection:
     score: float
     detector: str = ""
     extra: dict = field(default_factory=dict)
+    tier_id: str = ""
+    promoted_because: str | None = None
+
+
+@dataclass(frozen=True)
+class TieredDetectionResult:
+    plan: ExecutionPlan
+    detections: tuple[Detection, ...]
+    status: str
+    promoted_because: str | None
 
 
 def check_detector(name: str) -> str:
@@ -167,7 +189,7 @@ def _load_florence2() -> dict[str, Any]:
             FLORENCE2_MODEL_ID, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             FLORENCE2_MODEL_ID, trust_remote_code=True)
-    except Exception as exc:  # noqa: BLE001 - missing weights, no
+    except Exception as exc:
         # network, gated repo: all read as cannot-run with the reason.
         raise DetectorNotAvailable(
             f"Florence-2 weights {FLORENCE2_MODEL_ID} did not load: "
@@ -194,7 +216,7 @@ def _load_owlv2() -> dict[str, Any]:
     try:
         processor = Owlv2Processor.from_pretrained(OWLV2_MODEL_ID)
         model = Owlv2ForObjectDetection.from_pretrained(OWLV2_MODEL_ID)
-    except Exception as exc:  # noqa: BLE001 - see _load_florence2.
+    except Exception as exc:
         raise DetectorNotAvailable(
             f"OWLv2 weights {OWLV2_MODEL_ID} did not load: "
             f"{type(exc).__name__}: {exc}") from exc
@@ -210,8 +232,7 @@ def _load_owlv2() -> dict[str, Any]:
 def _load_grounding_dino() -> dict[str, Any]:
     _require_transformers()
     try:
-        from transformers import (AutoModelForZeroShotObjectDetection,
-                                  AutoProcessor)
+        from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
     except ImportError as exc:
         raise DetectorNotAvailable(
             "this transformers version has no zero-shot detection "
@@ -221,7 +242,7 @@ def _load_grounding_dino() -> dict[str, Any]:
         processor = AutoProcessor.from_pretrained(GROUNDING_DINO_MODEL_ID)
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             GROUNDING_DINO_MODEL_ID)
-    except Exception as exc:  # noqa: BLE001 - see _load_florence2.
+    except Exception as exc:
         raise DetectorNotAvailable(
             f"Grounding DINO weights {GROUNDING_DINO_MODEL_ID} did not "
             f"load: {type(exc).__name__}: {exc}") from exc
@@ -274,10 +295,10 @@ def _detect_vision_foreground(image_path: str) -> list[Detection]:
     a phraseless detection. One helper process per call - the bakeoff
     batches through `measure_frames` instead; this is the single-image
     entry the winner's seeding path shares."""
-    from library.tools import vision_measure
-
     import os
     import tempfile
+
+    from library.tools import vision_measure
 
     helper, reason = vision_measure.ensure_helper(
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -493,3 +514,194 @@ def detect_image(detector: str, image_path: str, phrases: Sequence[str],
     if detector == OWLV2:
         return _detect_owlv2(image_path, clean, score_threshold)
     return _detect_grounding_dino(image_path, clean, score_threshold)
+
+
+# Measurements on the 40-frame, 148-box bakeoff set. The phrases came from
+# Gemma outputs, so they are useful operational evidence, not an unbiased
+# held-out object query evaluation.
+OBJECT_DETECTION_TIERS = CapabilityTiers(
+    capability="object_detection",
+    tiers=(
+        AnalyzerTier("fast", VISION_FOREGROUND, "named_object_box_recall",
+                     0.243, 0.1631349667, 26.734375,
+                     frozenset({PromotionTrigger.NAMED_OBJECT,
+                                PromotionTrigger.EDIT_CRITICAL,
+                                PromotionTrigger.LOW_CONFIDENCE,
+                                PromotionTrigger.AMBIGUOUS})),
+        AnalyzerTier("high_fidelity", OWLV2, "named_object_box_recall",
+                     132 / 148, 146.80397528898902 / 40, 1174.5625),
+    ),
+)
+
+OBJECT_DETECTION_PLANS = CapabilityPlans(
+    capability="object_detection",
+    plans=(
+        ExecutionPlan(
+            "vision_nominations", "object_detection", ("fast",),
+            "named_object_box_recall", 36 / 148, 6.525398666999536 / 40,
+            26.734375, candidate_retention=36 / 148, coverage=36 / 148,
+            false_negative_rate=112 / 148, inputs=("frame", "object_query"),
+            output_evidence_types=("object.foreground_candidate",),
+            dependencies=("Apple Vision foreground instances",),
+        ),
+        ExecutionPlan(
+            "owlv2_named_queries", "object_detection", ("high_fidelity",),
+            "named_object_box_recall", 132 / 148, 145.55284595899866 / 40,
+            1174.5625, candidate_retention=132 / 148, coverage=132 / 148,
+            false_negative_rate=16 / 148, inputs=("frame", "object_query"),
+            output_evidence_types=("object.detection",),
+            dependencies=("OWLv2",),
+        ),
+        ExecutionPlan(
+            "vision_then_owlv2", "object_detection", ("fast", "high_fidelity"),
+            "named_object_box_recall", 132 / 148, 155.1594626659935 / 40,
+            1194.015625, candidate_retention=36 / 148, coverage=132 / 148,
+            false_negative_rate=16 / 148, inputs=("frame", "object_query"),
+            output_evidence_types=("object.foreground_candidate",
+                                   "object.detection"),
+            dependencies=("Apple Vision foreground instances", "OWLv2"),
+        ),
+    ),
+)
+
+
+def detect_image_tiered(
+    image_path: str,
+    phrases: Sequence[str],
+    *,
+    named_object_requested: bool = False,
+    edit_critical: bool = False,
+    low_confidence: bool = False,
+    ambiguous: bool = False,
+    minimum_fidelity: float,
+    required_output_evidence_types: frozenset[str] = frozenset({
+        "object.detection"}),
+    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+) -> TieredDetectionResult:
+    """Select a measured plan; cheap misses remain unanalyzed, never absent.
+
+    Callers handling timelines use query-directed acquisition to invoke this
+    image-scoped operation only for frames in the task's named windows.
+    """
+    clean = check_phrases(phrases)
+    triggers = set()
+    if named_object_requested:
+        triggers.add(PromotionTrigger.NAMED_OBJECT)
+    if edit_critical:
+        triggers.add(PromotionTrigger.EDIT_CRITICAL)
+    if low_confidence:
+        triggers.add(PromotionTrigger.LOW_CONFIDENCE)
+    if ambiguous:
+        triggers.add(PromotionTrigger.AMBIGUOUS)
+
+    selected_plan = select_execution_plan(
+        OBJECT_DETECTION_PLANS,
+        fidelity_metric="named_object_box_recall",
+        minimum_fidelity=minimum_fidelity,
+        required_output_evidence_types=required_output_evidence_types,
+    )
+    should_promote = "high_fidelity" in selected_plan.tier_ids
+    combined_plan = ("fast" in selected_plan.tier_ids and should_promote)
+    promotion_reason = (
+        ",".join(sorted(trigger.value for trigger in triggers))
+        if triggers else f"quality_requirement>={minimum_fidelity:g}"
+    ) if combined_plan else None
+    tier_elapsed: dict[str, float] = {}
+
+    def run_tier(tier: AnalyzerTier) -> list[Detection]:
+        started = time.perf_counter()
+        detections = detect_image(tier.provider_id, image_path, clean,
+                                  score_threshold=score_threshold)
+        tier_elapsed[tier.tier_id] = time.perf_counter() - started
+        return detections
+
+    raw_rows = run_ordered_tiers(
+        CapabilityTiers(
+            "object_detection",
+            tuple(tier for tier in OBJECT_DETECTION_TIERS.tiers
+                  if tier.tier_id in selected_plan.tier_ids),
+        ),
+        run_tier,
+        triggers=(frozenset({PromotionTrigger.NAMED_OBJECT})
+                  if combined_plan else frozenset()),
+    )
+    detections: list[Detection] = []
+    for row in raw_rows:
+        detections.extend(
+            Detection(d.phrase, d.box, d.score, d.detector,
+                      {**d.extra,
+                       "tier_elapsed_seconds": tier_elapsed[row.tier_id]},
+                      row.tier_id,
+                      promotion_reason if row.tier_id == "high_fidelity"
+                      else None)
+            for d in row.value
+        )
+    query_candidates = [
+        detection for detection in detections
+        if detection.tier_id == ("high_fidelity" if should_promote else "fast")
+        and (not should_promote or
+             detection.phrase.strip().lower() in
+             {phrase.lower() for phrase in clean})
+    ]
+    status = ("candidate" if query_candidates else
+              "inconclusive" if should_promote else "not_yet_analysed")
+    return TieredDetectionResult(
+        plan=selected_plan, detections=tuple(detections), status=status,
+        promoted_because=promotion_reason if should_promote else None,
+    )
+
+
+def acquire_query_detections(
+    answer: dict,
+    query_plan: dict,
+    *,
+    source_digest: str,
+    duration_seconds: float,
+    ambiguity_windows: Sequence[dict],
+    cached,
+    producer,
+    max_cost_seconds: float,
+    cost_budget_seconds: float,
+    window_seconds: float,
+):
+    """Promote object detection only in query-directed, budgeted windows.
+
+    ``producer`` receives one bounded interval and is expected to call
+    :func:`detect_image_tiered` for its sampled frames. The acquisition
+    layer checks cache coverage, cost, memory ceiling and model version.
+    """
+    from library.tools.query_directed_acquisition import (
+        execute_query_acquisition,
+        plan_query_acquisition,
+    )
+
+    scope = query_plan.get("scope") or {}
+    if ((scope.get("start_s") is None or scope.get("end_s") is None)
+            and not ambiguity_windows):
+        return {"schema_version": 1, "action": "no_run", "steps": [],
+                "reason": "object detection promotion requires a named query window"}
+
+    bounded_plan = plan_query_acquisition(
+        answer,
+        {**query_plan,
+         "required_lanes": ["object_detection"]},
+        source_digest=source_digest,
+        duration_seconds=duration_seconds,
+        resolvable_ambiguities=[
+            {**window, "lane": "object_detection"}
+            for window in ambiguity_windows
+        ],
+        available_lanes=("object_detection",),
+        producer_budgets={"object_detection": cost_budget_seconds},
+        window_seconds_by_lane={"object_detection": window_seconds},
+        producer_cost_per_window_seconds={
+            "object_detection": cost_budget_seconds,
+        },
+        max_cost_seconds=max_cost_seconds,
+    )
+    return execute_query_acquisition(
+        bounded_plan,
+        cached=cached,
+        producers={"object_detection": producer},
+        max_cost_seconds=max_cost_seconds,
+    )

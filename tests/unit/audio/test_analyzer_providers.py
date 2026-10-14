@@ -103,3 +103,58 @@ def test_transcription_registry_wires_exactly_two_providers_without_live_resolve
 
     assert {p.provider_id for p in registry.providers("transcription")} == {
         "ren-voz", "resolve-get-transcription"}
+
+
+def test_ordered_tiers_run_cheap_first_and_record_promotion_reason():
+    tiers = ap.CapabilityTiers("objects", (
+        ap.AnalyzerTier("fast", "vision", "recall", .2, .2, 50,
+                        frozenset({ap.PromotionTrigger.NAMED_OBJECT})),
+        ap.AnalyzerTier("precise", "owl", "recall", .9, 4, 500),
+    ))
+    calls = []
+
+    rows = ap.run_ordered_tiers(
+        tiers, lambda tier: calls.append(tier.provider_id) or tier.provider_id,
+        triggers=frozenset({ap.PromotionTrigger.NAMED_OBJECT}),
+    )
+
+    assert calls == ["vision", "owl"]
+    assert [row.tier_id for row in rows] == ["fast", "precise"]
+    assert rows[0].promoted_because is None
+    assert rows[1].promoted_because == "named_object_or_query_need"
+
+
+def test_ordered_tiers_do_not_promote_without_a_declared_trigger():
+    tiers = ap.CapabilityTiers("objects", (
+        ap.AnalyzerTier("fast", "vision", "recall", .2, .2, 50,
+                        frozenset({ap.PromotionTrigger.EDIT_CRITICAL})),
+        ap.AnalyzerTier("precise", "owl", "recall", .9, 4, 500),
+    ))
+    rows = ap.run_ordered_tiers(tiers, lambda tier: tier.provider_id)
+
+    assert [row.provider_id for row in rows] == ["vision"]
+
+
+def test_execution_plan_selects_least_cost_plan_that_meets_task_quality():
+    cheap = ap.ExecutionPlan("cheap", "objects", ("vision",), "recall",
+                             .24, 1, 25)
+    combined = ap.ExecutionPlan("combined", "objects", ("vision", "owl"),
+                                "recall", .89, 5, 1200)
+    plans = ap.CapabilityPlans("objects", (combined, cheap))
+
+    assert ap.select_execution_plan(
+        plans, fidelity_metric="recall", minimum_fidelity=.2).plan_id == "cheap"
+    assert ap.select_execution_plan(
+        plans, fidelity_metric="recall", minimum_fidelity=.8).plan_id == "combined"
+
+
+def test_named_requirement_can_require_combined_tiers():
+    cheap = ap.ExecutionPlan("cheap", "objects", ("vision",), "recall",
+                             .24, 1, 25)
+    combined = ap.ExecutionPlan("combined", "objects", ("vision", "owl"),
+                                "recall", .89, 5, 1200)
+    plans = ap.CapabilityPlans("objects", (cheap, combined))
+
+    assert ap.select_execution_plan(
+        plans, fidelity_metric="recall", minimum_fidelity=.2,
+        required_tier_ids=frozenset({"owl"})).plan_id == "combined"
