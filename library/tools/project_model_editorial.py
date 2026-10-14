@@ -69,7 +69,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
+
+from library.tools.edit_point_planner import generate_edit_point_candidates
 
 #: Anchor kinds that name frames. ``edit_ledger`` already refuses these;
 #: the migration refuses them again so a row that somehow bypassed
@@ -92,6 +95,15 @@ BROLL_ROLE = "b_roll"
 
 class EditorialMigrationError(ValueError):
     """A legacy editorial row that cannot become model data, refused by name."""
+
+
+def plan_edit_point_candidates(model: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Expose measured Project Model cut candidates to editorial planning.
+
+    The returned rows remain candidates, not ``EditOperation`` records. The
+    planner refuses to promote them to edits without a separate decision.
+    """
+    return generate_edit_point_candidates(model)
 
 
 def stable_id(prefix: str, *parts: Any) -> str:
@@ -146,8 +158,8 @@ def interval_from_seconds(
         )
     return interval_from_ticks(
         clock_id,
-        int(round(float(start_s) * ticks_per_second)),
-        int(round(float(end_s) * ticks_per_second)),
+        round(float(start_s) * ticks_per_second),
+        round(float(end_s) * ticks_per_second),
     )
 
 

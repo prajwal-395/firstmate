@@ -1,0 +1,18 @@
+{
+  "label": "labeled-boundary-fixture-v1",
+  "expected": [
+    {"clock_id": "source", "tick": 0, "measurement_ids": ["speech-0"], "boundary_types": ["start"]},
+    {"clock_id": "source", "tick": 10, "measurement_ids": ["beat-10", "scene-10", "speech-0"], "boundary_types": ["beat", "end", "start"]},
+    {"clock_id": "source", "tick": 20, "measurement_ids": ["gesture-20", "scene-10"], "boundary_types": ["end", "start"]},
+    {"clock_id": "source", "tick": 30, "measurement_ids": ["gesture-20"], "boundary_types": ["end"]}
+  ],
+  "project_model": {
+    "signals": [
+      {"id": "speech-0", "measurement_type": "speech", "processing_status": "analyzed", "interval": {"clock_id": "source", "start": 0, "end": 10}, "samples": []},
+      {"id": "beat-10", "measurement_type": "music.beat", "processing_status": "analyzed", "interval": {"clock_id": "source", "start": 0, "end": 20}, "samples": [{"tick": 10, "value": 1}]},
+      {"id": "scene-10", "measurement_type": "scene.boundary", "processing_status": "analyzed", "interval": {"clock_id": "source", "start": 10, "end": 20}, "samples": []},
+      {"id": "gesture-20", "measurement_type": "gesture.event", "processing_status": "analyzed", "interval": {"clock_id": "source", "start": 20, "end": 30}, "samples": []},
+      {"id": "unavailable", "measurement_type": "camera.settle", "processing_status": "unavailable", "interval": {"clock_id": "source", "start": 0, "end": 30}, "samples": []}
+    ]
+  }
+}
