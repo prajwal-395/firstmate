@@ -1,5 +1,6 @@
 """Project-graph core: the node/edge vocabulary and the graph object."""
 from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -27,6 +28,7 @@ PARTICIPANT = "participant"
 PROPOSAL = "proposal"
 TAG = "tag"
 BRANCH = "branch"
+TAKE_GROUP = "take_group"
 
 NODE_TYPES = (
     PERSON,
@@ -51,6 +53,7 @@ NODE_TYPES = (
     PROPOSAL,
     TAG,
     BRANCH,
+    TAKE_GROUP,
 )
 
 
@@ -66,6 +69,7 @@ MATCHES = "matches"
 MUSIC_CHANGES_AT = "music_changes_at"
 CONTAINS = "contains"
 SERVES = "serves"
+TAKE_MEMBER = "take_member"
 
 RELATIONSHIP_TYPES = (
     SAYS,
@@ -78,6 +82,7 @@ RELATIONSHIP_TYPES = (
     MUSIC_CHANGES_AT,
     CONTAINS,
     SERVES,
+    TAKE_MEMBER,
 )
 
 

@@ -1,5 +1,6 @@
 """Project-graph CLI: build the graph or run one query."""
 from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -13,6 +14,7 @@ from .queries import (
     find_reaction_shots,
     find_shot_colour,
 )
+from .takes import find_take_comparisons
 
 # ── CLI ───────────────────────────────────────────────────────────
 
@@ -34,6 +36,8 @@ def main(argv=None) -> int:
     p_query.add_argument("--person", help="person id for reaction shots")
     p_query.add_argument("--t", type=float, help="time for reaction shots")
     p_query.add_argument("--clip", help="clip id for alternate takes")
+    p_query.add_argument("--take-comparisons", action="store_true",
+                         help="M1/M6 retake and alternate-coverage groups")
     p_query.add_argument("--colour", action="store_true",
                          help="the colour registration for --clip")
     p_query.add_argument("--timeline-start", type=float)
@@ -62,6 +66,10 @@ def main(argv=None) -> int:
                 graph, args.clip, args.t)
             print(json.dumps(results, indent=2))
             return 0
+        if args.take_comparisons and args.clip:
+            results = find_take_comparisons(graph, args.clip)
+            print(json.dumps(results, indent=2))
+            return 0
         if args.person and args.t is not None:
             results = find_reaction_shots(graph, args.person, args.t)
             print(json.dumps(results, indent=2))
@@ -79,6 +87,7 @@ def main(argv=None) -> int:
             print(json.dumps(results, indent=2))
             return 0
         print("query needs --decisions, --person + --t, --clip, "
+              "--take-comparisons + --clip, "
               "--colour + --clip, or --timeline-start + --timeline-end",
               file=sys.stderr)
         return 2

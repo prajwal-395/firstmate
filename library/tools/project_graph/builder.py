@@ -42,6 +42,7 @@ from .history import (
 from .operations import _derive_event_nodes
 from .permissions import _derive_participant_nodes
 from .proposals import _derive_proposal_nodes
+from .takes import derive_take_groups
 from .variants import _derive_variant_nodes
 
 # ── The builder ───────────────────────────────────────────────────
@@ -82,6 +83,9 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
         add_node(graph, segment)
     for event in audio_events:
         add_node(graph, event)
+
+    derive_take_groups(graph, project_folder, catalog, recorded,
+                       world_models, root)
 
     _derive_person_edges(graph, persons, transcript_segments)
     _derive_scene_edges(graph, scenes)

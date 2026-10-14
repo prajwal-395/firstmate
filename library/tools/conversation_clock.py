@@ -60,6 +60,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -505,6 +506,65 @@ def read_clock(content_digest: str, root: Optional[Path] = None
     path = source_memory.source_dir(content_digest, root) / SLOT_CLOCK
     doc = _load_json(path)
     return doc if isinstance(doc, dict) else None
+
+
+def compare_instants(clock_a: dict | None, time_a: float,
+                     clock_b: dict | None, time_b: float) -> dict:
+    """Compare source times on M6's reference clock, preserving uncertainty.
+
+    ``same_instant`` is true only when both records share a measured group
+    and every non-reference offset has a direct p5/p95 spread. The combined
+    uncertainty is the sum of both half-spreads, a conservative bound for
+    the relative offset. A transitive offset is inconclusive; its missing
+    spread is never silently treated as zero.
+    """
+    a, b = clock_a or {}, clock_b or {}
+    offset_a = a.get("offset_to_reference_seconds")
+    offset_b = b.get("offset_to_reference_seconds")
+    group_a, group_b = a.get("group_id"), b.get("group_id")
+    result = {
+        "same_instant": None,
+        "group_id": group_a if group_a == group_b else None,
+        "offset_a_to_reference_seconds": offset_a,
+        "offset_b_to_reference_seconds": offset_b,
+        "mapped_delta_seconds": None,
+        "uncertainty_seconds": None,
+        "uncertainty_basis": "no_shared_m6_group",
+    }
+    if group_a is None or group_a != group_b:
+        return result
+    try:
+        values = (float(time_a), float(offset_a),
+                  float(time_b), float(offset_b))
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("non-finite M6 comparison input")
+        mapped_delta = values[0] + values[1] - values[2] - values[3]
+    except (TypeError, ValueError):
+        result["uncertainty_basis"] = "m6_offset_unavailable"
+        return result
+    result["mapped_delta_seconds"] = round(mapped_delta, 3)
+    spreads = []
+    for clock in (a, b):
+        if (clock.get("content_digest") is not None
+                and clock.get("content_digest") == clock.get("reference_digest")):
+            spreads.append(0.0)
+            continue
+        direct = clock.get("direct_measurement") or {}
+        try:
+            spread = (float(direct["p95_seconds"])
+                      - float(direct["p5_seconds"])) / 2.0
+        except (KeyError, TypeError, ValueError):
+            result["uncertainty_basis"] = "m6_transitive_unmeasured"
+            return result
+        if not math.isfinite(spread) or spread < 0:
+            result["uncertainty_basis"] = "m6_spread_invalid"
+            return result
+        spreads.append(spread)
+    combined_spread = sum(spreads)
+    result["uncertainty_seconds"] = round(combined_spread, 3)
+    result["same_instant"] = abs(mapped_delta) <= combined_spread
+    result["uncertainty_basis"] = "m6_direct_edge_p95_p5"
+    return result
 
 
 def map_time(content_digest: str, seconds: float,

@@ -51,6 +51,10 @@ Queries
     find_alternate_takes(graph, clip_id)
         Other shots covering the same source content (same digest or
         overlapping source ranges).
+    find_take_comparisons(graph, clip_id)
+        FI-13 speech links joined through M6 into preserved retake,
+        alternate-coverage or unresolved take groups with speech,
+        picture and audio evidence.
     find_coverage(graph, timeline_start, timeline_end)
         Shots that cover a timeline span (from edit_graph spine blocks).
     find_broll_matches(graph, transcript_segment_id)
@@ -117,10 +121,11 @@ from .colour import COLOUR_CAPABILITY, _build_colour, _colour_for_clip
 from .core import (
     APPEARS_IN,
     AUDIO_EVENT,
-    COVERS,
+    BRANCH,
     COLOUR_READING,
     COMMIT,
     CONTAINS,
+    COVERS,
     DEAD_SECTION,
     EDIT,
     EDITORIAL_FINDING,
@@ -149,7 +154,8 @@ from .core import (
     SHOWN_IN,
     SPEAKS_IN,
     TAG,
-    BRANCH,
+    TAKE_GROUP,
+    TAKE_MEMBER,
     TIMELINE,
     TRANSCRIPT_SEGMENT,
     VARIANT,
@@ -227,6 +233,7 @@ from .queries import (
     open_proposals,
     participants_with,
 )
+from .takes import derive_take_groups, find_take_comparisons
 from .variants import _derive_variant_nodes, _variant_explorations_digest
 
 __all__ = [
@@ -269,6 +276,8 @@ __all__ = [
     "TRANSCRIPT_SEGMENT",
     "TAG",
     "BRANCH",
+    "TAKE_GROUP",
+    "TAKE_MEMBER",
     "VARIANT",
     "VERSION",
     "VFX_DETECTION",
@@ -306,6 +315,7 @@ __all__ = [
     "_derive_scene_edges",
     "_derive_variant_nodes",
     "_derive_version_nodes",
+    "derive_take_groups",
     "_event_log_path",
     "_finding_clip_ids",
     "_finding_clips",
@@ -340,6 +350,7 @@ __all__ = [
     "find_reaction_shots",
     "find_reel_versions",
     "find_shot_colour",
+    "find_take_comparisons",
     "find_tags",
     "find_variant_branches",
     "find_vfx_detections",

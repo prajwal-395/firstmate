@@ -1,7 +1,9 @@
 """Project-graph persistence: cache file, guard, fingerprint, load_or_build."""
 from __future__ import annotations
+
 import json
 from pathlib import Path
+
 try:
     from library.tools import (
         source_memory,
@@ -125,6 +127,13 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
         if digest is None:
             continue
+        # Cross-source take groups derive from FI-13's fresh M1 transcript
+        # and M6 clock, so either record changing invalidates the graph.
+        source_dir = source_memory.source_dir(digest, root)
+        inputs[f"m1:{digest}"] = _read_raw_bytes(
+            source_dir / source_memory.SLOT_TRANSCRIPT)
+        inputs[f"m6:{digest}"] = _read_raw_bytes(
+            source_dir / source_memory.SLOT_CLOCK)
         model = source_memory.read_world_model(digest, root)
         if model:
             inputs[f"world_model:{digest}"] = model

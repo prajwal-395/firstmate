@@ -230,6 +230,106 @@ def test_no_alternate_take_is_found_for_an_unknown_clip():
     assert results == []
 
 
+def test_take_comparisons_preserve_both_takes_and_require_m6_uncertainty(
+        tmp_path, monkeypatch):
+    """Same-instant coverage and a later retake carry all available evidence."""
+    memory = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory))
+    project = tmp_path / "project"
+    project.mkdir()
+    digest_a, digest_b = "a" * 64, "b" * 64
+    catalog = [
+        {"clip_id": "clip_a", "source_file": "/missing/a.mov"},
+        {"clip_id": "clip_b", "source_file": "/missing/b.mov"},
+    ]
+    state = {"capability_outputs": {"footage.catalog": {
+        "clip_catalog": catalog}}, "source_fingerprints": {
+            "clip_a": {"content_digest": digest_a},
+            "clip_b": {"content_digest": digest_b}}}
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    def utt(start, text="we should keep this coverage"):
+        words = text.split()
+        return {"start": start, "end": start + 2.0, "text": text,
+                "words": [{"text": word, "start": start + i * .2,
+                           "end": start + i * .2 + .1}
+                          for i, word in enumerate(words)]}
+
+    (memory / digest_a).mkdir(parents=True)
+    (memory / digest_b).mkdir(parents=True)
+    for digest, utterances in ((digest_a, [utt(10)]),
+                               (digest_b, [utt(7.5), utt(20)])):
+        (memory / digest / "transcript.words.json").write_text(
+            json.dumps({"content_digest": digest, "status": "transcribed",
+                        "instrument": {"fixture": True},
+                        "utterances": utterances}), encoding="utf-8")
+    direct = {"p5_seconds": -.1, "p95_seconds": .1}
+    for digest, offset in ((digest_a, 0.0), (digest_b, 2.5)):
+        (memory / digest / "clock.json").write_text(json.dumps({
+            "content_digest": digest, "group_id": "m6-fixture",
+            "offset_to_reference_seconds": offset,
+            "direct_measurement": direct}), encoding="utf-8")
+        _write_world_model(memory, digest, {"timeline": [{
+            "t": 10, "faces": [{"track_id": f"face-{digest[0]}"}],
+            "scene": {"type": "interview"},
+            "events": {"on_screen": []},
+            "relationships": {"holding": []},
+            "sound": {"events": [{"start": 10.1, "end": 10.4,
+                                    "label": "speech"}]}}]})
+
+    graph = project_graph.build_graph(str(project), memory)
+    comparisons = project_graph.find_take_comparisons(graph, "clip_a")
+
+    assert {row["kind"] for row in comparisons} == {
+        "alternate_coverage", "retake"}
+    covered = next(row for row in comparisons
+                   if row["kind"] == "alternate_coverage")
+    assert covered["same_instant"] is True
+    assert covered["m6_comparison"]["uncertainty_seconds"] == .2
+    assert len(covered["members"]) == 2
+    assert (covered["members"][0]["speech_evidence"]["text"]
+            == covered["members"][1]["speech_evidence"]["text"])
+    assert covered["members"][0]["picture_evidence"]["items"]
+    assert covered["members"][0]["audio_evidence"]["items"]
+    retake = next(row for row in comparisons if row["kind"] == "retake")
+    assert retake["same_instant"] is False
+    assert len(retake["members"]) == 2
+
+
+def test_m6_transitive_offsets_do_not_assert_same_instant():
+    from library.tools.conversation_clock import compare_instants
+
+    comparison = compare_instants(
+        {"group_id": "g", "offset_to_reference_seconds": 2.0,
+         "direct_measurement": None},
+        10.0,
+        {"group_id": "g", "offset_to_reference_seconds": 1.0,
+         "direct_measurement": None},
+        11.0)
+
+    assert comparison["mapped_delta_seconds"] == 0.0
+    assert comparison["uncertainty_seconds"] is None
+    assert comparison["same_instant"] is None
+    assert comparison["uncertainty_basis"] == "m6_transitive_unmeasured"
+
+
+def test_m6_direct_plus_transitive_offsets_are_inconclusive():
+    from library.tools.conversation_clock import compare_instants
+
+    comparison = compare_instants(
+        {"group_id": "g", "offset_to_reference_seconds": 2.0,
+         "direct_measurement": {"p5_seconds": -.1, "p95_seconds": .1}},
+        10.0,
+        {"group_id": "g", "offset_to_reference_seconds": 1.0,
+         "direct_measurement": None},
+        11.0)
+
+    assert comparison["same_instant"] is None
+    assert comparison["uncertainty_seconds"] is None
+    assert comparison["uncertainty_basis"] == "m6_transitive_unmeasured"
+
+
 # ── find_coverage ────────────────────────────────────────────────
 
 
