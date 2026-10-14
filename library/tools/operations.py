@@ -1854,6 +1854,19 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="analyse_music",
         produces=("music_analysis",),
         consumes=("music_selection",),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="model_memory",
+                resources=(("ram_gb", 8),),
+                lock_sites=(
+                    "library.tools.analysis.music_pipeline:separate_stems",),
+                why="Keep the cached Demucs separator within the machine's "
+                    "8 GB model-memory reservation.",
+                resource_basis=(
+                    "The cached HTDemucs pass measured 1.76 GiB peak RSS; "
+                    "the 8 GB ceiling reserves headroom for the selected "
+                    "track and other process memory.")),
+        )),
     ),
     Operation(
         name="subtitles.plan",

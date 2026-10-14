@@ -233,6 +233,12 @@ pub struct Signal {
     pub sample_clock_id: ClockId,
     pub provenance_id: ProvenanceId,
     pub processing_status: ProcessingStatus,
+    /// The source signal from which this derived signal was produced.
+    pub source_signal_id: Option<String>,
+    /// Relative artifact reference for samples stored outside the model JSON.
+    pub samples_ref: Option<String>,
+    /// Epistemic qualifier for derived signals; separate from processing status.
+    pub estimate_status: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

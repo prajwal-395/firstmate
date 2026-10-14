@@ -165,14 +165,36 @@ def validate_project_model(model: dict[str, Any]) -> None:
         uncertainty = interpretation.get("uncertainty")
         if uncertainty is not None and not 0 <= uncertainty <= 1:
             raise ValueError("interpretation uncertainty must be between 0 and 1")
+    signal_ids = {signal["id"] for signal in model.get("signals", [])}
+    source_links = {}
     for signal in model.get("signals", []):
         if signal["interval"]["start"] >= signal["interval"]["end"]:
             raise ValueError("signal intervals must be non-empty and half-open (start < end)")
+        source_signal_id = signal.get("source_signal_id")
+        if signal.get("estimate_status") not in (None, "estimated"):
+            raise ValueError("signal estimate_status must be 'estimated' when present")
+        if (signal.get("estimate_status") == "estimated"
+                and (not source_signal_id or not signal.get("samples_ref"))):
+            raise ValueError("estimated signals require source signal provenance and samples_ref")
+        if source_signal_id is not None and source_signal_id not in signal_ids:
+            raise ValueError("signal references unknown source_signal_id")
+        if source_signal_id == signal["id"]:
+            raise ValueError("signal cannot be its own source_signal_id")
+        if source_signal_id is not None:
+            source_links[signal["id"]] = source_signal_id
         if clock_ids and (signal["sample_clock_id"] not in clock_ids
                           or signal["interval"]["clock_id"] not in clock_ids):
             raise ValueError("signal references unknown clock")
         if signal.get("processing_status") == "unavailable" and signal.get("samples"):
             raise ValueError("unavailable signal cannot carry samples")
+    for signal_id in source_links:
+        seen = set()
+        current = signal_id
+        while current in source_links:
+            if current in seen:
+                raise ValueError("signal source provenance must be acyclic")
+            seen.add(current)
+            current = source_links[current]
     coordinate_ids = {space["id"] for space in model.get("coordinate_spaces", [])}
     space_transform_ids = {transform["id"] for transform in model.get("space_transforms", [])}
     for track in model.get("tracks", []):

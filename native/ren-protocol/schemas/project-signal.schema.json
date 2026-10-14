@@ -6,6 +6,13 @@
     "asset_id": {
       "type": "string"
     },
+    "estimate_status": {
+      "description": "Epistemic qualifier for derived signals; separate from processing status.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "id": {
       "type": "string"
     },
@@ -27,6 +34,20 @@
     "samples": {
       "type": "array",
       "items": true
+    },
+    "samples_ref": {
+      "description": "Relative artifact reference for samples stored outside the model JSON.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_signal_id": {
+      "description": "The source signal from which this derived signal was produced.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "unit": {
       "type": "string"

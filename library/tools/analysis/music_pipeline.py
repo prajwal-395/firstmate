@@ -37,12 +37,14 @@ Output: Comprehensive music_analysis.json
 
 Runs entirely on-device (CPU + optional MPS for Demucs).
 """
+import hashlib
 import json
 import os
 import sys
 import time
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 
 def _finalize_tempo(method: str, beats, downbeats: list,
@@ -259,8 +261,8 @@ def analyze_structure(audio_path: str) -> dict:
     """
     try:
         import librosa
-        from scipy.signal import find_peaks
         from scipy.ndimage import uniform_filter1d
+        from scipy.signal import find_peaks
         
         print("  Analyzing song structure...", file=sys.stderr)
         
@@ -584,8 +586,8 @@ def analyze_energy_dynamics(audio_path: str) -> dict:
     """
     try:
         import librosa
-        from scipy.signal import find_peaks
         from scipy.ndimage import uniform_filter1d
+        from scipy.signal import find_peaks
         
         print("  Analyzing energy dynamics...", file=sys.stderr)
         
@@ -777,33 +779,63 @@ def separate_stems(audio_path: str, output_dir: str) -> dict:
     Runs on CPU or MPS.
     """
     try:
-        import demucs.separate
         import demucs.api
-        
+        import demucs.separate
+
+        from library.tools.heavy_work_lock import heavy_work_lock
+        from library.tools.analysis.source_separation import (
+            MODEL_SIGNATURE,
+            cached_model_path,
+        )
+
         print("  Separating stems with Demucs...", file=sys.stderr)
-        
-        stems_dir = os.path.join(output_dir, "stems")
-        os.makedirs(stems_dir, exist_ok=True)
-        
-        # Use the API for better control
-        separator = demucs.api.Separator(model="htdemucs")
-        
-        # Load and separate
-        origin, separated = separator.separate_audio_file(audio_path)
-        
-        stem_files = {}
-        for stem_name, stem_audio in separated.items():
-            stem_path = os.path.join(stems_dir, f"{stem_name}.wav")
-            # Save stem
-            import torchaudio
-            torchaudio.save(stem_path, stem_audio.cpu(), separator.samplerate)
-            stem_files[stem_name] = stem_path
-            print(f"    Saved {stem_name} → {stem_path}", file=sys.stderr)
-        
+
+        # This checkpoint is an 8 GB model workload. Keep admission scoped
+        # even when called from the older music-analysis entry point.
+        with heavy_work_lock("music-analysis-stem-separation",
+                             profile="music.analyse:model_memory"):
+            stems_dir = os.path.join(output_dir, "stems")
+            os.makedirs(stems_dir, exist_ok=True)
+            with open(audio_path, "rb") as source_file:
+                source_digest = hashlib.file_digest(source_file, "sha256").hexdigest()
+            source_signal_id = f"signal:{source_digest}"
+            checkpoint = cached_model_path()
+            separator = demucs.api.Separator(
+                model=MODEL_SIGNATURE, repo=checkpoint.parent, device="cpu",
+                shifts=0, jobs=0,
+            )
+            _origin, separated = separator.separate_audio_file(audio_path)
+
+            stem_files = {}
+            for stem_name, stem_audio in separated.items():
+                stem_path = os.path.join(stems_dir, f"{stem_name}.wav")
+                import torchaudio
+                torchaudio.save(stem_path, stem_audio.cpu(), separator.samplerate)
+                stem_files[stem_name] = stem_path
+                print(f"    Saved {stem_name} → {stem_path}", file=sys.stderr)
+
         result = {
             "method": "demucs-htdemucs",
+            "model": "htdemucs",
+            "source_signal_id": source_signal_id,
+            "source_content_digest": f"sha256:{source_digest}",
+            "estimate_status": "estimated",
             "stems": stem_files,
             "stem_names": list(stem_files.keys()),
+            "stem_records": {
+                name: {
+                    "kind": "vocals_candidate" if name == "vocals" else "accompaniment_component",
+                    "status": "estimated",
+                    "source_signal_id": source_signal_id,
+                    "method": "demucs-infer/htdemucs",
+                    "artifact": path,
+                }
+                for name, path in stem_files.items()
+            },
+            "unsupported_signals": {
+                "ambience": "not separately resolved from accompaniment",
+                "speaker": "the vocals stem does not identify individual speakers",
+            },
         }
         print(f"  Demucs: separated into {len(stem_files)} stems", file=sys.stderr)
         return result

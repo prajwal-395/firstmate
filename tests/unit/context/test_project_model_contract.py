@@ -275,6 +275,35 @@ def test_signals_clocks_and_interpretation_bounds():
     with pytest.raises(ValueError, match="unknown clock"):
         validate_project_model(model)
     model["signals"][0]["sample_clock_id"] = clock
+    model["signals"][0].update({
+        "source_signal_id": "signal-source",
+        "samples_ref": "audio/derived/dialogue.wav",
+        "estimate_status": "estimated",
+    })
+    model["signals"].append({
+        "id": "signal-source", "asset_id": model["assets"][0]["id"],
+        "interval": {"clock_id": clock, "start": 0, "end": 24},
+        "measurement_type": "audio.source", "unit": "samples",
+        "samples": [], "sample_clock_id": clock,
+        "provenance_id": "prov-synthetic", "processing_status": "analyzed",
+    })
+    validate_project_model(model)
+    model["signals"][1]["source_signal_id"] = "signal-1"
+    with pytest.raises(ValueError, match="must be acyclic"):
+        validate_project_model(model)
+    del model["signals"][1]["source_signal_id"]
+    model["signals"][0]["source_signal_id"] = "missing-source"
+    with pytest.raises(ValueError, match="unknown source_signal_id"):
+        validate_project_model(model)
+    model["signals"][0]["source_signal_id"] = "signal-source"
+    model["signals"][0]["estimate_status"] = "measured"
+    with pytest.raises(ValueError, match="estimate_status"):
+        validate_project_model(model)
+    model["signals"][0]["estimate_status"] = "estimated"
+    model["signals"][0]["samples_ref"] = None
+    with pytest.raises(ValueError, match="require source signal provenance"):
+        validate_project_model(model)
+    model["signals"][0]["samples_ref"] = "audio/derived/dialogue.wav"
     model["interpretations"] = [{
         "id": "interp-1", "kind": "demonstration", "author": "fixture",
         "objective": None, "policy_id": None, "evidence_ids": [],

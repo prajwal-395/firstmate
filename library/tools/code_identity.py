@@ -410,6 +410,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
+        'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',
         'library/tools/beat_grid.py',
         'library/tools/brand_library.py',
@@ -874,6 +875,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
+        'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',
         'library/tools/beat_grid.py',
         'library/tools/brand_library.py',
@@ -1002,6 +1004,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_02_catalog_footage": (
+        # The shared analysis import closure includes the source-separation
+        # helper, whose changes must invalidate cached catalog consumers.
+        "library/tools/analysis/source_separation.py",
         # Cache identity's dependency inventory includes each declared
         # preflight implementation path; preserve coverage when that
         # inventory names a newly added shared measurement module.
@@ -1349,6 +1354,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
+        'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',
         'library/tools/beat_grid.py',
         'library/tools/brand_library.py',
@@ -1837,6 +1843,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
+        'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',
         'library/tools/beat_grid.py',
         'library/tools/brand_library.py',
@@ -2368,6 +2375,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/video_prefs.py',
         'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/analysis/music_pipeline.py',
+        'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',
         'library/tools/beat_grid.py',
         'library/tools/brand_library.py',
@@ -2513,6 +2521,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # never covers it - the step stamps its own cache with this hash
         # instead (finding 8, execution-frontier report 2026-09-24).
         "library/tools/analysis/music_pipeline.py",
+        "library/tools/analysis/source_separation.py",
         # Cached step output now includes typed intervals and its source
         # memory sidecar, so both serializers participate in cache identity.
         "library/tools/audio_interval_evidence.py",

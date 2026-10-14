@@ -1,0 +1,57 @@
+{
+  "before_separation": {
+    "dialogue_candidate": {
+      "bleed_db": 0.569,
+      "si_sdr_db": -0.572
+    },
+    "music_candidate": {
+      "bleed_db": -0.42,
+      "si_sdr_db": 0.425
+    },
+    "signal": "original mixture"
+  },
+  "checkpoint_sha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+  "checkpoint_size_bytes": 84141911,
+  "duration_seconds": 6.0,
+  "execution": {
+    "device": "cpu",
+    "heavy_work_profile": "music.analyse:model_memory",
+    "ram_ceiling_gb": 8
+  },
+  "fixture": "C6 synthetic three-stem proxy",
+  "fixture_labels": [
+    "dialogue",
+    "music",
+    "ambience"
+  ],
+  "limitations": [
+    "Synthetic proxy is not a licensed annotated multitrack corpus.",
+    "Dialogue is a music-trained vocals estimate, not speech-verified output.",
+    "Original mixture is retained; no separated estimate replaces it."
+  ],
+  "method": "demucs-infer/htdemucs",
+  "model": "htdemucs",
+  "outputs": {
+    "dialogue_candidate": {
+      "bleed_db": 6.943,
+      "interpreted_as": "estimated vocals stem",
+      "si_sdr_db": -18.112,
+      "status": "estimated"
+    },
+    "music_candidate": {
+      "bleed_db": -0.363,
+      "interpreted_as": "estimated sum of non-vocal stems",
+      "si_sdr_db": 0.357,
+      "status": "estimated"
+    }
+  },
+  "peak_rss_bytes": 1887698944,
+  "proxy_failure_reason": "each separated candidate must improve SI-SDR and reduce bleed vs the original mixture",
+  "proxy_pass": false,
+  "real_footage_accuracy_measured": false,
+  "sample_rate": 44100,
+  "unsupported_outputs": {
+    "ambience": "HTDemucs accompaniment cannot identify ambience separately",
+    "speaker": "HTDemucs vocals does not identify individual speakers"
+  }
+}
