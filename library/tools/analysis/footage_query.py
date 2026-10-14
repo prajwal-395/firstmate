@@ -2585,6 +2585,17 @@ class FootageIndex:
         run has not produced is simply absent.
         """
         from library.tools import project_graph
+        if query == "cross_project_assets":
+            projects = kwargs.get("projects") or []
+            if not projects:
+                return {"query": query, "results": [], "error":
+                        "cross_project_assets needs --projects", "abstained": True}
+            answer = project_graph.query_cross_project_assets(
+                self.project_folder, projects, kwargs.get("search_text", ""),
+                categories=tuple(kwargs.get("categories") or (
+                    "people", "scenes", "events", "usage", "lineage")))
+            answer.update(query=query, mode="project_graph")
+            return answer
         graph = project_graph.load_or_build(self.project_folder)
         report = {
             "query": query,
@@ -4486,7 +4497,8 @@ def main(argv=None):
                                           "variant_branches", "audio_events",
                                           "commits", "project_events",
                                           "reaction_decisions",
-                                          "participants", "proposals"])
+                                          "participants", "proposals",
+                                          "cross_project_assets"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
     p_pg.add_argument("--t", type=float, help="time for reaction_shots "
                                               "and reaction_decisions")
@@ -4511,6 +4523,11 @@ def main(argv=None):
     p_pg.add_argument("--event-type", help="event type for project_events")
     p_pg.add_argument("--level", help="authority level for participants, "
                                       "e.g. approve - who holds at least this")
+    p_pg.add_argument("--projects", nargs="+", help="candidate project roots for cross_project_assets")
+    p_pg.add_argument("--search-text", default="", help="asset terms for cross_project_assets")
+    p_pg.add_argument("--category", dest="categories", action="append",
+                      choices=["people", "scenes", "events", "usage", "lineage"],
+                      help="result facets; repeatable")
     p_pg.add_argument("--index-dir")
 
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
@@ -4604,6 +4621,10 @@ def main(argv=None):
             task=args.task,
             event_type=args.event_type,
             level=args.level,
+            **({"projects": args.projects,
+                "search_text": args.search_text,
+                "categories": args.categories}
+               if args.query == "cross_project_assets" else {}),
         )
         print(json.dumps(answer, indent=2))
         return 0
