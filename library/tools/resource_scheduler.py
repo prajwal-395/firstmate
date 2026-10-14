@@ -33,7 +33,8 @@ was measured at 6.69 GiB process-tree RSS peak at -n 6 across the
 2026-10-13 worker-count benchmark (the old 6 GB reservation predates
 that measurement). Its CPU demand
 stays declared: a noisy shared-machine run showed what the gate
-obtained, not what it asked for. `reel_preview` is `ren preview`'s
+obtained, not what it asked for. `temporal.index:image_defects` caps VI-03's
+streaming source sampler at 2 GB. `reel_preview` is `ren preview`'s
 headless engine render and proxy encode (`library/tools/reel_preview.py`),
 an explicit verb rather than a capability like `ren deliver`. It takes
 the whole GPU, so a preview never runs beside a Resolve render or a

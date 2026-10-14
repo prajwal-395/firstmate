@@ -405,6 +405,42 @@ def test_migration_registers_each_m0_stream_and_technical_tables(
     assert asset["metadata"]["file_integrity"]["corrupt_packet_count"] == 1
 
 
+def test_vi03_migrates_sampled_defects_as_measurements(fixture_project):
+    from library.tools import source_memory
+
+    source_memory.write_image_defects(D1, {
+        "content_digest": D1, "method": "image_defects_v1",
+        "sampling": {"rate_hz": 2, "sample_count": 4,
+                     "sample_size": [180, 320], "coverage": "sampled",
+                     "interval_s": [0.0, 2.0]},
+        "signals": {
+            "temporal_noise": {"values": [0.01, 0.02, 0.01]},
+            "compression_blockiness": {"values": [0.1, 0.2, 0.1, 0.0]},
+            "sharpness_proxy_laplacian_variance": [120.0, 121.0, 118.0, 5.0],
+            "black_frame_sample_indices": [0],
+            "frozen_frame_sample_indices": [2],
+            "flicker_sample_indices": [3],
+        }}, root=fixture_project["memory"])
+
+    model, report = _migrate(fixture_project)
+    observations = [row for row in model["observations"]
+                    if row["provenance_id"] == f"prov-{D1}-vi03"]
+    assert len(observations) == 23
+    assert {row["payload"]["metric"] for row in observations} == {
+        "image.temporal_noise.residual",
+        "image.compression.blockiness_proxy", "image.frame.black",
+        "image.frame.frozen", "image.flicker.alternation",
+        "image.sharpness.laplacian_variance"}
+    assert all(row["payload"]["sharpness_cause_claimed"] is False
+               for row in observations)
+    evidence_rows = [row["payload"]["evidence_contract"]
+                     for row in observations]
+    assert all(row["coverage"] == "sampled" for row in evidence_rows)
+    assert all(row["references"][0]["kind"] == "source_sample"
+               for row in evidence_rows)
+    assert report["counts"]["observations"] >= len(observations)
+
+
 def test_unmeasured_identity_stays_absent(fixture_project):
     # Cross-source voice identity only activates for tracks with the
     # measured minimum speech duration. These same-embedding tracks are

@@ -1399,6 +1399,19 @@ _REGISTRY: tuple[Operation, ...] = (
         # per-clip stream records, not a DAG state edge. Keep the optional
         # semantic_analysis_documents argument for direct/legacy callers.
         consumes=("raw_footage_files", "clip_catalog"),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="image_defects",
+                resources=(("cpu", 2), ("ram_gb", 2), ("disk", 1)),
+                lock_sites=(
+                    "library.tools.analysis.image_defects:measure_source",),
+                why="The optional VI-03 source sampler runs as bounded "
+                    "per-source picture analysis.",
+                resource_basis=(
+                    "The temporal.index:image_defects phase caps decoding at "
+                    "2 GB and "
+                    "one disk I/O unit; CPU demand is 2.")),
+        )),
     ),
     Operation(
         name="prosody.analyse",

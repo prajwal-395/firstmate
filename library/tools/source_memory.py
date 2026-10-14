@@ -18,7 +18,7 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10 and M11 are
+**The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10, M11 and VI-03 are
 written now; every later lane writes into its named slot without
 inventing its own shape:
 
@@ -68,6 +68,10 @@ M10      `relationships.json`         relationship CANDIDATES       `library/too
 M11      `audio_quality.json`         per-channel LUFS/true-peak/    `library/tools/
                                        clipping/noise/SNR/silence/    audio_quality.py`
                                        spectral/dynamics + intervals
+VI-03    `image_defects.json`          sampled temporal noise,       `library/tools/analysis/
+                                       blockiness, frozen/black      image_defects.py`
+                                       samples, flicker, sharpness
+                                       proxy (not focus/blur cause)
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
@@ -177,6 +181,7 @@ SLOT_VERDICTS = "verdicts.json"                # M8 - written by span_verificati
 SLOT_WORLD_MODEL = "world_model.json"          # M9 - written by world_model.py
 SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships.py
 SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality.py
+SLOT_IMAGE_DEFECTS = "image_defects.json"        # VI-03 - image_defects.py
 
 # No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
 # (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
@@ -1119,6 +1124,21 @@ def read_audio_quality(content_digest: str,
                        root: Optional[Path] = None) -> Optional[dict]:
     """M11 measurements, or None when audio quality has not been measured."""
     doc = _load_json(source_dir(content_digest, root) / SLOT_AUDIO_QUALITY)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_image_defects(content_digest: str, record: dict,
+                        root: Optional[Path] = None) -> None:
+    """Write VI-03 sampled image defect measurements for one source."""
+    if record["content_digest"] != content_digest:
+        raise ValueError("image defects digest does not match its slot")
+    write_json(source_dir(content_digest, root) / SLOT_IMAGE_DEFECTS, record)
+
+
+def read_image_defects(content_digest: str,
+                       root: Optional[Path] = None) -> Optional[dict]:
+    """VI-03 measurements, or None when image quality was not measured."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_IMAGE_DEFECTS)
     return doc if isinstance(doc, dict) else None
 
 

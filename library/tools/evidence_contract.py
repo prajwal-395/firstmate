@@ -148,6 +148,31 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "M0 source streams, duration and recorded program-track measurements.",
     },
+    "image.temporal_noise.residual": {
+        "unit": "normalized_luma", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Mean absolute temporal residual after global luma compensation.",
+    },
+    "image.compression.blockiness_proxy": {
+        "unit": "normalized_luma_difference", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Excess contrast at 8-pixel boundaries; a compression proxy.",
+    },
+    "image.frame.black": {
+        "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Sampled frame luma below the method's black-frame threshold.",
+    },
+    "image.frame.frozen": {
+        "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Adjacent sampled frames below the method's difference threshold.",
+    },
+    "image.flicker.alternation": {
+        "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Sustained alternating sampled-frame luminance changes.",
+    },
     "image.sharpness.laplacian_variance": {
         "unit": "variance",
         "kind": EvidenceType.MEASUREMENT,

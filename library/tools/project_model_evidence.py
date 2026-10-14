@@ -2826,6 +2826,68 @@ def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
                 None, REGION_STATS_PRODUCER, evidence=native)
 
 
+def _migrate_image_defects(builder: _Builder, digest: str, asset_id: str,
+                           clock_id: str, root: Path | None) -> None:
+    """VI-03: sampled image defects as typed, source-frame evidence."""
+    doc = source_memory.read_image_defects(digest, root)
+    if doc is None:
+        return
+    sampling = doc["sampling"]
+    rate = float(sampling["rate_hz"])
+    count = int(sampling["sample_count"])
+    if rate <= 0 or count <= 0:
+        builder.notes.append(f"{digest[:12]}: VI-03 invalid sampling coverage")
+        return
+    signals = doc["signals"]
+    provenance_id = _prov_id(digest, "vi03")
+    size = [int(v) for v in sampling["sample_size"]]
+
+    def add(index: int, measurement_type: str, value: Any, *,
+            span_samples: int = 1, reference_index: int | None = None) -> None:
+        start = index / rate
+        covered_end = float(sampling["interval_s"][1])
+        if start >= covered_end:
+            return
+        end = min(covered_end, (index + span_samples) / rate)
+        ticks = sec_to_ticks(start, end)
+        if ticks is None:
+            return
+        evidence = evidence_contract.new_measurement(
+            asset_id, clock_id, ticks[0], ticks[1], measurement_type, value,
+            doc["method"], provenance_id, sample_resolution=size,
+            coverage=evidence_contract.CoverageKind.SAMPLED,
+            coverage_samples=1, coverage_sample_rate_hz=rate)
+        evidence = replace(evidence, freshness="fresh",
+                           references=({"kind": "source_sample",
+                                        "stream_id": _stream_id(digest),
+                                        "sample_index": (index if reference_index is None
+                                                         else reference_index)},))
+        builder.observation(
+            digest, "vi03", asset_id, clock_id, start, end,
+            IMAGE_MEASUREMENT_MODALITY,
+            {"metric": measurement_type, "value": value,
+             "sample_index": index, "sharpness_cause_claimed": False},
+            None, "library.tools.analysis.image_defects", evidence=evidence)
+
+    for field, measurement_type in (
+            ("black_frame_sample_indices", "image.frame.black"),
+            ("frozen_frame_sample_indices", "image.frame.frozen"),
+            ("flicker_sample_indices", "image.flicker.alternation")):
+        indices = set(signals[field])
+        for index in range(count):
+            add(index, measurement_type, index in indices)
+    for field, measurement_type, span_samples in (
+            ("temporal_noise", "image.temporal_noise.residual", 2),
+            ("compression_blockiness", "image.compression.blockiness_proxy", 1),
+            ("sharpness_proxy_laplacian_variance",
+             "image.sharpness.laplacian_variance", 1)):
+        values = signals[field]["values"] if isinstance(signals[field], dict) \
+            else signals[field]
+        for index, value in enumerate(values):
+            add(index, measurement_type, value, span_samples=span_samples,
+                reference_index=index + 1 if span_samples == 2 else index)
+
+
 DEPTH_PRODUCER = "library.tools.depth"
 DEPTH_MODALITY = "depth"
 
@@ -3039,6 +3101,8 @@ def migrate_project_evidence(project_folder: str, *,
                          _clock_id(digest), roster, root)
         _migrate_region_stats(builder, digest, _asset_id(digest),
                               _clock_id(digest), root)
+        _migrate_image_defects(builder, digest, _asset_id(digest),
+                               _clock_id(digest), root)
         _migrate_depth(builder, digest, _asset_id(digest),
                        _clock_id(digest), root)
     for digest in seen:
@@ -3122,6 +3186,7 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "m3d": person_regions.read_m3d(digest, root) is not None,
             "m3f": region_stats.read_m3f(digest, root) is not None,
             "m3g": depth.read_m3g(digest, root) is not None,
+            "vi03": source_memory.read_image_defects(digest, root) is not None,
             "m4": source_memory.read_scenes(digest, root) is not None,
             "m5": source_memory.read_sound(digest, root) is not None,
             "m6": None,
