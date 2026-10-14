@@ -42,7 +42,11 @@ def test_audio_preparation_batches_identical_source_by_digest(monkeypatch, tmp_p
     ], Layout(), "large-v3", "en")
 
     assert len(decoded) == 1
-    assert prepared["clip_a"] == prepared["clip_b"]
+    assert prepared["clip_a"][0].endswith("/clip_a.wav")
+    assert prepared["clip_b"][0].endswith("/clip_b.wav")
+    assert Path(prepared["clip_a"][0]).read_bytes() == b"pcm"
+    assert Path(prepared["clip_b"][0]).read_bytes() == b"pcm"
+    assert prepared["clip_a"][1:] == prepared["clip_b"][1:]
     assert prepared["clip_a"][1:3] == ([0.25], [0.75])
     assert prepared.resource_counters == {
         "audio_decode_requests": 1,

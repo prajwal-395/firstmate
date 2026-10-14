@@ -2909,9 +2909,17 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
             batched[row["key"]] = (regions, transcription)
         regions, transcription = batched[row["key"]]
         digest = row["digest"]
-        measurement = (row["audio_path"], row["onsets"],
-                       row["onset_strengths"], regions, transcription)
         for clip_key in needs_by_digest[digest]["keys"]:
+            # Batch extraction is keyed by source identity, but every
+            # downstream project consumer addresses the audio cache by
+            # clip id (`clip_001.wav`). Publish the same decoded WAV under
+            # each canonical name so prosody and later readers find the
+            # temporal index's audio without decoding the source again.
+            clip_audio = os.path.join(audio_dir, f"{clip_key}.wav")
+            if os.path.abspath(row["audio_path"]) != os.path.abspath(clip_audio):
+                _publish_audio_cache_alias(row["audio_path"], clip_audio)
+            measurement = (clip_audio, row["onsets"],
+                           row["onset_strengths"], regions, transcription)
             out[clip_key] = measurement
     # Count producer requests by digest, not the number of clip aliases.
     out.resource_counters = {
@@ -2921,6 +2929,29 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
             len(row["keys"]) - 1 for row in needs_by_digest.values()),
     }
     return out
+
+
+def _publish_audio_cache_alias(source_path: str, target_path: str) -> None:
+    """Publish a prepared WAV at a consumer's canonical cache filename.
+
+    The source-keyed file owns the decode. Clip ids are project-local, so
+    publish one filesystem link per clip id (copying only when links are
+    unavailable) rather than extracting the same source a second time.
+    Stage beside the destination so readers see either the old complete
+    file or the new complete file.
+    """
+    target = Path(target_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staged = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    staged.unlink(missing_ok=True)
+    try:
+        try:
+            os.link(source_path, staged)
+        except OSError:
+            shutil.copyfile(source_path, staged)
+        os.replace(staged, target)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def index_clip(

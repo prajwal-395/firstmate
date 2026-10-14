@@ -17,6 +17,7 @@ project: the seam is stubbed, the cache is a tmp file.
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -376,7 +377,10 @@ def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
         time.sleep(0.2)
         with spans_lock:
             spans.append((start, time.monotonic()))
-        return str(tmp_path / f"{clip_id}.wav")
+        wav = Path(out_dir) / f"{clip_id}.wav"
+        wav.parent.mkdir(parents=True, exist_ok=True)
+        wav.write_bytes(b"pcm")
+        return str(wav)
 
     monkeypatch.setattr(temporal_index, "clip_audio_16k", fake_extract)
     monkeypatch.setattr(
@@ -395,8 +399,8 @@ def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
                                                "en")
 
     assert list(out) == ["clip_001", "clip_003"]
-    assert os.path.basename(out["clip_001"][0]).startswith("source-")
-    assert os.path.splitext(out["clip_001"][0])[1] == ".wav"
+    assert os.path.basename(out["clip_001"][0]) == "clip_001.wav"
+    assert Path(out["clip_001"][0]).is_file()
     assert out["clip_001"][1] == [0.5]
 
     width = lane_width()

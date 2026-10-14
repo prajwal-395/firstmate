@@ -16,11 +16,13 @@ pass as well as subject-aware framing.
 """
 import ast
 import os
-import sys
-import pytest
 import shutil
-import subprocess
 import stat
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
 from library.steps.step_1_04_temporal_index.step import (
     decompose_camera_motion,
     write_sound_memory,
@@ -32,6 +34,49 @@ from library.tools.camera_stability import (
     residual_samples,
 )
 from library.tools.context_views import build_view
+
+
+def test_batch_audio_is_published_under_each_clip_cache_name(tmp_path,
+                                                            monkeypatch):
+    """Prosody reads clip ids; batched extraction starts source-keyed."""
+    from library.steps.step_1_04_temporal_index import step as temporal
+    from library.tools import concurrency_routing, footage_identity
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project = tmp_path / "project"
+    project.mkdir()
+    layout = ProjectLayout(project)
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"source")
+    audio_cache = layout.write_dir(Area.AUDIO_CACHE, step="temporal_index")
+
+    def prepared_audio(_source, output_dir, clip_id=None):
+        path = Path(output_dir) / f"{clip_id}.wav"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"decoded wav")
+        return str(path)
+
+    monkeypatch.setattr(footage_identity, "fingerprint",
+                        lambda _path: {"content_digest": "a" * 64})
+    monkeypatch.setattr(temporal, "_load_cached_index",
+                        lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(temporal, "clip_audio_16k", prepared_audio)
+    monkeypatch.setattr(temporal, "detect_onsets_with_strength",
+                        lambda _path: ([], []))
+    monkeypatch.setattr(temporal, "transcribe_clips_batched",
+                        lambda rows, **_kwargs: {
+                            rows[0]["key"]: ([], {"method": "test"})})
+    monkeypatch.setattr(concurrency_routing, "run_lanes",
+                        lambda fn, jobs: [fn(job) for job in jobs])
+
+    result = temporal._pretranscribe_misses(
+        [("clip_001", str(source), "unused.json", True)],
+        layout, "large-v3", "en")
+
+    canonical = audio_cache / "clip_001.wav"
+    assert Path(result["clip_001"][0]) == canonical
+    assert canonical.read_bytes() == b"decoded wav"
+    assert (audio_cache / "source-clip_001.wav").is_file()
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
