@@ -43,6 +43,7 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -71,6 +72,23 @@ HF_MODEL_ID = "depth-anything/Depth-Anything-V2-Small"
 """The HuggingFace id of Depth Anything V2 Small. Loaded lazily and
 only when asked - importing this module never touches the network."""
 
+DEPTH_CACHE_DIR = Path.home() / ".cache" / "vep" / "depth"
+"""Machine-local model assets installed by the explicit model setup."""
+
+DEPTH_CHECKPOINT = DEPTH_CACHE_DIR / "depth_anything_v2_vits.pth"
+DEPTH_REPO = DEPTH_CACHE_DIR / "Depth-Anything-V2"
+DEPTH_REPO_REVISION = "a561b849ebae10a6f5ef49e26c83cbbcd36c71bf"
+"""Official Depth-Anything-V2 source revision measured with the pinned
+Depth Anything V2 Small checkpoint. Keep the checkout beside its weights."""
+
+
+def _depth_assets() -> tuple[Path, Path]:
+    """Resolve explicit overrides or the machine-local pinned installation."""
+    checkpoint = Path(os.environ.get("PIPELINE_DEPTH_CHECKPOINT",
+                                    str(DEPTH_CHECKPOINT)))
+    repo = Path(os.environ.get("PIPELINE_DEPTH_REPO", str(DEPTH_REPO)))
+    return checkpoint, repo
+
 FOREGROUND_CENTER = 0.40
 """Normalised relative-depth centre of the foreground transition. The
 `depth_blur` prototype's reviewed value: the higher default softened
@@ -87,11 +105,10 @@ class DepthUnavailable(RenRefusal):
 
 
 ESTIMATOR_REASONS = {
-    "no_checkpoint": "no depth checkpoint is on disk "
-                     "(`PIPELINE_DEPTH_CHECKPOINT` pointing at a "
-                     "`depth_anything_v2_vits.pth` beside the "
-                     "Depth-Anything-V2 checkout `PIPELINE_DEPTH_REPO`) "
-                     "and the HuggingFace model "
+    "no_checkpoint": "the pinned checkpoint at "
+                     f"{DEPTH_CHECKPOINT} and Depth-Anything-V2 checkout "
+                     f"at {DEPTH_REPO} @ {DEPTH_REPO_REVISION} are not both "
+                     "available, and the HuggingFace model "
                      f"{HF_MODEL_ID!r} is not cached here",
     "no_backend": "neither torch nor transformers is importable here, so "
                   "no depth backend can run",
@@ -127,11 +144,25 @@ def probe_estimator() -> tuple[str | None, str | None]:
         transformers_ok = True
     if not torch_ok and not transformers_ok:
         return None, "no_backend"
-    checkpoint = os.environ.get("PIPELINE_DEPTH_CHECKPOINT", "")
-    repo = os.environ.get("PIPELINE_DEPTH_REPO", "")
-    if (checkpoint and repo and Path(checkpoint).is_file() and Path(
-            repo, "depth_anything_v2", "dpt.py").is_file()):
-        return "depth-anything-v2-small", None
+    checkpoint, repo = _depth_assets()
+    source_file = repo / "depth_anything_v2" / "dpt.py"
+    if checkpoint.is_file() and source_file.is_file():
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            revision = None
+        else:
+            revision = result.stdout.strip()
+        logging.getLogger(__name__).info(
+            "Depth Anything V2 assets: checkpoint=%s repo=%s revision=%s",
+            checkpoint, repo, revision or "unavailable",
+        )
+        if revision == DEPTH_REPO_REVISION:
+            return "depth-anything-v2-small", None
     if transformers_ok:
         try:
             from transformers.utils import cached_file
@@ -308,10 +339,12 @@ def build_source_depth(source_file: str, content_digest: str,
                 "no depth map can be estimated here",
                 f"{os.path.basename(source_file)}: "
                 f"{ESTIMATOR_REASONS[reason or 'no_checkpoint']}.",
-                "Point `PIPELINE_DEPTH_CHECKPOINT` at a "
-                "`depth_anything_v2_vits.pth` and `PIPELINE_DEPTH_REPO` "
-                "at the Depth-Anything-V2 checkout (the measured route, "
-                "`docs/benchmarks/2026-10-12-depth-on-demand.md`), or "
+                "Install the pinned Depth Anything V2 Small assets at "
+                f"{DEPTH_CACHE_DIR} (checkpoint {DEPTH_CHECKPOINT}, "
+                f"source {DEPTH_REPO} @ {DEPTH_REPO_REVISION}), or set "
+                "PIPELINE_DEPTH_CHECKPOINT and PIPELINE_DEPTH_REPO to "
+                "matching local assets, then rebuild this lane; see "
+                "`docs/benchmarks/2026-10-12-depth-on-demand.md`, or "
                 f"cache {HF_MODEL_ID} locally; then rebuild this lane.")
         estimator = _backend_estimator(name)
     else:
@@ -383,13 +416,13 @@ def _backend_estimator(name: str) -> Callable[[list[str]], list[np.ndarray]]:
             import cv2
             import torch
 
-            repo = Path(os.environ["PIPELINE_DEPTH_REPO"])
+            checkpoint, repo = _depth_assets()
             sys.path.insert(0, str(repo))
             from depth_anything_v2.dpt import DepthAnythingV2
 
             model = DepthAnythingV2(encoder="vits", features=64,
                                     out_channels=[48, 96, 192, 384])
-            state = torch.load(os.environ["PIPELINE_DEPTH_CHECKPOINT"],
+            state = torch.load(checkpoint,
                                map_location="cpu", weights_only=True)
             model.load_state_dict(state, strict=True)
             device = ("mps" if torch.backends.mps.is_available() else "cpu")

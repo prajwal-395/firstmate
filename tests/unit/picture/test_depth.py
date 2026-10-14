@@ -14,6 +14,8 @@ mode.
 import json
 import os
 import shutil
+import sys
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -194,6 +196,31 @@ def test_the_probe_names_only_known_reasons(tmp_path, monkeypatch):
     assert (name is None) == (reason is not None)
     if reason is not None:
         assert reason in depth.ESTIMATOR_REASONS
+
+
+def test_the_probe_finds_the_pinned_machine_cache_without_environment(
+        tmp_path, monkeypatch):
+    checkpoint = tmp_path / "depth_anything_v2_vits.pth"
+    checkpoint.write_bytes(b"pinned test weights")
+    repo = tmp_path / "Depth-Anything-V2"
+    source = repo / "depth_anything_v2" / "dpt.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# test fixture", encoding="utf-8")
+    monkeypatch.setattr(depth, "DEPTH_CHECKPOINT", checkpoint)
+    monkeypatch.setattr(depth, "DEPTH_REPO", repo)
+    monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
+    monkeypatch.setitem(sys.modules, "transformers",
+                        ModuleType("transformers"))
+    monkeypatch.setattr(
+        depth.subprocess, "run",
+        lambda args, **kwargs: SimpleNamespace(
+            stdout=depth.DEPTH_REPO_REVISION + "\n"),
+    )
+    monkeypatch.delenv("PIPELINE_DEPTH_CHECKPOINT", raising=False)
+    monkeypatch.delenv("PIPELINE_DEPTH_REPO", raising=False)
+
+    assert depth._depth_assets() == (checkpoint, repo)
+    assert depth.probe_estimator() == ("depth-anything-v2-small", None)
 
 
 # ── The lane ──────────────────────────────────────────────────────
