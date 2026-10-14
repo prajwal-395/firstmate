@@ -180,6 +180,16 @@ def take_heavy_memory_reservation(
     memory reservation -> inference admission and leaves no reverse edge
     that could deadlock. Ordinary nested grants remain subject to
     ``GrantTooSmall``.
+
+    When an enclosing ordinary grant already covers the RAM this
+    reservation demands (a `machine` wrapper around the whole run, for
+    example), the reservation folds into it: no second scheduler job is
+    taken, and the release below does not touch the scheduler. The
+    machine budget stays enforced by the enclosing grant, which already
+    accounts that RAM - and a `machine` grant is exclusive, so two
+    folded model loads still cannot coexist. An enclosing grant that
+    does NOT cover the RAM still refuses: growing the grant from inside
+    is how two jobs deadlock.
     """
     global _memory_reservation
     demand = resource_scheduler.demand_for(profile)
@@ -199,21 +209,51 @@ def take_heavy_memory_reservation(
     # The state guard makes the hierarchy a real process-local contract:
     # an inference admission cannot start ahead of this RAM reservation.
     # It is safe to wait here because we refuse an existing ordinary grant
-    # or inherited token before entering the scheduler.
+    # or inherited token before entering the scheduler - unless that
+    # grant already covers this RAM, in which case the reservation folds
+    # into it (no new job; the enclosing grant accounts the memory).
     with _state_guard:
+        if _memory_reservation is not None:
+            raise RuntimeError(
+                "heavy-work: only one persistent memory reservation may be "
+                "active in a process")
         if _held_state is not None:
+            if resource_scheduler.covers(_held_state["demand"], demand):
+                _memory_reservation = {
+                    "token": _held_state["token"], "owned": False,
+                    "profile": profile, "demand": demand,
+                    "sampler": None,
+                    "nested_profiles": frozenset(admissions),
+                    # The enclosing grant the release must still see:
+                    # anything else surrounding it is an unreleased
+                    # nested admission.
+                    "folded_into": (_held_state["token"],
+                                    _held_state["depth"]),
+                }
+                _ensure_exit_hook()
+                return
             raise GrantTooSmall(
                 f"heavy-work: {owner!r} must reserve model memory before "
                 "taking any ordinary grant")
         inherited = _inherited_grant()
         if inherited is not None:
+            if resource_scheduler.covers(inherited, demand):
+                _memory_reservation = {
+                    "token": os.environ.get(OWNER_ENV), "owned": False,
+                    "profile": profile, "demand": demand,
+                    "sampler": None,
+                    "nested_profiles": frozenset(admissions),
+                    # Folded onto an inherited grant: no local grant
+                    # existed at take time, so any local grant at
+                    # release time is an unreleased nested admission.
+                    "folded_into": (os.environ.get(OWNER_ENV), None),
+                }
+                _ensure_exit_hook()
+                return
             raise GrantTooSmall(
                 f"heavy-work: {owner!r} must reserve model memory outside "
-                f"an inherited grant of {inherited}")
-        if _memory_reservation is not None:
-            raise RuntimeError(
-                "heavy-work: only one persistent memory reservation may be "
-                "active in a process")
+                f"an inherited grant of {inherited}; take a profile "
+                "covering the model memory in the parent instead")
 
         sampler = resource_scheduler.TreeSampler()
         try:
@@ -226,12 +266,17 @@ def take_heavy_memory_reservation(
         _memory_reservation = {
             "token": token, "profile": profile, "demand": demand,
             "sampler": sampler, "nested_profiles": frozenset(admissions),
+            "folded_into": None,
         }
         _ensure_exit_hook()
 
 
 def release_heavy_memory_reservation() -> None:
-    """Release the RAM reservation after its model has been unloaded."""
+    """Release the RAM reservation after its model has been unloaded.
+
+    A reservation folded into an enclosing grant (`owned` False) clears
+    locally only: the enclosing grant's own release accounts the RAM.
+    """
     global _memory_reservation
     with _state_guard:
         held = _memory_reservation
@@ -239,12 +284,28 @@ def release_heavy_memory_reservation() -> None:
             raise RuntimeError(
                 "heavy-work: memory reservation release without an "
                 "acquisition")
-        if _held_state is not None:
+        folded_into = held.get("folded_into")
+        if folded_into is None:
+            if _held_state is not None:
+                raise RuntimeError(
+                    "heavy-work: cannot release model memory during an "
+                    "active admission")
+        elif folded_into[1] is None:
+            # Folded onto an inherited grant: any local grant now is an
+            # admission taken after the reservation and never released.
+            if _held_state is not None:
+                raise RuntimeError(
+                    "heavy-work: cannot release model memory during an "
+                    "active admission")
+        elif (_held_state is None
+                or (_held_state.get("token"), _held_state.get("depth"))
+                != folded_into):
             raise RuntimeError(
-                "heavy-work: cannot release model memory during an active "
-                "admission")
-        _scheduler().release(held["token"], held["profile"],
-                             held["sampler"].stop())
+                "heavy-work: cannot release model memory during an "
+                "active admission")
+        if held.get("owned", True):
+            _scheduler().release(held["token"], held["profile"],
+                                 held["sampler"].stop())
         _memory_reservation = None
 
 

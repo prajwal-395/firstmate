@@ -847,6 +847,69 @@ def test_memory_reservation_must_be_outermost_and_ram_only(
             pass
 
 
+def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
+        scheduler, monkeypatch):
+    """The FI-01 Gemma refusal: a `machine` wrapper around the vision pass
+    made the model-memory reservation refuse with GrantTooSmall, so no
+    scene judgments were produced. A covering enclosing grant now carries
+    the reservation instead of refusing it - without a second scheduler
+    job, so two folded model loads still cannot exceed the budget."""
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
+                        scheduler.legacy_dir)
+    memory_profile = "semantics.analyse:model_memory"
+    inference_profile = "semantics.analyse:inference"
+
+    # Process-local outer grant: the reservation folds into it.
+    with heavy_work_lock.heavy_work_lock("outer wrapper", "machine"):
+        with heavy_work_lock.heavy_work_reservation(
+                "Gemma semantic model memory", memory_profile,
+                nested_profiles=(inference_profile,)):
+            assert len(scheduler.jobs()) == 1
+            with heavy_work_lock.heavy_work_lock(
+                    "Gemma semantic inference", inference_profile):
+                pass
+        assert len(scheduler.jobs()) == 1
+    assert scheduler.jobs() == []
+
+    # Inherited outer grant: what `heavy_work_lock run --owner X -- ...`
+    # hands a vision child. Same folding, same single job.
+    token = scheduler.acquire(
+        "outer wrapper",
+        resource_scheduler.demand_for("machine"),
+        announce=lambda line: None)
+    monkeypatch.setenv(heavy_work_lock.OWNER_ENV, token)
+    try:
+        with heavy_work_lock.heavy_work_reservation(
+                "Gemma semantic model memory", memory_profile,
+                nested_profiles=(inference_profile,)):
+            assert len(scheduler.jobs()) == 1
+            with heavy_work_lock.heavy_work_lock(
+                    "Gemma semantic inference", inference_profile):
+                pass
+        assert len(scheduler.jobs()) == 1
+    finally:
+        monkeypatch.delenv(heavy_work_lock.OWNER_ENV, raising=False)
+        scheduler.release(token, "machine", {})
+    assert scheduler.jobs() == []
+
+    # An enclosing grant that does NOT cover the RAM still refuses:
+    # growing the grant from inside is how two jobs deadlock.
+    monkeypatch.setenv(heavy_work_lock.OWNER_ENV, scheduler.acquire(
+        "small wrapper",
+        resource_scheduler.demand_for(inference_profile),
+        announce=lambda line: None))
+    try:
+        with pytest.raises(heavy_work_lock.GrantTooSmall):
+            with heavy_work_lock.heavy_work_reservation(
+                    "late memory", memory_profile,
+                    nested_profiles=(inference_profile,)):
+                pass
+    finally:
+        inherited = os.environ.pop(heavy_work_lock.OWNER_ENV)
+        scheduler.release(inherited, inference_profile, {})
+    assert scheduler.jobs() == []
+
+
 # ── Bounded FREE lanes: the Fabric's read-only form, one machine ────
 
 def test_lanes_return_input_order_when_late_clips_finish_first():

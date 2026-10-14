@@ -46,9 +46,10 @@ guessed one.
 Heavy: decode, transcription and model inference. The source-memory lanes
 take the heavy-work lock themselves. The analysis capabilities run before
 that lock so a persistent model-memory reservation can be taken before any
-ordinary resource grant. Do not wrap `ren analyze` in a machine-wide
-`heavy_work_lock run`: that grant would precede and prevent the model-memory
-reservation. Media is read-only.
+ordinary resource grant. A machine-wide `heavy_work_lock run` around `ren
+analyze` is safe: the model-memory reservation folds into the covering
+grant instead of refusing it (`library/tools/heavy_work_lock.py`). Media
+is read-only.
 """
 
 from __future__ import annotations
@@ -648,8 +649,8 @@ def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
     if steps:
         # Capabilities acquire their own declared resources. In particular,
         # semantic analysis reserves model RAM before acquiring its bounded
-        # inference grant; an enclosing machine grant would invert that
-        # order and refuse the reservation.
+        # inference grant; under an enclosing machine grant that
+        # reservation folds into the grant instead of refusing it.
         record["steps"] = run_steps(project, memory_only, with_, skip)
     sources = catalog_sources(project)
     record["sources"] = [{k: s[k] for k in ("clip_id", "digest",
