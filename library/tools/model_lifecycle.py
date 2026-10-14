@@ -3,6 +3,7 @@ import gc
 import sys
 
 _loaded_models = {}
+_resident_models = set()
 
 
 def _torch():
@@ -48,6 +49,10 @@ def load_model(name: str, loader_fn):
 
 def unload_model(name: str):
     """Unload a specific model and free its GPU memory."""
+    # An explicit eviction is also the pressure escape hatch for a model
+    # pinned by a batch. Future clips may load it again, but must not assume
+    # the evicted instance is still resident.
+    _resident_models.discard(name)
     if name in _loaded_models:
         print(f"[{name}] Unloading model from memory...", file=sys.stderr)
         
@@ -79,6 +84,7 @@ def unload_model(name: str):
 def unload_all():
     """Unload all currently loaded models."""
     names = list(_loaded_models.keys())
+    _resident_models.clear()
     if not names:
         return
         
@@ -113,4 +119,22 @@ def managed_model(name: str, loader_fn):
         model = load_model(name, loader_fn)
         yield model
     finally:
+        if name not in _resident_models:
+            unload_model(name)
+
+
+@contextlib.contextmanager
+def resident_model(name: str, loader_fn):
+    """Keep a model cached across a bounded batch, then release it.
+
+    Individual `managed_model` scopes inside the batch share the cached
+    instance. `unload_all` remains an explicit pressure/runner escape hatch;
+    the next clip lazily loads the model again if it was evicted.
+    """
+    load_model(name, loader_fn)
+    _resident_models.add(name)
+    try:
+        yield _loaded_models[name]
+    finally:
+        _resident_models.discard(name)
         unload_model(name)

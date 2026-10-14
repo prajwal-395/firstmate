@@ -38,6 +38,16 @@ def _foreground_mask():
     return mask
 
 
+def test_project_depth_refuses_an_implicit_catalog_wide_run(tmp_path):
+    with pytest.raises(ValueError, match="at least one named clip_id"):
+        depth.build_project_depth(str(tmp_path))
+
+
+def test_project_depth_refuses_an_empty_clip_selection(tmp_path):
+    with pytest.raises(ValueError, match="at least one named clip_id"):
+        depth.build_project_depth(str(tmp_path), [])
+
+
 def _far_mask():
     mask = np.zeros((GRID[1], GRID[0]), dtype=bool)
     mask[0:6, 0:32] = True

@@ -140,6 +140,45 @@ def test_an_untriggered_run_segments_nothing_and_loads_no_model(tmp_path):
     assert result["matte_trigger"]["wanted_clip_ids"] == []
 
 
+def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
+    import library.tools.model_lifecycle as model_lifecycle
+
+    model_lifecycle.unload_all()
+    loads = []
+    marker = object()
+    def loader():
+        loads.append(marker)
+        return marker
+
+    with model_lifecycle.resident_model("test-sam2", loader):
+        with model_lifecycle.managed_model("test-sam2", loader) as first:
+            assert first is marker
+        with model_lifecycle.managed_model("test-sam2", loader) as second:
+            assert second is marker
+        assert len(loads) == 1
+        assert "test-sam2" in model_lifecycle._loaded_models
+
+    assert "test-sam2" not in model_lifecycle._loaded_models
+
+
+def test_model_lifecycle_explicit_eviction_clears_batch_residency():
+    import library.tools.model_lifecycle as model_lifecycle
+
+    model_lifecycle.unload_all()
+    loads = []
+    def loader():
+        model = object()
+        loads.append(model)
+        return model
+
+    with model_lifecycle.resident_model("test-sam2-pressure", loader):
+        model_lifecycle.unload_model("test-sam2-pressure")
+        with model_lifecycle.managed_model("test-sam2-pressure", loader):
+            pass
+    assert len(loads) == 2
+    assert "test-sam2-pressure" not in model_lifecycle._loaded_models
+
+
 # ── The wiring ──────────────────────────────────────────────────────
 
 def _dag():
@@ -302,3 +341,62 @@ def test_run_step_serves_a_cached_matte_without_loading_the_model(
     assert result["matte_trigger"]["segmented"] == ["c1"]
     assert result["object_segmentation"][0]["reused"] is True
     assert result["object_segmentation"][0]["object_count"] == 2
+
+
+@pytest.mark.parametrize("pressure_after_first_clip, expected_sessions", [
+    (False, 1), (True, 2),
+])
+def test_scheduled_sam_session_spans_clips_and_yields_for_ram_waiters(
+        tmp_path, monkeypatch, pressure_after_first_clip, expected_sessions):
+    from contextlib import nullcontext
+    from library.steps.step_1_06_object_segmentation import step as mod
+    from library.tools.analysis.object_segmentation import SegmentationResult
+
+    clip_paths = [_write_clip(tmp_path, "first.mp4"),
+                  _write_clip(tmp_path, "second.mp4")]
+    out_dir = tmp_path / "out"
+    face_box = [0.1, 0.1, 0.8, 0.8]
+
+    class FakeSegmenter:
+        run_active = False
+        begins = 0
+        ends = 0
+        calls = []
+
+        def begin_run(self):
+            self.begins += 1
+            self.run_active = True
+
+        def end_run(self):
+            self.ends += 1
+            self.run_active = False
+
+        def segment_clip(self, path, **kwargs):
+            self.calls.append(path)
+            return SegmentationResult(path, 1, (2, 2), 2.0, [],
+                                      seed_note="face_seeded")
+
+    segmenter = FakeSegmenter()
+    monkeypatch.setattr(mod, "get_segmenter", lambda: segmenter)
+    monkeypatch.setattr(mod, "heavy_work_reservation",
+                        lambda *a, **k: nullcontext())
+    monkeypatch.setattr(mod, "heavy_work_lock",
+                        lambda *a, **k: nullcontext())
+    pressure_calls = iter([pressure_after_first_clip, False])
+    monkeypatch.setattr(mod, "memory_reservation_contended",
+                        lambda: next(pressure_calls))
+
+    result = mod.run_step(
+        [], [{"clip_id": f"c{i}", "path": path}
+             for i, path in enumerate(clip_paths, 1)],
+        str(out_dir), face_boxes_by_clip={"c1": face_box, "c2": face_box},
+        color_grade_spec={"subject_grades": [
+            {"clip_id": "c1", "scope": "subject-only"},
+            {"clip_id": "c2", "scope": "subject-only"},
+        ]})
+
+    assert result["matte_trigger"]["segmented"] == ["c1", "c2"]
+    assert segmenter.calls == clip_paths
+    assert (segmenter.begins, segmenter.ends) == (
+        expected_sessions, expected_sessions)
+    assert not segmenter.run_active

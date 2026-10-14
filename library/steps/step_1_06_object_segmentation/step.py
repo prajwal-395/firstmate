@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 # Add repo root to PYTHONPATH to ensure library imports work
@@ -8,12 +9,26 @@ repo_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 from library.tools.analysis.object_segmentation import get_segmenter
+from library.tools.heavy_work_lock import (
+    heavy_work_lock,
+    heavy_work_reservation,
+    memory_reservation_contended,
+)
 from library.tools.project_layout import Area, ProjectLayout
 
 #: Frames sampled per second by `segmenter.segment_clip` on this step.
 #: Named here because the content-keyed skip below must compare the
 #: rate a stored matte was measured at, not restate a literal.
 SEGMENT_SAMPLE_FPS = 2.0
+
+
+@contextmanager
+def _sam_model_memory_session():
+    """Reserve RAM while a selected SAM batch keeps its weights loaded."""
+    with heavy_work_reservation(
+            "SAM 2 model memory", "objects.segment:model_memory",
+            nested_profiles=("objects.segment:inference",)):
+        yield
 
 
 def _seed_key(seed_boxes) -> list:
@@ -380,101 +395,135 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     # clip actually needs measuring: an all-cached run never touches
     # the model, the same way an empty trigger already returns above.
     segmenter = None
+    memory_scope = None
     results = []
     declined = []
     reused = []
 
-    for clip in clip_catalog:
-        clip_path = clip["path"]
-        clip_id = clip["clip_id"]
+    try:
+        for clip in clip_catalog:
+            clip_path = clip["path"]
+            clip_id = clip["clip_id"]
 
-        if clip_id not in wanted:
-            continue
-        if not os.path.exists(clip_path):
-            print(f"WARNING: File not found {clip_path}", file=sys.stderr)
-            continue
+            if clip_id not in wanted:
+                continue
+            if not os.path.exists(clip_path):
+                print(f"WARNING: File not found {clip_path}", file=sys.stderr)
+                continue
 
-        # Face seeding is the subject seeding; detector seeds (MU-15)
-        # are the object seeding. A clip the trigger names but neither
-        # reaches is declined with the reason - a behind_subject title
-        # over a person-less clip refuses at compile time, and a subject
-        # grade without a subject drops there; neither may fall back to
-        # blob seeding here.
-        face_box = (face_boxes_by_clip or {}).get(clip_id)
-        object_seeds = (object_seeds_by_clip or {}).get(clip_id)
-        if face_box is None and not object_seeds:
-            declined.append({
-                "clip_id": clip_id,
-                "reason": "no_face_box",
-                "detail": (
-                    f"Clip {clip_id} is wanted "
-                    f"({'; '.join(wanted[clip_id])}) but no face box "
-                    f"and no detector seed reached the seeder - so it is "
-                    f"declined rather than seeded on an arbitrary region."),
-            })
-            print(f"Declining {clip_path}: no face box", file=sys.stderr)
-            continue
+            # Face seeding is the subject seeding; detector seeds (MU-15)
+            # are the object seeding. A clip the trigger names but neither
+            # reaches is declined with the reason - a behind_subject title
+            # over a person-less clip refuses at compile time, and a subject
+            # grade without a subject drops there; neither may fall back to
+            # blob seeding here.
+            face_box = (face_boxes_by_clip or {}).get(clip_id)
+            object_seeds = (object_seeds_by_clip or {}).get(clip_id)
+            if face_box is None and not object_seeds:
+                declined.append({
+                    "clip_id": clip_id,
+                    "reason": "no_face_box",
+                    "detail": (
+                        f"Clip {clip_id} is wanted "
+                        f"({'; '.join(wanted[clip_id])}) but no face box "
+                        f"and no detector seed reached the seeder - so it is "
+                        f"declined rather than seeded on an arbitrary region."),
+                })
+                print(f"Declining {clip_path}: no face box", file=sys.stderr)
+                continue
 
-        # Content-keyed reuse: SAM 2 runs at ~6x realtime, so a matte
-        # that already measures these exact bytes - seeded from this
-        # exact face box and these exact detector seeds at this exact
-        # rate - is served from disk.
-        # The serial loop stays serial (the generator and propagation
-        # share the GPU budget), but seen content is never re-measured.
-        new_file_name = f"{clip_id}_segmentation.json"
-        cached = _stored_segmentation_reusable(
-            out_dir_path / new_file_name, clip_path,
-            face_box, SEGMENT_SAMPLE_FPS, object_seeds)
-        if cached is not None:
-            print(f"Reusing {clip_path}: content unchanged "
-                  f"({cached['object_count']} objects)", file=sys.stderr)
-            reused.append(clip_id)
-            results.append({
-                "clip_id": clip_id,
-                "video_path": clip_path,
-                "segmentation_file": new_file_name,
-                "object_count": cached["object_count"],
-                "seed_note": cached["seed_note"],
-                "trigger": wanted[clip_id],
-                "reused": True,
-            })
-            continue
+            # Content-keyed reuse: SAM 2 runs at ~6x realtime, so a matte
+            # that already measures these exact bytes - seeded from this
+            # exact face box and these exact detector seeds at this exact
+            # rate - is served from disk.
+            # The serial loop stays serial (the generator and propagation
+            # share the GPU budget), but seen content is never re-measured.
+            new_file_name = f"{clip_id}_segmentation.json"
+            cached = _stored_segmentation_reusable(
+                out_dir_path / new_file_name, clip_path,
+                face_box, SEGMENT_SAMPLE_FPS, object_seeds)
+            if cached is not None:
+                print(f"Reusing {clip_path}: content unchanged "
+                      f"({cached['object_count']} objects)", file=sys.stderr)
+                reused.append(clip_id)
+                results.append({
+                    "clip_id": clip_id,
+                    "video_path": clip_path,
+                    "segmentation_file": new_file_name,
+                    "object_count": cached["object_count"],
+                    "seed_note": cached["seed_note"],
+                    "trigger": wanted[clip_id],
+                    "reused": True,
+                })
+                continue
 
-        print(f"Segmenting {clip_path}...", file=sys.stderr)
+            print(f"Segmenting {clip_path}...", file=sys.stderr)
+            try:
+                if segmenter is None:
+                    segmenter = get_segmenter()
+                if memory_scope is None:
+                    scope = _sam_model_memory_session()
+                    scope.__enter__()
+                    memory_scope = scope
+                with heavy_work_lock("SAM 2 clip segmentation",
+                                     "objects.segment:inference"):
+                    if not segmenter.run_active:
+                        segmenter.begin_run()
+                    seg_result = segmenter.segment_clip(
+                        clip_path, sample_fps=SEGMENT_SAMPLE_FPS,
+                        face_box=face_box, require_face=face_box is not None,
+                        seed_boxes=object_seeds)
+
+                # Save the detailed masks and metadata to output_dir
+                seg_result.save(str(out_dir_path))
+
+                # Rename output to use clip_id instead of stem to prevent collisions
+                stem = Path(clip_path).stem
+                old_file = out_dir_path / f"{stem}_segmentation.json"
+                new_file = out_dir_path / new_file_name
+                if old_file.exists() and old_file != new_file:
+                    os.rename(old_file, new_file)
+                _stamp_segmentation_identity(new_file, clip_path,
+                                              face_box, SEGMENT_SAMPLE_FPS,
+                                              object_seeds)
+                _stamp_segmentation_model_ids(new_file, clip_id)
+
+                # Add summary to step results
+                results.append({
+                    "clip_id": clip_id,
+                    "video_path": clip_path,
+                    "segmentation_file": new_file_name,
+                    "object_count": len(seg_result.objects),
+                    "seed_note": seg_result.seed_note,
+                    "trigger": wanted[clip_id],
+                })
+
+            except Exception as e:
+                print(f"ERROR: Failed to segment {clip_path}: {e}", file=sys.stderr)
+                if segmenter is None or not segmenter.run_active:
+                    if memory_scope is not None:
+                        memory_scope.__exit__(None, None, None)
+                        memory_scope = None
+
+            if (memory_scope is not None
+                    and memory_reservation_contended()):
+                try:
+                    with heavy_work_lock("SAM 2 model eviction",
+                                         "objects.segment:inference"):
+                        segmenter.end_run()
+                finally:
+                    memory_scope.__exit__(None, None, None)
+                    memory_scope = None
+
+    finally:
         try:
-            if segmenter is None:
-                segmenter = get_segmenter()
-            seg_result = segmenter.segment_clip(
-                clip_path, sample_fps=SEGMENT_SAMPLE_FPS,
-                face_box=face_box, require_face=face_box is not None,
-                seed_boxes=object_seeds)
-
-            # Save the detailed masks and metadata to output_dir
-            seg_result.save(str(out_dir_path))
-
-            # Rename output to use clip_id instead of stem to prevent collisions
-            stem = Path(clip_path).stem
-            old_file = out_dir_path / f"{stem}_segmentation.json"
-            new_file = out_dir_path / new_file_name
-            if old_file.exists() and old_file != new_file:
-                os.rename(old_file, new_file)
-            _stamp_segmentation_identity(new_file, clip_path,
-                                          face_box, SEGMENT_SAMPLE_FPS,
-                                          object_seeds)
-            _stamp_segmentation_model_ids(new_file, clip_id)
-
-            # Add summary to step results
-            results.append({
-                "clip_id": clip_id,
-                "video_path": clip_path,
-                "segmentation_file": new_file_name,
-                "object_count": len(seg_result.objects),
-                "seed_note": seg_result.seed_note,
-                "trigger": wanted[clip_id],
-            })
-
-        except Exception as e:
-            print(f"ERROR: Failed to segment {clip_path}: {e}", file=sys.stderr)
+            if segmenter is not None and segmenter.run_active:
+                with heavy_work_lock("SAM 2 model release",
+                                     "objects.segment:inference"):
+                    segmenter.end_run()
+        finally:
+            if memory_scope is not None:
+                memory_scope.__exit__(None, None, None)
 
     return {
         "object_segmentation": results,

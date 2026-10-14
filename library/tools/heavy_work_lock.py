@@ -309,6 +309,23 @@ def release_heavy_memory_reservation() -> None:
         _memory_reservation = None
 
 
+def memory_reservation_contended() -> bool:
+    """Whether another admitted waiter currently needs reserved RAM.
+
+    Model sessions call this between work units, after releasing their
+    inference admission. When a waiter needs RAM, the caller can unload its
+    model and release the reservation before that waiter is admitted.
+    Folded reservations cannot be yielded independently from their parent.
+    """
+    with _state_guard:
+        held = _memory_reservation
+        if held is None or not held.get("owned", True):
+            return False
+    return any(job["state"] == "waiting"
+               and job["demand"].get("ram_gb", 0) > 0
+               for job in _scheduler().jobs())
+
+
 def release_heavy_lock() -> None:
     """Release one acquisition made by this process or reentrant context."""
     global _held_state

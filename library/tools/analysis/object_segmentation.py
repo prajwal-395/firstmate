@@ -6,10 +6,14 @@ import numpy as np
 import tempfile
 import subprocess
 import os
+import contextlib
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from model_lifecycle import managed_model
+from library.tools.model_lifecycle import (
+    load_model,
+    managed_model,
+    resident_model,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -422,6 +426,40 @@ def find_match_cut_candidates(masks_a: SegmentationResult, masks_b: Segmentation
 
 class ObjectSegmenter:
     """Wrapper for SAM 2 video segmentation model using managed_model lifecycle."""
+
+    def begin_run(self):
+        """Start a SAM 2 model session inside its scheduler reservation."""
+        if getattr(self, "_run_model_scope", None) is None:
+            scope = resident_model("sam2", self._load_sam2)
+            scope.__enter__()
+            self._run_model_scope = scope
+
+    @property
+    def run_active(self):
+        return getattr(self, "_run_model_scope", None) is not None
+
+    def end_run(self):
+        """Release the run's SAM weights, including after a failed clip."""
+        scope = getattr(self, "_run_model_scope", None)
+        if scope is not None:
+            self._run_model_scope = None
+            scope.__exit__(None, None, None)
+
+    @staticmethod
+    def _load_sam2():
+        try:
+            from sam2.build_sam import (build_sam2_hf,
+                                        build_sam2_video_predictor_hf)
+            from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        except ImportError as exc:
+            raise ImportError("sam2 is not installed.") from exc
+        print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
+        predictor = build_sam2_video_predictor_hf(
+            SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))
+        generator = SAM2AutomaticMaskGenerator(
+            build_sam2_hf(SAM2_MODEL_ID,
+                          device=_resolve_device(GENERATOR_DEVICE)))
+        return predictor, generator
     
     def segment_clip(self, video_path: str, sample_fps: float = 2.0,
                        face_box=None, require_face: bool = False,
@@ -489,22 +527,6 @@ class ObjectSegmenter:
             normalized_box = None
         detector_seeds = check_seed_boxes(seed_boxes)
         
-        def _load_sam2():
-            try:
-                from sam2.build_sam import (build_sam2_hf,
-                                            build_sam2_video_predictor_hf)
-                from sam2.automatic_mask_generator import (
-                    SAM2AutomaticMaskGenerator)
-            except ImportError as exc:
-                raise ImportError("sam2 is not installed.") from exc
-            print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
-            predictor = build_sam2_video_predictor_hf(
-                SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))
-            generator = SAM2AutomaticMaskGenerator(
-                build_sam2_hf(SAM2_MODEL_ID,
-                              device=_resolve_device(GENERATOR_DEVICE)))
-            return predictor, generator
-
         # We need to extract frames to a temporary directory for SAM 2 predictor
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -530,7 +552,12 @@ class ObjectSegmenter:
             height, width = first_frame_img.shape[:2]
             resolution = (height, width)
             
-            with managed_model("sam2", _load_sam2) as (predictor, generator):
+            if self.run_active:
+                models = load_model("sam2", self._load_sam2)
+                model_scope = contextlib.nullcontext(models)
+            else:
+                model_scope = managed_model("sam2", self._load_sam2)
+            with model_scope as (predictor, generator):
                 # The frame the seeds are read from. Both paths prompt frame
                 # 0; only what the prompt IS differs.
                 inference_state = predictor.init_state(video_path=str(tmpdir_path))

@@ -101,6 +101,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # The executed measurement: the SAM 2 tracker the step segments
         # each triggered clip with.
         "library/tools/analysis/object_segmentation.py",
+        # The segmenter imports the resident SAM lifecycle shared with runs.
+        "library/tools/model_lifecycle.py",
         # Imported by step.py: the content identity a stored matte is
         # served from, so a fix here changes which mattes are reused.
         "library/tools/footage_identity.py",
@@ -662,6 +664,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/span_verification.py',
         'library/tools/step_ledger.py',
         'library/tools/analysis/object_segmentation.py',
+        # Object segmentation imports the resident SAM model lifecycle.
+        'library/tools/model_lifecycle.py',
         'library/tools/brief_reference.py',
         'library/tools/edit_algebra.py',
         'library/tools/reel_read.py',
@@ -1148,6 +1152,10 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/span_verification.py',
         'library/tools/step_ledger.py',
         'library/tools/analysis/object_segmentation.py',
+        # Object segmentation imports the shared resident SAM model
+        # lifecycle, so changes to its cache and session behavior affect
+        # selected mask measurements.
+        'library/tools/model_lifecycle.py',
         'library/tools/brief_reference.py',
         'library/tools/edit_algebra.py',
         'library/tools/reel_read.py',
@@ -1646,6 +1654,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/span_verification.py',
         'library/tools/step_ledger.py',
         'library/tools/analysis/object_segmentation.py',
+        # Object segmentation imports the resident SAM model lifecycle.
+        'library/tools/model_lifecycle.py',
         'library/tools/brief_reference.py',
         'library/tools/edit_algebra.py',
         'library/tools/reel_read.py',
@@ -2088,6 +2098,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # box that reaches the seeder, so a fix here changes the cached
         # face_boxes.
         "library/tools/analysis/object_segmentation.py",
+        # Object segmentation imports the resident SAM model lifecycle.
+        'library/tools/model_lifecycle.py',
         # Reads the versioned semantic records and their readiness status
         # before regional motion is composed into each cached index.
         "library/tools/semantic_profile_stream.py",

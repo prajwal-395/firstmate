@@ -445,13 +445,18 @@ def read_m3g(content_digest: str,
 def build_project_depth(project_folder: str,
                         clip_ids: list[str] | None = None,
                         root: Path | None = None) -> dict:
-    """M3g for every catalog source, one source at a time. Same reporting
-    shape as `attention_saliency.build_project_saliency`."""
+    """Build M3g only for explicitly named catalog clips.
+
+    A project-wide depth survey is expensive and must never be an implicit
+    consequence of omitting the selection.
+    """
+    if not clip_ids:
+        raise ValueError("depth build requires at least one named clip_id")
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     results, failed, seen = [], [], set()
     for clip in source_memory.load_catalog(project_folder):
         clip_id = clip.get("clip_id")
-        if clip_ids and clip_id not in clip_ids:
+        if clip_id not in clip_ids:
             continue
         path = clip.get("source_file") or clip.get("path") or ""
         digest, _ = source_memory.digest_for_clip(project_folder, clip,
@@ -483,7 +488,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command")
     p_build = sub.add_parser("build", help="M3g for a project's catalog")
     p_build.add_argument("project")
-    p_build.add_argument("--clip", action="append", default=None)
+    p_build.add_argument("--clip", action="append", required=True)
     p_build.add_argument("--memory-root")
     p_status = sub.add_parser("status", help="which sources carry M3g")
     p_status.add_argument("project")

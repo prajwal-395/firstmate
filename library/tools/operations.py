@@ -2224,6 +2224,29 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="segment_triggered_clips",
         produces=("object_segmentation", "matte_trigger"),
         consumes=("clip_catalog",),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="model_memory",
+                resources=(("ram_gb", 2),),
+                lock_sites=(
+                    "library.steps.step_1_06_object_segmentation.step:"
+                    "_sam_model_memory_session",),
+                why="Account for resident SAM 2 weights while this batch "
+                    "waits between selected clips; yield them to queued RAM "
+                    "work at clip boundaries.",
+                resource_basis=("2 GB exceeds the 1.3 GiB process peak "
+                                "measured on a four-frame FI-01 window.")),
+            ExecutionPhase(
+                name="inference",
+                resources=(("cpu", 2), ("gpu", 1), ("disk", 1)),
+                lock_sites=(
+                    "library.steps.step_1_06_object_segmentation.step:run_step",),
+                why="Admit decode, SAM 2 inference, and scratch frame I/O "
+                    "for one named clip at a time.",
+                resource_basis="Two CPU cores and one GPU tenant bound the "
+                               "serial clip pass; scratch frames use one "
+                               "disk unit."),
+        )),
         # The plain step.py case: the whole gathered dict under `data`.
         # Its body was `main()` alone until its output had to be
         # recorded under a capability id (`capability_outputs`).

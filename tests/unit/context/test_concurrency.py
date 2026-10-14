@@ -828,6 +828,47 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
     assert scheduler.jobs() == []
 
 
+def test_sam_memory_session_is_scheduler_owned_and_has_a_ram_free_admission():
+    memory = resource_scheduler.demand_for("objects.segment:model_memory")
+    inference = resource_scheduler.demand_for("objects.segment:inference")
+    assert memory == {"ram_gb": 2}
+    assert inference["gpu"] == 1
+    assert "ram_gb" not in inference
+
+
+def test_model_memory_reservation_detects_a_waiting_ram_job(monkeypatch):
+    from library.tools import heavy_work_lock as lock
+
+    class SchedulerWithWaiter:
+        def jobs(self):
+            return [
+                {"state": "waiting", "demand": {"ram_gb": 8}},
+                {"state": "waiting", "demand": {"gpu": 1}},
+            ]
+
+    monkeypatch.setattr(lock, "_memory_reservation",
+                        {"owned": True, "token": "sam"})
+    monkeypatch.setattr(lock, "_scheduler", SchedulerWithWaiter)
+    try:
+        assert lock.memory_reservation_contended()
+    finally:
+        monkeypatch.setattr(lock, "_memory_reservation", None)
+
+
+def test_folded_model_reservation_cannot_be_yielded_independently(monkeypatch):
+    from library.tools import heavy_work_lock as lock
+
+    def unexpected_scheduler():
+        raise AssertionError("a folded reservation cannot be yielded")
+
+    monkeypatch.setattr(lock, "_memory_reservation", {"owned": False})
+    monkeypatch.setattr(lock, "_scheduler", unexpected_scheduler)
+    try:
+        assert not lock.memory_reservation_contended()
+    finally:
+        monkeypatch.setattr(lock, "_memory_reservation", None)
+
+
 def test_memory_reservation_must_be_outermost_and_ram_only(
         scheduler, monkeypatch):
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
