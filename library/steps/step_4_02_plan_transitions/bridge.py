@@ -161,6 +161,28 @@ def main():
     direction_by_position = _continuity.direction_cells_for_cuts(
         spine_blocks, direction_indices)
 
+    # VI-18 pair scoring is strictly measurement-backed. Index producers may
+    # supply named continuity measurements; absent dimensions remain absent.
+    from library.tools.continuity_feasibility import score_shot_pair
+    continuity_by_position = {}
+    continuity_policy = data.get("continuity_policy", {}) or {}
+    for outgoing, incoming in zip(spine_blocks, spine_blocks[1:]):
+        left_id, right_id = block_clip_id(outgoing), block_clip_id(incoming)
+        left_index = direction_indices.get(str(left_id), {})
+        right_index = direction_indices.get(str(right_id), {})
+        left = dict(left_index.get("continuity_measurements", {}) or {})
+        right = dict(right_index.get("continuity_measurements", {}) or {})
+        left_side, _ = _continuity._block_subject_reading(
+            outgoing, left_index)
+        right_side, _ = _continuity._block_subject_reading(
+            incoming, right_index)
+        if left_side is not None:
+            left["screen_direction"] = left_side
+        if right_side is not None:
+            right["screen_direction"] = right_side
+        continuity_by_position[str(incoming.get("position"))] = score_shot_pair(
+            left, right, continuity_policy)
+
     # Step 3.03 is asked to judge how each cut READS - Check 7 of its
     # handoff, "smooth | acceptable | jarring | broken" - and its answer
     # used to go nowhere: `cut_decisions` appeared once in the whole
@@ -254,6 +276,9 @@ def main():
             ),
             "screen_direction": direction_by_position.get(
                 str(position), "unmeasured"),
+            "continuity_score": json.dumps(
+                continuity_by_position.get(str(position), {}),
+                sort_keys=True, separators=(",", ":")),
         })
 
     # The end of the piece (rung 7, TR3.1): one row addressed "end",
@@ -285,7 +310,7 @@ def main():
             "incoming_footage": "nothing follows",
         })
 
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage", "jl_placement", "screen_direction"], cut_rows)
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage", "jl_placement", "screen_direction", "continuity_score"], cut_rows)
 
     # The four derived columns are DEFINED in this step's handoff.md
     # ("Context data available"), not shipped beside the table as data.

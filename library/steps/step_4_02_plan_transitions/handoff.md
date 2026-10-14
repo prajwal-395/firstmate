@@ -285,6 +285,12 @@ it measures; none of them says what to conclude.
   like, so the cell concludes nothing: weigh it when choosing a
   directional transition, and leave the intent question to the
   reviewer. The measurement is context, not a decision.
+- `continuity_score`: **Pairwise scores for the measured axes**
+  `screen_direction`, `scale`, `light`, `color`, `motion`, and `audio`.
+  Each axis includes its measurements, score, and measured/unmeasured
+  status. Missing evidence contributes no score; the overall score is
+  absent when no axis can be compared. Tolerances come from the attached
+  `continuity_policy`; the column does not itself recommend a cut.
 
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.

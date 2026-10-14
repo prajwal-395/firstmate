@@ -389,7 +389,7 @@ CUTS_HEADERS = [
     "narrative_verdict", "verdict_note",
     "beat_near_cut", "outgoing_motion", "incoming_motion",
     "outgoing_footage", "incoming_footage",
-    "jl_placement", "screen_direction",
+    "jl_placement", "screen_direction", "continuity_score",
 ]
 
 

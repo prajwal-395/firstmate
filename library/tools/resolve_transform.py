@@ -289,3 +289,11 @@ def pan_tilt_for_centre(clip_w: float, clip_h: float,
                             clip_w, frame_w, base_scale, draw_gain),
             units_for_shift(float(frame_h) / 2.0 - float(centre_y),
                             clip_h, frame_h, base_scale, draw_gain))
+
+
+def feasibility_from_measurements(measurements: dict,
+                                  policy: dict | None = None) -> dict:
+    """Project measured stabilize/grade feasibility for transform readers."""
+    from library.tools.continuity_feasibility import transformation_feasibility
+
+    return transformation_feasibility(measurements, policy)
