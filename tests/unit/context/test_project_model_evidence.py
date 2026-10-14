@@ -482,6 +482,110 @@ def test_verified_spans_carry_their_verdicts(fixture_project):
     assert any(o["payload"].get("verified") is True for o in candidates)
     assert any((o["payload"].get("verdicts") or [])
                for o in candidates)
+    events = model["events"]
+    event = next(item for item in events
+                 if item["id"] == f"event-{candidates[0]['id']}")
+    assert event["kind"] == "hand_near_mouth"
+    assert event["status"] == "verified"
+    assert event["evidence_ids"] == [candidates[0]["id"]]
+
+
+def test_one_frame_m7_candidate_never_becomes_verified(fixture_project):
+    fixture = fixture_project
+    _write(fixture["memory"] / D1 / "events.json", {
+        "content_digest": D1,
+        "predicates": {"speaking": {"spans": []}, "on_screen": {"spans": []}},
+        "candidates": {"hand_raise": {"spans": [
+            {"start": 1.0, "end": 1.5, "frames": [{"t": 1.0}],
+             "face_track": "face_001"}]}}})
+    _write(fixture["memory"] / D1 / "verdicts.json", {
+        "content_digest": D1,
+        "verdicts": {"one": {"statement": "hand raised", "answer": True,
+                                "frames": [1.0]}}})
+    model, _report = _migrate(fixture)
+    assert model["events"][0]["status"] == "candidate"
+
+
+def test_project_model_action_sequence_keeps_contacts_and_state_changes(
+        fixture_project):
+    # Synthetic proxy sequence: source measurements below stand in for a
+    # cup-contact, lift and set-down sequence; they make no footage claim.
+    model, _report = _migrate(fixture_project)
+    from library.tools.project_model import validate_project_model
+
+    person_id = next(item["id"] for item in model["entities"]
+                     if item["kind"] == "person")
+    cup_id = "object-clip_001-obj_1"
+    sample_ids = [item["id"] for item in model["observations"]
+                  if item["modality"] == "object_track_sample"]
+    contact_id = next(item["id"] for item in model["observations"]
+                      if item["modality"] == "event_candidate")
+    assert sample_ids and any(item["id"] == cup_id for item in model["entities"])
+
+    model["events"] = [
+        {"id": "event-hand-contacts-cup", "interval": {
+            "clock_id": f"clock-{D1}", "start": 1000, "end": 1500},
+         "kind": "contact", "participant_ids": [person_id, cup_id],
+         "status": "candidate", "certainty": "inferred",
+         "evidence_ids": [contact_id], "confidence": None},
+        {"id": "event-cup-lifted", "interval": {
+            "clock_id": f"clock-{D1}", "start": 1500, "end": 2500},
+         "kind": "object_state_change", "participant_ids": [person_id, cup_id],
+         "status": "candidate", "certainty": "inferred",
+         "evidence_ids": [sample_ids[0]], "confidence": None,
+         "state_changes": [{"entity_id": cup_id, "property": "support",
+                             "from": "surface", "to": "held",
+                             "evidence_ids": [sample_ids[0]]}]},
+        {"id": "event-cup-set-down", "interval": {
+            "clock_id": f"clock-{D1}", "start": 2500, "end": 3500},
+         "kind": "object_state_change", "participant_ids": [person_id, cup_id],
+         "status": "candidate", "certainty": "inferred",
+         "evidence_ids": [sample_ids[1]], "confidence": None,
+         "state_changes": [{"entity_id": cup_id, "property": "support",
+                             "from": "held", "to": "surface",
+                             "evidence_ids": [sample_ids[1]]}]},
+    ]
+    validate_project_model(model)
+
+
+def test_vi05_track_motion_emits_candidate_state_change_with_two_samples(
+        fixture_project):
+    seg_path = (ProjectLayout(str(fixture_project["project"]))
+                .step_dir("object_segmentation")
+                / "clip_001_segmentation.json")
+    document = json.loads(seg_path.read_text(encoding="utf-8"))
+    obj = document["objects"][0]
+    obj["bboxes"]["2"] = [30, 10, 100, 100]
+    obj["bboxes"]["3"] = [30, 10, 100, 100]
+    _write(seg_path, document)
+    model, _report = _migrate(fixture_project)
+    event = next(item for item in model["events"]
+                 if item["kind"] == "object_position_change")
+    assert event["status"] == "candidate"
+    assert event["certainty"] == "measured"
+    assert len(event["evidence_ids"]) == 2
+    change = event["state_changes"][0]
+    assert change["entity_id"] == "object-clip_001-obj_1"
+    assert change["from"] != change["to"]
+    assert change["evidence_ids"] == event["evidence_ids"]
+
+
+def test_m10_relation_candidates_keep_two_participants_and_evidence(
+        fixture_project):
+    fixture = fixture_project
+    _write_m6m7m8m10(fixture["memory"], D2)
+    relation_path = fixture["memory"] / D2 / "relationships.json"
+    relation_doc = json.loads(relation_path.read_text(encoding="utf-8"))
+    relation_doc["relationships"]["pointing"]["spans"] = [{
+        "owners": ["face_001", "face_002"], "start": 3.0, "end": 4.0}]
+    _write(relation_path, relation_doc)
+    model, _report = _migrate(fixture)
+    relation = next(item for item in model["relations"]
+                    if item["predicate"] == "pointing")
+    assert relation["status"] == "candidate"
+    assert relation["subject_id"] != relation["object_id"]
+    assert len(relation["evidence_ids"]) == 1
+    validate_project_model(model)
 
 
 def test_sec_to_ticks_refuses_empty_intervals():

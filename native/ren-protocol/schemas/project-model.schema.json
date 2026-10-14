@@ -699,6 +699,12 @@
             "type": "string"
           }
         },
+        "state_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventStateChange"
+          }
+        },
         "status": {
           "$ref": "#/$defs/VerificationStatus"
         }
@@ -711,6 +717,32 @@
         "participant_ids",
         "status",
         "certainty",
+        "evidence_ids"
+      ]
+    },
+    "EventStateChange": {
+      "description": "A measured or inferred property transition belonging to an event.",
+      "type": "object",
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "from": true,
+        "property": {
+          "type": "string"
+        },
+        "to": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "entity_id",
+        "property",
         "evidence_ids"
       ]
     },

@@ -246,6 +246,19 @@ pub struct Event {
     pub certainty: CertaintyState,
     pub evidence_ids: Vec<ObservationId>,
     pub confidence: Option<TypedConfidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state_changes: Vec<EventStateChange>,
+}
+
+/// A measured or inferred property transition belonging to an event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EventStateChange {
+    pub entity_id: EntityId,
+    pub property: String,
+    pub from: Option<Value>,
+    pub to: Option<Value>,
+    pub evidence_ids: Vec<ObservationId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -958,6 +971,15 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
         }
     }
     for relation in &model.relations {
+        if !valid_interval(&relation.interval) {
+            return Err("relation interval must be non-empty and half-open".into());
+        }
+        if !entity_ids.is_empty()
+            && (!entity_ids.contains(&relation.subject_id)
+                || !entity_ids.contains(&relation.object_id))
+        {
+            return Err("relation references unknown participant".into());
+        }
         if relation.status == Some(VerificationStatus::Verified) && relation.evidence_ids.is_empty()
         {
             return Err("verified relations require evidence".into());
@@ -983,6 +1005,20 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
         }
         if event.status == VerificationStatus::Verified && event.evidence_ids.is_empty() {
             return Err("verified events require evidence".into());
+        }
+        for change in &event.state_changes {
+            if !entity_ids.is_empty() && !entity_ids.contains(&change.entity_id) {
+                return Err("event state change references unknown entity".into());
+            }
+            if change.property.trim().is_empty() {
+                return Err("event state change requires a property".into());
+            }
+            if change.evidence_ids.is_empty() {
+                return Err("event state change requires evidence".into());
+            }
+            if !obs_ids.is_empty() && change.evidence_ids.iter().any(|id| !obs_ids.contains(id)) {
+                return Err("event state change references unknown observation".into());
+            }
         }
         if let Some(score) = &event.confidence {
             validate_typed_confidence(score)?;

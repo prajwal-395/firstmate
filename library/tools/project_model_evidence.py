@@ -78,6 +78,7 @@ import copy
 import json
 import math
 from dataclasses import replace
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -252,6 +253,7 @@ class _Builder:
             "streams": [],
             "entities": [],
             "observations": [],
+            "events": [],
             "identity_links": [],
             "masks": [],
             "object_classes": [],
@@ -363,7 +365,7 @@ class _Builder:
 
 def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
                     clip_ids: list[str], duration: float | None,
-                    root: Path | None) -> None:
+                    root: Path | None, roster: list[dict]) -> None:
     """Migrate every measured lane of one source digest."""
     asset_id = _asset_id(digest)
     clock_id = _clock_id(digest)
@@ -447,9 +449,10 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
     _migrate_expressions(builder, digest, asset_id, clock_id, root)
     _migrate_scenes(builder, digest, asset_id, clock_id, duration, root)
     _migrate_sound(builder, digest, asset_id, clock_id, duration, root)
-    _migrate_events(builder, digest, asset_id, clock_id, duration, root)
+    _migrate_events(builder, digest, asset_id, clock_id, duration, root,
+                    roster)
     _migrate_relationships(builder, digest, asset_id, clock_id, duration,
-                           root)
+                           root, roster)
     _migrate_multicam(builder, digest, asset_id, clock_id, duration, root)
     _migrate_saliency(builder, digest, asset_id, clock_id, root)
 
@@ -1450,7 +1453,7 @@ def _m7_slot_fresh(digest: str, root: Path | None) -> bool:
 
 def _migrate_events(builder: _Builder, digest: str, asset_id: str,
                     clock_id: str, duration: float | None,
-                    root: Path | None) -> None:
+                    root: Path | None, roster: list[dict]) -> None:
     m7 = event_spans.read_m7(digest, root)
     if m7 is None:
         builder.notes.append(f"{digest[:12]}: M7 absent; no event spans")
@@ -1550,7 +1553,10 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
                 None, "library.tools.event_spans", evidence=native)
     for kind, span in candidate_spans:
         matched = _verdicts_for_span(span, verdicts)
-        verified = any(_is_affirmative(v.get("answer")) for v in matched)
+        selected_frames = span_verification.select_frames(span)
+        verified = (len({round(float(frame["t"]), 3)
+                         for frame in selected_frames if "t" in frame}) >= 2
+                    and any(_is_affirmative(v.get("answer")) for v in matched))
         native = None
         ticks = sec_to_ticks(span.get("start"), span.get("end"))
         if ticks is not None:
@@ -1570,7 +1576,7 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
             native = replace(native, freshness=freshness)
-        builder.observation(
+        observation_id = builder.observation(
             digest, "m7", asset_id, clock_id,
             span.get("start"), span.get("end"), "event_candidate",
             {"predicate": kind,
@@ -1578,6 +1584,25 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
                  "verdicts": matched,
                  "verified": verified},
             None, "library.tools.event_spans", evidence=native)
+        # M7 candidates are first-class events, but remain candidates unless
+        # a matched M8 verdict explicitly confirms them. The observation is
+        # the evidence link; an unmatched verdict cannot promote an event.
+        if observation_id is not None:
+            face_track = span.get("face_track")
+            participant = (_face_person(roster, digest, str(face_track))
+                           if face_track else None)
+            builder.model["events"].append({
+                "id": f"event-{observation_id}",
+                "interval": {"clock_id": clock_id,
+                             "start": math.floor(float(span["start"]) * TICKS_PER_SECOND),
+                             "end": math.ceil(float(span["end"]) * TICKS_PER_SECOND)},
+                "kind": str(kind),
+                "participant_ids": [participant] if participant else [],
+                "status": "verified" if verified else "candidate",
+                "certainty": "inferred",
+                "evidence_ids": [observation_id],
+                "confidence": None,
+            })
     unmatched = _unmatched_verdicts(candidate_spans, verdicts)
     if unmatched:
         builder.notes.append(
@@ -1652,7 +1677,7 @@ def _unmatched_verdicts(candidate_spans: list[tuple[str, dict]],
 
 def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
                            clock_id: str, duration: float | None,
-                           root: Path | None) -> None:
+                           root: Path | None, roster: list[dict]) -> None:
     from library.tools import footage_analysis
     from library.tools.relationships import M10_METHOD
 
@@ -1723,12 +1748,39 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
                     coverage=evidence_contract.CoverageKind.COMPLETE,
                     coverage_samples=1, coverage_sample_rate_hz=0.0)
                 native = replace(native, freshness=freshness)
-            builder.observation(
+            observation_id = builder.observation(
                 digest, "m10", asset_id, clock_id,
                 span.get("start"), span.get("end"),
                 "relationship_candidate",
                 {"relation": name, "owners": span.get("owners")},
                 None, "library.tools.relationships", evidence=native)
+            owners = span.get("owners") or []
+            participant_ids = [
+                person_id for owner in owners
+                if isinstance(owner, str)
+                and (person_id := _face_person(roster, digest, owner)) is not None
+            ]
+            # M10's owner list is only a relation when it identifies two
+            # distinct people. Never invent an object target from a hand or
+            # a single owner; retain those measurements as candidates above.
+            if (observation_id is not None and len(participant_ids) == 2
+                    and ticks is not None):
+                builder.model["relations"].append({
+                    "id": f"relation-{observation_id}",
+                    "subject_id": participant_ids[0],
+                    "predicate": ("two_hand_contact"
+                                  if name == "holding"
+                                  and participant_ids[0] == participant_ids[1]
+                                  else str(name)),
+                    "object_id": participant_ids[1],
+                    "interval": {"clock_id": clock_id,
+                                 "start": ticks[0], "end": ticks[1]},
+                    "confidence": None,
+                    "provenance_id": _prov_id(digest, "m10"),
+                    "evidence_ids": [observation_id],
+                    "status": "candidate",
+                    "certainty": "inferred",
+                })
 
 
 def _migrate_multicam(builder: _Builder, digest: str, asset_id: str,
@@ -2304,6 +2356,58 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 digest, "segmentation",
                 "library.steps.step_1_06_object_segmentation"),
         })
+
+
+def _derive_track_motion_events(builder: _Builder) -> None:
+    """Turn consecutive VI-05 box measurements into candidate state changes.
+
+    Only contiguous samples are compared. Every event cites both visual
+    samples and remains a candidate because sparse tracks cannot establish
+    a complete action.
+    """
+    by_track: dict[str, list[dict]] = {}
+    for item in builder.model["observations"]:
+        if item["modality"] != "object_track_sample":
+            continue
+        track_id = item["payload"].get("track_id")
+        if track_id:
+            by_track.setdefault(str(track_id), []).append(item)
+    entity_by_track = {track["id"]: track["entity_id"]
+                       for track in builder.model["tracks"]}
+    for track_id, samples in by_track.items():
+        samples.sort(key=lambda item: item["interval"]["start"])
+        entity_id = entity_by_track.get(track_id)
+        if entity_id is None:
+            continue
+        for before, after in pairwise(samples):
+            before_interval, after_interval = before["interval"], after["interval"]
+            before_box = before["payload"].get("bbox_pixels")
+            after_box = after["payload"].get("bbox_pixels")
+            if (before_interval["clock_id"] != after_interval["clock_id"]
+                    or before_interval["end"] != after_interval["start"]
+                    or before_box is None or after_box is None
+                    or before_box == after_box):
+                continue
+            evidence_ids = [before["id"], after["id"]]
+            builder.model["events"].append({
+                "id": f"event-motion-{before['id']}-{after['id']}",
+                "interval": {"clock_id": before_interval["clock_id"],
+                             "start": before_interval["start"],
+                             "end": after_interval["end"]},
+                "kind": "object_position_change",
+                "participant_ids": [entity_id],
+                "status": "candidate",
+                "certainty": "measured",
+                "evidence_ids": evidence_ids,
+                "confidence": None,
+                "state_changes": [{
+                    "entity_id": entity_id,
+                    "property": "bbox_pixels",
+                    "from": before_box,
+                    "to": after_box,
+                    "evidence_ids": evidence_ids,
+                }],
+            })
 
 
 REGION_TRACK_PRODUCER = "library.tools.person_regions"
@@ -2924,7 +3028,7 @@ def migrate_project_evidence(project_folder: str, *,
                   first.get("file_path") or "")
         m0 = source_memory.read_m0(digest, root)
         duration = (m0 or {}).get("duration_seconds")
-        _migrate_digest(builder, digest, uri, clip_ids, duration, root)
+        _migrate_digest(builder, digest, uri, clip_ids, duration, root, roster)
         _migrate_m3_frames(builder, digest, _asset_id(digest),
                            _clock_id(digest), root)
     for digest in seen:
@@ -2946,6 +3050,7 @@ def migrate_project_evidence(project_folder: str, *,
     for clip_id, digest in clip_digest.items():
         _migrate_segmentation(builder, project_folder, clip_id, digest,
                               roster, root)
+    _derive_track_motion_events(builder)
     validate_project_model(builder.model)
     report = {
         "project": str(project_folder),
@@ -2954,7 +3059,7 @@ def migrate_project_evidence(project_folder: str, *,
         "counts": {k: len(builder.model[k]) for k in
                    ("assets", "streams", "clocks", "entities",
                     "observations", "identity_links", "masks",
-                    "object_classes", "tracks", "relations")},
+                    "object_classes", "tracks", "events", "relations")},
         "dropped": builder.dropped,
         "notes": builder.notes,
     }

@@ -131,6 +131,10 @@ def validate_project_model(model: dict[str, Any]) -> None:
         if scope is not None and scope["start"] >= scope["end"]:
             raise ValueError("identity link scope must be a non-empty half-open interval")
     for relation in model.get("relations", []):
+        if relation["interval"]["start"] >= relation["interval"]["end"]:
+            raise ValueError("relation intervals must be non-empty and half-open")
+        if relation["subject_id"] not in entity_ids or relation["object_id"] not in entity_ids:
+            raise ValueError("relation references unknown participant")
         if relation.get("status") == "verified" and not relation.get("evidence_ids"):
             raise ValueError("verified relations require evidence")
         if not set(relation.get("evidence_ids", [])) <= observation_ids:
@@ -146,6 +150,15 @@ def validate_project_model(model: dict[str, Any]) -> None:
             raise ValueError("event references unknown observations")
         if not set(event.get("participant_ids", [])) <= entity_ids:
             raise ValueError("event references unknown participants")
+        for change in event.get("state_changes", []):
+            if change.get("entity_id") not in entity_ids:
+                raise ValueError("event state change references unknown entity")
+            if not str(change.get("property", "")).strip():
+                raise ValueError("event state change requires a property")
+            if not change.get("evidence_ids"):
+                raise ValueError("event state change requires evidence")
+            if not set(change["evidence_ids"]) <= observation_ids:
+                raise ValueError("event state change references unknown observation")
     for interpretation in model.get("interpretations", []):
         if interpretation["certainty"] != "interpreted":
             raise ValueError("interpretation certainty must be interpreted")

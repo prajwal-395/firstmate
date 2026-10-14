@@ -46,7 +46,9 @@ fn typed_events_queries_and_transforms_round_trip_without_implied_sync() {
     model["events"] = serde_json::json!([{
         "id":"event-1", "interval":{"clock_id":"clock-source","start":1,"end":10},
         "kind":"picking_up", "participant_ids":["person-1"], "status":"candidate",
-        "certainty":"inferred", "evidence_ids":["obs-1"], "confidence":null
+        "certainty":"inferred", "evidence_ids":["obs-1"], "confidence":null,
+        "state_changes":[{"entity_id":"person-1","property":"held_object",
+            "from":null,"to":"cup","evidence_ids":["obs-1"]}]
     }]);
     model["interpretations"] = serde_json::json!([{
         "id":"interpretation-1", "kind":"demonstration", "author":"fixture-model",
@@ -71,6 +73,7 @@ fn typed_events_queries_and_transforms_round_trip_without_implied_sync() {
         decoded.events[0].status,
         ren_protocol::project_model::VerificationStatus::Candidate
     );
+    assert_eq!(decoded.events[0].state_changes.len(), 1);
     assert_eq!(decoded.query_results.len(), 4);
     assert_eq!(decoded.streams[0].clock_id.0, "clock-source");
     assert!(decoded.time_transforms[0].segments[0].uncertainty_ticks > 0);
