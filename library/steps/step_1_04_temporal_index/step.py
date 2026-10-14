@@ -2145,7 +2145,9 @@ def write_sound_memory(index: dict, video_path: str = None,
         digest, str(path),
         "measured" if measured else "unmeasured",
         events, method, root=root,
-        audio_classification=audio_classification)
+        audio_classification=audio_classification,
+        duration_seconds=(index.get("duration")
+                          if isinstance(index, dict) else None))
 
 
 #: Keys this step wrote while it ran its own 5 Hz Apple Vision pass.

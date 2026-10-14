@@ -53,9 +53,9 @@ M3f      `region_stats.json`          luma, colour, skin, sharpness `library/too
 M4       `scenes.json`                scene observations (VLM) +    `library/tools/
                                        ffmpeg scene boundaries       analysis/
                                                                 vision_pipeline_v3.py`
-M5       `sound.json`                 sound-event labels (PANNs)    `library/steps/
-                                                                step_1_04_temporal_index/
-                                                                step.py`
+M5       `sound.json`                 environmental sound events   `library/steps/
+                                      and music interval evidence   step_1_04_temporal_index/
+                                                                    + step 2.06`
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
 M7       `events.json`                DERIVED per-person spans      `library/tools/
                                        (speaking, on_screen)         event_spans.py`
@@ -976,7 +976,8 @@ def read_scenes(content_digest: str,
 def write_sound(content_digest: str, source_file: str, status: str,
                 sound_events: list, method: str,
                 root: Optional[Path] = None,
-                audio_classification: dict = None) -> None:
+                audio_classification: dict = None,
+                duration_seconds: float = None) -> None:
     """M5 `sound.json`: measured PANNs sound-event labels.
 
     `sound_events` is the `[{label, start, end, confidence}]` list the
@@ -998,6 +999,7 @@ def write_sound(content_digest: str, source_file: str, status: str,
                 and not str(existing.get("method") or "").startswith(
                     "unmeasured")):
             return
+    existing = _load_json(path)
     record = {
         "content_digest": content_digest,
         "source_file": os.path.abspath(source_file),
@@ -1007,6 +1009,94 @@ def write_sound(content_digest: str, source_file: str, status: str,
     }
     if audio_classification is not None:
         record["audio_classification"] = audio_classification
+    elif isinstance(existing, dict) and "audio_classification" in existing:
+        record["audio_classification"] = existing["audio_classification"]
+    if isinstance(existing, dict):
+        for key in ("music_interval_evidence", "music_coverage",
+                    "music_method", "music_status"):
+            if key in existing:
+                record[key] = existing[key]
+    intervals, coverage = _environmental_sound_intervals(
+        sound_events, method, duration_seconds)
+    record["sound_interval_evidence"] = intervals
+    record["sound_coverage"] = coverage
+    write_json(path, record)
+
+
+def _environmental_sound_intervals(events: list, method: str,
+                                   duration_seconds: float = None
+                                   ) -> tuple[list, dict]:
+    """M5 intervals retain the PANNs method, resolution and source coverage."""
+    measured = bool(method and not method.startswith("unmeasured"))
+    try:
+        duration = (max(0.0, float(duration_seconds))
+                    if duration_seconds is not None else None)
+    except (TypeError, ValueError):
+        duration = None
+    coverage = {
+        "kind": "complete" if measured and duration is not None else "unavailable",
+        "start_seconds": 0.0 if measured and duration is not None else None,
+        "end_seconds": duration,
+        "duration_seconds": duration,
+    }
+    if not measured:
+        return [], coverage
+    intervals = []
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        try:
+            start, end = float(event["start"]), float(event["end"])
+            label = str(event["label"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if start < 0 or end <= start or not label:
+            continue
+        if duration is not None and end > duration + 0.01:
+            continue
+        row = {
+            "record_type": "interval",
+            "domain": "environmental_audio",
+            "kind": "environmental_sound_event",
+            "label": label,
+            "interval_semantics": "span",
+            "start_seconds": round(start, 3),
+            "end_seconds": round(end, 3),
+            "evidence_type": "measurement",
+            "certainty_state": "measured",
+            "method": method,
+            "uncertainty": {
+                "kind": "resolution_bound",
+                "boundary_seconds": 0.01,
+            },
+            "coverage": dict(coverage),
+        }
+        confidence = event.get("confidence")
+        if isinstance(confidence, (int, float)):
+            row["confidence"] = float(confidence)
+        intervals.append(row)
+    return intervals, coverage
+
+
+def write_music_evidence(content_digest: str, source_file: str,
+                         intervals: list, coverage: dict, method: str,
+                         status: str = "measured",
+                         root: Optional[Path] = None) -> None:
+    """Add the step 2.06 interval lane to M5 without replacing sound data."""
+    path = source_dir(content_digest, root) / SLOT_SOUND
+    record = _load_json(path)
+    if not isinstance(record, dict):
+        record = {
+            "content_digest": content_digest,
+            "source_file": os.path.abspath(source_file),
+            "status": status,
+            "sound_events": [],
+            "method": "unmeasured: environmental events not analyzed",
+        }
+    record["music_interval_evidence"] = intervals
+    record["music_coverage"] = coverage
+    record["music_method"] = method
+    record["music_status"] = status
     write_json(path, record)
 
 

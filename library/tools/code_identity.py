@@ -2500,6 +2500,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # never covers it - the step stamps its own cache with this hash
         # instead (finding 8, execution-frontier report 2026-09-24).
         "library/tools/analysis/music_pipeline.py",
+        # Cached step output now includes typed intervals and its source
+        # memory sidecar, so both serializers participate in cache identity.
+        "library/tools/" "audio_interval_evidence.py",
+        "library/tools/source_memory.py",
     ),
 }
 

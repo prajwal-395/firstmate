@@ -76,6 +76,30 @@ def _audio_content_digest(track_path: str) -> str:
     return digest.hexdigest()
 
 
+def _persist_music_evidence(analysis: dict, track_path: str) -> None:
+    """Write typed beat/structure intervals into the source's M5 record."""
+    try:
+        from library.tools import audio_interval_evidence, footage_identity
+        from library.tools import source_memory
+
+        fingerprint = footage_identity.fingerprint(track_path)
+        intervals, coverage = audio_interval_evidence.music_interval_evidence(
+            analysis)
+        tempo = analysis.get("tempo") or {}
+        section = analysis.get("structure") or {}
+        method = "; ".join(dict.fromkeys(
+            str(value) for value in (tempo.get("method"),
+                                     section.get("method")) if value))
+        source_memory.write_music_evidence(
+            fingerprint["content_digest"], track_path, intervals, coverage,
+            method or "unknown",
+            status="measured" if analysis.get("available") else "unavailable",
+            root=source_memory.memory_root())
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        print(f"Music interval evidence could not be stored: {exc}",
+              file=sys.stderr)
+
+
 def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
     """Analyse the selected track for beat grid, BPM, key and structure.
 
@@ -141,6 +165,7 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
                 print(f"Music analysis already exists for {os.path.basename(track_path)}, "
                       f"reusing cached result", file=sys.stderr)
                 existing["available"] = True
+                _persist_music_evidence(existing, track_path)
                 return {"music_analysis": existing}
             elif existing.get("file") == track_path:
                 method_matches = (method_hash and
@@ -183,10 +208,12 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
 
     try:
         result = subprocess.run(
-            [sys.executable, MUSIC_PIPELINE, track_path,
-             "--output-dir", output_dir],
+            [sys.executable, "-m", "library.tools.heavy_work_lock", "run",
+             "--owner", "vep-vi10", "--", sys.executable, MUSIC_PIPELINE,
+             track_path, "--output-dir", output_dir, "--skip-stems"],
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
+            cwd=PILOT_ROOT,
             # allin1's section grid separates stems on CPU (~85 s for a
             # 200 s track) on top of the beat/key/structure passes.
             timeout=600,
@@ -234,6 +261,7 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
                         json.dump(analysis, f, indent=2)
                 except OSError:
                     pass
+            _persist_music_evidence(analysis, track_path)
             # BPM lives under `tempo`, not at the top level - this line
             # read analysis['bpm'] and printed "BPM=?" on every run.
             _tempo = analysis.get("tempo") or {}
