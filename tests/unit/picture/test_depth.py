@@ -19,7 +19,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from library.tools import behind_subject, depth, footage_identity, source_memory
+from library.tools import (
+    behind_subject,
+    depth,
+    footage_identity,
+    source_memory,
+    spatial_geometry,
+)
 from library.tools import person_regions as pr
 
 GRID = (32, 18)
@@ -116,6 +122,33 @@ def test_a_constant_map_is_a_broken_estimate_not_a_flat_room():
         depth.normalize_depth(np.full((2, 2), 7.0))
 
 
+def test_depth_is_typed_relative_and_metric_requires_scale_calibration():
+    relative = spatial_geometry.DepthReading(
+        spatial_geometry.DepthKind.RELATIVE, 0.72, "normalized")
+    assert relative.kind is spatial_geometry.DepthKind.RELATIVE
+    with pytest.raises(spatial_geometry.GeometryRefusal,
+                       match="requires scale calibration"):
+        spatial_geometry.metric_depth(2.0, calibration=None)
+    calibration = spatial_geometry.ScaleCalibration(
+        "cal-1", 0.25, "synthetic known scale", "prov-c6-fixture")
+    metric = spatial_geometry.metric_depth(2.0, calibration=calibration)
+    assert (metric.value, metric.unit, metric.calibration_id) == (
+        0.5, "m", "cal-1")
+
+
+def test_camera_to_world_transform_matches_known_synthetic_geometry():
+    transform = spatial_geometry.CameraWorldTransform(
+        "camera", "world",
+        (1, 0, 0, 10, 0, 1, 0, -2, 0, 0, 1, 3, 0, 0, 0, 1),
+        "prov-c6-fixture")
+    # C6 synthetic proxy: a known camera point and known rigid translation.
+    assert transform.apply((1, 2, 4)) == (11.0, 0.0, 7.0)
+    with pytest.raises(spatial_geometry.GeometryRefusal,
+                       match="finite 4x4"):
+        spatial_geometry.CameraWorldTransform(
+            "camera", "world", (1, 2, 3), "prov-c6-fixture")
+
+
 def test_median_depth_is_over_the_mask_and_none_when_empty():
     grid = np.arange(16, dtype=float).reshape(4, 4) / 15.0
     mask = np.zeros((4, 4), dtype=bool)
@@ -164,6 +197,9 @@ def test_the_lane_measures_near_in_front_of_far(tmp_path):
     record = depth.read_m3g(digest, root)
     assert record["instrument"]["method"] == depth.M3G_METHOD
     assert record["direction"] == "brighter-is-nearer"
+    assert record["depth_kind"] == "relative"
+    assert record["unit"] == "normalized"
+    assert record["metric_depth_available"] is False
     first = {r["track"]: r for r in record["samples"][0]["regions"]}
     assert first["region_001"]["median_depth"] > 0.9
     assert first["region_002"]["median_depth"] < 0.1
@@ -207,8 +243,8 @@ def test_depth_becomes_project_model_observations(tmp_path):
     found = [o for o in model["observations"]
              if o["modality"] == "depth"]
     assert len(found) == len(TIMES) * 2
-    first = [o for o in found
-             if o["payload"]["region_track"] == "region_001"][0]
+    first = next(o for o in found
+                 if o["payload"]["region_track"] == "region_001")
     assert first["payload"]["track_id"] == (
         f"track-region-{digest}-region_001")
     assert first["payload"]["median_depth"] > 0.9
@@ -219,8 +255,7 @@ def test_depth_becomes_project_model_observations(tmp_path):
 
 
 def _object_seg_result(frames=4, shape=(24, 32)):
-    from library.tools.analysis.object_segmentation import (
-        FACE_SEED_LABEL, encode_rle)
+    from library.tools.analysis.object_segmentation import FACE_SEED_LABEL, encode_rle
 
     person = np.zeros(shape, dtype=np.uint8)
     person[0:6, 0:10] = 1
@@ -255,8 +290,7 @@ def test_grounding_picks_the_object_never_the_person():
 
 
 def test_a_clip_with_only_the_person_tracked_refuses_by_name():
-    from library.tools.analysis.object_segmentation import (
-        FACE_SEED_LABEL, encode_rle)
+    from library.tools.analysis.object_segmentation import FACE_SEED_LABEL, encode_rle
 
     mask = np.zeros((24, 32), dtype=np.uint8)
     mask[6:18, 10:22] = 1

@@ -215,7 +215,7 @@ LANES: tuple = (
     Lane("depth", "M3g",
          "relative-depth medians inside each person region",
          (SM.SLOT_DEPTH,), (SM.SLOT_FRAMES_INDEX, SM.SLOT_REGIONS),
-         True, True, _build_depth, "depth-v1-m2"),
+         True, True, _build_depth, "depth-v2-m2"),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
     Lane("events", "M7", "on-screen and speaking spans per person",

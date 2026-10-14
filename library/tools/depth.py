@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -53,7 +54,7 @@ from library.tools import source_memory
 from library.tools.ren_refusal import RenRefusal
 
 M3G_STATUS_MEASURED = "measured"
-M3G_METHOD = "depth-v1-m2"
+M3G_METHOD = "depth-v2-m2"
 """The slot version. `footage_analysis.slot_is_fresh` rebuilds a record
 stamped with anything else, so a change to what a reading means (the
 estimator, the normalisation, the region join) bumps this."""
@@ -137,8 +138,9 @@ def probe_estimator() -> tuple[str | None, str | None]:
 
             cached_file(HF_MODEL_ID, "config.json",
                         local_files_only=True)
-        except Exception:  # noqa: BLE001 - any miss is absence
-            pass
+        except Exception as exc:  # noqa: BLE001 - any miss is absence
+            logging.getLogger(__name__).debug(
+                "local depth model config is unavailable: %s", exc)
         else:
             return "depth-anything-v2-small-hf", None
     _ = torch_ok
@@ -214,7 +216,7 @@ def order_regions_by_depth(medians: Sequence[tuple[str, float | None]]) -> list[
 
 
 def _key(t: float) -> int:
-    return int(round(float(t) * 1000))
+    return round(float(t) * 1000)
 
 
 def measure_samples(content_digest: str, m2: dict, m3d: dict,
@@ -261,6 +263,8 @@ def measure_samples(content_digest: str, m2: dict, m3d: dict,
                 "track": inst["track"],
                 "mask": inst["mask"],
                 "median_depth": median,
+                "depth_kind": "relative",
+                "unit": "normalized",
                 **({} if median is not None else
                    {"unmeasured_because": "the mask holds no cells"}),
             })
@@ -333,6 +337,9 @@ def build_source_depth(source_file: str, content_digest: str,
         "status": M3G_STATUS_MEASURED,
         "grid": grid,
         "direction": "brighter-is-nearer",
+        "depth_kind": "relative",
+        "unit": "normalized",
+        "metric_depth_available": False,
         "frame_count": len(samples),
         "samples_measured": measured,
         "tracks": m3d.get("tracks") or [],
@@ -402,8 +409,7 @@ def _backend_estimator(name: str) -> Callable[[list[str]], list[np.ndarray]]:
     def _hf(paths: list[str]) -> list[np.ndarray]:
         import torch
         from PIL import Image
-        from transformers import (AutoImageProcessor,
-                                  AutoModelForDepthEstimation)
+        from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
         processor = AutoImageProcessor.from_pretrained(HF_MODEL_ID,
                                                        local_files_only=True)

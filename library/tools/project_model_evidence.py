@@ -2859,6 +2859,9 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                  "mask_index": region.get("mask"),
                  "median_depth": median,
                  "direction": doc.get("direction"),
+                 "depth_kind": doc.get("depth_kind", "relative"),
+                 "unit": doc.get("unit", "normalized"),
+                 "calibration_id": None,
                  "depth_percentiles": ((doc.get("instrument") or {})
                                        .get("depth_percentiles"))},
                 None, DEPTH_PRODUCER, evidence=native)
