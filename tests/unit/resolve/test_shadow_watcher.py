@@ -139,10 +139,13 @@ def test_watcher_fires_on_schedule(reel, monkeypatch):
     _mock_broker(monkeypatch, project, timeline, store)
 
     ticks = []
+    three_ticks = threading.Event()
     original_tick = shadow_watcher.ShadowWatcher.tick
 
     def tracking_tick(self, name, folder=""):
         ticks.append(name)
+        if len(ticks) >= 3:
+            three_ticks.set()
         return original_tick(self, name, folder)
 
     monkeypatch.setattr(shadow_watcher.ShadowWatcher, "tick", tracking_tick)
@@ -150,9 +153,7 @@ def test_watcher_fires_on_schedule(reel, monkeypatch):
     watcher = shadow_watcher.ShadowWatcher(store=store, cadence_seconds=0.01)
     try:
         watcher.start(lambda: "Podcast", lambda name: project_folder)
-        deadline = time.time() + 2.0
-        while len(ticks) < 3 and time.time() < deadline:
-            time.sleep(0.01)
+        assert three_ticks.wait(2.0), "the watcher did not keep firing on its cadence"
         assert len(ticks) >= 3, "the watcher did not keep firing on its cadence"
         assert all(name == "Podcast" for name in ticks)
     finally:
@@ -160,9 +161,19 @@ def test_watcher_fires_on_schedule(reel, monkeypatch):
 
     ticks.clear()
     watcher2 = shadow_watcher.ShadowWatcher(store=store, cadence_seconds=0.01)
+    idle_cycles = threading.Event()
+    cycle_count = 0
+
+    def no_project_open():
+        nonlocal cycle_count
+        cycle_count += 1
+        if cycle_count >= 3:
+            idle_cycles.set()
+        return None
+
     try:
-        watcher2.start(lambda: None, lambda name: "")
-        time.sleep(0.05)
+        watcher2.start(no_project_open, lambda name: "")
+        assert idle_cycles.wait(2.0), "the watcher did not poll while no project was open"
         assert ticks == []
     finally:
         watcher2.stop()
@@ -338,8 +349,9 @@ def test_watcher_writes_a_heartbeat_so_a_dead_watcher_is_visible(
     watcher = shadow_watcher.ShadowWatcher(store=store, cadence_seconds=0.01)
     try:
         watcher.start(lambda: "Podcast", lambda name: project_folder)
-        deadline = time.time() + 2.0
-        while not shadow_watcher.read_heartbeat() and time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while (not shadow_watcher.read_heartbeat()
+               and time.monotonic() < deadline):
             time.sleep(0.01)
         heartbeat = shadow_watcher.read_heartbeat()
         assert heartbeat is not None
@@ -355,7 +367,10 @@ def test_watcher_heartbeat_not_written_when_tick_fails(reel, monkeypatch):
     the last successful observation."""
     project, timeline, store, project_folder = reel
 
+    failed_submit = threading.Event()
+
     def failing_submit(kind, params, owner=""):
+        failed_submit.set()
         raise RuntimeError("broker gone")
 
     monkeypatch.setattr("library.tools.resolved.client.submit", failing_submit)
@@ -363,7 +378,7 @@ def test_watcher_heartbeat_not_written_when_tick_fails(reel, monkeypatch):
     watcher = shadow_watcher.ShadowWatcher(store=store, cadence_seconds=0.01)
     try:
         watcher.start(lambda: "Podcast", lambda name: project_folder)
-        time.sleep(0.1)
+        assert failed_submit.wait(5.0), "the watcher did not attempt its failing tick"
         assert shadow_watcher.read_heartbeat() is None
     finally:
         watcher.stop()
@@ -586,9 +601,9 @@ def test_broker_hosts_the_watcher_and_records_for_the_open_project(
     serve_thread.start()
 
     try:
-        deadline = time.time() + 10.0
+        deadline = time.monotonic() + 10.0
         heartbeat = None
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             heartbeat = shadow_watcher.read_heartbeat()
             if heartbeat is not None:
                 break
@@ -726,23 +741,33 @@ def test_run_stays_quiet_until_the_session_ends(reel, monkeypatch):
     project, timeline, store, project_folder = reel
     submitted = _counting_broker(monkeypatch, project, timeline, store)
     qp.begin_qualification_session("Podcast (field test)")
+    stood_down = threading.Event()
+    real_should_stand_down = shadow_watcher.should_stand_down
+
+    def observe_stand_down():
+        reason = real_should_stand_down()
+        if reason is not None:
+            stood_down.set()
+        return reason
+
+    monkeypatch.setattr(shadow_watcher, "should_stand_down", observe_stand_down)
     watcher = shadow_watcher.ShadowWatcher(store=store,
                                            cadence_seconds=0.01)
     try:
         watcher.start(lambda: "Podcast", lambda name: project_folder)
-        time.sleep(0.1)
+        assert stood_down.wait(5.0), "the watcher did not observe the borrowed session"
         assert submitted == []
         assert not shadow_watcher.heartbeat_path().exists()
     finally:
         qp.end_qualification_session()
         watcher.stop()
-    deadline = time.time() + 2.0
+    deadline = time.monotonic() + 2.0
     watcher2 = shadow_watcher.ShadowWatcher(store=store,
                                             cadence_seconds=0.01)
     try:
         watcher2.start(lambda: "Podcast", lambda name: project_folder)
         while (not shadow_watcher.heartbeat_path().exists()
-               and time.time() < deadline):
+               and time.monotonic() < deadline):
             time.sleep(0.01)
         assert shadow_watcher.heartbeat_path().exists(), (
             "no heartbeat after the session ended")

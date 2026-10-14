@@ -102,8 +102,8 @@ def started(lock_dir):
         client.call({"op": "shutdown"}, path)
     except (ConnectionError, client.BrokerError, OSError):
         pass
-    deadline = time.time() + 10.0
-    while client.ping(path) is not None and time.time() < deadline:
+    deadline = time.monotonic() + 10.0
+    while client.ping(path) is not None and time.monotonic() < deadline:
         time.sleep(0.05)
 
 
@@ -187,8 +187,8 @@ def test_concurrent_ensures_start_exactly_one_broker(started):
 def test_ensure_after_stop_starts_a_fresh_broker(started, lock_dir):
     first = started()
     client.call({"op": "shutdown"}, lock_dir / SOCKET_NAME)
-    deadline = time.time() + 10.0
-    while client.ping(lock_dir / SOCKET_NAME) is not None and time.time() < deadline:
+    deadline = time.monotonic() + 10.0
+    while client.ping(lock_dir / SOCKET_NAME) is not None and time.monotonic() < deadline:
         time.sleep(0.05)
     assert client.ping(lock_dir / SOCKET_NAME) is None
     second = started()
@@ -217,8 +217,8 @@ def test_a_broker_that_dies_on_startup_is_reported_and_retried(lock_dir):
     answer = client.ensure(path=lock_dir / SOCKET_NAME)
     assert answer is not None and answer["pid"] > 0
     client.call({"op": "shutdown"}, lock_dir / SOCKET_NAME)
-    deadline = time.time() + 10.0
-    while client.ping(lock_dir / SOCKET_NAME) is not None and time.time() < deadline:
+    deadline = time.monotonic() + 10.0
+    while client.ping(lock_dir / SOCKET_NAME) is not None and time.monotonic() < deadline:
         time.sleep(0.05)
 
 
@@ -422,9 +422,9 @@ def test_the_broker_logs_its_lifecycle_to_its_log(lock_dir, monkeypatch):
         log = lock_dir / "ren-resolved.log"
         assert "serving on" in log.read_text(encoding="utf-8")
         broker_client.call({"op": "shutdown"}, target)
-        deadline = time.time() + 10.0
+        deadline = time.monotonic() + 10.0
         while broker_client.ping(target) is not None \
-                and time.time() < deadline:
+                and time.monotonic() < deadline:
             time.sleep(0.05)
         assert broker_client.ping(target) is None
         text = log.read_text(encoding="utf-8")
@@ -435,9 +435,9 @@ def test_the_broker_logs_its_lifecycle_to_its_log(lock_dir, monkeypatch):
             broker_client.call({"op": "shutdown"}, target)
         except (ConnectionError, broker_client.BrokerError, OSError):
             pass
-        deadline = time.time() + 10.0
+        deadline = time.monotonic() + 10.0
         while broker_client.ping(target) is not None \
-                and time.time() < deadline:
+                and time.monotonic() < deadline:
             time.sleep(0.05)
 
 
@@ -449,8 +449,8 @@ def test_a_lease_acquisition_starts_the_broker_on_demand(lock_dir, unguarded):
         answer = client.ping(lock_dir / SOCKET_NAME)
         assert answer is not None and answer["pid"] > 0
     client.call({"op": "shutdown"}, lock_dir / SOCKET_NAME)
-    deadline = time.time() + 10.0
-    while client.ping(lock_dir / SOCKET_NAME) is not None and time.time() < deadline:
+    deadline = time.monotonic() + 10.0
+    while client.ping(lock_dir / SOCKET_NAME) is not None and time.monotonic() < deadline:
         time.sleep(0.05)
 
 
