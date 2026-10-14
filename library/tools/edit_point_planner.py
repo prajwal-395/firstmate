@@ -22,6 +22,7 @@ _SIGNAL_KINDS = {
     "gesture.event": "gesture",
     "music.beat": "beat",
     "beat": "beat",
+    "music.section": "music_section",
     "scene.boundary": "scene",
     "scene_boundary": "scene",
     "camera.settle": "camera_settle",
@@ -34,7 +35,7 @@ def _point_rows(signal: Mapping[str, Any], kind: str) -> list[tuple[int, str]]:
     interval = signal["interval"]
     start, end = interval["start"], interval["end"]
     rows: list[tuple[int, str]] = []
-    if kind in {"speech", "phoneme", "gesture", "scene"}:
+    if kind in {"speech", "phoneme", "gesture", "scene", "music_section"}:
         # A half-open measured interval has two meaningful edit boundaries;
         # its right edge is a cut position even though it is not in the span.
         rows.extend(((start, "start"), (end, "end")))

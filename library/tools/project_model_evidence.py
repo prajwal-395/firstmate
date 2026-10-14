@@ -253,6 +253,7 @@ class _Builder:
             "streams": [],
             "entities": [],
             "observations": [],
+            "signals": [],
             "events": [],
             "identity_links": [],
             "masks": [],
@@ -455,6 +456,7 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
                            root, roster)
     _migrate_multicam(builder, digest, asset_id, clock_id, duration, root)
     _migrate_saliency(builder, digest, asset_id, clock_id, root)
+    _materialize_source_signals(builder, digest, asset_id, clock_id, root)
 
 
 def _migrate_source_metadata(builder: _Builder, digest: str, asset_id: str,
@@ -1406,6 +1408,311 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                         "uncertainty": None,
                         "certainty": "interpreted",
                     })
+
+
+def _materialize_source_signals(builder: _Builder, digest: str,
+                                asset_id: str, clock_id: str,
+                                root: Path | None) -> None:
+    """Expose cut-relevant producer measurements as typed model signals.
+
+    Signal rows retain the producer's observation id (where one exists),
+    provenance and source sample references. They are projections of the
+    existing measurement lanes, not a second analysis pass.
+    """
+    model = builder.model
+
+    def append_signal(signal_id: str, measurement_type: str, unit: str,
+                      start: int, end: int, samples: list[dict],
+                      provenance_id: str, *, samples_ref: str | None = None,
+                      source_signal_id: str | None = None,
+                      estimate_status: str | None = None) -> None:
+        if start >= end or any(
+                signal["id"] == signal_id for signal in model["signals"]):
+            return
+        model["signals"].append({
+            "id": signal_id,
+            "asset_id": asset_id,
+            "interval": {"clock_id": clock_id, "start": start, "end": end},
+            "measurement_type": measurement_type,
+            "unit": unit,
+            "samples": samples,
+            "sample_clock_id": clock_id,
+            "samples_ref": samples_ref,
+            "source_signal_id": source_signal_id,
+            "estimate_status": estimate_status,
+            "provenance_id": provenance_id,
+            "processing_status": "analyzed",
+        })
+
+    source_observations = [
+        row for row in model["observations"]
+        if row["asset_id"] == asset_id
+        and row["provenance_id"].startswith(f"prov-{digest}-")
+    ]
+    # M1's word intervals are the exact source boundaries used by speech
+    # planning. Their Project Model observation IDs are the measurement IDs.
+    for observation in source_observations:
+        if observation["modality"] == "speech_word":
+            append_signal(
+                observation["id"], "speech", "word",
+                observation["interval"]["start"],
+                observation["interval"]["end"], [],
+                observation["provenance_id"])
+        elif observation["modality"] == "scene_boundary":
+            append_signal(
+                observation["id"], "scene.boundary", "boundary",
+                observation["interval"]["start"],
+                observation["interval"]["end"], [],
+                observation["provenance_id"])
+        elif (observation["modality"] == "event_candidate"
+              and observation["payload"].get("predicate") in {
+                  "hand_raise", "nod", "object_pickup"}):
+            append_signal(
+                observation["id"], "gesture.event", "event",
+                observation["interval"]["start"],
+                observation["interval"]["end"], [],
+                observation["provenance_id"])
+
+    # MFA can attach a phone tier to a transcript region. Keep each phone's
+    # source timing and the parent word observation that anchors that region.
+    m1, m1_status = source_memory.read_m1(digest, root)
+    if m1 is not None and m1_status == "fresh":
+        word_rows = [row for row in source_observations
+                     if row["modality"] == "speech_word"]
+        phone_index = 0
+        for utterance_index, utterance in enumerate(m1.get("utterances") or []):
+            if not isinstance(utterance, dict):
+                continue
+            words = utterance.get("words") or []
+            phones = list(utterance.get("phonemes") or [])
+            for word in words:
+                if isinstance(word, dict):
+                    phones.extend(word.get("phonemes") or [])
+            for phone in phones:
+                if not isinstance(phone, dict):
+                    continue
+                ticks = sec_to_ticks(phone.get("start"), phone.get("end"))
+                if ticks is None:
+                    continue
+                phone_index += 1
+                parent = next((row for row in word_rows
+                               if row["payload"].get("utterance_index")
+                               == utterance_index
+                               and row["interval"]["start"] <= ticks[0]
+                               and ticks[1] <= row["interval"]["end"]), None)
+                samples = [{"tick": ticks[0],
+                            "value": phone.get("phone", phone.get("phoneme")),
+                            "source_observation_id": (parent["id"]
+                                                       if parent else None)}]
+                append_signal(
+                    f"signal-{digest}-phoneme-{phone_index:06d}",
+                    "speech.phoneme", "phoneme", ticks[0], ticks[1],
+                    samples, _prov_id(digest, "m1"))
+
+    # M5 carries step 2.06's point beats and structural section intervals.
+    # Only accept a measured, digest-matched music lane.
+    m5 = source_memory.read_sound(digest, root)
+    if (isinstance(m5, dict) and m5.get("content_digest") == digest
+            and m5.get("music_status") == "measured"
+            and m5.get("music_method")
+            and _memory_freshness(m5, digest) != "stale"):
+        duration = model["assets"][-1]["metadata"].get("duration_seconds")
+        bounds = sec_to_ticks(0.0, duration) if duration else None
+        for index, row in enumerate(m5.get("music_interval_evidence") or []):
+            if not isinstance(row, dict) or row.get("certainty_state") != "measured":
+                continue
+            kind = row.get("kind")
+            if kind not in {"beat", "downbeat", "music_section"}:
+                continue
+            start_s, end_s = row.get("start_seconds"), row.get("end_seconds")
+            if kind in {"beat", "downbeat"}:
+                try:
+                    tick = math.floor(float(start_s) * TICKS_PER_SECOND)
+                except (TypeError, ValueError):
+                    continue
+                start_tick, end_tick = tick, tick + 1
+                measurement_type = "music.beat"
+                samples = [{"tick": tick, "value": kind,
+                            "source_measurement_id":
+                                f"music_interval_evidence:{index}"}]
+            else:
+                ticks = sec_to_ticks(start_s, end_s)
+                if ticks is None:
+                    continue
+                start_tick, end_tick = ticks
+                measurement_type = "music.section"
+                samples = [{"tick": start_tick,
+                            "value": row.get("label"),
+                            "source_measurement_id":
+                                f"music_interval_evidence:{index}"}]
+            if bounds is not None and end_tick > bounds[1]:
+                continue
+            signal_id = f"signal-{digest}-music-{index:06d}"
+            append_signal(signal_id, measurement_type,
+                          "beat" if measurement_type == "music.beat" else "section",
+                          start_tick, end_tick, samples,
+                          _prov_id(digest, "m5"))
+
+    # VI-09 preserves each measured camera-motion sample and its source
+    # measurement ID. A zero-motion sample is the producer's static class,
+    # using the same 0.01 boundary as scene_cinematography._movement.
+    m4 = source_memory.read_scenes(digest, root)
+    hierarchy = (m4 or {}).get("scene_cinematography") or {}
+    if (isinstance(hierarchy, dict)
+            and hierarchy.get("status") == "measured"
+            and hierarchy.get("method") == "scene-cinematography-measurements-v1"
+            and _memory_freshness(m4, digest) != "stale"):
+        camera_samples = []
+        for measurement in hierarchy.get("measurement_catalog") or []:
+            if not isinstance(measurement, dict) or measurement.get("lane") != "camera_motion":
+                continue
+            try:
+                tick = math.floor(float(measurement["time"]) * TICKS_PER_SECOND)
+            except (KeyError, TypeError, ValueError):
+                continue
+            value = measurement.get("value")
+            if isinstance(value, dict):
+                components = [value.get(key, 0.0)
+                              for key in ("translation_x", "translation_y", "residual")]
+                try:
+                    settled = max(abs(float(component)) for component in components) < 0.01
+                except (TypeError, ValueError):
+                    continue
+            else:
+                settled = value == "static"
+            camera_samples.append({"tick": tick,
+                                   "value": "settled" if settled else "moving",
+                                   "source_measurement_id": measurement["id"]})
+        if camera_samples:
+            duration = model["assets"][-1]["metadata"].get("duration_seconds")
+            bounds = sec_to_ticks(0.0, duration) if duration else None
+            if bounds is not None:
+                camera_samples = [sample for sample in camera_samples
+                                  if bounds[0] <= sample["tick"] < bounds[1]]
+                append_signal(
+                    f"signal-{digest}-camera-settle", "camera.settle",
+                    "settled_state", bounds[0], bounds[1], camera_samples,
+                    _prov_id(digest, "m4"))
+
+
+def _migrate_music_signals(builder: _Builder, project_folder: str,
+                           root: Path | None) -> None:
+    """Migrate fresh step 2.06 beat and section measurements.
+
+    The music track is a source asset in its own right. Its M5 interval
+    record is keyed by that track's digest, so it gets its own source clock
+    instead of being placed on an unrelated camera clock.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    analysis_path = ProjectLayout(project_folder).read_path(
+        Area.MUSIC_ANALYSIS, "music_analysis.json")
+    try:
+        analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(analysis, dict) or not analysis.get("available"):
+        return
+    track_path = analysis.get("file")
+    if not isinstance(track_path, str) or not Path(track_path).is_file():
+        return
+    try:
+        from library.tools import footage_identity
+        digest = footage_identity.fingerprint(track_path)["content_digest"]
+    except (ImportError, OSError, KeyError, ValueError):
+        return
+    if not analysis.get("method_hash"):
+        return
+    music = source_memory.read_sound(digest, root)
+    if (not isinstance(music, dict) or music.get("content_digest") != digest
+            or music.get("music_status") != "measured"
+            or not music.get("music_method")
+            or _memory_freshness(music, digest) != "fresh"
+            or Path(music.get("source_file", "")).resolve()
+            != Path(track_path).resolve()):
+        return
+
+    asset_id, clock_id, stream_id = (
+        _asset_id(digest), _clock_id(digest), _stream_id(digest))
+    duration = analysis.get("duration_s")
+    ticks = sec_to_ticks(0.0, duration) if duration else None
+    if ticks is None:
+        return
+    provenance_id = builder.provenance(
+        digest, "m5_music", "library.steps.step_2_06_music_analysis",
+        track_path)
+    if asset_id not in {asset["id"] for asset in builder.model["assets"]}:
+        builder.model["clocks"].append({
+            "id": clock_id,
+            "domain": {"kind": "source", "asset_id": asset_id,
+                       "stream_id": stream_id},
+            "ticks_per_second": TICKS_PER_SECOND,
+            "frame_rate": None,
+        })
+        builder.model["assets"].append({
+            "id": asset_id, "kind": "audio", "uri": track_path,
+            "content_digest": digest,
+            "metadata": {"duration_seconds": duration,
+                         "music_method": music["music_method"]},
+            "provenance": [provenance_id],
+        })
+        builder.model["streams"].append({
+            "id": stream_id, "asset_id": asset_id, "stream_index": 0,
+            "clock_id": clock_id, "metadata": {"codec_type": "audio"},
+            "source_digest": digest, "coverage": "analyzed",
+            "producer_version": "step_2_06_music_analysis",
+            "freshness": "fresh", "provenance_id": provenance_id,
+        })
+
+    for index, interval in enumerate(music.get("music_interval_evidence") or []):
+        if not isinstance(interval, dict) or interval.get("certainty_state") != "measured":
+            continue
+        kind = interval.get("kind")
+        start_s, end_s = interval.get("start_seconds"), interval.get("end_seconds")
+        if kind in {"beat", "downbeat"}:
+            try:
+                tick = math.floor(float(start_s) * TICKS_PER_SECOND)
+            except (TypeError, ValueError):
+                continue
+            start_tick, end_tick = tick, tick + 1
+            measurement_type = "music.beat"
+            samples = [{"tick": tick, "value": kind,
+                        "source_measurement_id":
+                            f"music_interval_evidence:{index}"}]
+            unit = "beat"
+        elif kind == "music_section":
+            point = sec_to_ticks(start_s, end_s)
+            if point is None:
+                continue
+            start_tick, end_tick = point
+            measurement_type = "music.section"
+            samples = [{"tick": start_tick,
+                        "value": interval.get("label"),
+                        "source_measurement_id":
+                            f"music_interval_evidence:{index}"}]
+            unit = "section"
+        else:
+            continue
+        if end_tick > ticks[1]:
+            continue
+        signal_id = f"signal-{digest}-music-{index:06d}"
+        if signal_id in {signal["id"] for signal in builder.model["signals"]}:
+            continue
+        builder.model["signals"].append({
+            "id": signal_id,
+            "asset_id": asset_id,
+            "interval": {"clock_id": clock_id,
+                         "start": start_tick, "end": end_tick},
+            "measurement_type": measurement_type,
+            "unit": unit,
+            "samples": samples,
+            "sample_clock_id": clock_id,
+            "samples_ref": None,
+            "source_signal_id": None,
+            "estimate_status": None,
+            "provenance_id": provenance_id,
+            "processing_status": "analyzed",
+        })
 
 
 def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
@@ -3139,7 +3446,8 @@ def migrate_project_evidence(project_folder: str, *,
                   first.get("file_path") or "")
         m0 = source_memory.read_m0(digest, root)
         duration = (m0 or {}).get("duration_seconds")
-        _migrate_digest(builder, digest, uri, clip_ids, duration, root, roster)
+        _migrate_digest(builder, digest, uri, clip_ids, duration, root,
+                        roster)
         _migrate_m3_frames(builder, digest, _asset_id(digest),
                            _clock_id(digest), root)
     for digest in seen:
@@ -3168,6 +3476,7 @@ def migrate_project_evidence(project_folder: str, *,
         except ImportError:
             from tools.ocr_project_model import migrate_ocr_artifact
         migrate_ocr_artifact(builder, project_folder, clip_id, digest)
+    _migrate_music_signals(builder, project_folder, root)
     _derive_track_motion_events(builder)
     from library.tools import cross_modal_grounding
     cross_modal_grounding.apply_project_model(builder.model)
@@ -3178,7 +3487,7 @@ def migrate_project_evidence(project_folder: str, *,
         "persons": [p["person_id"] for p in roster],
         "counts": {k: len(builder.model[k]) for k in
                    ("assets", "streams", "clocks", "entities",
-                    "observations", "identity_links", "masks",
+                    "observations", "signals", "identity_links", "masks",
                     "object_classes", "tracks", "events", "relations")},
         "dropped": builder.dropped,
         "notes": builder.notes,
