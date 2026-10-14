@@ -744,6 +744,64 @@ def object_region_at(model: dict[str, Any], ref: str, t: float,
     }
 
 
+def object_track_gaps(model: dict[str, Any], ref: str) -> dict[str, Any]:
+    """Where one named object's track holds no measurement (VI-05).
+
+    Reads the `object_visibility` observations the VI-05 migration
+    writes: visible sample ticks plus the explicit gap intervals
+    between the object's first and last sample. A gap is unmeasured
+    coverage, never an occlusion verdict. An object with no
+    visibility observation was migrated before VI-05 (or never
+    migrated): refused by name, never derived from a guess about the
+    sample cadence. An unresolvable ref is refused the same way -
+    absences are `object_region_at`'s answer, not this one's.
+    """
+    entity = _resolve_object_entity(model, ref)
+    if entity is None:
+        raise ValueError(f"no object entity matches {ref!r}")
+    entity_id = entity["id"]
+    rows = [o for o in model.get("observations") or []
+            if isinstance(o, dict) and o.get("modality") == "object_visibility"
+            and isinstance(o.get("payload"), dict)
+            and (o["payload"].get("object_id") is not None)]
+    owned = [o for o in rows
+             if _visibility_owner(model, o) == entity_id]
+    if not owned:
+        raise ValueError(
+            f"object {entity_id!r} carries no object_visibility "
+            f"observation: migrate with VI-05 evidence first")
+    if len(owned) > 1:
+        raise ValueError(
+            f"object {entity_id!r} carries {len(owned)} visibility "
+            f"observations, expected one")
+    payload = owned[0]["payload"]
+    return {"entity_id": entity_id,
+            "observation_id": owned[0].get("id"),
+            "visible_ticks": list(payload.get("visible_ticks") or []),
+            "gaps": [dict(gap) for gap in payload.get("gaps") or []]}
+
+
+def _visibility_owner(model: dict[str, Any],
+                      observation: dict[str, Any]) -> str | None:
+    """The object entity an `object_visibility` observation belongs
+    to: its evidence record's target first, else the entity whose
+    track the payload's track_id names. None when neither resolves -
+    an orphaned row belongs to nobody."""
+    contract = (observation.get("payload") or {}).get("evidence_contract")
+    if isinstance(contract, dict):
+        target = contract.get("target_entity_id")
+        if isinstance(target, str) and target:
+            return target
+    track_id = (observation.get("payload") or {}).get("track_id")
+    if not isinstance(track_id, str):
+        return None
+    for track in model.get("tracks") or []:
+        if isinstance(track, dict) and track.get("id") == track_id:
+            entity_id = track.get("entity_id")
+            return entity_id if isinstance(entity_id, str) else None
+    return None
+
+
 def object_track_coverage(model: dict[str, Any], ref: str,
                           ground_truth: dict[int, list[float]], *,
                           project_folder: str | Path | None = None,

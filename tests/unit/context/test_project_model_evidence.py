@@ -532,11 +532,14 @@ def test_m3e_migrates_native_coverage_and_refuses_stale_method(
     assert coverage["lanes"][D1]["freshness"]["m3e"] == "fresh"
     assert coverage["lanes"][D1]["freshness"]["m3"] == "fresh"
     assert coverage["lanes"][D1]["native_migrated_observations"]["m3"] == 2
-    # FI-13 adds four per-utterance speech records (rate, completeness,
-    # disfluency, repetition) plus the cross-source identical "hello"
-    # link both fixture digests share, anchored on D1: 1 + 4 + 1.
+    # VI-05 attaches native evidence to every segmentation observation:
+    # D1's two objects carry 8 track samples plus one appearance and
+    # one visibility row each, so segmentation contributes 12. FI-13
+    # speech records and the shared cross-source link add six more.
+    assert coverage["lanes"][D1][
+        "native_migrated_observations"]["segmentation"] == 12
     assert sum(coverage["lanes"][D1][
-        "native_migrated_observations"].values()) == 11
+        "native_migrated_observations"].values()) == 23
 
     _write_m3e(memory, D1, "retired-attention-method")
     stale_model, stale_report = _migrate(fixture)

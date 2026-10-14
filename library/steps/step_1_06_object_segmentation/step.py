@@ -20,7 +20,8 @@ def _seed_key(seed_boxes) -> list:
     """Detector seeds as a JSON-stable cache key: a new box, label,
     class or detector re-measures, while key order never does. None
     (or an empty list) means face-only seeding, the key old stamps
-    carry."""
+    carry. A seed's detector score is metadata the track never read,
+    so it rides no key: a score-only change re-measures nothing."""
     if not seed_boxes:
         return []
     return sorted(

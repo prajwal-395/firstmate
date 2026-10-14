@@ -356,6 +356,42 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "(holding, pointing, looking-at). Candidates stay observations "
         "until an object instance resolves the object end.",
     },
+    "object.detection": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One open-vocabulary detector answer that seeded "
+        "a SAM 2 object track: detector, phrase, category and the "
+        "detector's own score, or null where the seeding run recorded "
+        "none. The score travels verbatim and is never re-scaled; a "
+        "null score is unrecorded evidence, not zero confidence.",
+    },
+    "object.track_sample": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "One SAM 2 object-track sample: normalised box, "
+        "pixel box with its coordinate space, seed, category and "
+        "detector. Resolution names the pixels the box was measured on.",
+    },
+    "object.appearance": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Shape read off one object's stored track geometry "
+        "(sample count, aspect range/mean, box and mask area shares). "
+        "Shape only: colour and texture need source pixels and are not "
+        "measured here, so no record under this type carries them.",
+    },
+    "object.visibility": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "One object's visible sample ticks plus the "
+        "explicit gap intervals between its first and last sample where "
+        "SAM 2 held no mask. A gap is unmeasured coverage, never an "
+        "occlusion verdict: the track says nothing about those frames.",
+    },
     "eval.sharpness_pass": {
         "unit": "boolean",
         "kind": EvidenceType.EVALUATION,
@@ -837,6 +873,10 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "scene": "video.scene_segment",
     "scene_boundary": "video.scene_boundary",
     "sound_event": "audio.sound_event",
+    "object_track_sample": "object.track_sample",
+    "object_detection": "object.detection",
+    "object_appearance": "object.appearance",
+    "object_visibility": "object.visibility",
 }
 
 

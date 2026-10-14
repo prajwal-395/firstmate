@@ -176,15 +176,41 @@ class ObjectSeed:
     `box` is normalized [x1, y1, x2, y2]; `label` the Gemma phrase the
     detector answered ("black laptop"); `category` the class the
     `ObjectClass` is minted from ("laptop"); `detector` the slate name
-    that produced the box ("owlv2"). `check_seed_boxes` refuses a seed
-    with no area, no label or no class: a track without a class mints
-    no `ObjectClass`, which is the whole point of seeding it.
+    that produced the box ("owlv2"). `score` is the detector's own
+    box score, or None where the seeding run recorded none (VI-05):
+    a null score is unrecorded evidence, never zero confidence, and
+    it rides the content key nowhere - a score-only change re-measures
+    nothing because the track never read it. `check_seed_boxes`
+    refuses a seed with no area, no label or no class: a track
+    without a class mints no `ObjectClass`, which is the whole point
+    of seeding it.
     """
 
     box: List[float]
     label: str
     category: str
     detector: str
+    score: Optional[float] = None
+
+
+def _check_seed_score(value: Any, label: str) -> Optional[float]:
+    """A detector score as a 0..1 float, or None where none arrived.
+
+    Refused when present but outside 0..1: a score outside the range
+    is not a score, and carrying it would fail evidence validation
+    far from where it was coined."""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"object seed {label!r} score {value!r} is not a number")
+    if not 0.0 <= number <= 1.0:
+        raise ValueError(
+            f"object seed {label!r} score {number} is outside 0..1: "
+            f"not a detector score")
+    return number
 
 
 def check_seed_boxes(seed_boxes) -> List[ObjectSeed]:
@@ -212,7 +238,9 @@ def check_seed_boxes(seed_boxes) -> List[ObjectSeed]:
                 f"object seed {entry!r} needs a label, a category and a "
                 f"detector; a track without a class mints no ObjectClass")
         seeds.append(ObjectSeed(box=box, label=label, category=category,
-                                detector=detector))
+                                detector=detector,
+                                score=_check_seed_score(
+                                    entry.get("score"), label)))
     return seeds
 
 
@@ -230,6 +258,11 @@ class TrackedObject:
     "detector:<name>" for an MU-15 open-vocabulary seed, "blob" for the
     legacy automatic regions. Files written before seeds existed carry
     no key and read as None - "unseeded history", not a kind."""
+    score: Optional[float] = None
+    """The detector's own box score where a detector seed recorded one
+    (VI-05); None everywhere else, including every file written before
+    scores travelled. Metadata, never track identity: the content key
+    does not cover it."""
 
 @dataclass
 class MatchCutCandidate:
@@ -620,6 +653,7 @@ class ObjectSegmenter:
                             bboxes={},
                             avg_area_ratio=0.0,
                             seed=f"{DETECTOR_SEED_PREFIX}{seed.detector}",
+                            score=seed.score,
                         )
                         prompted.append(
                             f"{seed.label!r} ({seed.detector})")

@@ -1869,6 +1869,245 @@ def _subject_person_for_clip(roster: list[dict], digest: str,
     return None
 
 
+def _object_track_method(width: int, height: int) -> str:
+    """The SAM 2 video-track method stamp: family plus the pixels
+    measured, the contract's `@resolution` vocabulary. The same
+    instrument at two geometries is two methods of one family."""
+    return f"sam2-video-track-v1@{width}x{height}"
+
+
+def _normalised_object_box(box: Any, width: int, height: int,
+                           ) -> list[float] | None:
+    """Stored `bbox_pixels` (x, y, w, h) as a normalised top-left box,
+    or None when it names no area. A partially out-of-frame box is
+    clamped; a degenerate one is not a measurement."""
+    try:
+        x, y, w, h = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0 or width <= 0 or height <= 0:
+        return None
+    x0 = min(max(x / width, 0.0), 1.0)
+    y0 = min(max(y / height, 0.0), 1.0)
+    x1 = min(max((x + w) / width, 0.0), 1.0)
+    y1 = min(max((y + h) / height, 0.0), 1.0)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return [x0, y0, x1, y1]
+
+
+def _object_sample_ticks(sample_time: float, period: float,
+                         ) -> tuple[int, int] | None:
+    """Half-open millisecond ticks for one track sample, or None when
+    the span is unusable. The same floor/ceil rule the observation
+    itself is filed under, so evidence never straddles its own row."""
+    try:
+        start_f, end_f = float(sample_time), float(sample_time + period)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(start_f) and math.isfinite(end_f)):
+        return None
+    start_tick = math.floor(start_f * TICKS_PER_SECOND)
+    end_tick = math.ceil(end_f * TICKS_PER_SECOND)
+    if end_tick <= start_tick or start_tick < 0:
+        return None
+    return (start_tick, end_tick)
+
+
+def _migrate_object_detection(builder: _Builder, digest: str,
+                               clock_id: str, clip_id: str, obj: dict,
+                               object_id: str, entity_id: str,
+                               category: str, first_t: float,
+                               period: float) -> None:
+    """The open-vocabulary answer a detector-seeded track grew from.
+
+    One `object_detection` observation per detector-seeded object,
+    carrying the detector slate name, the Gemma phrase and category,
+    and the detector's own score - or null where the seeding run
+    recorded none. Face- and blob-seeded objects emit nothing here:
+    no detector answered for them, and saying otherwise would invent
+    model evidence. The seeding box itself is not stored in the
+    segmentation file, so none is claimed; box evidence lives in the
+    track samples."""
+    seed_name = str(obj.get("seed") or "")
+    if not seed_name.startswith("detector:"):
+        return
+    detector = seed_name.split(":", 1)[1].strip()
+    if not detector:
+        builder.notes.append(f"{clip_id}/{object_id}: detector seed "
+                             f"names no detector; detection withheld")
+        return
+    sample_ticks = _object_sample_ticks(first_t, period)
+    evidence = None
+    if sample_ticks is not None:
+        evidence = evidence_contract.new_measurement(
+            asset_id=_asset_id(digest), clock_id=clock_id,
+            start_tick=sample_ticks[0], end_tick=sample_ticks[1],
+            measurement_type="object.detection",
+            value={"track_id": f"track-{clip_id}-{object_id}",
+                   "object_id": object_id, "detector": detector,
+                   "label": obj.get("label"), "category": category,
+                   "score": _confidence(obj.get("score"))},
+            method=f"{detector}-open-vocabulary-detection",
+            provenance_id=_prov_id(digest, "segmentation"),
+            target_entity_id=entity_id,
+            coverage=evidence_contract.CoverageKind.COMPLETE,
+            coverage_samples=1,
+            coverage_sample_rate_hz=0.0)
+    builder.observation(
+        digest, "segmentation", _asset_id(digest), clock_id,
+        first_t, first_t + period, "object_detection",
+        {"track_id": f"track-{clip_id}-{object_id}",
+         "object_id": object_id, "detector": detector,
+         "label": obj.get("label"), "category": category,
+         "score": _confidence(obj.get("score"))},
+        _confidence(obj.get("score")),
+        "library.steps.step_1_06_object_segmentation",
+        evidence=evidence)
+
+
+def _migrate_object_appearance(builder: _Builder, digest: str,
+                               clock_id: str, clip_id: str, obj: dict,
+                               object_id: str, entity_id: str,
+                               frames: list[int], bboxes: dict,
+                               sample_fps: float, frame_width: int,
+                               frame_height: int, first_t: float,
+                               last_t: float,
+                               track_method: str) -> None:
+    """Shape read off one object's stored track geometry (VI-05).
+
+    Aspect range/mean plus box and mask area shares, all from the
+    bboxes the segmentation file already stores - no frame is decoded
+    and no model runs. Colour and texture need source pixels and are
+    named as unmeasured rather than defaulted: no record under
+    `object.appearance` carries them."""
+    aspects: list[float] = []
+    area_ratios: list[float] = []
+    frame_area = frame_width * frame_height
+    for frame_idx in frames:
+        box = bboxes.get(frame_idx, bboxes.get(str(frame_idx)))
+        try:
+            _x, _y, w, h = (float(v) for v in box)
+        except (TypeError, ValueError):
+            continue
+        if w <= 0 or h <= 0 or frame_area <= 0:
+            continue
+        aspects.append(w / h)
+        area_ratios.append((w * h) / frame_area)
+    if not aspects:
+        builder.dropped.append({"digest": digest, "lane": "segmentation",
+                                "clip_id": clip_id, "object": object_id,
+                                "reason": "appearance-has-no-geometry"})
+        return
+    try:
+        mask_share = float(obj.get("avg_area_ratio"))
+        if not math.isfinite(mask_share) or mask_share < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        mask_share = None
+    value = {"track_id": f"track-{clip_id}-{object_id}",
+             "object_id": object_id, "samples": len(aspects),
+             "aspect_min": round(min(aspects), 4),
+             "aspect_max": round(max(aspects), 4),
+             "aspect_mean": round(sum(aspects) / len(aspects), 4),
+             "bbox_area_ratio_mean": round(
+                 sum(area_ratios) / len(area_ratios), 4),
+             "mask_area_ratio_mean": mask_share,
+             "unmeasured": ["colour", "texture"]}
+    ticks = sec_to_ticks(first_t, last_t)
+    evidence = None
+    if ticks is not None:
+        evidence = evidence_contract.new_measurement(
+            asset_id=_asset_id(digest), clock_id=clock_id,
+            start_tick=ticks[0], end_tick=ticks[1],
+            measurement_type="object.appearance", value=value,
+            method=track_method,
+            provenance_id=_prov_id(digest, "segmentation"),
+            sample_resolution=[frame_width, frame_height],
+            target_entity_id=entity_id,
+            coverage=evidence_contract.CoverageKind.SAMPLED,
+            coverage_samples=len(aspects),
+            coverage_sample_rate_hz=sample_fps)
+    builder.observation(
+        digest, "segmentation", _asset_id(digest), clock_id,
+        first_t, last_t, "object_appearance", value, None,
+        "library.steps.step_1_06_object_segmentation",
+        evidence=evidence)
+
+
+def _migrate_object_visibility(builder: _Builder, digest: str,
+                               clock_id: str, clip_id: str,
+                               object_id: str, entity_id: str,
+                               frames: list[int], sample_fps: float,
+                               first_t: float, last_t: float) -> None:
+    """One object's visible samples plus its explicit coverage gaps.
+
+    SAM 2 propagation skips frames where the mask is empty, so a
+    frame index absent between the first and last sample is
+    unmeasured coverage - never an occlusion verdict and never
+    filled by a guess. The gaps are recorded on the observation and
+    in the migration notes; a track with none says it is continuous,
+    so silence never reads as coverage."""
+    present = set(frames)
+    gaps: list[tuple[int, int]] = []
+    run_start: int | None = None
+    for index in range(frames[0], frames[-1] + 1):
+        if index not in present:
+            if run_start is None:
+                run_start = index
+        elif run_start is not None:
+            gaps.append((run_start, index - 1))
+            run_start = None
+    if run_start is not None:
+        gaps.append((run_start, frames[-1]))
+    gap_rows = []
+    for start_frame, end_frame in gaps:
+        start_tick = math.floor(start_frame / sample_fps
+                                * TICKS_PER_SECOND)
+        end_tick = math.ceil((end_frame + 1) / sample_fps
+                             * TICKS_PER_SECOND)
+        gap_rows.append({"start_tick": start_tick, "end_tick": end_tick,
+                         "missing_frames": list(
+                             range(start_frame, end_frame + 1))})
+    value = {"track_id": f"track-{clip_id}-{object_id}",
+             "object_id": object_id,
+             "visible_ticks": [round(index / sample_fps * TICKS_PER_SECOND)
+                               for index in frames],
+             "gaps": gap_rows}
+    ticks = sec_to_ticks(first_t, last_t)
+    evidence = None
+    if ticks is not None:
+        evidence = evidence_contract.new_measurement(
+            asset_id=_asset_id(digest), clock_id=clock_id,
+            start_tick=ticks[0], end_tick=ticks[1],
+            measurement_type="object.visibility", value=value,
+            method="sam2-video-track-v1",
+            provenance_id=_prov_id(digest, "segmentation"),
+            target_entity_id=entity_id,
+            coverage=evidence_contract.CoverageKind.COMPLETE,
+            coverage_samples=len(frames),
+            coverage_sample_rate_hz=0.0)
+    builder.observation(
+        digest, "segmentation", _asset_id(digest), clock_id,
+        first_t, last_t, "object_visibility", value, None,
+        "library.steps.step_1_06_object_segmentation",
+        evidence=evidence)
+    if gap_rows:
+        ranges = ", ".join(
+            f"frames {row['missing_frames'][0]}.."
+            f"{row['missing_frames'][-1]} "
+            f"(ticks {row['start_tick']}..{row['end_tick']})"
+            for row in gap_rows)
+        builder.notes.append(
+            f"{clip_id}/{object_id}: {len(frames)} visible samples with "
+            f"{len(gap_rows)} coverage gap(s): {ranges}; gaps are "
+            f"unmeasured, never occlusions")
+    else:
+        builder.notes.append(
+            f"{clip_id}/{object_id}: continuous coverage over "
+            f"{len(frames)} samples; no gaps")
+
+
 def _migrate_segmentation(builder: _Builder, project_folder: str,
                           clip_id: str, digest: str, roster: list[dict],
                           root: Path | None) -> None:
@@ -1938,6 +2177,13 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         })
         clock_id = _clock_id(digest)
         bboxes = obj.get("bboxes") or {}
+        try:
+            frame_width, frame_height = int(width), int(height)
+        except (TypeError, ValueError):
+            frame_width, frame_height = (0, 0)
+        measured_dims = frame_width > 0 and frame_height > 0
+        track_method = (_object_track_method(frame_width, frame_height)
+                        if measured_dims else "")
         samples = []
         sample_observation_ids = []
         for frame_idx in frames:
@@ -1951,6 +2197,30 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                             "confidence": None,
                             "coordinate_space":
                                 f"source_pixels_{width}x{height}"})
+            evidence = None
+            if measured_dims:
+                sample_ticks = _object_sample_ticks(sample_time, period)
+                norm_box = _normalised_object_box(box, frame_width,
+                                                  frame_height)
+                if sample_ticks is not None and norm_box is not None:
+                    evidence = evidence_contract.new_measurement(
+                        asset_id=_asset_id(digest), clock_id=clock_id,
+                        start_tick=sample_ticks[0],
+                        end_tick=sample_ticks[1],
+                        measurement_type="object.track_sample",
+                        value={"track_id": f"track-{clip_id}-{object_id}",
+                               "object_id": object_id, "box": norm_box,
+                               "coordinate_space":
+                                   f"source_pixels_{width}x{height}",
+                               "seed": obj.get("seed"),
+                               "category": category},
+                        method=track_method,
+                        provenance_id=_prov_id(digest, "segmentation"),
+                        sample_resolution=[frame_width, frame_height],
+                        target_entity_id=entity_id,
+                        coverage=evidence_contract.CoverageKind.SAMPLED,
+                        coverage_samples=1,
+                        coverage_sample_rate_hz=sample_fps)
             sample_observation_id = builder.observation(
                 digest, "segmentation", _asset_id(digest), clock_id,
                 sample_time, sample_time + period,
@@ -1959,7 +2229,8 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                  "object_id": object_id, "bbox_pixels": list(box),
                  "coordinate_space": f"source_pixels_{width}x{height}",
                  "seed": obj.get("seed"), "category": category},
-                None, "library.steps.step_1_06_object_segmentation")
+                None, "library.steps.step_1_06_object_segmentation",
+                evidence=evidence)
             if sample_observation_id is not None:
                 sample_observation_ids.append(sample_observation_id)
         if not samples:
@@ -1993,6 +2264,17 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 supporting_observation_ids=sample_observation_ids,
                 scope={"clock_id": clock_id,
                        "start": ticks[0], "end": ticks[1]})
+        _migrate_object_detection(builder, digest, clock_id, clip_id, obj,
+                                  object_id, entity_id, category,
+                                  first_t, period)
+        if measured_dims:
+            _migrate_object_appearance(
+                builder, digest, clock_id, clip_id, obj, object_id,
+                entity_id, frames, bboxes, sample_fps, frame_width,
+                frame_height, first_t, last_t, track_method)
+        _migrate_object_visibility(builder, digest, clock_id, clip_id,
+                                   object_id, entity_id, frames,
+                                   sample_fps, first_t, last_t)
         mask_entity = entity_id
         if (obj.get("label") == FACE_SEED_LABEL
                 and category == FACE_SEED_CATEGORY):
