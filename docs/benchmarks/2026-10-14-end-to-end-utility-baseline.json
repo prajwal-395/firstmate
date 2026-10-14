@@ -1,0 +1,3438 @@
+{
+  "schema_version": 1,
+  "benchmark": "ren-end-to-end-utility",
+  "recorded_at": "2026-10-14T21:40:00+00:00",
+  "code_revision": "14194a4008dec7ab19c7d465a41b1853ef43fb69",
+  "project": "<FI-01 read-only collection>",
+  "corpus_manifest": "docs/benchmarks/2026-10-12-fi01-corpus-manifest.json",
+  "source_memory_root": "<FI-01 source memory>",
+  "phase_order": [
+    "cold_ingest",
+    "warm_ingest",
+    "first_query",
+    "subsequent_queries",
+    "edit_preparation",
+    "final_edit_execution"
+  ],
+  "phases": [
+    {
+      "phase": "cold_ingest",
+      "status": "measured",
+      "wall_s": 835.58,
+      "peak_rss_mb": 3078.6,
+      "model_invocations_by_model": {
+        "mlx-community/gemma-4-12b-it-4bit": 24
+      },
+      "cache_hits": 0,
+      "detail": {
+        "scope": "one 214.548-second FI-01 source, fresh scratch project and source-memory root",
+        "completion": "partial",
+        "built_lanes": 13,
+        "failed_lanes": 1,
+        "skipped_lanes": 1,
+        "failed_lane": "M3g depth: Depth Anything checkpoint unavailable",
+        "pipeline_failure": "temporal.index requires semantic_analysis_documents not supplied by DAG routing",
+        "model_count_source": "source-memory performance ledger; aggregate Gemma call count",
+        "read_only_source": true,
+        "scratch_only_outputs": true
+      }
+    },
+    {
+      "phase": "warm_ingest",
+      "status": "measured",
+      "wall_s": 10.09,
+      "peak_rss_mb": 2296.5,
+      "model_invocations_by_model": {
+        "mlx-community/gemma-4-12b-it-4bit": 0
+      },
+      "cache_hits": 12,
+      "detail": {
+        "scope": "same scratch project and source-memory root re-ingested",
+        "completion": "partial",
+        "reused_analysis_outputs": [
+          "scan",
+          "catalog",
+          "semantic_analysis"
+        ],
+        "reused_source_memory_lanes": [
+          "transcript",
+          "frames",
+          "persons",
+          "identity",
+          "expressions",
+          "regions",
+          "saliency",
+          "region_stats",
+          "relationships"
+        ],
+        "reused_count": 12,
+        "rebuilt": [
+          "M7 events",
+          "M9 world_model",
+          "text_index",
+          "frame_index"
+        ],
+        "still_failed": [
+          "temporal.index",
+          "M3g depth"
+        ],
+        "model_count_source": "source-memory performance ledger; no new model calls",
+        "read_only_source": true,
+        "scratch_only_outputs": true
+      }
+    },
+    {
+      "phase": "first_query",
+      "status": "measured",
+      "wall_s": 4.728,
+      "peak_rss_mb": 1212.8,
+      "model_invocations_by_model": null,
+      "cache_hits": null,
+      "detail": {
+        "query_id": "S01",
+        "family": "speech",
+        "recall": 1.0,
+        "results": 5
+      }
+    },
+    {
+      "phase": "subsequent_queries",
+      "status": "measured",
+      "wall_s": 2.217,
+      "peak_rss_mb": 1212.8,
+      "model_invocations_by_model": null,
+      "cache_hits": null,
+      "detail": {
+        "query_count": 30,
+        "query_ids": [
+          "S02",
+          "S03",
+          "S04",
+          "S05",
+          "S06",
+          "S07",
+          "S08",
+          "S09",
+          "S10",
+          "S11",
+          "S12",
+          "S13",
+          "S14",
+          "S15",
+          "X01",
+          "X02",
+          "X03",
+          "X04",
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "V01",
+          "V02",
+          "V03",
+          "V04",
+          "V05",
+          "VX1",
+          "VX2",
+          "VX3"
+        ],
+        "recall_by_query": {
+          "S02": 1.0,
+          "S03": 1.0,
+          "S04": 1.0,
+          "S05": 1.0,
+          "S06": 1.0,
+          "S07": 0.0,
+          "S08": 0.0,
+          "S09": 1.0,
+          "S10": 1.0,
+          "S11": 1.0,
+          "S12": 1.0,
+          "S13": 1.0,
+          "S14": 1.0,
+          "S15": 0.75,
+          "X01": null,
+          "X02": null,
+          "X03": null,
+          "X04": null,
+          "P01": 0.9933,
+          "P02": 0.9967,
+          "P03": 0.497,
+          "P04": 0.4217,
+          "V01": 0.0106,
+          "V02": 0.0381,
+          "V03": 0.0,
+          "V04": 0.5714,
+          "V05": null,
+          "VX1": null,
+          "VX2": null,
+          "VX3": null
+        }
+      }
+    },
+    {
+      "phase": "edit_preparation",
+      "status": "measured",
+      "wall_s": 335.0,
+      "peak_rss_mb": 45.9,
+      "model_invocations_by_model": {
+        "agent": 1
+      },
+      "cache_hits": null,
+      "detail": {
+        "scope": "ren edit --reels 1 --about \"why GEO is more than SEO 2.0\" --full-auto agent",
+        "selection": "0 reels proposed; transcript identified only one speaker and no turns",
+        "steps": [
+          "select_reels",
+          "judge_reels"
+        ],
+        "model_invocation_source": "pipeline performance ledger records one agent backend call; agent-cost profile was unmeasured",
+        "cache_hits_reason": "edit preparation does not expose a cache-hit counter",
+        "peak_rss_source": "pipeline performance ledger process peak",
+        "completion": "decision completed; no reel qualified",
+        "resolve_accessed": false
+      }
+    },
+    {
+      "phase": "final_edit_execution",
+      "status": "unmeasured",
+      "wall_s": null,
+      "peak_rss_mb": null,
+      "model_invocations_by_model": null,
+      "cache_hits": null,
+      "detail": {
+        "reason": "Not run: explicit task instruction prohibits Resolve access and the captain has unsaved edits.",
+        "read_only": true
+      }
+    }
+  ],
+  "measurements": {
+    "fi01_cached_corpus_read": {
+      "wall_s": 0.971,
+      "peak_rss_mb": 302.2,
+      "metrics": {
+        "harness_version": 1,
+        "measured_at": "2026-10-14T20:55:27+00:00",
+        "measured_head_sha": "ad27452656d9445e5336f533f731d793704e7be1",
+        "memory_root": "<FI-01 source memory>",
+        "sources": [
+          {
+            "clip_id": "LCATL0013",
+            "digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+            "duration_seconds": 4099.5955,
+            "size_bytes": 50216119344,
+            "path": "<FI-01 footage>/LCATL0013.MXF",
+            "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+          },
+          {
+            "clip_id": "LCATL0012",
+            "digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+            "duration_seconds": 288.955333,
+            "size_bytes": 3514985520,
+            "path": "<FI-01 footage>/LCATL0012.MXF",
+            "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+          },
+          {
+            "clip_id": "LC4930",
+            "digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+            "duration_seconds": 225.225,
+            "size_bytes": 2721983536,
+            "path": "<FI-01 footage>/LC4930.MXF",
+            "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+          },
+          {
+            "clip_id": "LC4931",
+            "digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+            "duration_seconds": 287.620667,
+            "size_bytes": 3485794864,
+            "path": "<FI-01 footage>/LC4931.MXF",
+            "m6_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf"
+          },
+          {
+            "clip_id": "LCATL0011",
+            "digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+            "duration_seconds": 214.547667,
+            "size_bytes": 2622977072,
+            "path": "<FI-01 footage>/LCATL0011.MXF",
+            "m6_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+          },
+          {
+            "clip_id": "LC4932",
+            "digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+            "duration_seconds": 4941.102833,
+            "size_bytes": 59972918320,
+            "path": "<FI-01 footage>/LC4932.MXF",
+            "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+          },
+          {
+            "clip_id": "LCATL0014",
+            "digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+            "duration_seconds": 838.003833,
+            "size_bytes": 10275455024,
+            "path": "<FI-01 footage>/LCATL0014.MXF",
+            "m6_group": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550"
+          }
+        ],
+        "absent_categories": [
+          {
+            "key": "static_classroom",
+            "footage_type": "Static classroom",
+            "reason": "no classroom footage under the declared projects root, podcast media folder or shared assets (scout survey at a3cd2dd)"
+          },
+          {
+            "key": "street",
+            "footage_type": "Times Square/street footage",
+            "reason": "no continuous high-motion street footage under the declared roots (scout survey at a3cd2dd)"
+          },
+          {
+            "key": "product",
+            "footage_type": "Product footage",
+            "reason": "no object-rich product footage under the declared roots; only incidental objects in podcast frames (scout survey at a3cd2dd)"
+          },
+          {
+            "key": "cinematic_broll",
+            "footage_type": "Cinematic B-roll",
+            "reason": "no B-roll library on the machine; shared assets hold sfx/music/remotion, not footage (scout survey at a3cd2dd)"
+          },
+          {
+            "key": "complex_action",
+            "footage_type": "Complex action",
+            "reason": "no fast brief-event footage under the declared roots; podcast gestures are the closest proxy (scout survey at a3cd2dd)"
+          }
+        ],
+        "coverage": {
+          "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "measured",
+              "reason": "regions.json present"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "unmeasured",
+              "reason": "regions.json not on disk"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "unmeasured",
+              "reason": "regions.json not on disk"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "unmeasured",
+              "reason": "regions.json not on disk"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "unmeasured",
+              "reason": "regions.json not on disk"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "measured",
+              "reason": "scenes.json present"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "unmeasured",
+              "reason": "verdicts.json not on disk"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "measured",
+              "reason": "regions.json present"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          },
+          "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+            "source.json": {
+              "state": "measured",
+              "reason": "source.json present"
+            },
+            "transcript.words.json": {
+              "state": "measured",
+              "reason": "transcript.words.json present"
+            },
+            "speakers.json": {
+              "state": "unmeasured",
+              "reason": "speakers.json not on disk"
+            },
+            "frames.index.json": {
+              "state": "measured",
+              "reason": "frames.index.json present"
+            },
+            "persons.json": {
+              "state": "measured",
+              "reason": "persons.json present"
+            },
+            "identity.json": {
+              "state": "measured",
+              "reason": "identity.json present"
+            },
+            "expressions.json": {
+              "state": "unmeasured",
+              "reason": "expressions.json not on disk"
+            },
+            "regions.json": {
+              "state": "unmeasured",
+              "reason": "regions.json not on disk"
+            },
+            "saliency.json": {
+              "state": "unmeasured",
+              "reason": "saliency.json not on disk"
+            },
+            "region_stats.json": {
+              "state": "unmeasured",
+              "reason": "region_stats.json not on disk"
+            },
+            "scenes.json": {
+              "state": "unmeasured",
+              "reason": "scenes.json not on disk"
+            },
+            "sound.json": {
+              "state": "unmeasured",
+              "reason": "sound.json not on disk"
+            },
+            "clock.json": {
+              "state": "measured",
+              "reason": "clock.json present"
+            },
+            "events.json": {
+              "state": "measured",
+              "reason": "events.json present"
+            },
+            "verdicts.json": {
+              "state": "measured",
+              "reason": "verdicts.json present"
+            },
+            "world_model.json": {
+              "state": "unmeasured",
+              "reason": "world_model.json not on disk"
+            },
+            "relationships.json": {
+              "state": "unmeasured",
+              "reason": "relationships.json not on disk"
+            }
+          }
+        },
+        "fidelity": {
+          "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+            "clip_id": "LCATL0013",
+            "events": {
+              "m7_candidate_spans": 213,
+              "m8_verdicts": 639,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.048513302034428794,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 213,
+              "mean_boundary_error_s": 2.671677419354861,
+              "boundary_error_n": 31,
+              "iou_values": [
+                0.1224514761050417,
+                0.1224514761050417,
+                0.1224514761050417,
+                0.1481536298379312,
+                0.1481536298379312,
+                0.1481536298379312,
+                0.291732578469729,
+                0.291732578469729,
+                0.291732578469729,
+                0.5003331112591906,
+                0.5003331112591906,
+                0.5714285714285529,
+                0.5714285714285529,
+                0.5714285714285529,
+                0.5715101341706718,
+                0.5715101341706718,
+                0.5715101341706718,
+                0.6003197442046287,
+                0.6003197442046287,
+                0.6003197442046287,
+                0.6666868491160036,
+                0.6666868491160036,
+                0.6666868491160036,
+                0.7501249375312314,
+                0.7501249375312314,
+                0.7501249375312314,
+                0.7501249375312314,
+                0.7501249375312314,
+                0.7501249375312314,
+                0.8334721065778549,
+                0.8334721065778549
+              ]
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 2,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.994384765625,
+              "speaking_spans": 169,
+              "speaking_spans_with_face": 0.9881656804733728,
+              "voices_with_face_link": 0.5
+            }
+          },
+          "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+            "clip_id": "LCATL0012",
+            "events": {
+              "m7_candidate_spans": 13,
+              "m8_verdicts": 39,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.0,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 13,
+              "mean_boundary_error_s": null,
+              "boundary_error_n": 0,
+              "iou_values": []
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 2,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.9982698961937716,
+              "speaking_spans": 10,
+              "speaking_spans_with_face": 0.9,
+              "voices_with_face_link": 1.0
+            }
+          },
+          "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+            "clip_id": "LC4930",
+            "events": {
+              "m7_candidate_spans": 26,
+              "m8_verdicts": 26,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.07692307692307693,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 26,
+              "mean_boundary_error_s": 0.375,
+              "boundary_error_n": 2,
+              "iou_values": [
+                0.7145304025121325,
+                0.8572652012560662
+              ]
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 2,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.9866369710467706,
+              "speaking_spans": 17,
+              "speaking_spans_with_face": 0.35294117647058826,
+              "voices_with_face_link": 1.0
+            }
+          },
+          "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+            "clip_id": "LC4931",
+            "events": {
+              "m7_candidate_spans": 33,
+              "m8_verdicts": 33,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.06060606060606061,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 33,
+              "mean_boundary_error_s": 0.3752500000000012,
+              "boundary_error_n": 2,
+              "iou_values": [
+                0.7142449329146432,
+                0.7502497502497479
+              ]
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 2,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.9773123909249564,
+              "speaking_spans": 25,
+              "speaking_spans_with_face": 0.48,
+              "voices_with_face_link": 1.0
+            }
+          },
+          "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+            "clip_id": "LCATL0011",
+            "events": {
+              "m7_candidate_spans": 0,
+              "m8_verdicts": 0,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": null,
+              "m8_judgment_coverage_of_m7": null,
+              "judged_spans": 0,
+              "mean_boundary_error_s": null,
+              "boundary_error_n": 0,
+              "iou_values": []
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 1,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 1.0,
+              "speaking_spans": 11,
+              "speaking_spans_with_face": 1.0,
+              "voices_with_face_link": 1.0
+            }
+          },
+          "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+            "clip_id": "LC4932",
+            "events": {
+              "m7_candidate_spans": 323,
+              "m8_verdicts": 323,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.04643962848297214,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 323,
+              "mean_boundary_error_s": 3.5699999999999705,
+              "boundary_error_n": 15,
+              "iou_values": [
+                0.0,
+                0.0,
+                0.04672007170467411,
+                0.11907140478568737,
+                0.16662966252221179,
+                0.4000799360511708,
+                0.4444937833036279,
+                0.45454545454544515,
+                0.5001665001664584,
+                0.5004995004993752,
+                0.5999200639489337,
+                0.6668887408394352,
+                0.7000699370566542,
+                0.7272821630598518,
+                0.8334443704197239
+              ]
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 2,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.9883438070139874,
+              "speaking_spans": 247,
+              "speaking_spans_with_face": 0.7206477732793523,
+              "voices_with_face_link": 1.0
+            }
+          },
+          "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+            "clip_id": "LCATL0014",
+            "events": {
+              "m7_candidate_spans": 31,
+              "m8_verdicts": 93,
+              "m8_verdicts_without_frames": 0,
+              "m8_orphan_verdicts": 0,
+              "m7_precision_vs_m8": 0.11827956989247312,
+              "m8_judgment_coverage_of_m7": 1.0,
+              "judged_spans": 31,
+              "mean_boundary_error_s": 0.3181818181818182,
+              "boundary_error_n": 11,
+              "iou_values": [
+                0.6668887408394352,
+                0.6668887408394352,
+                0.6668887408394352,
+                0.6668887408394403,
+                0.6668887408394403,
+                0.6668887408394403,
+                0.6668887408394403,
+                0.6668887408394403,
+                0.6668887408394403,
+                0.8001598721023143,
+                0.8001598721023143
+              ]
+            },
+            "identity": {
+              "m3b_lane": "identity",
+              "face_tracks": 1,
+              "voice_tracks": 1,
+              "faces_with_embedding": 1,
+              "m7_face_assignment_rate": 0.9904134212103056,
+              "speaking_spans": 33,
+              "speaking_spans_with_face": 1.0,
+              "voices_with_face_link": 1.0
+            }
+          }
+        },
+        "reproducibility": {
+          "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+            "n": 10621,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+            "n": 865,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+            "n": 627,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+            "n": 853,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+            "n": 583,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+            "n": 13156,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          },
+          "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+            "n": 2449,
+            "max_abs_diff": 0.0,
+            "mean_abs_diff": 0.0
+          }
+        },
+        "retrieval": {
+          "probes": 21,
+          "testable_probes": 21,
+          "untestable_probes": 0,
+          "cross_camera_recall": 0.5714285714285714,
+          "detail": [
+            {
+              "probe": "the",
+              "source": "157522998320",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "that",
+              "source": "157522998320",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "and",
+              "source": "157522998320",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "you",
+              "source": "4fa282cea147",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "so",
+              "source": "4fa282cea147",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "okay",
+              "source": "4fa282cea147",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "you",
+              "source": "9b7fd11e02e5",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "is",
+              "source": "9b7fd11e02e5",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "it",
+              "source": "9b7fd11e02e5",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": false,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "you",
+              "source": "c11218156a07",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "okay",
+              "source": "c11218156a07",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "so",
+              "source": "c11218156a07",
+              "m6_group": "daa4bb0d27d1",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "you",
+              "source": "d19007c31379",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "is",
+              "source": "d19007c31379",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "so",
+              "source": "d19007c31379",
+              "m6_group": "71933672a432",
+              "group_mates": 1,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "that",
+              "source": "dca969b8ed90",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "the",
+              "source": "dca969b8ed90",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "and",
+              "source": "dca969b8ed90",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "that",
+              "source": "f683a9759e06",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "you",
+              "source": "f683a9759e06",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            },
+            {
+              "probe": "the",
+              "source": "f683a9759e06",
+              "m6_group": "82532ce9b7eb",
+              "group_mates": 2,
+              "hit": true,
+              "top": [
+                "157522998320",
+                "4fa282cea147",
+                "9b7fd11e02e5"
+              ]
+            }
+          ]
+        },
+        "efficiency": {
+          "wall_seconds": 0.2,
+          "video_minutes": 181.58,
+          "wall_seconds_per_source_minute": 0.001356738732712393,
+          "model_calls_per_source_hour": {
+            "m8_verdict_calls": 380.9803243347566,
+            "m4_scene_windows_per_hour": 7.2693557115044625
+          },
+          "decode_seconds": null,
+          "decode_basis": "measured only around a harness-driven decode pass; lane builds record no decode split",
+          "peak_rss_mb": 56.062,
+          "cache_hit_rate": null,
+          "cache_basis": "no analysis_run.json at hand: unmeasured, not zero",
+          "bytes_per_source_hour": 250878554.73982808,
+          "total_bytes": 759259613,
+          "per_digest": {
+            "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c": {
+              "model_calls": {
+                "m8_verdict_calls": 639,
+                "m8_verdict_seconds": 2577.6,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 1366,
+                "events.json": 290602,
+                "frames/": 109197998,
+                "frames.index.json": 521532,
+                "identity.json": 41353,
+                "persons.json": 29612019,
+                "program.16k.wav": 131187154,
+                "regions.json": 4505382,
+                "regions.masks.c74e00e075e683347e55fdc357ef5d83b95bf3865476b69b318dc485bae7e93b.json.gz": 1556905,
+                "source.json": 1533,
+                "transcript.words.json": 1002931,
+                "verdicts.json": 358765
+              }
+            },
+            "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049": {
+              "model_calls": {
+                "m8_verdict_calls": 39,
+                "m8_verdict_seconds": 162.8,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 795,
+                "events.json": 24135,
+                "frames/": 7497061,
+                "frames.index.json": 36554,
+                "identity.json": 20211,
+                "persons.json": 2000188,
+                "program.16k.wav": 9246668,
+                "source.json": 1531,
+                "transcript.words.json": 82700,
+                "verdicts.json": 22328
+              }
+            },
+            "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888": {
+              "model_calls": {
+                "m8_verdict_calls": 26,
+                "m8_verdict_seconds": 112.3,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 792,
+                "events.json": 53165,
+                "frames/": 6708365,
+                "frames.index.json": 28501,
+                "identity.json": 19556,
+                "image_defects.json": 45435,
+                "persons.json": 1698548,
+                "program.16k.wav": 7207298,
+                "source.json": 1525,
+                "transcript.words.json": 59347,
+                "verdicts.json": 14692
+              }
+            },
+            "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73": {
+              "model_calls": {
+                "m8_verdict_calls": 33,
+                "m8_verdict_seconds": 149.2,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 1293,
+                "events.json": 54037,
+                "frames/": 8395782,
+                "frames.index.json": 36362,
+                "identity.json": 21182,
+                "persons.json": 1892724,
+                "program.16k.wav": 9203960,
+                "source.json": 1528,
+                "transcript.words.json": 82282,
+                "verdicts.json": 19437
+              }
+            },
+            "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4": {
+              "model_calls": {
+                "m8_verdict_calls": 0,
+                "m8_verdict_seconds": 0,
+                "m4_scene_windows": 22
+              },
+              "bytes": {
+                "clock.json": 1303,
+                "events.json": 2479,
+                "frames/": 5734534,
+                "frames.index.json": 27185,
+                "identity.json": 15920,
+                "persons.json": 1496996,
+                "program.16k.wav": 6865624,
+                "scenes.json": 5591,
+                "source.json": 1531,
+                "transcript.words.json": 55300
+              }
+            },
+            "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea": {
+              "model_calls": {
+                "m8_verdict_calls": 323,
+                "m8_verdict_seconds": 1405.5,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 862,
+                "events.json": 1328574,
+                "frames/": 149813255,
+                "frames.index.json": 628991,
+                "identity.json": 48411,
+                "persons.json": 37453742,
+                "program.16k.wav": 158115388,
+                "regions.json": 3989757,
+                "regions.masks.c712e8fb509bd3ec6376535403708e40eaaa1d1f812799891f7edd3eb7572c5d.json.gz": 1554382,
+                "source.json": 1532,
+                "transcript.words.json": 1245967,
+                "verdicts.json": 187992
+              }
+            },
+            "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1": {
+              "model_calls": {
+                "m8_verdict_calls": 93,
+                "m8_verdict_seconds": 394.1,
+                "m4_scene_windows": null
+              },
+              "bytes": {
+                "clock.json": 1383,
+                "events.json": 45200,
+                "frames/": 24012030,
+                "frames.index.json": 105545,
+                "identity.json": 26763,
+                "persons.json": 6644173,
+                "program.16k.wav": 26816220,
+                "source.json": 1533,
+                "transcript.words.json": 223437,
+                "verdicts.json": 52491
+              }
+            }
+          }
+        },
+        "tolerance": {
+          "rel": 1e-09,
+          "abs": 1e-12,
+          "basis": "float64 JSON round-trip noise; bounds the mechanical reproduction check only, not an evaluation bar (captain call C1 stays open)"
+        }
+      }
+    },
+    "retrieval": {
+      "wall_s": 7.441,
+      "peak_rss_mb": 1212.8,
+      "summary": {
+        "speech": {
+          "queries_present": 15,
+          "queries_absent": 4,
+          "macro_recall": 0.85,
+          "macro_precision": 0.56,
+          "moments": 27,
+          "moments_found": 23,
+          "present_with_nothing_returned": 0,
+          "absent_abstained": 4
+        },
+        "visual": {
+          "queries_present": 4,
+          "macro_recall": 0.155,
+          "macro_precision": 0.3625,
+          "absent_abstained": 0,
+          "absent_queries": 3,
+          "refusals_correct": 1,
+          "refusal_queries": 1
+        },
+        "person": {
+          "P01": {
+            "recall": 0.9933,
+            "precision": 1.0,
+            "own_camera": {
+              "assets": [
+                "LC4930",
+                "LC4931",
+                "LC4932"
+              ],
+              "recall": 0.9933,
+              "precision": 1.0
+            }
+          },
+          "P02": {
+            "recall": 0.9967,
+            "precision": 1.0,
+            "own_camera": {
+              "assets": [
+                "LCATL0011",
+                "LCATL0012",
+                "LCATL0013",
+                "LCATL0014"
+              ],
+              "recall": 0.9967,
+              "precision": 1.0
+            }
+          },
+          "P03": {
+            "recall": 0.497,
+            "precision": 0.9918,
+            "own_camera": {
+              "assets": [
+                "LC4930",
+                "LC4931",
+                "LC4932"
+              ],
+              "recall": 0.9939,
+              "precision": 0.9918
+            }
+          },
+          "P04": {
+            "recall": 0.4217,
+            "precision": 0.9879,
+            "own_camera": {
+              "assets": [
+                "LCATL0011",
+                "LCATL0012",
+                "LCATL0013",
+                "LCATL0014"
+              ],
+              "recall": 0.8434,
+              "precision": 0.9879
+            }
+          }
+        },
+        "latency_seconds": {
+          "speech": {
+            "median": 0.008,
+            "max": 4.728,
+            "n": 19
+          },
+          "person": {
+            "median": 0.144,
+            "max": 0.168,
+            "n": 4
+          },
+          "visual": {
+            "median": 0.015,
+            "max": 1.096,
+            "n": 8
+          }
+        }
+      },
+      "queries": [
+        {
+          "id": "S01",
+          "family": "speech",
+          "query": "running a customer's question through google and chatgpt side by side",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 267.64,
+              "end": 273.78,
+              "score": 0.0325,
+              "dense": 0.6863,
+              "text": "yeah, we took the exact query their customers would ask and we ran it on google search and chatgpt side by side.",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 275.49,
+              "end": 277.55,
+              "score": 0.0323,
+              "dense": 0.6348,
+              "text": "search and chatgpt side by side.",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 201.92,
+              "end": 210.09,
+              "score": 0.032,
+              "dense": 0.6372,
+              "text": "um yeah, so we took an exact query that their customers would ask and we ran it on google search and chat gpt side by si",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 205.72,
+              "end": 219.42,
+              "score": 0.0312,
+              "dense": 0.6214,
+              "text": "um yeah, so we took an exact query that their customers would ask and we ran it on google search and chat gpt side by si",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 281.49,
+              "end": 286.1,
+              "score": 0.0303,
+              "dense": 0.5128,
+              "text": "so one which is google, is a search engine and the other, chatgpt, is a decision engine.",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3973,
+            "text": "so make sure that your when you're trying to optimize your content, your website, your linkedin etc, try to see what you have as a differentiator your niche and",
+            "clip_id": "clip_003",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 2,
+          "moments_found": 2,
+          "recall": 1.0,
+          "precision": 1.0,
+          "first_hit_rank": 1,
+          "seconds": 4.728
+        },
+        {
+          "id": "S02",
+          "family": "speech",
+          "query": "google is a search engine but chatgpt is a decision engine",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 281.49,
+              "end": 286.1,
+              "score": 0.0328,
+              "dense": 0.9606,
+              "text": "so one which is google, is a search engine and the other, chatgpt, is a decision engine.",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 285.28,
+              "end": 289.91,
+              "score": 0.0323,
+              "dense": 0.9414,
+              "text": "so one, which is google, is a search engine, and the other chatgpt is a decision engine.",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 275.49,
+              "end": 277.55,
+              "score": 0.0304,
+              "dense": 0.6758,
+              "text": "search and chatgpt side by side.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 267.64,
+              "end": 273.78,
+              "score": 0.0291,
+              "dense": 0.6244,
+              "text": "yeah, we took the exact query their customers would ask and we ran it on google search and chatgpt side by side.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 286.37,
+              "end": 287.31,
+              "score": 0.0267,
+              "dense": 0.4323,
+              "text": "ah, decision engine.",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3992,
+            "text": "how they would search on google and try to optimize for that.",
+            "clip_id": "clip_007",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.6,
+          "first_hit_rank": 1,
+          "seconds": 0.026
+        },
+        {
+          "id": "S03",
+          "family": "speech",
+          "query": "a ten person agency recommended over a company fifty times its size",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 633.31,
+              "end": 639.42,
+              "score": 0.0359,
+              "dense": 0.4705,
+              "text": "and if you're the founder of a business, you're attending man shop your fifty person shop, maybe you're a hundred person",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 853.23,
+              "end": 860.8,
+              "score": 0.0335,
+              "dense": 0.7879,
+              "text": "i've seen a ten person agency get recommended over a company fifty times their size and that's because every source they",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 856.93,
+              "end": 864.58,
+              "score": 0.0333,
+              "dense": 0.7417,
+              "text": "not at all i've seen a 10 person agency get recommended over a company fifty times their size, and that's because every ",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 835.03,
+              "end": 841.52,
+              "score": 0.0328,
+              "dense": 0.5425,
+              "text": "no, it doesn't um i've seen ten person agencies get recommended in ai over companies fifty times their size.",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 831.22,
+              "end": 837.71,
+              "score": 0.0325,
+              "dense": 0.5425,
+              "text": "no, it doesn't um i've seen ten person agencies get recommended in ai over companies fifty times their size.",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3973,
+            "text": "okay, i'm just gonna say instead i'm just gonna say yeah, instead of typing c r m small business on google, now they're typing on chat gpt what's the best c r m",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 2,
+          "moments_found": 2,
+          "recall": 1.0,
+          "precision": 0.8,
+          "first_hit_rank": 2,
+          "seconds": 0.129
+        },
+        {
+          "id": "S04",
+          "family": "speech",
+          "query": "people who spent fifty to a hundred grand redesigning their website",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 1428.9,
+              "end": 1440.41,
+              "score": 0.0325,
+              "dense": 0.5079,
+              "text": "but and if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna ",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 1432.69,
+              "end": 1444.21,
+              "score": 0.0325,
+              "dense": 0.5168,
+              "text": "but if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna wann",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 633.31,
+              "end": 639.42,
+              "score": 0.031,
+              "dense": 0.449,
+              "text": "and if you're the founder of a business, you're attending man shop your fifty person shop, maybe you're a hundred person",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 637.12,
+              "end": 643.22,
+              "score": 0.0301,
+              "dense": 0.4318,
+              "text": "and if you're the founder of a business, you're a 10 man shop, your fifty person shop, maybe you're a hundred person sho",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1490.17,
+              "end": 1499.83,
+              "score": 0.0214,
+              "dense": 0.4061,
+              "text": "so reddit, linkedin, press mentions, directories, google business profile, obviously your website literally anywhere tha",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3935,
+            "text": "they have hundreds of blogs over the years.",
+            "clip_id": "clip_003",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.4,
+          "first_hit_rank": 1,
+          "seconds": 0.008
+        },
+        {
+          "id": "S05",
+          "family": "speech",
+          "query": "an audit where the website said enterprise software but linkedin said startup consulting",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 1597.71,
+              "end": 1615.97,
+              "score": 0.0328,
+              "dense": 0.779,
+              "text": "yes, when we ran an audit on someone last month, we saw that their uh website itself was saying enterprise software, but",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 1601.5,
+              "end": 1618.74,
+              "score": 0.0323,
+              "dense": 0.7745,
+              "text": "yes, when we ran an audit on someone last month, we saw that their uh website itself was saying enterprise software, but",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2036.51,
+              "end": 2041.25,
+              "score": 0.0296,
+              "dense": 0.5848,
+              "text": "someone on their linkedin profile had some association with a healthcare startup.",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 2040.3,
+              "end": 2045.08,
+              "score": 0.0291,
+              "dense": 0.5848,
+              "text": "someone on their linkedin profile had some association with a healthcare startup.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1757.38,
+              "end": 1762.02,
+              "score": 0.0274,
+              "dense": 0.4688,
+              "text": "it literally said they were a healthcare company, but they actually sell accounting software.",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3975,
+            "text": "and because of that, ai is gonna recommend the smaller company over the larger company who has sources, maybe lots of them, but contradicting each other.",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.4,
+          "first_hit_rank": 1,
+          "seconds": 0.025
+        },
+        {
+          "id": "S06",
+          "family": "speech",
+          "query": "a nail salon that specializes in 3d nail art",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LC4932",
+              "start": 2776.85,
+              "end": 2779.53,
+              "score": 0.0328,
+              "dense": 0.9058,
+              "text": "yeah, and if you're a salon that specializes in 3d nail art",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2773.07,
+              "end": 2775.8,
+              "score": 0.0323,
+              "dense": 0.8531,
+              "text": "yeah, and if you're salon that specializes in three d nail art",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2748.68,
+              "end": 2761.28,
+              "score": 0.0315,
+              "dense": 0.7749,
+              "text": "and if you're a salon that specializes in 3d nail art and your content is built around that niche, ai is gonna pull you ",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 2752.47,
+              "end": 2765.09,
+              "score": 0.0315,
+              "dense": 0.7799,
+              "text": "and if you're a salon that specializes in 3d nail art and your content is built around that niche, ai is gonna pull you ",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 2800.21,
+              "end": 2813.17,
+              "score": 0.0308,
+              "dense": 0.7134,
+              "text": "and if you're a salon that specializes in 3d nail art and your content is built around that niche, ai could definitely p",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.387,
+            "text": "'cause that was a salon one.",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 3,
+          "moments_found": 3,
+          "recall": 1.0,
+          "precision": 1.0,
+          "first_hit_rank": 1,
+          "seconds": 0.023
+        },
+        {
+          "id": "S07",
+          "family": "speech",
+          "query": "being featured in the atlanta journal constitution builds trust",
+          "returned": 1,
+          "rows": [
+            {
+              "asset": "LC4932",
+              "start": 4827.21,
+              "end": 4831.68,
+              "score": 0.0286,
+              "dense": 0.4045,
+              "text": "it's just kinda doing the right things to just help you build authority and trust.",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.399,
+            "text": "it's just kind of doing the right things to just help you build authority and trust.",
+            "clip_id": "clip_007",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 0,
+          "recall": 0.0,
+          "precision": 0.0,
+          "first_hit_rank": null,
+          "seconds": 0.007
+        },
+        {
+          "id": "S08",
+          "family": "speech",
+          "query": "the visibility system's seven modules",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 1696.57,
+              "end": 1699.07,
+              "score": 0.0325,
+              "dense": 0.5873,
+              "text": "there's seven modules that make up the system.",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 1700.38,
+              "end": 1703.05,
+              "score": 0.032,
+              "dense": 0.5873,
+              "text": "there's seven modules that make up the system.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3350.39,
+              "end": 3352.87,
+              "score": 0.0296,
+              "dense": 0.5957,
+              "text": "it's more of this visibility problem right?",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 882.78,
+              "end": 887.4,
+              "score": 0.0282,
+              "dense": 0.5621,
+              "text": "exactly why we built the lucy visibility system where we actually have the visibility score.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3163.47,
+              "end": 3169.58,
+              "score": 0.028,
+              "dense": 0.5408,
+              "text": "this system that uh we've been building over the past few months, explain what those seven modules are doing.",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3923,
+            "text": "more content, less visibility.",
+            "clip_id": "clip_003",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 2,
+          "moments_found": 0,
+          "recall": 0.0,
+          "precision": 0.0,
+          "first_hit_rank": null,
+          "seconds": 0.019
+        },
+        {
+          "id": "S09",
+          "family": "speech",
+          "query": "competitors getting mentioned nine times more often",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LC4932",
+              "start": 3458.51,
+              "end": 3468.58,
+              "score": 0.0315,
+              "dense": 0.6274,
+              "text": "i think the most mind blowing thing is when these business owners, when they see their report and they're able to see th",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3454.72,
+              "end": 3464.77,
+              "score": 0.0315,
+              "dense": 0.616,
+              "text": "i think the most mind blowing thing is when these business owners when they see their report and they're able to see tha",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3336.05,
+              "end": 3336.99,
+              "score": 0.0315,
+              "dense": 0.6057,
+              "text": "competitors are.",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 3409.53,
+              "end": 3410.41,
+              "score": 0.0286,
+              "dense": 0.413,
+              "text": "okay, nine times more.",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3403.9,
+              "end": 3405.84,
+              "score": 0.0282,
+              "dense": 0.4118,
+              "text": "or yeah, like nine times more.",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3958,
+            "text": "and normally you wouldn't see this in ai because it won't tell you h the exact number of how many times it's ranking more, but in our modules it does.",
+            "clip_id": "clip_003",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 2,
+          "moments_found": 2,
+          "recall": 1.0,
+          "precision": 0.8,
+          "first_hit_rank": 1,
+          "seconds": 0.007
+        },
+        {
+          "id": "S10",
+          "family": "speech",
+          "query": "a beautiful website is only twenty percent of what ai looks at",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 1428.9,
+              "end": 1440.41,
+              "score": 0.0325,
+              "dense": 0.7283,
+              "text": "but and if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna ",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 1432.69,
+              "end": 1444.21,
+              "score": 0.032,
+              "dense": 0.7271,
+              "text": "but if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna wann",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1421.48,
+              "end": 1426.83,
+              "score": 0.0281,
+              "dense": 0.6534,
+              "text": "when it comes to ai, people assume this, but it's not just reading your website, right?",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 1425.29,
+              "end": 1430.6,
+              "score": 0.0277,
+              "dense": 0.6534,
+              "text": "when it comes to ai, people assume this, but it's not just reading your website, right?",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3558.36,
+              "end": 3563.27,
+              "score": 0.0272,
+              "dense": 0.6123,
+              "text": "i've i thought i did everything i needed to do for the website for ai to understand it.",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3951,
+            "text": "and if these sources are saying contradictory things, about your company and your brand or worse not saying anything at all, that's really gonna tell ai that it",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.2,
+          "first_hit_rank": 5,
+          "seconds": 0.007
+        },
+        {
+          "id": "S11",
+          "family": "speech",
+          "query": "why ai treats youtube as a trustworthy source",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 4022.89,
+              "end": 4029.5,
+              "score": 0.0328,
+              "dense": 0.7193,
+              "text": "the reason is because youtube's been there for so long and it does count it as a very trustworthy source of information.",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3989.2,
+              "end": 3993.35,
+              "score": 0.0315,
+              "dense": 0.705,
+              "text": "why is uh youtube so important for ai systems or something like that?",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3964.05,
+              "end": 3971.1,
+              "score": 0.0289,
+              "dense": 0.6809,
+              "text": "like why is it why does ai look at youtube over like just another like another like video blog?",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 4015.48,
+              "end": 4026.44,
+              "score": 0.0284,
+              "dense": 0.6317,
+              "text": "so while ai does see all types of video platforms like youtube, instagram, tiktok, etc., it does have some that it reall",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 3967.84,
+              "end": 3974.74,
+              "score": 0.0275,
+              "dense": 0.668,
+              "text": "like why is it why does ai look at youtube over like just in like like another like video blog?",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3993,
+            "text": "but ai doesn't care about that at all.",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.4,
+          "first_hit_rank": 1,
+          "seconds": 0.007
+        },
+        {
+          "id": "S12",
+          "family": "speech",
+          "query": "chatgpt shows a map of nail salons with their google reviews",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0014",
+              "start": 121.26,
+              "end": 122.17,
+              "score": 0.0313,
+              "dense": 0.5371,
+              "text": "you mean google reviews?",
+              "hit": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 4224.64,
+              "end": 4225.61,
+              "score": 0.0306,
+              "dense": 0.5371,
+              "text": "you mean google reviews?",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0014",
+              "start": 475.47,
+              "end": 477.08,
+              "score": 0.0298,
+              "dense": 0.4971,
+              "text": "you see those google reviews.",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 4578.85,
+              "end": 4580.54,
+              "score": 0.0291,
+              "dense": 0.4971,
+              "text": "you see those google reviews.",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 4566.47,
+              "end": 4576.96,
+              "score": 0.0289,
+              "dense": 0.6584,
+              "text": "something i've seen recently within the last few months now through chatgpt is if you are asking, let's say, nail salon ",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3948,
+            "text": "when we did the audit we saw that company ranked on google in the top three um searches.",
+            "clip_id": "clip_003",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 1,
+          "moments_found": 1,
+          "recall": 1.0,
+          "precision": 0.6,
+          "first_hit_rank": 3,
+          "seconds": 0.007
+        },
+        {
+          "id": "S13",
+          "family": "speech",
+          "query": "asking chatgpt for the best crm for a ten person law firm",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 32.52,
+              "end": 43.99,
+              "score": 0.0392,
+              "dense": 0.7162,
+              "text": "mm i feel like the best c rm so instead of typing best c rm small business, they're asking chat gpt what's the best crm ",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 38.15,
+              "end": 46.97,
+              "score": 0.0338,
+              "dense": 0.782,
+              "text": "so instead of typing best crm small business, they're asking chat gpt, what's the best crm if i run a ten person law fir",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 170.97,
+              "end": 173.55,
+              "score": 0.0338,
+              "dense": 0.772,
+              "text": "best what's the best crm if i run a 10 person law firm?",
+              "hit": true
+            },
+            {
+              "asset": "LC4932",
+              "start": 60.55,
+              "end": 70.48,
+              "score": 0.0334,
+              "dense": 0.8042,
+              "text": "okay, i'm just gonna say instead, i'm just gonna say yeah, instead of typing crm small business on google, now they're t",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 167.19,
+              "end": 169.78,
+              "score": 0.0324,
+              "dense": 0.6885,
+              "text": "best what's the best crm if i run a 1-person law firm?",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3841,
+            "text": "okay, five tips on how to make your company better.",
+            "clip_id": "clip_007",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 3,
+          "moments_found": 3,
+          "recall": 1.0,
+          "precision": 1.0,
+          "first_hit_rank": 1,
+          "seconds": 0.122
+        },
+        {
+          "id": "S14",
+          "family": "speech",
+          "query": "a client's seo team stuffed keywords into the h1 tags",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LC4930",
+              "start": 209.02,
+              "end": 212.77,
+              "score": 0.0328,
+              "dense": 0.8394,
+              "text": "their seo team had stuffed all their h one h1 tags with keywords.",
+              "hit": false
+            },
+            {
+              "asset": "LC4931",
+              "start": 158.38,
+              "end": 166.08,
+              "score": 0.032,
+              "dense": 0.8368,
+              "text": "yeah, so last week we ran an audit on a client and their team, their seo team had stuffed all their keywords um with h1 ",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 197.97,
+              "end": 201.44,
+              "score": 0.0315,
+              "dense": 0.7819,
+              "text": "their seo team had stuffed all their h one tags with keywords.",
+              "hit": false
+            },
+            {
+              "asset": "LCATL0012",
+              "start": 189.89,
+              "end": 195.96,
+              "score": 0.031,
+              "dense": 0.7884,
+              "text": "so you ran an audit last week on a client where we saw an seo team stuff um all the h1 tags with keywords.",
+              "hit": true
+            },
+            {
+              "asset": "LC4931",
+              "start": 168.72,
+              "end": 170.47,
+              "score": 0.0306,
+              "dense": 0.7636,
+              "text": "i was supposed to say h1 tags with keywords.",
+              "hit": false
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3997,
+            "text": "all the rage then, blogs, blogs, blogs, keyword stuffing.",
+            "clip_id": "clip_007",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 2,
+          "moments_found": 2,
+          "recall": 1.0,
+          "precision": 0.4,
+          "first_hit_rank": 2,
+          "seconds": 0.008
+        },
+        {
+          "id": "S15",
+          "family": "speech",
+          "query": "marketing directors dismissing geo as seo two point oh",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LC4931",
+              "start": 47.26,
+              "end": 57.99,
+              "score": 0.0323,
+              "dense": 0.7062,
+              "text": "i keep hearing marketing directors say, yes, it's just seo two point oh and then you might have a ceo going in their cmo",
+              "hit": true
+            },
+            {
+              "asset": "LC4930",
+              "start": 65.99,
+              "end": 72.65,
+              "score": 0.0315,
+              "dense": 0.6713,
+              "text": "so i i just keep hearing this from marketing directors that are just calling it seo point two point zero and then they m",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 54.71,
+              "end": 61.32,
+              "score": 0.0311,
+              "dense": 0.6657,
+              "text": "so i i just keep hearing this from marketing directors, they're just calling it seo point two point zero and then they m",
+              "hit": true
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3512.55,
+              "end": 3514.28,
+              "score": 0.031,
+              "dense": 0.6794,
+              "text": "does geo replace seo?",
+              "hit": false
+            },
+            {
+              "asset": "LC4930",
+              "start": 110.02,
+              "end": 119.73,
+              "score": 0.031,
+              "dense": 0.6728,
+              "text": "they're calling gio basically seo two point z and then they keep moving on, or a ceo is telling their cmo or their head ",
+              "hit": true
+            }
+          ],
+          "best_rejected": {
+            "dense_score": 0.3984,
+            "text": "yeah, for these cmos, marketing directors, they've spent years basically trying to have that top organic search result on google, spent a lot of time with thing",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "present",
+          "moments": 4,
+          "moments_found": 3,
+          "recall": 0.75,
+          "precision": 0.8,
+          "first_hit_rank": 1,
+          "seconds": 0.007
+        },
+        {
+          "id": "X01",
+          "family": "speech",
+          "query": "how to train a puppy to sit",
+          "returned": 0,
+          "rows": [],
+          "best_rejected": {
+            "dense_score": 0.3508,
+            "text": "but sit back up like you were before.",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "absent",
+          "abstained": true,
+          "seconds": 0.007
+        },
+        {
+          "id": "X02",
+          "family": "speech",
+          "query": "booking flights for a vacation in japan",
+          "returned": 0,
+          "rows": [],
+          "best_rejected": {
+            "dense_score": 0.2275,
+            "text": "can i go?",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "absent",
+          "abstained": true,
+          "seconds": 0.006
+        },
+        {
+          "id": "X03",
+          "family": "speech",
+          "query": "a recipe for chocolate chip cookies",
+          "returned": 0,
+          "rows": [],
+          "best_rejected": {
+            "dense_score": 0.2139,
+            "text": "i'm gonna add up a little bit of this.",
+            "clip_id": "clip_004",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "absent",
+          "abstained": true,
+          "seconds": 0.02
+        },
+        {
+          "id": "X04",
+          "family": "speech",
+          "query": "who won the basketball game last night",
+          "returned": 0,
+          "rows": [],
+          "best_rejected": {
+            "dense_score": 0.3137,
+            "text": "it's scoring you.",
+            "clip_id": "clip_006",
+            "kind": "speech"
+          },
+          "error": null,
+          "degraded": null,
+          "kind": "absent",
+          "abstained": true,
+          "seconds": 0.006
+        },
+        {
+          "id": "P01",
+          "family": "person",
+          "person": "Akshita",
+          "predicate": "on_screen",
+          "own_camera": {
+            "assets": [
+              "LC4930",
+              "LC4931",
+              "LC4932"
+            ],
+            "recall": 0.9933,
+            "precision": 1.0
+          },
+          "returned_spans": 30,
+          "recall": 0.9933,
+          "precision": 1.0,
+          "ground_truth_seconds": 5453.9,
+          "returned_seconds_in_window": 5389.9,
+          "per_asset": {
+            "LC4930": {
+              "ground_truth_s": 225.2,
+              "returned_s": 223.1,
+              "recall": 0.9956,
+              "precision": 1.0
+            },
+            "LC4931": {
+              "ground_truth_s": 287.6,
+              "returned_s": 282.1,
+              "recall": 0.9878,
+              "precision": 1.0
+            },
+            "LC4932": {
+              "ground_truth_s": 4941.1,
+              "returned_s": 4884.7,
+              "recall": 0.9935,
+              "precision": 1.0
+            },
+            "LCATL0011": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LCATL0012": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LCATL0013": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LCATL0014": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            }
+          },
+          "resolved_person": {
+            "person_id": "person_002",
+            "roster_size": 2,
+            "face_track_assets": [
+              "LC4930",
+              "LC4931",
+              "LC4932"
+            ]
+          },
+          "seconds": 0.168
+        },
+        {
+          "id": "P02",
+          "family": "person",
+          "person": "Craig",
+          "predicate": "on_screen",
+          "own_camera": {
+            "assets": [
+              "LCATL0011",
+              "LCATL0012",
+              "LCATL0013",
+              "LCATL0014"
+            ],
+            "recall": 0.9967,
+            "precision": 1.0
+          },
+          "returned_spans": 19,
+          "recall": 0.9967,
+          "precision": 1.0,
+          "ground_truth_seconds": 5441.1,
+          "returned_seconds_in_window": 5407.4,
+          "per_asset": {
+            "LC4930": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LC4931": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LC4932": {
+              "ground_truth_s": 0,
+              "returned_s": 0,
+              "recall": null,
+              "precision": null
+            },
+            "LCATL0011": {
+              "ground_truth_s": 214.5,
+              "returned_s": 211.5,
+              "recall": 0.9883,
+              "precision": 1.0
+            },
+            "LCATL0012": {
+              "ground_truth_s": 289.0,
+              "returned_s": 289.0,
+              "recall": 1.0,
+              "precision": 1.0
+            },
+            "LCATL0013": {
+              "ground_truth_s": 4099.6,
+              "returned_s": 4079.4,
+              "recall": 0.9976,
+              "precision": 1.0
+            },
+            "LCATL0014": {
+              "ground_truth_s": 838.0,
+              "returned_s": 827.5,
+              "recall": 0.9934,
+              "precision": 1.0
+            }
+          },
+          "resolved_person": {
+            "person_id": "person_001",
+            "roster_size": 2,
+            "face_track_assets": [
+              "LCATL0011",
+              "LCATL0012",
+              "LCATL0013",
+              "LCATL0014"
+            ]
+          },
+          "seconds": 0.14
+        },
+        {
+          "id": "P03",
+          "family": "person",
+          "person": "Akshita",
+          "predicate": "speaking",
+          "own_camera": {
+            "assets": [
+              "LC4930",
+              "LC4931",
+              "LC4932"
+            ],
+            "recall": 0.9939,
+            "precision": 0.9918
+          },
+          "returned_spans": 196,
+          "recall": 0.497,
+          "precision": 0.9918,
+          "ground_truth_seconds": 3449.4,
+          "returned_seconds_in_window": 1801.4,
+          "per_asset": {
+            "LC4930": {
+              "ground_truth_s": 24.1,
+              "returned_s": 28.0,
+              "recall": 1.0,
+              "precision": 0.965
+            },
+            "LC4931": {
+              "ground_truth_s": 75.5,
+              "returned_s": 81.0,
+              "recall": 0.9951,
+              "precision": 0.9865
+            },
+            "LC4932": {
+              "ground_truth_s": 1625.1,
+              "returned_s": 1692.4,
+              "recall": 0.9938,
+              "precision": 0.9925
+            },
+            "LCATL0011": {
+              "ground_truth_s": 24.1,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LCATL0012": {
+              "ground_truth_s": 75.5,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LCATL0013": {
+              "ground_truth_s": 1251.9,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LCATL0014": {
+              "ground_truth_s": 373.2,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            }
+          },
+          "resolved_person": {
+            "person_id": "person_002",
+            "roster_size": 2,
+            "face_track_assets": [
+              "LC4930",
+              "LC4931",
+              "LC4932"
+            ]
+          },
+          "seconds": 0.144
+        },
+        {
+          "id": "P04",
+          "family": "person",
+          "person": "Craig",
+          "predicate": "speaking",
+          "own_camera": {
+            "assets": [
+              "LCATL0011",
+              "LCATL0012",
+              "LCATL0013",
+              "LCATL0014"
+            ],
+            "recall": 0.8434,
+            "precision": 0.9879
+          },
+          "returned_spans": 220,
+          "recall": 0.4217,
+          "precision": 0.9879,
+          "ground_truth_seconds": 1645.3,
+          "returned_seconds_in_window": 695.6,
+          "per_asset": {
+            "LC4930": {
+              "ground_truth_s": 25.0,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LC4931": {
+              "ground_truth_s": 54.7,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LC4932": {
+              "ground_truth_s": 742.9,
+              "returned_s": 0,
+              "recall": 0.0,
+              "precision": null
+            },
+            "LCATL0011": {
+              "ground_truth_s": 25.0,
+              "returned_s": 26.9,
+              "recall": 1.0,
+              "precision": 0.9807
+            },
+            "LCATL0012": {
+              "ground_truth_s": 54.7,
+              "returned_s": 59.5,
+              "recall": 1.0,
+              "precision": 0.9904
+            },
+            "LCATL0013": {
+              "ground_truth_s": 601.7,
+              "returned_s": 507.2,
+              "recall": 0.8379,
+              "precision": 0.9856
+            },
+            "LCATL0014": {
+              "ground_truth_s": 141.2,
+              "returned_s": 102.0,
+              "recall": 0.7782,
+              "precision": 1.0
+            }
+          },
+          "resolved_person": {
+            "person_id": "person_001",
+            "roster_size": 2,
+            "face_track_assets": [
+              "LCATL0011",
+              "LCATL0012",
+              "LCATL0013",
+              "LCATL0014"
+            ]
+          },
+          "seconds": 0.142
+        },
+        {
+          "id": "V01",
+          "family": "visual",
+          "query": "a closed silver laptop lying flat on a table",
+          "refused": false,
+          "kind": "present",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0011",
+              "start": 179.763,
+              "end": 209.793,
+              "best_frame": 209.793,
+              "best_score": 0.2142,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 30.113,
+              "end": 90.173,
+              "best_frame": 60.143,
+              "best_score": 0.2004,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3679.759,
+              "end": 3689.769,
+              "best_frame": 3679.759,
+              "best_score": 0.1995,
+              "hit": true,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2930.01,
+              "end": 2930.01,
+              "best_frame": 2930.01,
+              "best_score": 0.1983,
+              "hit": false,
+              "ambiguous": true
+            },
+            {
+              "asset": "LCATL0012",
+              "start": 30.113,
+              "end": 30.113,
+              "best_frame": 30.113,
+              "best_score": 0.1981,
+              "hit": false,
+              "ambiguous": false
+            }
+          ],
+          "positive_spans": 189,
+          "spans_touched": 2,
+          "recall": 0.0106,
+          "precision": 0.25,
+          "seconds": 1.096
+        },
+        {
+          "id": "V02",
+          "family": "visual",
+          "query": "an open laptop with its lid raised",
+          "refused": false,
+          "kind": "present",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 2889.97,
+              "end": 2889.97,
+              "best_frame": 2889.97,
+              "best_score": 0.2166,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 179.763,
+              "end": 209.793,
+              "best_frame": 209.793,
+              "best_score": 0.2111,
+              "hit": true,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0012",
+              "start": 30.113,
+              "end": 30.113,
+              "best_frame": 30.113,
+              "best_score": 0.1986,
+              "hit": true,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2189.771,
+              "end": 2189.771,
+              "best_frame": 2189.771,
+              "best_score": 0.1976,
+              "hit": true,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 30.113,
+              "end": 90.173,
+              "best_frame": 60.143,
+              "best_score": 0.1923,
+              "hit": true,
+              "ambiguous": false
+            }
+          ],
+          "positive_spans": 341,
+          "spans_touched": 13,
+          "recall": 0.0381,
+          "precision": 0.8,
+          "seconds": 0.015
+        },
+        {
+          "id": "V03",
+          "family": "visual",
+          "query": "a blue laptop screen at the edge of the frame",
+          "refused": false,
+          "kind": "present",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0011",
+              "start": 179.763,
+              "end": 209.793,
+              "best_frame": 209.793,
+              "best_score": 0.2264,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2889.97,
+              "end": 2889.97,
+              "best_frame": 2889.97,
+              "best_score": 0.2257,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0014",
+              "start": 560.143,
+              "end": 560.143,
+              "best_frame": 560.143,
+              "best_score": 0.2233,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0012",
+              "start": 30.113,
+              "end": 30.113,
+              "best_frame": 30.113,
+              "best_score": 0.2226,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 2189.771,
+              "end": 2209.791,
+              "best_frame": 2189.771,
+              "best_score": 0.2221,
+              "hit": false,
+              "ambiguous": false
+            }
+          ],
+          "positive_spans": 60,
+          "spans_touched": 0,
+          "recall": 0.0,
+          "precision": 0.0,
+          "seconds": 0.014
+        },
+        {
+          "id": "V04",
+          "family": "visual",
+          "query": "a man resting his chin on his hand",
+          "refused": false,
+          "kind": "present",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0011",
+              "start": 60.143,
+              "end": 80.163,
+              "best_frame": 80.163,
+              "best_score": 0.2028,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1729.811,
+              "end": 1729.811,
+              "best_frame": 1729.811,
+              "best_score": 0.2017,
+              "hit": true,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 209.793,
+              "end": 209.793,
+              "best_frame": 209.793,
+              "best_score": 0.1926,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3679.759,
+              "end": 3689.769,
+              "best_frame": 3679.759,
+              "best_score": 0.1903,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 540.123,
+              "end": 560.143,
+              "best_frame": 550.133,
+              "best_score": 0.1877,
+              "hit": true,
+              "ambiguous": false
+            }
+          ],
+          "positive_spans": 7,
+          "spans_touched": 4,
+          "recall": 0.5714,
+          "precision": 0.4,
+          "seconds": 0.015
+        },
+        {
+          "id": "V05",
+          "family": "visual",
+          "query": "a person gesturing with both hands",
+          "kind": "refusal",
+          "refused": true,
+          "abstained": true,
+          "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+          "seconds": 0.0
+        },
+        {
+          "id": "VX1",
+          "family": "visual",
+          "query": "a dog lying on the floor",
+          "refused": false,
+          "kind": "absent",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 3980.059,
+              "end": 3990.069,
+              "best_frame": 3980.059,
+              "best_score": 0.1298,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3239.82,
+              "end": 3289.87,
+              "best_frame": 3279.86,
+              "best_score": 0.126,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3689.769,
+              "end": 3689.769,
+              "best_frame": 3689.769,
+              "best_score": 0.1258,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 3819.899,
+              "end": 3849.929,
+              "best_frame": 3829.909,
+              "best_score": 0.1248,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LC4932",
+              "start": 4940.018,
+              "end": 4940.018,
+              "best_frame": 4940.018,
+              "best_score": 0.1231,
+              "hit": false,
+              "ambiguous": false
+            }
+          ],
+          "abstained": false,
+          "top_score": 0.1298,
+          "seconds": 0.014
+        },
+        {
+          "id": "VX2",
+          "family": "visual",
+          "query": "a busy city street full of cars",
+          "refused": false,
+          "kind": "absent",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 3259.84,
+              "end": 3279.86,
+              "best_frame": 3279.86,
+              "best_score": 0.1357,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1909.991,
+              "end": 1909.991,
+              "best_frame": 1909.991,
+              "best_score": 0.1341,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 920.002,
+              "end": 920.002,
+              "best_frame": 920.002,
+              "best_score": 0.1333,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 1640.222,
+              "end": 1660.242,
+              "best_frame": 1660.242,
+              "best_score": 0.1318,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0011",
+              "start": 50.133,
+              "end": 60.143,
+              "best_frame": 60.143,
+              "best_score": 0.1317,
+              "hit": false,
+              "ambiguous": false
+            }
+          ],
+          "abstained": false,
+          "top_score": 0.1357,
+          "seconds": 0.015
+        },
+        {
+          "id": "VX3",
+          "family": "visual",
+          "query": "a whiteboard covered in handwriting",
+          "refused": false,
+          "kind": "absent",
+          "returned": 5,
+          "rows": [
+            {
+              "asset": "LCATL0013",
+              "start": 3259.84,
+              "end": 3289.87,
+              "best_frame": 3279.86,
+              "best_score": 0.1423,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3189.77,
+              "end": 3189.77,
+              "best_frame": 3189.77,
+              "best_score": 0.1416,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0014",
+              "start": 550.133,
+              "end": 560.143,
+              "best_frame": 560.143,
+              "best_score": 0.1383,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0013",
+              "start": 3689.769,
+              "end": 3719.799,
+              "best_frame": 3689.769,
+              "best_score": 0.1348,
+              "hit": false,
+              "ambiguous": false
+            },
+            {
+              "asset": "LCATL0014",
+              "start": 389.973,
+              "end": 420.003,
+              "best_frame": 389.973,
+              "best_score": 0.1338,
+              "hit": false,
+              "ambiguous": false
+            }
+          ],
+          "abstained": false,
+          "top_score": 0.1423,
+          "seconds": 0.013
+        }
+      ]
+    }
+  },
+  "label_coverage": {
+    "registered_query_set": "geo-podcast-retrieval-v1",
+    "registered_queries_run": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06",
+      "S07",
+      "S08",
+      "S09",
+      "S10",
+      "S11",
+      "S12",
+      "S13",
+      "S14",
+      "S15",
+      "X01",
+      "X02",
+      "X03",
+      "X04",
+      "P01",
+      "P02",
+      "P03",
+      "P04",
+      "V01",
+      "V02",
+      "V03",
+      "V04",
+      "V05",
+      "VX1",
+      "VX2",
+      "VX3"
+    ],
+    "unlabelled_interaction_query": {
+      "query": "a person drinking from a cup",
+      "status": "unmeasured",
+      "reason": "Inspected all 429 frames sampled at 0.5-second intervals across the 214.548-second LCATL0011 source; no drinking-from-cup positive was visible, so no positive label or recall score is claimed."
+    }
+  },
+  "model_invocation_counts": {
+    "cold_ingest": {
+      "mlx-community/gemma-4-12b-it-4bit": 24
+    },
+    "warm_ingest": {
+      "mlx-community/gemma-4-12b-it-4bit": 0
+    },
+    "edit_preparation": {
+      "agent": 1
+    }
+  },
+  "model_invocation_counts_reason": "Counts are per-phase from the pipeline/source-memory performance ledgers. The edit agent model identity and token-cost counter are unavailable; agent denotes the recorded backend, not a model name. Retrieval invocation counts remain unmeasured.",
+  "cache_hits": {
+    "cold_ingest": 0,
+    "warm_ingest": 12,
+    "edit_preparation": null
+  },
+  "cache_hits_reason": "Warm ingest reuses 3 project analysis outputs and 9 source-memory lanes; it rebuilds four indexes/lanes and retains two failures. Query and edit cache counters are not exposed."
+}
