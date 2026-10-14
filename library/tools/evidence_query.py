@@ -38,6 +38,7 @@ Nothing is written anywhere.
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Any
 
 try:
@@ -94,6 +95,16 @@ MEASUREMENT_TO_LANE = {
     for modality, measurement in evidence_contract.MODALITY_TO_MEASUREMENT.items()
     if modality in MODALITY_TO_LANE
 }
+MEASUREMENT_TO_LANE.update({
+    # FI-15 query facets use the same evidence query and answer contract.
+    "image.sharpness.laplacian_variance": "m3",
+    "image.luma.rec709_p50": "m3",
+    "image.color.rgb_mean": "m3",
+    "image.defocus_likelihood": "m3",
+    "audio.sound_event": "m5",
+    "sync.multicam_offset": "m6",
+    "speech.take_link": "m1",
+})
 """Registry measurement type to the lane that produces it."""
 
 FILTER_TO_MEASUREMENT = {
@@ -105,6 +116,13 @@ FILTER_TO_MEASUREMENT = {
     "contains": "speech.word",
     "person": "person.voice_turn",
 }
+
+FACET_PREFIXES = {
+    "quality": ("image.", "lens."),
+    "audio": ("audio.",),
+    "camera": ("sync.",),
+    "take": ("speech.take_",),
+}
 """Filter kwargs with an evidence equivalent, for parity checks."""
 
 
@@ -113,7 +131,7 @@ class EvidenceQueryError(ValueError):
 
 
 def _ticks(seconds: float) -> int:
-    return int(round(float(seconds) * TICKS_PER_SECOND))
+    return round(float(seconds) * TICKS_PER_SECOND)
 
 
 def _seconds(tick: int) -> float:
@@ -346,6 +364,33 @@ def plan_from_filter(**kwargs: Any) -> dict[str, Any]:
     return compile_plan(predicates)
 
 
+def plan_from_facets(**facets: dict[str, Any]) -> dict[str, Any]:
+    """Compile FI-15 typed quality/audio/camera/take facets.
+
+    Each supplied facet is a measurement predicate body containing a
+    registered ``measurement_type`` and its typed value constraint. The
+    resulting plan is answered by :func:`evidence_for`, preserving its
+    four-state coverage semantics. Unknown or cross-family measurements
+    refuse instead of widening the query.
+    """
+    unknown = sorted(set(facets) - set(FACET_PREFIXES))
+    if unknown:
+        raise EvidenceQueryError(f"unknown facet(s) {unknown}")
+    predicates = []
+    for family, body in facets.items():
+        if not isinstance(body, dict):
+            raise EvidenceQueryError(f"{family} facet must be a mapping")
+        measurement_type = body.get("measurement_type")
+        if not isinstance(measurement_type, str) or not measurement_type.startswith(
+                FACET_PREFIXES[family]):
+            raise EvidenceQueryError(
+                f"{family} facet requires a registered {family} measurement")
+        predicates.append({"predicate": "measurement", **body})
+    if not predicates:
+        raise EvidenceQueryError("a query names at least one typed facet")
+    return compile_plan(predicates)
+
+
 def _matches_value(compiled: dict[str, Any], native: dict[str, Any] | None,
                    obs: dict[str, Any]) -> bool:
     if "equals" in compiled:
@@ -491,7 +536,7 @@ def _intersect(matches_per_predicate: list[list[dict[str, Any]]]
                     for match in matches
                     for edge in (match["start"], match["end"])})
     joined: list[tuple[int, int, list[dict[str, Any]]]] = []
-    for lo, hi in zip(edges, edges[1:]):
+    for lo, hi in pairwise(edges):
         if hi <= lo:
             continue
         contributors: list[dict[str, Any]] = []
@@ -545,9 +590,9 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                 "completeness_basis": [],
                 "required_missing_lanes": sorted(set(
                     plan.get("required_lanes") or [])),
-                "reasons": [f"predicates span clocks {clocks}: interval "
-                            f"joins need one clock, and cross-clock "
-                            f"transforms belong to VI-02, not this query"]}
+                "reasons": [(f"predicates span clocks {clocks}: interval "
+                             f"joins need one clock, and cross-clock "
+                             f"transforms belong to VI-02, not this query")]}
     joined = _intersect(per_predicate) if all(per_predicate) else []
     fresh_results: list[dict[str, Any]] = []
     stale_dropped = 0
@@ -630,16 +675,16 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
     partial = sorted(lane for lane, state in lane_states.items()
                      if state in ("partial", "stale", "legacy"))
     if candidate_only:
-        reasons = reasons + ["candidates are never answers: unverified "
-                             "spans name what to verify, never what happened"]
+        reasons = reasons + [("candidates are never answers: unverified "
+                              "spans name what to verify, never what happened")]
         return {"status": INCONCLUSIVE, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
                 "required_missing_lanes": missing, "reasons": reasons}
     if missing and not partial and not ran_unmigrated:
         reasons = reasons + [
-            f"lane(s) {missing} never ran: nothing measured, so "
-            f"nothing can be absent yet"]
+            (f"lane(s) {missing} never ran: nothing measured, so "
+             f"nothing can be absent yet")]
         return {"status": NOT_YET_ANALYSED, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
@@ -647,27 +692,27 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
     if ran_unmigrated or partial:
         if ran_unmigrated:
             reasons = reasons + [
-                f"lane(s) {ran_unmigrated} ran but migrated nothing: "
-                f"the migration dropped or refused its records"]
+                (f"lane(s) {ran_unmigrated} ran but migrated nothing: "
+                 f"the migration dropped or refused its records")]
         if partial:
             reasons = reasons + [
-                f"lane(s) {partial} cover only part of the scope, are "
-                f"stale, or carry no coverage: absence needs fresh "
-                f"complete coverage, not a gap"]
+                (f"lane(s) {partial} cover only part of the scope, are "
+                 f"stale, or carry no coverage: absence needs fresh "
+                 f"complete coverage, not a gap")]
         return {"status": INCONCLUSIVE, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
                 "required_missing_lanes": missing, "reasons": reasons}
     if missing:
         reasons = reasons + [
-            f"lane(s) {missing} never ran: nothing measured, so "
-            f"nothing can be absent yet"]
+            (f"lane(s) {missing} never ran: nothing measured, so "
+             f"nothing can be absent yet")]
         return {"status": NOT_YET_ANALYSED, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
                 "required_missing_lanes": missing, "reasons": reasons}
-    reasons = reasons + ["every required lane measured the scope "
-                         "completely and found nothing"]
+    reasons = reasons + [("every required lane measured the scope "
+                          "completely and found nothing")]
     return {"status": CONFIDENTLY_ABSENT, "results": [],
             "completeness_basis": _empty_basis(lane_states, scope, level),
             "required_missing_lanes": [], "reasons": reasons}

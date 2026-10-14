@@ -340,6 +340,28 @@ def test_plan_from_filter_refuses_vlm_facets():
          "verified_only": False}]
 
 
+@pytest.mark.parametrize(("family", "measurement", "lane"), [
+    ("quality", "image.sharpness.laplacian_variance", "m3"),
+    ("audio", "audio.sound_event", "m5"),
+    ("camera", "sync.multicam_offset", "m6"),
+    ("take", "speech.take_link", "m1"),
+])
+def test_typed_facet_is_fail_closed_until_its_lane_runs(family, measurement, lane):
+    plan = evidence_query.plan_from_facets(
+        **{family: {"measurement_type": measurement, "equals": "wanted"}})
+    answer = evidence_query.evidence_for(_model(), plan)
+    assert plan["required_lanes"] == [lane]
+    assert answer["status"] == NOT_YET_ANALYSED
+    assert lane in answer["required_missing_lanes"]
+
+
+def test_typed_facet_rejects_a_measurement_from_another_family():
+    with pytest.raises(evidence_query.EvidenceQueryError,
+                       match="quality facet requires"):
+        evidence_query.plan_from_facets(
+            quality={"measurement_type": "audio.sound_event"})
+
+
 # ─── Parity with FootageIndex.filter() ───────────────────────────
 
 
