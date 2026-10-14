@@ -32,6 +32,7 @@ Usage:
 
 import argparse
 from contextlib import contextmanager
+import hashlib
 import json
 import math
 import os
@@ -72,6 +73,10 @@ from library.tools.heavy_work_lock import (
 )
 from library.tools import perf_ledger
 from library.tools.analysis import measurement_layers, picture_quality
+from library.tools.semantic_window_planner import (
+    activity_map_from_temporal_index,
+    plan_semantic_windows,
+)
 from library.tools.camera_stability import read_camera_stability
 from library.tools.segment_coverage import (
     coverage_summary,
@@ -1419,6 +1424,9 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
             if start < 0 or start >= duration:
                 raise ValueError(f"window start outside clip: {start}")
             window_specs.append((i, start, min(start + window_s, duration)))
+        schedule_key = ",".join(f"{start:.6f}" for _, start, _ in window_specs)
+        schedule_digest = hashlib.sha256(schedule_key.encode("utf-8")).hexdigest()[:12]
+        prefix = f"{prefix}_selected_{schedule_digest}"
 
     def produce_windows(stop_event):
         # One audio probe for the whole clip: every window's `has_audio`
@@ -3783,6 +3791,12 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                   f"{n_boundaries} scene boundaries)")
         else:
             print("  Temporal index: not found")
+        window_plan = plan_semantic_windows(
+            duration, activity_map_from_temporal_index(duration, temporal_index),
+            window_seconds=ACTION_WINDOW_S)
+        print(f"  Semantic window plan: {window_plan['expected_cost']['model_calls']} "
+              f"calls (exhaustive {window_plan['exhaustive_control']['model_calls']}); "
+              f"{window_plan['coverage']['fraction']:.0%} temporal coverage")
         transcript = load_transcript_text(clip_path, output_dir)
         if transcript:
             print(f"  Transcript: \"{transcript[:80]}...\""
@@ -3797,6 +3811,7 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                     "temporal_index": measurement_layers.canonical_digest(
                         temporal_index),
                     "transcript": transcript or "",
+                    "schedule_plan": window_plan,
                 },
                 "objects": {"duration_s": duration,
                             "still_viewer": still_viewer},
@@ -3822,7 +3837,8 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
         video_clips = []
         if cached.get("windows") is None:
             video_clips = extract_video_clips(
-                clip_path, duration, cache_dir, prefetch=False)
+                clip_path, duration, cache_dir, prefetch=False,
+                window_starts_s=window_plan["window_starts_s"])
         extraction_wall = round(time.perf_counter() - extraction_started, 2)
         extraction_spawns = ffprobe_spawn_count()
         audio_count = sum(1 for item in video_clips
@@ -3861,6 +3877,7 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
             "clip_path": clip_path, "cache_dir": cache_dir,
             "transcript": transcript or "",
             "temporal_index": temporal_index, "frames": frames or [],
+            "window_plan": window_plan,
             "video_clips": video_clips, "layer_cache": layer_cache,
             "windows_cached": cached.get("windows"),
             "objects_cached": cached.get("objects"),
@@ -3917,6 +3934,7 @@ def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
                 context["cache_dir"], layer_cache=context["layer_cache"],
                 precomputed_layers=cached_layers)
             profile.setdefault("analysis_metadata", {}).update({
+                "semantic_window_plan": context["window_plan"],
                 "window_extraction_wall_s": (
                     context["window_extraction_wall_s"]),
                 "window_extraction_ffprobe_spawns": (
@@ -4079,6 +4097,9 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                       f"{n_boundaries} scene boundaries)")
             else:
                 print(f"  Temporal index: not found")
+            window_plan = plan_semantic_windows(
+                duration, activity_map_from_temporal_index(duration, temporal_idx),
+                window_seconds=ACTION_WINDOW_S)
     
             # Load transcript
             transcript = load_transcript_text(clip_path, output_dir)
@@ -4095,6 +4116,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                         "temporal_index": measurement_layers.canonical_digest(
                             temporal_idx),
                         "transcript": transcript or "",
+                        "schedule_plan": window_plan,
                     },
                     "objects": {"duration_s": duration,
                                 "still_viewer": still_viewer},
@@ -4121,7 +4143,8 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             video_clips = []
             if "windows" not in cached_layers:
                 video_clips = extract_video_clips(
-                    clip_path, duration, cache_dir, prefetch=True)
+                    clip_path, duration, cache_dir, prefetch=True,
+                    window_starts_s=window_plan["window_starts_s"])
                 print(f"  Video window cuts queued: {len(video_clips)} × "
                       f"{ACTION_WINDOW_S}s; extraction overlaps inference")
 
@@ -4156,6 +4179,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                 subprocesses=window_extraction_ffprobe_spawns,
                 decoded_source_s=round(float(duration or 0.0), 3))
             profile.setdefault("analysis_metadata", {}).update({
+                "semantic_window_plan": window_plan,
                 "window_extraction_wall_s": window_extraction_wall_s,
                 "window_extraction_ffprobe_spawns": (
                     window_extraction_ffprobe_spawns),

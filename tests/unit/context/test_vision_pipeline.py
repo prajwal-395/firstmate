@@ -1823,6 +1823,77 @@ def test_tail_sliver_too_short_to_analyze_is_dropped_not_handed_out(tmp_path):
     assert [c["path"] for c in clips] == [str(husk_dir / "clip_001.mp4")]
 
 
+def test_selected_window_caches_are_keyed_by_source_starts(tmp_path, monkeypatch):
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"source")
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        Path(command[-1]).write_bytes(b"window")
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(vp, "_source_has_audio", lambda _path: False)
+    monkeypatch.setattr(vp, "_clip_opens", lambda _path: True)
+    monkeypatch.setattr(vp.subprocess, "run", fake_run)
+
+    first = vp.extract_video_clips(
+        source, 40.0, tmp_path / "cache", window_starts_s=[0.0, 20.0])
+    second = vp.extract_video_clips(
+        source, 40.0, tmp_path / "cache", window_starts_s=[10.0, 30.0])
+
+    assert [row["start"] for row in first] == [0.0, 20.0]
+    assert [row["start"] for row in second] == [10.0, 30.0]
+    assert len(calls) == 4
+    assert {row["path"] for row in first}.isdisjoint(
+        row["path"] for row in second)
+
+
+def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"source")
+    extracted = {}
+
+    class Cache:
+        def get(self, _layer):
+            return None
+
+        def get_window(self, *_args):
+            return None
+
+    monkeypatch.setattr(vp, "probe_clip", lambda _path: {
+        "clip_id": "source", "duration_s": 100.0, "fps": 30.0,
+        "resolution": [1920, 1080], "file_path": str(source)})
+    monkeypatch.setattr(vp, "load_temporal_index", lambda _path: {
+        "speech_regions": [], "scene_boundaries": [],
+        "motion_evidence": {"pairs": [
+            {"start": second, "end": second + 1, "status": "measured",
+             "change": 0.0, "novelty": 1.0 if second == 45 else 0.0}
+            for second in range(100)]}})
+    monkeypatch.setattr(vp, "load_transcript_text", lambda *_args: "")
+    monkeypatch.setattr(vp.measurement_layers.LayerCache, "for_source",
+                        lambda *_args, **_kwargs: Cache())
+    monkeypatch.setattr(vp, "extract_frames", lambda *_args: [])
+
+    def extract(_path, _duration, _cache, *, prefetch, window_starts_s):
+        extracted["starts"] = window_starts_s
+        return [{"index": index, "start": start, "end": min(start + 10, 100),
+                 "path": f"window-{index}.mp4", "has_audio": False}
+                for index, start in enumerate(window_starts_s)]
+
+    monkeypatch.setattr(vp, "extract_video_clips", extract)
+    monkeypatch.setattr(vp, "reset_ffprobe_spawn_count", lambda: None)
+    monkeypatch.setattr(vp, "ffprobe_spawn_count", lambda: 0)
+    monkeypatch.setattr(vp.perf_ledger, "record", lambda *_args, **_kwargs: None)
+
+    _, contexts, _ = vp._prepare_host_semantic_contexts(
+        [source], tmp_path / "cache", tmp_path / "output", {}, False, "gemma")
+
+    assert contexts[0]["window_plan"]["window_starts_s"] == extracted["starts"]
+    assert contexts[0]["window_plan"]["expected_cost"]["model_calls"] < \
+        contexts[0]["window_plan"]["exhaustive_control"]["model_calls"]
+
+
 def test_extract_keeps_audio_and_recuts_legacy_silent_cache(tmp_path):
     """A stale cached window is re-cut, never silently reused: one cut
     under the old strip-audio policy, and one taller than the cap."""

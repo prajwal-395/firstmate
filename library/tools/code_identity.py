@@ -1480,6 +1480,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/motion_evidence.py",
         # The executed measurement (D1: the usable-ranges gate lives here).
         "library/tools/analysis/vision_pipeline_v3.py",
+        # The adaptive semantic scheduler and its measured activity inputs
+        # change which source windows reach the cached VLM analysis.
+        "library/tools/semantic_window_planner.py",
+        "library/tools/content_activity.py",
         # The model run is serialized against other local heavy work.
         "library/tools/heavy_work_lock.py",
         # Imported by heavy_work_lock: admits it by resource demand.
