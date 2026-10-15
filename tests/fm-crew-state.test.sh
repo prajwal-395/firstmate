@@ -2858,7 +2858,7 @@ test_no_run_idle_pane_paused() {
   make_repo_on_branch "$d/wt" fm/feat-pause
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-pause.meta" "window=fm:fm-feat-pause" "worktree=$d/wt" "kind=ship" "harness=claude"
-  printf 'paused: holding for the upstream tool release\n' > "$d/state/feat-pause.status"
+  printf 'paused: waits-for=task:tool-release holding for the upstream tool release\n' > "$d/state/feat-pause.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" feat-pause

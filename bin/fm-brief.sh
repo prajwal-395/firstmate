@@ -192,12 +192,9 @@ esac
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Follow the external-wait rule in the escalation section below when using \`$PAUSED_VERB:\`.
-   Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition}\` to the status file.
-   Name what you are waiting for and what will let you resume; do not repeat the declaration on every poll.
-   Do not declare active implementation or reasoning as a wait.
-   Firstmate may still raise one first-sight alert; the declared wait then uses the existing long recheck cadence instead of repeated possible-wedge alarms.
-   When you know when the wait clears, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC) for a recheck at that time.
-   Follow the resolution rule below when the wait clears, then resume the task.
+   Run your own tests, validation, and long commands in the foreground and wait for them in the same turn; do not use \`$PAUSED_VERB:\` for your own work.
+   For a real external wait, name the condition that lets you resume; when you know when it clears, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC) for a recheck at that time.
+   Follow the resolution rule below when the external wait clears, then resume the task.
    Use \`blocked:\` when you are stuck and need help.
 EOF
 
@@ -750,7 +747,7 @@ Bound that command by what your harness lets one command run: in Pi pass the bas
 Give any `--wait` a duration a little under that bound.
 When the bound passes with nothing changed, run the same blocking command again, with no status check in between.
 The one exception is `respond`: it sent its answer before it began waiting, so reattach with `no-mistakes axi run --wait` instead, and never send the same `respond` again, because it would answer whichever gate parks next without you reading it.
-A wait your shell can watch this way needs no `paused:` line, except an already running pipeline or long foreground command, which you declare once just before its blocking hold with its existing task id or process id as the `waits-for` reference, then stay in the command and never append it again as you reissue that command.
+Keep validation and long commands in the foreground and wait for them in the same turn; they are your own work, not external waits to declare with `paused:`.
 EOF
 WAIT_SECTION=${WAIT_SECTION%$'\n'}
 WAIT_BLOCK=

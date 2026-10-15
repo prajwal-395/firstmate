@@ -879,7 +879,7 @@ test_enriched_wedge_under_declared_wait_uses_pause_cadence() {
   task=paused-wedge-w1; win="sess:fm-$task"; pane="$dir/pane.txt"
   key=$(printf '%s' "$task" | tr ':/.' '___')
   fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
-  printf 'working: dispatching the long audit\npaused: the audit engine is running to completion\n' \
+  printf 'working: dispatching the long audit\npaused: waits-for=process:4242 the audit engine is running to completion\n' \
     > "$state/$task.status"
   printf 'idle prompt $\n' > "$pane"
   case "$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")" in

@@ -15,4 +15,16 @@ status_is_captain_relevant "$invalid" || { echo 'FAIL: invalid pause did not sur
 status_is_paused "$valid" || { echo 'FAIL: named external wait stopped being absorbed' >&2; exit 1; }
 status_is_captain_relevant "$valid" && { echo 'FAIL: valid external wait became captain-relevant' >&2; exit 1; }
 [ "$(status_paused_until "$valid")" -gt "$(date +%s)" ] || { echo 'FAIL: valid wait lost its until recheck' >&2; exit 1; }
+for external in \
+  'task:vep-render-a' \
+  'pr:https://github.com/example/project/pull/42' \
+  'lease:task-17' \
+  'lock:publish-slot' \
+  'process:4242' \
+  'decision:api-shape'; do
+  status_is_paused "paused: waits-for=$external waiting for its owner" \
+    || { echo "FAIL: named external reference was rejected: $external" >&2; exit 1; }
+done
+status_is_paused 'paused: waits-for=self:unfinished-work soon' \
+  && { echo 'FAIL: unsupported self reference was absorbed' >&2; exit 1; }
 echo 'PASS: unsubstantiated pauses surface; named external waits retain quiet until behavior'
