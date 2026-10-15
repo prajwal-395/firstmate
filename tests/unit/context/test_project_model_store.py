@@ -1,19 +1,21 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
+from library.tools import project_model_store
 from library.tools.project_model import validate_project_model
 from library.tools.project_model_store import (
     append_model_patch,
-    commit_project_model,
     commit_evidence_import,
+    commit_project_model,
     load_project_model,
     merge_evidence_records,
     parity_report,
     write_parity_report,
 )
-
 
 FIXTURE = json.loads(
     Path("native/ren-protocol/fixtures/project-model.json").read_text(encoding="utf-8")
@@ -35,6 +37,112 @@ def test_revision_log_replays_and_repairs_snapshot(tmp_path):
     snapshot = json.loads((project / "project_model" / "snapshot.json").read_text(encoding="utf-8"))
     assert snapshot["revision"] == 2
     assert len((project / "project_model" / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+
+
+@pytest.mark.parametrize("damage", ["missing", "invalid_json", "stale_revision", "stale_hash", "stale_model"])
+def test_snapshot_damage_is_rebuilt_from_the_saved_event_history(tmp_path, damage):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0, reason="saved baseline")
+    updated = {**FIXTURE, "intents": [
+        {**FIXTURE["intents"][0], "constraints": ["preserve evidence"]}
+    ]}
+    append_model_patch(project, {"intents": updated["intents"]}, expected_revision=1)
+    snapshot_path = project / "project_model" / "snapshot.json"
+    if damage == "missing":
+        snapshot_path.unlink()
+    elif damage == "invalid_json":
+        snapshot_path.write_text("{truncated", encoding="utf-8")
+    else:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        if damage == "stale_revision":
+            snapshot["revision"] = 1
+        elif damage == "stale_hash":
+            snapshot["head_hash"] = "0" * 64
+        else:
+            snapshot["model"] = FIXTURE
+        snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    revision, model = load_project_model(project)
+
+    assert (revision, model) == (2, updated)
+    repaired = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert repaired == {
+        "revision": 2,
+        "head_hash": json.loads((project / "project_model" / "events.jsonl").read_text(
+            encoding="utf-8").splitlines()[-1])["event_hash"],
+        "model": updated,
+    }
+
+
+def test_snapshot_write_failure_after_durable_append_recovers_on_restart(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    updated = {**FIXTURE, "intents": [
+        {**FIXTURE["intents"][0], "constraints": ["recover committed revision"]}
+    ]}
+    real_write = project_model_store._write_snapshot
+
+    def interrupted_write(*_args, **_kwargs):
+        raise OSError("simulated interruption after event fsync")
+
+    monkeypatch.setattr(project_model_store, "_write_snapshot", interrupted_write)
+    with pytest.raises(OSError, match="simulated interruption"):
+        append_model_patch(project, {"intents": updated["intents"]}, expected_revision=1)
+    monkeypatch.setattr(project_model_store, "_write_snapshot", real_write)
+
+    revision, replayed = load_project_model(project)
+    assert revision == 2
+    assert replayed == updated
+    assert json.loads((project / "project_model" / "snapshot.json").read_text(
+        encoding="utf-8"))["model"] == updated
+
+
+def test_interrupted_event_append_refuses_without_discarding_valid_history(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    events_path = project / "project_model" / "events.jsonl"
+    with events_path.open("ab") as stream:
+        stream.write(b'{"revision":2,"kind":"merge_patch"')
+    before = events_path.read_bytes()
+
+    with pytest.raises(ValueError, match="invalid project model event at revision 2"):
+        load_project_model(project)
+
+    assert events_path.read_bytes() == before
+    assert json.loads((project / "project_model" / "snapshot.json").read_text(
+        encoding="utf-8"))["revision"] == 1
+
+
+def test_concurrent_capability_evidence_updates_retry_without_losing_either(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    gate = Barrier(2)
+    rows = [
+        {**FIXTURE["observations"][0], "id": "obs-cap-a"},
+        {**FIXTURE["observations"][0], "id": "obs-cap-b"},
+    ]
+
+    def write(row):
+        gate.wait()
+        try:
+            return merge_evidence_records(
+                project, observations=[row], expected_revision=1,
+                author=f"capability:{row['id']}")
+        except RuntimeError as exc:
+            assert "stale project model revision 1" in str(exc)
+            return merge_evidence_records(
+                project, observations=[row], expected_revision=2,
+                author=f"capability:{row['id']}")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        revisions = list(pool.map(write, rows))
+
+    revision, model = load_project_model(project)
+    assert revision == 3
+    assert sorted(revisions) == [2, 3]
+    assert {row["id"] for row in model["observations"]} >= {
+        "obs-cap-a", "obs-cap-b", FIXTURE["observations"][0]["id"]
+    }
 
 
 def test_revision_conflict_and_corrupt_event_are_rejected(tmp_path):
