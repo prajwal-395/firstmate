@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import traceback
@@ -68,9 +69,18 @@ def _run_analysis(copy_path: Path, run_dir: Path, run_id: str) -> dict:
                # prosody over the temporal indices. No lane is skipped;
                # a refusal or failure in any of them fails this stage.
                ]
+    # Each workflow run gets private project/source-memory outputs, but
+    # semantic layer measurements are content addressed and safe to share
+    # across the repeated runs (and later workflow invocations). This lets
+    # unchanged footage reuse its model observations without sharing any
+    # project state or timeline output.
+    env = os.environ.copy()
+    env.setdefault("PIPELINE_SEMANTIC_MEASUREMENT_ROOT",
+                   str(run_dir.parents[1] / "semantic-measurements"))
     with perf_ledger.span("ren_analysis_cli", subprocesses=1, calls=1):
         result = subprocess.run(
-            command, cwd=REPO_ROOT, capture_output=True, text=True,
+            command, cwd=REPO_ROOT, env=env,
+            capture_output=True, text=True,
             encoding="utf-8", timeout=ANALYSIS_TIMEOUT_SECONDS, check=False)
     evidence = {"command": command, "exit_code": result.returncode,
                 "stdout_tail": result.stdout[-12000:],

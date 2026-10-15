@@ -2619,3 +2619,63 @@ def test_write_scene_memory_serializes_the_vlm_scene_pass_and_boundaries(
     assert doc["scenes"] == profile["scene"]
     assert doc["scene_boundaries"] == temporal_index["scene_boundaries"]
     assert doc["scene_coverage"] == profile["scene_coverage"]
+
+
+def test_local_coarse_batches_stay_within_memory_safe_size():
+    """The defect: a 15-image coarse batch OOMs Metal unified memory when
+    it runs on the already-loaded in-process Gemma model
+    (still_executor="local"), where the same batch via the Codex CLI
+    never touches the GPU. Local batches must split to the batch-4 size
+    and merge, while cloud batches keep their prompts."""
+    import copy
+
+    assert vp._coarse_batch_size("local") == vp.LOCAL_COARSE_BATCH_SIZE
+    assert vp._coarse_batch_size("cloud") == vp.COARSE_BATCH_SIZE
+    assert vp._coarse_batch_size(None) == vp.COARSE_BATCH_SIZE
+    assert vp.LOCAL_COARSE_BATCH_SIZE == 4
+
+    frames = [{"path": f"/still-{i}.jpg", "timestamp": float(i * 5)}
+              for i in range(15)]
+    seen_image_counts = []
+
+    class SplittingAnalyzer:
+        def analyze_with_retry(self, prompt, parse_fn, images=None,
+                               **kwargs):
+            seen_image_counts.append(len(images))
+            assert len(images) <= vp.LOCAL_COARSE_BATCH_SIZE
+            return [], "[]", 0.1
+
+    merged, _elapsed = vp.analyze_objects_coarse(
+        SplittingAnalyzer(), frames, 75.0, request_prefix="clip",
+        still_executor="local")
+    assert merged == []
+    assert seen_image_counts == [4, 4, 4, 3]
+
+    cloud_counts = []
+
+    class CloudAnalyzer:
+        def analyze_with_retry(self, prompt, parse_fn, images=None,
+                               **kwargs):
+            cloud_counts.append(len(images))
+            return [], "[]", 0.1
+
+    vp.analyze_objects_coarse(
+        CloudAnalyzer(), frames, 75.0, request_prefix="clip",
+        still_executor="cloud")
+    assert cloud_counts == [15]
+
+    # A 15-frame batch created for the cloud route but executed locally
+    # splits inside the batch call instead of reaching Gemma whole.
+    batch_counts = []
+
+    class BatchAnalyzer:
+        def analyze_with_retry(self, prompt, parse_fn, images=None,
+                               **kwargs):
+            batch_counts.append(len(images))
+            return [], "[]", 0.1
+
+    result, _elapsed = vp.analyze_objects_coarse_batch(
+        BatchAnalyzer(), frames, 75.0, 0, 1, request_prefix="clip",
+        still_executor="local")
+    assert result == []
+    assert batch_counts == [4, 4, 4, 3]

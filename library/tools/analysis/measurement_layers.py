@@ -84,20 +84,19 @@ except ImportError:  # imported as `tools.*` from inside library/
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 MEASUREMENTS_DIRNAME = "measurements"
+MEASUREMENT_ROOT_ENV = "PIPELINE_SEMANTIC_MEASUREMENT_ROOT"
 
 
 def store_root() -> Path:
-    """The source-memory root, by `source_memory.memory_root`'s rule.
+    """The content-addressed semantic measurement store.
 
-    Restated rather than imported (with `shared_environment.vep_home`'s
-    rule under it): both modules import far past what this one needs,
-    and this module is part of step 1.03's code identity
-    (`code_identity.STEP_IMPLEMENTATION_DEPS`), so importing them would
-    make every transcription or environment fix recompose the vision
-    profiles. `tests/unit/picture/test_source_memory.py` pins the two rules
-    together. The entries sit beside that source's other slots, under
-    the same content digest.
+    An explicit semantic root lets isolated workflows keep their source
+    memory private while reusing semantic measurements for byte-identical
+    footage. Without it, retain the existing source-memory placement.
     """
+    explicit_measurements = os.environ.get(MEASUREMENT_ROOT_ENV)
+    if explicit_measurements:
+        return Path(explicit_measurements).expanduser()
     explicit = os.environ.get("PIPELINE_SOURCE_MEMORY_ROOT")
     if explicit:
         return Path(explicit).expanduser()
@@ -476,13 +475,20 @@ class LayerCache:
             return None
         if entry.get("key") != key or "value" not in entry:
             return None
+        value = entry["value"]
+        # An unparsed response is an absent measurement, not reusable
+        # evidence. This also rejects entries written by older versions.
+        if isinstance(value, dict) and value.get("parse_error"):
+            return None
         self.window_outcomes[key] = "reused"
-        return entry["value"]
+        return value
 
     def put_window(self, start: float, end: float, params: dict,
                    value) -> None:
         """Store one measured window using the normal best-effort policy."""
         if "windows" not in self.methods:
+            return
+        if isinstance(value, dict) and value.get("parse_error"):
             return
         key = self.window_key(start, end, params)
         path = self._window_path(key)

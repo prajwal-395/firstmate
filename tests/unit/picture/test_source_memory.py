@@ -854,11 +854,23 @@ def test_the_store_is_source_memory(tmp_path, monkeypatch):
                 {"XDG_DATA_HOME": str(tmp_path / "xdg")},
                 {"PIPELINE_SOURCE_MEMORY_ROOT": str(tmp_path / "mem")}):
         for name in ("PIPELINE_SOURCE_MEMORY_ROOT", "PIPELINE_VEP_HOME",
+                     "PIPELINE_SEMANTIC_MEASUREMENT_ROOT",
                      "XDG_DATA_HOME"):
             monkeypatch.delenv(name, raising=False)
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         assert ml.store_root() == source_memory.memory_root()
+
+
+def test_semantic_measurement_root_can_outlive_private_source_memory(
+        tmp_path, monkeypatch):
+    private_memory = tmp_path / "run" / "source-memory"
+    shared_measurements = tmp_path / "semantic-measurements"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(private_memory))
+    monkeypatch.setenv("PIPELINE_SEMANTIC_MEASUREMENT_ROOT",
+                       str(shared_measurements))
+
+    assert ml.store_root() == shared_measurements
 
 
 class _CountingAnalyzer:
@@ -939,6 +951,26 @@ def test_a_compose_from_cached_layers_calls_no_model(tmp_path):
     compose(partial, ml.LayerCache.for_source(
         source, {**methods, "objects": "o2"}, {}, root=tmp_path / "mem"))
     assert partial.calls == 1
+
+
+def test_unparsed_windows_are_neither_stored_nor_reused(tmp_path):
+    source = tmp_path / "clip.mov"
+    source.write_bytes(b"clip identity")
+    cache = ml.LayerCache.for_source(
+        source, {"windows": "w1"}, {}, root=tmp_path / "mem")
+    params = {"prompt": "same window"}
+    unparsed = {"parse_error": "invalid JSON", "actions": []}
+
+    cache.put_window(0, 10, params, unparsed)
+    assert cache.get_window(0, 10, params) is None
+    assert not list((cache.dir / "windows" / "per_window").glob("*.json"))
+
+    # Reject bad entries already written by earlier versions as well.
+    key = cache.window_key(0, 10, params)
+    path = cache._window_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"key": key, "value": unparsed}))
+    assert cache.get_window(0, 10, params) is None
 
 
 # --------------------------------------------------------------------------

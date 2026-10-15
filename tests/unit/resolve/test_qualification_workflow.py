@@ -136,6 +136,8 @@ def test_workflow_analysis_runs_the_full_composition_unskipped(
     assert "--skip" not in seen["command"]
     assert seen["command"][-1] == "--json"
     assert seen["kwargs"]["encoding"] == "utf-8"
+    assert seen["kwargs"]["env"]["PIPELINE_SEMANTIC_MEASUREMENT_ROOT"] == str(
+        run_dir.parents[1] / "semantic-measurements")
     assert result["evidence"]["command"][1] == "analyze"
 
 

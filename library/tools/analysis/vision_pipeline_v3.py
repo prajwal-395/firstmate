@@ -256,6 +256,26 @@ WINDOW_CLIP_HEIGHT = 720
 # Object detection — coarse sweep
 COARSE_FRAME_INTERVAL_S = 5       # 1 frame every 5 seconds
 COARSE_BATCH_SIZE = 15            # Max frames per model call
+# Local Gemma still passes share the already-loaded in-process model
+# (still_executor="local"), so a 15-image batch OOMs Metal unified
+# memory where the same batch via the Codex CLI never touches the GPU
+# (measured 2026-10-15: 16-image objects-coarse OOMed even with one
+# analyzer; steer: run both arms at 8 or 4). Four images per local call
+# bounds one call (vep-pl-e06); cloud/host stills keep the established
+# 15-frame batches and prompts.
+LOCAL_COARSE_BATCH_SIZE = 4       # Max frames per LOCAL model call
+
+
+def _coarse_batch_size(still_executor=None) -> int:
+    """The coarse batch size for this executor.
+
+    Cloud/host stills never touch local GPU memory, so they keep the
+    established 15-frame batches and their prompts. Local Gemma stills
+    run in-process and are capped to the memory-safe size above.
+    """
+    if still_executor == "local":
+        return LOCAL_COARSE_BATCH_SIZE
+    return COARSE_BATCH_SIZE
 
 # Object detection — detail pass
 DETAIL_FPS = 1                    # Frames per second in detail ranges
@@ -2955,42 +2975,76 @@ def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
 def analyze_objects_coarse_batch(analyzer, frames, duration, batch_idx,
                                  n_batches, request_prefix="clip",
                                  still_executor=None):
-    """Answer one established coarse batch without changing its prompt."""
-    batch_paths = [frame["path"] for frame in frames]
-    batch_ts = [frame["timestamp"] for frame in frames]
-    ts_str = ", ".join(f"{ts:.1f}s" for ts in batch_ts)
-    prompt = PROMPT_OBJECTS_COARSE.format(
-        n_frames=len(frames), duration=duration, frame_timestamps=ts_str)
-    route_options = ({"still_executor": still_executor}
-                     if still_executor is not None else {})
-    result, _raw, elapsed = analyzer.analyze_with_retry(
-        prompt, parse_json_array, images=batch_paths,
-        max_tokens=MAX_TOKENS["objects_coarse"],
-        label=f"Objects coarse batch {batch_idx+1}/{n_batches}",
-        request_kind="object-coarse",
-        request_id=(f"{request_prefix}:object-coarse:"
-                    f"batch:{batch_idx+1}/{n_batches}"),
-        **route_options)
-    return result, elapsed
+    """Answer one established coarse batch without changing its prompt.
+
+    A batch created for the cloud/host route can still land on the local
+    lane (the host scheduler assigns lanes at execution time). Split it
+    into memory-safe sub-batches there and merge, so a 15-frame batch
+    never reaches in-process Gemma in one call.
+    """
+    effective = _coarse_batch_size(still_executor)
+    if len(frames) <= effective:
+        batch_paths = [frame["path"] for frame in frames]
+        batch_ts = [frame["timestamp"] for frame in frames]
+        ts_str = ", ".join(f"{ts:.1f}s" for ts in batch_ts)
+        prompt = PROMPT_OBJECTS_COARSE.format(
+            n_frames=len(frames), duration=duration, frame_timestamps=ts_str)
+        route_options = ({"still_executor": still_executor}
+                         if still_executor is not None else {})
+        result, _raw, elapsed = analyzer.analyze_with_retry(
+            prompt, parse_json_array, images=batch_paths,
+            max_tokens=MAX_TOKENS["objects_coarse"],
+            label=f"Objects coarse batch {batch_idx+1}/{n_batches}",
+            request_kind="object-coarse",
+            request_id=(f"{request_prefix}:object-coarse:"
+                        f"batch:{batch_idx+1}/{n_batches}"),
+            **route_options)
+        return result, elapsed
+    merged = []
+    total_elapsed = 0
+    n_sub = max(1, int(math.ceil(len(frames) / effective)))
+    for sub_idx in range(n_sub):
+        sub = frames[sub_idx * effective:(sub_idx + 1) * effective]
+        sub_paths = [frame["path"] for frame in sub]
+        sub_ts = [frame["timestamp"] for frame in sub]
+        ts_str = ", ".join(f"{ts:.1f}s" for ts in sub_ts)
+        prompt = PROMPT_OBJECTS_COARSE.format(
+            n_frames=len(sub), duration=duration, frame_timestamps=ts_str)
+        route_options = ({"still_executor": still_executor}
+                         if still_executor is not None else {})
+        result, _raw, elapsed = analyzer.analyze_with_retry(
+            prompt, parse_json_array, images=sub_paths,
+            max_tokens=MAX_TOKENS["objects_coarse"],
+            label=(f"Objects coarse batch {batch_idx+1}/{n_batches} "
+                   f"local {sub_idx+1}/{n_sub}"),
+            request_kind="object-coarse",
+            request_id=(f"{request_prefix}:object-coarse:"
+                        f"batch:{batch_idx+1}/{n_batches}:"
+                        f"local:{sub_idx+1}/{n_sub}"),
+            **route_options)
+        total_elapsed += elapsed
+        merged.extend(result)
+    return merged, total_elapsed
 
 
 def analyze_objects_coarse(analyzer, frames, duration,
-                           request_prefix="clip"):
+                           request_prefix="clip", still_executor=None):
     """Object detection — coarse sweep with batched frames.
 
     Returns (merged_objects_list, total_elapsed).
     """
     n_frames = len(frames)
-    n_batches = max(1, int(math.ceil(n_frames / COARSE_BATCH_SIZE)))
+    batch_size = _coarse_batch_size(still_executor)
+    n_batches = max(1, int(math.ceil(n_frames / batch_size)))
     all_objects = []
     total_elapsed = 0
 
     for batch_idx in range(n_batches):
-        start_i = batch_idx * COARSE_BATCH_SIZE
-        end_i = min(start_i + COARSE_BATCH_SIZE, n_frames)
+        start_i = batch_idx * batch_size
+        end_i = min(start_i + batch_size, n_frames)
         result, elapsed = analyze_objects_coarse_batch(
             analyzer, frames[start_i:end_i], duration, batch_idx, n_batches,
-            request_prefix=request_prefix)
+            request_prefix=request_prefix, still_executor=still_executor)
         total_elapsed += elapsed
         all_objects.extend(result)
 
@@ -3031,7 +3085,8 @@ def analyze_objects_detail_batch(analyzer, frames, coarse_objects, duration,
 
 
 def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects,
-                           duration, request_prefix="clip"):
+                           duration, request_prefix="clip",
+                           still_executor=None):
     """Object detection — targeted detail pass for transient entities.
 
     Returns (refined_objects_list, total_elapsed).
@@ -3054,7 +3109,8 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects,
             batch = frames[batch_start:batch_start + DETAIL_BATCH_SIZE]
             result, _raw, elapsed = analyze_objects_detail_batch(
                 analyzer, batch, coarse_objects, duration, r_start, r_end,
-                batch_start, request_prefix=request_prefix)
+                batch_start, request_prefix=request_prefix,
+                still_executor=still_executor)
             total_elapsed += elapsed
             all_detail_objects.extend(result)
 
@@ -3189,7 +3245,7 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
                  temporal_index, cache_dir, layer_cache=None, clock=None,
-                 precomputed_layers=None):
+                 precomputed_layers=None, still_executor=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
@@ -3224,7 +3280,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     n_window_calls = (len(cached["windows"]["windows"])
                       if cached.get("windows") else len(video_clips))
     n_obj_coarse_calls = max(1, int(math.ceil(
-        len(frames or []) / COARSE_BATCH_SIZE)))
+        len(frames or []) / _coarse_batch_size(still_executor))))
     n_estimated = (n_window_calls + n_obj_coarse_calls
                    + 1)  # +detail is variable
 
@@ -3247,8 +3303,11 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         # 2. Objects - coarse sweep
         print(f"  [Objects] Coarse sweep ({len(frames)} frames, "
               f"{n_obj_coarse_calls} batch(es))...", end=" ", flush=True)
+        executor_options = ({"still_executor": still_executor}
+                            if still_executor is not None else {})
         coarse_objects, elapsed = analyze_objects_coarse(
-            analyzer, frames, duration, request_prefix=clip_id)
+            analyzer, frames, duration, request_prefix=clip_id,
+            **executor_options)
         objects_time += elapsed
         objects_calls += n_obj_coarse_calls
         print(f"({elapsed:.1f}s) → {len(coarse_objects)} entities")
@@ -3261,7 +3320,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
                   end=" ", flush=True)
             objects, elapsed = analyze_objects_detail(
                 analyzer, clip_path, cache_dir, coarse_objects, duration,
-                request_prefix=clip_id)
+                request_prefix=clip_id, **executor_options)
             objects_time += elapsed
             objects_calls += max(1, n_detail_ranges)  # Approximate
             print(f"({elapsed:.1f}s) → {len(objects)} entities (refined)")
@@ -3772,6 +3831,7 @@ def _make_host_semantic_tasks(contexts, analyzer):
         n_batches = max(1, int(math.ceil(len(frames) / COARSE_BATCH_SIZE)))
         context["coarse_batches"] = n_batches
         context["coarse_answers"] = {}
+        context["coarse_lanes"] = {}
         for batch_index in range(n_batches):
             start = batch_index * COARSE_BATCH_SIZE
             end = min(start + COARSE_BATCH_SIZE, len(frames))
@@ -3788,6 +3848,7 @@ def _make_host_semantic_tasks(contexts, analyzer):
                 "key": (clip_order, "coarse", batch_index),
                 "kind": "coarse", "order": (clip_order, batch_index),
                 "local_only": not batch_frames,
+                "frame_count": len(batch_frames),
                 "run": analyze_coarse,
             })
     return window_tasks, coarse_tasks
@@ -3808,20 +3869,35 @@ def _run_host_semantic_schedule(contexts, analyzer, *,
             return
         if kind == "coarse":
             context["coarse_answers"][item_index] = result
+            context.setdefault("coarse_lanes", {})[item_index] = lane
             if len(context["coarse_answers"]) != context["coarse_batches"]:
                 return
 
             all_objects = []
             coarse_time = 0.0
+            actual_coarse_calls = 0
             for batch_index in range(context["coarse_batches"]):
                 batch_objects, elapsed = context["coarse_answers"][batch_index]
                 all_objects.extend(batch_objects)
                 coarse_time += elapsed
+                batch_lane = context.get("coarse_lanes", {}).get(
+                    batch_index, lane)
+                batch_frames = next(
+                    (candidate.get("frame_count")
+                     for candidate in coarse_tasks
+                     if candidate["key"] == (clip_order, "coarse",
+                                             batch_index)),
+                    None)
+                if batch_frames is None:
+                    actual_coarse_calls += 1
+                else:
+                    actual_coarse_calls += max(1, int(math.ceil(
+                        batch_frames / _coarse_batch_size(batch_lane))))
             coarse_objects = merge_objects(
                 all_objects, max_duration=context["meta"]["duration_s"])
             context["coarse_objects"] = coarse_objects
             context["objects_time"] = coarse_time
-            context["objects_calls"] = context["coarse_batches"]
+            context["objects_calls"] = actual_coarse_calls
 
             ranges = find_detail_ranges(
                 coarse_objects, context["meta"]["duration_s"])
@@ -4361,6 +4437,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                 profile = analyze_clip(
                     analyzer, meta, frames, video_clips, transcript,
                     temporal_idx, cache_dir, layer_cache=layer_cache,
+                    still_executor="local",
                 )
             finally:
                 if isinstance(video_clips, _WindowClipPrefetch):
