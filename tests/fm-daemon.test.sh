@@ -1010,14 +1010,14 @@ test_stale_pause_survives_a_foreign_resolved_line() {
   local dir state out
   dir=$(make_supercase stale-paused-foreign-resolved)
   state="$dir/state"
-  printf 'needs-decision: which color\npaused: waiting on the vendor release\nresolved [key=default]: answered: blue\n' \
+  printf 'needs-decision: which color\npaused: waits-for=task:vendor-release waiting on the vendor release\nresolved [key=default]: answered: blue\n' \
     > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
-  case "$out" in pause\|*"paused: waiting on the vendor release") ;; *) fail "a default-key answer cleared the pause: $out" ;; esac
-  printf 'paused: waiting on the vendor release\nresolved [key=legal]: counsel answered\n' > "$state/held-w9r.status"
+  case "$out" in pause\|*"paused: waits-for=task:vendor-release waiting on the vendor release") ;; *) fail "a default-key answer cleared the pause: $out" ;; esac
+  printf 'paused: waits-for=task:vendor-release waiting on the vendor release\nresolved [key=legal]: counsel answered\n' > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
   case "$out" in pause\|*) ;; *) fail "a differently keyed resolved line cleared the pause: $out" ;; esac
-  printf 'paused: waiting on the vendor release\nresolved: the vendor shipped\n' > "$state/held-w9r.status"
+  printf 'paused: waits-for=task:vendor-release waiting on the vendor release\nresolved: the vendor shipped\n' > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
   case "$out" in pause\|*) fail "the worker's own keyless resolved line did not retract the pause: $out" ;; esac
   printf 'captain-held [key=route]: tracked by task-decision-route\nresolved [key=default]: answered: blue\n' > "$state/held-w9r.status"
