@@ -472,6 +472,11 @@ class FrameIndex:
         """
         report = self.search_frames(query, top_k=pool,
                                     include_actions=include_actions)
+        report["search_policy"] = {
+            "candidate_pool_size": max(0, pool),
+            "merge_gap_seconds": float(merge_gap_s),
+            "top_interval_limit": max(0, top_ranges),
+        }
         if report["refused"] is not None or report.get("error"):
             report["ranges"] = []
             return report

@@ -124,6 +124,7 @@ def _retrieval_diagnostics(eval_set: dict, rows: list[dict], frame_index,
                       if frame.get("asset") in positives and any(
                           start <= float(frame["time"]) <= end
                           for start, end in positives[frame["asset"]])]
+        policy = scored.get("search_policy", {})
         intervals = [rng for rng in scored.get("rows", []) if any(
             rng.get("asset") == asset and overlaps((rng["start"], rng["end"]), span)
             for asset, spans in positives.items() for span in spans)]
@@ -145,10 +146,11 @@ def _retrieval_diagnostics(eval_set: dict, rows: list[dict], frame_index,
             "indexed_frames_in_positive_spans": len(sampled),
             "positive_frames_in_candidate_pool": len(candidates),
             "positive_returned_intervals": len(intervals),
-            "candidate_pool_size": len(scored.get("candidate_frames", [])),
+            "candidate_pool_size": policy.get(
+                "candidate_pool_size", len(scored.get("candidate_frames", []))),
             "returned_interval_count": scored.get("returned", 0),
-            "merge_gap_seconds": MERGE_GAP_S,
-            "top_interval_limit": top_k,
+            "merge_gap_seconds": policy.get("merge_gap_seconds", MERGE_GAP_S),
+            "top_interval_limit": policy.get("top_interval_limit", top_k),
         }
     by_category = {}
     for query_id, diagnostic in per_query.items():

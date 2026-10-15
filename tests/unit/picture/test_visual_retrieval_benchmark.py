@@ -116,13 +116,19 @@ def test_retrieval_diagnostics_separate_sampling_ranking_and_interval_misses(tmp
          "precision": 0, "returned": 0, "rows": [], "candidate_frames": []},
         {"id": "interval", "family": "visual", "kind": "present", "recall": 0,
          "precision": 0, "returned": 0, "rows": [],
-         "candidate_frames": [{"asset": "camera_a", "time": 10, "score": .9}]},
+         "candidate_frames": [{"asset": "camera_a", "time": 10, "score": .9}],
+         "search_policy": {"candidate_pool_size": 80,
+                           "merge_gap_seconds": 60.0,
+                           "top_interval_limit": 10}},
     ]}
     enrich_visual_result(eval_set, result, frame_index=Index(tmp_path), corpus=Corpus())
     diagnostic = result["visual_benchmark"]["retrieval_diagnostics"]
     assert diagnostic["per_query"]["sampling"]["stage"] == "sampling_coverage"
     assert diagnostic["per_query"]["ranking"]["stage"] == "frame_ranking_or_candidate_pool"
     assert diagnostic["per_query"]["interval"]["stage"] == "interval_ranking_or_merging"
+    assert diagnostic["per_query"]["interval"]["candidate_pool_size"] == 80
+    assert diagnostic["per_query"]["interval"]["merge_gap_seconds"] == 60.0
+    assert diagnostic["per_query"]["interval"]["top_interval_limit"] == 10
     assert diagnostic["by_category"]["people"]["queries"] == 1
     assert diagnostic["by_category"]["appearance"]["queries"] == 2
 

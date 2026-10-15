@@ -202,6 +202,7 @@ def score_visual(query: dict, report: dict, corpus: Corpus, rules: dict) -> dict
          "time": frame["t"], "score": frame["score"]}
         for frame in frames
     ]
+    out["search_policy"] = report.get("search_policy", {})
     if positive:
         judged = [r for r in rows if not r["ambiguous"]]
         touched = sum(1 for name, spans in positive.items() for span in spans
