@@ -93,10 +93,10 @@ unset _fm_classify_nounset
 FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
 
 # The declared-wait verb. A crew (or firstmate steering it) appends
-#   paused: <reason>
-# to declare a known wait expected to clear on its own. The legacy "external
-# wait" name and "awaiting external" reason also cover the worker's own work;
-# they do not identify a separate classification or liveness source.
+#   paused: waits-for=<task|pr|lease|lock|process|decision>:<identifier> <reason>
+# to declare a known wait expected to clear on its own. The reference must name
+# an outside task, PR URL, lease, lock, process, or decision key; pauses without
+# one are invalid and surface immediately for supervision.
 # bin/fm-brief.sh owns worker-facing declaration and resolution instructions.
 # Unlike `blocked:` (stuck, firstmate must help), an idle `paused:` pane is EXPECTED, so
 # the stale path bounds repeats instead of escalating a possible wedge; a live
@@ -302,8 +302,12 @@ status_is_captain_relevant() {
   [ -n "$line" ] || return 1
   status_line_verb "$line" verb
   case "$verb" in
-    working|resolved|captain-held|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+    working|resolved|captain-held)
       return 1
+      ;;
+    "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+      status_is_paused "$line" && return 1
+      return 0
       ;;
   esac
   # An unrecognized prefix is surfaced as itself. The check sits after the
@@ -397,7 +401,8 @@ status_is_paused() {  # <status-line>
   local line=$1 verb
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
-  [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ]
+  [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ] || return 1
+  [[ "$line" =~ [[:space:]]waits-for=(task|pr|lease|lock|process|decision):[A-Za-z0-9._/@:+#=-]+([[:space:]]|$) ]]
 }
 
 # 0 if a status line's leading verb is the verified captain-held transfer verb.
