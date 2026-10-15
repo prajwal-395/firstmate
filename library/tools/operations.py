@@ -1533,6 +1533,7 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="main",
         produces=("picture_plan",),
         consumes=("timed_spine", "clip_catalog"),
+        executor_path="library/capabilities/picture/plan.py",
         # Deterministic data transformation: reads the meshed spine and
         # the catalog, and writes the per-block shot-selection plan that
         # assign_aroll and select_broll satisfy.  The semantic documents
@@ -1865,6 +1866,7 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="analyse_music",
         produces=("music_analysis",),
         consumes=("music_selection",),
+        executor_path="library/capabilities/music/analyse.py",
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
                 name="model_memory",

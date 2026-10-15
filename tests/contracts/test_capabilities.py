@@ -150,6 +150,24 @@ def test_segmentation_and_ocr_executors_are_capability_owned():
             "library/steps/")
 
 
+def test_music_analysis_and_picture_plan_executors_are_capability_owned():
+    from library.capabilities.music.analyse import analyse_music
+    from library.capabilities.picture.plan import main as plan_picture
+
+    music = operations.get("music.analyse")
+    picture = operations.get("picture.plan")
+    assert capabilities.spec_of(music).executor.path == (
+        "library/capabilities/music/analyse.py")
+    assert capabilities.spec_of(picture).executor.path == (
+        "library/capabilities/picture/plan.py")
+    assert music.run is analyse_music
+    assert picture.run is plan_picture
+    assert music.produces == ("music_analysis",)
+    assert picture.produces == ("picture_plan",)
+    assert capabilities.spec_of(music).scopes == ("project",)
+    assert capabilities.spec_of(picture).scopes == ("project",)
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (

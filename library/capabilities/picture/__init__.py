@@ -1,0 +1,1 @@
+"""Global picture planning capability."""
