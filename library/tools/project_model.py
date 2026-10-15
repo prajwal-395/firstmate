@@ -85,6 +85,23 @@ def validate_project_model(model: dict[str, Any]) -> None:
             raise ValueError("observation references unknown clock")
         evidence = item.get("evidence")
         if isinstance(evidence, dict):
+            # Keep objective evidence fields at the project-model boundary,
+            # where JSON Schema alone permits empty strings and does not
+            # relate the legacy certainty field to its typed evidence.
+            if not evidence.get("unit") or not evidence.get("method"):
+                raise ValueError("evidence must carry a non-empty unit and method")
+            evidence_type = evidence["evidence_type"]
+            evidence_certainty = evidence.get("certainty")
+            allowed_certainty = {
+                "measurement": {"observed", "measured"},
+                "inference": {"inferred"},
+                "creative_judgment": {"interpreted"},
+                "evaluation": set(),
+            }[evidence_type]
+            if evidence_certainty is not None and evidence_certainty not in allowed_certainty:
+                raise ValueError("evidence certainty conflicts with its evidence type")
+            if certainty is not None and certainty not in allowed_certainty:
+                raise ValueError("observation certainty conflicts with its evidence type")
             if evidence.get("evidence_type") == "evaluation":
                 if not evidence.get("policy_id"):
                     raise ValueError("evaluation must name its versioned policy")

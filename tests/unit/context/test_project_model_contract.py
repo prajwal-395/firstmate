@@ -106,6 +106,40 @@ def test_old_contract_less_model_still_validates():
     validate_project_model(model)
 
 
+def test_project_model_keeps_measurements_typed_and_round_trippable():
+    """Objective evidence needs its own units/method and certainty; an
+    interpretation cannot be smuggled into the measurement slot."""
+    from library.tools import evidence_contract
+
+    model = _model()
+    observation = model["observations"][0]
+    measurement = evidence_contract.new_measurement(
+        asset_id=observation["asset_id"], clock_id=observation["interval"]["clock_id"],
+        start_tick=observation["interval"]["start"],
+        end_tick=observation["interval"]["end"],
+        measurement_type="image.sharpness.laplacian_variance", value=142.6,
+        method="laplacian-variance-180px-v1", provenance_id=observation["provenance_id"],
+        sample_resolution=[320, 180],
+    )
+    observation["evidence"] = evidence_contract.to_rust_evidence(measurement)
+    observation["certainty"] = "measured"
+    valid = json.loads(json.dumps(model))
+    validate_project_model(valid)
+    assert valid["observations"][0]["evidence"] == observation["evidence"]
+
+    observation["certainty"] = "interpreted"
+    with pytest.raises(ValueError, match="observation certainty conflicts"):
+        validate_project_model(model)
+    observation["certainty"] = "measured"
+    observation["evidence"]["unit"] = ""
+    with pytest.raises(ValueError, match="non-empty unit and method"):
+        validate_project_model(model)
+    observation["evidence"]["unit"] = "variance"
+    observation["evidence"]["method"] = ""
+    with pytest.raises(ValueError, match="non-empty unit and method"):
+        validate_project_model(model)
+
+
 def test_versioned_evaluation_policy_is_project_scoped_and_origin_stamped():
     from library.tools.evaluation_policy import EvaluationPolicy, PolicyRule
 
