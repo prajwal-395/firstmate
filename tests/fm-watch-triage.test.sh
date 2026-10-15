@@ -481,8 +481,8 @@ test_unrecognized_status_prefix_is_visible() {
   printf 'working: still on it\n' > "$state/working.status"
   status_span_has_actionable "$state/working.status" 0 \
     && fail "working: became a supervisor event"
-  printf 'paused: waiting on the upstream release\nMore detail: still waiting.\n' > "$state/prose.status"
-  [ "$(last_status_line "$state/prose.status")" = 'paused: waiting on the upstream release' ] \
+  printf 'paused: waits-for=task:upstream-release waiting on the upstream release\nMore detail: still waiting.\n' > "$state/prose.status"
+  [ "$(last_status_line "$state/prose.status")" = 'paused: waits-for=task:upstream-release waiting on the upstream release' ] \
     || fail "continuation prose hid the paused declaration"
   status_is_paused "$(last_status_line "$state/prose.status")" \
     || fail "continuation prose cleared the pause classification"
@@ -490,8 +490,8 @@ test_unrecognized_status_prefix_is_visible() {
     && fail "a paused declaration or its continuation became a supervisor event"
   for continuation in 'https://github.com/o/r/pull/12' 'Reason: upstream is slow' \
     'Note: see above' 'e.g.: the release notes' '10:30 retry scheduled'; do
-    printf 'paused: waiting on the upstream release\n%s\n' "$continuation" > "$state/paused-cont.status"
-    [ "$(last_status_line "$state/paused-cont.status")" = 'paused: waiting on the upstream release' ] \
+    printf 'paused: waits-for=task:upstream-release waiting on the upstream release\n%s\n' "$continuation" > "$state/paused-cont.status"
+    [ "$(last_status_line "$state/paused-cont.status")" = 'paused: waits-for=task:upstream-release waiting on the upstream release' ] \
       || fail "continuation '$continuation' hid the paused declaration"
     status_is_paused "$(last_status_line "$state/paused-cont.status")" \
       || fail "continuation '$continuation' cleared the pause classification"

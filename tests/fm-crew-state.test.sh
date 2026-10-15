@@ -3024,7 +3024,7 @@ test_no_run_idle_pane_custom_paused_verb() {
   make_repo_on_branch "$d/wt" fm/feat-custom-pause
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-custom-pause.meta" "window=fm:fm-feat-custom-pause" "worktree=$d/wt" "kind=ship" "harness=claude"
-  printf 'awaiting: vendor maintenance window\n' > "$d/state/feat-custom-pause.status"
+  printf 'awaiting: waits-for=task:vendor-maintenance vendor maintenance window\n' > "$d/state/feat-custom-pause.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" feat-custom-pause

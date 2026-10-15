@@ -959,7 +959,7 @@ test_stale_actionable_wait_escalates_and_keeps_pause_cadence() {
   local dir state win key out reason resumed_win resumed_key
   dir=$(make_supercase stale-actionable-wait); state="$dir/state"
   win="sess:fm-waiting-r10"; key=$(printf '%s' waiting-r10 | tr ':/.' '___')
-  printf 'blocked [key=release]: need captain approval\npaused: waiting for release access\n' \
+  printf 'blocked [key=release]: need captain approval\npaused: waits-for=task:release-access waiting for release access\n' \
     > "$state/waiting-r10.status"
 
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")
