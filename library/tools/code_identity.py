@@ -557,6 +557,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
+        # The step adapter delegates the measured scan to its capability-owned implementation.
+        "library/capabilities/footage/scan.py",
         # VI-09 extends the cached temporal-index dependency represented here.
         "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.

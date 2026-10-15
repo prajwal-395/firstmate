@@ -586,6 +586,12 @@ def operation_violation(op) -> str | None:
         return (
             f"run resolves to {_dotted(source)}, which {op.owning_dir} does not import"
         )
+    capabilities_root = REPO_ROOT / "library" / "capabilities"
+    if capabilities_root in source.parents:
+        if getattr(op, "executor_path", None) != _rel(source):
+            return (f"run resolves to {_rel(source)} but the capability "
+                    "executor path does not declare it")
+        return None
     return (
         f"run resolves to {source}, which is neither library/steps/ nor library/tools/"
     )

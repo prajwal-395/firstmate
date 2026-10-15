@@ -547,6 +547,7 @@ class Operation:
     EditPatch composition are read from these phases. Consumers may
     derive views, but may not keep parallel per-capability tables.
     """
+    executor_path: str | None = None
 
     @property
     def is_prompt(self) -> bool:
@@ -656,8 +657,19 @@ class Operation:
                 f"module owning logic, which this property exists to stop",
                 "ask the host model to answer this operation's prompt "
                 "instead of resolving it as code")
-        return getattr(load_step_module(self.owning_dir, self.body),
-                       self.attr)
+        if self.executor_path is None:
+            module = load_step_module(self.owning_dir, self.body)
+        else:
+            key = self.executor_path
+            if key not in _LOADED:
+                for entry in (str(REPO_ROOT), str(REPO_ROOT / "library")):
+                    if entry not in sys.path:
+                        sys.path.insert(0, entry)
+                module_name = key.removesuffix(".py").replace("/", ".")
+                module = importlib.import_module(module_name)
+                _LOADED[key] = module
+            module = _LOADED[key]
+        return getattr(module, self.attr)
 
     # ── Executing ───────────────────────────────────────────────────
 
@@ -1321,6 +1333,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Scan the project folder for raw video files",
         owning_dir="step_1_01_scan_project", body="step.py",
         attr="scan_project_folder",
+        executor_path="library/capabilities/footage/scan.py",
         produces=(
             "project_config",
             "raw_footage_files",

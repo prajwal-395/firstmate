@@ -25,6 +25,20 @@ def test_a_capability_without_a_legacy_node_refuses_node_keyed_questions():
         nodeless.requires  # noqa: B018
 
 
+def test_footage_scan_executor_is_capability_owned_and_step_is_adapter():
+    from library.capabilities.footage.scan import scan_project_folder
+    from library.steps.step_1_01_scan_project.step import (
+        scan_project_folder as step_scan,
+    )
+
+    op = operations.get("footage.scan")
+    spec = capabilities.spec_of(op)
+    assert spec.executor.path == "library/capabilities/footage/scan.py"
+    assert op.run is scan_project_folder
+    assert step_scan.__module__ == "library.steps.step_1_01_scan_project.step"
+    assert "_scan" in step_scan.__code__.co_names
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (
