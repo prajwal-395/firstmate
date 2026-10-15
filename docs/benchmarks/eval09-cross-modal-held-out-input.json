@@ -1,0 +1,650 @@
+{
+  "annotation_state": "labels_pending_custodian",
+  "benchmark_id": "cross-modal-v1",
+  "cases": [
+    {
+      "case_id": "held-out-audio_visual_event",
+      "gold": [],
+      "modality": "audio_visual_event",
+      "open_set": true,
+      "predictions": []
+    },
+    {
+      "case_id": "held-out-face_event",
+      "gold": [],
+      "modality": "face_event",
+      "open_set": true,
+      "predictions": []
+    },
+    {
+      "case_id": "held-out-person_object",
+      "gold": [],
+      "modality": "person_object",
+      "open_set": true,
+      "predictions": []
+    },
+    {
+      "case_id": "held-out-scene_category",
+      "gold": [],
+      "modality": "scene_category",
+      "open_set": true,
+      "predictions": []
+    },
+    {
+      "case_id": "held-out-speech_person",
+      "gold": [],
+      "modality": "speech_person",
+      "open_set": true,
+      "predictions": [
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-011",
+            "turn-9b7fd11e-voice_002-000",
+            "utt-9b7fd11e-0005"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0038"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0039"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0040"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0041"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_001-004",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0042"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-012",
+            "turn-9b7fd11e-voice_001-004",
+            "turn-9b7fd11e-voice_002-001",
+            "utt-9b7fd11e-0042"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-013",
+            "turn-9b7fd11e-voice_002-002",
+            "utt-9b7fd11e-0054"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-000",
+            "lip-9b7fd11e-013",
+            "turn-9b7fd11e-voice_002-002",
+            "utt-9b7fd11e-0055"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-014",
+            "turn-9b7fd11e-voice_002-003",
+            "utt-9b7fd11e-0060"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-014",
+            "turn-9b7fd11e-voice_001-008",
+            "turn-9b7fd11e-voice_002-003",
+            "utt-9b7fd11e-0061"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-014",
+            "turn-9b7fd11e-voice_001-008",
+            "turn-9b7fd11e-voice_002-003",
+            "utt-9b7fd11e-0061"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-014",
+            "lip-9b7fd11e-015",
+            "turn-9b7fd11e-voice_001-008",
+            "turn-9b7fd11e-voice_001-009",
+            "turn-9b7fd11e-voice_002-003",
+            "turn-9b7fd11e-voice_002-004",
+            "utt-9b7fd11e-0062"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-014",
+            "lip-9b7fd11e-015",
+            "turn-9b7fd11e-voice_001-008",
+            "turn-9b7fd11e-voice_001-009",
+            "turn-9b7fd11e-voice_002-003",
+            "turn-9b7fd11e-voice_002-004",
+            "utt-9b7fd11e-0062"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaker_face_disagreement",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "candidate",
+          "subject_id": "speaker-9b7fd11e-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-015",
+            "turn-9b7fd11e-voice_002-004",
+            "utt-9b7fd11e-0063"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-015",
+            "turn-9b7fd11e-voice_002-004",
+            "utt-9b7fd11e-0064"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-016",
+            "turn-9b7fd11e-voice_002-005",
+            "utt-9b7fd11e-0065"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-9b7fd11e-001",
+            "lip-9b7fd11e-016",
+            "turn-9b7fd11e-voice_002-005",
+            "utt-9b7fd11e-0066"
+          ],
+          "object_id": "person-9b7fd11e-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LC4930-m1",
+          "status": "verified",
+          "subject_id": "speaker-9b7fd11e-voice_002"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-000",
+            "turn-d19007c3-voice_001-000",
+            "utt-d19007c3-0000"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-000",
+            "lip-d19007c3-001",
+            "turn-d19007c3-voice_001-000",
+            "turn-d19007c3-voice_001-001",
+            "utt-d19007c3-0001"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-002",
+            "turn-d19007c3-voice_001-002",
+            "utt-d19007c3-0010"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-002",
+            "turn-d19007c3-voice_001-002",
+            "utt-d19007c3-0011"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-002",
+            "turn-d19007c3-voice_001-002",
+            "utt-d19007c3-0012"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-002",
+            "lip-d19007c3-003",
+            "turn-d19007c3-voice_001-002",
+            "turn-d19007c3-voice_001-003",
+            "utt-d19007c3-0013"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-004",
+            "turn-d19007c3-voice_001-004",
+            "utt-d19007c3-0021"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0025"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0026"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0027"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0028"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0029"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0030"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0031"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0032"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-005",
+            "turn-d19007c3-voice_001-005",
+            "utt-d19007c3-0033"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-006",
+            "turn-d19007c3-voice_001-006",
+            "utt-d19007c3-0038"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-006",
+            "turn-d19007c3-voice_001-006",
+            "utt-d19007c3-0039"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-007",
+            "turn-d19007c3-voice_001-007",
+            "utt-d19007c3-0047"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "face-d19007c3-000",
+            "lip-d19007c3-008",
+            "lip-d19007c3-009",
+            "turn-d19007c3-voice_001-008",
+            "turn-d19007c3-voice_001-009",
+            "utt-d19007c3-0056"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "lip-d19007c3-010",
+            "turn-d19007c3-voice_001-010",
+            "utt-d19007c3-0063"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        },
+        {
+          "certainty": "inferred",
+          "evidence_provenance_ids": [
+            "lip-d19007c3-010",
+            "turn-d19007c3-voice_001-010",
+            "utt-d19007c3-0064"
+          ],
+          "object_id": "person-d19007c3-face_001",
+          "predicate": "speaks_as",
+          "provenance_id": "prov-LCATL0011-m1",
+          "status": "verified",
+          "subject_id": "speaker-d19007c3-voice_001"
+        }
+      ]
+    },
+    {
+      "case_id": "held-out-speech_reference",
+      "gold": [],
+      "modality": "speech_reference",
+      "open_set": true,
+      "predictions": []
+    }
+  ],
+  "cost": {
+    "elapsed_seconds": 0.001,
+    "model_passes": 0
+  },
+  "domain": "podcast_interview",
+  "executor": "cross-modal-grounding",
+  "executor_version": "cross-modal-grounding-v1@15431e528",
+  "provenance": {
+    "digests": [
+      "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4"
+    ],
+    "grounding_counts": {
+      "cross_modal_reports": 3,
+      "grounded_utterances": 37
+    },
+    "lane_root": "/Users/prajwal/.local/share/vep/source_memory",
+    "note": "predictions are the shipped grounding executor's relations over already-measured lanes; no model ran in this pass and no gold labels exist yet"
+  },
+  "source_ids": [
+    "LC4930",
+    "LCATL0011"
+  ],
+  "split": "held_out",
+  "tuning_access": false
+}
