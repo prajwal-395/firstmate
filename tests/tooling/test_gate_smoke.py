@@ -161,6 +161,7 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
             "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
             "PYTHONPATH": f"{tools}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
             "VEP_HEAVY_WORK_LOCK_DIR": str(lock_dir),
+            "REN_CI_PERF_HISTORY": str(shim.parent / "ci-performance.jsonl"),
             # The pytest session may itself inherit the pooled gate token.
             # Do not let the child appear covered by that shared grant.
             "VEP_HEAVY_WORK_OWNER": "",

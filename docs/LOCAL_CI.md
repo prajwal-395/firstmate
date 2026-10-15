@@ -83,6 +83,30 @@ That is the test-security half of the design; the speed half is that
 Tier-1 selections are small and parallel while the full suite runs
 once per cluster instead of once per PR.
 
+### Revisioned full-suite performance history
+
+Each gate run with a JUnit result appends a JSONL record to
+`~/.cache/ren/ci-performance.jsonl` (override with `REN_CI_PERF_HISTORY`).
+Records are keyed by the tested Git revision and include wall time, pass,
+failure and skip counts, selected and executed counts, a selected-test-set
+fingerprint, the slowest test cases, aggregate CPU seconds and peak lane RSS.
+The gate wraps each pytest lane with macOS `/usr/bin/time -lp`; unavailable
+resource values remain `null` rather than being guessed from JUnit durations.
+
+The first full `PASS` on a machine seeds its local known-good baseline. Later
+full `PASS` runs must retain the same selected tests and executed count, and
+stay within a provisional 20% wall-time allowance. Narrowed, failed and
+unreadable runs are recorded but never become the baseline. This allowance
+is a starting alert threshold, not a claim that one measurement established
+normal variance. A test is flagged as a provisional slow-test regression
+when its time more than doubles and grows by over one second. The
+2026-10-15 I05 direct pytest measurement is retained as
+a reference in [`benchmarks/2026-10-15-suite-profile-i05.md`](benchmarks/2026-10-15-suite-profile-i05.md),
+but does not seed the gate baseline because its routing differed.
+
+Use `python3 scripts/ci_perf_report.py --help` for an explicit fixture
+baseline and controlled regression check.
+
 ## Required live proofs
 
 A PR body can declare a required proof with one line per proof, for

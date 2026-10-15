@@ -72,6 +72,10 @@ cd "${REPO_ROOT}" || exit
 # checkout under test first for every Python process in the gate.
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
+# Stamp before scheduler admission so measured wall time includes queueing.
+GATE_STARTED_SECONDS="${GATE_STARTED_SECONDS:-$(python3 -c 'import time; print(time.time())')}"
+export GATE_STARTED_SECONDS
+
 # The gate is admitted by the machine's resource scheduler
 # (library/tools/resource_scheduler.py) as `full_suite_gate`: more than
 # half the cpu, so two gates never run at once, while a seconds-long
@@ -84,6 +88,11 @@ if ! python3 -m library.tools.heavy_work_lock owns --profile full_suite_gate; th
     --owner "scripts/full_suite_gate.sh" --profile full_suite_gate \
     -- bash "$0" "$@"
 fi
+
+gate_wall_seconds() {
+  python3 -c 'import sys, time; print(max(0.0, time.time() - float(sys.argv[1])))' \
+    "${GATE_STARTED_SECONDS}"
+}
 
 # `FULL_SUITE_GATE_PYTHON` still wins.  Without it, ASK the resolution
 # rather than taking the ambient `python3`: on this machine that is 3.14
@@ -330,8 +339,9 @@ run_sharded_phase() {
       echo "[$tag] serial lane: empty (no file matches a serial clause)"
     fi
     local parallel_err="${REPORT_DIR}/${tag}.parallel.err"
+    PERF_TIME_FILES+=("${parallel_err}")
     echo "=== full-suite gate [$tag]: parallel lane - pytest -n ${WORKERS} --dist loadfile -m '${marker}' (${PYTHON}) ==="
-    "${PYTHON}" -m pytest tests/ -p scripts.pytest_timing --timing-shard \
+    /usr/bin/time -lp "${PYTHON}" -m pytest tests/ -p scripts.pytest_timing --timing-shard \
       -m "${marker}" -rs --tb=short \
       "${RESOLVE_DRIVING[@]/#/--ignore=}" \
       "${PARALLEL_IGNORES[@]:-}" \
@@ -353,8 +363,9 @@ run_sharded_phase() {
     serial_ran=0
     if [ "${#SERIAL_FILES[@]}" -gt 0 ]; then
       local serial_err="${REPORT_DIR}/${tag}.serial.err"
+      PERF_TIME_FILES+=("${serial_err}")
       echo "=== full-suite gate [$tag]: serial lane - single-process over ${#SERIAL_FILES[@]} file(s) -m '${marker}' ==="
-      "${PYTHON}" -m pytest "${SERIAL_FILES[@]}" -p scripts.pytest_timing \
+      /usr/bin/time -lp "${PYTHON}" -m pytest "${SERIAL_FILES[@]}" -p scripts.pytest_timing \
         -m "${marker}" -rs --tb=short \
         --junitxml="${serial_xml}" 2>"${serial_err}"
       serial_exit=$?
@@ -410,9 +421,11 @@ run_sharded_phase() {
     else
       echo "=== full-suite gate [$tag]: pytest -m '${marker}' (${PYTHON}) [serial control] ==="
     fi
-    "${PYTHON}" -m pytest tests/ -m "${marker}" -rs --tb=short \
+    local single_err="${REPORT_DIR}/${tag}.single.err"
+    PERF_TIME_FILES+=("${single_err}")
+    /usr/bin/time -lp "${PYTHON}" -m pytest tests/ -m "${marker}" -rs --tb=short \
     "${RESOLVE_DRIVING[@]/#/--ignore=}" \
-      --junitxml="${xml}"
+      --junitxml="${xml}" 2>"${single_err}"
     main_exit=$?
     phase_result="$(summarise "${xml}" "${main_exit}")"
     [ -z "${phase_result}" ] && phase_result="ran-nothing the summariser itself produced no output"
@@ -472,6 +485,7 @@ run_sharded_phase() {
 # ---- phase 1: unit and scenario tests ----------------------------------
 # Timing never changes membership. Unit and scenario tests both run on
 # every full gate; previous timings only order whole files across workers.
+PERF_TIME_FILES=()
 MAIN_XML="${REPORT_DIR}/main.xml"
 run_sharded_phase "main" "not real_model and not resolve_live" "${MAIN_XML}"
 MAIN_STATE="${PHASE_STATE}"
@@ -507,10 +521,12 @@ fi
 
 if [ "${RUN_REAL_MODEL}" -eq 1 ]; then
   REAL_MODEL_XML="${REPORT_DIR}/real_model.xml"
+  REAL_MODEL_ERR="${REPORT_DIR}/real_model.err"
+  PERF_TIME_FILES+=("${REAL_MODEL_ERR}")
   echo
   echo "=== full-suite gate: pytest -m real_model (${PYTHON}) ==="
-  "${PYTHON}" -m pytest tests/ -p scripts.pytest_timing \
-    -m real_model -rs --tb=short --junitxml="${REAL_MODEL_XML}"
+  /usr/bin/time -lp "${PYTHON}" -m pytest tests/ -p scripts.pytest_timing \
+    -m real_model -rs --tb=short --junitxml="${REAL_MODEL_XML}" 2>"${REAL_MODEL_ERR}"
   REAL_MODEL_EXIT=$?
   REAL_MODEL_RESULT="$(summarise "${REAL_MODEL_XML}" "${REAL_MODEL_EXIT}")"
   [ -z "${REAL_MODEL_RESULT}" ] && REAL_MODEL_RESULT="ran-nothing the summariser itself produced no output"
@@ -574,6 +590,34 @@ if [ "${VERDICT}" = "PASS" ]; then
       "${TIMING_REPORTS[@]}"; then
     echo "timing telemetry not updated from this full run" >&2
   fi
+fi
+
+# A full gate cannot regress by reporting a quicker, smaller selection. The
+# first complete PASS seeds the local baseline; later PASS runs must have the
+# same selected test ids and stay within the provisional 20% wall allowance.
+PERF_GATE_EXIT=0
+if [ "${VERDICT}" = "PASS" ] && [ -f "${MAIN_XML}" ]; then
+  PERF_GATE_ARGS=("--revision" "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+    "--verdict" "${VERDICT}" "--wall-seconds" "$(gate_wall_seconds)"
+    "--check-history")
+  [ -f "${REAL_MODEL_XML:-}" ] && PERF_GATE_ARGS+=("${REAL_MODEL_XML}")
+  PERF_GATE_ARGS+=("${MAIN_XML}")
+  PERF_GATE_ARGS+=(--time-files "${PERF_TIME_FILES[@]}")
+  "${HELPER_PYTHON}" "${REPO_ROOT}/scripts/ci_perf_report.py" "${PERF_GATE_ARGS[@]}" || PERF_GATE_EXIT=$?
+  if [ "${PERF_GATE_EXIT}" -ne 0 ]; then
+    FINAL_VERDICT_LINE="FULL-SUITE GATE: FAIL  |  CI performance regression or incomplete coverage"
+    VERDICT="FAIL"
+    VERDICT_EXIT_CODE=1
+  fi
+fi
+if [ "${VERDICT}" != "PASS" ] && [ -f "${MAIN_XML}" ]; then
+  PERF_REPORT_ARGS=("--revision" "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+    "--verdict" "${VERDICT}" "--wall-seconds" "$(gate_wall_seconds)")
+  [ -f "${REAL_MODEL_XML:-}" ] && PERF_REPORT_ARGS+=("${REAL_MODEL_XML}")
+  PERF_REPORT_ARGS+=("${MAIN_XML}")
+  PERF_REPORT_ARGS+=(--time-files "${PERF_TIME_FILES[@]}")
+  "${HELPER_PYTHON}" "${REPO_ROOT}/scripts/ci_perf_report.py" "${PERF_REPORT_ARGS[@]}" \
+    || echo "CI performance telemetry could not be recorded" >&2
 fi
 
 echo
