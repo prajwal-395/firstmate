@@ -571,10 +571,9 @@ test_status_is_paused_classifier() {
   status_is_paused 'working: paused the animation loop' && fail "a working line mentioning paused false-matched"
   status_is_paused 'done: shipped' && fail "done classified as paused"
   status_is_paused '' && fail "empty line classified as paused"
-  # A pause is deliberately NOT captain-relevant: it is a stop-nagging signal, not
-  # work to keep surfacing.
-  status_is_captain_relevant 'paused: holding for the upstream release' && fail "paused is captain-relevant (should not be)"
-  status_is_paused_or_captain_held 'paused: holding for the upstream release' \
+  # A qualified pause is deliberately NOT captain-relevant: it is a stop-nagging signal.
+  status_is_captain_relevant 'paused: waits-for=task:upstream-release holding for the upstream release' && fail "qualified paused is captain-relevant (should not be)"
+  status_is_paused_or_captain_held 'paused: waits-for=task:upstream-release holding for the upstream release' \
     || fail "declared pause not recognized by the bounded-idle classifier"
   status_is_paused_or_captain_held 'captain-held [key=route]: tracked by task-decision-route' \
     || fail "captain-held transfer not recognized by the bounded-idle classifier"
@@ -585,7 +584,7 @@ test_status_is_paused_classifier() {
   # verb it is naming.
   status_is_captain_held 'captain-held [key=route]: tracked by task-decision-route' \
     || fail "captain-held verb not recognized"
-  status_is_captain_held 'paused: holding for the upstream release' \
+  status_is_captain_held 'paused: waits-for=task:upstream-release holding for the upstream release' \
     && fail "a declared pause matched the captain-held verb"
   status_is_captain_held 'working: the captain-held backlog item is next' \
     && fail "a working line mentioning captain-held false-matched"

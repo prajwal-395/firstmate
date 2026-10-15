@@ -995,7 +995,7 @@ test_stale_paused_classifies_pause() {
   local dir state out pause_reason
   dir=$(make_supercase stale-paused)
   state="$dir/state"
-  pause_reason='paused: waiting for upstream checks green, merged, and blocked state to clear'
+  pause_reason='paused: waits-for=task:upstream-checks waiting for upstream checks green, merged, and blocked state to clear'
   status_is_captain_relevant "$pause_reason" && fail "pause reason phrases made the status captain-relevant"
   printf '%s\n' "$pause_reason" > "$state/held-w9.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9" "$state")
