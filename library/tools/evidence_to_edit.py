@@ -851,13 +851,13 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
     brief_body = dict(task.get("brief") or {})
     if source_ids is not None:
         wanted = set(source_ids)
-        brief_body = dict(brief_body, **{
+        brief_body = {**brief_body,
             "expected_source_moments": [
                 moment for moment in brief_body.get("expected_source_moments", [])
                 if moment.get("source_id") in wanted],
             "cut_ranges": [
                 cut for cut in brief_body.get("cut_ranges", [])
-                if cut.get("source_id") in wanted]})
+                if cut.get("source_id") in wanted]}
     scoped_task = dict(task, brief=brief_body)
     for moment in brief_body.get("expected_source_moments", []):
         rows, answer = consult_moment(

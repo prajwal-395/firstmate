@@ -1,0 +1,43 @@
+{
+  "corpus": "ren-editorial-eval-2026-10",
+  "id": "visual-action-object-calibration-repeat",
+  "split": "calibration",
+  "task_types": ["visual_action", "visual_object"],
+  "brief": {
+    "intent": "Measure whether this calibration scene supports a grounded visual edit that shows a legible handling action and one continuously identifiable object. The moment is proposed for calibration only; no action or object interval is treated as gold.",
+    "expected_source_moments": [
+      {
+        "id": "calibration-1808-cap-and-object",
+        "source_id": "IMG_1808",
+        "start_seconds": 3.5,
+        "end_seconds": 5.5,
+        "description": "In the in-car calibration window, determine whether a person performs a verifiable action on an identifiable object that remains visible.",
+        "confirmation": "proposed",
+        "evidence_ids": ["corpus:IMG_1808", "scene:apple-001-scene-1806-1811"]
+      }
+    ],
+    "cut_ranges": [
+      {
+        "moment_id": "calibration-1808-cap-and-object",
+        "source_id": "IMG_1808",
+        "start_seconds": 3.5,
+        "end_seconds": 5.5,
+        "reason": "Keep only a measured action and object span that overlap within the calibration window."
+      }
+    ],
+    "coverage_requirements": [
+      {"id": "cover-calibration-1808", "moment_ids": ["calibration-1808-cap-and-object"]}
+    ],
+    "continuity_constraints": [
+      {"id": "calibration-object-identity", "rule": "Do not substitute a different object identity across measured spans."},
+      {"id": "calibration-temporal-order", "rule": "Keep source time in forward order."}
+    ],
+    "preference_rubric": [
+      {"id": "calibration-action-legibility", "description": "The measured action is legible.", "scale": [1, 5]},
+      {"id": "calibration-object-continuity", "description": "The same object remains identifiable.", "scale": [1, 5]},
+      {"id": "calibration-pacing", "description": "The measured interval is concise without cutting through the action.", "scale": [1, 5]}
+    ],
+    "gold_frozen": false,
+    "status": "proposed_tasking"
+  }
+}
