@@ -1434,6 +1434,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Measure pitch, pace, voice quality and intensity per clip",
         owning_dir="step_1_05_prosody_analysis", body="step.py",
         attr="analyse_prosody",
+        executor_path="library/capabilities/prosody/analyse.py",
         produces=("prosody_analysis",),
         consumes=("raw_footage_files", "temporal_event_indices"),
     ),

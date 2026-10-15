@@ -78,6 +78,18 @@ def test_temporal_executor_is_capability_owned_and_step_is_adapter():
     assert op.run is index_project is step_index
 
 
+def test_prosody_executor_is_capability_owned_and_step_is_adapter():
+    from library.capabilities.prosody.analyse import analyse_prosody
+    from library.steps.step_1_05_prosody_analysis.step import (
+        analyse_prosody as step_prosody,
+    )
+
+    op = operations.get("prosody.analyse")
+    spec = capabilities.spec_of(op)
+    assert spec.executor.path == "library/capabilities/prosody/analyse.py"
+    assert op.run is analyse_prosody is step_prosody
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (

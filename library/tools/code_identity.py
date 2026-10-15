@@ -2588,6 +2588,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/ast_cache.py',
     ),
     "step_1_05_prosody_analysis": (
+        # The legacy step delegates the measurement here.
+        "library/capabilities/prosody/analyse.py",
         # The executed measurement.
         "library/tools/analysis/speech_advanced_pipeline.py",
         # Imported by step.py: classifies the cached profile.
