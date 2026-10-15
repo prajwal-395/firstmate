@@ -328,6 +328,38 @@ def resolve(llm_output: dict, data: dict) -> dict:
     from library.tools.timeline_transcript import transcript_path
 
     project_folder = data.get("project_folder") or ""
+    # Carry the editorial intent beside the chosen moments, and fingerprint
+    # the transcript plus the selection evidence that informed them. The
+    # publisher stores this receipt with the captain-facing proposal; the
+    # reel builder checks it before any Resolve work.
+    selection_intent = {
+        key: data[key] for key in (
+            "creative_direction", "creative_brief", "project_context",
+            "brand_constraints", "video_preferences")
+        if data.get(key) not in (None, "", {}, [])
+    }
+    selection_inputs = {
+        "intent": selection_intent,
+        "reel_candidates": data.get("reel_candidates") or [],
+        "picture_holes": data.get("picture_holes") or [],
+        "length_guidance_seconds": data.get("length_guidance_seconds") or [],
+        "timeline_notes": data.get("timeline_notes") or [],
+        "declared_speakers": data.get("declared_speakers") or [],
+    }
+    from library.tools.reel_proposal import _selection_evidence_digest
+    from library.tools.stable_json import dumps_stable
+    import hashlib
+    receipt = {
+        "intent": selection_intent,
+        "transcript_digest": _selection_evidence_digest(transcript),
+        "evidence_digest": hashlib.sha256(
+            dumps_stable({"transcript": transcript,
+                          "selection_inputs": selection_inputs}).encode(
+                              "utf-8")).hexdigest(),
+        "selection_digest": hashlib.sha256(
+            dumps_stable([moment.as_dict() for moment in moments]).encode(
+                "utf-8")).hexdigest(),
+    }
     where = (f" The FULL transcript these were chosen from is at: "
              f"{transcript_path(project_folder)}." if project_folder else "")
 
@@ -338,6 +370,7 @@ def resolve(llm_output: dict, data: dict) -> dict:
             "undetermined": undetermined,
             "dropped": dropped,
             "captain_closer_redraws": closer_redraws,
+            "selection_receipt": receipt,
             "approval": (
                 "every moment is PROPOSED. Nothing is built until the "
                 "captain approves it - see reel_proposal.assert_approved."

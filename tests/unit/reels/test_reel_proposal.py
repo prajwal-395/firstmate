@@ -504,6 +504,8 @@ def test_post_bridge_drops_a_monologue_and_keeps_a_conversation():
     }
     result = resolve(llm_output, {"timeline_transcript": tx})
     sel = result["reel_selection"]
+    assert sel["selection_receipt"]["intent"] == {}
+    assert sel["selection_receipt"]["evidence_digest"]
     # The conversation survives
     assert len(sel["moments"]) == 1
     assert sel["moments"][0]["slug"] == "seo-vs-geo"
@@ -669,6 +671,39 @@ def test_the_step_output_becomes_the_file_the_builder_reads(tmp_path):
     written = read_proposal(path)
     assert [m.slug for m in written] == ["seo-vs-geo"]
     assert written[0].approval is Approval.PROPOSED
+
+
+def test_proposal_carries_selection_intent_and_refuses_stale_evidence(tmp_path):
+    from library.tools.reel_proposal import (
+        ProposalError, assert_proposal_fresh, proposal_path,
+        write_from_step_output,
+    )
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    step = root / "pipeline_output" / "steps" / "3_04_select_reels" / "output.json"
+    output = json.loads(step.read_text())
+    output["reel_selection"]["selection_receipt"] = {
+        "intent": {"creative_brief": "Two distinct reels about pricing."},
+        "evidence_digest": "calibrated-evidence-a",
+    }
+    step.write_text(json.dumps(output), encoding="utf-8")
+    transcript = _transcript()
+    write_from_step_output(root)
+    document = json.loads(proposal_path(root).read_text(encoding="utf-8"))
+    assert document["selection_receipt"]["intent"] == {
+        "creative_brief": "Two distinct reels about pricing."}
+    assert_proposal_fresh(root, transcript)
+
+    output["reel_selection"]["selection_receipt"]["evidence_digest"] = "changed"
+    step.write_text(json.dumps(output), encoding="utf-8")
+    with pytest.raises(ProposalError, match="selection evidence or edit intent changed"):
+        assert_proposal_fresh(root, transcript)
+
+    output["reel_selection"]["selection_receipt"]["evidence_digest"] = "calibrated-evidence-a"
+    step.write_text(json.dumps(output), encoding="utf-8")
+    changed_transcript = _transcript()
+    changed_transcript["segments"][0]["text"] = "Evidence changed."
+    with pytest.raises(ProposalError, match="timeline transcript changed"):
+        assert_proposal_fresh(root, changed_transcript)
 
 
 def test_publishing_refuses_to_discard_the_captains_answer(tmp_path):

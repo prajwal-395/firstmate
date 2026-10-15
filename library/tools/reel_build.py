@@ -12885,6 +12885,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             raise ValueError(f"Unknown project {project_slug}")
         project_folder = str(proj.project_root)
 
+    # Reject a proposal selected from stale evidence before resolving or
+    # touching a Resolve project. The same transcript bytes feed the later
+    # build digest, so this remains the build's single transcript read.
+    with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
+        transcript_bytes = f.read()
+    transcript = json.loads(transcript_bytes.decode("utf-8"))
+    from library.tools.reel_proposal import assert_proposal_fresh
+    assert_proposal_fresh(project_folder, transcript)
+    from library.tools.source_transcript import refuse_build_from_source
+    refuse_build_from_source(transcript)
+
     # The captain's pinned overlay positions, if they declared any.
     # Missing is the normal case (purely computed placements); a
     # malformed file REFUSES rather than building past it, because a
@@ -12980,19 +12991,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         proposal_path,
         only_reel_numbers=(sorted(wanted) if wanted is not None else None))
 
-    # Read as BYTES, once: the same read supplies the transcript every
-    # decision below is made from AND the digest the rebuild-need
-    # signature carries (`library/tools/reel_rebuild_need.py`).
-    # Digesting the file a second time would be a second spelling of
-    # this path (`tests/unit/context/test_operations.py`) and a second chance for
-    # the two reads to disagree.
-    with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
-        transcript_bytes = f.read()
-    transcript = json.loads(transcript_bytes.decode("utf-8"))
-    # Reels chosen off the footage's own clock (no Resolve cut) cannot be
-    # placed on a master timeline: refuse by name, before anything moves.
-    from library.tools.source_transcript import refuse_build_from_source
-    refuse_build_from_source(transcript)
     transcript_source_digest = hashlib.sha256(transcript_bytes).hexdigest()
     from library.tools.timeline_transcript import (
         resolve_document_mic_bleed,

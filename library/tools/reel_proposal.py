@@ -77,6 +77,7 @@ edit rather than a search.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, asdict, field, replace
@@ -2263,11 +2264,27 @@ def enrich_call_to_action(cta: Optional[CallToAction],
 PROPOSAL_FORMAT = "reel_proposal/1"
 
 
-def proposal_document(moments: Sequence[ReelMoment], transcript: dict) -> dict:
+def _selection_evidence_digest(
+        transcript: dict, selection_inputs: dict | None = None) -> str:
+    """Fingerprint the evidence and intent that produced a reel selection."""
+    from library.tools.stable_json import dumps_stable
+
+    payload = {"transcript": transcript,
+               "selection_inputs": selection_inputs or {}}
+    return hashlib.sha256(dumps_stable(payload).encode("utf-8")).hexdigest()
+
+
+def proposal_document(moments: Sequence[ReelMoment], transcript: dict,
+                      selection_receipt: dict | None = None) -> dict:
     derived = transcript.get("derived_from") or {}
+    receipt = dict(selection_receipt or {})
+    receipt.setdefault("intent", None)
+    receipt.setdefault(
+        "transcript_digest", _selection_evidence_digest(transcript))
     return {
         "format": PROPOSAL_FORMAT,
         "derived_from": derived,
+        "selection_receipt": receipt,
         "instruction": (
             "The pipeline PROPOSES; the captain approves. Set each "
             "moment's \"approval\" to \"approved\" or \"rejected\" (and "
@@ -2327,7 +2344,7 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
             "step 3.4 has not run for this project, so there is nothing "
             "to propose",
             "run the pipeline through select_reels first, then propose")
-    selection = (json.loads(step_output.read_text())
+    selection = (json.loads(step_output.read_text(encoding="utf-8"))
                  .get("reel_selection") or {})
     moments = [ReelMoment.from_dict(m) for m in (selection.get("moments") or [])]
 
@@ -2347,21 +2364,80 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
                 "overwriting would discard their answer",
                 "pass force=True only if discarding the ruling is what "
                 "is intended - or run `ren propose` with --force")
-    return write_proposal(path, moments, transcript)
+    return write_proposal(path, moments, transcript,
+                          selection_receipt=selection.get("selection_receipt"))
 
 
 def write_proposal(path, moments: Sequence[ReelMoment],
-                   transcript: dict) -> Path:
+                   transcript: dict, *,
+                   selection_receipt: dict | None = None) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if selection_receipt is None and path.is_file():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(previous, dict):
+                selection_receipt = previous.get("selection_receipt")
+        except (OSError, ValueError):
+            selection_receipt = None
+    selection_receipt = dict(selection_receipt or {})
+    selection_receipt["transcript_digest"] = _selection_evidence_digest(
+        transcript)
     # Canonical spelling (library/tools/stable_json.py): the proposal is
     # a declaration the captain rules on and a variant merge reads, so
     # the same moments are the same bytes.
     from library.tools.stable_json import dumps_stable
     path.write_text(
-        dumps_stable(proposal_document(moments, transcript)),
+        dumps_stable(proposal_document(moments, transcript,
+                                       selection_receipt)),
         encoding="utf-8")
     return path
+
+
+def assert_proposal_fresh(project_folder, transcript: dict) -> None:
+    """Refuse to build a proposal after its selection evidence changed."""
+    path = proposal_path(project_folder)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ProposalError(
+            f"{path} cannot be checked for selection freshness ({exc})",
+            "a reel build needs a readable proposal receipt",
+            "run `ren propose` again") from exc
+    if not isinstance(document, dict):
+        return  # Older tests/projects may still use an unversioned list.
+    receipt = document.get("selection_receipt")
+    if not isinstance(receipt, dict):
+        return  # Legacy/manual proposals predate selector receipts.
+    if not receipt.get("evidence_digest"):
+        return  # Only selector-published receipts claim evidence freshness.
+    current_transcript = _selection_evidence_digest(transcript)
+    if receipt.get("transcript_digest") != current_transcript:
+        raise ProposalError(
+            f"{path} is stale: the timeline transcript changed after "
+            "reel selection",
+            "the proposed spans were chosen from different evidence",
+            "run the reel selector and `ren propose` again")
+    step_output = (Path(project_folder) / "pipeline_output" / "steps" /
+                   "3_04_select_reels" / "output.json")
+    try:
+        selection = json.loads(step_output.read_text(encoding="utf-8")).get(
+            "reel_selection") or {}
+    except (OSError, ValueError):
+        selection = {}
+    latest = selection.get("selection_receipt")
+    if not isinstance(latest, dict):
+        raise ProposalError(
+            f"{path} is stale: the latest reel selection receipt is missing",
+            "the proposal cannot be matched to current selection evidence",
+            "rerun the reel selector and `ren propose`")
+    if any(
+            latest.get(key) != receipt.get(key)
+            for key in ("intent", "evidence_digest", "selection_digest")):
+        raise ProposalError(
+            f"{path} is stale: reel selection evidence or edit intent changed",
+            "the proposal no longer represents the latest selection",
+            "run `ren propose` again and review the new proposal")
 
 
 def read_proposal(path) -> List[ReelMoment]:
