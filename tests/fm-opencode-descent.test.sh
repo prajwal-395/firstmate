@@ -39,6 +39,11 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=bin/fm-opencode-descent-lib.sh
 . "$ROOT/bin/fm-opencode-descent-lib.sh"
+# Sourced here so the stopped-record fixtures below are written through the
+# real stopped library whether or not the descent library under test defers
+# to it yet; the fix adds the same guarded source inside the library itself.
+# shellcheck source=bin/fm-stopped-lib.sh
+. "$ROOT/bin/fm-stopped-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-opencode-descent)
 mkdir -p "$TMP_ROOT"
@@ -976,3 +981,79 @@ test_go_lane_refused_when_second_capped
 test_secondary_go_lane_returns_to_main
 test_secondary_go_lane_refused_when_main_capped
 test_free_lane_overflows_to_second_workspace
+
+# --- 9. stopped-by-design lanes and finished scouts are never relaunched -----
+# The 2026-10-15 incident: the video mate stood two native-engine lanes down
+# through bin/fm-control.sh exit (stop=declared), and the descent relaunched
+# both anyway - spending their stopped records and restarting parked work -
+# alongside a finished, idle scout. The tick never consulted the stopped
+# record bin/fm-stopped-lib.sh owns, and never asked whether the lane had
+# already reported done. Both skips below run through the real stopped
+# library and the real busy/retry writers, so they fail while the tick stays
+# blind and pass once it defers to those owners.
+
+test_stopped_lane_is_never_relaunched() {
+  local state out
+  state=$(fresh_state stopped-lane)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" ship
+  printf 'spawn_gen=%s\n' 'stopgen1' >> "$state/lane1.meta"
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  fm_stopped_record "$state" lane1 'captain stood down native-engine lanes' \
+    || fail "the stopped library refused a bound record"
+  out=$(run_tick "$state") || fail "tick must never fail past a stopped lane"
+  [ -z "$out" ] || fail "a stopped-by-design lane must stay silent, said: $out"
+  stub_called && fail "a stopped-by-design lane must never reach the control plane"
+  [ -f "$state/lane1.opencode-retry" ] \
+    || fail "a skipped lane must keep its cap evidence for the next spawn's gate"
+  pass "a stopped-by-design lane is never relaunched"
+}
+
+test_spent_stopped_record_rearms_candidacy() {
+  local state out
+  state=$(fresh_state spent-stop)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" ship
+  printf 'spawn_gen=%s\n' 'stopgen1' >> "$state/lane1.meta"
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  fm_stopped_record "$state" lane1 'captain stood down native-engine lanes' \
+    || fail "the stopped library refused a bound record"
+  # A relaunch mints a fresh spawn_gen, which spends the predecessor's
+  # record by incarnation mismatch: the replacement is supervised normally.
+  grep -v '^spawn_gen=' "$state/lane1.meta" > "$state/lane1.meta.new" \
+    || fail "the meta record lost its lines"
+  printf 'spawn_gen=%s\n' 'stopgen2' >> "$state/lane1.meta.new" \
+    || fail "the meta record refused a fresh incarnation"
+  mv "$state/lane1.meta.new" "$state/lane1.meta" \
+    || fail "the meta record could not be republished"
+  out=$(run_tick "$state") || fail "tick must never fail past a spent record"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "a lane whose stopped record no longer binds must relaunch, said: ${out:-<silent>}" ;;
+  esac
+  stub_called || fail "a lane whose stopped record no longer binds must reach the control plane"
+  pass "a spent stopped record re-arms the lane instead of parking it forever"
+}
+
+test_done_scout_is_never_relaunched() {
+  local state out
+  state=$(fresh_state done-scout)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  # The finished scout still carries its meta until teardown, so without a
+  # completion check it reads as an ordinary capped candidate.
+  printf 'working [at=%s]: investigating the brief\n' "$(now_s)" > "$state/lane1.status"
+  printf 'done [at=%s]: report complete\n' "$(now_s)" >> "$state/lane1.status"
+  out=$(run_tick "$state") || fail "tick must never fail past a finished scout"
+  [ -z "$out" ] || fail "a scout that already reported done must stay silent, said: $out"
+  stub_called && fail "a scout that already reported done must never reach the control plane"
+  pass "a scout that already reported done is never relaunched"
+}
+
+test_stopped_lane_is_never_relaunched
+test_spent_stopped_record_rearms_candidacy
+test_done_scout_is_never_relaunched
