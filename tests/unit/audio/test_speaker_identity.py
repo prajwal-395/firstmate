@@ -853,6 +853,22 @@ def test_pairwise_offset_recovers_the_shift_despite_outliers():
     assert result["agreement_fraction"] < 1.0
 
 
+def test_pairwise_offset_reports_clock_drift_across_the_shared_recording():
+    """A single offset is not enough when the cameras' clocks separate
+    over time; report the robust end-to-end change and its measured span."""
+    vocab = _distinct_words(100)
+    a_times = [float(i) for i in range(len(vocab))]
+    b_times = [t + 4.0 + t * 0.03 for t in a_times]
+
+    result = cc.pairwise_offset(
+        _m1_doc(list(zip(vocab, a_times))),
+        _m1_doc(list(zip(vocab, b_times))))
+
+    assert result["drift_seconds"] == pytest.approx(-2.31, abs=0.1)
+    assert result["drift_span_seconds"] > 80
+    assert result["drift_exceeds_tolerance"] is True
+
+
 # ── grouping and the shared clock ───────────────────────────────────
 
 

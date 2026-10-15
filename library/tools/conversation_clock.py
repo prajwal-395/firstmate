@@ -180,6 +180,24 @@ def pairwise_offset(doc_a: dict, doc_b: dict, n: int = NGRAM_SIZE,
     if not agreeing:
         return None
     offset = statistics.median(agreeing)
+    # A constant-offset fit can conceal clocks that slowly separate. Compare
+    # the ends of the shared recording using all matched phrases (including
+    # those outside the constant-offset band). This is a robust, coarse drift
+    # reading: common phrases can be outliers, so use medians in temporal
+    # windows rather than allowing one bad match to set the slope.
+    paired = sorted((max(a[gram], b[gram]), a[gram] - b[gram])
+                    for gram in common)
+    window = max(3, math.ceil(len(paired) * 0.2))
+    drift_seconds = None
+    drift_span_seconds = None
+    drift_exceeds_tolerance = None
+    if len(paired) >= 2 * window:
+        first, last = paired[:window], paired[-window:]
+        first_offset = statistics.median(value for _, value in first)
+        last_offset = statistics.median(value for _, value in last)
+        drift_seconds = round(last_offset - first_offset, 3)
+        drift_span_seconds = round(last[-1][0] - first[0][0], 3)
+        drift_exceeds_tolerance = abs(drift_seconds) > tolerance
     return {
         "ngram_size": n,
         "total_candidate_matches": len(common),
@@ -189,6 +207,9 @@ def pairwise_offset(doc_a: dict, doc_b: dict, n: int = NGRAM_SIZE,
         "p5_seconds": round(_percentile(agreeing, 0.05), 3),
         "p95_seconds": round(_percentile(agreeing, 0.95), 3),
         "tolerance_seconds": tolerance,
+        "drift_seconds": drift_seconds,
+        "drift_span_seconds": drift_span_seconds,
+        "drift_exceeds_tolerance": drift_exceeds_tolerance,
     }
 
 
