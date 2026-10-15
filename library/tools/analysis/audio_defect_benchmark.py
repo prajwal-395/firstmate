@@ -24,6 +24,16 @@ DEFECTS = (
 )
 SCHEMA = "audio-defect-benchmark/1"
 
+_ACTIONS = {
+    "clipping": "Inspect the clipped source span; replace or repair it before delivery.",
+    "noise": "Review the source span and confirm whether the broadband energy is unwanted.",
+    "loudness_mismatch": "Compare the marked level change with the surrounding dialogue and mix target.",
+    "dropout": "Check the source span for a signal interruption or an intentionally silent channel.",
+    "dialogue_interruption": "Listen across the marked speech span and check for missing words.",
+    "room_tone_discontinuity": "Compare ambience on both sides of the marked change and smooth it if unintended.",
+    "music_dialogue_masking": "Compare dialogue and music stems against the declared separation target.",
+}
+
 
 def inject_defects(samples, sample_rate: int, recipes: list[dict]):
     """Apply recorded, deterministic defects and return PCM plus exact labels.
@@ -187,44 +197,100 @@ def predictions_from_audio_quality(measurement: dict, *, speech_spans=()) -> lis
     the held-out variants.
     """
     channels = measurement["channels"]
-    if not channels:
-        return []
-    channel = channels[0]
     predictions = []
-    for row in channel["intervals"]:
-        start, end = float(row["start_seconds"]), float(row["end_seconds"])
-        if row["sample_peak_dbfs"] is not None and row["sample_peak_dbfs"] >= -0.01:
-            predictions.append({"defect": "clipping", "start_seconds": start,
-                                "end_seconds": end, "method": "FI-12 peak"})
-        rms = row["rms_dbfs"]
-        flatness = row["spectral_flatness"]
-        if rms is not None and flatness is not None and rms > -50 and flatness >= 0.5:
-            predictions.append({"defect": "noise", "start_seconds": start,
-                                "end_seconds": end, "method": "FI-12 flatness"})
-    for earlier, later in zip(channel["intervals"], channel["intervals"][1:]):
-        before, after = earlier["rms_dbfs"], later["rms_dbfs"]
-        if before is not None and after is not None and abs(after - before) >= 8:
-            predictions.append({"defect": "loudness_mismatch",
-                                "start_seconds": float(later["start_seconds"]),
-                                "end_seconds": float(later["end_seconds"]),
-                                "method": "FI-12 adjacent RMS delta"})
-        a, b = earlier["spectral_centroid_hz"], later["spectral_centroid_hz"]
-        if (before is not None and after is not None and before < -25 and after < -25
-                and a is not None and b is not None and abs(a - b) >= 1500):
-            predictions.append({"defect": "room_tone_discontinuity",
-                                "start_seconds": float(later["start_seconds"]),
-                                "end_seconds": float(later["end_seconds"]),
-                                "method": "FI-12 quiet-band centroid jump"})
-    for span in channel["silence_intervals"]:
-        start, end = float(span["start_seconds"]), float(span["end_seconds"])
-        if end - start < 0.1:
+    for channel in channels:
+        # A nearly silent isolated recorder channel is not evidence of a
+        # dropout across the program; it may be an unused camera or scratch
+        # track. Keep active channels from the same source eligible.
+        integrated = channel["integrated_lufs"]
+        if integrated is not None and integrated < -55:
             continue
-        kind = "dialogue_interruption" if any(
-            start < float(speech_end) and end > float(speech_start)
-            for speech_start, speech_end in speech_spans) else "dropout"
-        predictions.append({"defect": kind, "start_seconds": start,
-                            "end_seconds": end, "method": "FI-12 silence"})
+        channel_predictions = []
+        for row in channel["intervals"]:
+            start, end = float(row["start_seconds"]), float(row["end_seconds"])
+            if row["sample_peak_dbfs"] is not None and row["sample_peak_dbfs"] >= -0.01:
+                channel_predictions.append({"defect": "clipping", "start_seconds": start,
+                                           "end_seconds": end, "method": "FI-12 peak"})
+            rms = row["rms_dbfs"]
+            flatness = row["spectral_flatness"]
+            if rms is not None and flatness is not None and rms > -50 and flatness >= 0.5:
+                channel_predictions.append({"defect": "noise", "start_seconds": start,
+                                           "end_seconds": end, "method": "FI-12 flatness"})
+        for earlier, later in zip(channel["intervals"], channel["intervals"][1:]):
+            before, after = earlier["rms_dbfs"], later["rms_dbfs"]
+            if before is not None and after is not None and abs(after - before) >= 8:
+                channel_predictions.append({"defect": "loudness_mismatch",
+                                           "start_seconds": float(later["start_seconds"]),
+                                           "end_seconds": float(later["end_seconds"]),
+                                           "method": "FI-12 adjacent RMS delta"})
+            a, b = earlier["spectral_centroid_hz"], later["spectral_centroid_hz"]
+            if (before is not None and after is not None and before < -25 and after < -25
+                    and a is not None and b is not None and abs(a - b) >= 1500):
+                channel_predictions.append({"defect": "room_tone_discontinuity",
+                                           "start_seconds": float(later["start_seconds"]),
+                                           "end_seconds": float(later["end_seconds"]),
+                                           "method": "FI-12 quiet-band centroid jump"})
+        for span in channel["silence_intervals"]:
+            start, end = float(span["start_seconds"]), float(span["end_seconds"])
+            if end - start < 0.1:
+                continue
+            kind = "dialogue_interruption" if any(
+                start < float(speech_end) and end > float(speech_start)
+                for speech_start, speech_end in speech_spans) else "dropout"
+            channel_predictions.append({"defect": kind, "start_seconds": start,
+                                       "end_seconds": end, "method": "FI-12 silence"})
+        # Adjacent one-second windows often describe one sustained event.
+        channel_predictions.sort(key=lambda row: (row["defect"], row["start_seconds"],
+                                                  row["end_seconds"]))
+        grouped = []
+        for event in channel_predictions:
+            if (grouped and grouped[-1]["defect"] == event["defect"]
+                    and event["start_seconds"] <= grouped[-1]["end_seconds"] + 1.05):
+                grouped[-1]["end_seconds"] = max(grouped[-1]["end_seconds"],
+                                                   event["end_seconds"])
+                methods = grouped[-1]["method"].split("; ")
+                if event["method"] not in methods:
+                    grouped[-1]["method"] += "; " + event["method"]
+            else:
+                grouped.append(dict(event))
+        for event in grouped:
+            predictions.append({**event, "stream_index": channel["stream_index"],
+                                "channel_index": channel["channel_index"]})
     return predictions
+
+
+def problem_report_from_audio_quality(measurement: dict, *, speech_spans=()) -> dict:
+    """Render measurements as reviewable problems without labelling taste.
+
+    These deterministic rules find candidates for human inspection. Only
+    independent delivery checks (for example true-peak limits) can turn a
+    candidate into a technical failure; no editorial preference is inferred.
+    """
+    candidates = predictions_from_audio_quality(measurement,
+                                               speech_spans=speech_spans)
+    findings = [{
+        **candidate,
+        "classification": "measured_candidate",
+        "editorial_verdict": "review_required",
+        "action": _ACTIONS[candidate["defect"]],
+    } for candidate in candidates]
+    channel_count = len(measurement["channels"])
+    return {
+        "schema": "audio-problem-report/1",
+        "measurement_method": measurement["method"],
+        "findings": findings,
+        "editorial_preferences": [],
+        "limitations": ([{
+            "defect": "music_dialogue_masking",
+            "status": "not_assessed",
+            "reason": "FI-12 source measurements do not compare dialogue and music stems; use the rendered mix separation check.",
+        }] if channel_count else []),
+        "summary": {
+            "measured_candidates": len(findings),
+            "editorial_preferences_scored": 0,
+            "technical_delivery_checks": "not_evaluated_by_this_report",
+        },
+    }
 
 
 def execute_audio_quality_baseline(audio_path: str, annotations: list[dict],

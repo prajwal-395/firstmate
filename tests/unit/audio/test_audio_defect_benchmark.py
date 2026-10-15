@@ -10,6 +10,7 @@ from library.tools.analysis.audio_defect_benchmark import (
     main,
     manifest_from_editorial_corpus,
     predictions_from_audio_quality,
+    problem_report_from_audio_quality,
     score_events,
     validate_manifest,
     write_injected_set,
@@ -117,6 +118,8 @@ def test_injected_set_writes_control_and_variant_without_mutating_base(tmp_path)
 
 def test_fi12_adapter_localizes_supported_events_and_abstains_on_masking():
     measurement = {"channels": [{
+        "stream_index": 0, "channel_index": 0,
+        "integrated_lufs": -20,
         "intervals": [
             {"start_seconds": 0, "end_seconds": 1, "sample_peak_dbfs": -0.001,
              "rms_dbfs": -10, "spectral_flatness": 0.8,
@@ -133,6 +136,81 @@ def test_fi12_adapter_localizes_supported_events_and_abstains_on_masking():
         "clipping", "noise", "loudness_mismatch", "dialogue_interruption",
     }
     assert "music_dialogue_masking" not in {row["defect"] for row in result}
+
+
+def test_fi12_adapter_groups_adjacent_windows_and_ignores_inactive_channel():
+    measurement = {"method": "fixture", "channels": [{
+        "stream_index": 0, "channel_index": 0,
+        "integrated_lufs": -60,
+        "intervals": [],
+        "silence_intervals": [{"start_seconds": 0, "end_seconds": 60}],
+    }]}
+    assert predictions_from_audio_quality(measurement) == []
+
+    measurement["channels"][0].update({
+        "stream_index": 0, "channel_index": 0,
+        "integrated_lufs": -22,
+        "intervals": [
+            {"start_seconds": 0, "end_seconds": 1, "sample_peak_dbfs": -10,
+             "rms_dbfs": -10, "spectral_flatness": 0.1,
+             "spectral_centroid_hz": 500},
+            {"start_seconds": 1, "end_seconds": 2, "sample_peak_dbfs": -10,
+             "rms_dbfs": -21, "spectral_flatness": 0.1,
+             "spectral_centroid_hz": 600},
+            {"start_seconds": 2, "end_seconds": 3, "sample_peak_dbfs": -10,
+             "rms_dbfs": -21, "spectral_flatness": 0.1,
+             "spectral_centroid_hz": 600},
+            {"start_seconds": 3, "end_seconds": 4, "sample_peak_dbfs": -10,
+             "rms_dbfs": -10, "spectral_flatness": 0.1,
+             "spectral_centroid_hz": 500},
+        ],
+        "silence_intervals": [],
+    })
+    result = predictions_from_audio_quality(measurement)
+    loudness = [row for row in result if row["defect"] == "loudness_mismatch"]
+    assert len(loudness) == 1
+    assert (loudness[0]["start_seconds"], loudness[0]["end_seconds"]) == (1, 4)
+
+
+def test_problem_report_separates_measured_candidates_from_preferences():
+    report = problem_report_from_audio_quality({"method": "fixture", "channels": [{
+        "stream_index": 0, "channel_index": 0,
+        "integrated_lufs": -20,
+        "intervals": [{"start_seconds": 0, "end_seconds": 1,
+                       "sample_peak_dbfs": -0.001, "rms_dbfs": -8,
+                       "spectral_flatness": 0.1,
+                       "spectral_centroid_hz": 500}],
+        "silence_intervals": [],
+    }]})
+    assert report["findings"][0]["classification"] == "measured_candidate"
+    assert report["findings"][0]["editorial_verdict"] == "review_required"
+    assert report["findings"][0]["action"]
+    assert report["editorial_preferences"] == []
+    assert report["limitations"][0]["defect"] == "music_dialogue_masking"
+    assert report["summary"]["technical_delivery_checks"] == "not_evaluated_by_this_report"
+
+
+def test_audio_quality_cli_can_emit_the_problem_report(monkeypatch, capsys):
+    import json
+
+    from library.tools import audio_quality
+
+    measurement = {"method": "fixture", "channels": [{
+        "stream_index": 0, "channel_index": 0,
+        "integrated_lufs": -20,
+        "intervals": [{"start_seconds": 0, "end_seconds": 1,
+                       "sample_peak_dbfs": -0.001, "rms_dbfs": -8,
+                       "spectral_flatness": 0.1,
+                       "spectral_centroid_hz": 500}],
+        "silence_intervals": [],
+    }]}
+    monkeypatch.setattr(audio_quality, "measure_audio_quality",
+                        lambda *args, **kwargs: measurement)
+    assert audio_quality.main(["source.wav", "--problems", "--speech-span",
+                               "0:1"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["measurement"] == measurement
+    assert result["problem_report"]["findings"][0]["defect"] == "clipping"
 
 
 def test_event_validation_rejects_out_of_program_and_unknown_defect():

@@ -50,3 +50,38 @@ It emits no music/dialogue masking candidates because FI-12 has no independent
 measurement for that relation; this limitation must remain visible in recall.
 This module supplies the evidence contract, controlled injector and independent
 event scorer. Synthetic held-out scores are not real-defect prevalence claims.
+
+## Turning measurements into an editorial report
+
+`problem_report_from_audio_quality(measurement, speech_spans=...)` produces
+timestamped, actionable `measured_candidate` findings. These are review
+signals, not automatic technical failures: transient loudness and spectral
+changes can be part of dialogue performance. The report keeps
+`editorial_preferences` empty, identifies why masking was not assessed without
+dialogue/music stem evidence, and never presents an editorial choice as a
+measured defect. A nearly silent isolated channel (below -55 LUFS) is treated
+as inactive and does not generate a full-program dropout alarm. Adjacent
+windows are coalesced into one review episode.
+
+For a source-level JSON report, use the existing measurement CLI with
+`--problems`; repeat `--speech-span START:END` to localize interruptions:
+
+```sh
+bin/vep -m library.tools.heavy_work_lock run --owner audio-review \
+  --profile music.analyse:model_memory -- \
+  bin/vep -m library.tools.audio_quality <source> --problems \
+    --speech-span 30:45
+```
+
+On the calibration podcast LCATL0012, source seconds 30-90, the initial
+one-minute track pass produced 7 candidates on track 0, 13 on the nearly
+silent track 1 (including one full-span dropout), 5 on track 2 and 14 on track
+3. After episode grouping and the inactive-track gate it produced 4, 0, 4 and
+9 candidates respectively (39 down to 17, a 56% reduction). The nearly silent
+track measured -67.41 LUFS. These are unreviewed
+screening candidates, not confirmed false positives; the transcript and
+editorial annotation do not label every acoustic transition as clean or
+defective. FI-12's EVAL-07 synthetic control remains the only labeled clean
+false-alarm measurement in this baseline (0.0 alarms/program-hour). The
+calibration pass motivates the inactive-track gate and episode grouping, but
+does not tune thresholds against held-out variants.

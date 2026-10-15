@@ -250,11 +250,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--scratch-parent")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--problems", action="store_true",
+                        help="include timestamped screening candidates and review actions")
+    parser.add_argument("--speech-span", action="append", default=[], metavar="START:END",
+                        help="source-time speech span in seconds; repeatable")
     args = parser.parse_args(argv)
+    speech_spans = []
+    for value in args.speech_span:
+        try:
+            start, end = (float(part) for part in value.split(":"))
+        except (TypeError, ValueError):
+            parser.error(f"invalid --speech-span {value!r}; expected START:END seconds")
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+            parser.error(f"invalid --speech-span {value!r}; expected 0 <= START < END")
+        speech_spans.append((start, end))
     record = measure_audio_quality(args.source_file, root=args.root,
                                    scratch_parent=args.scratch_parent,
                                    force=args.force)
-    print(json.dumps(record, indent=2, sort_keys=True))
+    output = record
+    if args.problems:
+        from library.tools.analysis.audio_defect_benchmark import (
+            problem_report_from_audio_quality,
+        )
+
+        output = {"measurement": record,
+                  "problem_report": problem_report_from_audio_quality(
+                      record, speech_spans=speech_spans)}
+    print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 
 
