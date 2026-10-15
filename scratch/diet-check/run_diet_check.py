@@ -133,14 +133,16 @@ def cut_excerpt(src, start, end, out):
            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
            "-vf", "scale=-2:min(720\\,ih)",
            "-c:a", "aac", "-loglevel", "error", str(out)]
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                       check=False)
     if r.returncode != 0 or not out.exists():
         raise RuntimeError(f"excerpt cut failed: {r.stderr[-500:]}")
 
 
 def heavy_work_check():
     r = subprocess.run(
-        ["ps", "aux"], capture_output=True, text=True, encoding="utf-8")
+        ["ps", "aux"], capture_output=True, text=True, encoding="utf-8",
+        check=False)
     hits = [ln for ln in r.stdout.splitlines()
             if any(k in ln.lower() for k in
                    ("mlx", "whisper", "ffmpeg", "ollama", "xcodebuild"))

@@ -53,6 +53,7 @@ def _system_path() -> str:
             text=True,
             encoding="utf-8",
             timeout=10,
+            check=False,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -126,6 +127,7 @@ def run_sandboxed(
         env=env,
         timeout=timeout,
         cwd=str(sandbox),
+        check=False,
     )
 
 
@@ -288,7 +290,8 @@ def case_missing_resolve(sandbox: Path, report: QualificationReport) -> CaseResu
 
 def case_resolve_not_running(sandbox: Path, report: QualificationReport) -> CaseResult:
     """Resolve not running: pass only on not-running detail; manual_only when Resolve is running."""
-    result = subprocess.run(["pgrep", "-x", "Resolve"], capture_output=True, timeout=10)
+    result = subprocess.run(["pgrep", "-x", "Resolve"], capture_output=True,
+                            timeout=10, check=False)
     if result.returncode == 0:
         return CaseResult(
             "resolve_not_running",
@@ -378,6 +381,7 @@ def case_low_disk(sandbox: Path, report: QualificationReport) -> CaseResult:
     result = subprocess.run(
         ["hdiutil", "create", "-size", "10m", "-fs", "HFS+", "-volname", "LowDiskTest", str(test_dmg)],
         capture_output=True, text=True, encoding="utf-8", timeout=30,
+        check=False,
     )
     if result.returncode != 0:
         return CaseResult("low_disk", "manual_only", f"hdiutil not allowed without sudo")
@@ -386,6 +390,7 @@ def case_low_disk(sandbox: Path, report: QualificationReport) -> CaseResult:
     subprocess.run(
         ["hdiutil", "attach", str(test_dmg), "-mountpoint", str(mount_point)],
         capture_output=True, text=True, encoding="utf-8", timeout=30,
+        check=False,
     )
     try:
         data = _doctor_json(sandbox, env_overrides={"PIPELINE_VEP_HOME": str(mount_point / "vep")})
@@ -401,6 +406,7 @@ def case_low_disk(sandbox: Path, report: QualificationReport) -> CaseResult:
         subprocess.run(
             ["hdiutil", "detach", str(mount_point)],
             capture_output=True, text=True, encoding="utf-8", timeout=30,
+            check=False,
         )
 
 
@@ -516,7 +522,7 @@ def run_edge_case_matrix(sandbox: Path, report: QualificationReport) -> None:
     for name, why in MANUAL_ONLY_CASES:
         report.cases.append(CaseResult(name, "manual_only", why))
     groups = subprocess.run(["id", "-Gn"], capture_output=True, text=True,
-                            encoding="utf-8", timeout=10)
+                            encoding="utf-8", timeout=10, check=False)
     if groups.returncode != 0:
         report.cases.append(CaseResult("non_admin_account", "fail", groups.stderr[:200]))
     elif "admin" in groups.stdout.split():

@@ -102,7 +102,7 @@ def main() -> None:
                 base_arg = edit_backend.snapshot_handle(base, right_ops)
                 prepare_ms = (time.perf_counter_ns() - prepare_started) / 1e6
 
-            def call():
+            def call(left=left, right=right, base_arg=base_arg):
                 return patch_algebra.compose(left, right, base_arg)
 
             first_started = time.perf_counter_ns()
@@ -135,7 +135,7 @@ def main() -> None:
                       for i in range(patch_size)]
         os.environ[edit_backend.BACKEND_ENV] = "python"
 
-        def python_loop():
+        def python_loop(base=base, operations=operations):
             return ([edit_algebra.span(op, base) for op in operations],
                     [edit_algebra.verify(op, base) for op in operations])
 
@@ -151,7 +151,8 @@ def main() -> None:
             base, operations, include_transform=True)
         prepare_ms = (time.perf_counter_ns() - prepare_started) / 1e6
 
-        def rust_batch():
+        def rust_batch(operations=operations, span_handle=span_handle,
+                       verify_handle=verify_handle):
             return (edit_algebra.spans(operations, span_handle),
                     edit_algebra.verifies(operations, verify_handle))
 
