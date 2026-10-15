@@ -18,12 +18,15 @@ def _dag():
             {"id": "left", "step_ref": "steps/left"},
             {"id": "right", "step_ref": "steps/right"},
             {"id": "compile_manifest", "step_ref": "steps/manifest"},
+            {"id": "select_reels", "step_ref": "steps/select_reels"},
+            {"id": "judge_reels", "step_ref": "steps/judge_reels"},
         ],
         "edges": [
             {"from": "analysis", "to": "left"},
             {"from": "analysis", "to": "right"},
             {"from": "left", "to": "compile_manifest"},
             {"from": "right", "to": "compile_manifest"},
+            {"from": "select_reels", "to": "judge_reels"},
         ],
     }
 
@@ -32,10 +35,24 @@ def test_planning_nodes_are_the_edit_ancestors_of_manifest():
     nodes = planning_reuse.planning_nodes(
         _dag(),
         {"analysis": "preflight", "left": "edit", "right": "edit",
-         "compile_manifest": "edit"},
+         "compile_manifest": "edit", "select_reels": "edit",
+         "judge_reels": "edit"},
     )
 
-    assert nodes == {"left", "right", "compile_manifest"}
+    assert nodes == {"left", "right", "compile_manifest",
+                     "select_reels", "judge_reels"}
+
+
+def test_planning_nodes_can_still_select_one_destination():
+    nodes = planning_reuse.planning_nodes(
+        _dag(),
+        {"analysis": "preflight", "left": "edit", "right": "edit",
+         "compile_manifest": "edit", "select_reels": "edit",
+         "judge_reels": "edit"},
+        final_node="judge_reels",
+    )
+
+    assert nodes == {"select_reels", "judge_reels"}
 
 
 def test_planner_code_identity_includes_declared_skill_instructions_and_code(

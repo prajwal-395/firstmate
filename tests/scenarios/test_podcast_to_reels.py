@@ -100,3 +100,59 @@ def test_a_lost_transcript_is_rebuilt_from_memory_without_hearing(
     assert calls["heard"] == 1
     assert [s["text"] for s in second["segments"]] == [
         s["text"] for s in first["segments"]]
+
+
+def test_interrupted_edit_reuses_unchanged_work_and_invalidates_source_drift(
+        podcast, monkeypatch):
+    """A host interruption keeps valid work, while changed evidence
+    invalidates the reel plan on resume.
+
+    The runner's worker seam simulates the host disappearing after reel
+    selection committed but while judging is starting. No project outside
+    ``tmp_path`` is involved, and the golden model doubles count inference
+    requests so reuse is observable rather than inferred from timestamps.
+    """
+    from library.processes.edit_video import run_pipeline
+
+    calls = golden_podcast.install(monkeypatch, podcast)
+    monkeypatch.setattr(run_pipeline, "parallel_workers_enabled",
+                        lambda *_args, **_kwargs: False)
+    from library.tools import step_ledger
+    state = run_pipeline.load_pipeline_state(str(podcast))
+    state[step_ledger.SOURCE_FINGERPRINTS_KEY] = \
+        run_pipeline._current_source_fingerprints(str(podcast))
+    run_pipeline.save_pipeline_state(str(podcast), state)
+    real_work = run_pipeline._execute_step_once
+    interrupted = {"once": False}
+
+    def interrupt_after_selection(impl, inputs, node_id, *args, **kwargs):
+        if node_id == "judge_reels" and not interrupted["once"]:
+            interrupted["once"] = True
+            raise RuntimeError("simulated agent-host interruption")
+        return real_work(impl, inputs, node_id, *args, **kwargs)
+
+    monkeypatch.setattr(run_pipeline, "_execute_step_once",
+                        interrupt_after_selection)
+
+    first = _run(podcast)
+    assert first["status"] == "FAILED", first
+    assert first["failed"] == ["judge_reels"]
+    assert calls["asked"].get("select_reels") == 1
+    assert calls["asked"].get("judge_reels", 0) == 0
+
+    # A same-evidence resume must reuse the already committed selection.
+    monkeypatch.setattr(run_pipeline, "_execute_step_once", real_work)
+    resumed = _run(podcast, resume_mode=True)
+    assert resumed["failed"] == [], resumed
+    assert calls["asked"]["select_reels"] == 1
+    assert calls["asked"]["judge_reels"] == 1
+
+    # A changed source fingerprint invalidates the evidence-dependent plan;
+    # both the selection and its dependent judgment must be recomputed.
+    source = podcast / "raw" / "episode.mov"
+    with source.open("ab") as handle:
+        handle.write(b"source evidence changed")
+    changed = _run(podcast, resume_mode=True)
+    assert changed["failed"] == [], changed
+    assert calls["asked"]["select_reels"] == 2
+    assert calls["asked"]["judge_reels"] == 2

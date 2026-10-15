@@ -79,16 +79,25 @@ class PlanningReuseError(ValueError):
 
 
 def planning_nodes(dag: dict, stage_by_node: dict[str, str],
-                   final_node: str = "compile_manifest") -> set[str]:
-    """The edit-stage ancestors of the final assembly manifest, inclusive."""
+                   final_node: str | None = None) -> set[str]:
+    """The edit-stage ancestors of durable planning destinations.
+
+    The assembly manifest is one destination. Reel selection is a practical
+    editing workflow with its own durable result, so its judge is another:
+    the same input and source witnesses must guard both workflows across a
+    resumed run. Passing ``final_node`` retains the single-destination query
+    for callers and tests that need it.
+    """
     nodes = {node["id"] for node in dag["nodes"]}
-    if final_node not in nodes:
+    destinations = ({final_node} if final_node else
+                    {"compile_manifest", "judge_reels"}) & nodes
+    if not destinations:
         return set()
     parents: dict[str, set[str]] = {node: set() for node in nodes}
     for edge in dag["edges"]:
         parents[edge["to"]].add(edge["from"])
-    ancestors = {final_node}
-    pending = [final_node]
+    ancestors = set(destinations)
+    pending = list(destinations)
     while pending:
         node = pending.pop()
         for parent in parents[node]:
