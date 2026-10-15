@@ -952,7 +952,7 @@ def test_strong_is_the_reference_s_own_top_quartile(monkeypatch, tmp_path):
     distribution says 30 - the SFX slot would plan to a number no
     mix it measured could have produced.
     """
-    import library.steps.step_1_04_temporal_index.step as preflight
+    import library.capabilities.temporal.index as preflight
     monkeypatch.setattr(RS, "measure_shot_boundaries",
                         lambda path: _boundaries_at(duration=120.0))
     monkeypatch.setattr(RS, "_extract_reference_audio",

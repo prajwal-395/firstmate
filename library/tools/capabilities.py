@@ -125,7 +125,7 @@ class Executor:
     """What runs when the capability is executed."""
 
     kind: str           # FUNCTION | PROMPT
-    path: str           # repo-relative file under library/steps/
+    path: str           # repo-relative executor file
     attr: str           # the function's name; empty for a prompt
 
 
@@ -296,7 +296,8 @@ def spec_of(op) -> CapabilitySpec:
         scopes=tuple(op.scopes),
         executor=Executor(
             kind=PROMPT if op.is_prompt else FUNCTION,
-            path=f"library/steps/{op.owning_dir}/{op.body}",
+            path=(op.executor_path or
+                  f"library/steps/{op.owning_dir}/{op.body}"),
             attr=op.attr),
         requires=tuple(r.name for r in requires),
         requires_contracts=tuple(declarations or ()),
@@ -640,7 +641,12 @@ def problems(registry=None) -> list:
                            "execution phase; patches require exclusive Resolve, "
                            "timeline locality and timeline-generation freshness")
 
-        body = STEPS_ROOT / op.owning_dir / op.body
+        body = (REPO_ROOT / op.executor_path if op.executor_path else
+                STEPS_ROOT / op.owning_dir / op.body)
+        legacy_body = STEPS_ROOT / op.owning_dir / op.body
+        if not legacy_body.is_file():
+            out.append(f"{op.name}: legacy adapter {legacy_body.relative_to(REPO_ROOT)} "
+                       "does not exist")
         if not body.is_file():
             out.append(f"{op.name}: executor {body.relative_to(REPO_ROOT)} "
                        f"does not exist")

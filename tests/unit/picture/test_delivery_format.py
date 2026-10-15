@@ -188,7 +188,7 @@ def test_the_catalog_reports_source_resolution_not_a_render_target():
     }
     entry = {"path": "/mock/a.mov", "filename": "a.mov", "extension": ".mov",
              "size_bytes": 1000, "clip_id": "clip_001"}
-    with patch("library.steps.step_1_02_catalog_footage.step.extract_metadata",
+    with patch("library.capabilities.footage.catalog.extract_metadata",
                return_value=meta), patch("os.path.isfile", return_value=True):
         out = catalog_footage([entry])
 

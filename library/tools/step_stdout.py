@@ -21,7 +21,7 @@ different dependencies, after the step had already done all of its work:
   close (it rebinds the step's `sys.stdout`; the child's fd 1 still
   points at the capture pipe), so the step captures each child and
   forwards both streams to stderr
-  (`step_1_03_semantic_analysis.step._run_clip_vision`).
+  (`library.capabilities.semantics.analyse._run_clip_vision`).
 
 Both were correct work discarded by a logging default. The lesson is not
 "silence that logger" - it is that a step cannot know what its imports

@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO))
 
 
 def test_duplicate_footage_is_analyzed_once(tmp_path, monkeypatch):
-    from library.steps.step_1_03_semantic_analysis import step as sem_step
+    from library.capabilities.semantics import analyse as sem_step
 
     first = tmp_path / "take_a.mp4"
     first.write_bytes(b"fixture-bytes")
@@ -47,7 +47,7 @@ def test_duplicate_footage_is_analyzed_once(tmp_path, monkeypatch):
 def test_different_takes_are_each_analyzed(tmp_path, monkeypatch):
     """The skip is by content, not by name: two different takes are
     both analyzed."""
-    from library.steps.step_1_03_semantic_analysis import step as sem_step
+    from library.capabilities.semantics import analyse as sem_step
 
     first = tmp_path / "take_a.mp4"
     first.write_bytes(b"fixture-bytes-a")
@@ -81,7 +81,7 @@ def test_duplicate_profile_resolves_under_both_clip_ids(tmp_path, monkeypatch):
     resolve to the same analysis - while the vision pass is still paid
     only once.
     """
-    from library.steps.step_1_03_semantic_analysis import step as sem_step
+    from library.capabilities.semantics import analyse as sem_step
     from library.tools.project_layout import Area, ProjectLayout
     from library.tools.semantic_index import build_semantic_lookup
 

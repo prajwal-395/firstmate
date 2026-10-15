@@ -17,7 +17,7 @@ from library.tools.toon_serializer import json_to_toon
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-STEP = REPO_ROOT / "library" / "steps" / "step_1_04_temporal_index" / "step.py"
+STEP = REPO_ROOT / "library" / "capabilities" / "temporal" / "index.py"
 
 
 def _run(snippet: str) -> subprocess.CompletedProcess:

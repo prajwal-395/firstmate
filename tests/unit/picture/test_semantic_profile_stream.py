@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -6,16 +5,9 @@ from pathlib import Path
 import pytest
 
 from library.tools import semantic_profile_stream as stream
+from library.capabilities.semantics import analyse as semantic_step
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.vision_schema_adapter import adapt_semantic_document
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-_STEP_PATH = (REPO_ROOT / "library" / "steps"
-              / "step_1_03_semantic_analysis" / "step.py")
-_SPEC = importlib.util.spec_from_file_location(
-    "semantic_step_stream_test", _STEP_PATH)
-semantic_step = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(semantic_step)
 
 
 def _profile(source_path):
@@ -203,7 +195,7 @@ def test_failed_clip_publish_retries_without_changing_other_clip(
 
 def test_failed_temporal_index_write_preserves_cache_and_retries(
         tmp_path, monkeypatch):
-    from library.steps.step_1_04_temporal_index import step as temporal_step
+    from library.capabilities.temporal import index as temporal_step
 
     first = tmp_path / "clip_001.json"
     failed = tmp_path / "clip_002.json"

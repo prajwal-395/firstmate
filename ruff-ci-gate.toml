@@ -101,8 +101,8 @@ select = [
 # failure into a crash. Each remaining line is a judgement still owed.
 [lint.per-file-ignores]
 "library/steps/step_1_02_catalog_footage/step.py" = ["PLW1510"]    # 1
-"library/steps/step_1_04_temporal_index/step.py" = ["PLW1510"]     # 7
-"library/steps/step_1_05_prosody_analysis/step.py" = ["PLW1510"]   # 1
+"library/capabilities/temporal/index.py" = ["PLW1510"]          # 7
+"library/capabilities/prosody/analyse.py" = ["PLW1510"]         # 1
 "library/steps/step_2_04_music_selection/bridge.py" = ["PLW1510"]  # 1
 "library/steps/step_2_04_music_selection/download_track.py" = ["PLW1510"]# 3
 "library/steps/step_2_04_music_selection/post_bridge.py" = ["PLW1510"]# 1

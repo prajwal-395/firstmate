@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from library.steps.step_1_01_scan_project import step as scan_step
+from library.capabilities.footage import catalog as catalog_impl
 from library.steps.step_1_02_catalog_footage import step as catalog_step
 from library.tools import footage_model_link as link
 from library.tools import project_model_evidence as evidence
@@ -241,7 +242,7 @@ def test_catalog_stamps_model_revision(tmp_path, monkeypatch):
     second = project / "b.mp4"
     second.write_bytes(b"\x01" * 1024)
     monkeypatch.setattr(
-        catalog_step, "extract_metadata",
+        catalog_impl, "extract_metadata",
         lambda filepath, **kwargs: {"duration_seconds": 10.0,
                                     "width": 1920, "height": 1080,
                                     "frame_rate": 30.0,

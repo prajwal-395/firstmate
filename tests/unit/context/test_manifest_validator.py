@@ -660,7 +660,7 @@ class TestMusicAnalysisFailureRecording:
 
 # ── 3. Collision-avoidance duplicate filtering ──────────────────────────
 
-from library.steps.step_1_03_semantic_analysis.step import (
+from library.capabilities.semantics.analyse import (
     _is_collision_duplicate,
     _profile_stems,
 )

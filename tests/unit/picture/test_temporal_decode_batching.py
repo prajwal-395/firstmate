@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from library.steps.step_1_04_temporal_index import step
+from library.capabilities.temporal import index as step
 from library.tools import source_memory
 
 

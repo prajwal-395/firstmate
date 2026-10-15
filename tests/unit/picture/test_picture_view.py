@@ -11,8 +11,8 @@ from pathlib import Path
 import os
 import pytest
 import subprocess
-from library.steps.step_1_03_semantic_analysis import step as semantic_step
-from library.steps.step_1_03_semantic_analysis.step import (
+from library.capabilities.semantics import analyse as semantic_step
+from library.capabilities.semantics.analyse import (
     _analyse_missing,
     _profile_stems,
     _run_clip_vision,

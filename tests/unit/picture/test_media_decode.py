@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from library.steps.step_1_04_temporal_index import step
-from library.steps.step_1_04_temporal_index.media_decode import (
+from library.capabilities.temporal import index as step
+from library.capabilities.temporal.media_decode import (
     decode_temporal_media,
 )
 

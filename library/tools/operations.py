@@ -548,6 +548,7 @@ class Operation:
     EditPatch composition are read from these phases. Consumers may
     derive views, but may not keep parallel per-capability tables.
     """
+    executor_path: str | None = None
 
     @property
     def is_prompt(self) -> bool:
@@ -657,8 +658,19 @@ class Operation:
                 f"module owning logic, which this property exists to stop",
                 "ask the host model to answer this operation's prompt "
                 "instead of resolving it as code")
-        return getattr(load_step_module(self.owning_dir, self.body),
-                       self.attr)
+        if self.executor_path is None:
+            module = load_step_module(self.owning_dir, self.body)
+        else:
+            key = self.executor_path
+            if key not in _LOADED:
+                for entry in (str(REPO_ROOT), str(REPO_ROOT / "library")):
+                    if entry not in sys.path:
+                        sys.path.insert(0, entry)
+                module_name = key.removesuffix(".py").replace("/", ".")
+                module = importlib.import_module(module_name)
+                _LOADED[key] = module
+            module = _LOADED[key]
+        return getattr(module, self.attr)
 
     # ── Executing ───────────────────────────────────────────────────
 
@@ -1322,6 +1334,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Scan the project folder for raw video files",
         owning_dir="step_1_01_scan_project", body="step.py",
         attr="scan_project_folder",
+        executor_path="library/capabilities/footage/scan.py",
         produces=(
             "project_config",
             "raw_footage_files",
@@ -1336,6 +1349,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Extract per-file metadata into the ordered clip catalog",
         owning_dir="step_1_02_catalog_footage", body="step.py",
         attr="catalog_footage",
+        executor_path="library/capabilities/footage/catalog.py",
         produces=(
             "clip_catalog",
             "project_fps",
@@ -1352,6 +1366,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Run the v3 vision pass over clips without a profile",
         owning_dir="step_1_03_semantic_analysis", body="step.py",
         attr="analyse_semantics",
+        executor_path="library/capabilities/semantics/analyse.py",
         produces=("semantic_analysis_documents", "total_clips_analyzed"),
         consumes=("raw_footage_files",),
         execution=ExecutionPolicy(phases=(
@@ -1384,6 +1399,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Index each clip's speech, sound and motion over time",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="index_project",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(
             "temporal_event_indices",
             "total_indexed",
@@ -1414,6 +1430,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Measure pitch, pace, voice quality and intensity per clip",
         owning_dir="step_1_05_prosody_analysis", body="step.py",
         attr="analyse_prosody",
+        executor_path="library/capabilities/prosody/analyse.py",
         produces=("prosody_analysis",),
         consumes=("raw_footage_files", "temporal_event_indices"),
     ),
@@ -2063,6 +2080,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Re-measure the speech in one region, back at the raw footage",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="reindex_region",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(),
         consumes=(),
         # REGION only, for the same reason: re-indexing everything is
@@ -2074,6 +2092,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Put a re-measured region back into the per-clip speech index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="splice_region_index",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(),
         consumes=(),
         scopes=(REGION,),
