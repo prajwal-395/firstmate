@@ -1,0 +1,305 @@
+{
+  "kit_id": "ren-blind-editorial-pilot-2026-10",
+  "items": [
+    {
+      "id": "search-001",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 8,
+      "end_seconds": 16,
+      "query": "a woman wearing glasses at a table",
+      "prompt": "a woman wearing glasses at a table",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-002",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 38,
+      "end_seconds": 46,
+      "query": "leafy plants behind a seated woman",
+      "prompt": "leafy plants behind a seated woman",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-003",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 68,
+      "end_seconds": 76,
+      "query": "a thin white pole at the left edge of the frame",
+      "prompt": "a thin white pole at the left edge of the frame",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-004",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 98,
+      "end_seconds": 106,
+      "query": "a hand in the foreground at the bottom of the frame",
+      "prompt": "a hand in the foreground at the bottom of the frame",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-005",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 128,
+      "end_seconds": 136,
+      "query": "a woman wearing glasses at a table",
+      "prompt": "a woman wearing glasses at a table",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-006",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 158,
+      "end_seconds": 166,
+      "query": "a man wearing glasses at a table",
+      "prompt": "a man wearing glasses at a table",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-007",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 188,
+      "end_seconds": 196,
+      "query": "a thin white pole at the right edge of the frame",
+      "prompt": "a thin white pole at the right edge of the frame",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-008",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 218,
+      "end_seconds": 226,
+      "query": "a green plant in front of the speaker",
+      "prompt": "a green plant in front of the speaker",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-009",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 248,
+      "end_seconds": 256,
+      "query": "a horse galloping on a beach",
+      "prompt": "a horse galloping on a beach",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-010",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 278,
+      "end_seconds": 286,
+      "query": "someone snowboarding down a mountain",
+      "prompt": "someone snowboarding down a mountain",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-011",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 8,
+      "end_seconds": 16,
+      "query": "an open laptop at the left edge of the frame",
+      "prompt": "an open laptop at the left edge of the frame",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-012",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 38,
+      "end_seconds": 46,
+      "query": "a hand in the foreground at the bottom of the frame",
+      "prompt": "a hand in the foreground at the bottom of the frame",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-013",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 68,
+      "end_seconds": 76,
+      "query": "two people seated across a table",
+      "prompt": "two people seated across a table",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-014",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 98,
+      "end_seconds": 106,
+      "query": "an open laptop at the right edge of the frame",
+      "prompt": "an open laptop at the right edge of the frame",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-015",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 128,
+      "end_seconds": 136,
+      "query": "a woman wearing glasses at a table",
+      "prompt": "a woman wearing glasses at a table",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-016",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 158,
+      "end_seconds": 166,
+      "query": "a dog sitting beside the speaker",
+      "prompt": "a dog sitting beside the speaker",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-017",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 188,
+      "end_seconds": 196,
+      "query": "a person riding a bicycle outdoors",
+      "prompt": "a person riding a bicycle outdoors",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-018",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 8,
+      "end_seconds": 16,
+      "query": "a person walking outdoors",
+      "prompt": "a person walking outdoors",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-019",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 28,
+      "end_seconds": 36,
+      "query": "trees beside a road",
+      "prompt": "trees beside a road",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-020",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 58,
+      "end_seconds": 66,
+      "query": "a person driving a red sports car",
+      "prompt": "a person driving a red sports car",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-021",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 88,
+      "end_seconds": 96,
+      "query": "a close-up of a coffee cup",
+      "prompt": "a close-up of a coffee cup",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-022",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 118,
+      "end_seconds": 126,
+      "query": "snowboarding down a mountain",
+      "prompt": "snowboarding down a mountain",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-023",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 148,
+      "end_seconds": 156,
+      "query": "a parked car beside trees",
+      "prompt": "a parked car beside trees",
+      "design_stratum": "likely_present"
+    },
+    {
+      "id": "search-024",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 8,
+      "end_seconds": 16,
+      "query": "a person walking indoors",
+      "prompt": "a person walking indoors",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-025",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 48,
+      "end_seconds": 56,
+      "query": "a motorcycle on a city street",
+      "prompt": "a motorcycle on a city street",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-026",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 218,
+      "end_seconds": 226,
+      "query": "a computer screen displaying a map",
+      "prompt": "a computer screen displaying a map",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-027",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 18,
+      "end_seconds": 26,
+      "query": "a laptop open on the table",
+      "prompt": "a laptop open on the table",
+      "design_stratum": "hard_negative"
+    },
+    {
+      "id": "search-028",
+      "kind": "search",
+      "source_id": "LC4931",
+      "start_seconds": 108,
+      "end_seconds": 116,
+      "query": "a person speaking into a handheld microphone",
+      "prompt": "a person speaking into a handheld microphone",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-029",
+      "kind": "search",
+      "source_id": "LCATL0012",
+      "start_seconds": 248,
+      "end_seconds": 256,
+      "query": "a bookshelf filled with books",
+      "prompt": "a bookshelf filled with books",
+      "design_stratum": "likely_absent"
+    },
+    {
+      "id": "search-030",
+      "kind": "search",
+      "source_id": "IMG_1816",
+      "start_seconds": 168,
+      "end_seconds": 176,
+      "query": "a man speaking to camera while walking",
+      "prompt": "a man speaking to camera while walking",
+      "design_stratum": "likely_present"
+    }
+  ]
+}

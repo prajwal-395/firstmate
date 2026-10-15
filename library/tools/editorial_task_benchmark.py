@@ -425,10 +425,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output-root", type=Path, help="check referenced review files under this root"
     )
+    parser.add_argument(
+        "--pilot-labels",
+        type=Path,
+        help="evaluator-only human proposal judgments from blind_label_pilot ingest",
+    )
     args = parser.parse_args(argv)
     report = json.loads(args.report.read_text(encoding="utf-8"))
     result = validate_report(report, output_root=args.output_root)
     result["scores"] = aggregate_scores(report)
+    if args.pilot_labels is not None:
+        from library.tools.blind_label_pilot import label_summary
+
+        result["human_proposal_checks"] = {
+            "F02": label_summary(args.pilot_labels, kind="edit"),
+            "F03": label_summary(args.pilot_labels, kind="edit"),
+        }
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["valid"] else 1
 

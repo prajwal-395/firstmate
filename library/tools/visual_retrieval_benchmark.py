@@ -239,7 +239,9 @@ def _random_ranking_metrics(eval_set: dict, frame_index, corpus, rules: dict,
 
 
 def enrich_visual_result(eval_set: dict, result: dict, *, floor: float | None = None,
-                         frame_index=None, corpus=None, rules: dict | None = None) -> dict:
+                         frame_index=None, corpus=None, rules: dict | None = None,
+                         evaluator_labels_path=None,
+                         evaluator_window_scores: dict[str, float] | None = None) -> dict:
     """Attach benchmark protocol and summary to a retrieval_eval result.
 
     ``floor`` is optional because the current frame retriever has no confidence
@@ -379,4 +381,13 @@ def enrich_visual_result(eval_set: dict, result: dict, *, floor: float | None = 
             "negative_abstained": sum(bool(r["abstained"]) for r in held_negative),
         }
     result["visual_benchmark"] = summary
+    if evaluator_labels_path is not None:
+        # Human pilot labels stay separate from the frozen benchmark inputs.
+        from library.tools.blind_label_pilot import label_summary
+        summary["human_calibration_labels"] = label_summary(
+            evaluator_labels_path, kind="search")
+        if evaluator_window_scores is not None:
+            from library.tools.blind_label_pilot import calibrate_abstention
+            summary["human_abstention_calibration"] = calibrate_abstention(
+                evaluator_labels_path, evaluator_window_scores)
     return result
