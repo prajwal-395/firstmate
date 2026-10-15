@@ -137,6 +137,13 @@ fi
 if ! declare -f fm_busy_record_read >/dev/null 2>&1; then
   . "$_FM_OPENCODE_DESCENT_LIB_DIR/fm-busy-lib.sh"
 fi
+# fm_stopped_declared lives in the stopped library, loaded the same way. The
+# tick defers to its incarnation-bound predicate rather than re-reading the
+# record, so a relaunch that spends the record re-arms candidacy by itself.
+# shellcheck source=/dev/null
+if ! declare -f fm_stopped_declared >/dev/null 2>&1; then
+  . "$_FM_OPENCODE_DESCENT_LIB_DIR/fm-stopped-lib.sh"
+fi
 _FM_OPENCODE_DESCENT_RETRY="$_FM_OPENCODE_DESCENT_LIB_DIR/fm-opencode-retry.sh"
 # The control-plane binary the relaunch runs through. Resolved at call time,
 # not source time, so a caller (notably a test) may point it at a stub by
@@ -469,6 +476,32 @@ fm_opencode_descent_codex_limit_cap() {  # <state-dir> <id>
   "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$(((now_s + fallback_s) * 1000))" >/dev/null 2>&1
 }
 
+# fm_opencode_descent_skip_lane: 0 when <id> must never be moved by this
+# evaluation, even past a proven cap. Two shapes, both terminal for the
+# ladder's purposes. A worker firstmate itself stopped through the control
+# plane is parked on purpose: relaunching it spends its declared-stop record
+# and restarts work the captain stood down (2026-10-15: this tick relaunched
+# two such lanes and a finished scout). The verdict is the stopped library's
+# own incarnation-bound predicate, never a re-read of the file. A lane whose
+# status log already reports done is finished: nothing the ladder does can
+# improve it, and a move would restart it from the brief and the commits. The
+# done read takes only the last status verb (bin/fm-classify-lib.sh's
+# status_line_verb owns verb semantics); an absent or unreadable status file
+# never skips. Silent by contract: neither shape is an episode worth waking
+# over, and the caller clears the episode marker before continuing.
+fm_opencode_descent_skip_lane() {  # <state-dir> <id>
+  local state_dir=$1 id=$2 status_file=$1/$2.status line verb
+  fm_stopped_declared "$state_dir" "$id" && return 0
+  [ -f "$status_file" ] && [ ! -L "$status_file" ] || return 1
+  line=$(grep -v '^[[:space:]]*$' "$status_file" 2>/dev/null | tail -n 1) || return 1
+  [ -n "$line" ] || return 1
+  verb=${line%%:*}
+  verb=${verb%%\[*}
+  verb=${verb#"${verb%%[![:space:]]*}"}
+  verb=${verb%"${verb##*[![:space:]]}"}
+  [ "$verb" = "done" ]
+}
+
 # fm_opencode_descent_tick: one evaluation of this home's live opencode lanes.
 #
 # One line per outcome on stdout, and nothing at all in the ordinary case
@@ -478,6 +511,9 @@ fm_opencode_descent_codex_limit_cap() {  # <state-dir> <id>
 #   unrecorded <id> <reason>         it moved, but the move was not written down
 #   refused <id> <reason>            it was not, and the captain needs to know
 #   override <id> <reason>           the captain's own override is holding it
+#
+# A lane firstmate itself stopped, or one that already reported done, stays
+# silent (fm_opencode_descent_skip_lane owns why).
 #
 # The caller decides what a line means for supervision; bin/fm-watch.sh turns
 # each into a wake. Keeping the queue out of this file is what lets the whole
@@ -523,6 +559,11 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     [ -e "$meta" ] || continue
     id=$(basename "$meta" .meta)
     case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    # Parked and finished lanes are never candidates, even past a proven cap.
+    if fm_opencode_descent_skip_lane "$state_dir" "$id"; then
+      fm_opencode_descent_clear_task "$state_dir" "$id"
+      continue
+    fi
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || continue
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
     case "$harness" in
