@@ -1413,6 +1413,16 @@ _fm_composer_row_is_opencode_limit_notice() {  # <trimmed-row>
     '^(Free usage exceeded|.*usage limit (reached|exceeded))([.,:![:space:]]|$)'
 }
 
+# _fm_composer_row_is_opencode_hint: recognize OpenCode's own key-hint row
+# rendered below its closed left-bar composer (observed 2026-10-14 on 1.18.35:
+# `tab agents  ctrl+p commands`). This row is the harness's own furniture,
+# not unclaimed activity below a stale composer.
+_fm_composer_row_is_opencode_hint() {  # <trimmed-row>
+  local row=$1
+  printf '%s\n' "$row" | LC_ALL=C grep -Eiq \
+    '^tab[[:space:]]+agents[[:space:]]+ctrl\+p[[:space:]]+commands[[:space:]]*$'
+}
+
 # _fm_composer_row_is_composer_furniture: 0 when <trimmed-row> is DEMONSTRABLY
 # a harness's own furniture drawn below its composer, given <proof-glyph> - the
 # agent glyph that proved the envelope above it. Exactly four things qualify,
@@ -1641,10 +1651,21 @@ _fm_composer_select_cursorless() {
       fm_composer_normalize_trim_var trimmed
     fi
     if [ -n "$trimmed" ] && ! fm_composer_row_has_edge "$trimmed"; then
-      if [ "$floor" != 1 ] || ! _fm_composer_row_is_opencode_limit_notice "$trimmed"; then
+      if [ "$floor" != 1 ]; then
         FM_COMPOSER_SELECTED_KIND=
         return 1
       fi
+      while [ -n "$trimmed" ] && ! fm_composer_row_has_edge "$trimmed"; do
+        if ! _fm_composer_row_is_opencode_limit_notice "$trimmed" \
+          && ! _fm_composer_row_is_opencode_hint "$trimmed"; then
+          FM_COMPOSER_SELECTED_KIND=
+          return 1
+        fi
+        next=$((next + 1))
+        raw=$(_fm_composer_screen_row "$next" "$plain")
+        trimmed=$raw
+        fm_composer_normalize_trim_var trimmed
+      done
     fi
   fi
   [ -n "$FM_COMPOSER_SELECTED_KIND" ]

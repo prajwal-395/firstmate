@@ -1062,6 +1062,20 @@ test_modal_dialog_is_dialog() {
   pass "fm_composer_classify_screen: a bordered box without a prompt glyph is a modal dialog"
 }
 
+test_relaunch_composer_unknown_idle_opencode_hint() {
+  local idle hint hint_activity unrelated typed
+  idle=$'  ┃\n  ┃  Ask anything… "Fix a TODO in the codebase"\n  ┃\n  ┃  Build · LongCat 2.5 Preview Free OpenCode Go\n  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  hint="${idle}"$'\ntab agents  ctrl+p commands'
+  assert_screen "opencode idle composer under its key-hint row on herdr" empty "$CAPS_STYLED" "$hint"
+  hint_activity="${hint}"$'\nWorking on request...'
+  assert_screen "opencode hint row does not mask activity below it on herdr" unknown "$CAPS_STYLED" "$hint_activity"
+  unrelated="${idle}"$'\nunrelated output'
+  assert_screen "unrecognized text below an opencode composer still refuses on herdr" unknown "$CAPS_STYLED" "$unrelated"
+  typed=$'┃\n┃  refactor the parser please\n┃\n┃  Build · GPT-5.5 Fast OpenAI · high\n╹▀▀▀▀'
+  assert_screen "opencode typed composer stays pending on herdr" pending "$CAPS_STYLED" "$typed"
+  pass "matrix: an idle opencode composer under its key-hint row reads empty while typed text and activity below it still refuse"
+}
+
 test_single_line_modal_dialog_is_dialog() {
   local screen out
   screen=$'╭─────────────────────────────────────────────────────────────────╮\n│ Do you trust the contents of this directory?                    │\n╰─────────────────────────────────────────────────────────────────╯'
@@ -1105,6 +1119,7 @@ test_matrix_unicode_ellipsis_placeholder() {
 test_modal_dialog_is_dialog
 test_single_line_modal_dialog_is_dialog
 test_matrix_unicode_ellipsis_placeholder
+test_relaunch_composer_unknown_idle_opencode_hint
 
 test_queued_enter_verdict_busy_pending_is_empty() {
   local out
