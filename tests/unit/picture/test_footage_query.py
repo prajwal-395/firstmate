@@ -496,7 +496,7 @@ def test_search_does_not_import_the_pipeline():
 
 
 def test_analysis_completion_records_project_model_source_and_result(monkeypatch):
-    from library.tools import footage_intelligence, step_ledger
+    from library.tools import analysis_state, step_ledger
 
     captured = {}
     node = {"id": "semantic_analysis", "name": "Semantic Analysis"}
@@ -518,14 +518,15 @@ def test_analysis_completion_records_project_model_source_and_result(monkeypatch
         def _export_step_for_review(*args):
             pass
 
-    monkeypatch.setattr(footage_intelligence, "_runner", Runner)
-    monkeypatch.setattr(footage_intelligence, "_edit_nodes",
-                        lambda: {"semantic_analysis": node})
+    monkeypatch.setattr(analysis_state, "_editing_state_services",
+                        lambda: Runner)
+    monkeypatch.setattr(analysis_state, "_nodes",
+                        lambda runner: {"semantic_analysis": node})
     monkeypatch.setattr(step_ledger, "stage_of", lambda manifest, node_id: "preflight")
     monkeypatch.setattr(step_ledger, "ingest_mark", lambda project: None)
     monkeypatch.setattr(step_ledger, "record",
                         lambda state, stage, node_id, completion: captured.update(completion))
-    footage_intelligence._record_completion(
+    analysis_state.record_completion(
         "fixture-project", {}, "semantics.analyse", "semantic_analysis", {}, 1.0,
         {"revision": 3, "head_hash": "source-head"},
         {"revision": 4, "head_hash": "result-head"},

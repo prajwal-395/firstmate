@@ -17,13 +17,11 @@ the runner uses, the same refusal when a prerequisite is missing.
 What stays shared with editing, and why
 ---------------------------------------
 Editing CONSUMES what analysis produces, so the result lands where the
-edit reads it: the capability's record (`capability_outputs`), the
-PREFLIGHT ledger, the source and code fingerprints that make "preflight
-is skipped once done" safe, and the step export. All but the first are
-state services keyed by the legacy node (`library/tools/dag_adapter.py`), borrowed from the runner module
-until they move out of it; no DAG is walked and no edit step can run.
-`ren edit <collection>` therefore continues with preflight already done,
-exactly as before.
+edit reads it: the capability's record (`capability_outputs`) and the
+preflight ledger. `analysis_state` owns the analysis-facing state
+boundary, including identity invalidation and step exports. No DAG is
+walked and no edit step can run. `ren edit <collection>` therefore
+continues with preflight already done, exactly as before.
 
 Provenance records each execution under its CAPABILITY id
 (`provenance.observing_operation`), not as a step of a run.
@@ -151,82 +149,9 @@ def compose(capability_ids: Sequence[str]) -> tuple:
     return tuple(ordered)
 
 
-# ── The state editing reads ────────────────────────────────────────
-
-
-def _runner():
-    """The runner MODULE, for its state services only - no DAG is walked."""
-    process_dir = REPO_ROOT / "library" / "processes" / "edit_video"
-    if str(process_dir) not in sys.path:
-        sys.path.insert(0, str(process_dir))
-    import run_pipeline
-    return run_pipeline
-
-
-def _edit_nodes() -> dict:
-    """Every edit_video node: identity invalidation must cover them all.
-
-    Recording fresh fingerprints after checking only the analysis nodes
-    would tell the next edit run nothing changed, and a preflight step
-    outside this run (object segmentation) would keep work measured on
-    footage that is gone.
-    """
-    rp = _runner()
-    return {n["id"]: n for n in rp.load_dag()["nodes"]}
-
-
-def load_state(project: str) -> dict:
-    """The project's state with its identity reconciled, as the runner does."""
-    from library.tools import step_ledger
-    rp = _runner()
-    state = rp.load_pipeline_state(project)
-    nodes = _edit_nodes()
-    manifests = rp._manifest_map(nodes)
-    stage_by_node = rp._stage_map(manifests)
-    step_ledger.migrate_legacy(state, stage_by_node)
-    rp.apply_source_identity(project, state, stage_by_node, manifests)
-    rp.apply_code_identity(state, stage_by_node, manifests, nodes)
-    rp.save_pipeline_state(project, state)
-    return state
-
-
-def _record_completion(project: str, state: dict, cid: str, node: str,
-                       payload: dict, seconds: float,
-                       project_model_source: dict | None = None,
-                       project_model_result: dict | None = None) -> None:
-    from library.tools import step_ledger
-    rp = _runner()
-    nodes = _edit_nodes()
-    stage = step_ledger.stage_of(rp._manifest_map({node: nodes[node]})[node],
-                                 node)
-    from library.tools import capability_outputs
-    capability_outputs.record(state, node, payload, capability_id=cid)
-    rp._clear_step_failure(state, node)
-    completion = {
-        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "elapsed_s": round(seconds, 1),
-        "operation": cid,
-    }
-    if project_model_source is not None or project_model_result is not None:
-        completion["project_model"] = {
-            "source": project_model_source,
-            "result": project_model_result,
-        }
-    # Lane B R10: what ingest this completion stands on - the one
-    # fingerprint function, called by the ledger, not reimplemented.
-    _ingest = step_ledger.ingest_mark(project)
-    if _ingest is not None:
-        completion["ingest_fingerprint"] = _ingest["digest"]
-    step_ledger.record(state, stage, node, completion)
-    rp.save_pipeline_state(project, state)
-    rp._export_step_for_review(project, node, nodes[node]["name"], payload,
-                               state)
-
-
-def _record_failure(project: str, state: dict, node: str, message: str):
-    rp = _runner()
-    rp._record_step_failure(state, node, message, project_dir=project)
-    rp.save_pipeline_state(project, state)
+# State services live behind one analysis boundary. The editing runner and
+# this executor share the same serialized project state, but the executor
+# does not import or drive the editing process.
 
 
 # ── Execution ──────────────────────────────────────────────────────
@@ -268,11 +193,10 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
     Stops at the first failure: what follows requires it. Never raises
     for a step's failure - the record says what happened.
     """
-    from library.tools import dag_adapter, operations, provenance, step_ledger
-    rp = _runner()
+    from library.tools import analysis_state, dag_adapter, operations, provenance
     started = time.perf_counter()
     order = compose(capability_ids)
-    state = load_state(project)
+    state = analysis_state.load_state(project)
     run_id = provenance.new_run_id()
     outcomes: list[dict] = []
     failed = False
@@ -283,7 +207,7 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
         if failed:
             row["status"] = NOT_RUN
             continue
-        if cid in step_ledger.completed_capabilities(state):
+        if analysis_state.completed(cid, state):
             row["status"] = REUSED
             print(f"[analyze] {cid}: reused", file=sys.stderr, flush=True)
             continue
@@ -298,22 +222,24 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
         problem = result.get("error") if result["status"] != \
             operations.COMPLETED else None
         if problem is None:
-            hollow = rp.check_output_is_real(node, result["payload"])
+            hollow = analysis_state.check_output_is_real(node, result["payload"])
             if hollow:
                 problem = ("reported success but produced no usable "
                            "output:\n  - " + "\n  - ".join(hollow))
         if problem is not None:
             row["status"] = FAILED
             row["reason"] = problem
-            _record_failure(project, state, node, problem)
+            analysis_state.record_failure(project, state, node, problem)
             print(f"[analyze] {cid}: FAILED - {problem}", file=sys.stderr,
                   flush=True)
             failed = True
             continue
         row["status"] = BUILT
         project_model_result = project_model_store.pipeline_projection(Path(project))
-        _record_completion(project, state, cid, node, result["payload"],
-                           seconds, project_model_source, project_model_result)
+        analysis_state.record_completion(project, state, cid, node,
+                                         result["payload"], seconds,
+                                         project_model_source,
+                                         project_model_result)
     return {
         "orchestrator": "footage_intelligence",
         "capabilities": outcomes,

@@ -177,6 +177,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        'library/tools/analysis_state.py',
         # Analysis composition resolves from capability-owned declarations,
         # so a fix to the contracts changes the order preflight runs in.
         'library/tools/capability_contracts.py',
@@ -660,6 +661,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        'library/tools/analysis_state.py',
         # Analysis composition resolves from capability-owned declarations,
         # so a fix to the contracts changes the order preflight runs in.
         'library/tools/capability_contracts.py',
@@ -1159,6 +1161,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        'library/tools/analysis_state.py',
         # Analysis composition resolves from capability-owned declarations,
         # so a fix to the contracts changes the order preflight runs in.
         'library/tools/capability_contracts.py',
@@ -1673,6 +1676,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        'library/tools/analysis_state.py',
         # Analysis composition resolves from capability-owned declarations,
         # so a fix to the contracts changes the order preflight runs in.
         'library/tools/capability_contracts.py',
@@ -2222,6 +2226,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        'library/tools/analysis_state.py',
         # Analysis composition resolves from capability-owned declarations,
         # so a fix to the contracts changes the order preflight runs in.
         'library/tools/capability_contracts.py',
