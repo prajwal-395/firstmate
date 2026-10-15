@@ -338,7 +338,7 @@ def test_reused_placement_restores_when_it_holds():
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -100.0},
         "carriage": OVERLAY_CARRIAGE,
-        "draw_gain": 2.0,
+        "draw_gain": 1.0,
         "safe_area": {"top": 120, "right": 120,
                       "bottom": 320, "left": 90},
         "union": {"x0": 100, "y0": 1200, "x1": 400, "y1": 1294},
@@ -380,7 +380,8 @@ def test_a_reused_placement_that_cannot_be_trusted_is_refused():
         ({"width": 348}, _props_2(), None),
         ({"width": 904, "height": 480,
           "placement": {"scaling": 1, "pan": 0.0, "tilt": -1836.0},
-          "carriage": OVERLAY_CARRIAGE, "safe_area": dict(safe, bottom=297),
+          "carriage": OVERLAY_CARRIAGE, "draw_gain": 2.0,
+          "safe_area": dict(safe, bottom=297),
           "union": {"x0": 88, "y0": 1179, "x1": 992, "y1": 1659}},
          gain_props, "draw gain"),
     ]

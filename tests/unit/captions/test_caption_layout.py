@@ -292,10 +292,10 @@ def _caption_canvas(project_folder, reel_name=None):
     box = tight_box.constant_caption_box({
         "width": FRAME_W, "height": FRAME_H, "style": style,
         "subtitles": [{"text": "a caption"}],
-    })
+    }, draw_gain=2.0)
     _, origin_y = drawn_origin(box.width, box.height, FRAME_W, FRAME_H,
                                box.placement["pan"],
-                               box.placement["tilt"])
+                               box.placement["tilt"], draw_gain=2.0)
     return box.placement["tilt"], (origin_y, origin_y + box.height)
 
 

@@ -12,7 +12,11 @@ from library.tools.resolve_transform import (
     drawn_centre,
     drawn_origin,
     fit_base_scale,
+    mismatch_base_scales,
+    native_conversion_refusal,
+    native_position_to_resolve,
     pan_tilt_for_centre,
+    resolve_to_native_position,
     shift_px,
 )
 from library.tools.tight_box import (
@@ -170,18 +174,17 @@ def test_the_measured_caption_points_solve_gain_two():
 
 
 def test_the_declared_row_converts_to_the_captains_hand_value():
-    """The ground truth the rebuild gate checks: caption_row 0.8451 is
-    delivery row 1623, canvas centre y 1418.5 on a 904x480 canvas, and
-    the conversion must store Tilt -917 - his hand value, exactly -
-    not the -1834 the unmeasured law produces."""
-    assert units_for_shift(960.0 - 1418.5, 480, 1920) == pytest.approx(
+    """The held caption value belongs to the explicitly measured gain-2 run."""
+    assert units_for_shift(960.0 - 1418.5, 480, 1920,
+                           draw_gain=2.0) == pytest.approx(
         -917.0, abs=0.5)
-    assert drawn_centre(904, 480, 1080, 1920, 0.0, -917.0) == \
+    assert drawn_centre(904, 480, 1080, 1920, 0.0, -917.0,
+                        draw_gain=2.0) == \
         pytest.approx((540.0, 1418.5), abs=0.5)
 
 
 def test_the_default_gain_is_the_fallback_gain():
-    assert FALLBACK_DRAW_GAIN == pytest.approx(2.0)
+    assert FALLBACK_DRAW_GAIN == pytest.approx(1.0)
     assert units_for_shift(960.0 - 1418.5, 480, 1920) == pytest.approx(
         units_for_shift(960.0 - 1418.5, 480, 1920, 1.0,
                         FALLBACK_DRAW_GAIN))
@@ -198,6 +201,45 @@ def test_the_inverse_round_trips_at_the_measured_gain():
                 shift_px(value, clip_dim, frame_dim, base),
                 clip_dim, frame_dim, base)
             assert back == pytest.approx(value, abs=1e-9)
+
+
+def test_native_position_conversion_is_the_shared_resolve_law():
+    transform = {"Pan": -26.8085, "Tilt": 1836.0}
+    position = resolve_to_native_position(
+        transform, (846, 480), (1080, 1920), draw_gain=1.0)
+    assert position == pytest.approx((519.0, 501.0), abs=0.01)
+    assert native_position_to_resolve(
+        position, (846, 480), (1080, 1920), draw_gain=1.0
+    ) == pytest.approx((-26.8085, 1836.0), abs=0.001)
+
+
+@pytest.mark.parametrize("mode,scales,expected", [
+    ("scaleToFit", (0.5625, 0.5625), (640.0, 928.36)),
+    ("scaleToCrop", (1920/1080, 1920/1080), (856.5, 860.0)),
+    ("centerCrop", (1.0, 1.0), (717.78, 903.75)),
+    ("stretch", (0.5625, 1920/1080), (640.0, 860.0)),
+])
+def test_mismatch_modes_match_scratch_pan_tilt_grid(mode, scales, expected):
+    measured_scales = mismatch_base_scales(1920, 1080, 1080, 1920, mode)
+    assert measured_scales == pytest.approx(scales)
+    centre = drawn_centre(1920, 1080, 1080, 1920, 100, 100,
+                          measured_scales, 1.0)
+    assert centre == pytest.approx(expected, abs=0.6)
+
+
+@pytest.mark.parametrize("transform,reason", [
+    ({"ZoomX": 1.5, "ZoomY": 1.0}, "independent ZoomX/ZoomY"),
+    ({"RotationAngle": 12}, "rotation pivot/order"),
+    ({"AnchorPointX": 0.2}, "off-centre anchor"),
+    ({"CropLeft": 0.1}, "nonzero crop"),
+])
+def test_native_conversion_identifies_unqualified_geometry(transform, reason):
+    assert reason in native_conversion_refusal(transform)
+
+
+def test_native_conversion_refuses_stretch_mismatch_mode():
+    assert "nonuniform native scale" in native_conversion_refusal(
+        {"Pan": 10.0, "Tilt": 10.0}, "stretch")
 
 
 # --------------------------------------------------------------------------

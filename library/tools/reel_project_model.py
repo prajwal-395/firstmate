@@ -750,6 +750,10 @@ def static_transforms_from_placements(
     minted: list[str] = []
     skipped: list[dict[str, Any]] = []
     for index, place in enumerate(placements):
+        if isinstance(place, dict) and place.get("native_transform_refusal"):
+            skipped.append({"index": index,
+                            "reason": place["native_transform_refusal"]})
+            continue
         transform = place.get("transform") if isinstance(place, dict) else None
         if not isinstance(transform, dict):
             continue

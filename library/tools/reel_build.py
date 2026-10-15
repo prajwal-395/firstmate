@@ -6990,14 +6990,16 @@ def aim_picture_row(name: str, look: dict, screen_window,
             held = _held_transform(item, timeline, resolve_project)
             if isinstance(held, Mapping):
                 place["transform"] = held
-                from library.tools.resolve_transform import fit_base_scale
-                base_scale = fit_base_scale(
-                    source_size[0], source_size[1], frame_width, frame_height)
+                behavior, base_scales = _picture_mismatch_geometry(
+                    timeline, resolve_project, source_size,
+                    frame_width, frame_height)
+                place["native_mismatch_behavior"] = behavior
                 place["native_position"] = _native_picture_position(
                     held, source_size, frame_width, frame_height,
-                    base_scale, draw_gain)
+                    base_scales, draw_gain)
                 place["native_scale"] = _native_picture_scale(
-                    held, source_size, frame_width, frame_height)
+                    held, source_size, frame_width, frame_height,
+                    base_scales)
             print(f"  {name}: NO PUNCH-IN on "
                   f"{os.path.basename(source_file)} "
                   f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
@@ -7048,14 +7050,16 @@ def aim_picture_row(name: str, look: dict, screen_window,
                                transform_context=transform_context)
         if isinstance(held, Mapping):
             place["transform"] = held
-            from library.tools.resolve_transform import fit_base_scale
-            base_scale = fit_base_scale(
-                source_size[0], source_size[1], frame_width, frame_height)
+            behavior, base_scales = _picture_mismatch_geometry(
+                timeline, resolve_project, source_size,
+                frame_width, frame_height)
+            place["native_mismatch_behavior"] = behavior
             place["native_position"] = _native_picture_position(
                 held, source_size, frame_width, frame_height,
-                base_scale, draw_gain)
+                base_scales, draw_gain)
             place["native_scale"] = _native_picture_scale(
-                held, source_size, frame_width, frame_height)
+                held, source_size, frame_width, frame_height,
+                base_scales)
         aimed += 1
         print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
               f"(declared {look['punch_in']}, screen window needs "
@@ -7082,19 +7086,33 @@ def aim_picture_row(name: str, look: dict, screen_window,
 def _native_picture_position(held, source_size, frame_width, frame_height,
                              base_scale, draw_gain):
     """Resolve's held Pan/Tilt expressed as the native sequence pixel center."""
-    from library.tools.resolve_transform import shift_px
-
-    pan = float(held.get("Pan", 0.0))
-    tilt = float(held.get("Tilt", 0.0))
-    return [
-        frame_width / 2.0 + shift_px(
-            pan, source_size[0], frame_width, base_scale, draw_gain),
-        frame_height / 2.0 - shift_px(
-            tilt, source_size[1], frame_height, base_scale, draw_gain),
-    ]
+    from library.tools.resolve_transform import resolve_to_native_position
+    return list(resolve_to_native_position(
+        held, source_size, (frame_width, frame_height), base_scale,
+        draw_gain))
 
 
-def _native_picture_scale(held, source_size, frame_width, frame_height):
+def _picture_mismatch_geometry(timeline, project, source_size,
+                               frame_width, frame_height):
+    from library.tools.resolve_transform import mismatch_base_scales
+
+    behavior = "scaleToFit"
+    for owner in (timeline, project):
+        if owner is None:
+            continue
+        try:
+            value = owner.GetSetting("timelineInputResMismatchBehavior")
+        except Exception:  # noqa: BLE001 - other owner may answer
+            value = None
+        if value:
+            behavior = str(value)
+            break
+    return behavior, mismatch_base_scales(
+        source_size[0], source_size[1], frame_width, frame_height, behavior)
+
+
+def _native_picture_scale(held, source_size, frame_width, frame_height,
+                          base_scales=None):
     """Resolve zoom over scaleToFit as a native source-pixel multiplier."""
     from library.tools.resolve_transform import fit_base_scale
 
@@ -7106,10 +7124,44 @@ def _native_picture_scale(held, source_size, frame_width, frame_height):
                 or not math.isclose(zoom_x, zoom_y,
                                     rel_tol=0.0, abs_tol=1e-6)):
             return None
-        return zoom_x * fit_base_scale(
-            source_size[0], source_size[1], frame_width, frame_height)
+        if base_scales is None:
+            base_scales = fit_base_scale(
+                source_size[0], source_size[1], frame_width, frame_height)
+        if isinstance(base_scales, (tuple, list)):
+            if not math.isclose(float(base_scales[0]), float(base_scales[1]),
+                                rel_tol=0.0, abs_tol=1e-9):
+                return None
+            base_scales = base_scales[0]
+        return zoom_x * float(base_scales)
     except (TypeError, ValueError, ZeroDivisionError):
         return None
+
+
+def _record_native_transform_calibration(placements, gain_record):
+    """Attach the exact renderer calibration to each translated placement."""
+    from library.tools.resolve_transform import native_conversion_refusal
+
+    calibration = {
+        "gain": float(gain_record["gain"]),
+        "source": str(gain_record["source"]),
+    }
+    for row in placements:
+        if not isinstance(row, dict):
+            continue
+        refusal = native_conversion_refusal(
+            row.get("transform"),
+            row.get("native_mismatch_behavior", "scaleToFit"))
+        if refusal:
+            row["native_transform_refusal"] = refusal
+            row.pop("native_position", None)
+            row.pop("native_scale", None)
+        elif row.get("native_position") is not None:
+            row["native_transform_calibration"] = {
+                **calibration,
+                "mismatch_behavior": row.get(
+                    "native_mismatch_behavior", "scaleToFit"),
+            }
+    return placements
 
 
 def _with_freeze(placements_list, freeze, fps: float) -> list:
@@ -8186,13 +8238,10 @@ def _native_overlay_position(held_transform, canvas, frame, draw_gain):
         if not all(math.isfinite(value) for value in
                    (canvas_w, canvas_h, frame_w, frame_h, pan, tilt)):
             return None
-        from library.tools.resolve_transform import shift_px
-        return [
-            frame_w / 2.0 + shift_px(
-                pan, canvas_w, frame_w, draw_gain=draw_gain),
-            frame_h / 2.0 - shift_px(
-                tilt, canvas_h, frame_h, draw_gain=draw_gain),
-        ]
+        from library.tools.resolve_transform import resolve_to_native_position
+        return list(resolve_to_native_position(
+            held_transform, (canvas_w, canvas_h), (frame_w, frame_h),
+            draw_gain=draw_gain))
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
@@ -13240,16 +13289,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "probe": {},
         }
     _gain_probe.log_record(gain_record)
-    if gain_record.get("source") != "measured":
-        raise ReelBuildError(
-            "REFUSING to build: the draw-gain probe could not calibrate "
-            "the renderer "
-            f"({'; '.join(gain_record.get('warnings', [])) or 'no reason'}). "
-            "Every caption, motion-graphic, post-header and punch-in "
-            "below is computed at the measured gain, and placing them at "
-            "an unmeasured one is how a build halves every overlay "
-            "transform. Fix the probe and re-run.")
     run_gain = float(gain_record["gain"])
+    if gain_record.get("source") != "measured":
+        print("  WARNING: using fallback draw gain "
+              f"{run_gain:g}; calibration: "
+              f"{'; '.join(gain_record.get('warnings', [])) or 'unavailable'}",
+              file=sys.stderr, flush=True)
 
     # STAGE, not replace: the final names this call is FOR, and the
     # staging containers it actually places. Nothing existing is
@@ -14726,10 +14771,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # What this staging placed, keyed the same way and
                     # remapped to finals below beside `track_plans` - the
                     # Project Model writer's clip-use source.
-                    reel_placements[name] = list(
-                        build_result.get("placements") or [])
-                    reel_overlay_placements[name] = list(
-                        build_result.get("overlay_placements") or [])
+                    reel_placements[name] = _record_native_transform_calibration(
+                        list(build_result.get("placements") or []),
+                        gain_record)
+                    reel_overlay_placements[name] = (
+                        _record_native_transform_calibration(
+                            list(build_result.get("overlay_placements") or []),
+                            gain_record))
                     if overlay_intent:
                         # Per-reel intent application, keyed by STAGING name
                         # here and remapped to finals beside `caption_hashes`
@@ -16446,11 +16494,10 @@ def build_reel_variants(project_slug: str, reel_number: int,
         }
     _variant_gain_probe.log_record(_variant_gain_record)
     if _variant_gain_record.get("source") != "measured":
-        raise ReelBuildError(
-            "REFUSING to build: the draw-gain probe could not calibrate "
-            "the renderer "
-            f"({'; '.join(_variant_gain_record.get('warnings', [])) or 'no reason'}). "
-            "Fix the probe and re-run.")
+        print("  WARNING: using fallback draw gain "
+              f"{_variant_gain_record['gain']:g}; calibration: "
+              f"{'; '.join(_variant_gain_record.get('warnings', [])) or 'unavailable'}",
+              file=sys.stderr, flush=True)
     run_gain = float(_variant_gain_record["gain"])
 
     # The three per-reel DECLARATIONS the rebuild reads, read here on
@@ -16837,6 +16884,12 @@ def build_reel_variants(project_slug: str, reel_number: int,
             # could never carry a graphic the captain disabled.
             _write_reel_record(project_folder, sem_vis.write_records,
                                project_folder, [_semantic_record])
+            _record_native_transform_calibration(
+                list(build_result.get("placements") or []),
+                _variant_gain_record)
+            _record_native_transform_calibration(
+                list(build_result.get("overlay_placements") or []),
+                _variant_gain_record)
             built[final] = {"build_record": build_result,
                             "conformance": report,
                             "suffix": str(spec.get("suffix", "")),

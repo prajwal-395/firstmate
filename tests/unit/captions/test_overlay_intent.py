@@ -176,8 +176,8 @@ def test_declared_intent_wins_over_computed_on_the_timeline(tmp_path):
     the production placer.
 
     The declared number follows the measured draw gain: the pin
-    centre [540, 1385] resolves to -850 under today's renderer
-    (it resolved to -1700 under the 2026-09-11 gain). What this
+    centre [540, 1385] resolves to -1700 under the measured gain 1.0
+    (it resolved to -850 under the historical gain 2.0). What this
     test pins is that the declared place wins, whichever gain
     computes it.
     """
@@ -191,7 +191,7 @@ def test_declared_intent_wins_over_computed_on_the_timeline(tmp_path):
         intent=parse_intent(REEL_09_INTENT),
         canvas=CANVAS, frame=FRAME)
     assert ok and note == ""
-    assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -850.0}
+    assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -1700.0}
 
 
 #: Two segments off one SpeakerTwo clip on Reel 13: same speaker, same

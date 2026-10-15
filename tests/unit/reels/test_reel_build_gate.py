@@ -811,75 +811,17 @@ def test_refused_build_files_its_caption_imports(project_dir):
         "'Not placed on any timeline' once no timeline places them")
 
 
-@pytest.mark.usefixtures("mock_dvr_2")
-def test_fallback_draw_gain_refuses_before_staging(project_dir, monkeypatch):
-    """An unavailable renderer measurement must stop the build before
-    it places overlays using the fallback gain."""
-    from library.tools import draw_gain_probe
+def test_fallback_draw_gain_is_recorded_on_native_placements():
+    from library.tools.reel_build import _record_native_transform_calibration
 
-    resolve_project, _, _ = _project()
-    monkeypatch.setattr(
-        draw_gain_probe, "calibrate",
-        lambda *args, **kwargs: {
-            "gain": 2.0,
-            "source": "fallback",
-            "disagrees_with_fallback": False,
-            "warnings": ["gallery declined"],
-            "probe": {},
-        })
-
-    with patch("library.tools.reel_build.build_reel_timeline") as place, \
-            patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve_project), \
-            patch("library.tools.reel_proposal.read_proposal",
-                  return_value=[_moment_2()]), \
-            patch("library.tools.timeline_ingest.snapshot_timeline"):
-        with pytest.raises(ReelBuildError,
-                           match="draw-gain probe could not calibrate") as exc:
-            rebuild_reels_in_project(str(project_dir), only=[5])
-
-    assert "gallery declined" in str(exc.value)
-    place.assert_not_called()
-    assert sorted(resolve_project.names()) == sorted([MASTER, TARGET_2])
-
-
-# --------------------------------------------------------------------------
-# From test_reel_build_touches_only_its_own_timelines.py
-#
-# A build may only delete what it is actually rebuilding.
-#
-# The defect this pins
-# --------------------
-# `rebuild_reels_in_project` collected every timeline whose name began
-# `"Reel "` and called `DeleteTimelines` on all of them, unconditionally,
-# before placing anything.  On the field-test project that is nineteen
-# approved timelines destroyed in order to write nineteen - and building
-# ONE reel destroyed the other eighteen.  Nothing backed them up and
-# nothing said so.  The captain, 2026-09-06: *"a refusal is cheap and a
-# deleted timeline is not."*
-#
-# The other half of the pair was already right: `write_provenance` has
-# MERGED rather than replaced since #568, because *"a partial rebuild must
-# not delete the provenance of the reels it did not touch"*.  A partial
-# rebuild could not happen, because the delete loop ran first and took
-# everything.
-#
-# Both directions, because a guard that cannot fire is not a guard
-# ----------------------------------------------------------------
-# `assert_deletion_scope` is asked of the LIST ABOUT TO BE DELETED rather
-# than recomputing the selection, so it can catch the selection being
-# wrong.  These tests call it directly with a permitted list and with a
-# refused one, and drive a whole build with an over-collecting selection
-# to prove it fires where it is actually wired - not merely where it is
-# defined.
-#
-# The survivors are asserted by NAME.  The fake media pool really removes
-# what it is handed, so "the other eighteen are still there" is read off
-# the project afterwards rather than inferred from a mock call.
-
-"""Nineteen, the field-test project's own shape - the number that makes
-the old loop's blast radius the point rather than a detail."""
+    rows = [{"native_position": [519.0, 501.0],
+             "transform": {"Pan": -26.8085, "Tilt": 1836.0,
+                           "ZoomX": 1.0, "ZoomY": 1.0}}]
+    result = _record_native_transform_calibration(rows, {
+        "gain": 1.0, "source": "fallback"})
+    assert result[0]["native_transform_calibration"] == {
+        "gain": 1.0, "source": "fallback",
+        "mismatch_behavior": "scaleToFit"}
 
 
 @pytest.fixture

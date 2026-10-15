@@ -321,24 +321,24 @@ class TestFramingEndToEnd:
         # 50 delivery pixels, in the Pan UNIT the one measured law gives
         # for 3840x2160 into 1080x1920: the fit is width-bound, so the
         # geometry factor is exactly 1 and the conversion IS the
-        # measured draw gain - 50 px is Pan 25.  It is 25 because it
+        # fallback draw gain - 50 px is Pan 50. It is 50 because it
         # was CONVERTED, not because a pixel is a unit - see the Tilt
         # case below.  Driven against the law rather than restated, so
         # the next calibration moves this with the code.
         assert item.GetProperty("Pan") == pytest.approx(
             units_for_shift(50.0, 3840, 1080, _FIT_3840_TO_1080x1920),
             abs=0.01)
-        assert item.GetProperty("Pan") == pytest.approx(25.0, abs=0.01)
+        assert item.GetProperty("Pan") == pytest.approx(50.0, abs=0.01)
         assert not results["warnings"]
 
     def test_renderer_uses_tilt_for_vertical_pan(self, tmp_path):
         """And converts the pixel offset into the Tilt UNIT.
 
         A landscape source conformed into a vertical frame draws
-        `(2160/1920) * (1080/3840) * draw_gain = 0.6328` pixels per
-        Tilt unit under the measured gain, so -25 delivery pixels is
-        Tilt -39.506.  Passing the pixel value straight through moved
-        the picture 25 * 0.3164 = 7.9px under the old gain - the
+        `(2160/1920) * (1080/3840) * draw_gain = 0.3164` pixels per
+        Tilt unit under the gain-1 fallback, so -25 delivery pixels is
+        Tilt -79.012. Passing the pixel value straight through moved
+        the picture only 7.9px under the older gain-2 assumption - the
         under-aim this test exists to pin, now stated at today's.
         """
         item = _item(source_size=(3840, 2160))
@@ -352,7 +352,7 @@ class TestFramingEndToEnd:
         assert item.GetProperty("Tilt") == pytest.approx(
             units_for_shift(-25.0, 2160, 1920, _FIT_3840_TO_1080x1920),
             abs=0.01)
-        assert item.GetProperty("Tilt") == pytest.approx(-39.506, abs=0.01)
+        assert item.GetProperty("Tilt") == pytest.approx(-79.012, abs=0.01)
         assert not results["warnings"]
 
     def test_a_pan_that_could_not_be_converted_says_so(self, tmp_path):

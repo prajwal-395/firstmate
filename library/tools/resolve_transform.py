@@ -58,14 +58,11 @@ the renderer draws per unit and what the 2026-09-11 calibration
 measured. It defaults to 1.0, which reproduces every 09-11 case
 exactly, and every caller that does not pass it keeps that behaviour.
 
-`FALLBACK_DRAW_GAIN` (2.0) is the 2026-09-17 rendered-pixel
-calibration on the captain's machine, same Resolve build
-(Studio 21.1.0.14), and it disagrees with the 09-11 one. Both
-calibrations set known values and rendered; the newer one is the
-default because it describes every timeline class in the project
-today - 1080x1920 custom reels, 1080x1920 custom scratch, 3840x2160
-custom scratch and 3840x2160 project-default scratch, both axes,
-captions, motion graphics, picture and native plates:
+`FALLBACK_DRAW_GAIN` is 1.0, the conservative fallback from the
+2026-09-11 rendered-pixel calibration. A build uses the gain measured
+by `draw_gain_probe` whenever available; the fallback is used only when
+that measurement cannot be made. The 2026-09-17 gain-2 measurement is
+retained as historical evidence, not as a universal renderer constant.
 
 - caption 904x480, Tilt -888 -> canvas centre y 1404, and hand-set
   Tilt -917 -> y 1418.5 (two independent points, slope exactly 0.5;
@@ -143,18 +140,10 @@ MEASURED_PICTURE_CASES = (
 )
 
 
-#: The FALLBACK draw gain: the value a run uses when it cannot
-#: calibrate the renderer itself (see `library/tools/draw_gain_probe.py`).
-#: Measured 2.0 on rendered pixels 2026-09-17 (calibration table and
-#: procedure in the module docstring). It is renderer STATE, not
-#: geometry: the same build drew gain 1.0 on 2026-09-11, so a build
-#: that can reach the renderer measures per run and passes what it
-#: measured explicitly, and a run that silently fell back would be the
-#: defect this exists to stop - the probe logs which source the run
-#: used and reports a measured-against-fallback disagreement as a
-#: finding. Never derive it by arithmetic from an observed
-#: misplacement - re-measure it by setting known values and rendering.
-FALLBACK_DRAW_GAIN = 2.0
+#: The fallback draw gain. Prefer the per-run value measured by
+#: `draw_gain_probe`; this value is used only when calibration cannot
+#: run, and is the measured gain-1.0 baseline.
+FALLBACK_DRAW_GAIN = 1.0
 
 #: Pan/Tilt values in pre-metadata recorded overrides are understood as
 #: values measured against the original gain-1.0 transform law. New
@@ -164,6 +153,62 @@ LEGACY_OVERRIDE_DRAW_GAIN = 1.0
 
 class ResolveTransformError(ValueError):
     """A transform reading needs positive dimensions."""
+
+
+def resolve_to_native_position(transform: dict, clip_size: tuple,
+                               frame_size: tuple, base_scale: float = 1.0,
+                               draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
+    """Translate Resolve Pan/Tilt to an absolute native sequence-pixel centre."""
+    if not isinstance(transform, dict):
+        raise ResolveTransformError("Resolve transform must be a mapping")
+    clip_w, clip_h = clip_size
+    frame_w, frame_h = frame_size
+    return drawn_centre(clip_w, clip_h, frame_w, frame_h,
+                        float(transform.get("Pan", 0.0)),
+                        float(transform.get("Tilt", 0.0)),
+                        base_scale, draw_gain)
+
+
+def native_position_to_resolve(position: tuple, clip_size: tuple,
+                               frame_size: tuple, base_scale: float = 1.0,
+                               draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
+    """Translate an absolute native sequence-pixel centre to Resolve Pan/Tilt."""
+    if len(position) != 2:
+        raise ResolveTransformError("native position must be an [x, y] pair")
+    return pan_tilt_for_centre(*clip_size, *frame_size,
+                               float(position[0]), float(position[1]),
+                               base_scale, draw_gain)
+
+
+def native_conversion_refusal(
+        transform: dict, mismatch_behavior: str = "scaleToFit") -> str | None:
+    """Explain transform features whose native geometry is not qualified."""
+    if not isinstance(transform, dict):
+        return "transform is not a mapping"
+    if mismatch_behavior not in ("scaleToFit", "scaleToCrop", "centerCrop",
+                                 "stretch"):
+        return f"unknown mismatch mode {mismatch_behavior!r}"
+    if mismatch_behavior == "stretch":
+        return "stretch mismatch mode needs nonuniform native scale"
+    try:
+        if not math.isclose(float(transform.get("ZoomX", 1.0)),
+                            float(transform.get("ZoomY", 1.0)),
+                            rel_tol=0.0, abs_tol=1e-6):
+            return "independent ZoomX/ZoomY is not qualified"
+        if float(transform.get("RotationAngle", 0.0)) != 0.0:
+            return "rotation pivot/order is not qualified"
+        if (float(transform.get("AnchorPointX", 0.0)) != 0.0
+                or float(transform.get("AnchorPointY", 0.0)) != 0.0):
+            return "off-centre anchor is not qualified"
+        if any(float(transform.get(key, 0.0) or 0.0) != 0.0
+               for key in ("CropLeft", "CropRight", "CropTop", "CropBottom")):
+            return "nonzero crop is not qualified"
+        if transform.get("FlipX") in (True, 1, "1") or \
+                transform.get("FlipY") in (True, 1, "1"):
+            return "Resolve flips are not qualified"
+    except (TypeError, ValueError):
+        return "transform contains a nonnumeric geometry value"
+    return None
 
 
 def _positive(*values) -> None:
@@ -183,6 +228,32 @@ def fit_base_scale(clip_w, clip_h, frame_w, frame_h) -> float:
     """
     _positive(clip_w, clip_h, frame_w, frame_h)
     return min(float(frame_w) / float(clip_w), float(frame_h) / float(clip_h))
+
+
+def mismatch_base_scales(clip_w, clip_h, frame_w, frame_h,
+                         behavior: str = "scaleToFit") -> tuple[float, float]:
+    """Resolve's measured source sizing scales for each mismatch mode.
+
+    The returned pair is the X and Y factor applied before user zoom.
+    ``centerCrop`` is Resolve's native-pixel center crop; unlike
+    ``scaleToCrop``, it does not scale the source before clipping.
+    ``stretch`` scales the axes independently.
+    """
+    _positive(clip_w, clip_h, frame_w, frame_h)
+    sw, sh, fw, fh = map(float, (clip_w, clip_h, frame_w, frame_h))
+    mode = str(behavior)
+    if mode == "scaleToFit":
+        scale = min(fw / sw, fh / sh)
+        return scale, scale
+    if mode == "scaleToCrop":
+        scale = max(fw / sw, fh / sh)
+        return scale, scale
+    if mode == "centerCrop":
+        return 1.0, 1.0
+    if mode == "stretch":
+        return fw / sw, fh / sh
+    raise ResolveTransformError(
+        f"unknown timelineInputResMismatchBehavior {mode!r}")
 
 
 def shift_px(value: float, clip_dim: float, frame_dim: float,
@@ -248,10 +319,16 @@ def drawn_centre(clip_w: float, clip_h: float,
     Positive Pan moves right, positive Tilt moves up.
     """
     _positive(clip_w, clip_h, frame_w, frame_h)
+    if isinstance(base_scale, (tuple, list)):
+        if len(base_scale) != 2:
+            raise ResolveTransformError("base scale must be one value or an X/Y pair")
+        base_x, base_y = map(float, base_scale)
+    else:
+        base_x = base_y = float(base_scale)
     return (float(frame_w) / 2.0
-            + shift_px(pan, clip_w, frame_w, base_scale, draw_gain),
+            + shift_px(pan, clip_w, frame_w, base_x, draw_gain),
             float(frame_h) / 2.0
-            - shift_px(tilt, clip_h, frame_h, base_scale, draw_gain))
+            - shift_px(tilt, clip_h, frame_h, base_y, draw_gain))
 
 
 def drawn_origin(clip_w: float, clip_h: float,
@@ -285,10 +362,16 @@ def pan_tilt_for_centre(clip_w: float, clip_h: float,
     The inverse of :func:`drawn_centre`. Round-trips exactly.
     """
     _positive(clip_w, clip_h, frame_w, frame_h)
+    if isinstance(base_scale, (tuple, list)):
+        if len(base_scale) != 2:
+            raise ResolveTransformError("base scale must be one value or an X/Y pair")
+        base_x, base_y = map(float, base_scale)
+    else:
+        base_x = base_y = float(base_scale)
     return (units_for_shift(float(centre_x) - float(frame_w) / 2.0,
-                            clip_w, frame_w, base_scale, draw_gain),
+                            clip_w, frame_w, base_x, draw_gain),
             units_for_shift(float(frame_h) / 2.0 - float(centre_y),
-                            clip_h, frame_h, base_scale, draw_gain))
+                            clip_h, frame_h, base_y, draw_gain))
 
 
 def feasibility_from_measurements(measurements: dict,
