@@ -451,8 +451,11 @@ def test_resolve_timeline_frame_rate_must_match_the_manifest_grid():
     assert "requested 30 fps" in refusal
     assert "read back '24'" in refusal
     assert "different frame grid" in refusal
-    # A refused write refuses even when the read-back happens to match.
-    assert "Resolve refused" in timeline_frame_rate_refusal(False, "30", 30)
+    # A False return with a matching read-back is an applied write, not a
+    # refusal: measured 2026-10-15, per-timeline 29.97 read back 29.97
+    # after SetSetting returned False. The grid is the evidence.
+    assert timeline_frame_rate_refusal(False, "30", 30) == ""
+    assert "Resolve refused" in timeline_frame_rate_refusal(False, "24", 30)
 
 
 def test_24fps_project_with_existing_timelines_refuses_a_30fps_build():

@@ -124,19 +124,18 @@ Both dialogue repeats rendered on Resolve at 1080p24 review grade
 (0.1% conform from 23.976, UHD downscale; program_channel 1
 operator-declared after per-channel measurement showed MXF CH0
 dominant at -29.5 dB against -69.3/-35.0/-37.1 dB). Both visual
-repeats rendered with ffmpeg at native 29.97 cadence. All four
-renders pass `verify_render` on every check except delivery loudness,
-which is an unaltered source property (-26.2/-22.1 LUFS dialogue,
--21.7/-30.0 LUFS visual, against the -14 target).
+repeats rendered on Resolve at native 29.97 cadence in a second
+scratch project. All four renders pass `verify_render` on every check
+except delivery loudness, which is an unaltered source property
+(-26.2/-22.1 LUFS dialogue, -21.7/-29.9 LUFS visual, against the -14
+target).
 
-The missing call, exactly: no sanctioned entry point sets a scratch
-project's frame rate or resolution. `project scratch create` takes no
-rate parameters, `project set` cannot run while any broker serves,
-recorded-run `SetSetting` is refused by Resolve itself once timelines
-exist, and `build_timeline` refuses rate/resolution changes on any
-project holding the creation-time Empty timeline. Visual Resolve
-placement at native cadence waits on that call; until then visual
-review renders ship via ffmpeg and say so.
+Rate note: `project scratch create` now takes `--fps/--width/--height`
+(PR 2531), and the build's per-timeline rate refusal now judges by the
+read-back rather than the return code - Resolve's timeline `SetSetting`
+returns False on an applied 29.97 rate (measured 2026-10-15), so a
+refused write refuses only when the grid disagrees too
+(`timeline_frame_rate_refusal`, with unit cover).
 
 ## In-flight evaluator dependencies
 
@@ -155,8 +154,7 @@ Blinded human reference edits and gold cut-range freezes for both
 briefs (a human editor's work, not a model pass - the exact ask is on
 the task status); held-out repeat coverage for the visual task (all 001
 takes share one calibration leakage group, so the visual held-out
-repeat needs a corpus split decision); native-cadence Resolve
-placement for the visual repeats (the missing rate call above); heavy
+repeat needs a corpus split decision); heavy
 evidence acquisition under `heavy_work_lock` with the narrowest
 matching profile from `resource_scheduler.profiles()` (word-level
 speech would unblock the dialogue graph).

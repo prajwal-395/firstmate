@@ -728,7 +728,14 @@ def timeline_frame_rate_refusal(set_result, rate_readback,
         requested_fps = float(requested_fps)
     except (TypeError, ValueError, OverflowError):
         return f"Manifest timeline frame rate is unreadable ({requested_fps!r})"
-    if set_result is False:
+    # The read-back is the evidence and it decides: Resolve's timeline
+    # SetSetting returns False on an applied rate (measured 2026-10-15 -
+    # per-timeline 29.97 read back 29.97 after a False return), so a
+    # refused write refuses only when the grid disagrees too.
+    if set_result is False and not (
+            math.isfinite(actual_fps) and math.isfinite(requested_fps)
+            and actual_fps > 0 and requested_fps > 0
+            and abs(actual_fps - requested_fps) <= 0.0001):
         return (f"Resolve refused the timeline frame-rate setting for "
                 f"{requested_fps:g} fps (read back {rate_readback!r})")
     if (not math.isfinite(actual_fps) or not math.isfinite(requested_fps)
