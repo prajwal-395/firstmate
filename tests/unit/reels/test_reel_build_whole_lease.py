@@ -75,8 +75,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from library.tools import resolve_lock
 from library.tools import reel_build as rb
+from library.tools import resolve_lock
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -611,7 +611,7 @@ def test_graphics_prepare_runs_without_resolve_lease(
     graphics_marker = tmp_path / "graphics-reader.json"
     place_marker = tmp_path / "placement-reader.json"
 
-    reader_script = textwrap.dedent(f"""        import json, os, sys, time
+    reader_script = textwrap.dedent("""        import json, os, sys, time
         from pathlib import Path
         from contextlib import contextmanager
         from library.tools import resolve_lock
@@ -622,10 +622,10 @@ def test_graphics_prepare_runs_without_resolve_lease(
             yield None
         resolve_lock._broker_turn = no_broker
         marker = Path(sys.argv[1])
-        marker.write_text(json.dumps({{"state": "attempting"}}), encoding="utf-8")
+        marker.write_text(json.dumps({"state": "attempting"}), encoding="utf-8")
         with resolve_lock.resolve_lease(
                 "acceptance shared reader", exclusive=False):
-            marker.write_text(json.dumps({{"state": "acquired"}}), encoding="utf-8")
+            marker.write_text(json.dumps({"state": "acquired"}), encoding="utf-8")
     """)
 
     def blocked_graphics_renderer():
@@ -817,6 +817,14 @@ _RUN_WORKER = textwrap.dedent("""
         with open(log_path, "a", encoding="utf-8") as handle:
             handle.write("%.3f %s %s\\n" % (time.time(), role, event))
 
+    def has_event(expected):
+        try:
+            with open(log_path, encoding="utf-8") as handle:
+                return any(line.rstrip().endswith(" " + expected)
+                           for line in handle)
+        except FileNotFoundError:
+            return False
+
     def read_state():
         with open(state_path, encoding="utf-8") as handle:
             return json.load(handle)
@@ -836,6 +844,7 @@ _RUN_WORKER = textwrap.dedent("""
         # The smoke's own lease, verbatim in shape: a timeline-scoped
         # exclusive grant that duplicates the master, moves the cursor
         # onto the copy and deletes it again.
+        log("write-attempt")
         with resolve_lock.resolve_lease(
                 "master caption live smoke", capability="render.build",
                 phase="apply", project="Mock Project", timeline=MASTER):
@@ -862,14 +871,26 @@ _RUN_WORKER = textwrap.dedent("""
             state["timelines"].append(STAGING)
             state["current"] = STAGING
             write_state(state)
-            time.sleep(0.5)
+            # Hold placement open until the other process is ready to
+            # contend. Otherwise a loaded machine can schedule this
+            # process through the short hold before the smoke starts.
+            deadline = time.time() + 10
+            while not has_event("write-attempt"):
+                if time.time() >= deadline:
+                    raise RuntimeError("smoke never attempted its lease")
+                time.sleep(0.01)
         body()
         return {}
 
     def ask(project_folder, **_):
         # The real ask derives for seconds before its read (2.8s
-        # measured), holding nothing.
-        time.sleep(1.0)
+        # measured), holding nothing. Wait for the queued writer to finish
+        # so the test always observes its write in the build/verify gap.
+        deadline = time.time() + 10
+        while not has_event("write-end"):
+            if time.time() >= deadline:
+                raise RuntimeError("smoke did not finish its write")
+            time.sleep(0.01)
         with resolve_lock.resolve_lease(
                 "read master timeline for reel asks", exclusive=False):
             read_state()
