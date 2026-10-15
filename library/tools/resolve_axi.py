@@ -5905,7 +5905,11 @@ def cmd_project_scratch(args) -> int:
             if manager is None:
                 raise AxiError("Resolve returned no live Project Manager")
             if args.scratch_command == "create":
-                result = scratch.create(resolve, manager, args.name)
+                result = scratch.create(
+                    resolve, manager, args.name,
+                    fps=getattr(args, "fps", None),
+                    width=getattr(args, "width", None),
+                    height=getattr(args, "height", None))
             elif args.scratch_command == "import":
                 result = scratch.import_project(resolve, manager,
                                                 args.drp, args.name)
@@ -8246,6 +8250,15 @@ def build_parser() -> Parser:
     ss = q.add_subparsers(dest="scratch_command", required=True)
     sq = ss.add_parser("create", help="create a named scratch project with one empty current timeline")
     sq.add_argument("name", help="project name beginning with 'Ren Scratch - '")
+    sq.add_argument("--fps", default=None,
+                    help="timeline frame rate set at creation before any timeline "
+                         "exists, e.g. 23.976 or 29.97 (default: Resolve default)")
+    sq.add_argument("--width", default=None,
+                    help="timeline resolution width, with --height "
+                         "(default: Resolve default)")
+    sq.add_argument("--height", default=None,
+                    help="timeline resolution height, with --width "
+                         "(default: Resolve default)")
     sq.add_argument("--apply", action="store_true", help="perform the create and restore the starting project")
     sq.set_defaults(func=cmd_project_scratch)
     sq = ss.add_parser("import", help="import a .drp into a new scratch project")

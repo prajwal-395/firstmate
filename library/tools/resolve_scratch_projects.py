@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 
@@ -150,8 +151,125 @@ def _listed(manager, name: str) -> bool:
     return name in (manager.GetProjectListInCurrentFolder() or [])
 
 
-def create(resolve, manager, name: str) -> dict:
+def _parse_fps(fps) -> float | None:
+    """Validate an optional frame-rate request; None means leave the default."""
+    if fps is None or (isinstance(fps, str) and not fps.strip()):
+        return None
+    try:
+        value = float(str(fps).strip())
+    except (TypeError, ValueError) as exc:
+        raise ScratchProjectError(
+            f"scratch frame rate must be a number like 23.976, got {fps!r}") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ScratchProjectError(
+            f"scratch frame rate must be a positive number, got {fps!r}")
+    return value
+
+
+def _parse_shape(width, height) -> tuple[int, int] | None:
+    """Validate an optional resolution request; both or neither, positive ints."""
+    missing = [label for label, value in (("width", width), ("height", height))
+               if value is None or (isinstance(value, str) and not str(value).strip())]
+    if len(missing) == 2:
+        return None
+    if len(missing) == 1:
+        raise ScratchProjectError(
+            f"scratch resolution needs both width and height, missing {missing[0]}")
+    try:
+        parsed = (float(str(width).strip()), float(str(height).strip()))
+    except (TypeError, ValueError) as exc:
+        raise ScratchProjectError(
+            f"scratch resolution must be positive integers, "
+            f"got {width!r}x{height!r}") from exc
+    if (any(not math.isfinite(value) for value in parsed)
+            or any(value != int(value) for value in parsed)
+            or any(value <= 0 for value in parsed)):
+        raise ScratchProjectError(
+            f"scratch resolution must be positive integers, "
+            f"got {width!r}x{height!r}")
+    return (int(parsed[0]), int(parsed[1]))
+
+
+def _write_project_setting(project, key: str, value: str) -> bool:
+    """Write one project setting, preferring the plural API Resolve 21 offers."""
+    try:
+        return bool(project.SetSettings({key: value}))
+    except AttributeError:
+        return bool(project.SetSetting(key, value))
+
+
+def _apply_project_shape(project, name: str, fps: float | None,
+                         shape: tuple[int, int] | None) -> dict:
+    """Set frame rate / resolution on a timeline-less project, verified by read-back.
+
+    Runs between `CreateProject` and the first `CreateEmptyTimeline`: changing
+    either setting once a timeline exists deadlocks Resolve, so a non-empty
+    project refuses here instead of writing.
+    """
+    try:
+        timeline_count = int(project.GetTimelineCount() or 0)
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        raise ScratchProjectError(
+            f"cannot set the shape of {name!r}: Resolve did not return "
+            f"a readable timeline count ({exc})") from exc
+    if timeline_count:
+        raise ScratchProjectError(
+            f"cannot set the shape of {name!r}: it already holds "
+            f"{timeline_count} timeline(s), and changing the project frame "
+            "rate or resolution under existing timelines deadlocks Resolve")
+    pending: dict[str, str] = {}
+    if fps is not None:
+        pending["timelineFrameRate"] = (
+            str(int(fps)) if float(fps).is_integer() else str(fps))
+    if shape is not None:
+        pending["timelineResolutionWidth"] = str(shape[0])
+        pending["timelineResolutionHeight"] = str(shape[1])
+    for key, value in pending.items():
+        try:
+            wrote = _write_project_setting(project, key, value)
+            back = project.GetSetting(key)
+        except Exception as exc:
+            raise ScratchProjectError(
+                f"cannot set {key}={value} on {name!r} ({exc}); "
+                "verify by hand") from exc
+        try:
+            actual = float(back)
+            wanted = float(value)
+        except (TypeError, ValueError):
+            actual, wanted = back, value
+        matches = (abs(actual - wanted) <= 0.0001
+                   if isinstance(actual, float) and isinstance(wanted, float)
+                   else actual == wanted)
+        if not wrote or not matches:
+            raise ScratchProjectError(
+                f"Resolve refused {key}={value} on {name!r}: "
+                f"write returned {wrote!r}, read back {back!r}")
+    return pending
+
+
+def _read_project_shape(project) -> dict:
+    """Read back the project frame rate and resolution; None where unreadable."""
+    try:
+        fps = float(project.GetSetting("timelineFrameRate"))
+        fps = fps if math.isfinite(fps) else None
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        fps = None
+    shape = []
+    for key in ("timelineResolutionWidth", "timelineResolutionHeight"):
+        try:
+            value = float(project.GetSetting(key))
+            shape.append(int(value) if math.isfinite(value) and value.is_integer() else None)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            shape.append(None)
+    return {"fps": fps,
+            "resolution": (f"{shape[0]}x{shape[1]}"
+                           if all(value is not None for value in shape) else None)}
+
+
+def create(resolve, manager, name: str, fps=None, width=None, height=None) -> dict:
     name = _name(name)
+    fps_value = _parse_fps(fps)
+    shape = _parse_shape(width, height)
     if _listed(manager, name):
         raise ScratchProjectError(f"project {name!r} already exists in the current folder")
     with _preserve_origin(resolve, manager) as state:
@@ -159,6 +277,9 @@ def create(resolve, manager, name: str) -> dict:
         _settle_after_lifecycle_call()
         if not created or created.GetName() != name:
             raise ScratchProjectError(f"Resolve did not create scratch project {name!r}")
+        requested: dict = {}
+        if fps_value is not None or shape is not None:
+            requested = _apply_project_shape(created, name, fps_value, shape)
         pool = created.GetMediaPool()
         timeline = pool.CreateEmptyTimeline(f"{name} - Empty")
         if not timeline:
@@ -174,6 +295,8 @@ def create(resolve, manager, name: str) -> dict:
             raise ScratchProjectError(f"empty timeline did not read back in {name!r}")
         return {"project": name, "timeline": current_timeline.GetName(),
                 "timeline_count": 1,
+                **({"requested": requested} if requested else {}),
+                **_read_project_shape(readback),
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
                              "page": state["page"], "verified": True}}

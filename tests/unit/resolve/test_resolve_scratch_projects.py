@@ -34,6 +34,19 @@ class Project:
         self.name = name
         self.timelines = list(timelines)
         self.current = self.timelines[0] if self.timelines else None
+        self.settings = {}
+
+    def GetSetting(self, key):
+        return self.settings.get(key, "")
+
+    def SetSetting(self, key, value):
+        self.settings[key] = str(value)
+        return True
+
+    def SetSettings(self, values):
+        for key, value in values.items():
+            self.settings[key] = str(value)
+        return True
 
     def GetName(self):
         return self.name
@@ -203,6 +216,88 @@ def test_name_and_unsavable_state_fail_closed(monkeypatch):
     assert "Ren Scratch - unsavable" not in manager.projects
 
 
+def test_create_with_fps_sets_before_first_timeline_and_reads_back(monkeypatch):
+    resolve, manager = prepare(monkeypatch, captain())
+    result = scratch.create(resolve, manager, "Ren Scratch - fps", fps="23.976")
+    created = manager.projects[result["project"]]
+    assert created.settings["timelineFrameRate"] == "23.976"
+    assert result["requested"] == {"timelineFrameRate": "23.976"}
+    assert result["fps"] == pytest.approx(23.976)
+    assert created.GetTimelineCount() == 1
+
+
+def test_create_with_resolution_sets_width_and_height(monkeypatch):
+    resolve, manager = prepare(monkeypatch, captain())
+    result = scratch.create(
+        resolve, manager, "Ren Scratch - shape", fps="29.97",
+        width="1920", height="1080")
+    created = manager.projects[result["project"]]
+    assert created.settings["timelineResolutionWidth"] == "1920"
+    assert created.settings["timelineResolutionHeight"] == "1080"
+    assert result["resolution"] == "1920x1080"
+    assert result["fps"] == pytest.approx(29.97)
+
+
+def test_create_without_shape_leaves_resolve_default(monkeypatch):
+    resolve, manager = prepare(monkeypatch, captain())
+    result = scratch.create(resolve, manager, "Ren Scratch - default")
+    created = manager.projects[result["project"]]
+    assert created.settings == {}
+    assert "requested" not in result
+    assert result["fps"] is None
+    assert result["resolution"] is None
+
+
+def test_create_refuses_bad_shape_before_touching_resolve(monkeypatch):
+    resolve, manager = prepare(monkeypatch, captain())
+    for kwargs in ({"fps": "not-a-rate"}, {"fps": "0"}, {"fps": "-29.97"},
+                   {"width": "1920"}, {"height": "1080"},
+                   {"width": "0", "height": "1080"}):
+        with pytest.raises(scratch.ScratchProjectError):
+            scratch.create(resolve, manager, "Ren Scratch - bad-shape", **kwargs)
+    assert "Ren Scratch - bad-shape" not in manager.projects
+
+
+def test_create_refuses_when_rate_does_not_read_back(monkeypatch):
+    resolve, manager = prepare(monkeypatch, captain())
+    original = Manager.CreateProject
+
+    def lying_create(self, name):
+        project = original(self, name)
+        project.SetSetting = lambda key, value: True  # noqa: ARG005 - claims the write, stores nothing
+        project.SetSettings = lambda values: True  # noqa: ARG005
+        return project
+
+    monkeypatch.setattr(Manager, "CreateProject", lying_create)
+    with pytest.raises(scratch.ScratchProjectError, match="refused"):
+        scratch.create(resolve, manager, "Ren Scratch - lying", fps="29.97")
+
+
+def test_apply_shape_refuses_a_project_that_already_has_timelines():
+    project = Project("Ren Scratch - lived-in", [Timeline("T", "t")])
+    with pytest.raises(scratch.ScratchProjectError, match="deadlocks"):
+        scratch._apply_project_shape(project, project.name, 29.97, None)
+
+
+def test_cli_forwards_fps_and_resolution_to_create(monkeypatch, capsys):
+    seen = {}
+
+    def fake_create(resolve, manager, name, fps=None, width=None, height=None):
+        seen.update(name=name, fps=fps, width=width, height=height)
+        return {"project": name, "verified": True}
+
+    monkeypatch.setattr(scratch, "create", fake_create)
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: nullcontext())
+    monkeypatch.setattr(resolve_axi, "_connect", lambda: captain())
+    args = SimpleNamespace(scratch_command="create", apply=True,
+                           name="Ren Scratch - cli-shape",
+                           fps="29.97", width="1920", height="1080")
+    assert resolve_axi.cmd_project_scratch(args) == 0
+    assert seen == {"name": "Ren Scratch - cli-shape", "fps": "29.97",
+                    "width": "1920", "height": "1080"}
+
+
 def test_create_saves_the_origin_before_switching(monkeypatch):
     resolve, manager = prepare(monkeypatch, captain())
     scratch.create(resolve, manager, "Ren Scratch - save-test")
@@ -230,7 +325,8 @@ def test_cli_takes_exclusive_lease_before_connecting(monkeypatch, capsys):
                         lambda: (events.append(("connect",)) or captain()))
     monkeypatch.setattr(
         scratch, "create",
-        lambda resolve, manager, name: {"project": name, "verified": True})
+        lambda resolve, manager, name, fps=None, width=None, height=None: {
+            "project": name, "verified": True})
     args = SimpleNamespace(scratch_command="create", apply=True,
                            name="Ren Scratch - cli-test")
     assert resolve_axi.cmd_project_scratch(args) == 0
