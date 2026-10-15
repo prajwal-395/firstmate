@@ -249,6 +249,12 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
 
     vision = load_step_module("step_1_03_semantic_analysis", "step.py")
     monkeypatch.setattr(vision, "_analyse_missing", analyse)
+    # CAP-03: the step is a thin adapter over library/capabilities, so
+    # the seam must also reach the capability module whose globals the
+    # moved analyse_semantics actually reads; patching the adapter alone
+    # lets the real vision child run against a StringIO stderr.
+    from library.capabilities.semantics import analyse as semantic_cap
+    monkeypatch.setattr(semantic_cap, "_analyse_missing", analyse)
 
     temporal = load_step_module("step_1_04_temporal_index", "step.py")
 
