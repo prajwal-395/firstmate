@@ -84,3 +84,45 @@ def test_held_out_metrics_filter_other_assets_from_recall_and_abstention():
     assert held["per_query"]["V"]["returned"] == 1
     assert "test_category" in result["visual_benchmark"]["category_failures"]
 
+
+def test_retrieval_diagnostics_separate_sampling_ranking_and_interval_misses(tmp_path):
+    class Index:
+        frames: ClassVar[list] = [{"clip_id": "held", "t": 10.0},
+                                  {"clip_id": "held", "t": 50.0}]
+        payload: ClassVar[dict] = {"frame_count": 2, "step_s": 10}
+
+        def __init__(self, index_dir):
+            self.index_dir = index_dir
+
+    class Corpus:
+        name_of_clip: ClassVar[dict] = {"held": "camera_a"}
+
+    eval_set = {
+        "held_out_assets": ["camera_a"],
+        "scoring": {"visual": {"frame_pad_seconds": 1, "top_k": 1}},
+        "queries": [
+            {"id": "sampling", "family": "visual", "query": "person wearing glasses",
+             "category": "person_and_appearance", "positive_frames": {"camera_a": [20]}},
+            {"id": "ranking", "family": "visual", "query": "a blue laptop",
+             "category": "object", "positive_frames": {"camera_a": [10]}},
+            {"id": "interval", "family": "visual", "query": "wide composition",
+             "category": "composition", "positive_frames": {"camera_a": [10]}},
+        ],
+    }
+    result = {"results": [
+        {"id": "sampling", "family": "visual", "kind": "present", "recall": 0,
+         "precision": 0, "returned": 0, "rows": [], "candidate_frames": []},
+        {"id": "ranking", "family": "visual", "kind": "present", "recall": 0,
+         "precision": 0, "returned": 0, "rows": [], "candidate_frames": []},
+        {"id": "interval", "family": "visual", "kind": "present", "recall": 0,
+         "precision": 0, "returned": 0, "rows": [],
+         "candidate_frames": [{"asset": "camera_a", "time": 10, "score": .9}]},
+    ]}
+    enrich_visual_result(eval_set, result, frame_index=Index(tmp_path), corpus=Corpus())
+    diagnostic = result["visual_benchmark"]["retrieval_diagnostics"]
+    assert diagnostic["per_query"]["sampling"]["stage"] == "sampling_coverage"
+    assert diagnostic["per_query"]["ranking"]["stage"] == "frame_ranking_or_candidate_pool"
+    assert diagnostic["per_query"]["interval"]["stage"] == "interval_ranking_or_merging"
+    assert diagnostic["by_category"]["people"]["queries"] == 1
+    assert diagnostic["by_category"]["appearance"]["queries"] == 2
+

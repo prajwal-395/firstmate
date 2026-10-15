@@ -195,6 +195,13 @@ def score_visual(query: dict, report: dict, corpus: Corpus, rules: dict) -> dict
                      "hit": in_pos, "ambiguous": in_amb})
     refused = report.get("refused")
     out["refused"] = bool(refused)
+    # Keep the actual frame candidate pool so the benchmark can distinguish
+    # missing temporal coverage from ranking/interval selection misses.
+    out["candidate_frames"] = [
+        {"asset": corpus.name_of_clip.get(frame["clip_id"]),
+         "time": frame["t"], "score": frame["score"]}
+        for frame in frames
+    ]
     if positive:
         judged = [r for r in rows if not r["ambiguous"]]
         touched = sum(1 for name, spans in positive.items() for span in spans

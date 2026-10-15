@@ -49,7 +49,7 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _visual_categories(query: dict) -> list[str]:
-    """Use declared labels and query text only; no held-out tuning."""
+    """Keep the source evaluation's category labels intact."""
     if query.get("category"):
         return [query["category"]]
     q = query["query"].lower()
@@ -60,9 +60,118 @@ def _visual_categories(query: dict) -> list[str]:
         categories.append("person_or_action")
     if any(term in q for term in ("street", "floor", "table", "frame")):
         categories.append("scene_or_composition")
-    if not categories:
-        categories.append("other")
-    return categories
+    return categories or ["other"]
+
+
+def _diagnostic_categories(query: dict) -> list[str]:
+    """Map annotations and query wording to the stable diagnostic taxonomy."""
+    if query.get("category"):
+        label = query["category"].lower()
+        q = query["query"].lower()
+    else:
+        label = ""
+        q = query["query"].lower()
+    text = f"{label} {q}"
+    categories = []
+    if any(term in text for term in ("object", "laptop", "screen", "whiteboard", "cup", "dog")):
+        categories.append("objects")
+    if any(term in text for term in ("person", "man ", "woman", "speaker", "face", "chin")):
+        categories.append("people")
+    if any(term in text for term in ("composition", "framing", "frame", "edge", "seated", "studio", "scene")):
+        categories.append("composition")
+    if any(term in text for term in ("action", "gesture", "gestur", "drink", "walking", "event")):
+        categories.append("actions")
+    if any(term in text for term in ("wearing", "blue", "dark", "appearance", "color", "glasses")):
+        categories.append("appearance")
+    if any(term in text for term in ("temporal", "during", "before", "after", "when", "throughout")):
+        categories.append("temporal_events")
+    return categories or ["other"]
+
+
+def _retrieval_diagnostics(eval_set: dict, rows: list[dict], frame_index,
+                           corpus,
+                           *, held_out_assets: set[str], frame_pad_seconds: float,
+                           top_k: int) -> dict:
+    """Attribute each present-query miss to observable retrieval stages.
+
+    Sampling coverage uses the frozen index; candidate coverage uses the
+    recorded top frame pool; interval coverage uses the final scored ranges.
+    This is diagnostic only and never changes ranking or thresholds.
+    """
+    from library.tools.analysis.footage_frames import MERGE_GAP_S
+    from library.tools.retrieval_eval import _frame_spans, overlaps
+
+    queries = {q["id"]: q for q in eval_set["queries"] if q["family"] == "visual"}
+    by_query = {row["id"]: row for row in rows}
+    frame_rows = frame_index.frames if frame_index is not None else []
+    per_query = {}
+    for query_id, scored in by_query.items():
+        query = queries[query_id]
+        if scored.get("kind") != "present":
+            continue
+        labels = query.get("positive_frames", {})
+        if held_out_assets:
+            labels = {asset: times for asset, times in labels.items() if asset in held_out_assets}
+        positives = _frame_spans(labels, frame_pad_seconds)
+        sampled = [{"asset": corpus.name_of_clip.get(frame["clip_id"]),
+                    "time": float(frame["t"])}
+                   for frame in frame_rows
+                   for asset, spans in positives.items()
+                   if (not held_out_assets or asset in held_out_assets)
+                   and corpus.name_of_clip.get(frame["clip_id"]) == asset
+                   and any(start <= float(frame["t"]) <= end for start, end in spans)]
+        candidates = [frame for frame in scored.get("candidate_frames", [])
+                      if frame.get("asset") in positives and any(
+                          start <= float(frame["time"]) <= end
+                          for start, end in positives[frame["asset"]])]
+        intervals = [rng for rng in scored.get("rows", []) if any(
+            rng.get("asset") == asset and overlaps((rng["start"], rng["end"]), span)
+            for asset, spans in positives.items() for span in spans)]
+
+        if frame_index is None:
+            stage = "sampling_coverage_unavailable"
+        elif not sampled:
+            stage = "sampling_coverage"
+        elif not candidates:
+            stage = "frame_ranking_or_candidate_pool"
+        elif not intervals:
+            stage = "interval_ranking_or_merging"
+        else:
+            stage = "retrieved"
+        per_query[query_id] = {
+            "categories": _diagnostic_categories(query),
+            "stage": stage,
+            "positive_spans": sum(len(spans) for spans in positives.values()),
+            "indexed_frames_in_positive_spans": len(sampled),
+            "positive_frames_in_candidate_pool": len(candidates),
+            "positive_returned_intervals": len(intervals),
+            "candidate_pool_size": len(scored.get("candidate_frames", [])),
+            "returned_interval_count": scored.get("returned", 0),
+            "merge_gap_seconds": MERGE_GAP_S,
+            "top_interval_limit": top_k,
+        }
+    by_category = {}
+    for query_id, diagnostic in per_query.items():
+        for category in diagnostic["categories"]:
+            group = by_category.setdefault(category, {"queries": 0, "misses_by_stage": {}})
+            group["queries"] += 1
+            if diagnostic["stage"] != "retrieved":
+                stages = group["misses_by_stage"]
+                stages[diagnostic["stage"]] = stages.get(diagnostic["stage"], 0) + 1
+    return {
+        "method": "frozen-index coverage -> recorded frame candidate pool -> scored merged intervals",
+        "per_query": per_query,
+        "by_category": by_category,
+        "interpretation": "A miss after sampled coverage but before candidate coverage is a ranking/pool miss. A positive candidate absent from final intervals is an interval ranking/merging miss; this report does not claim a causal distinction between those two without alternate merge replay.",
+        "unmeasured_experiments": [
+            "alternate temporal sampling densities and their decode/index cost",
+            "multiscale visual embeddings and their index/memory cost",
+            "hybrid lexical, semantic, and structured evidence",
+            "calibration-only candidate-pool-size comparison",
+            "object/person measurement reranking",
+        ],
+        "cost_coverage": "Query latency, process peak RSS, sampling step, frame count, and index bytes are measured when available. Decode and index build wall time are not retained by the current index artifact and therefore remain unmeasured.",
+    }
 
 
 def _random_ranking_metrics(eval_set: dict, frame_index, corpus, rules: dict,
@@ -227,6 +336,11 @@ def enrich_visual_result(eval_set: dict, result: dict, *, floor: float | None = 
                                            (r.get("recall") or 0) < 1.0]}
             for category, items in sorted(categories.items())
         },
+        "retrieval_diagnostics": _retrieval_diagnostics(
+            eval_set, rows, frame_index, corpus, held_out_assets=held_out_assets,
+            frame_pad_seconds=eval_set.get("scoring", {}).get("visual", {}).get(
+                "frame_pad_seconds", 5.0),
+            top_k=eval_set.get("scoring", {}).get("visual", {}).get("top_k", 5)),
         "baseline": _random_ranking_metrics(eval_set, frame_index, corpus, rules)
                     if frame_index is not None and corpus is not None and rules is not None
                     else {"name": "uniform random frame ranking", "status": "not measured"},
@@ -239,10 +353,14 @@ def enrich_visual_result(eval_set: dict, result: dict, *, floor: float | None = 
         summary["index_provenance"] = {
             "built_at": frame_index.payload.get("built_at"),
             "frame_count": frame_index.payload["frame_count"],
+            "sampling_step_seconds": frame_index.payload.get("step_s"),
             "clip_model": frame_index.payload.get("clip_model"),
             "embed_backend": frame_index.payload.get("embed_backend"),
             "index_sha256": _file_sha256(frame_index.index_dir / FRAME_INDEX_FILE),
             "embeddings_sha256": _file_sha256(frame_index.index_dir / FRAME_EMBEDDINGS_FILE),
+            "index_bytes": sum(path.stat().st_size for path in frame_index.index_dir.iterdir()
+                                if path.is_file()),
+            "build_cost_status": "unavailable: current index artifact does not retain decode or build wall time",
         }
     if held_out_assets:
         held_present = [r["held_out"] for r in rows
