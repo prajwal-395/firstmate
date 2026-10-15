@@ -17,9 +17,11 @@
 # and fetch failures. A project whose registry entry bin/fm-project-mode.sh
 # refuses is skipped too, naming that command so its refusal is readable, rather
 # than synced under a guessed posture.
-# A candidate under projects/ must be the root of its own work tree: git discovery
-# walks up, so a plain nested directory would otherwise resolve to the enclosing
-# repository (the firstmate checkout) and be synced under that directory's label.
+# Symlinked clone entries are user-owned working copies and are skipped before
+# any git operation; a sync must never change their target.
+# Every other candidate under projects/ must be the root of its own work tree: git
+# discovery walks up, so a plain nested directory would otherwise resolve to the
+# enclosing repository (the firstmate checkout) and be synced under that label.
 # Anything else is reported as "skipped: not a clone root" naming the repository
 # that would have been touched.
 # Pruning never deletes the checked-out branch or a branch that still has a
