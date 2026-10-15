@@ -13,22 +13,46 @@ of all 24 sources passes under the command below.
 
 ## Split and access report
 
-The split unit is the measured synchronized-camera/session group, not an
-individual camera file. This keeps alternate views of the same recording out
-of different splits.
+The split unit is the measured synchronized-camera group for the podcast and
+the capture-scene group for Apple 001, not an individual camera file. Every
+take assigned to a scene stays in that scene's leakage group and split.
 
 | Split | Sources | Leakage groups | Included media |
 |---|---:|---:|---|
 | Training | 3 | 1 | LCATL0013, LC4932, LCATL0014 (podcast) |
-| Calibration | 19 | 2 | LCATL0012, LC4931 (podcast) + 17 Apple 001 takes |
-| Held out | 2 | 1 | LC4930, LCATL0011 (podcast) |
-| Total | 24 | 4 | 195.03 minutes |
+| Calibration | 11 | 3 | LCATL0012, LC4931 (podcast) + IMG_1806-IMG_1811 and IMG_1814-IMG_1816 |
+| Held out | 10 | 3 | LC4930, LCATL0011 (podcast) + IMG_1812-IMG_1813 and IMG_1817-IMG_1822 |
+| Total | 24 | 7 | 195.03 minutes |
 
 The seven podcast sources are interview footage with dialogue and multi-camera
 coverage. The seventeen Apple 001 takes are daylight outdoor walk-and-talk
-vlog: selfie walking, handheld and mounted takes across street, sidewalk,
-storefront, parking lot/garage and in-vehicle segments of one outing, kept in
-a single session leakage group inside calibration. The annotation schema covers
+vlog from one outing. For leakage control, their four capture-scene groups are
+IMG_1806-IMG_1811, IMG_1812-IMG_1813, IMG_1814-IMG_1816, and
+IMG_1817-IMG_1822. The first and third groups are calibration; the second and
+fourth are held out. This preserves both proposed EVAL-04 visual moments in
+held out: IMG_1812 (`visual_object`) and IMG_1818 (`visual_action`), while
+leaving nine varied takes in calibration.
+
+Scene boundaries were inferred only from numbered filenames, ffprobe capture
+times, and ffprobe durations/stream metadata. All 17 are sequentially named
+IMG_1806.MOV through IMG_1822.MOV; their capture times run from
+2026-03-25 23:39:42Z through 2026-03-26 00:08:27Z. In filename order, gaps
+from the prior clip end to the next capture are under 120 seconds except
+IMG_1811 to IMG_1812 (about 240 seconds) and IMG_1813 to IMG_1814 (about 265
+seconds). Those two breaks define the four groups above:
+
+| Scene group | Capture interval (UTC) | Combined duration | Split |
+|---|---|---:|---|
+| IMG_1806-IMG_1811 | 2026-03-25 23:39:42 to 23:43:11 | 106 s | Calibration |
+| IMG_1812-IMG_1813 | 2026-03-25 23:47:34 to 23:51:03 | 148 s | Held out |
+| IMG_1814-IMG_1816 | 2026-03-25 23:55:37 to 23:58:39 | 241 s | Calibration |
+| IMG_1817-IMG_1822 | 2026-03-26 00:02:13 to 00:08:27 | 312 s | Held out |
+
+The files report H.264
+1920x1080 video at approximately 29.97/30 fps with matching capture-time tags;
+their measured durations are retained per source in the JSON manifest. This is
+a metadata-based scene grouping, not a claim of newly assessed visual labels.
+The annotation schema covers
 scene, action, object, camera motion, speech, ambience/music, and provenance
 fields. Annotation entry has not begun; the manifest does not claim gold labels
 or model quality scores. Actions, objects, and camera motion remain unassessed

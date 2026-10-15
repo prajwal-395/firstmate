@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from library.tools import evidence_to_edit as runner
 from library.tools import editorial_task_benchmark as benchmark
+from library.tools import evidence_to_edit as runner
 
 
 def _moment(moment_id="m1", source_id="LCATL0012", start=10.0, end=20.0):
@@ -324,6 +324,7 @@ def test_frozen_brief_files_validate_and_fit_measured_durations():
 
     assert [brief["id"] for brief in briefs] == [
         "dialogue-multicam-cut", "visual-action-object-cut"]
+    assert briefs[1]["split"] == "held_out"
     assert runner.validate_briefs(briefs) == []
     assert [error for brief in briefs
             for error in runner.check_brief_windows(brief, durations)] == []

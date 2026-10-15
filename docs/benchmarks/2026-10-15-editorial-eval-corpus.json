@@ -5,10 +5,10 @@
   "rights_basis": "Captain policy adopted 2026-10-14: rights-cleared real footage from Ren existing projects, permitted for benchmarking and training.",
   "rights_reference": "captain policy, 2026-10-14 intelligence-efficiency architecture note",
   "source_scope": "Existing Ren project camera originals only: 7 GEO podcast MXF plus 17 Apple 001 iPhone takes; no downloads or generated media",
-  "split_unit": "leakage_group_id; synchronized cameras or takes from one session stay in one split (all 17 Apple 001 takes share one session group)",
+  "split_unit": "leakage_group_id; synchronized cameras and contiguous numbered takes within a capture scene stay together. For Apple 001, scene boundaries are the >120-second gaps from clip end to next ffprobe capture time.",
   "collections": {
    "geo-podcast": "Seven GEO podcast MXF camera originals (podcast media folder).",
-   "apple-001": "Seventeen iPhone takes IMG_1806-IMG_1822 from 001/raw (read-only; exports/ and pipeline_output/ excluded). Single outing session; one leakage group."
+   "apple-001": "Seventeen iPhone takes IMG_1806-IMG_1822 from 001/raw (read-only; exports/ and pipeline_output/ excluded). Four capture-scene groups based on numbered filenames and ffprobe capture-time gaps; scene groups remain intact within their assigned splits."
   },
   "hash_provenance": "sha256 is the full-file SHA-256 measured from read-only disk 2026-10-15 (podcast MXF) and at manifest build time (Apple 001). The FI-01 corpus manifest digest is a partial fingerprint (size plus first/last 1MB per footage_identity.fingerprint) and is not used here."
  },
@@ -313,7 +313,7 @@
    "duration_seconds": 3.5667,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -334,7 +334,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1807",
@@ -345,7 +346,7 @@
    "duration_seconds": 17.103333,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -366,7 +367,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1808",
@@ -377,7 +379,7 @@
    "duration_seconds": 27.7717,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -398,7 +400,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1809",
@@ -409,7 +412,7 @@
    "duration_seconds": 26.776667,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -430,7 +433,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1810",
@@ -441,7 +445,7 @@
    "duration_seconds": 7.903333,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -462,7 +466,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1811",
@@ -473,7 +478,7 @@
    "duration_seconds": 22.87,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "fef5d142a5ffcf2f8af3764ae0771a8e9cd21e3c0c7a39701c8c8982f897cde6",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -494,7 +499,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1806-1811"
   },
   {
    "source_id": "IMG_1812",
@@ -504,8 +510,8 @@
    "size_bytes": 278358717,
    "duration_seconds": 139.1317,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "db63ea9b52100d949583ff2a7471bf7de65c3016b2406447dc9d18d43f403a06",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -525,8 +531,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1812-1813"
   },
   {
    "source_id": "IMG_1813",
@@ -536,8 +543,8 @@
    "size_bytes": 18307687,
    "duration_seconds": 9.068333,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "db63ea9b52100d949583ff2a7471bf7de65c3016b2406447dc9d18d43f403a06",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -557,8 +564,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1812-1813"
   },
   {
    "source_id": "IMG_1814",
@@ -569,7 +577,7 @@
    "duration_seconds": 45.943333,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "27e942e70221c2f9a14012125075c88e53e71f38b125f5c9ecc1143857dee426",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -590,7 +598,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1814-1816"
   },
   {
    "source_id": "IMG_1815",
@@ -601,7 +610,7 @@
    "duration_seconds": 6.3,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "27e942e70221c2f9a14012125075c88e53e71f38b125f5c9ecc1143857dee426",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -622,7 +631,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1814-1816"
   },
   {
    "source_id": "IMG_1816",
@@ -633,7 +643,7 @@
    "duration_seconds": 188.578333,
    "genre": "vlog_walk_and_talk",
    "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "leakage_group_id": "27e942e70221c2f9a14012125075c88e53e71f38b125f5c9ecc1143857dee426",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -654,7 +664,8 @@
     "state": "not_started",
     "access": "not_created",
     "tuning_access": true
-   }
+   },
+   "scene_id": "apple-001-scene-1814-1816"
   },
   {
    "source_id": "IMG_1817",
@@ -664,8 +675,8 @@
    "size_bytes": 83151788,
    "duration_seconds": 41.51,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -685,8 +696,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   },
   {
    "source_id": "IMG_1818",
@@ -696,8 +708,8 @@
    "size_bytes": 171386022,
    "duration_seconds": 85.518333,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -717,8 +729,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   },
   {
    "source_id": "IMG_1819",
@@ -728,8 +741,8 @@
    "size_bytes": 9619425,
    "duration_seconds": 4.7,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -749,8 +762,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   },
   {
    "source_id": "IMG_1820",
@@ -760,8 +774,8 @@
    "size_bytes": 104957569,
    "duration_seconds": 52.545,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -781,8 +795,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   },
   {
    "source_id": "IMG_1821",
@@ -792,8 +807,8 @@
    "size_bytes": 84079385,
    "duration_seconds": 41.9417,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -813,8 +828,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   },
   {
    "source_id": "IMG_1822",
@@ -824,8 +840,8 @@
    "size_bytes": 171765203,
    "duration_seconds": 85.82,
    "genre": "vlog_walk_and_talk",
-   "split": "calibration",
-   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "split": "held_out",
+   "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630",
    "tasks": [
     "monologue",
     "outdoor_vlog"
@@ -845,8 +861,9 @@
     "schema": "editorial-evidence-v1",
     "state": "not_started",
     "access": "not_created",
-    "tuning_access": true
-   }
+    "tuning_access": false
+   },
+   "scene_id": "apple-001-scene-1817-1822"
   }
  ],
  "coverage": [

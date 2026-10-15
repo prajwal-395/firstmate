@@ -68,11 +68,15 @@ Run the first slice from the repository root:
 python3 -c "import json; d=json.load(open('docs/benchmarks/2026-10-15-editorial-eval-corpus.json')); json.dump({s['source_id']: s['duration_seconds'] for s in d['sources']}, open('/tmp/eval04/durations.json','w'), sort_keys=True)"
 bin/vep -m library.tools.evidence_to_edit \
   --brief docs/benchmarks/eval04-brief-dialogue-multicam.json \
-  --brief docs/benchmarks/eval04-brief-visual-action-object.json \
   --model /tmp/eval04/model.json --durations /tmp/eval04/durations.json \
   --split calibration --run-name run-a \
   --output-root /tmp/eval04 --out /tmp/eval04/result.json
 ```
+
+The dialogue brief uses calibration sources. The visual brief declares
+`split: "held_out"`; run it separately with `--split held_out` only for the
+future measured held-out repeat described below. This corpus change does not
+rerun or retune any pinned benchmark score.
 
 ## First-slice baseline (2026-10-15)
 
@@ -152,24 +156,29 @@ those in-flight scorers.
 
 Blinded human reference edits and gold cut-range freezes for both
 briefs (a human editor's work, not a model pass - the exact ask is on
-the task status); held-out repeat coverage for the visual task (all 001
-takes share one calibration leakage group, so the visual held-out
-repeat needs a corpus split decision); heavy
+the task status); one measured held-out visual repeat against the newly
+assigned 001 held-out scenes (IMG_1812-IMG_1813 and IMG_1817-IMG_1822); heavy
 evidence acquisition under `heavy_work_lock` with the narrowest
 matching profile from `resource_scheduler.profiles()` (word-level
 speech would unblock the dialogue graph).
 
 ## Current corpus limits
 
-The EVAL-01 manifest currently marks every Apple 001 take as calibration, and
-lists action and object annotation coverage as `not_assessed`. Podcast dialogue
+The EVAL-01 manifest now keeps nine Apple 001 takes across two capture-scene
+groups in calibration and assigns eight takes across two other scene groups to
+held out. The scene grouping is based on filename sequence and ffprobe capture
+times/durations: contiguous numbered takes remain together, with scene breaks
+at the two greater-than-120-second gaps between the end of one clip and the
+next capture. The held-out groups include both proposed EVAL-04 source moments:
+IMG_1812 for `visual_object` and IMG_1818 for `visual_action`. Calibration
+retains nine varied takes (about 5.8 minutes) and podcast calibration footage.
+Actions and object annotation coverage remain `not_assessed`. Podcast dialogue
 and multicamera coverage exist, but there is no blinded human reference edit or
 task-specific cut-range annotation in the EVAL-01 manifest. Therefore this
 document defines the approved two-brief scope and scoring contract, not gold
 labels or benchmark results. Those records must be produced and frozen before
-the acceptance check can pass. Held-out repeat work is limited to footage with
-a held-out split; changing the split or creating labels is corpus work, outside
-this benchmark change.
+the acceptance check can pass. The held-out repeat is follow-up work; this
+change makes no new score claim.
 
 Resolve timeline and render execution use resolve-axi under Ren's lease, on
 the task's own timeline in `Ren Qualification` unless the scratch-project verb

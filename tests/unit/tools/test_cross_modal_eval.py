@@ -201,8 +201,9 @@ def test_eval01_manifest_holds_out_the_baseline_slice():
         row["source_id"] for row in manifest["sources"] if row["split"] == "held_out"
     }
 
-    assert {"LC4930", "LCATL0011"} <= held_out
+    assert {"LC4930", "LCATL0011", "IMG_1812", "IMG_1818"} <= held_out
     check_corpus_manifest({"source_ids": ["LC4930", "LCATL0011"]}, manifest)
+    check_corpus_manifest({"source_ids": ["IMG_1812", "IMG_1818"]}, manifest)
 
 
 def test_labels_pending_scores_abstention_only_and_records_predictions():

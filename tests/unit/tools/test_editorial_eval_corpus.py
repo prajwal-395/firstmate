@@ -18,14 +18,23 @@ def test_editorial_corpus_has_disjoint_rights_cleared_splits_and_access_report()
     assert result["valid"], result["errors"]
     assert result["split_source_counts"] == {
         "training": 3,
-        "calibration": 19,
-        "held_out": 2,
+        "calibration": 11,
+        "held_out": 10,
     }
     assert report["source_count"] == 24
     assert report["duration_minutes"] == pytest.approx(195.03, abs=0.01)
     assert report["genre_counts"] == {"podcast_interview": 7, "vlog_walk_and_talk": 17}
     assert report["held_out_access"]["tuning_access"] is False
     assert report["held_out_access"]["label_payloads_in_repository"] is False
+    sources = {row["source_id"]: row for row in manifest["sources"]}
+    assert {source_id for source_id, row in sources.items()
+            if row.get("scene_id") and row["split"] == "held_out"} == {
+        *(f"IMG_{number}" for number in range(1812, 1814)),
+        *(f"IMG_{number}" for number in range(1817, 1823)),
+    }
+    assert sources["IMG_1812"]["scene_id"] == sources["IMG_1813"]["scene_id"]
+    assert sources["IMG_1817"]["scene_id"] == sources["IMG_1822"]["scene_id"]
+    assert sources["IMG_1812"]["leakage_group_id"] != sources["IMG_1817"]["leakage_group_id"]
     assert {
         row["task"] for row in report["coverage"] if row["status"] == "present"
     } >= {"non_podcast_scenes", "outdoor_vlog", "street"}
@@ -54,6 +63,7 @@ def test_source_hash_and_size_are_verified_against_explicit_root(tmp_path):
 @pytest.mark.parametrize("mutation,expected", [
     ("rights", "permitted_uses"),
     ("group", "crosses splits"),
+    ("scene", "scene scene-a crosses splits"),
     ("held_out_labels", "sealed from tuning"),
     ("unsafe_path", "must stay inside"),
 ])
@@ -74,6 +84,12 @@ def test_invalid_rights_split_or_access_state_is_refused(mutation, expected, tmp
         source = next(row for row in manifest["sources"]
                       if row["split"] == "held_out")
         source["annotation"].update(state="annotated", access="tuning_workspace")
+    elif mutation == "scene":
+        source["scene_id"] = "scene-a"
+        other = copy.deepcopy(source)
+        other.update(source_id="second", split="held_out")
+        other["annotation"].update(annotation_id="second:ann", tuning_access=False)
+        manifest["sources"].append(other)
     else:
         source["path"] = "../outside.mov"
         (tmp_path / "clip.mov").write_bytes(b"clip")

@@ -32,6 +32,7 @@ def validate(manifest: dict, source_root: Path | None = None,
 
     ids: set[str] = set()
     group_splits: dict[str, set[str]] = defaultdict(set)
+    scene_splits: dict[str, set[str]] = defaultdict(set)
     annotation_ids: set[str] = set()
     split_counts = {split: 0 for split in sorted(SPLITS)}
     for index, source in enumerate(sources):
@@ -50,6 +51,9 @@ def validate(manifest: dict, source_root: Path | None = None,
             errors.append(f"{label}: leakage_group_id is required")
         elif split in SPLITS:
             group_splits[group].add(split)
+        scene_id = source.get("scene_id")
+        if scene_id and split in SPLITS:
+            scene_splits[scene_id].add(split)
 
         digest = source.get("sha256", "")
         if not HASH_RE.fullmatch(digest):
@@ -104,6 +108,9 @@ def validate(manifest: dict, source_root: Path | None = None,
     for group, splits in sorted(group_splits.items()):
         if len(splits) > 1:
             errors.append(f"leakage group {group} crosses splits: {sorted(splits)}")
+    for scene_id, splits in sorted(scene_splits.items()):
+        if len(splits) > 1:
+            errors.append(f"scene {scene_id} crosses splits: {sorted(splits)}")
     if any(split_counts[split] == 0 for split in SPLITS):
         errors.append("training, calibration, and held_out must all contain sources")
     return {"valid": not errors, "errors": errors, "source_count": len(sources),
