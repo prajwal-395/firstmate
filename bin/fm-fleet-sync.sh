@@ -326,6 +326,10 @@ sync_project() {
   PROJ=$1
   label=$(project_label)
 
+  if [ -L "$PROJ" ]; then
+    echo "$label: skipped: symlinked clone is the captain's own working copy"
+    return 0
+  fi
   if [ ! -d "$PROJ" ]; then
     echo "$label: skipped: not a directory"
     return 0

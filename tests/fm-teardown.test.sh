@@ -200,12 +200,12 @@ SH
 
 # Write a meta file for the task. Args: case_dir mode kind
 write_meta() {
-  local case_dir=$1 mode=$2 kind=$3
+  local case_dir=$1 mode=$2 kind=$3 project=${4:-$1/project}
   fm_write_meta "$case_dir/state/task-x1.meta" \
     "window=firstmate:fm-task-x1" \
     "endpoint_task_id=task-x1" \
     "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
+    "project=$project" \
     "kind=$kind" \
     "mode=$mode" \
     "spawn_gen=teardown-test-task-x1"
@@ -944,6 +944,33 @@ test_squash_merged_branch_deleted_allows() {
   expect_code 0 "$rc" "squash-merged: teardown should succeed when the PR is merged"
   ! grep -q REFUSED "$case_dir/stderr" || fail "squash-merged: teardown printed a REFUSED line"
   pass "squash-merged + deleted-branch worktree (PR merged) is torn down (the fix)"
+}
+
+test_teardown_skips_symlinked_clone_owned_by_captain() {
+  local case_dir rc pr_head home projects
+  case_dir=$(make_case teardown-symlinked-clone)
+  home="$case_dir/home"
+  projects="$home/projects"
+  mkdir -p "$projects"
+  ln -s "$case_dir/project" "$projects/planning-compiler"
+  write_meta "$case_dir" no-mistakes ship "$projects/planning-compiler"
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  land_on_origin_main "$case_dir" feature.txt hello
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+
+  set +e
+  FM_HOME="$home" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "teardown-symlinked-clone: teardown should succeed"
+  grep -Fq "planning-compiler: skipped: symlinked clone is the captain's own working copy" "$case_dir/stdout" \
+    || fail "teardown-symlinked-clone: sync did not report that the symlinked clone was skipped: $(cat "$case_dir/stdout")"
+  [ "$(git -C "$case_dir/project" rev-parse main)" = "$(git -C "$case_dir/project" rev-parse origin/main)" ] \
+    || fail "teardown-symlinked-clone: the symlink target was refreshed"
+  pass "teardown skips a symlinked clone that is the captain's own working copy"
 }
 
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
@@ -4762,6 +4789,7 @@ test_teardown_retires_v1_journal_when_projected_workspace_gone
 test_teardown_retains_v1_journal_when_projected_workspace_present
 test_teardown_retains_v1_journal_when_workspace_query_ambiguous
 test_squash_merged_branch_deleted_allows
+test_teardown_skips_symlinked_clone_owned_by_captain
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows
 test_squash_merged_pr_allows_replayed_unpushed_patch
