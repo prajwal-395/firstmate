@@ -309,7 +309,7 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     root = Path(__file__).resolve().parents[3]
     source = (root / "native/resolve-activity-overlay/main.swift").read_text()
     assert ".nonactivatingPanel" in source
-    assert "panel?.order(.above, relativeTo:" in source
+    assert "panel.order(.above, relativeTo:" in source
     assert "override func hitTest(_ point: NSPoint)" in source
     assert "if shieldEnabled {" in source
     assert "return self" in source
@@ -318,8 +318,13 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     assert '"op": "status"' in source
     assert '"op": "cancel"' in source
     assert "Elapsed %02d:%02d" in source
-    assert "let panelFrame = shieldEnabled" in source
-    assert "takeoverJobID != activity.jobID" in source
+    assert "let panelFrame = shouldShield ? frame : compactFrame(in: frame)" in source
+    assert "verifyPanelVisible(target: target)" in source
+    assert "resolve-activity-overlay.log" in source
+    assert "CGPreflightListenEventAccess()" in source
+    assert "AXIsProcessTrusted()" in source
+    assert 'brokerRequest(["op": "handoff"])' in source
+    assert 'brokerRequest(["op": "return_to_ren"])' in source
     assert "takeOver()" in source
     assert "The lease file is the authority for an active exclusive holder." in source
     assert "transient socket/read failure must not make the shield exit" in source
@@ -333,10 +338,81 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     assert "frontmostApplication?.bundleIdentifier" in source
     assert 'brokerRequest(["op": "activity"])' in source
     assert "message = \"Read-only Ren job. Resolve input remains available.\"" in source
-    assert "screenTop - y - height" in source
+    assert "display.1.maxY - (y - display.2.minY) - height" in source
     broker_source = (root / "library/tools/resolved/server.py").read_text()
     assert "if self._running:" in broker_source
     assert "_start_activity_overlay()" in broker_source
+
+
+def test_takeover_fences_queue_until_explicit_return(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import cancellation
+    from library.tools.resolved.store import JobStore
+
+    monkeypatch.setattr(resolve_lock, "lock_dir", lambda: tmp_path)
+    monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda job_id: tmp_path / "cancel" / job_id)
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    job_id = "handoff-job"
+    store.insert({
+        "id": job_id, "kind": "resolve_axi", "priority": "mutation",
+        "mode": "exclusive", "executed": 1,
+        "params": {"argv": ["cursor"]}, "project": "", "timeline": "",
+        "qualification": 0, "coalesce_key": None,
+        "interrupt_policy": jobs.INTERRUPT_POLICIES["resolve_axi"],
+        "owner": "test", "state": "running", "submitted": 1.0,
+    })
+    broker = object.__new__(Broker)
+    broker.store = store
+    broker._cond = threading.Condition()
+    broker._queued = {}
+    broker._running = {job_id: SimpleNamespace(id=job_id, mode="exclusive")}
+    broker._coalesce = {}
+    try:
+        requested = broker.request_handoff()
+        assert requested["request_accepted"] == [job_id]
+        assert requested["waiting_for_completion"] == []
+        assert resolve_lock.read_handoff_fence() is not None
+        assert cancellation.requested(job_id)
+        assert broker.handoff_status()["ready"] is False
+
+        broker._running.clear()
+        store.update(job_id, state="cancelled", finished=2.0)
+        assert broker.handoff_status()["ready"] is True
+        assert broker.return_to_ren() == {
+            "returned": True, "fence_cleared": True}
+        assert resolve_lock.read_handoff_fence() is None
+    finally:
+        cancellation.clear(job_id)
+        store.close()
+
+
+def test_resolve_lease_refuses_reacquisition_while_handoff_fenced(
+        tmp_path, monkeypatch):
+    from library.tools import resolve_lock
+    from library.tools.resolved import cancellation
+
+    monkeypatch.setattr(resolve_lock, "lock_dir", lambda: tmp_path)
+    monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda job_id: tmp_path / "cancel" / job_id)
+    resolve_lock.create_handoff_fence("manual-work")
+    with pytest.raises(resolve_lock.ResolveBusy, match="fenced for human takeover"), \
+            resolve_lock.resolve_lease("test handoff", timeout=0.01):
+        pytest.fail("Resolve lease acquired while the handoff fence was set")
+    token = resolve_lock._activity_job_id.set("cancelled-waiter")
+    cancellation.request("cancelled-waiter")
+    try:
+        with pytest.raises(cancellation.CancelRequested), \
+                resolve_lock.resolve_lease("test handoff", timeout=1):
+            pytest.fail("cancelled broker work continued waiting on the fence")
+    finally:
+        resolve_lock._activity_job_id.reset(token)
+        cancellation.clear("cancelled-waiter")
 
 
 def test_activity_description_and_progress_survive_store_receipt(tmp_path):

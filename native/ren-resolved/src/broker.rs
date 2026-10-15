@@ -430,6 +430,50 @@ impl Broker {
         Ok(Some(job))
     }
 
+    /// Fence the scheduler before requesting safe stops from active jobs.
+    pub fn request_handoff(&self) -> Result<crate::protocol::HandoffReply, String> {
+        let (lock, _) = &*self.state;
+        let state = lock.lock().unwrap();
+        let job_ids: Vec<String> = state.running.keys().cloned().collect();
+        let fence =
+            crate::server::create_handoff_fence(job_ids.first().map(String::as_str).unwrap_or(""))?;
+        drop(state);
+
+        let mut request_accepted = Vec::new();
+        let mut waiting_for_completion = Vec::new();
+        for job_id in &job_ids {
+            if self
+                .store
+                .interrupt_policy(job_id)
+                .unwrap_or_default()
+                .is_empty()
+            {
+                waiting_for_completion.push(job_id.clone());
+            } else {
+                self.request_cancel(job_id)?;
+                request_accepted.push(job_id.clone());
+            }
+        }
+        Ok(crate::protocol::HandoffReply {
+            fence,
+            request_accepted,
+            waiting_for_completion,
+            job_ids,
+        })
+    }
+
+    /// Clear the durable fence only after the caller proves Resolve is idle.
+    pub fn return_to_ren(&self) -> Result<bool, String> {
+        let (lock, cond) = &*self.state;
+        let state = lock.lock().unwrap();
+        if !state.running.is_empty() {
+            return Err("Resolve still has active broker jobs".to_string());
+        }
+        let cleared = crate::server::clear_handoff_fence()?;
+        cond.notify_all();
+        Ok(cleared)
+    }
+
     /// End a grant (or cancel it, if it was never started).
     pub fn release(&self, job_id: &str, state: &str, error: &str) {
         let (lock, cond) = &*self.state;
@@ -543,6 +587,13 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
         let mut state = lock.lock().unwrap();
         if state.stopping {
             return;
+        }
+        if crate::server::handoff_fenced() {
+            let (state, _) = cond
+                .wait_timeout(state, std::time::Duration::from_millis(500))
+                .unwrap();
+            drop(state);
+            continue;
         }
         let now = crate::store::now();
         let running: Vec<Pending> = state.running.values().cloned().collect();

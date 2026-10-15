@@ -176,6 +176,7 @@ class CaptainPresent(ResolveBusy):
 LOCK_DIR_ENV = "PIPELINE_RESOLVE_LOCK_DIR"
 LOCK_FILENAME = "resolve_instance.lock"
 LEASE_FILENAME = "resolve_instance.lease.json"
+HANDOFF_FENCE_FILENAME = "resolve_handoff.fence"
 
 #: How long a waiter waits before naming the holder and giving up. A
 #: build's cursor sections are seconds; a whole reel build that takes
@@ -215,6 +216,51 @@ def lock_path() -> Path:
 
 def lease_path() -> Path:
     return lock_dir() / LEASE_FILENAME
+
+
+def handoff_fence_path() -> Path:
+    """Persistent gate that keeps Ren out after a human takes Resolve."""
+    return lock_dir() / HANDOFF_FENCE_FILENAME
+
+
+def read_handoff_fence() -> dict | None:
+    """Read the handoff declaration, failing closed on malformed state."""
+    path = handoff_fence_path()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return {"id": "unreadable", "error": "handoff fence is unreadable"}
+    return value if isinstance(value, dict) else {
+        "id": "unreadable", "error": "handoff fence is malformed"}
+
+
+def create_handoff_fence(job_id: str = "") -> dict:
+    """Persist a handoff before cancellation can release the active lease."""
+    import uuid
+
+    lock_dir().mkdir(parents=True, exist_ok=True)
+    existing = read_handoff_fence()
+    if existing is not None:
+        return existing
+    fence = {"id": uuid.uuid4().hex, "job_id": job_id,
+             "created": time.time(), "owner": default_owner()}
+    path = handoff_fence_path()
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(fence, sort_keys=True) + "\n",
+                         encoding="utf-8")
+    os.replace(temporary, path)
+    return fence
+
+
+def clear_handoff_fence() -> bool:
+    """Explicitly return the instance to Ren and wake local waiters."""
+    try:
+        handoff_fence_path().unlink()
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def default_timeout() -> float:
@@ -799,7 +845,22 @@ def resolve_lease(purpose: str, exclusive: bool = True,
             lock_dir().mkdir(parents=True, exist_ok=True)
             handle = open(lock_path(), "a+", encoding="utf-8")
             try:
-                while not _flock(handle, exclusive, blocking=False):
+                while True:
+                    if read_handoff_fence() is not None:
+                        job_id = _activity_job_id.get()
+                        if job_id is not None:
+                            from library.tools.resolved import cancellation
+                            cancellation.checkpoint(job_id)
+                        if time.time() >= deadline:
+                            raise ResolveBusy(
+                                "Resolve is fenced for human takeover",
+                                "the explicit handoff fence is set",
+                                "use `ren resolved return-to-ren` after "
+                                "finishing manual Resolve work")
+                        time.sleep(_POLL_SECONDS)
+                        continue
+                    if _flock(handle, exclusive, blocking=False):
+                        break
                     if time.time() >= deadline:
                         current = holder()
                         raise ResolveBusy(
@@ -1142,18 +1203,43 @@ def _start_activity_overlay() -> None:
         return
     binary = _activity_overlay_binary()
     if not binary.is_file() or not os.access(binary, os.X_OK):
+        _log_activity_overlay(f"cannot start overlay: executable missing at {binary}")
         return
-    if _activity_overlay_is_running():
+    try:
+        if _activity_overlay_is_running():
+            return
+    except OSError as exc:
+        _log_activity_overlay(
+            f"overlay singleton check failed: {type(exc).__name__}: {exc}")
         return
     import subprocess
     try:
-        subprocess.Popen(
-            [str(binary), str(lock_dir())], stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, close_fds=True)
-    except OSError:
+        lock_dir().mkdir(parents=True, exist_ok=True)
+        log = lock_dir() / "resolve-activity-overlay.log"
+        with log.open("ab") as output:
+            output.write(
+                f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
+                f"launcher starting {binary}\n".encode("utf-8"))
+            output.flush()
+            subprocess.Popen(
+                [str(binary), str(lock_dir())], stdin=subprocess.DEVNULL,
+                stdout=output, stderr=subprocess.STDOUT,
+                start_new_session=True, close_fds=True)
+    except OSError as exc:
         # Acquisition already succeeded; the app's lock remains the hard
         # exclusion mechanism if the optional presentation cannot launch.
+        _log_activity_overlay(f"overlay launch failed: {type(exc).__name__}: {exc}")
+
+
+def _log_activity_overlay(message: str) -> None:
+    """Keep launcher failures inspectable beside the instance lock."""
+    try:
+        lock_dir().mkdir(parents=True, exist_ok=True)
+        path = lock_dir() / "resolve-activity-overlay.log"
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with path.open("a", encoding="utf-8") as log:
+            log.write(f"{stamp} {message}\n")
+    except OSError:
         pass
 
 

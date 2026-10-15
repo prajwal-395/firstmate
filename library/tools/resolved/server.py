@@ -261,8 +261,64 @@ class Broker:
                     "purpose": str(job["params"].get("purpose", ""))[:80]},
                 "state": job["state"], "started": job["started"],
                 "submitted": job["submitted"],
+                "interrupt_policy": self.store.interrupt_policy(job["id"]),
             } for job in active[:4]],
         }
+
+    def request_handoff(self) -> dict:
+        """Fence new work first, then ask active jobs to stop safely."""
+        from library.tools import resolve_lock
+
+        with self._cond:
+            active = list(self._running.values())
+            active_ids = [job.id for job in active]
+            fence = resolve_lock.create_handoff_fence(
+                active_ids[0] if active_ids else "")
+            accepted = []
+            waiting = []
+            for job_id in active_ids:
+                job = self.store.get(job_id)
+                if job is None:
+                    continue
+                if self.store.interrupt_policy(job_id):
+                    self.request_cancel(job_id)
+                    accepted.append(job_id)
+                else:
+                    waiting.append(job_id)
+            self._cond.notify_all()
+        return {"fence": fence, "request_accepted": accepted,
+                "waiting_for_completion": waiting,
+                "job_ids": active_ids}
+
+    def handoff_status(self) -> dict:
+        from library.tools import resolve_lock
+
+        fence = resolve_lock.read_handoff_fence()
+        with self._cond:
+            running = [self.store.get(job.id)
+                       for job in self._running.values()]
+        active = [job for job in running if job is not None]
+        lease = resolve_lock.holder()
+        return {"fenced": fence is not None, "fence": fence,
+                "ready": fence is not None and not active and lease is None,
+                "active_jobs": active, "lease": lease.describe()
+                if lease is not None else None}
+
+    def return_to_ren(self) -> dict:
+        from library.tools import resolve_lock
+
+        with self._cond:
+            active = [self.store.get(job.id)
+                      for job in self._running.values()]
+            active = [job for job in active if job is not None]
+            lease = resolve_lock.holder()
+            if active or lease is not None:
+                raise job_kinds.JobRefused(
+                    "Resolve is still in use; wait for the active job and "
+                    "lease to end before returning control to Ren")
+            cleared = resolve_lock.clear_handoff_fence()
+            self._cond.notify_all()
+            return {"returned": True, "fence_cleared": cleared}
 
     def report_progress(self, job_id: str, progress: str) -> dict:
         if (not isinstance(progress, str) or len(progress) > 20
@@ -312,6 +368,10 @@ class Broker:
     def _schedule_loop(self) -> None:
         with self._cond:
             while not self._stopping:
+                from library.tools import resolve_lock
+                if resolve_lock.read_handoff_fence() is not None:
+                    self._cond.wait(0.5)
+                    continue
                 job = scheduler.next_job(self._queued.values(),
                                          self._running.values(),
                                          self._cursor, time.time())
@@ -530,9 +590,20 @@ class _Handler(socketserver.StreamRequestHandler):
                                      "idempotency_key"))
         if op in ("status", "result"):
             wait = float(request.get("wait", 0)) if op == "result" else 0.0
-            return {"job": broker.result(request["id"], wait)}
+            job = broker.result(request["id"], wait)
+            reply = {"job": job}
+            if op == "status" and job is not None:
+                reply["interrupt_policy"] = broker.store.interrupt_policy(
+                    request["id"])
+            return reply
         if op == "activity":
             return broker.activity()
+        if op == "handoff":
+            return broker.request_handoff()
+        if op == "handoff_status":
+            return broker.handoff_status()
+        if op == "return_to_ren":
+            return broker.return_to_ren()
         if op == "progress":
             return {"job": broker.report_progress(
                 request["id"], request.get("progress", ""))}

@@ -29,6 +29,8 @@ def main(argv=None) -> int:
     listing = verbs.add_parser("list", help="recent jobs and their receipts")
     listing.add_argument("--limit", type=int, default=20)
     verbs.add_parser("stop", help="ask the serving broker to exit")
+    verbs.add_parser("return-to-ren",
+                     help="clear the human Resolve handoff fence")
     submit = verbs.add_parser("submit", help="queue one job; prints its id")
     submit.add_argument("kind")
     submit.add_argument("params", nargs="?", default="{}",
@@ -100,6 +102,9 @@ def main(argv=None) -> int:
             while client.ping() is not None and time.time() < deadline:
                 time.sleep(0.05)
             print("ren-resolved: stopped")
+        elif args.verb == "return-to-ren":
+            print(json.dumps(client.call({"op": "return_to_ren"}),
+                             indent=2))
         elif args.verb == "submit":
             submitted = client.submit(args.kind, json.loads(args.params),
                                       qualification=args.qualification,

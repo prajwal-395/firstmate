@@ -12,6 +12,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::broker::Broker;
 use crate::protocol::{
@@ -45,6 +46,60 @@ pub fn socket_path() -> std::path::PathBuf {
 
 pub fn db_path() -> std::path::PathBuf {
     lock_dir().join(DB_NAME)
+}
+
+pub fn handoff_fence_path() -> std::path::PathBuf {
+    lock_dir().join("resolve_handoff.fence")
+}
+
+pub fn handoff_fenced() -> bool {
+    match std::fs::metadata(handoff_fence_path()) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+pub fn read_handoff_fence() -> Option<Value> {
+    let path = handoff_fence_path();
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(serde_json::from_slice(&bytes).unwrap_or_else(
+            |_| serde_json::json!({"id": "unreadable", "error": "handoff fence is malformed"}),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(serde_json::json!({
+            "id": "unreadable", "error": "handoff fence is unreadable"
+        })),
+    }
+}
+
+pub fn create_handoff_fence(job_id: &str) -> Result<Value, String> {
+    if let Some(existing) = read_handoff_fence() {
+        return Ok(existing);
+    }
+    let path = handoff_fence_path();
+    std::fs::create_dir_all(lock_dir()).map_err(|error| error.to_string())?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let fence = serde_json::json!({
+        "id": format!("{}-{nanos:x}", std::process::id()),
+        "job_id": job_id,
+        "created": crate::store::now(),
+        "owner": "Ren Resolve broker"
+    });
+    let temporary = path.with_extension(format!("fence.{}.tmp", std::process::id()));
+    std::fs::write(&temporary, format!("{}\n", fence)).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
+    Ok(fence)
+}
+
+pub fn clear_handoff_fence() -> Result<bool, String> {
+    match std::fs::remove_file(handoff_fence_path()) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// The daemon: the socket, the broker and the watchdog, minus the process.
@@ -126,16 +181,100 @@ impl Daemon {
             }
             Request::Status { id } => {
                 let job = self.broker.result(id, 0.0);
-                protocol::wire(&JobReply { job })
+                let interrupt_policy = job
+                    .as_ref()
+                    .and_then(|_| self.broker.store.interrupt_policy(id));
+                protocol::wire(&JobReply {
+                    job,
+                    interrupt_policy,
+                })
             }
             Request::Result { id, wait } => {
                 let job = self.broker.result(id, *wait);
-                protocol::wire(&JobReply { job })
+                protocol::wire(&JobReply {
+                    job,
+                    interrupt_policy: None,
+                })
             }
             Request::Cancel { id } => match self.broker.request_cancel(id) {
-                Ok(job) => protocol::wire(&JobReply { job }),
+                Ok(job) => protocol::wire(&JobReply {
+                    job,
+                    interrupt_policy: None,
+                }),
                 Err(error) => protocol::wire(&ErrorReply { error }),
             },
+            Request::Activity => {
+                let active: Vec<_> = self
+                    .broker
+                    .running()
+                    .into_iter()
+                    .filter_map(|running| self.broker.store.get(&running.id))
+                    .collect();
+                let count = active.len();
+                let jobs: Vec<Value> = active
+                    .into_iter()
+                    .map(|job| {
+                        let purpose = job
+                            .params
+                            .get("purpose")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let interrupt_policy = self
+                            .broker
+                            .store
+                            .interrupt_policy(&job.id)
+                            .unwrap_or_default();
+                        serde_json::json!({
+                            "id": job.id, "kind": job.kind, "mode": job.mode,
+                            "description": job.description, "progress": job.progress,
+                            "owner": job.owner.chars().take(40).collect::<String>(),
+                            "params": {"purpose": purpose.chars().take(80).collect::<String>()},
+                            "state": job.state, "started": job.started,
+                            "submitted": job.submitted,
+                            "interrupt_policy": interrupt_policy
+                        })
+                    })
+                    .take(4)
+                    .collect();
+                protocol::wire(&protocol::ActivityReply { count, jobs })
+            }
+            Request::Handoff => match self.broker.request_handoff() {
+                Ok(reply) => protocol::wire(&reply),
+                Err(error) => protocol::wire(&ErrorReply { error }),
+            },
+            Request::HandoffStatus => {
+                let fence = read_handoff_fence();
+                let active_jobs: Vec<_> = self
+                    .broker
+                    .running()
+                    .into_iter()
+                    .filter_map(|running| self.broker.store.get(&running.id))
+                    .collect();
+                let lease = active_lease();
+                protocol::wire(&protocol::HandoffStatusReply {
+                    fenced: fence.is_some(),
+                    ready: fence.is_some() && active_jobs.is_empty() && lease.is_none(),
+                    fence,
+                    active_jobs,
+                    lease,
+                })
+            }
+            Request::ReturnToRen => {
+                if !self.broker.running().is_empty() || active_lease().is_some() {
+                    protocol::wire(&ErrorReply {
+                        error: "Resolve is still in use; wait for the active job and lease to end before returning control to Ren".to_string(),
+                    })
+                } else {
+                    match self.broker.return_to_ren() {
+                        Ok(fence_cleared) => protocol::wire(&protocol::ReturnToRenReply {
+                            returned: true,
+                            fence_cleared,
+                        }),
+                        Err(error) => protocol::wire(&ErrorReply { error }),
+                    }
+                }
+            }
             Request::List { limit } => {
                 let jobs = self.broker.store.recent(*limit);
                 let running = self.broker.running();
@@ -318,12 +457,16 @@ fn parse_request(line: &str) -> Result<Request, String> {
         }
     };
     let op = value.get("op").and_then(|v| v.as_str()).unwrap_or("");
-    const KNOWN: [&str; 12] = [
+    const KNOWN: [&str; 16] = [
         "ping",
         "submit",
         "status",
         "result",
         "cancel",
+        "activity",
+        "handoff",
+        "handoff_status",
+        "return_to_ren",
         "list",
         "acquire",
         "release",

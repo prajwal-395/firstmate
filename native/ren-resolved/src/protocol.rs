@@ -38,6 +38,10 @@ pub enum Request {
     Cancel {
         id: String,
     },
+    Activity,
+    Handoff,
+    HandoffStatus,
+    ReturnToRen,
     List {
         #[serde(default = "default_limit")]
         limit: i64,
@@ -105,6 +109,37 @@ pub struct SubmitReply {
 #[derive(serde::Serialize)]
 pub struct JobReply {
     pub job: Option<crate::store::Receipt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupt_policy: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct ActivityReply {
+    pub count: usize,
+    pub jobs: Vec<serde_json::Value>,
+}
+
+#[derive(serde::Serialize)]
+pub struct HandoffReply {
+    pub fence: serde_json::Value,
+    pub request_accepted: Vec<String>,
+    pub waiting_for_completion: Vec<String>,
+    pub job_ids: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct HandoffStatusReply {
+    pub fenced: bool,
+    pub fence: Option<serde_json::Value>,
+    pub ready: bool,
+    pub active_jobs: Vec<crate::store::Receipt>,
+    pub lease: Option<LeaseStatus>,
+}
+
+#[derive(serde::Serialize)]
+pub struct ReturnToRenReply {
+    pub returned: bool,
+    pub fence_cleared: bool,
 }
 
 /// `{"jobs": [...], "running": [...]}`

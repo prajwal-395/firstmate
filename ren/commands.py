@@ -554,7 +554,7 @@ VERBS = (
          effects=("read",),
          module_argv=("library.tools.timeline_shadow",),
          detail="log, show, clips, markers or diff a timeline's recorded generations (the shadow store). Never reads Resolve. Pass the Ren project folder with --reel N to read a reel's recorded exact final timeline (--staging for its staging sibling) instead of --project/--timeline"),
-    Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (serve|ensure|status|list|submit|result|stop|kpi)",
+    Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (including explicit return-to-ren after a takeover)",
          effects=("read", "project_write", "resolve_read", "resolve_write"), json=True,
           module_argv=("library.tools.resolved",)),
     Verb("shadow-watch", "Resolve", "Watch the current timeline for hand edits on a schedule (standalone; the broker hosts it)",
