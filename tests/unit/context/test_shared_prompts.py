@@ -76,6 +76,44 @@ def test_stable_prefix_is_identical_across_projects_and_sections_round_trip(
     assert rebuilt["request_layout"] == one["request_layout"]
 
 
+def test_only_declared_unchanged_context_is_reused_outside_stable_prefix(
+        tmp_path):
+    """Evidence changes stay variable; declared context is content-addressed."""
+    project = tmp_path / "project"
+    project.mkdir()
+    roster = "clip roster: A, B\n"
+
+    def request(evidence):
+        return llm_handshake.build_request(
+            "plan_cut", "Choose a cut.", "", roster + evidence,
+            '{"cut":"string"}', str(project),
+            "2026-10-12T00:00:00+00:00")
+
+    first = request("evidence: shot of a doorway\n")
+    changed = request("evidence: shot of a street\n")
+    first_layout = first["request_layout"]
+    changed_layout = changed["request_layout"]
+    assert first_layout["stable_prefix"].encode("utf-8") == \
+        changed_layout["stable_prefix"].encode("utf-8")
+    assert first_layout["stable_prefix_sha256"] == \
+        changed_layout["stable_prefix_sha256"]
+    assert first["context"] != changed["context"]
+
+    requests_dir = _requests_dir(project)
+    first_wire = llm_handshake.write_request_file(
+        requests_dir / "first.json", first, context_shared=(roster,))
+    changed_wire = llm_handshake.write_request_file(
+        requests_dir / "changed.json", changed, context_shared=(roster,))
+
+    first_ref = first_wire["context_refs"][0]
+    changed_ref = changed_wire["context_refs"][0]
+    assert first_ref["sha256"] == changed_ref["sha256"]
+    assert first_wire["context"] == "evidence: shot of a doorway\n"
+    assert changed_wire["context"] == "evidence: shot of a street\n"
+    assert llm_handshake.read_request(requests_dir / "first.json") == first
+    assert llm_handshake.read_request(requests_dir / "changed.json") == changed
+
+
 def test_a_prompt_that_does_not_end_with_its_constraints_refuses(tmp_path):
     payload = dict(_request(tmp_path), prompt="something else")
     with pytest.raises(ValueError, match="does not end with its"):
