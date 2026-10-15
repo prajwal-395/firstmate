@@ -94,6 +94,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #
 STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
+        # The legacy step adapter resolves to the capability implementation.
+        "library/capabilities/objects/segment.py",
         # The temporal-index step is part of the cached dependency closure.
         "library/tools/motion_evidence.py",
         # VI-09 is part of the same cached preflight dependency closure.
@@ -2620,9 +2622,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/resource_scheduler.py",
     ),
     "step_1_07_ocr_extraction": (
-        # The whole measurement, imported by step.py.
+        # The legacy adapter resolves to this capability implementation.
+        "library/capabilities/ocr/extract.py",
         "library/tools/analysis/ocr_extractor.py",
-        # Imported by step.py: the per-clip lanes, so a fix here
+        # Imported by the implementation: the per-clip lanes, so a fix here
         # changes how many clips measure at once.
         "library/tools/concurrency_routing.py",
         # Imported by concurrency_routing: the lane bound is this

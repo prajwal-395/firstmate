@@ -1439,6 +1439,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Extract on-screen text from the footage",
         owning_dir="step_1_07_ocr_extraction", body="step.py",
         attr="extract_ocr",
+        executor_path="library/capabilities/ocr/extract.py",
         produces=("ocr_extraction",),
         consumes=("raw_footage_files",),
     ),
@@ -2236,7 +2237,7 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="model_memory",
                 lock_sites=(
-                    "library.steps.step_1_06_object_segmentation.step:"
+                    "library.capabilities.objects.segment:"
                     "_sam_model_memory_session",),
                 why="Track resident SAM 2 weights as a model session while "
                     "this batch waits between selected clips; admission is "
@@ -2244,15 +2245,15 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="inference",
                 lock_sites=(
-                    "library.steps.step_1_06_object_segmentation.step:run_step",),
+                    "library.capabilities.objects.segment:run_step",),
                 why="Admit decode, SAM 2 inference, and scratch frame I/O "
                     "for one named clip at a time; the hardware is "
                     "arbitrated by the model server and the OS, not a "
                     "static CPU/GPU/disk budget."),
         )),
-        # The plain step.py case: the whole gathered dict under `data`.
-        # Its body was `main()` alone until its output had to be
-        # recorded under a capability id (`capability_outputs`).
+        # The input adapter remains at the legacy DAG node; execution is
+        # capability-owned and the node is only the compatibility route.
+        executor_path="library/capabilities/objects/segment.py",
     ),
     Operation(
         name="manifest.compile",

@@ -127,6 +127,29 @@ def test_prosody_executor_is_capability_owned_and_step_is_adapter():
     assert op.run is analyse_prosody is step_prosody
 
 
+def test_segmentation_and_ocr_executors_are_capability_owned():
+    from library.capabilities.objects import segment
+    from library.capabilities.ocr import extract
+
+    objects = operations.get("objects.segment")
+    ocr = operations.get("ocr.extract")
+    assert capabilities.spec_of(objects).executor.path == (
+        "library/capabilities/objects/segment.py")
+    assert capabilities.spec_of(ocr).executor.path == (
+        "library/capabilities/ocr/extract.py")
+    assert objects.run is segment.segment_triggered_clips
+    assert ocr.run is extract.extract_ocr
+    assert capabilities.spec_of(objects).scopes == ("project",)
+    assert capabilities.spec_of(ocr).scopes == ("project",)
+    assert objects.produces == ("object_segmentation", "matte_trigger")
+    assert ocr.produces == ("ocr_extraction",)
+    assert "library.capabilities.objects.segment:run_step" in (
+        objects.execution.phase("inference").lock_sites)
+    for operation in (objects, ocr):
+        assert not capabilities.spec_of(operation).executor.path.startswith(
+            "library/steps/")
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (
