@@ -14,7 +14,9 @@ import json
 import pytest
 
 from library.tools.project_work_state import (
-    main, project_launch_pack, project_now_state,
+    main,
+    project_launch_pack,
+    project_now_state,
 )
 
 
@@ -265,6 +267,30 @@ def test_launch_pack_contains_now_state_and_invalidates_fingerprint(tmp_path):
     }), encoding="utf-8")
     changed = project_launch_pack(str(project), captured_at="2026-10-15T12:00:00Z")
     assert changed["snapshot"]["fingerprint"] != pack["snapshot"]["fingerprint"]
+
+
+@pytest.mark.parametrize("request_count", [1, 50, 200])
+def test_launch_pack_stays_bounded_at_realistic_project_sizes(
+        tmp_path, request_count):
+    from library.tools.project_work_state import LAUNCH_PACK_MAX_BYTES
+
+    project = _write_project(tmp_path / f"show-{request_count}")
+    (project / "project.yaml").write_text(
+        'name: "Show"\nslug: show\n'
+        'pipeline:\n  creative_brief: "Keep the guest perspective central"\n'
+        'source:\n  language: en\n  shape: speech\n', encoding="utf-8")
+    for index in range(request_count):
+        _write_request(project, f"step_{index:04d}")
+
+    pack = project_launch_pack(str(project), captured_at="2026-10-15T12:00:00Z")
+    encoded = json.dumps(pack, ensure_ascii=False, separators=(",", ":"))
+
+    assert len(encoded.encode("utf-8")) <= LAUNCH_PACK_MAX_BYTES
+    assert len(pack["state"]["asks"]["pending"]) == request_count
+    assert {row["decision"] for row in pack["state"]["settled_decisions"]} >= {
+        "creative brief attached", "source shape"}
+    assert any(row["value"] == "Keep the guest perspective central"
+               for row in pack["state"]["settled_decisions"])
 
 
 def test_launch_pack_refuses_missing_project_with_structured_refusal():
