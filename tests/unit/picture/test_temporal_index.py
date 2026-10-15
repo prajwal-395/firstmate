@@ -618,9 +618,9 @@ def test_expansion_reads_as_divergence_with_no_translation():
     assert stats["divergence"] > 0.1
     assert abs(stats["dx"]) < 0.1
     assert abs(stats["dy"]) < 0.1
-    # A pure zoom leaves nothing for translation to explain.
-    assert stats["subject_energy"] == pytest.approx(
-        stats["magnitude"], rel=0.2)
+    # The affine camera model explains part of the radial expansion, so it
+    # must not be counted as scene motion in the residual.
+    assert stats["subject_energy"] < stats["magnitude"]
 
 
 def test_block_match_answers_a_translation_where_dense_cannot():
@@ -939,7 +939,8 @@ def test_decomposition_emits_no_zoom_factor():
             "it always evaluated to 1.0 and must not be reported"
         )
     assert set(out["values"][0]) == {
-        "translation_x", "translation_y", "residual",
+        "time", "translation_x", "translation_y", "rotation_rad",
+        "zoom_rate", "subject_energy", "residual",
     }
 
 

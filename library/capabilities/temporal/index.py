@@ -1610,14 +1610,15 @@ def _farneback_pair_stats(prev, curr) -> dict:
     caller stamps it): normalized median translation (`dx`, `dy`),
     mean-field `magnitude`, eight-way `direction`, the global shift
     read as the camera hypothesis (`camera_tx`, `camera_ty`), the
-    motion the global shift does NOT explain (`subject_energy`), and
+    motion the affine camera model does NOT explain (`subject_energy`), and
     the mean radial component about the frame centre (`divergence`,
     positive = expansion: a zoom or dolly in). Raises where nothing
     about the pair was measured, so the pair stays unmeasured.
 
     `subject_energy` is a separation HYPOTHESIS, and the view legend
-    says so: the median is read as camera, the rest as subject and
-    shake - and a subject filling the frame reads as camera.
+    says so: the affine model is read as camera, remaining local flow
+    as subject motion or parallax - and a subject filling the frame can
+    still be read as camera.
     """
     import numpy as np
 
@@ -1634,10 +1635,6 @@ def _farneback_pair_stats(prev, curr) -> dict:
     med_x = float(np.median(fx))
     med_y = float(np.median(fy))
     mean_mag = float(mag.mean())
-    # What the global shift leaves behind: subject movement, shake,
-    # parallax - anything that is not one translation.
-    resid = np.sqrt((fx - med_x) ** 2 + (fy - med_y) ** 2)
-    subject = float(resid.mean())
     # Radial component about the centre: expansion reads positive.
     height, width = prev.shape
     ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
@@ -1646,6 +1643,27 @@ def _farneback_pair_stats(prev, curr) -> dict:
     radius = np.sqrt(xs ** 2 + ys ** 2)
     radius[radius == 0] = 1.0
     divergence = float(((fx * xs + fy * ys) / radius).mean())
+
+    # Fit the lowest-order camera transform to a sparse, spatially spread
+    # sample of the dense field. Translation is already represented by the
+    # median; the affine terms expose in-plane rotation and scale (zoom).
+    # Keep these explicitly absent on the block-match fallback, which has
+    # no spatial field from which to estimate them.
+    step = max(1, min(height, width) // 24)
+    gy, gx = np.mgrid[step // 2:height:step, step // 2:width:step]
+    points_x = gx.astype(np.float64).ravel() - (width - 1) / 2.0
+    points_y = gy.astype(np.float64).ravel() - (height - 1) / 2.0
+    sampled_x = fx[gy, gx].astype(np.float64).ravel()
+    sampled_y = fy[gy, gx].astype(np.float64).ravel()
+    design = np.column_stack((points_x, points_y, np.ones(len(points_x))))
+    affine_x, *_ = np.linalg.lstsq(design, sampled_x, rcond=None)
+    affine_y, *_ = np.linalg.lstsq(design, sampled_y, rcond=None)
+    rotation_rad = (affine_y[0] - affine_x[1]) / 2.0
+    zoom_rate = (affine_x[0] + affine_y[1]) / 2.0
+    affine_residual = np.sqrt(
+        (sampled_x - design @ affine_x) ** 2
+        + (sampled_y - design @ affine_y) ** 2)
+    scene_residual = float(affine_residual.mean())
 
     norm = FLOW_NORM_PX
     magnitude = mean_mag / norm
@@ -1658,8 +1676,10 @@ def _farneback_pair_stats(prev, curr) -> dict:
         "direction": direction,
         "camera_tx": round(med_nx, 3),
         "camera_ty": round(med_ny, 3),
-        "subject_energy": round(subject / norm, 3),
+        "subject_energy": round(scene_residual / norm, 3),
         "divergence": round(divergence / norm, 3),
+        "camera_rotation_rad": round(float(rotation_rad), 6),
+        "camera_zoom_rate": round(float(zoom_rate), 6),
         "method": "farneback",
     }
 
@@ -2205,10 +2225,12 @@ def decompose_camera_motion(
     Derived from the optical_flow_direction output — no additional video
     decoding required.
 
-    Components:
-      - translation_x: horizontal camera motion (positive = panning right)
-      - translation_y: vertical camera motion (positive = tilting down)
-      - residual:      leftover motion energy (subject movement, shake)
+    Components use normalized proxy-frame displacements per sample:
+      - translation_x/y: global camera translation
+      - rotation_rad: in-plane camera rotation per sample (positive clockwise)
+      - zoom_rate: fractional expansion per sample (positive = zoom/dolly in)
+      - subject_energy: dense flow not explained by camera translation
+      - residual: legacy residual retained for camera-stability consumers
 
     There is deliberately NO zoom_factor here. A zoom estimate used to
     sit alongside these keys (`1.0 + max(0, mag - translation_mag) *
@@ -2249,8 +2271,12 @@ def decompose_camera_motion(
         residual = round(max(0.0, mag - translation_mag * 0.5), 3)
 
         decomposed.append({
+            "time": v.get("time"),
             "translation_x": tx,
             "translation_y": ty,
+            "rotation_rad": v.get("camera_rotation_rad"),
+            "zoom_rate": v.get("camera_zoom_rate", v.get("divergence")),
+            "subject_energy": v.get("subject_energy"),
             "residual": residual,
         })
 
