@@ -170,6 +170,13 @@
     "timebase_policy": {
       "$ref": "#/$defs/TimebasePolicy"
     },
+    "timeline_states": {
+      "description": "Canonical ordered composition state, committed in the same event history.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TimelineState"
+      }
+    },
     "tracks": {
       "type": "array",
       "items": {
@@ -2099,6 +2106,43 @@
         "integer_ticks",
         "integer_frames",
         "rational_frames"
+      ]
+    },
+    "TimelineState": {
+      "description": "Current ordered composition for one timeline, projected from edit history.",
+      "type": "object",
+      "properties": {
+        "clip_use_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edit_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "timeline_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "timeline_id",
+        "generation",
+        "clip_use_ids",
+        "edit_operation_ids"
       ]
     },
     "TrackSample": {

@@ -284,6 +284,8 @@ def test_production_m4_acquisition_merges_one_fixture_window_and_requeries(tmp_p
     assert evidence_query.evidence_for(updated, plan)["status"] == "present"
     assert result["requery"]["status"] == "present"
     assert result["edit_ready"] is True
+    assert result["source_revision"] == 1
+    assert result["result_revision"] == 2
 
     rows, provenance = project_model_acquisition._m4_rows(
         updated, digest, plan["scope"], asset_id=asset["id"],
@@ -298,11 +300,13 @@ def test_production_m4_acquisition_skips_when_answer_is_already_present(tmp_path
     import json
     from pathlib import Path
 
-    from library.tools import evidence_query, project_model_acquisition
+    from library.tools import evidence_query, project_model_acquisition, project_model_store
 
     model = json.loads(Path(
         "tests/fixtures/project_model_e2e/expected-project-model.json"
     ).read_text(encoding="utf-8"))
+    project_model_store.commit_project_model(
+        tmp_path, model, expected_revision=0, reason="fixture before sufficient query")
     asset = model["assets"][0]
     plan = evidence_query.compile_plan([{
         "predicate": "measurement", "measurement_type": "person.face_box"}],
@@ -316,4 +320,5 @@ def test_production_m4_acquisition_skips_when_answer_is_already_present(tmp_path
         window_analyzer=lambda **kwargs: calls.append(kwargs))
     assert result["acquisition"]["action"] == "no_run"
     assert result["requery"] is None
+    assert result["source_revision"] == result["result_revision"] == 1
     assert calls == []

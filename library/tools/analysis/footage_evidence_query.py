@@ -41,12 +41,14 @@ def main(argv: list[str] | None = None) -> int:
 
     project = resolve_project_root(args.project)
     plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
-    _, model = project_model_store.load_project_model(project)
+    source_revision, model = project_model_store.load_project_model(project)
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan)
         print(
             json.dumps(
-                {"answer": answer, "edit_ready": answer.get("status") == "present"},
+                {"answer": answer, "edit_ready": answer.get("status") == "present",
+                 "source_revision": source_revision,
+                 "result_revision": source_revision},
                 indent=2,
             )
         )

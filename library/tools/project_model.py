@@ -25,6 +25,21 @@ def validate_project_model(model: dict[str, Any]) -> None:
     if version != SCHEMA_VERSION:
         raise ValueError(f"unsupported project model schema_version {version!r}; expected {SCHEMA_VERSION}")
     protocol_conformance.validate(model, "project-model")
+    # Timeline state is a projection of the same revisioned edit history,
+    # with explicit references so readers never infer order from legacy rows.
+    clip_use_ids = {row["id"] for row in model["clip_uses"]}
+    edit_ids = {row["id"] for row in model["edits"]}
+    timeline_ids: set[str] = set()
+    for state in model.get("timeline_states", []):
+        if not state["id"] or not state["timeline_id"]:
+            raise ValueError("timeline state requires stable ids")
+        if state["timeline_id"] in timeline_ids:
+            raise ValueError("timeline state must have one current row per timeline")
+        timeline_ids.add(state["timeline_id"])
+        if not set(state["clip_use_ids"]) <= clip_use_ids:
+            raise ValueError("timeline state references unknown clip use")
+        if not set(state["edit_operation_ids"]) <= edit_ids:
+            raise ValueError("timeline state references unknown edit operation")
     from library.tools.project_model_contract import validate_typed_confidence
     for clock in model["clocks"]:
         if clock["ticks_per_second"] <= 0 or (clock["frame_rate"] and clock["frame_rate"]["denominator"] <= 0):

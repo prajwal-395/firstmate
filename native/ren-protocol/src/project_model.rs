@@ -795,6 +795,20 @@ pub struct ProjectModel {
     pub query_results: Vec<QueryResult>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evaluation_policies: Vec<EvaluationPolicy>,
+    /// Canonical ordered composition state, committed in the same event history.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timeline_states: Vec<TimelineState>,
+}
+
+/// Current ordered composition for one timeline, projected from edit history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineState {
+    pub id: String,
+    pub timeline_id: TimelineModelId,
+    pub generation: u64,
+    pub clip_use_ids: Vec<ClipUseId>,
+    pub edit_operation_ids: Vec<EditOperationId>,
 }
 
 pub const PROJECT_MODEL_SCHEMA_VERSION: u32 = 1;
@@ -1203,6 +1217,36 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
             .is_some_and(|rate| rate.denominator == 0)
         {
             return Err("frame map rate denominator must be positive".into());
+        }
+    }
+    let clip_use_ids: std::collections::BTreeSet<_> = model
+        .clip_uses
+        .iter()
+        .map(|row| row.id.0.as_str())
+        .collect();
+    let edit_ids: std::collections::BTreeSet<_> =
+        model.edits.iter().map(|row| row.id.0.as_str()).collect();
+    let mut timeline_ids = std::collections::BTreeSet::new();
+    for state in &model.timeline_states {
+        if state.id.is_empty()
+            || state.timeline_id.0.is_empty()
+            || !timeline_ids.insert(state.timeline_id.0.as_str())
+        {
+            return Err("timeline state requires unique non-empty timeline ids".into());
+        }
+        if state
+            .clip_use_ids
+            .iter()
+            .any(|id| !clip_use_ids.contains(id.0.as_str()))
+        {
+            return Err("timeline state references unknown clip use".into());
+        }
+        if state
+            .edit_operation_ids
+            .iter()
+            .any(|id| !edit_ids.contains(id.0.as_str()))
+        {
+            return Err("timeline state references unknown edit operation".into());
         }
     }
     for evidence in model

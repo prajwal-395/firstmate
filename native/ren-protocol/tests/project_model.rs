@@ -28,6 +28,24 @@ fn unknown_versions_and_empty_intervals_are_rejected() {
 }
 
 #[test]
+fn timeline_state_is_canonical_and_references_model_edit_state() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    model["timeline_states"] = serde_json::json!([{
+        "id":"timeline-state-1", "timeline_id":"timeline-1", "generation":2,
+        "clip_use_ids":["use-1"], "edit_operation_ids":["edit-1"]
+    }]);
+    let decoded = decode_project_model(&model.to_string()).expect("valid timeline state");
+    assert_eq!(decoded.timeline_states[0].generation, 2);
+
+    model["timeline_states"][0]["clip_use_ids"] = serde_json::json!(["missing-use"]);
+    assert!(matches!(
+        decode_project_model(&model.to_string()),
+        Err(ProjectModelDecodeError::InvalidModel(_))
+    ));
+}
+
+#[test]
 fn typed_events_queries_and_transforms_round_trip_without_implied_sync() {
     let mut model: serde_json::Value =
         serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();

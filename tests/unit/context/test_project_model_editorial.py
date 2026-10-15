@@ -87,6 +87,29 @@ def test_model_id_for_legacy_namespaces_without_rehashing():
         editorial.model_id_for_legacy("", "aroll:3")
 
 
+def test_timeline_state_reader_and_cas_share_project_model_revision(tmp_path):
+    import json
+    from pathlib import Path
+
+    from library.tools.project_model_store import commit_project_model, load_project_model
+
+    model = json.loads(Path(
+        "native/ren-protocol/fixtures/project-model.json"
+    ).read_text(encoding="utf-8"))
+    state = {"id": "timeline-state-1", "timeline_id": "timeline-1",
+             "generation": 2, "clip_use_ids": ["use-1"],
+             "edit_operation_ids": ["edit-1"]}
+    commit_project_model(tmp_path, model, expected_revision=0)
+    assert editorial.timeline_state_for(model, "timeline-1") is None
+    assert editorial.commit_timeline_state(
+        tmp_path, state, expected_revision=1) == 2
+    revision, current = load_project_model(tmp_path)
+    assert revision == 2
+    assert editorial.timeline_state_for(current, "timeline-1") == state
+    with pytest.raises(RuntimeError, match="stale project model revision"):
+        editorial.commit_timeline_state(tmp_path, state, expected_revision=1)
+
+
 def test_aroll_node_becomes_clip_use_on_shared_clocks():
     use, reason = editorial.aroll_node_to_clip_use(_aroll_node(), **_clocks())
 

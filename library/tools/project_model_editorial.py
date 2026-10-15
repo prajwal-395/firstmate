@@ -97,6 +97,37 @@ class EditorialMigrationError(ValueError):
     """A legacy editorial row that cannot become model data, refused by name."""
 
 
+def timeline_state_for(model: Mapping[str, Any], timeline_id: str) -> dict[str, Any] | None:
+    """Read the current canonical ordered timeline composition from a model."""
+    rows = [row for row in model.get("timeline_states", [])
+            if row["timeline_id"] == timeline_id]
+    if len(rows) > 1:
+        raise EditorialMigrationError(
+            f"Project Model has multiple current states for timeline {timeline_id!r}"
+        )
+    return dict(rows[0]) if rows else None
+
+
+def commit_timeline_state(project, state: Mapping[str, Any], *,
+                          expected_revision: int, author: str = "ren") -> int:
+    """CAS one current timeline state into the Project Model event history."""
+    import copy
+    from pathlib import Path
+    from library.tools import project_model_store
+
+    if not isinstance(state, Mapping):
+        raise EditorialMigrationError("timeline state must be an object")
+    _, model = project_model_store.load_project_model(Path(project))
+    rows = [row for row in model.get("timeline_states", [])
+            if row["timeline_id"] != state["timeline_id"]]
+    rows.append(copy.deepcopy(dict(state)))
+    return project_model_store.append_model_patch(
+        Path(project), {"timeline_states": rows},
+        expected_revision=expected_revision, author=author,
+        reason=f"timeline state update: {state['timeline_id']}",
+    )
+
+
 def plan_edit_point_candidates(model: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Expose measured Project Model cut candidates to editorial planning.
 

@@ -191,7 +191,9 @@ def load_state(project: str) -> dict:
 
 
 def _record_completion(project: str, state: dict, cid: str, node: str,
-                       payload: dict, seconds: float) -> None:
+                       payload: dict, seconds: float,
+                       project_model_source: dict | None = None,
+                       project_model_result: dict | None = None) -> None:
     from library.tools import step_ledger
     rp = _runner()
     nodes = _edit_nodes()
@@ -205,6 +207,11 @@ def _record_completion(project: str, state: dict, cid: str, node: str,
         "elapsed_s": round(seconds, 1),
         "operation": cid,
     }
+    if project_model_source is not None or project_model_result is not None:
+        completion["project_model"] = {
+            "source": project_model_source,
+            "result": project_model_result,
+        }
     # Lane B R10: what ingest this completion stands on - the one
     # fingerprint function, called by the ledger, not reimplemented.
     _ingest = step_ledger.ingest_mark(project)
@@ -282,6 +289,8 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
             continue
         print(f"[analyze] {cid}: executing", file=sys.stderr, flush=True)
         t0 = time.perf_counter()
+        from library.tools import project_model_store
+        project_model_source = project_model_store.pipeline_projection(Path(project))
         with provenance.observing_operation(project, cid, run_id):
             result = _execute_in_child(project, cid)
         seconds = time.perf_counter() - t0
@@ -302,8 +311,9 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
             failed = True
             continue
         row["status"] = BUILT
+        project_model_result = project_model_store.pipeline_projection(Path(project))
         _record_completion(project, state, cid, node, result["payload"],
-                           seconds)
+                           seconds, project_model_source, project_model_result)
     return {
         "orchestrator": "footage_intelligence",
         "capabilities": outcomes,

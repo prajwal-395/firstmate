@@ -270,6 +270,7 @@ class _Builder:
             "nle_bindings": [],
             "receipts": [],
             "provenance": [],
+            "timeline_states": [],
         }
         self.dropped: list[dict[str, Any]] = []
         self.notes: list[str] = []
@@ -3930,10 +3931,11 @@ def main(argv: list[str] | None = None) -> int:
         model, report = migrate_project_evidence(
             args.project, memory_root=args.memory_root)
         if args.commit:
-            from library.tools.project_model_store import commit_project_model
-            revision = commit_project_model(
+            from library.tools.project_model_store import commit_evidence_import
+            revision = commit_evidence_import(
                 Path(args.project), model,
-                expected_revision=args.expected_revision, reason=args.reason)
+                expected_revision=args.expected_revision,
+                author="capability:project_model_evidence", reason=args.reason)
             report["committed_revision"] = revision
         payload = json.dumps({"report": report}, indent=2)
         if args.out:

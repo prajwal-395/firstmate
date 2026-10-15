@@ -65,6 +65,12 @@ def query_project(
     integration tests. The default path runs the production VLM.
     """
     project = Path(project)
+    source_revision, authoritative_model = project_model_store.load_project_model(project)
+    if authoritative_model != model:
+        raise RuntimeError(
+            f"stale Project Model input; supplied evidence is not revision {source_revision}"
+        )
+    model = authoritative_model
     root = Path(memory_root).expanduser() if memory_root else None
     asset = next(
         (row for row in model["assets"] if row.get("content_digest") == source_digest),
@@ -220,7 +226,7 @@ def query_project(
                     raise
         return project_model_store.load_project_model(project)[1]
 
-    return query_with_acquisition(
+    result = query_with_acquisition(
         model,
         plan,
         source_digest=source_digest,
@@ -234,6 +240,9 @@ def query_project(
         window_seconds_by_lane={"m4": WINDOW_SECONDS},
         producer_cost_per_window_seconds={"m4": M4_WINDOW_COST_SECONDS},
     )
+    result["source_revision"] = source_revision
+    result["result_revision"] = project_model_store.load_project_model(project)[0]
+    return result
 
 
 def verify_action_candidates(

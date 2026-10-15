@@ -74,6 +74,7 @@ fn model_with_observations(observations: Vec<Observation>) -> ProjectModel {
         receipts: vec![],
         provenance: vec![],
         evaluation_policies: vec![],
+        timeline_states: vec![],
         signals: vec![],
         events: vec![],
         interpretations: vec![],

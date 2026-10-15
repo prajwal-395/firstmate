@@ -827,6 +827,11 @@ def save_pipeline_state(project_dir: str, state: dict):
     # A project recorded before the capability records carries the old
     # node-keyed slot; it is written back as records, never as the slot.
     capability_outputs.migrate(state)
+    # The Project Model event head is the evidence authority. pipeline_data
+    # carries only a revision pointer so legacy consumers can detect drift;
+    # it never becomes a second evidence store.
+    from library.tools import project_model_store
+    project_model_store.project_pipeline_state(project_dir, state)
     with open(state_path, "w", encoding="utf-8") as f:
         # Canonical spelling (library/tools/stable_json.py): the same
         # state is the same bytes, so a build that changes nothing

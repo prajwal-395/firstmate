@@ -21,6 +21,13 @@ STORE_DIR = "project_model"
 EVENTS_FILE = "events.jsonl"
 SNAPSHOT_FILE = "snapshot.json"
 PARITY_FILE = "parity-report.json"
+PIPELINE_PROJECTION_KEY = "project_model_projection"
+EVIDENCE_COLLECTIONS = (
+    "assets", "streams", "entities", "observations", "identity_links",
+    "masks", "object_classes", "tracks", "relations", "signals", "events",
+    "interpretations", "coordinate_spaces", "time_transforms", "space_transforms",
+    "query_results", "evaluation_policies", "provenance",
+)
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -124,6 +131,30 @@ def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
         if snapshot != expected:
             _write_snapshot(snapshot_path, events, model)
         return len(events), model
+
+
+def pipeline_projection(project: Path) -> dict[str, Any] | None:
+    """Return the small revision pointer projected into pipeline_data."""
+    events_path, _, lock_path = _paths(Path(project))
+    if not events_path.is_file():
+        return None
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        events = _read_events(events_path)
+        if not events:
+            return None
+        return {"revision": len(events), "head_hash": events[-1]["event_hash"]}
+
+
+def project_pipeline_state(project: Path, state: dict[str, Any]) -> bool:
+    """Refresh pipeline_data's revision pointer; the event log stays canonical."""
+    projection = pipeline_projection(project)
+    if projection is None:
+        state.pop(PIPELINE_PROJECTION_KEY, None)
+        return False
+    state[PIPELINE_PROJECTION_KEY] = projection
+    return True
 
 
 def commit_project_model(project: Path, model: dict[str, Any], *, expected_revision: int,
@@ -238,6 +269,83 @@ def merge_evidence_records(project: Path, *, observations: list[dict[str, Any]],
         return revision + 1
 
 
+def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
+                         expected_revision: int, author: str,
+                         reason: str = "capability evidence update") -> int:
+    """CAS-merge evidence collections, preserving all other model state."""
+    validate_project_model(evidence_model)
+    events_path, snapshot_path, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        events = _read_events(events_path)
+        revision = len(events)
+        if revision != expected_revision:
+            raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
+        model = _replay(events)
+        if model is None:
+            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+        if evidence_model["id"] != model["id"]:
+            raise ValueError("evidence update belongs to a different Project Model")
+        if evidence_model["schema_version"] != model["schema_version"]:
+            raise ValueError("evidence update uses a different Project Model schema version")
+        patch: dict[str, list[dict[str, Any]]] = {}
+        for key in EVIDENCE_COLLECTIONS:
+            incoming = evidence_model.get(key, [])
+            if not incoming:
+                continue
+            if key == "query_results":
+                merged_rows = list(model.get(key, []))
+                for row in incoming:
+                    if row not in merged_rows:
+                        merged_rows.append(row)
+                if merged_rows != model.get(key, []):
+                    model[key] = merged_rows
+                    patch[key] = merged_rows
+                continue
+            by_id = {row["id"]: row for row in model.get(key, [])}
+            for row in incoming:
+                old = by_id.get(row["id"], {})
+                merged = {**old, **row}
+                if isinstance(old.get("metadata"), dict) and isinstance(row.get("metadata"), dict):
+                    merged["metadata"] = {**old["metadata"], **row["metadata"]}
+                by_id[row["id"]] = merged
+            merged_rows = list(by_id.values())
+            if merged_rows != model.get(key, []):
+                model[key] = merged_rows
+                patch[key] = merged_rows
+        if not patch:
+            return revision
+        validate_project_model(model)
+        event = {"revision": revision + 1,
+                 "previous_hash": events[-1]["event_hash"],
+                 "kind": "merge_patch", "author": author, "reason": reason,
+                 "schema_version": model["schema_version"], "payload": patch}
+        event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
+        with events_path.open("ab") as stream:
+            stream.write(_json_bytes(event))
+            stream.flush()
+            os.fsync(stream.fileno())
+        events.append(event)
+        _write_snapshot(snapshot_path, events, model)
+        return revision + 1
+
+
+def commit_evidence_import(project: Path, evidence_model: dict[str, Any], *,
+                           expected_revision: int, author: str,
+                           reason: str = "capability evidence import") -> int:
+    """Create an initial model or CAS-merge an evidence-only update."""
+    try:
+        load_project_model(Path(project))
+    except FileNotFoundError:
+        return commit_project_model(Path(project), evidence_model,
+                                    expected_revision=expected_revision,
+                                    author=author, reason=reason)
+    return merge_evidence_model(Path(project), evidence_model,
+                                expected_revision=expected_revision,
+                                author=author, reason=reason)
+
+
 def _read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -252,8 +360,21 @@ def parity_report(project: Path, model: dict[str, Any] | None = None) -> dict[st
     than guessing identity migrations that belong to Units 3 and 4.
     """
     project = Path(project)
-    if model is None:
-        _, model = load_project_model(project)
+    events_path, _, lock_path = _paths(project)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        events = _read_events(events_path)
+        canonical = _replay(events)
+        current_projection = ({"revision": len(events),
+                               "head_hash": events[-1]["event_hash"]}
+                              if events else None)
+        snapshot = _read_json(project / STORE_DIR / SNAPSHOT_FILE) or {}
+    if canonical is None:
+        raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+    if model is not None and model != canonical:
+        raise RuntimeError("stale Project Model supplied to parity report")
+    model = canonical
     artifacts = {
         "source_memory": project / "source_memory",
         "pipeline_data": project / "pipeline_data.json",
@@ -276,9 +397,15 @@ def parity_report(project: Path, model: dict[str, Any] | None = None) -> dict[st
             elif isinstance(payload, dict):
                 details["top_level_keys"] = sorted(payload.keys())
         adapters[name] = details
-    snapshot = _read_json(project / STORE_DIR / SNAPSHOT_FILE) or {}
+    revision = current_projection["revision"] if current_projection else 0
+    head_hash = current_projection["head_hash"] if current_projection else None
     mismatches = [{"store": name, "kind": "unreadable", "path": row["path"]}
                   for name, row in adapters.items() if row["present"] and row.get("readable") is False]
+    if snapshot.get("revision") != revision or snapshot.get("head_hash") != head_hash:
+        mismatches.append({"store": "snapshot", "kind": "stale_revision",
+                           "expected_revision": revision, "actual_revision": snapshot.get("revision"),
+                           "action": ("run `bin/vep -m library.tools.project_model_store read "
+                                      f"{project}` to replay and repair the snapshot")})
 
     # The catalog is the one legacy store with a direct, stable comparison:
     # model asset URIs should cover the catalog's recorded media paths.
@@ -295,8 +422,15 @@ def parity_report(project: Path, model: dict[str, Any] | None = None) -> dict[st
                                "values": missing})
         adapters["pipeline_data"]["catalog_rows"] = len(catalog)
         adapters["pipeline_data"]["model_asset_uris"] = len(model_uris)
+        projected = pipeline.get(PIPELINE_PROJECTION_KEY)
+        adapters["pipeline_data"]["project_model_projection"] = projected
+        if projected != (current_projection or {"revision": 0, "head_hash": None}):
+            mismatches.append({"store": "pipeline_data", "kind": "project_model_projection_drift",
+                               "expected_revision": revision,
+                               "actual_revision": projected.get("revision") if isinstance(projected, dict) else None,
+                               "action": "save pipeline state to refresh its Project Model revision pointer"})
     return {"schema_version": 1, "project_id": model["id"], "model_schema_version": model["schema_version"],
-            "revision": {"number": snapshot.get("revision", 0), "head_hash": snapshot.get("head_hash")},
+            "revision": {"number": revision, "head_hash": head_hash},
             "adapters": adapters, "mismatches": mismatches}
 
 
