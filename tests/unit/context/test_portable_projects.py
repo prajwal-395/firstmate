@@ -156,9 +156,11 @@ def test_format_1_to_2_migrates_with_backup_and_revert(tmp_path):
     (manifest,) = sorted(
         (folder / "pipeline_output" / "migrations").glob("format_*.json"))
     # Reversible: the generic revert restores the pre-migration bytes.
+    # The revert report shape (`report[-1]["to"]`) is pinned once by
+    # test_project_format.py::test_direct_config_open_migrates_and_records_a_revert;
+    # here only this migration path's reversibility is asserted.
     from library.tools.project_migration import revert_from_manifest
-    report = revert_from_manifest(str(manifest), apply=True)
-    assert report[-1]["to"] == str(folder / "project.yaml")
+    revert_from_manifest(str(manifest), apply=True)
     assert pf.read_format_version(folder) == 1
 
 
