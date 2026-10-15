@@ -243,6 +243,62 @@ def test_changed_content_invalidates_that_file(monkeypatch, tmp_path):
         "tests/test_mod_x.py", "tests/test_mod_y.py"]
 
 
+def test_shared_contract_selection_matches_full_fixture_consumers(
+        monkeypatch, tmp_path):
+    """A shared contract change selects every named cross-language
+    consumer while excluding tests outside the contract's dependency set.
+
+    The fixture models a transitive Python re-export, a Rust integration
+    consumer and a generated Python schema consumer. The expected set is
+    compared to every test in the fixture, so adding a consumer without
+    adding it to the contract declaration makes this evidence fail.
+    """
+    root = tmp_path / "shared-contract-tree"
+    files = {
+        "library/contracts/shared_contract.py": "VALUE = 1\n",
+        "library/contracts/contract_facade.py": (
+            "# re-export of shared_contract\nimport shared_contract\n"),
+        "library/schemas/generated/shared_contract.json": (
+            '{"$id": "shared_contract", "type": "object"}\n'),
+        "native/codec/src/shared_contract.rs": "pub const VALUE: i32 = 1;\n",
+        "tests/test_python_consumer.py": (
+            "import shared_contract\n"),
+        "tests/test_native_consumer.py": (
+            "import shared_contract\n"),
+        "tests/test_schema_consumer.py": (
+            "import shared_contract\n"),
+        "tests/test_transitive_consumer.py": (
+            "import contract_facade\n"),
+        "tests/test_unrelated.py": "import unrelated_module\n",
+    }
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    monkeypatch.setenv("REN_SELECT_ROOT", str(root))
+    monkeypatch.setenv("REN_SELECTOR_NO_CACHE", "1")
+    selector = _load_selector()
+    expected = {
+        "tests/test_python_consumer.py",
+        "tests/test_native_consumer.py",
+        "tests/test_schema_consumer.py",
+        "tests/test_transitive_consumer.py",
+    }
+    selector.CONTRACT_SETS["shared_contract"] = sorted(expected)
+    full_fixture_selection = {
+        path for path in files if path.startswith("tests/test_")
+    }
+
+    for changed in (
+            "library/contracts/shared_contract.py",
+            "library/schemas/generated/shared_contract.json",
+            "native/codec/src/shared_contract.rs"):
+        selected = set(selector.select([changed], use_coverage=False))
+        assert selected == expected
+        assert selected < full_fixture_selection
+
+
 def test_corrupt_cache_is_a_cold_start(monkeypatch, tmp_path):
     """An unreadable cache never fails a selection: it parses
     everything, exactly as before the cache existed."""
