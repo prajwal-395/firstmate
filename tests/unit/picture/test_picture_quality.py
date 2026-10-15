@@ -8,11 +8,14 @@ calibration on project 001: `docs/evidence/picture_quality.md`.
 import os
 import shutil
 import subprocess
-from unittest.mock import MagicMock
-import pytest
 from pathlib import Path
-from library.tools import frame_ranker
+from typing import ClassVar
+from unittest.mock import MagicMock
 
+import numpy as np
+import pytest
+
+from library.tools import frame_ranker
 
 # under test does not, but the integration assertions below reach it.
 mlx_mock = MagicMock()
@@ -24,6 +27,8 @@ mlx_mock.prompt_utils = mlx_prompt_utils
 
 
 from unittest.mock import patch
+
+
 @pytest.fixture
 def mock_mlx_functions():
     with patch("library.tools.analysis.vision_pipeline_v3.load", mlx_mock.load), \
@@ -39,9 +44,12 @@ from library.tools.analysis.picture_quality import (
     PictureQualityUnavailable,
     _sample_dimensions,
     measure_soft_picture,
+    measurements_in_interval,
+    sample_picture_quality,
     sample_sharpness,
     soft_picture_ranges,
 )
+
 try:
     from library.tools.analysis.vision_pipeline_v3 import (
         _compute_usable_ranges,
@@ -199,6 +207,28 @@ class TestSampleGeometry:
             sample_sharpness(str(broken))
 
 
+@pytest.mark.usefixtures("mock_mlx_functions")
+class TestPixelMeasurementMethods:
+    def test_reports_separate_pixel_readings_without_aesthetic_labels(self):
+        dark = np.zeros((24, 32), dtype=np.uint8)
+        bright = np.full((24, 32), 255, dtype=np.uint8)
+        d = picture_quality._sample_measurements(dark)
+        b = picture_quality._sample_measurements(bright)
+
+        assert d["underexposed_pixel_fraction"] == 1.0
+        assert b["overexposed_pixel_fraction"] == 1.0
+        assert d["luma_mean"] == 0.0
+        assert "cinematic" not in d
+        assert d["low_gradient_residual_sigma_luma"] == 0.0
+
+    def test_interval_query_is_half_open_and_rejects_unknown_tracks(self):
+        track = {"method": "picture_quality_pixels_v1", "measurements": [
+            {"time_s": 0.0}, {"time_s": 0.2}, {"time_s": 0.4}]}
+        assert measurements_in_interval(track, 0.2, 0.4) == [{"time_s": 0.2}]
+        assert measurements_in_interval(track, 0.4, 0.2) == []
+        assert measurements_in_interval({"measurements": track["measurements"]}, 0, 1) == []
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  End to end, against a real decode
 # ═══════════════════════════════════════════════════════════════════════
@@ -232,6 +262,28 @@ def test_a_real_decode_finds_the_window_that_is_actually_blurred(tmp_path):
     # one sample interval of the truth and never outside the window.
     assert found["start"] == pytest.approx(2.0, abs=1.0 / RATE)
     assert found["end"] == pytest.approx(3.2, abs=1.0 / RATE)
+
+
+@pytest.mark.usefixtures("mock_mlx_functions")
+@needs_ffmpeg
+def test_real_quality_track_has_documented_signals_and_interval_access(tmp_path):
+    clip = tmp_path / "quality.mp4"
+    _synthesise(clip)
+    track = sample_picture_quality(str(clip), start_s=2.0, end_s=3.0)
+
+    assert track["method"] == "picture_quality_pixels_v1"
+    assert track["coordinate_system"] == "display_frame_top_left_normalized_xy"
+    assert track["measurements"][0]["time_s"] == 2.0
+    assert track["sampled_interval_s"] == [2.0, 3.0]
+    assert track["measurements"][0]["frame_difference_luma_fraction"] is None
+    assert track["measurements"][1]["frame_difference_luma_fraction"] is not None
+    assert track["measurements"][1]["motion_blur_proxy"] >= 0
+    assert {"luma_mean", "underexposed_pixel_fraction",
+            "overexposed_pixel_fraction", "low_gradient_residual_sigma_luma",
+            "focus_laplacian_variance"} <= set(track["measurements"][0])
+    interval = measurements_in_interval(track, 2.0, 3.0)
+    assert interval
+    assert all(2.0 <= sample["time_s"] < 3.0 for sample in interval)
 
 
 @pytest.mark.usefixtures("mock_mlx_functions")
@@ -271,12 +323,17 @@ def test_the_blurred_window_is_excluded_from_the_usable_ranges(tmp_path):
 # Tests use synthetic data shaped like the 17 real clips in the reference
 # project, plus boundary cases the reference data does not cover.
 
+import itertools
+
 from library.tools.analysis.vision_pipeline_v3 import (
     _complement_ranges,
+)
+from library.tools.analysis.vision_pipeline_v3 import (
     _compute_usable_ranges as _compute_usable_ranges_2,
+)
+from library.tools.analysis.vision_pipeline_v3 import (
     compute_deterministic_assessment as compute_deterministic_assessment_2,
 )
-
 
 # Motion levels in the absolute units step 1.04 measures (mean absolute
 # frame difference, 0-1), taken from the reference project's raw footage:
@@ -391,7 +448,7 @@ class TestUnmeasured:
             duration=0.5,
             motion_values=[CALM] * 15,  # 15 < 30 samples at 30Hz
         )
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, _unusable, method, signals = _compute_usable_ranges_2(
             idx, 0.5, "unknown")
         assert method == "unmeasured"
         assert signals == []
@@ -436,7 +493,7 @@ class TestRule1SustainedHighMotion:
         """A 3.567s clip held at whip-grade motion throughout is unusable."""
         motion = [WHIP] * 106
         idx = _make_temporal_index(duration=3.567, motion_values=motion)
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, method, signals = _compute_usable_ranges_2(
             idx, 3.567, "scenery")
 
         assert method == "deterministic_v1"
@@ -460,7 +517,7 @@ class TestRule1SustainedHighMotion:
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
         assert max(idx["motion_energy"]["values"]) == 1.0
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "scenery")
 
         assert method == "deterministic_v1"
@@ -473,7 +530,7 @@ class TestRule1SustainedHighMotion:
         # Spike at 5s for 0.5s (15 samples) - below 1s threshold
         motion[150:165] = [WHIP] * 15
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "unknown")
 
         assert method == "deterministic_v1"
@@ -486,7 +543,7 @@ class TestRule1SustainedHighMotion:
         # Spike at 3s for 2s (60 samples)
         motion[90:150] = [WHIP] * 60
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "unknown")
 
         assert len(unusable) == 1
@@ -502,7 +559,7 @@ class TestRule1SustainedHighMotion:
         motion[121:181] = [WHIP] * 60
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, _unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "unknown")
 
         assert all(r[1] - r[0] >= 0.5 for r in usable), usable
@@ -524,7 +581,8 @@ class TestRule2IsAROllOnly:
     """
 
     # IMG_1819's shape: 4.7s of B-roll carrying one 0.36s speech region.
-    SPEECH = [{"start": 0.893, "end": 1.254, "text": "look at me."}]
+    SPEECH: ClassVar[list[dict[str, object]]] = [
+        {"start": 0.893, "end": 1.254, "text": "look at me."}]
 
     def _run(self, content_type, soft=None):
         idx = _make_temporal_index(
@@ -577,7 +635,7 @@ class TestRule2DeadHeadTail:
 
         # A-roll: the rule reasons about a speaker, so it only applies to a
         # clip that has one.  See TestRule2IsAROllOnly below.
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         head_flags = [r for r in unusable if r["reason"] == "high_motion_head"]
@@ -595,7 +653,7 @@ class TestRule2DeadHeadTail:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, speech_regions=speech)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         tail_flags = [r for r in unusable if r["reason"] == "high_motion_tail"]
@@ -608,7 +666,7 @@ class TestRule2DeadHeadTail:
         motion = [HANDHELD] * 300
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "unknown")
 
         head_tail = [r for r in unusable
@@ -631,7 +689,7 @@ class TestRule3SubjectAbsence:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, face_values=face)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         absent = [r for r in unusable if r["reason"] == "subject_absent"]
@@ -647,7 +705,7 @@ class TestRule3SubjectAbsence:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, face_values=face)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "scenery")
 
         absent = [r for r in unusable if r["reason"] == "subject_absent"]
@@ -663,7 +721,7 @@ class TestRule3SubjectAbsence:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, face_values=face)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         absent = [r for r in unusable if r["reason"] == "subject_absent"]
@@ -675,7 +733,7 @@ class TestRule3SubjectAbsence:
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
         # No face_values -> no face_presence key
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         assert "face_presence" not in signals
@@ -761,7 +819,7 @@ class TestReferenceProjectShapes:
         motion[300:390] = [0.25] * 90  # 3s of whipping at 10-13s
         idx = _make_temporal_index(duration=17.1, motion_values=motion)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, method, _signals = _compute_usable_ranges_2(
             idx, 17.1, "scenery")
 
         assert method == "deterministic_v1"
@@ -785,7 +843,7 @@ class TestReferenceProjectShapes:
         idx = _make_temporal_index(
             duration=45.943, motion_values=motion, speech_regions=speech)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, method, _signals = _compute_usable_ranges_2(
             idx, 45.943, "person_talking_to_camera")
 
         assert method == "deterministic_v1"
@@ -819,7 +877,7 @@ class TestEdgeCases:
             duration=10.0, motion_values=motion,
             speech_regions=speech, face_values=face)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        _usable, unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         reasons = {r["reason"] for r in unusable}
@@ -834,7 +892,7 @@ class TestEdgeCases:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, speech_regions=speech)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.0, "person_talking_to_camera")
 
         assert usable == []
@@ -856,7 +914,7 @@ class TestEdgeCases:
         assert starts == sorted(starts)
         for reason in {r["reason"] for r in unusable}:
             same = [r for r in unusable if r["reason"] == reason]
-            for a, b in zip(same, same[1:]):
+            for a, b in itertools.pairwise(same):
                 assert a["end"] < b["start"]
 
     def test_rounding(self):
@@ -867,7 +925,7 @@ class TestEdgeCases:
         idx = _make_temporal_index(
             duration=10.123456, motion_values=motion, speech_regions=speech)
 
-        usable, unusable, method, signals = _compute_usable_ranges_2(
+        usable, unusable, _method, _signals = _compute_usable_ranges_2(
             idx, 10.123456, "unknown")
 
         for r in usable:

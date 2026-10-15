@@ -1,4 +1,4 @@
-"""Per-sample picture sharpness, measured straight off the video file.
+"""Per-sample objective picture measurements, measured from decoded pixels.
 
 Why this exists
 ---------------
@@ -18,10 +18,14 @@ on the first run.
 
 What it measures
 ----------------
-The variance of a 4-neighbour Laplacian over a decoded, downscaled
-greyscale frame, sampled at `SAMPLE_RATE_HZ`.  It is the conventional
-cheap sharpness estimate: a blurred frame has little high-frequency
-energy, so the Laplacian is flat and its variance small.
+`sample_picture_quality` returns per-sample Laplacian variance (focus/blur
+signal), luma mean and percentiles, near-black/near-white pixel fractions,
+a low-gradient median-residual noise proxy, and normalized difference from
+the preceding sample. Methods, units, and limits are documented beside
+`_sample_measurements`. `measurements_in_interval` queries timestamped rows
+over a half-open interval. These are image measurements, not aesthetic
+judgments. The motion-blur proxy pairs movement and relative softness; it
+does not identify shutter blur versus focus loss or a scene cut.
 
 The verdict is RELATIVE to the clip's own reference sharpness (a high
 percentile of its own samples), with an ABSOLUTE floor underneath it.
@@ -44,9 +48,12 @@ What it cannot resolve
   shortest window it is guaranteed to report is 0.6s.  Anything shorter
   may land on only two samples and be dropped.  That floor is deliberate:
   a single soft frame in a pan is not a reason to fence off footage.
-- It says nothing about exposure, composition, or whether the shot is
-  interesting.  It is one signal, and `usable_ranges_signals` names it so
-  a reader can tell which.
+- It does not identify a subject, composition, or obstruction. Subject
+  position is measured separately by the face track in step 1.04 and
+  `subject_framing`; this sampler does not invent those boxes.
+- The noise value is a low-gradient high-pass residual in decoded,
+  compressed pixels. It is not sensor-noise ground truth.
+- Clipping uses luma <=4 and >=251 on the decoded 8-bit grayscale image.
 
 Cost
 ----
@@ -57,7 +64,8 @@ The vision pass beside it costs ~140s per clip of model time.
 
 Run it standalone against a clip:
 
-    python3 -m library.tools.analysis.picture_quality <video> [--json]
+    python3 -m library.tools.analysis.picture_quality <video> [--quality]
+        [--start S --end S]
 
 
 Rules relocated from AGENTS.md 10.3
@@ -79,6 +87,7 @@ import json
 import subprocess
 import sys
 
+import cv2
 import numpy as np
 
 # ── Sampling ────────────────────────────────────────────────────────
@@ -209,6 +218,119 @@ def _laplacian_variance(frame):
     return round(float(laplacian(frame).var()), 3)
 
 
+def _sample_measurements(frame, previous=None):
+    """Objective per-frame pixel readings; no aesthetic verdicts.
+
+    Luma is full-range 8-bit after ffmpeg's gray conversion. The clipping
+    fractions use <= 4 and >= 251 to allow a small codec/rounding margin.
+    The noise reading is a robust MAD estimate of the 3x3-median high-pass
+    residual, restricted to low-gradient pixels; it is a texture/noise
+    proxy in compressed footage, not a sensor-noise estimate. Motion is the
+    mean absolute difference from the preceding sampled frame, normalized
+    to 0..1. Pairing that with focus exposes motion-associated softness but
+    does not claim to identify its optical cause.
+    """
+    image = np.asarray(frame, dtype=np.uint8)
+    luma = image.astype(np.float32)
+    residual = luma - cv2.medianBlur(image, 3).astype(np.float32)
+    gy = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=3)
+    gx = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=3)
+    flat = (gx * gx + gy * gy) < (12.0 * 12.0)
+    residual_values = residual[flat]
+    if residual_values.size:
+        median = float(np.median(residual_values))
+        noise_sigma = 1.4826 * float(np.median(np.abs(residual_values - median)))
+    else:
+        noise_sigma = None
+    return {
+        "focus_laplacian_variance": _laplacian_variance(luma),
+        "luma_mean": round(float(luma.mean()), 3),
+        "luma_p05": round(float(np.percentile(luma, 5)), 3),
+        "luma_p95": round(float(np.percentile(luma, 95)), 3),
+        "underexposed_pixel_fraction": round(float(np.mean(image <= 4)), 6),
+        "overexposed_pixel_fraction": round(float(np.mean(image >= 251)), 6),
+        "low_gradient_residual_sigma_luma": (
+            round(noise_sigma, 3) if noise_sigma is not None else None),
+        "frame_difference_luma_fraction": (
+            round(float(np.mean(np.abs(luma - previous.astype(np.float32)))) / 255.0, 6)
+            if previous is not None else None),
+    }
+
+
+def sample_picture_quality(video_path, rate_hz=SAMPLE_RATE_HZ,
+                           short_side=SAMPLE_SHORT_SIDE_PX,
+                           start_s=0.0, end_s=None):
+    """Decode and measure focus, exposure, clipping, residual texture and motion.
+
+    Each sample has a timestamp in seconds from the displayed clip start.
+    Its pixel geometry is the decoded display frame after autorotation and
+    aspect-preserving scale. Spatial positions elsewhere in the pipeline use
+    normalized display-frame coordinates (origin top-left); this sampler
+    emits frame-wide values and does not invent a subject or occlusion box.
+    """
+    if start_s < 0 or (end_s is not None and end_s <= start_s):
+        raise ValueError("picture-quality interval must satisfy 0 <= start < end")
+    width, height = _display_dimensions(video_path)
+    out_w, out_h = _sample_dimensions(width, height, short_side)
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if start_s:
+        command.extend(["-ss", str(start_s)])
+    command.extend(["-i", str(video_path)])
+    if end_s is not None:
+        command.extend(["-t", str(end_s - start_s)])
+    command.extend([
+        "-vf", f"fps={rate_hz},scale={out_w}:{out_h}",
+        "-pix_fmt", "gray", "-f", "rawvideo", "-",
+    ])
+    result = subprocess.run(
+        command,
+        capture_output=True, timeout=FFMPEG_TIMEOUT_S, check=False,
+    )
+    if result.returncode != 0:
+        raise PictureQualityUnavailable(f"ffmpeg could not decode {video_path}")
+    frame_bytes = out_w * out_h
+    n_frames = len(result.stdout) // frame_bytes if frame_bytes else 0
+    if n_frames == 0:
+        raise PictureQualityUnavailable(f"ffmpeg decoded no frames from {video_path}")
+    frames = np.frombuffer(result.stdout[:n_frames * frame_bytes], dtype=np.uint8)
+    frames = frames.reshape(n_frames, out_h, out_w)
+    samples = []
+    for index, frame in enumerate(frames):
+        row = {"time_s": round(start_s + index / rate_hz, 3)}
+        row.update(_sample_measurements(frame, frames[index - 1] if index else None))
+        samples.append(row)
+    reference = float(np.percentile(
+        [row["focus_laplacian_variance"] for row in samples],
+        SHARPNESS_REFERENCE_PERCENTILE))
+    threshold = max(SHARPNESS_ABSOLUTE_FLOOR,
+                    SHARPNESS_RELATIVE_FRACTION * reference)
+    for row in samples:
+        motion = row["frame_difference_luma_fraction"]
+        softness = max(0.0, 1.0 - row["focus_laplacian_variance"] / threshold)
+        row["motion_blur_proxy"] = (
+            round(motion * softness, 6) if motion is not None else None)
+    return {
+        "method": "picture_quality_pixels_v1",
+        "sample_rate_hz": rate_hz,
+        "sample_short_side_px": min(out_w, out_h),
+        "coordinate_system": "display_frame_top_left_normalized_xy",
+        "display_width_px": width,
+        "display_height_px": height,
+        "sampled_interval_s": [start_s, end_s],
+        "motion_blur_proxy_method": (
+            "frame_difference_luma_fraction * relative_softness_below_clip_threshold"),
+        "measurements": samples,
+    }
+
+
+def measurements_in_interval(track, start_s, end_s):
+    """Return samples whose timestamps fall in the half-open [start, end) interval."""
+    if end_s <= start_s or not track or track.get("method") != "picture_quality_pixels_v1":
+        return []
+    return [sample for sample in track["measurements"]
+            if start_s <= sample["time_s"] < end_s]
+
+
 def sample_sharpness(video_path, rate_hz=SAMPLE_RATE_HZ,
                      short_side=SAMPLE_SHORT_SIDE_PX):
     """Sharpness per sample for one clip.
@@ -219,28 +341,24 @@ def sample_sharpness(video_path, rate_hz=SAMPLE_RATE_HZ,
     """
     width, height = _display_dimensions(video_path)
     out_w, out_h = _sample_dimensions(width, height, short_side)
-
     result = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(video_path),
          "-vf", f"fps={rate_hz},scale={out_w}:{out_h}",
          "-pix_fmt", "gray", "-f", "rawvideo", "-"],
         capture_output=True, timeout=FFMPEG_TIMEOUT_S, check=False,
     )
-    raw = result.stdout
     frame_bytes = out_w * out_h
-    n_frames = len(raw) // frame_bytes if frame_bytes else 0
-    if n_frames == 0:
+    n_frames = len(result.stdout) // frame_bytes if frame_bytes else 0
+    if result.returncode != 0 or n_frames == 0:
         raise PictureQualityUnavailable(
             f"ffmpeg decoded no frames from {video_path}")
-
     frames = np.frombuffer(
-        raw[:n_frames * frame_bytes], dtype=np.uint8
+        result.stdout[:n_frames * frame_bytes], dtype=np.uint8
     ).reshape(n_frames, out_h, out_w).astype(np.float32)
-
     return {
         "sample_rate_hz": rate_hz,
         "sample_short_side_px": min(out_w, out_h),
-        "values": [_laplacian_variance(f) for f in frames],
+        "values": [_laplacian_variance(frame) for frame in frames],
     }
 
 
@@ -319,7 +437,13 @@ def _main(argv=None):
                         help="clip duration in seconds (probed if omitted)")
     parser.add_argument("--json", action="store_true",
                         help="emit the whole sharpness track, not a summary")
+    parser.add_argument("--quality", action="store_true",
+                        help="emit per-sample pixel measurements")
+    parser.add_argument("--start", type=float, help="interval start in seconds")
+    parser.add_argument("--end", type=float, help="interval end in seconds (exclusive)")
     args = parser.parse_args(argv)
+    if (args.start is None) != (args.end is None):
+        parser.error("--start and --end must be supplied together")
 
     duration = args.duration
     if duration is None:
@@ -331,11 +455,16 @@ def _main(argv=None):
         duration = float(probe.stdout.strip() or 0)
 
     try:
-        track = sample_sharpness(args.video)
+        quality = sample_picture_quality(
+            args.video, start_s=args.start or 0.0, end_s=args.end)
     except PictureQualityUnavailable as exc:
         print(json.dumps({"error": str(exc)}))
         return 1
 
+    track = {"sample_rate_hz": quality["sample_rate_hz"],
+             "sample_short_side_px": quality["sample_short_side_px"],
+             "values": [row["focus_laplacian_variance"]
+                        for row in quality["measurements"]]}
     ranges = soft_picture_ranges(track, duration)
     payload = {
         "video": args.video,
@@ -348,6 +477,14 @@ def _main(argv=None):
     }
     if args.json:
         payload["values"] = track["values"]
+    if args.quality:
+        payload["picture_quality"] = quality
+    if args.start is not None:
+        payload["picture_quality_interval"] = {
+            "start_s": args.start, "end_s": args.end,
+            "measurements": measurements_in_interval(
+                quality, args.start, args.end),
+        }
     print(json.dumps(payload, indent=2))
     return 0
 

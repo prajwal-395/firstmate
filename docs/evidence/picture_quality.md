@@ -33,3 +33,43 @@ frame behind the master's 25.0s) and clip_008 @5.0s are both unreadable
 motion blur and both fall inside a reported range; clip_006 @5.0s and
 clip_008 @2.0s are sharp and legible and neither does.  Cost: 2.79s per
 clip, 0.059x realtime.
+
+Objective per-sample measurements
+---------------------------------
+`sample_picture_quality` adds time-addressable pixel readings. It samples the
+display-oriented grayscale frame at 5 Hz after aspect-preserving resize to a
+180 px short side. `measurements_in_interval` uses a half-open interval; the
+standalone command accepts `--quality --start S --end S` and only decodes that
+window.
+
+| Field | Method and unit | Limit |
+|---|---|---|
+| `focus_laplacian_variance` | Variance of the 4-neighbour Laplacian, in squared 8-bit luma levels | Texture, resizing and codec artifacts affect the value; it is not a lens MTF measurement. |
+| `luma_mean`, `luma_p05`, `luma_p95` | Mean and percentiles in decoded 8-bit grayscale levels | Luma omits color-channel clipping. |
+| `underexposed_pixel_fraction`, `overexposed_pixel_fraction` | Pixel fractions at luma <=4 and >=251 | These are near-black/near-white fractions after decode, not an exposure-compensation recommendation. |
+| `low_gradient_residual_sigma_luma` | 1.4826 x MAD of the 3x3 median-filter residual, on pixels with Sobel gradient magnitude below 12 | Texture and compression remain in the residual; this is not sensor noise ground truth. |
+| `frame_difference_luma_fraction` | Mean absolute luma difference from the preceding sampled frame, divided by 255 | Includes subject motion, camera motion, lighting changes and cuts. First sample of a requested interval has no predecessor and is `null`. |
+| `motion_blur_proxy` | Frame-difference fraction multiplied by softness below the clip/interval Laplacian threshold | A proxy only; it does not distinguish shutter blur from defocus, cuts or other changes. |
+
+Every row carries `time_s`; `sampled_interval_s` records the decoded window.
+The coordinate metadata names the display-oriented frame space. The metrics
+are image properties and make no aesthetic claim. Existing face position and
+width come from the separate 1.04 face track (`face_center_x` and
+`face_width`, normalized to the frame); this sampler does not infer subject
+identity, occlusion or obstruction from frame-wide statistics.
+
+The new readings are exposed by the Python API and the standalone CLI. They are
+not used as editorial judgments or hidden replacements for the existing
+sharpness decision. The existing calibrated soft-picture threshold continues
+to govern only `usable_ranges`.
+
+Held-out read, once, with no tuning: the first 15 seconds of raw podcast
+`LCATL0014.MXF` were sampled at 5 Hz (75 frames) with the method above. Main
+had no exposure, clipping, residual-noise, or motion-associated softness
+fields; this branch recorded them independently. Median focus Laplacian
+variance was 353.523, median luma was 41.519/255, median underexposed fraction
+was 0.000000, median overexposed fraction was 0.001424 (maximum 0.001510),
+median low-gradient residual sigma was 0.000 luma levels, median frame
+difference was 0.006792, and median motion-blur proxy was 0.000000. This is a
+measurement report, not threshold calibration; no setting was changed from
+these held-out values.
