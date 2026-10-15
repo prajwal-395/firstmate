@@ -60,6 +60,7 @@ adding a process nobody registered - is exactly the 1.06/1.07 defect
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Tuple
 
@@ -100,8 +101,18 @@ def dag_path(process_id: str) -> Path:
     return PROCESSES_ROOT / process_id / "dag.json"
 
 
+@lru_cache(maxsize=None)
 def load_dag(process_id: str) -> dict:
-    """One process's own graph."""
+    """One process's own graph.
+
+    Read once per process per interpreter: the DAGs are static repo
+    files, and the contract auditor derives every requirement through
+    here, so re-reading and re-parsing them on every one of fifty
+    per-capability effect checks turned a millisecond audit into a
+    minutes-long stall of the contract suite.  Tests that need a
+    different graph pass their own dag dict (`requirements._graph`)
+    or monkeypatch this function, neither of which the cache sees.
+    """
     path = dag_path(process_id)
     if not path.is_file():
         raise ProcessError(

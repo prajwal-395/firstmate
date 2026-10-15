@@ -45,17 +45,53 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import heapq
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-try:
-    from mlx_vlm import load, generate
+# `mlx_vlm` is imported LAZILY, never at module top level.
+#
+# Importing this module must stay cheap: `compile_manifest` imports only
+# `load_temporal_index` (a JSON reader) from here, and a top-level
+# `from mlx_vlm import ...` initializes the mlx runtime (Metal device,
+# thread pool) in every such process.  That pool held interpreter
+# shutdown ~30s AFTER a green test session had already printed its
+# summary (`tests/contracts` + ledgers + lane routing).  Inference
+# entry points resolve the three names below through the module
+# `__getattr__` on first use instead, so readers never pay for the
+# model.
+_MLX_NAMES = ("load", "generate", "apply_chat_template")
+
+
+def __getattr__(name):
+    if name in _MLX_NAMES:
+        try:
+            from mlx_vlm import generate as _generate
+            from mlx_vlm import load as _load
+            from mlx_vlm.prompt_utils import (
+                apply_chat_template as _apply_chat_template,
+            )
+        except ImportError as exc:
+            def _missing_mlx(*args, _err=str(exc), **kwargs):
+                raise RuntimeError(
+                    "mlx_vlm is not installed. To run the vision "
+                    f"pipeline, install mlx_vlm (macOS only): {_err}")
+            globals().update(
+                {key: _missing_mlx for key in _MLX_NAMES})
+        else:
+            globals().update(
+                {"load": _load, "generate": _generate,
+                 "apply_chat_template": _apply_chat_template})
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if TYPE_CHECKING:
+    # Static binding for the lazily imported names above: never
+    # executed at runtime (so it loads no mlx), but lets linters and
+    # type checkers resolve the inference call sites.
+    from mlx_vlm import generate, load
     from mlx_vlm.prompt_utils import apply_chat_template
-except ImportError as e:
-    err_msg = str(e)
-    def _missing_mlx(*args, **kwargs):
-        raise RuntimeError(f"mlx_vlm is not installed. To run the vision pipeline, install mlx_vlm (macOS only): {err_msg}")
-    load = generate = apply_chat_template = _missing_mlx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from model_lifecycle import managed_model

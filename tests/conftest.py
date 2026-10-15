@@ -474,6 +474,20 @@ def pytest_sessionfinish(session, exitstatus):
               + "\nStop what is started: a detached broker outlives its "
               "test (tests/conftest.py).")
 
+    # Release the session AST cache before pytest's own sessionfinish
+    # hooks run: repository-wide source scans share one cache
+    # (`library/tools/ast_cache.py`), which holds ~2M nodes after the
+    # contract suite, and pytest's unraisable-exception cleanup then
+    # runs FIVE full `gc.collect()` iterations over every one of them -
+    # sampled holding process exit 15-95s AFTER the summary had
+    # printed, in `gc_collect_harder` with no live thread.  The cache
+    # is unreachable after the session, so dropping it here leaves
+    # those collections almost nothing to walk.  (Conftest hooks run
+    # before builtin plugins' sessionfinish, so this lands ahead of
+    # that cleanup.)
+    from library.tools import ast_cache as _ast_cache
+    _ast_cache.clear_cache()
+
 
 @pytest.fixture(autouse=True)
 def _resolve_broker_is_the_tests_own(request):

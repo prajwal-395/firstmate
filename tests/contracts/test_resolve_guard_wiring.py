@@ -6,6 +6,7 @@ import ast
 import importlib
 from pathlib import Path
 import pytest
+from library.tools.ast_cache import parse_file, parse_source
 from library.tools.concurrency_routing import (
     OPERATIONS, RESOLVE_CURSOR, RESOLVE_READ)
 
@@ -189,7 +190,7 @@ def test_every_scriptapp_call_uses_the_guarded_connection_boundary():
     ]
     for path in python_files:
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except SyntaxError:  # pragma: no cover - invalid owned source
             continue
         for node in ast.walk(tree):
@@ -207,7 +208,7 @@ def test_resolve_script_binding_import_is_centralized():
     direct = []
     for path in _library_files():
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
         except SyntaxError:  # pragma: no cover - invalid owned source
             continue
         for node in ast.walk(tree):
@@ -227,7 +228,7 @@ def test_resolve_script_binding_import_is_centralized():
 
 def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
     path = LIBRARY / "tools" / "resolve_axi.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parse_file(path)
     command_handlers = {
         node.name for node in tree.body
         if isinstance(node, ast.FunctionDef)
@@ -291,8 +292,7 @@ def test_non_routed_live_resolve_entry_points_take_the_lease():
 def test_pipeline_skill_resolve_helpers_keep_the_lease_for_the_operation():
     skill_scripts = (REPO_ROOT / ".agents" / "skills"
                      / "davinci_resolve_pipeline" / "scripts")
-    connection = ast.parse(
-        (skill_scripts / "connect_resolve.py").read_text(encoding="utf-8"))
+    connection = parse_file(skill_scripts / "connect_resolve.py")
     connect = next(node for node in connection.body
                    if isinstance(node, ast.FunctionDef)
                    and node.name == "connect")
@@ -311,7 +311,7 @@ def test_pipeline_skill_resolve_helpers_keep_the_lease_for_the_operation():
     for filename, function_name in (
             ("render_frame.py", "render_frame_to_png"),
             ("diagnose_comp.py", "diagnose_clip_comp")):
-        tree = ast.parse((skill_scripts / filename).read_text(encoding="utf-8"))
+        tree = parse_file(skill_scripts / filename)
         function = next(node for node in tree.body
                         if isinstance(node, ast.FunctionDef)
                         and node.name == function_name)
@@ -359,7 +359,7 @@ def test_assert_current_timeline_still_has_its_callers():
     for path in _library_files():
         source = path.read_text(encoding="utf-8", errors="replace")
         try:
-            tree = ast.parse(source)
+            tree = parse_source(source, path=path)
         except SyntaxError:  # pragma: no cover - not a python file we own
             continue
         for node in ast.walk(tree):
@@ -418,7 +418,7 @@ METHOD = "SetCurrentTimeline"
 
 
 def _sites(path: Path) -> list:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parse_file(path)
     return [node.lineno for node in ast.walk(tree)
             if isinstance(node, ast.Attribute) and node.attr == METHOD]
 
@@ -534,7 +534,7 @@ def test_cursor_and_project_switches_are_exclusive():
         if not root.exists():
             continue
         for path in sorted(root.rglob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_file(path)
             visitor = _CursorWriterVisitor(
                 path.relative_to(REPO_ROOT).as_posix())
             visitor.visit(tree)
@@ -544,7 +544,7 @@ def test_cursor_and_project_switches_are_exclusive():
                 for line, method, function in visitor.unprotected)
 
     guard_path = REPO_ROOT / "library/tools/resolve_lock.py"
-    guard_tree = ast.parse(guard_path.read_text(encoding="utf-8"))
+    guard_tree = parse_file(guard_path)
     guard = next(node for node in guard_tree.body
                  if isinstance(node, ast.FunctionDef)
                  and node.name == "assert_current_timeline")

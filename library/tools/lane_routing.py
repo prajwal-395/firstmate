@@ -57,6 +57,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from library.tools.ast_cache import parse_source
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 SERIAL = "serial"
@@ -299,7 +301,7 @@ def classify_file(path: Path) -> LaneRoute:
     except OSError as exc:
         return LaneRoute(path, SERIAL, f"unreadable ({exc.__class__.__name__})")
     try:
-        tree = ast.parse(source)
+        tree = parse_source(source, path=path)
     except SyntaxError as exc:
         return LaneRoute(path, SERIAL, f"unparseable ({exc.msg})")
 

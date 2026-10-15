@@ -372,7 +372,12 @@ def run_order(process_id: str) -> tuple:
     """
     specs = [c for c in all() if c.legacy and c.legacy.process == process_id]
     ids_in = {c.id for c in specs}
-    after = {c.id: {p for r in c.requires for p in producers_of(r)
+    # One derivation for the whole order: `producers_of` re-derives the
+    # full requirement index on every call, which turned this loop over
+    # every capability's every requirement into hundreds of identical
+    # graph derivations and stalled the contract suite.
+    producers = dag_adapter.requirement_index()[1]
+    after = {c.id: {p for r in c.requires for p in producers.get(r, ())
                     if p in ids_in and p != c.id}
              for c in specs}
     order: list = []
@@ -404,6 +409,29 @@ def _top_level_defs(path: Path) -> frozenset:
     tree = parse_file(path)
     return frozenset(n.name for n in tree.body
                      if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
+
+
+def _effect_of(op, node, all_reqs) -> tuple:
+    """What `Operation.effect` answers, without re-deriving the graph.
+
+    `dag_adapter.requirements_produced(op)` re-reads every DAG and
+    manifest off disk through `requirements.all_requirements()`; called
+    once per capability inside `problems()` that turned the audit from
+    one derivation into fifty.  The caller already holds that one
+    derivation (`all_reqs`), and the predicate below is the same one -
+    the requirement names the capability's node as a producer and the
+    state key written there is one the capability declares (an empty
+    key is a whole-output requirement, met by any capability of the
+    node that produces anything).
+    """
+    produces = set(getattr(op, "produces", ()) or ())
+    if not produces:
+        return ()
+    return tuple(
+        r for r in all_reqs
+        if node in r.produced_by
+        and (r.key_at(node) in produces or not r.key_at(node))
+    )
 
 
 _LOCK_NAMES = ("heavy_work_lock", "heavy_work_locked",
@@ -550,6 +578,8 @@ def problems(registry=None) -> list:
     declared_routes = {}
 
     seen = set()
+    with_capabilities: set = set()
+    produced_at: dict = {}
     for op in registry:
         if op.name in seen:
             out.append(f"capability id {op.name!r} is registered twice")
@@ -683,12 +713,16 @@ def problems(registry=None) -> list:
         # works backwards from effects, so an unexplained empty effect is
         # a capability nothing can ever select.
         excused = op.name in operations.EMPTY_EFFECT_REASONS
-        if not op.effect and not excused:
+        effect = _effect_of(op, node, all_reqs)
+        with_capabilities.add(node)
+        for r in effect:
+            produced_at.setdefault(node, set()).add(r.name)
+        if not effect and not excused:
             out.append(f"{op.name}: produces no requirement and "
                        f"EMPTY_EFFECT_REASONS does not say why")
-        elif op.effect and excused:
+        elif effect and excused:
             out.append(f"{op.name}: EMPTY_EFFECT_REASONS excuses an empty "
-                       f"effect, but it produces {len(op.effect)}")
+                       f"effect, but it produces {len(effect)}")
 
     valid_creative_policies = {MODEL_DECIDES_QUANTITY}
     for capability_id, policy in CREATIVE_POLICIES.items():
@@ -733,16 +767,8 @@ def problems(registry=None) -> list:
         out.append(f"step directory {d} is reached by no capability and "
                    f"no process node, and STEPS declares no reason")
 
-    with_capabilities: set = set()
-    produced_at: dict = {}
-    for op in registry:
-        try:
-            node = dag_adapter.node_of(op)
-        except dag_adapter.NoLegacyNode:
-            continue        # reported above, by name
-        with_capabilities.add(node)
-        for r in op.effect:
-            produced_at.setdefault(node, set()).add(r.name)
+    # `with_capabilities` / `produced_at` were accumulated in the loop
+    # above, beside the empty-effect check that reads the same effect.
     for r in all_reqs:
         for producer in r.produced_by:
             if producer not in nodes:

@@ -222,12 +222,32 @@ def load_manifests(dag: dict) -> Dict[str, dict]:
     """`{node_id: manifest}` read straight off disk, same as the runner."""
     out: Dict[str, dict] = {}
     for node in dag.get("nodes", []):
-        manifest_path = _LIBRARY_ROOT / node["step_ref"] / "manifest.json"
-        try:
-            out[node["id"]] = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            out[node["id"]] = {}
+        out[node["id"]] = _read_manifest(node["step_ref"])
     return out
+
+
+_manifest_cache: Dict[str, dict] = {}
+"""Manifests by step_ref, read once per interpreter.
+
+Step manifests are static repo files; the requirement derivation reads
+the whole set on every `all_requirements()` call, so re-parsing thirty
+files per call turned each contract audit into hundreds of disk reads.
+Callers only read the returned dicts, and a test needing a different
+manifest passes its own dict rather than rewriting the repo file.
+"""
+
+
+def _read_manifest(step_ref: str) -> dict:
+    """One step's manifest, cached by step_ref."""
+    cached = _manifest_cache.get(step_ref)
+    if cached is None:
+        manifest_path = _LIBRARY_ROOT / step_ref / "manifest.json"
+        try:
+            cached = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cached = {}
+        _manifest_cache[step_ref] = cached
+    return cached
 
 
 def optional_inputs(manifest: Optional[dict]) -> Set[str]:
