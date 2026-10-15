@@ -435,6 +435,40 @@ def _acquire_in_thread(scheduler, owner, profile):
     return admitted, box
 
 
+def test_release_tolerates_legacy_directory_disappearing_during_cleanup(
+        scheduler, monkeypatch):
+    """A legacy bridge removed during release cannot fail a completed job."""
+    token = scheduler.acquire("cleanup race", {})
+    assert scheduler.legacy_dir.is_dir()
+
+    def remove_bridge():
+        (scheduler.legacy_dir / resource_scheduler.OWNER_FILE).unlink()
+        scheduler.legacy_dir.rmdir()
+        return None
+
+    # Simulate the directory disappearing after _drop_legacy_dir_if_idle's
+    # exists check but before its iterdir call.
+    monkeypatch.setattr(scheduler, "_legacy_owner", remove_bridge)
+    scheduler.release(token, "machine")
+    assert scheduler.jobs() == []
+
+
+def test_heavy_work_run_preserves_child_exit_code_with_absent_legacy_dir(
+        tmp_path):
+    """A missing legacy bridge leaves the wrapped command's status intact."""
+    lock_dir = tmp_path / "missing" / "heavy-work.lock"
+    env = os.environ.copy()
+    env[heavy_work_lock.LOCK_DIR_ENV] = str(lock_dir)
+    result = subprocess.run(
+        [sys.executable, "-m", "library.tools.heavy_work_lock", "run",
+         "--owner", "exit-code-regression", "--profile", "machine", "--",
+         sys.executable, "-c", "raise SystemExit(23)"],
+        cwd=Path(__file__).resolve().parents[3], env=env,
+        capture_output=True, encoding="utf-8", timeout=30, check=False)
+    assert result.returncode == 23, result.stderr
+    assert not lock_dir.exists()
+
+
 def test_dead_legacy_owner_is_reclaimed_before_admission(scheduler):
     import json
     import socket

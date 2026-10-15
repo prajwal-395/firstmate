@@ -595,9 +595,15 @@ class Scheduler:
             return
         if self._legacy_owner() is not None:
             return  # an old-code owner's directory: never ours to remove
-        for path in self.legacy_dir.iterdir():
-            path.unlink()
-        self.legacy_dir.rmdir()
+        try:
+            for path in self.legacy_dir.iterdir():
+                path.unlink()
+            self.legacy_dir.rmdir()
+        except FileNotFoundError:
+            # An older lane or an external cleanup may remove the bridge
+            # directory after the existence check. The scheduler row has
+            # already been released, so a missing legacy directory is idle.
+            pass
 
     # ── jobs ──
     def acquire(self, owner: str, demand: Dict[str, int],
