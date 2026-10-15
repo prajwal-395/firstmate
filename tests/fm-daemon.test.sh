@@ -815,7 +815,7 @@ test_stale_diagnostic_wedge_survives_busy_housekeeping() {
     case "$case_name" in
       working) status_line='working: building' ;;
       prior-terminal) status_line='done: already surfaced' ;;
-      paused) status_line='paused: awaiting an external dependency' ;;
+      paused) status_line='paused: waits-for=task:release-check awaiting the external dependency' ;;
     esac
     printf '%s\n' "$status_line" > "$state/$task.status"
     printf 'Working...\n' > "$pane"

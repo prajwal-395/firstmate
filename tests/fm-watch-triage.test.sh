@@ -332,7 +332,7 @@ test_stale_is_terminal_classifier() {
   stale_is_terminal "default:w1:p2" "$state" || fail "terminal herdr stale status not resolved through metadata"
   printf 'working: compiling\n' > "$state/nonterm.status"
   stale_is_terminal "sess:fm-nonterm" "$state" && fail "non-terminal stale classified terminal"
-  printf 'paused: waiting on upstream PR #123 to land\nOnce it is merged I will rebase and continue.\n' > "$state/prose-pause.status"
+  printf 'paused: waits-for=pr:https://example.com/pull/123 waiting on upstream PR to land\nOnce it is merged I will rebase and continue.\n' > "$state/prose-pause.status"
   stale_is_terminal "sess:fm-prose-pause" "$state" && fail "prose mentioning a legacy token escalated a multi-line pause as terminal"
   status_is_paused_or_captain_held "$(last_status_line "$state/prose-pause.status")" \
     || fail "prose mentioning a legacy token hid a multi-line pause from the wait cadence"
