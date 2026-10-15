@@ -124,6 +124,13 @@ def test_evidenced_model_grounds_cuts_inside_brief_ranges(tmp_path):
         .read_text(encoding="utf-8"))
     assert graph["node_count"] == diagnostics["graph_node_count"]
     assert any(node["node_type"] == "spine_block" for node in graph["nodes"])
+    cut_reason = diagnostics["cuts"][0]["reason"]
+    assert cut_reason["creative_rationale"] == "Keep the complete beat."
+    assert cut_reason["evidence_ids"]
+    assert {row["measurement_type"] for row in
+            cut_reason["factual_evidence"]} == {
+                "speech.word", "person.voice_turn"}
+    assert cut_reason["technical_measurements"] == []
 
 
 def test_cuts_without_word_timings_never_become_speech_blocks(tmp_path):
@@ -139,7 +146,7 @@ def test_cuts_without_word_timings_never_become_speech_blocks(tmp_path):
                for item in diagnostics["ungraphable"])
 
 
-def test_visual_cuts_become_action_beats_without_word_timings(tmp_path):
+def test_object_evidence_cannot_be_assumed_to_prove_an_action(tmp_path):
     task = _brief(task_id="visual-action-object-cut",
                   task_types=("visual_action", "visual_object"),
                   moments=[_moment(moment_id="v1", source_id="IMG_1818",
@@ -158,16 +165,109 @@ def test_visual_cuts_become_action_beats_without_word_timings(tmp_path):
         output_root=tmp_path, source_durations={"IMG_1818": 85.518},
         word_rows_by_source={})
 
-    assert diagnostics["cuts"] != []
-    assert diagnostics["ungraphable"] == []
-    assert entry["runs"][0]["stages"]["edit_graph"] == "complete"
-    graph = json.loads(
-        (tmp_path / "visual-action-object-cut" / "run-a" / "edit-graph.json")
+    assert diagnostics["cuts"] == []
+    assert diagnostics["abstentions"][0]["required_plans"] == [
+        ["action"], ["objects"]]
+    assert entry["runs"][0]["stages"]["edit_graph"] == "incomplete"
+    assert any(row["decision"].startswith("abstain on v1")
+               for row in entry["runs"][0]["evidence_decisions"])
+
+
+def test_cut_point_verification_uses_source_clock_signal_and_is_written(tmp_path):
+    model = _evidenced_model()
+    model["signals"].append({
+        "id": "sig-phoneme-source-a", "measurement_type": "phoneme",
+        "processing_status": "analyzed",
+        "interval": {"clock_id": "c1", "start": 11000, "end": 16000},
+        "samples": [{"tick": 13000}],
+    })
+    model["signals"].append({
+        "id": "sig-phoneme-source-b", "measurement_type": "phoneme",
+        "processing_status": "analyzed",
+        "interval": {"clock_id": "other-clock", "start": 11000,
+                      "end": 16000},
+        "samples": [{"tick": 12500}],
+    })
+
+    _, diagnostics = runner.run_task(
+        _brief(), model, split="calibration", run_name="run-a",
+        output_root=tmp_path, source_durations={"LCATL0012": 288.955},
+        word_rows_by_source=_word_rows())
+
+    verification = diagnostics["cuts"][0]["reason"][
+        "edit_point_verification"]
+    assert verification == {"status": "verified", "tick_seconds": 13.0,
+                            "measurement_ids": ["sig-phoneme-source-a"]}
+    timeline = json.loads(
+        (tmp_path / "dialogue-multicam-cut" / "run-a" / "edit.otio.json")
         .read_text(encoding="utf-8"))
-    block_types = {node["payload"].get("block_type")
-                   for node in graph["nodes"]
-                   if node["node_type"] == "spine_block"}
-    assert block_types == {"action"}
+    assert timeline["tracks"][0]["clips"][0]["reason"][
+        "edit_point_verification"] == verification
+
+
+def test_visual_object_cut_carries_measurements_separate_from_rationale(tmp_path):
+    task = _brief(task_id="visual-object-cut", task_types=("visual_object",),
+                  moments=[_moment(moment_id="v1", source_id="IMG_1818",
+                                   start=5.0, end=20.0)])
+    model = {"id": "model-object", "revision": 1, "assets": [], "clocks": [],
+             "observations": [
+                 _word_obs("obs-det-1", "object.detection", "c1",
+                           5000, 20000, "m4"),
+                 _word_obs("obs-vis-1", "object.visibility", "c1",
+                           5000, 20000, "m4"),
+             ], "signals": []}
+    for observation in model["observations"]:
+        observation["payload"]["evidence_contract"]["value"] = {
+            "confidence": 0.91, "entity_id": "object-1"}
+
+    _, diagnostics = runner.run_task(
+        task, model, split="calibration", run_name="run-a",
+        output_root=tmp_path, source_durations={"IMG_1818": 85.518})
+
+    assert diagnostics["cuts"]
+    reason = diagnostics["cuts"][0]["reason"]
+    assert reason["evidence_ids"] == ["obs-det-1", "obs-vis-1"]
+    assert reason["creative_rationale"] == "Keep the complete beat."
+    assert {row["measurement_type"] for row in
+            reason["technical_measurements"]} == {
+                "object.detection", "object.visibility"}
+
+
+def test_sound_energy_alone_cannot_justify_a_visual_cut(tmp_path):
+    task = _brief(task_id="visual-object-cut", task_types=("visual_object",),
+                  moments=[_moment(moment_id="v1", source_id="IMG_1818",
+                                   start=5.0, end=20.0)])
+    model = {"id": "model-sound", "revision": 1, "assets": [], "clocks": [],
+             "observations": [_word_obs("obs-sound", "audio.sound_event",
+                                         "c1", 5000, 20000, "m5")],
+             "signals": []}
+
+    _, diagnostics = runner.run_task(
+        task, model, split="calibration", run_name="run-a",
+        output_root=tmp_path, source_durations={"IMG_1818": 85.518})
+
+    assert diagnostics["cuts"] == []
+    assert diagnostics["abstentions"]
+    assert diagnostics["abstentions"][0]["required_plans"] == [["objects"]]
+
+
+def test_combined_selection_requires_required_evidence_to_overlap():
+    task = _brief(task_id="visual-action-object-cut",
+                  task_types=("visual_action", "visual_object"),
+                  moments=[_moment("v1", "IMG_1818", 5.0, 20.0)])
+    answer = {"present_intervals": [
+        {"plan": "action", "start_seconds": 5.0, "end_seconds": 7.0,
+         "evidence_ids": ["obs-action"], "measurements": [{"value": {}}]},
+        {"plan": "objects", "start_seconds": 7.0, "end_seconds": 9.0,
+         "evidence_ids": ["obs-object"], "measurements": [{"value": {}}]},
+    ]}
+
+    cuts, abstentions = runner.ground_cuts(
+        task, task["task_types"], {"v1": answer}, [])
+
+    assert cuts == []
+    assert abstentions[0]["reason"].endswith(
+        "no shared interval in the brief range")
 
 
 def test_render_and_verify_complete_only_when_supplied(tmp_path):
@@ -245,7 +345,9 @@ def test_queries_pin_to_the_moment_source_clock(tmp_path):
         output_root=tmp_path,
         source_durations={"SRC-A": 100.0, "SRC-B": 100.0})
 
-    assert [cut["source_id"] for cut in diagnostics["cuts"]] == ["SRC-A"]
+    assert diagnostics["cuts"] == []
+    assert diagnostics["abstentions"][0]["required_plans"] == [
+        ["action"], ["objects"]]
     sound_rows = [row for row in entry["runs"][0]["evidence_decisions"]
                   if row["decision"].startswith("query sound_energy")]
     assert sound_rows and all("obs-b" not in row["evidence_ids"]

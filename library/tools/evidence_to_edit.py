@@ -82,6 +82,15 @@ PLANS_BY_TASK_TYPE = {
     "visual_object": VISUAL_PLANS,
 }
 
+# Evidence that can justify proposing a source interval for each task type.
+# Corroborating measurements (scene boundaries, sound energy, sync) remain
+# useful facts, but cannot stand in for the subject of the edit.
+REQUIRED_SELECTION_PLANS = {
+    "dialogue_multicam": frozenset({"speech_attributed"}),
+    "visual_action": frozenset({"action"}),
+    "visual_object": frozenset({"objects"}),
+}
+
 # Pinned scorer artefacts the runner consumes when they exist. EVAL-02/03
 # scorers have not landed on this base, so the check below reports them
 # pending rather than substituting guessed values.
@@ -192,8 +201,10 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
     explicitly instead of pretending the evidence was acquired.
     """
     rows: list[dict[str, Any]] = []
-    present_intervals: list[tuple[float, float]] = []
+    present_intervals: list[dict[str, Any]] = []
     statuses: dict[str, str] = {}
+    observations = {str(obs.get("id")): obs
+                    for obs in model.get("observations", [])}
     plans = [plan for task_type in task_types
              for plan in PLANS_BY_TASK_TYPE.get(task_type, ())]
     seen: set[str] = set()
@@ -220,8 +231,30 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
             evidence_ids, "evidence_query"))
         for row in results:
             interval = row.get("interval", {})
-            present_intervals.append((interval.get("start_s", scope["start_s"]),
-                                      interval.get("end_s", scope["end_s"])))
+            measurements = []
+            for evidence_id in row.get("evidence_ids", []):
+                observation = observations.get(str(evidence_id))
+                if observation is None:
+                    continue
+                native = (observation.get("payload") or {}).get(
+                    "evidence_contract") or {}
+                measurements.append({
+                    "evidence_id": str(evidence_id),
+                    "measurement_type": native.get("measurement_type"),
+                    "value": native.get("value"),
+                    "interval": observation.get("interval"),
+                    "provenance_id": observation.get("provenance_id"),
+                })
+            present_intervals.append({
+                "plan": plan_name,
+                "clock_id": interval.get("clock_id"),
+                "start_seconds": interval.get("start_s", scope["start_s"]),
+                "end_seconds": interval.get("end_s", scope["end_s"]),
+                "evidence_ids": row.get("evidence_ids", []),
+                "measurements": measurements,
+                "coverage": row.get("coverage", []),
+                "freshness": row.get("freshness", []),
+            })
         acquisition = query_directed_acquisition.plan_query_acquisition(
             answer, plan, source_digest=moment["source_id"],
             duration_seconds=duration_seconds,
@@ -281,7 +314,7 @@ def _tick_seconds(point: dict[str, Any]) -> float | None:
     return float(tick) / evidence_query.TICKS_PER_SECOND
 
 
-def ground_cuts(brief: dict[str, Any],
+def ground_cuts(brief: dict[str, Any], task_types: list[str],
                 answers_by_moment: dict[str, dict[str, Any]],
                 edit_points: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
                                                            list[dict[str, Any]]]:
@@ -299,26 +332,92 @@ def ground_cuts(brief: dict[str, Any],
     for cut_range in (brief.get("brief") or {}).get("cut_ranges", []):
         moment_id = cut_range.get("moment_id")
         answer = answers_by_moment.get(moment_id, {})
-        overlaps: list[tuple[float, float]] = []
-        for start, end in answer.get("present_intervals", []):
+        required_plans = [REQUIRED_SELECTION_PLANS.get(
+            task_type, frozenset()) for task_type in task_types]
+        required_plans = [plans for plans in required_plans if plans]
+        plan_overlaps: dict[str, list[dict[str, Any]]] = {}
+        for evidence in answer.get("present_intervals", []):
+            if not any(evidence["plan"] in plans for plans in required_plans):
+                continue
+            start, end = evidence["start_seconds"], evidence["end_seconds"]
             left = max(start, cut_range["start_seconds"])
             right = min(end, cut_range["end_seconds"])
             if right > left:
-                overlaps.append((left, right))
-        if not overlaps:
+                plan_overlaps.setdefault(evidence["plan"], []).append(
+                    {**evidence, "start_seconds": left,
+                     "end_seconds": right})
+        compatible = []
+        for plan_group in required_plans:
+            available = [item for plan in plan_group
+                         for item in plan_overlaps.get(plan, [])]
+            if not available:
+                compatible = []
+                break
+            compatible.append(available)
+        intersections = ([(item["start_seconds"], item["end_seconds"],
+                           [item]) for item in compatible[0]]
+                         if compatible else [])
+        for group in compatible[1:]:
+            intersections = [
+                (max(left, item["start_seconds"]),
+                 min(right, item["end_seconds"]), records + [item])
+                for left, right, records in intersections for item in group
+                if min(right, item["end_seconds"])
+                > max(left, item["start_seconds"])]
+        intersections = [row for row in intersections if row[1] > row[0]]
+        if not intersections:
             abstentions.append({"moment_id": moment_id,
-                                "reason": "no present evidence overlaps "
-                                          "the brief range"})
+                                "reason": "required selection evidence is "
+                                          "unavailable or has no shared "
+                                          "interval in the brief range",
+                                "required_plans": [sorted(plans)
+                                                   for plans in required_plans]})
             continue
-        start, end = overlaps[0]
-        ticks = sorted(_tick_seconds(point) for point in edit_points
-                       if start < (_tick_seconds(point) or 0) < end)
-        ticks = [tick for tick in ticks if tick is not None]
+        intersections.sort(key=lambda row: (-(row[1] - row[0]), row[0]))
+        start, end, selected = intersections[0]
+        if any(not item["evidence_ids"] or not item["measurements"]
+               for item in selected):
+            abstentions.append({"moment_id": moment_id,
+                                "reason": "required selection evidence "
+                                          "could not be resolved to source "
+                                          "measurements",
+                                "required_plans": [sorted(plans)
+                                                   for plans in required_plans]})
+            continue
+        evidence_ids = sorted({evidence_id for item in selected
+                               for evidence_id in item["evidence_ids"]})
+        measurements = [measurement for item in selected
+                        for measurement in item["measurements"]]
+        clocks = {item["clock_id"] for item in selected if item["clock_id"]}
+        matching_points = [point for point in edit_points
+                           if (not clocks or point.get("clock_id") in clocks)
+                           and start < (_tick_seconds(point) or 0) < end]
+        matching_points.sort(key=lambda point: _tick_seconds(point))
+        ticks = [_tick_seconds(point) for point in matching_points]
+        point_evidence_ids = sorted({measurement_id
+                                     for point in matching_points
+                                     for measurement_id in
+                                     point.get("measurement_ids", [])})
         cuts.append({"moment_id": moment_id,
                      "source_id": cut_range["source_id"],
                      "start_seconds": start, "end_seconds": end,
-                     "reason": cut_range.get("reason", ""),
-                     "cut_tick_s": ticks[0] if ticks else end,
+                     "reason": {"creative_rationale": cut_range.get("reason", ""),
+                                "factual_evidence": measurements,
+                                "evidence_ids": evidence_ids,
+                                "evidence_plans": sorted({item["plan"]
+                                                           for item in selected}),
+                                "technical_measurements": [
+                                    item for item in measurements
+                                    if item.get("value") is not None],
+                                "edit_point_verification": {
+                                    "status": "verified" if ticks else
+                                    "no_signal_candidate",
+                                    "tick_seconds": ticks[0] if ticks else None,
+                                    "measurement_ids": point_evidence_ids}},
+                     "cut_tick_s": ticks[0] if ticks else None,
+                     "point_verification": {
+                         "status": "verified" if ticks else "no_signal_candidate",
+                         "measurement_ids": point_evidence_ids},
                      "signal_grounded": bool(ticks)})
     return cuts, abstentions
 
@@ -410,7 +509,7 @@ def write_reviewable_output(output_root: Path, task_id: str, run_name: str,
                      "source": cut["source_id"],
                      "source_range": [cut["start_seconds"],
                                       cut["end_seconds"]],
-                     "reason": cut.get("reason", "")}
+                     "reason": cut.get("reason", {})}
                     for cut in cuts]}]}
     artefacts = {"edit-graph.json": graph,
                  "evidence-ledger.json": ledger,
@@ -524,7 +623,16 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
         answers_by_moment[moment["id"]] = answer
     edit_rows, edit_points = consult_edit_points(model)
     ledger.extend(edit_rows)
-    cuts, abstentions = ground_cuts(scoped_task, answers_by_moment, edit_points)
+    cuts, abstentions = ground_cuts(scoped_task, task_types,
+                                    answers_by_moment, edit_points)
+    for abstention in abstentions:
+        ledger.append(_ledger_row(
+            f"abstain on {abstention['moment_id']}",
+            abstention["reason"] + "; required plans: " +
+            json.dumps(abstention["required_plans"], sort_keys=True),
+            [f"evidence_query:unavailable:{abstention['moment_id']}",
+             f"project_model:{model.get('id', 'unidentified')}"],
+            "evidence_query"))
     state, ungraphable = state_for_cuts(
         task_id, task_types, cuts, word_rows_by_source or {})
     graph = edit_graph.build_graph(state)

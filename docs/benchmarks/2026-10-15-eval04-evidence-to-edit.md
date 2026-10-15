@@ -162,6 +162,38 @@ evidence acquisition under `heavy_work_lock` with the narrowest
 matching profile from `resource_scheduler.profiles()` (word-level
 speech would unblock the dialogue graph).
 
+## F02 evidence-grounding follow-up (2026-10-15)
+
+The first-slice runner accepted any present interval as support for a cut.
+That allowed sound-energy intervals to stand in for dialogue and visual
+evidence, and the cut list retained only the brief's rationale. On the
+recorded real-footage Project Model (`/tmp/eval04-real/model-real.json`),
+the four calibration repeats proposed four cuts (two dialogue, one per
+visual source); the single held-out podcast repeat proposed two more.
+The dialogue proposals had no measured words or attributed turns, and the
+visual proposals had no object or action evidence.
+
+The runner now requires a task-specific evidence plan to overlap each
+proposed interval. A combined visual-action/object task requires evidence
+for both; object presence cannot imply an action. Every retained interval
+includes evidence IDs, typed factual measurements and provenance, while the
+brief's selection reason is kept separately as creative rationale. Technical
+values remain explicitly listed, and each proposed point reports whether an
+edit-point signal verified it. No signal candidate means no point is claimed.
+Unsupported proposals are recorded as abstentions naming the missing plans.
+
+| Repeat | Before: cuts / graph nodes | After: cuts / graph nodes | Result |
+|---|---:|---:|---|
+| Calibration LCATL0012 dialogue | 2 / 0 | 0 / 0 | Abstained: attributed speech evidence unavailable |
+| Calibration IMG_1818 action/object | 1 / 1 | 0 / 0 | Abstained: action and object evidence unavailable |
+| Calibration IMG_1812 action/object | 1 / 1 | 0 / 0 | Abstained: action and object evidence unavailable |
+| Held-out LCATL0011 dialogue (reported once) | 2 / 0 | 0 / 0 | Abstained: attributed speech evidence unavailable |
+
+This is a groundedness improvement, not a completed editorial benchmark:
+EVAL-04 still has no frozen human references or gold cut ranges, and the
+current real-footage repeats have no measured word/action/object labels. The
+held-out result was reported once; thresholds were not tuned on it.
+
 ## Current corpus limits
 
 The EVAL-01 manifest now keeps nine Apple 001 takes across two capture-scene
