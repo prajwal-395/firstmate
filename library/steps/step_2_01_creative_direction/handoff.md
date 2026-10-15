@@ -85,6 +85,38 @@ same direction as ADDRESSABLE ENTITIES that downstream planners can
 reason against and verification can check. The prose stays - the model
 is the structure beside it, not a replacement.
 
+The model also carries `editorial_spec`, a structured reading of the
+commissioning request. Translate the attached `creative_brief` and any
+project-provided examples or reference styles into this object. Keep the
+request's exact source wording in each requirement/preference's `source`;
+do not promote a preference into a requirement. Every field is required
+even when its honest value is `null` or `[]`.
+
+- `requirements`: mandatory constraints, each `{id, statement, source}`.
+- `preferences`: creative direction that can yield to a requirement or
+  available evidence, each `{id, statement, source}`.
+- `target_duration`: `{minimum_seconds, target_seconds,
+  maximum_seconds}`, using null for unspecified values; the whole object
+  is null when no length was requested.
+- `platform`, `audience`: explicit values or null when unspecified.
+- `pacing`: list of pacing preferences; `subjects`: `{include, exclude}`.
+- `narrative_goals`, `desired_content`, `prohibited_content`: lists of
+  goals or content named by the request. Do not invent prohibitions.
+- `references`: user-provided examples or stylistic references, with
+  their source and what aspect they illustrate. Empty when none were given.
+- `unresolved_decisions`: questions the request leaves open that would
+  materially change the edit, with why each matters and any provisional
+  assumption. Do not ask questions whose answers are already in the brief.
+- `revision`: `{revision_of, preserved, changed, removed}`. When a brief
+  revises an existing intent, name the prior version if known and list
+  which valid decisions carry forward, change, or are removed. A revision
+  changes only the named decisions; do not discard unrelated valid work.
+
+Use this structure to make the commission inspectable; keep `beats`,
+`claims`, `key_moments`, and `pacing_curve` below for the footage-grounded
+narrative plan. The editorial specification records what was asked, while
+those entities record how the footage can realize it.
+
 - **beats**: The narrative structure, in the order the viewer meets
   them. Each beat carries:
   - `beat_id`: a stable id in the `beat:` namespace (e.g. `"beat:1"`).

@@ -12,6 +12,9 @@ passes only when the model actually does what the defect requires.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from library.tools import intent_model
 
 
@@ -76,6 +79,66 @@ def test_a_model_with_no_beats_has_nothing_to_name():
     """An empty model is valid - it is the model's own statement that the
     piece has no narrative structure, not a defect to hide."""
     assert intent_model.validate_intent_model({}) == []
+
+
+def test_editorial_spec_distinguishes_evaluation_brief_constraints_from_preferences():
+    """The EVAL-04 briefs already contain real commission language; its
+    constraints and preference rubric must stay separately inspectable."""
+    root = Path(__file__).parents[3] / "docs" / "benchmarks"
+    paths = ("eval04-brief-dialogue-multicam.json",
+             "eval04-brief-visual-action-object.json")
+    for path in paths:
+        brief = json.loads((root / path).read_text(encoding="utf-8"))["brief"]
+        requirements = [
+            {"id": item["id"], "statement": item["rule"], "source": item["rule"]}
+            for item in brief["continuity_constraints"]
+        ]
+        preferences = [
+            {"id": item["id"], "statement": item["description"],
+             "source": item["description"]}
+            for item in brief["preference_rubric"]
+        ]
+        spec = {
+            "requirements": requirements, "preferences": preferences,
+            "target_duration": None, "platform": None, "audience": None,
+            "pacing": [item["description"] for item in brief["preference_rubric"]
+                       if item["id"] == "pacing"],
+            "subjects": {"include": [item["description"] for item in
+                                     brief["expected_source_moments"]],
+                         "exclude": []},
+            "narrative_goals": [brief["intent"]],
+            "desired_content": [brief["intent"]], "prohibited_content": [],
+            "references": [], "unresolved_decisions": [],
+            "revision": {"revision_of": None, "preserved": [],
+                         "changed": [], "removed": []},
+        }
+        assert intent_model.validate_editorial_spec(spec) == []
+        assert len(spec["requirements"]) == len(brief["continuity_constraints"])
+        assert len(spec["preferences"]) == len(brief["preference_rubric"])
+
+
+def test_editorial_spec_requires_explicit_unknowns_and_revision_ledger():
+    spec = {"requirements": [], "preferences": []}
+    problems = intent_model.validate_editorial_spec(spec)
+    assert "editorial_spec: missing target_duration" in problems
+    assert "editorial_spec: missing unresolved_decisions" in problems
+    assert "editorial_spec: missing revision" in problems
+
+
+def test_editorial_spec_rejects_a_duration_that_contradicts_its_range():
+    spec = {
+        "requirements": [], "preferences": [],
+        "target_duration": {"minimum_seconds": 60, "target_seconds": 30,
+                            "maximum_seconds": 90},
+        "platform": None, "audience": None, "pacing": [],
+        "subjects": {"include": [], "exclude": []}, "narrative_goals": [],
+        "desired_content": [], "prohibited_content": [], "references": [],
+        "unresolved_decisions": [],
+        "revision": {"revision_of": None, "preserved": [],
+                     "changed": [], "removed": []},
+    }
+    assert any("target is below minimum" in problem
+               for problem in intent_model.validate_editorial_spec(spec))
 
 
 # ── The model's own contract ──────────────────────────────────────

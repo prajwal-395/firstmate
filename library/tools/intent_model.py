@@ -86,6 +86,16 @@ TARGET_ASL = "target_asl"
 SERVES_BEATS = "serves_beats"
 """The field a planner's entry carries to name the beats it serves."""
 
+EDITORIAL_SPEC = "editorial_spec"
+"""The commission translated into inspectable constraints and preferences."""
+
+EDITORIAL_SPEC_FIELDS = (
+    "requirements", "preferences", "target_duration", "platform",
+    "audience", "pacing", "subjects", "narrative_goals",
+    "desired_content", "prohibited_content", "references",
+    "unresolved_decisions", "revision",
+)
+
 
 # ── Small readers over the model ───────────────────────────────────
 
@@ -202,6 +212,9 @@ def validate_intent_model(model: dict, catalog_clip_ids=None) -> list:
     model = _as_dict(model)
     problems: list = []
 
+    if EDITORIAL_SPEC in model:
+        problems.extend(validate_editorial_spec(model[EDITORIAL_SPEC]))
+
     seen_beats: set = set()
     for entry in beats(model):
         beat_id = entry.get(BEAT_ID)
@@ -274,6 +287,80 @@ def validate_intent_model(model: dict, catalog_clip_ids=None) -> list:
             problems.append(
                 f"pacing entry {label}: energy {energy} outside 0..1")
 
+    return problems
+
+
+def validate_editorial_spec(spec: dict) -> list:
+    """Validate the commission-level part of an intent model.
+
+    Empty lists and nulls are valid readings: the source request may not
+    specify a platform or duration. Missing fields are not, because they
+    make an omitted decision indistinguishable from an unasked one.
+    """
+    spec = _as_dict(spec)
+    problems = [f"editorial_spec: missing {key}" for key in EDITORIAL_SPEC_FIELDS
+                if key not in spec]
+    for field in ("requirements", "preferences", "pacing", "narrative_goals",
+                  "desired_content", "prohibited_content", "references",
+                  "unresolved_decisions"):
+        if field in spec and not isinstance(spec[field], list):
+            problems.append(f"editorial_spec.{field}: must be a list")
+    for field in ("subjects", "revision"):
+        if field in spec and not isinstance(spec[field], dict):
+            problems.append(f"editorial_spec.{field}: must be an object")
+    for field in ("platform", "audience"):
+        if field in spec and spec[field] is not None and not isinstance(spec[field], str):
+            problems.append(f"editorial_spec.{field}: must be a string or null")
+    if "target_duration" in spec:
+        duration = spec["target_duration"]
+        if duration is not None and not isinstance(duration, dict):
+            problems.append("editorial_spec.target_duration: must be an object or null")
+        elif isinstance(duration, dict):
+            for key in ("minimum_seconds", "target_seconds", "maximum_seconds"):
+                value = duration.get(key)
+                if value is not None and (not isinstance(value, (int, float)) or value <= 0):
+                    problems.append(f"editorial_spec.target_duration.{key}: must be positive or null")
+            low, target, high = (duration.get(k) for k in
+                                 ("minimum_seconds", "target_seconds", "maximum_seconds"))
+            if low is not None and high is not None and low > high:
+                problems.append("editorial_spec.target_duration: minimum exceeds maximum")
+            if target is not None and low is not None and target < low:
+                problems.append("editorial_spec.target_duration: target is below minimum")
+            if target is not None and high is not None and target > high:
+                problems.append("editorial_spec.target_duration: target exceeds maximum")
+    for group in ("requirements", "preferences"):
+        for index, entry in enumerate(spec.get(group, [])):
+            if (not isinstance(entry, dict) or not entry.get("id")
+                    or not entry.get("statement") or not entry.get("source")):
+                problems.append(
+                    f"editorial_spec.{group}[{index}]: needs id, statement and source")
+    subjects = spec.get("subjects")
+    if isinstance(subjects, dict):
+        for key in ("include", "exclude"):
+            if not isinstance(subjects.get(key), list):
+                problems.append(f"editorial_spec.subjects.{key}: must be a list")
+    revision = spec.get("revision")
+    if isinstance(revision, dict):
+        for key in ("revision_of", "preserved", "changed", "removed"):
+            if key not in revision:
+                problems.append(f"editorial_spec.revision: missing {key}")
+        for key in ("preserved", "changed", "removed"):
+            if key in revision and not isinstance(revision[key], list):
+                problems.append(f"editorial_spec.revision.{key}: must be a list")
+    for index, entry in enumerate(spec.get("references", [])):
+        if isinstance(entry, dict) and (not entry.get("description") or not entry.get("source")):
+            problems.append(
+                f"editorial_spec.references[{index}]: needs description and source")
+    for index, entry in enumerate(spec.get("unresolved_decisions", [])):
+        if isinstance(entry, dict) and (not entry.get("question") or not entry.get("why_it_matters")):
+            problems.append(
+                f"editorial_spec.unresolved_decisions[{index}]: needs question and why_it_matters")
+    for field in ("requirements", "preferences", "pacing", "narrative_goals",
+                  "desired_content", "prohibited_content", "references",
+                  "unresolved_decisions"):
+        # The field itself carries its classification; prevent silent prose blobs.
+        if field in spec and any(not isinstance(item, (str, dict)) for item in spec[field]):
+            problems.append(f"editorial_spec.{field}: entries must be strings or objects")
     return problems
 
 
