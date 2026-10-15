@@ -281,6 +281,54 @@ def cmd_replay(args) -> int:
     return 0
 
 
+def cmd_evidence(args) -> int:
+    from library.tools.local_ci import config, result_cache
+    rows = result_cache.executions_for_sha(args.state or config.state_dir(),
+                                           args.sha)
+    print(f"verification history for {args.sha}: {len(rows)} execution(s)")
+    for row in rows:
+        print(f"  {row['source']} {row['verdict']} {row['passed']} passed, "
+              f"{row['failed']} failed, {row['skipped']} skipped; "
+              f"{row['executed_files']} files; {row['log']}")
+    return 0
+
+
+def cmd_validate(args) -> int:
+    """Manually refresh full-suite evidence and, on PASS, coverage index."""
+    import subprocess
+    import time
+    from library.tools.local_ci import config, coverage_index, queue, runner
+    checkout = os.path.abspath(args.checkout)
+    state_dir = args.state or config.state_dir()
+    tree = subprocess.run(["git", "rev-parse", "HEAD"], cwd=checkout,
+                          capture_output=True, encoding="utf-8",
+                          check=False, timeout=30)
+    if tree.returncode:
+        print(f"periodic validation refused: cannot resolve checkout HEAD: "
+              f"{tree.stderr.strip()}")
+        return 2
+    log = os.path.join(state_dir, "logs",
+                       f"periodic-{int(time.time())}.log")
+    gate = runner.run_gate(checkout, log, cache={
+        "state_dir": state_dir, "source": "periodic",
+        "head": tree.stdout.strip()})
+    print(f"periodic full-suite verdict: {gate['verdict']} ({gate['reason']})")
+    if not gate["ok"] or gate["requeue"]:
+        return 1
+    certified = queue.certify_main_baseline(
+        checkout, state_dir, tree.stdout.strip(), gate, source="periodic")
+    if not certified.get("ok"):
+        print(f"periodic baseline refresh failed: {certified.get('reason')}")
+        return 1
+    print(f"periodic baseline certified: {tree.stdout.strip()}")
+    collection = coverage_index.collect(checkout)
+    if not collection.get("ok"):
+        print(f"periodic coverage refresh failed: {collection.get('reason')}")
+        return 1
+    print(f"periodic coverage index refreshed: {collection['index']}")
+    return 0
+
+
 def main(argv=None) -> int:
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
@@ -293,6 +341,11 @@ def main(argv=None) -> int:
                         help="state dir override (default ~/.ren-ci)")
     sub = parser.add_subparsers(dest="verb", required=True)
     sub.add_parser("status", help="queue, slots, last results (read only)")
+    evidence = sub.add_parser("evidence", help="query verification history for a tree sha")
+    evidence.add_argument("sha")
+    validate = sub.add_parser(
+        "validate", help="manually run full validation and refresh coverage evidence")
+    validate.add_argument("--checkout", default=REPO_ROOT)
     check = sub.add_parser("check", help="run one PR's check now")
     check.add_argument("pr", type=int)
     ready = sub.add_parser("ready", help="mark a PR ready for the queue")
@@ -337,7 +390,8 @@ def main(argv=None) -> int:
                 "ready": cmd_ready, "process-once": cmd_process_once,
                 "daemon": cmd_daemon, "install": cmd_install,
                 "uninstall": cmd_uninstall, "upstream": cmd_upstream,
-                "shadow": cmd_shadow}
+                "shadow": cmd_shadow, "evidence": cmd_evidence,
+                "validate": cmd_validate}
     if args.verb == "proof":
         return cmd_proof_accept(args)
     commands["replay"] = cmd_replay

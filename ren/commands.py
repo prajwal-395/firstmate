@@ -234,7 +234,7 @@ VERBS = (
     Verb("ci", "Setup", "This Mac's local CI service, merge queue, and upstream engine intake",
          effects=("read", "project_write", "heavy_lock", "network"),
          module_argv=("library.tools.local_ci",),
-          detail="`ren ci status` shows the queue, results and upstream pins; `ren ci check <pr>` runs one PR's check; `ren ci ready <pr>` marks it for the queue; `ren ci shadow <sha> --claim <file>` re-runs the full suite on one tree and diffs it against an incremental claim (findings only); `ren ci upstream status` shows engine pins; `ren ci upstream expedite <engine> --reason <text>` requests the same qualification gate immediately; `ren ci install` installs the launchd agent (only after the delivering PR merges). SOP: docs/LOCAL_CI.md."),
+         detail="`ren ci status` shows the queue, results and upstream pins; `ren ci check <pr>` runs one PR's check; `ren ci ready <pr>` marks it for the queue; `ren ci shadow <sha> --claim <file>` re-runs the full suite on one tree and diffs it against an incremental claim (findings only); `ren ci evidence <sha>` queries all recorded executions for a tree; `ren ci validate` manually runs the offline full suite and refreshes coverage evidence after PASS; `ren ci upstream status` shows engine pins; `ren ci upstream expedite <engine> --reason <text>` requests the same qualification gate immediately; `ren ci install` installs the launchd agent (only after the delivering PR merges). SOP: docs/LOCAL_CI.md."),
 
     Verb("new", "Projects", "Create a project",
          effects=("read", "project_write"), subcommand="new",

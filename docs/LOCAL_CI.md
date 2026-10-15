@@ -4,7 +4,52 @@ Just push and mark ready. The Mac does the rest, for free.
 
 ## What runs, and when
 
-Two tiers. Tier-1 is the fast signal; Tier-2 is the merge verdict.
+Full-suite execution is the calibration and qualification path: it
+refreshes the main baseline, finds dependencies the selector missed,
+checks broad invariants, and refreshes the runtime coverage index used
+by CI-05. Until the CI service is revived (C1), the pool's Tier-2 full
+gate remains the merge verdict; periodic validation is a manual idle
+window operation (`ren ci validate`). CI-08 cannot replace that gate
+until the replay and shadow bars are met.
+
+| Trigger | Verification |
+|---|---|
+| Individual PR | Impacted and uncached tests |
+| Integrated PR batch | Invalidated tests plus cross-PR integration tests; currently the full Tier-2 gate remains authoritative |
+| High-risk or uncertain change | Broad or full-suite verification |
+| Periodic idle window | Complete offline suite and runtime dependency-index refresh; manually triggered until C1 |
+| Release candidate | Full qualification, including the appropriate native and ML tests |
+
+Resolve-live remains a separate controlled qualification lane because
+it drives the captain's single Resolve instance. `config.RESOLVE_DRIVING`
+and the `resolve_live` marker exclusions remain in force for automated
+and periodic offline gates. A release qualification that requires live
+Resolve must be scheduled and accepted separately.
+
+The shared verification cache keeps per-test reusable PASS evidence.
+Alongside it, `verification_executions` records each cache-backed test
+execution with its full tree SHA, source (`local`, `pr`, `batch`, or
+`periodic`), verdict, counts, and report path. Query the evidence backing
+a SHA with `ren ci evidence <full-sha>` (or
+`python3 -m library.tools.local_ci --state <state-dir> evidence <full-sha>`).
+The query is exact-SHA and chronological; an absent row means no
+execution was recorded for that tree. The source is metadata and does
+not affect cache keys. `ren ci validate` is the manual periodic path: it
+runs the offline full gate, records `periodic` evidence, and refreshes
+the coverage index only after a full PASS. Coverage remains on demand
+and never enters the PR merge path.
+
+### Evaluating other test runners
+
+**Verdict: not yet** for cargo-nextest or selective Pants adoption.
+This timeboxed evaluation found no demonstrated need to replace pytest,
+pytest-xdist, or the existing local scheduler: nextest would affect only
+the Rust test lane, while Pants would add a second build and dependency
+graph beside the repository's existing selector, cache, and runner.
+The periodic evidence ledger and coverage index should first provide
+measured execution and dependency data. Revisit nextest if native test
+wall time is material in recorded runs; revisit Pants only if those
+measurements show the existing cache and graph are the limiting factor.
 
 - **Tier-1, per PR, immediate and parallel.** Every new head (push)
    runs the static gate (enforcing ruff config, compile sweep, AGENTS.md

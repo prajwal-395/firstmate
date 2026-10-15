@@ -58,6 +58,8 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
+import uuid
 
 CACHE_FILENAME = "tier1_result_cache.sqlite3"
 LOCK_FILENAME = "tier1_result_cache.lock"
@@ -483,6 +485,13 @@ _MULTIVERSION_SCHEMA = (
     " source TEXT NOT NULL DEFAULT '',"
     " PRIMARY KEY (test_path, key))")
 
+_EXECUTION_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS verification_executions ("
+    " run_id TEXT PRIMARY KEY, head TEXT NOT NULL, source TEXT NOT NULL,"
+    " verdict TEXT NOT NULL, passed INTEGER NOT NULL, failed INTEGER NOT NULL,"
+    " skipped INTEGER NOT NULL, executed_files INTEGER NOT NULL,"
+    " recorded_at REAL NOT NULL, log TEXT NOT NULL DEFAULT '')")
+
 
 def _ensure_schema(connection: sqlite3.Connection) -> None:
     """Create the multiversion store, migrating legacy databases.
@@ -497,6 +506,8 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
     """
     columns = [row[1] for row in connection.execute(
         "PRAGMA table_info(tier1_results)").fetchall()]
+    connection.execute(_EXECUTION_SCHEMA)
+    connection.commit()
     if not columns:
         connection.execute(_MULTIVERSION_SCHEMA)
         connection.execute(
@@ -524,6 +535,57 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
             "ALTER TABLE tier1_results ADD COLUMN"
             " source TEXT NOT NULL DEFAULT ''")
         connection.commit()
+
+
+def record_execution(state_dir: str, head: str, source: str,
+                     outcomes: dict, *, verdict: str = "",
+                     log: str = "") -> dict:
+    """Append one source-tagged execution to the shared history.
+
+    The full SHA is the lookup key used to answer which measured runs
+    back a baseline. This is run-level history; per-test reusable PASS
+    rows remain in ``tier1_results``.
+    """
+    if not head or not source:
+        raise ValueError("execution history requires a head sha and source")
+    passed = sum(int(row.get("passed", 0)) for row in outcomes.values())
+    failed = sum(int(row.get("failed", 0)) for row in outcomes.values())
+    skipped = sum(int(row.get("skipped", 0)) for row in outcomes.values())
+    run = {"run_id": uuid.uuid4().hex, "head": head, "source": source,
+           "verdict": verdict or ("PASS" if failed == 0 and passed > 0
+                                  else "FAIL"),
+           "passed": passed, "failed": failed, "skipped": skipped,
+           "executed_files": len(outcomes), "recorded_at": time.time(),
+           "log": log or ""}
+    with _lock:
+        connection = _connect(state_dir)
+        try:
+            connection.execute(
+                "INSERT INTO verification_executions"
+                " (run_id, head, source, verdict, passed, failed, skipped,"
+                " executed_files, recorded_at, log) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(run[key] for key in (
+                    "run_id", "head", "source", "verdict", "passed",
+                    "failed", "skipped", "executed_files", "recorded_at", "log")))
+            connection.commit()
+        finally:
+            connection.close()
+    return run
+
+
+def executions_for_sha(state_dir: str, head: str) -> list[dict]:
+    """Return all recorded execution sources for an exact fixture SHA."""
+    connection = _connect(state_dir)
+    try:
+        rows = connection.execute(
+            "SELECT run_id, head, source, verdict, passed, failed, skipped,"
+            " executed_files, recorded_at, log FROM verification_executions"
+            " WHERE head = ? ORDER BY recorded_at, run_id", (head,)).fetchall()
+    finally:
+        connection.close()
+    names = ("run_id", "head", "source", "verdict", "passed", "failed",
+             "skipped", "executed_files", "recorded_at", "log")
+    return [dict(zip(names, row)) for row in rows]
 
 
 def _lookup_row(connection: sqlite3.Connection, test_rel: str,
@@ -762,6 +824,7 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
                       builder: KeyBuilder | None = None,
                       pytest_python: str = "",
                       source: str = "",
+                      execution_verdict: str = "",
                       **overrides) -> dict:
     """Store PASS rows for executed files the junit report clears.
 
@@ -778,6 +841,9 @@ def record_from_junit(state_dir: str, checkout: str, junit_path: str,
         overrides = {**overrides, "interpreter":
                      pytest_interpreter_version(pytest_python)}
     outcomes = parse_junit(junit_path)
+    if head:
+        record_execution(state_dir, head, source or "local", outcomes,
+                         verdict=execution_verdict, log=junit_path)
     stored, dropped = [], []
     for rel in executed:
         outcome = outcomes.get(rel)

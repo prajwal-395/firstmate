@@ -494,7 +494,7 @@ def tier2_incremental_plan(checkout: str, consulted: dict,
 
 def _tier2_record(checkout: str, state_dir: str, junit_path: str,
                   interpreter: str, head: str, source: str,
-                  builder=None) -> dict:
+                  builder=None, verdict: str = "") -> dict:
     """File the gate's per-file verdicts, write-only on the cache.
 
     Only files the report names are touched: a file the gate never
@@ -512,7 +512,8 @@ def _tier2_record(checkout: str, state_dir: str, junit_path: str,
         if os.path.isfile(os.path.join(checkout, rel)))
     return result_cache.record_from_junit(
         state_dir, checkout, junit_path, executed, head=head,
-        builder=own, source=source, interpreter=interpreter)
+        builder=own, source=source, interpreter=interpreter,
+        execution_verdict=verdict)
 
 
 def _tier2_cache_line(consulted: dict, stored: int, outcomes: int) -> str:
@@ -591,6 +592,13 @@ def run_gate(checkout: str, log_path: str,
     child_env: dict | None = None
     if hook is not None:
         from library.tools.local_ci import result_cache
+        if not hook.get("head"):
+            tree = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=checkout,
+                capture_output=True, encoding="utf-8", check=False,
+                timeout=30)
+            if tree.returncode == 0:
+                hook["head"] = tree.stdout.strip()
         interpreter = hook.get("interpreter") or _tier2_interpreter(checkout)
         builder = hook.get("builder") or result_cache.KeyBuilder(checkout)
         hook["builder"] = builder
@@ -615,7 +623,12 @@ def run_gate(checkout: str, log_path: str,
         summary = _tier2_record(
             checkout, hook["state_dir"], junit_path, interpreter,
             hook.get("head", ""), hook.get("source", ""),
-            hook.get("builder"))
+            hook.get("builder"), verdict=verdict)
+        if not summary["outcomes"] and hook.get("head"):
+            result_cache.record_execution(
+                hook["state_dir"], hook["head"],
+                hook.get("source", "local"), {}, verdict=verdict,
+                log=log_path)
         try:
             with open(log_path, "a", encoding="utf-8") as handle:
                 handle.write(_tier2_cache_line(

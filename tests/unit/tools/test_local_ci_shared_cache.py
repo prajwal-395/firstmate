@@ -134,6 +134,29 @@ def test_tier2_write_files_a_verdict_under_the_locally_computed_key(
     assert hit["source"] == "batch"
 
 
+def test_shared_execution_history_answers_which_sources_back_a_sha(
+        tmp_path, monkeypatch):
+    checkout, state_dir = _checkout(tmp_path), _state_dir(tmp_path)
+    _pin_fingerprints(monkeypatch)
+    rel = "tests/unit/test_widget.py"
+    report = tmp_path / "periodic.junit.xml"
+    _junit(report, [(rel, "passed")])
+    sha = "fixture-tree-sha"
+
+    result_cache.record_from_junit(
+        state_dir, str(checkout), str(report), [rel], head=sha,
+        source="periodic", **PINNED)
+
+    history = result_cache.executions_for_sha(state_dir, sha)
+    assert len(history) == 1
+    assert history[0]["head"] == sha
+    assert history[0]["source"] == "periodic"
+    assert history[0]["verdict"] == "PASS"
+    assert history[0]["passed"] == 1
+    assert history[0]["executed_files"] == 1
+    assert result_cache.executions_for_sha(state_dir, "another-sha") == []
+
+
 def test_tier2_gate_runs_despite_a_cache_hit_and_says_so(
         tmp_path, monkeypatch):
     # Test security (CI-02(c)): sharing evidence is not skipping
