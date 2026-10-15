@@ -1076,6 +1076,16 @@ test_relaunch_composer_unknown_idle_opencode_hint() {
   pass "matrix: an idle opencode composer under its key-hint row reads empty while typed text and activity below it still refuse"
 }
 
+test_relaunch_composer_unknown_idle_opencode_wrapped_hint_footer() {
+  local idle wrapped activity
+  idle=$'  ┃\n  ┃  Ask anything… "Fix a TODO in the codebase"\n  ┃\n  ┃  Build · LongCat 2.5 Preview Free OpenCode Go\n  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  wrapped="${idle}"$'\n   /Users/prajwal/.treehouse/firstmate-8bf1b0/236.3K (23%ctrl+p\n   5/firstmate                                           commands'
+  assert_screen "wrapped opencode key-hint footer below an idle composer on herdr" empty "$CAPS_STYLED" "$wrapped"
+  activity="${idle}"$'\n   /Users/prajwal/.treehouse/firstmate-8bf1b0/236.3K (23%ctrl+p\n   5/firstmate                                           commands\nplease update the parser'
+  assert_screen "typed text after a wrapped opencode footer still refuses on herdr" unknown "$CAPS_STYLED" "$activity"
+  pass "matrix: wrapped opencode key-hint footer is furniture only when the rows match the narrow-pane signature"
+}
+
 test_single_line_modal_dialog_is_dialog() {
   local screen out
   screen=$'╭─────────────────────────────────────────────────────────────────╮\n│ Do you trust the contents of this directory?                    │\n╰─────────────────────────────────────────────────────────────────╯'
@@ -1120,6 +1130,7 @@ test_modal_dialog_is_dialog
 test_single_line_modal_dialog_is_dialog
 test_matrix_unicode_ellipsis_placeholder
 test_relaunch_composer_unknown_idle_opencode_hint
+test_relaunch_composer_unknown_idle_opencode_wrapped_hint_footer
 
 test_queued_enter_verdict_busy_pending_is_empty() {
   local out
