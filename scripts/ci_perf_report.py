@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--history", type=Path)
     parser.add_argument("--time-files", nargs="*", type=Path, default=[])
-    parser.add_argument("--check-history", action="store_true", help="check against the last full PASS using a provisional 20% wall-time allowance")
+    parser.add_argument("--check-history", action="store_true", help="check against the last full PASS using a provisional 20%% wall-time allowance")
     parser.add_argument("reports", nargs="+", type=Path)
     args = parser.parse_args(argv)
     try:

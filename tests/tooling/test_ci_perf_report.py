@@ -23,6 +23,12 @@ def _junit(path, rows):
     return path
 
 
+def test_cli_help_formats_under_argparse():
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--help"])
+    assert exit_info.value.code == 0
+
+
 def test_report_records_revision_counts_slowest_tests_and_execution_coverage(tmp_path):
     report = _junit(tmp_path / "junit.xml", [
         ("fast", 0.2, ""),
