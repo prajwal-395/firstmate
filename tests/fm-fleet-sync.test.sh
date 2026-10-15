@@ -678,20 +678,23 @@ test_non_clone_dir_named_directly_never_syncs_the_enclosing_repo() {
   pass "the single-project form also refuses a directory that is not its own clone root"
 }
 
-test_symlinked_clone_still_syncs() {
-  local home clone out
+test_symlinked_clone_is_skipped_as_captain_working_copy() {
+  local home clone out before after sigma_line
   home=$(new_home)
   clone=$(build_pair "$home" sigma)
   advance_origin "$home" sigma C1
-  # A symlinked clone dir is a real clone root and must not be mistaken for a
-  # directory nested in someone else's repo.
   mv "$clone" "$home/real-sigma"
   ln -s "$home/real-sigma" "$clone"
+  before=$(git -C "$home/real-sigma" rev-parse main)
 
   out=$(run_sync "$home")
+  after=$(git -C "$home/real-sigma" rev-parse main)
+  sigma_line=$(printf '%s\n' "$out" | grep '^sigma:' || true)
 
-  assert_contains "$out" "sigma: synced" "a symlinked clone must still fast-forward"
-  pass "the clone-root guard accepts a symlinked clone directory"
+  assert_equals "sigma: skipped: symlinked clone is the captain's own working copy" "$sigma_line" \
+    "fleet-sync must clearly report why it skipped a symlinked clone"
+  assert_equals "$before" "$after" "fleet-sync must not change a symlink target"
+  pass "a symlinked clone is skipped as the captain's own working copy"
 }
 
 test_clone_root_named_by_another_spelling_still_syncs() {
@@ -868,7 +871,7 @@ test_transient_packed_refs_lock_self_clears
 test_non_signature_fetch_failure_is_not_retried
 test_non_clone_dir_never_syncs_the_enclosing_repo
 test_non_clone_dir_named_directly_never_syncs_the_enclosing_repo
-test_symlinked_clone_still_syncs
+test_symlinked_clone_is_skipped_as_captain_working_copy
 test_fork_tracking_already_current
 test_reversal_is_stuck_with_missing_files() {
   local home clone out head_after
