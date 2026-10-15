@@ -107,6 +107,10 @@ MEASUREMENT_TO_LANE.update({
     "audio.sound_event": "m5",
     "sync.multicam_offset": "m6",
     "speech.take_link": "m1",
+    # Object presence and visibility are migrated from 1.06's tracked
+    # segmentations, whose provenance lane is named `segmentation`.
+    "object.detection": "segmentation",
+    "object.visibility": "segmentation",
 })
 """Registry measurement type to the lane that produces it."""
 

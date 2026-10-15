@@ -194,6 +194,44 @@ EVAL-04 still has no frozen human references or gold cut ranges, and the
 current real-footage repeats have no measured word/action/object labels. The
 held-out result was reported once; thresholds were not tuned on it.
 
+## Visual evidence follow-up (2026-10-15)
+
+The corpus split update in PR 2550 now assigns both named visual sources,
+IMG_1812 and IMG_1818, to held out. They were not relabeled as calibration
+inputs. A calibration visual repeat against this brief therefore remains
+unavailable without a calibration brief naming calibration sources.
+
+The existing M2/M3 path was run on both sources, in an isolated scratch
+memory root and without model downloads. M2 sampled 144 frames from IMG_1812
+and 89 from IMG_1818. M3 measured 88 face samples and 9 hand samples on
+IMG_1812, plus 81 face samples and 2 hand samples on IMG_1818. The geometric
+candidate rules found no `pick_up_put_down`, `drink_from_cup`, or
+`hand_object_contact` candidate in either brief window. One `hand_to_face`
+candidate on IMG_1818 spans 79.285-80.254s, outside its 0-40s brief window;
+it is an unverified candidate, not an action label.
+
+An offline OWLv2 pass over ten stills produced sparse hat, shirt, and backpack
+boxes (126.69s). It produced no apple, cup, or phone box on those sampled
+frames. This is sampled detector output, not complete interval coverage or a
+measured absence. No independent agent labels were available in this run.
+
+The runner was also corrected to resolve corpus source IDs to Project Model
+assets and clocks, map segmentation-backed object measurements to their
+producer lane, and query verified `drink_from_cup` and `pick_up_put_down`
+events for visual-action cuts. After the fixes, the held-out repeat scopes
+each source to its own clock and still emits 0 cuts and 0 graph nodes. Both
+action queries report `not_yet_analysed` on M7; object detection and visibility
+report `not_yet_analysed` on the segmentation lane. There was no justified cut
+to render or verify.
+
+Remaining visual evidence is exact: fresh `object.detection` and
+`object.visibility` observations from the segmentation lane over the target
+windows; a verified M7 candidate span for either `drink_from_cup` or
+`pick_up_put_down` inside the corresponding brief window; and independent
+agent labels plus frozen gold ranges/reference edits before EVAL-04 can claim
+editorial accuracy or usefulness. The calibration repeat also needs a brief
+whose sources belong to calibration.
+
 ## Current corpus limits
 
 The EVAL-01 manifest now keeps nine Apple 001 takes across two capture-scene

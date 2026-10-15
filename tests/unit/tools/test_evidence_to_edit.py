@@ -190,10 +190,115 @@ def test_object_evidence_cannot_be_assumed_to_prove_an_action(tmp_path):
 
     assert diagnostics["cuts"] == []
     assert diagnostics["abstentions"][0]["required_plans"] == [
-        ["action"], ["objects"]]
+        ["action_drink_from_cup", "action_pick_up_put_down"], ["objects"]]
     assert entry["runs"][0]["stages"]["edit_graph"] == "incomplete"
     assert any(row["decision"].startswith("abstain on v1")
                for row in entry["runs"][0]["evidence_decisions"])
+
+
+def test_visual_action_and_object_evidence_ground_only_verified_action(tmp_path):
+    task = _brief(task_id="visual-action-object-cut",
+                  task_types=("visual_action", "visual_object"),
+                  moments=[_moment(moment_id="v1", source_id="IMG_1818",
+                                  start=5.0, end=20.0)])
+    model = {
+        "id": "model-visual",
+        "revision": 1,
+        "assets": [{"id": "asset-1818", "uri": "/media/IMG_1818.MOV"}],
+        "clocks": [{"id": "clock-1818", "domain": {
+            "kind": "source", "asset_id": "asset-1818"}}],
+        "observations": [
+            {**_word_obs("obs-object", "object.detection", "clock-1818",
+                         5000, 20000, "segmentation"),
+             "asset_id": "asset-1818",
+             "payload": {"evidence_contract": {
+                 "measurement_type": "object.detection",
+                 "freshness": "fresh", "coverage": "complete",
+                 "value": {"label": "cup", "detector": "owlv2"}}}},
+            {**_word_obs("obs-visibility", "object.visibility",
+                         "clock-1818", 5000, 20000, "segmentation"),
+             "asset_id": "asset-1818",
+             "payload": {"evidence_contract": {
+                 "measurement_type": "object.visibility",
+                 "freshness": "fresh", "coverage": "complete",
+                 "value": {"visible_ticks": [5000, 20000]}}}},
+            {"id": "obs-action", "asset_id": "asset-1818",
+             "provenance_id": "prov-d-m7",
+             "interval": {"clock_id": "clock-1818", "start": 7000,
+                           "end": 12000},
+             "modality": "event_candidate",
+             "payload": {"predicate": "pick_up_put_down",
+                         "verified": True,
+                         "evidence_contract": {
+                             "measurement_type": "event.candidate_span",
+                             "freshness": "fresh", "coverage": "complete"}}},
+        ],
+        "signals": [],
+    }
+
+    entry, diagnostics = runner.run_task(
+        task, model, split="held_out", run_name="run-a",
+        output_root=tmp_path, source_durations={"IMG_1818": 85.518})
+
+    assert len(diagnostics["cuts"]) == 1
+    queries = [row for row in entry["runs"][0]["evidence_decisions"]
+               if row["evidence_source"] == "evidence_query"]
+    assert any(row["decision"].startswith("query action_pick_up_put_down")
+               and row["evidence_ids"] == ["obs-action"] for row in queries)
+    assert any(row["decision"].startswith("query objects")
+               and row["evidence_ids"] == ["obs-object", "obs-visibility"]
+               for row in queries)
+
+
+def test_source_scope_resolves_corpus_id_from_asset_uri():
+    model = {
+        "assets": [
+            {"id": "asset-1818", "uri": "/media/IMG_1818.MOV"},
+            {"id": "asset-1812", "uri": "/media/IMG_1812.MOV"},
+        ],
+        "clocks": [
+            {"id": "clock-1818", "domain": {
+                "kind": "source", "asset_id": "asset-1818"}},
+            {"id": "clock-1812", "domain": {
+                "kind": "source", "asset_id": "asset-1812"}},
+        ],
+    }
+
+    assert runner._scope_for(model, _moment(source_id="IMG_1818")) == {
+        "start_s": 10.0, "end_s": 20.0,
+        "asset_id": "asset-1818", "clock_id": "clock-1818"}
+
+
+def test_verified_drink_candidate_is_an_alternative_visual_action(tmp_path):
+    task = _brief(task_id="visual-action-cut",
+                  task_types=("visual_action",),
+                  moments=[_moment(moment_id="v1", source_id="IMG_1818",
+                                  start=5.0, end=20.0)])
+    model = {
+        "id": "model-action",
+        "revision": 1,
+        "assets": [{"id": "asset-1818", "uri": "/media/IMG_1818.MOV"}],
+        "clocks": [{"id": "clock-1818", "domain": {
+            "kind": "source", "asset_id": "asset-1818"}}],
+        "observations": [{
+            "id": "obs-drink", "asset_id": "asset-1818",
+            "provenance_id": "prov-d-m7",
+            "interval": {"clock_id": "clock-1818", "start": 7000,
+                          "end": 12000},
+            "modality": "event_candidate",
+            "payload": {"predicate": "drink_from_cup", "verified": True,
+                        "evidence_contract": {
+                            "measurement_type": "event.candidate_span",
+                            "freshness": "fresh", "coverage": "complete"}},
+        }],
+        "signals": [],
+    }
+
+    _, diagnostics = runner.run_task(
+        task, model, split="held_out", run_name="run-a",
+        output_root=tmp_path, source_durations={"IMG_1818": 85.518})
+
+    assert diagnostics["cuts"]
 
 
 def test_cut_point_verification_uses_source_clock_signal_and_is_written(tmp_path):
@@ -370,7 +475,7 @@ def test_queries_pin_to_the_moment_source_clock(tmp_path):
 
     assert diagnostics["cuts"] == []
     assert diagnostics["abstentions"][0]["required_plans"] == [
-        ["action"], ["objects"]]
+        ["action_drink_from_cup", "action_pick_up_put_down"], ["objects"]]
     sound_rows = [row for row in entry["runs"][0]["evidence_decisions"]
                   if row["decision"].startswith("query sound_energy")]
     assert sound_rows and all("obs-b" not in row["evidence_ids"]

@@ -56,6 +56,16 @@ DIALOGUE_PLANS = (
 scene structure, and sound energy. Only measured speech words can still
 place speech blocks; scene and sound rows corroborate the span."""
 
+VISUAL_ACTION_PLANS = (
+    # These typed queries only answer verified geometric candidates;
+    # unverified event candidates remain hypotheses and cannot ground a cut.
+    ("action_drink_from_cup", [
+        {"predicate": "event_span", "event": "drink_from_cup"},
+    ]),
+    ("action_pick_up_put_down", [
+        {"predicate": "event_span", "event": "pick_up_put_down"},
+    ]),
+)
 VISUAL_PLANS = (
     ("objects", [
         {"predicate": "measurement", "measurement_type": "object.detection"},
@@ -78,7 +88,7 @@ without model passes, so visual action beats can ground on them."""
 
 PLANS_BY_TASK_TYPE = {
     "dialogue_multicam": DIALOGUE_PLANS,
-    "visual_action": VISUAL_PLANS,
+    "visual_action": VISUAL_ACTION_PLANS + VISUAL_PLANS,
     "visual_object": VISUAL_PLANS,
 }
 
@@ -87,7 +97,8 @@ PLANS_BY_TASK_TYPE = {
 # useful facts, but cannot stand in for the subject of the edit.
 REQUIRED_SELECTION_PLANS = {
     "dialogue_multicam": frozenset({"speech_attributed"}),
-    "visual_action": frozenset({"action"}),
+    "visual_action": frozenset({"action_drink_from_cup",
+                                 "action_pick_up_put_down"}),
     "visual_object": frozenset({"objects"}),
 }
 
@@ -176,14 +187,35 @@ def _scope_for(model: dict[str, Any],
     """
     scope: dict[str, Any] = {"start_s": moment["start_seconds"],
                              "end_s": moment["end_seconds"]}
+    source_id = moment["source_id"]
+    asset_ids = set()
+    for asset in model.get("assets") or []:
+        if not isinstance(asset, dict) or not isinstance(asset.get("id"), str):
+            continue
+        metadata = asset.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        source_ids = metadata.get("source_ids") or []
+        clip_ids = metadata.get("clip_ids") or []
+        if (asset["id"] == source_id
+                or Path(str(asset.get("uri") or "")).stem == source_id
+                or source_id in source_ids
+                or source_id in clip_ids):
+            asset_ids.add(asset["id"])
+    clocks = []
     for clock in model.get("clocks") or []:
         if not isinstance(clock, dict):
             continue
         domain = clock.get("domain") or {}
-        if domain.get("asset_id") == moment["source_id"] and clock.get("id"):
-            scope["clock_id"] = clock["id"]
-            scope["asset_id"] = moment["source_id"]
-            break
+        if (domain.get("asset_id") == source_id
+                or domain.get("asset_id") in asset_ids):
+            clocks.append(clock)
+    # A source can expose more than one clock. Pin only when the model
+    # identifies one unambiguously; pinning the asset still excludes every
+    # other take from the query.
+    if len(asset_ids) == 1:
+        scope["asset_id"] = next(iter(asset_ids))
+    if len(clocks) == 1 and clocks[0].get("id"):
+        scope["clock_id"] = clocks[0]["id"]
     return scope
 
 
