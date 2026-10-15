@@ -5,13 +5,15 @@ The resources
 Only `native_*` resources are scheduler exclusives: a native build
 directory has one writer. Resolve's lease and Resolve itself arbitrate
 Resolve work. CPU, GPU, disk, and RAM are not statically budgeted here;
-the scheduler checks live OS memory availability before each admission.
+the scheduler checks live OS memory for jobs declaring a RAM reservation.
 
 Profiles are retained for call-site identity and reporting, but their
 CPU, GPU, RAM, and disk declarations do not throttle work. `machine` is
 an empty profile. Capability phases contribute only native build-directory
-exclusives. Live available memory is checked from `/proc/meminfo` or
-`vm_stat`; failure to measure refuses admission.
+exclusives. RAM-reserving jobs use live available memory from
+`/proc/meminfo` or `vm_stat`; failure to measure refuses their admission.
+Jobs without a RAM reservation do not contend for memory and are not held
+by its guard.
 
 The store
 ---------
@@ -19,14 +21,8 @@ SQLite in WAL mode beside the old lock directory. Every state change is
 one `BEGIN IMMEDIATE` transaction, so admission is atomic across
 processes. A job is a row: `waiting` until admitted, then `running`.
 Admission backfills around waiters that cannot run now. Among eligible
-waiters, older jobs have priority with age: a younger job never jumps
-ahead of an older waiter that could run beside current holders on the
-same exclusive key, and backfill past any eligible older waiter is
-bounded by `BACKFILL_AGE_SECONDS` - past that age a younger job waits,
-so shared memory cannot be consumed ahead of the aged waiter forever.
-With exclusive-only admission the bound is a backstop (an eligible
-waiter admits itself within one poll); it bites only when memory
-headroom oscillates and backfill keeps edging an older waiter out. A dead holder is reaped by the next
+waiters, older jobs have priority only when they need the same resource;
+an old waiter never stops unrelated work. A dead holder is reaped by the next
 transaction, on every acquire and on every jobs listing: pid liveness
 (zombies read as dead) plus the pid's wall-clock start, so a recycled
 number never keeps a dead grant alive; and a heartbeat lease
@@ -77,6 +73,7 @@ RESOURCES = tuple("native_" + name.replace("-", "_") for name in (
 NATIVE_PARTS = tuple(resource.removeprefix("native_")
                      for resource in RESOURCES if resource.startswith("native_"))
 MEMORY_HEADROOM_FRACTION = 0.10
+MINIMUM_MEMORY_FLOOR_GB = 2.0
 # Resolve's own process, by executable name (`TreeSampler`).
 RESOLVE_PROCESS = "Resolve"
 DB_FILENAME = "resource-scheduler.sqlite3"
@@ -162,6 +159,21 @@ def _memory_allows_admission() -> bool:
         return False
     available, total = reading
     return total > 0 and available / total >= MEMORY_HEADROOM_FRACTION
+
+
+def _memory_floor_gb(total: float) -> float:
+    """Keep both proportional and minimum OS headroom available."""
+    return max(MINIMUM_MEMORY_FLOOR_GB, total * MEMORY_HEADROOM_FRACTION)
+
+
+def _maximum_memory_demand_gb() -> float:
+    """Largest reservation that can fit while preserving the memory floor."""
+    reading = _memory_available_gb()
+    if reading is None or reading[1] <= 0:
+        # Without a machine measurement, do not queue a request that cannot
+        # be proven satisfiable. Admission itself will still fail closed.
+        return 0.0
+    return max(0.0, reading[1] - _memory_floor_gb(reading[1]))
 
 
 def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
@@ -639,6 +651,15 @@ class Scheduler:
         and before anyone holds its token to release it.
         """
         cap = capacity()
+        requested_memory = float(demand.get("ram_gb", 0))
+        if requested_memory:
+            maximum_memory = _maximum_memory_demand_gb()
+            if requested_memory > maximum_memory:
+                raise ValueError(
+                    f"resource scheduler: {owner!r} requests "
+                    f"{requested_memory:g} GB RAM, but this machine can "
+                    f"provide at most {maximum_memory:g} GB while "
+                    "preserving the measured memory floor")
         if not _fits([demand], cap):
             raise ValueError(f"resource scheduler: {owner!r} demands "
                              f"{demand}, beyond this machine's {cap}")
@@ -719,30 +740,31 @@ class Scheduler:
         running_demands = [json.loads(row[2]) for row in running]
         if not _fits([demand, *running_demands], cap):
             return [f"running {row[0]} (pid {row[1]})" for row in running]
-        if not _memory_allows_admission():
-            return ["live OS memory pressure"]
+        requested_memory = float(demand.get("ram_gb", 0))
+        if requested_memory:
+            reading = _memory_available_gb()
+            if (reading is None or reading[1] <= 0
+                    or reading[0] - requested_memory
+                    < _memory_floor_gb(reading[1])):
+                return ["live OS memory pressure"]
         # Backfill around an older waiter only when it cannot run beside
         # current exclusive holders. Enqueue age gives older eligible jobs
         # priority on a contended key, and bounds all backfill: once an
-        # eligible older waiter has queued past BACKFILL_AGE_SECONDS, a
-        # younger job waits for it, so shared memory cannot be consumed
-        # ahead of the aged waiter forever.
+        # older waiters only take priority from jobs that demand one of the
+        # same resources. An impossible or aged memory waiter therefore
+        # cannot stop work that does not need memory.
         if not nested_holder:
             older = conn.execute(
-                "SELECT owner, pid, demand, enqueued_at FROM jobs"
+                "SELECT owner, pid, demand FROM jobs"
                 " WHERE state = 'waiting' AND id < ? ORDER BY id",
                 (mine[0],)).fetchall()
-            for owner, pid, raw_demand, enqueued_at in older:
+            for owner, pid, raw_demand in older:
                 older_demand = json.loads(raw_demand)
                 if not _fits([older_demand, *running_demands], cap):
                     continue
-                contention = {key for key in demand
-                              if key.startswith("native_")
-                              and key in older_demand}
+                contention = set(demand).intersection(older_demand)
                 if contention:
                     return [f"older eligible waiter {owner} (pid {pid})"]
-                if time.time() - enqueued_at > BACKFILL_AGE_SECONDS:
-                    return [f"aged eligible waiter {owner} (pid {pid})"]
         if not self._hold_legacy_dir():
             return ["lock directory claimed by an old-code lane"]
         now = time.time()

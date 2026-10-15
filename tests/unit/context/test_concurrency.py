@@ -398,6 +398,58 @@ def test_admission_guard_uses_live_available_memory(monkeypatch):
     assert not resource_scheduler._memory_allows_admission()
 
 
+def test_non_memory_demands_never_probe_or_wait_on_memory(scheduler, monkeypatch):
+    """Only a declared RAM demand participates in the memory guard."""
+    def unexpected_probe():
+        raise AssertionError("non-memory work probed live machine memory")
+
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        unexpected_probe)
+    token = scheduler.acquire(
+        "native work",
+        resource_scheduler.demand_for("native_refresh:ren-native"))
+    try:
+        assert scheduler.running_demand(token) == {
+            "native_ren_native": 1}
+    finally:
+        scheduler.release(token)
+
+
+def test_empty_demand_backfills_past_unsatisfiable_memory_waiter(
+        scheduler, monkeypatch):
+    """A stranded RAM waiter cannot serialize work with no RAM demand."""
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (0.0, 24.0))
+    scheduler._transaction(lambda conn: None)
+    now = time.time()
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+            " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
+            " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)",
+            ("impossible-memory-waiter", "impossible model", os.getpid(),
+             "test-host", resource_scheduler._machine_id(),
+             json.dumps({"ram_gb": 99}),
+             now - resource_scheduler.BACKFILL_AGE_SECONDS - 60,
+             resource_scheduler._pid_start(os.getpid()), now,
+             resource_scheduler.SCHEDULER_POLICY_VERSION))
+
+    token = scheduler.acquire("no reservation", {})
+    try:
+        assert [job["owner"] for job in scheduler.jobs()
+                if job["state"] == "running"] == ["no reservation"]
+    finally:
+        scheduler.release(token)
+
+
+def test_impossible_memory_reservation_is_refused_immediately(
+        scheduler, monkeypatch):
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (20.0, 24.0))
+    with pytest.raises(ValueError, match="can provide at most"):
+        scheduler.acquire("impossible model", {"ram_gb": 22})
+
+
 def test_memory_reading_is_taken_from_the_running_os(monkeypatch):
     # conftest fakes plenty of memory for every test, so this one calls
     # the saved real implementation: the reference below is bound at
@@ -425,6 +477,8 @@ def scheduler(tmp_path, monkeypatch):
            for part in resource_scheduler.NATIVE_PARTS}})
     monkeypatch.setattr(resource_scheduler, "_memory_allows_admission",
                         lambda: True)
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (16.0, 16.0))
     monkeypatch.setattr(resource_scheduler, "POLL_SECONDS", 0.02)
     return resource_scheduler.Scheduler(tmp_path / "heavy-work.lock")
 
@@ -686,10 +740,8 @@ def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
             other_process.wait(timeout=30)
 
 
-def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
-    """Aging bound: an eligible waiter queued past BACKFILL_AGE_SECONDS
-    takes priority over backfill on unrelated keys, so oscillating memory
-    headroom cannot edge it out forever. A young waiter backfills freely."""
+def test_aged_waiter_only_blocks_backfill_on_its_resource(scheduler):
+    """An aged waiter blocks its resource but not unrelated backfill."""
     holder = scheduler.acquire(
         "holder",
         resource_scheduler.demand_for("native_refresh:ren-native"))
@@ -723,38 +775,37 @@ def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
         stop = threading.Event()
         outcome = {}
 
-        def wait_for_backfill():
+        unrelated = scheduler.acquire(
+            "unrelated backfill",
+            resource_scheduler.demand_for("native_refresh:ren-resolved"))
+        scheduler.release(unrelated)
+
+        # Same-resource work still waits behind the older eligible job.
+        def wait_for_same_resource():
             def announce(line):
                 announced.append(line)
-                if "aged eligible waiter aged waiter" in line:
+                if "older eligible waiter aged waiter" in line:
                     seen_aged_waiter.set()
 
             try:
                 scheduler.acquire(
-                    "backfill",
-                    resource_scheduler.demand_for(
-                        "native_refresh:ren-resolved"),
+                    "same-resource backfill", aged_demand,
                     announce=announce, cancelled=stop.is_set)
             except resource_scheduler.Cancelled as exc:
                 outcome["cancelled"] = str(exc)
 
         backfill_waiter = threading.Thread(
-            target=wait_for_backfill, daemon=True)
+            target=wait_for_same_resource, daemon=True)
         backfill_waiter.start()
-        # Explicit synchronisation, not a wall-clock timeout: the wait
-        # ends when the announcement proves the backfill queued behind
-        # the aged waiter. A fixed 0.3 s bound expired on a slow first
-        # admission loop before anything was announced, failing the
-        # test with an empty announcement list under load.
         assert seen_aged_waiter.wait(30), (
-            f"backfill never queued behind the aged waiter: {announced}")
+            f"same-resource waiter was not prioritized: {announced}")
         stop.set()
         backfill_waiter.join(timeout=30)
         assert not backfill_waiter.is_alive(), (
             "backfill did not stop when cancelled")
         assert "stopped waiting" in outcome.get("cancelled", ""), (
             announced, outcome)
-        # The same waiter, young, does not stop backfill on a free key.
+        # Making the waiter young still does not affect unrelated work.
         with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
             conn.execute("UPDATE jobs SET enqueued_at = ? WHERE token = ?",
                          (time.time(), "aged-waiter-token"))
