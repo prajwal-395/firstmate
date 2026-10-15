@@ -160,9 +160,15 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
         except BaseException:
             sampler.stop()
             raise
+        timing = _scheduler().timing(token)
         _held_state = {"depth": 1, "token": token, "owned": True,
                        "demand": demand, "previous_env": inherited,
-                       "profile": profile, "sampler": sampler}
+                       "profile": profile, "sampler": sampler,
+                       "schedule_owner": owner,
+                       "schedule_started_at": timing[1] if timing else time.time(),
+                       "schedule_queue_wait_s": (
+                           max(0.0, timing[1] - timing[0]) if timing else None),
+                       "schedule_execution_started": time.perf_counter()}
         os.environ[OWNER_ENV] = token
         _ensure_exit_hook()
 
@@ -313,6 +319,14 @@ def release_heavy_lock() -> None:
             if held["owned"]:
                 _scheduler().release(held["token"], held["profile"],
                                      held["sampler"].stop())
+                if held.get("schedule_queue_wait_s") is not None:
+                    from library.tools import perf_ledger
+                    perf_ledger.record_scheduled_work(
+                        held["schedule_owner"], held["profile"],
+                        held["schedule_queue_wait_s"],
+                        time.perf_counter()
+                        - held["schedule_execution_started"],
+                        held["schedule_started_at"])
         finally:
             previous_env = held["previous_env"]
             if previous_env is None:

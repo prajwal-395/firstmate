@@ -77,6 +77,7 @@ REQUIRED_ENV = "REN_PERF_REQUIRED"
 CAPABILITY = "capability"
 SPAN = "span"
 COUNT = "count"
+SCHEDULE = "schedule"
 
 # Counters are deliberately explicit: call sites that can measure a request
 # use ``count_call``; the report returns zero for an uninstrumented family
@@ -453,6 +454,21 @@ def count_call(family: str, amount: int = 1, **fields: Any) -> None:
     _append(path, row, required=_required_persistence())
 
 
+def record_scheduled_work(owner: str, profile: str, queue_wait_s: float,
+                          execution_s: float, started_at: float) -> None:
+    """Record scheduler admission wait separately from granted work time."""
+    path = _env(LEDGER_ENV)
+    if not path:
+        return
+    row = {"kind": SCHEDULE, "owner": owner, "profile": profile,
+           "queue_wait_s": round(max(0.0, queue_wait_s), 3),
+           "execution_s": round(max(0.0, execution_s), 3),
+           "run_id": _env(RUN_ENV), "capability": _env(CAPABILITY_ENV),
+           "started_at": round(started_at, 3)}
+    _attach_backends(row)
+    _append(path, row, required=_required_persistence())
+
+
 def _required_persistence() -> bool:
     """Whether the current run requires instrumentation writes to succeed."""
     return _env(REQUIRED_ENV) == "1"
@@ -545,6 +561,8 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     # None means this checkout did not instrument that family yet; zero
     # means it was measured and no calls occurred.
     counts = {name: None for name in COUNT_FAMILIES}
+    scheduled_rows = [r for r in rows if r.get("run_id") == run_id
+                      and r.get("kind") == SCHEDULE]
     for r in rows:
         if r.get("run_id") == run_id and r.get("kind") == COUNT:
             family = r.get("family")
@@ -642,6 +660,16 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
             "call_counts": counts,
             "overlap_s": round(max(0.0, layer_sum - inside), 3),
             "lines": lines, "capabilities": per_capability,
+            "scheduled_work": {
+                "jobs": len(scheduled_rows),
+                "queue_wait_s": round(sum(float(r.get("queue_wait_s") or 0)
+                                           for r in scheduled_rows), 3),
+                "execution_s": round(sum(float(r.get("execution_s") or 0)
+                                          for r in scheduled_rows), 3),
+                "rows": [{k: r.get(k) for k in (
+                    "owner", "profile", "capability", "queue_wait_s",
+                    "execution_s")} for r in scheduled_rows],
+            },
             "resolve": resolve_kpis(spans, total, caps),
             "spans_without_capability_row": sorted(set(by_cap) - cap_names)}
 
@@ -745,6 +773,16 @@ def render(report: dict[str, Any]) -> str:
     out.append("Calls: " + ", ".join(
         f"{name}={count if count is not None else 'unmeasured'}"
         for name, count in report["call_counts"].items()))
+    scheduled = report.get("scheduled_work") or {}
+    if scheduled.get("jobs"):
+        out.append(f"Scheduled work: {scheduled['jobs']} job(s), "
+                   f"queue {scheduled['queue_wait_s']:.3f}s, "
+                   f"execution {scheduled['execution_s']:.3f}s")
+        for row in scheduled.get("rows", []):
+            out.append(f"  {row.get('owner')} [{row.get('profile')}] "
+                       f"{row.get('capability') or 'outside capability'}: "
+                       f"queue {float(row.get('queue_wait_s') or 0):.3f}s, "
+                       f"execution {float(row.get('execution_s') or 0):.3f}s")
     shown, folded = [], 0.0
     for line in report["lines"]:
         if line["pct"] < FOLD_BELOW_PCT:

@@ -78,6 +78,38 @@ def test_profile_cli_reads_a_standalone_ledger(tmp_path, capsys):
     assert "qualification_workflow" in output
 
 
+def test_heavy_work_queue_and_execution_are_in_the_same_profile_ledger(
+        tmp_path, monkeypatch, capsys):
+    from library.tools import heavy_work_lock
+
+    path = tmp_path / "perf.jsonl"
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
+                        tmp_path / "heavy-work.lock")
+    with (perf_ledger.recording(path, "r1", "semantic_analysis"),
+          heavy_work_lock.heavy_work_lock("fixture inference", "machine")):
+        import time
+        time.sleep(0.01)
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    report = perf_ledger.profile(rows, "r1")
+    scheduled = report["scheduled_work"]
+    assert scheduled["jobs"] == 1
+    assert scheduled["queue_wait_s"] >= 0
+    assert scheduled["execution_s"] >= 0
+    assert scheduled["rows"] == [{
+        "owner": "fixture inference", "profile": "machine",
+        "capability": "semantic_analysis",
+        "queue_wait_s": scheduled["queue_wait_s"],
+        "execution_s": scheduled["execution_s"],
+    }]
+
+    assert perf_ledger.main(["--ledger", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "Scheduled work: 1 job(s), queue " in output
+    assert "fixture inference [machine] semantic_analysis" in output
+    assert "execution " in output
+
+
 def test_required_ledger_persistence_writes_rows_and_inherits_to_children(
         tmp_path):
     path = tmp_path / "workflow" / "perf_ledger.jsonl"
