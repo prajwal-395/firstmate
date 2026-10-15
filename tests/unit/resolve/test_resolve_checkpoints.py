@@ -197,3 +197,34 @@ def test_timeline_checkpoint_name_is_stable_and_idempotent(tmp_path, monkeypatch
     assert first["idempotent"] is False
     assert second["idempotent"] is True
     assert project.GetTimelineCount() == 2
+
+
+def test_timeline_checkpoint_export_loss_does_not_claim_a_checkpoint(
+        tmp_path, monkeypatch):
+    """A Resolve disconnect during export leaves an explicit partial state.
+
+    The duplicated timeline is evidence of partial completion. Ren must
+    refuse a retry that could create another duplicate, and the ledger must
+    never claim that the missing archive is recoverable.
+    """
+    from library.tools.versions import store
+
+    project = Project()
+    source = Timeline("Cut", project)
+    project.timelines.append(source)
+
+    def resolve_disappears(*_args, **_kwargs):
+        return {"archived": False, "reason": "Resolve connection disappeared"}
+
+    monkeypatch.setattr(store, "export_timeline_recovery_archive",
+                        resolve_disappears)
+    with pytest.raises(RuntimeError, match="Resolve connection disappeared"):
+        checkpoints.timeline_checkpoint(
+            project, source, str(tmp_path), "disconnect-during-export", Resolve())
+
+    ledger = tmp_path / "pipeline_output/review/resolve_checkpoints.json"
+    assert not ledger.exists()
+    assert project.GetTimelineCount() == 2
+    with pytest.raises(FileExistsError, match="without a ledger entry"):
+        checkpoints.timeline_checkpoint(
+            project, source, str(tmp_path), "disconnect-during-export", Resolve())

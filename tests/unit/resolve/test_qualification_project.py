@@ -130,6 +130,36 @@ def test_a_restore_that_does_not_read_back_raises():
             podcast.timelines.pop()     # his timeline is gone on return
 
 
+def test_a_switch_that_opens_a_stale_project_is_refused():
+    """After recovery Resolve may answer LoadProject while a stale
+    project stays current. The switch must refuse rather than hand
+    back a project that is not the declared target."""
+    resolve, _ = _captain()
+
+    def stale_load(name):
+        return resolve.projects.get(name)
+
+    resolve.LoadProject = stale_load
+    with pytest.raises(qp.QualificationError, match="did not read back"):
+        qp.switch_project(resolve, qp.QUALIFICATION_PROJECT, settle=0)
+    assert resolve.GetCurrentProject().GetName() == "Podcast (field test)"
+
+
+def test_a_switch_past_a_dead_project_manager_is_refused():
+    """After recovery the project manager may read dead behind a
+    LoadProject that answered. The switch must refuse rather than
+    proceed with no readable project."""
+    resolve, _ = _captain()
+
+    def dead_load(name):
+        resolve.open = None
+        return None
+
+    resolve.LoadProject = dead_load
+    with pytest.raises(qp.QualificationError, match="reads dead"):
+        qp.switch_project(resolve, qp.QUALIFICATION_PROJECT, settle=0)
+
+
 def test_borrowing_from_the_qualification_project_is_refused():
     resolve, _ = _captain()
     resolve.LoadProject(qp.QUALIFICATION_PROJECT)

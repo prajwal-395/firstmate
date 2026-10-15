@@ -1273,6 +1273,50 @@ def test_a_qualification_job_aimed_at_a_user_project_is_refused():
                      qualification=True)
 
 
+def test_the_broker_never_switches_projects_it_refuses_a_wrong_target():
+    """An operation naming a project Resolve does not have open is
+    refused at the execution boundary - the broker opens nothing, so a
+    job can never silently edit somebody else's project."""
+    resolve = _Resolve(_Project_2("Podcast", ["Master"]))
+    with pytest.raises(jobs.JobRefused, match="never switches"):
+        jobs._open_project(resolve, "Ren Qualification")
+    assert jobs._open_project(resolve, "Podcast").GetName() == "Podcast"
+
+
+def test_a_broker_killed_mid_operation_never_reports_success(
+        serving, unguarded_2, monkeypatch):
+    """Ren never silently proceeds when it cannot establish Resolve state.
+
+    The broker dies (its socket is gone) while a snapshot operation is
+    genuinely in flight. A caller waiting on that operation must get a
+    loud refusal - never a receipt, done or otherwise - because
+    anything it does next would act on unestablished state.
+    """
+    broker, _ = serving
+    entered = threading.Event()
+    release = threading.Event()
+
+    def observe(project, timeline):
+        entered.set()
+        assert release.wait(10)
+        return types.SimpleNamespace(summary=lambda: {"generation": 1})
+
+    monkeypatch.setattr("library.tools.timeline_shadow.observe", observe)
+    submitted = client.submit("timeline.snapshot",
+                              {"project": "Podcast", "timeline": "Reel 01"})
+    assert submitted["coalesced"] is False
+    assert entered.wait(10)
+    in_flight = client.result(submitted["id"], wait=0)
+    assert in_flight["state"] == "running"
+
+    os.unlink(str(client._path()))  # the broker is dead mid-operation
+    try:
+        with pytest.raises((ConnectionError, client.TestSpawnRefused)):
+            client.result(submitted["id"], wait=5)
+    finally:
+        release.set()
+
+
 def test_broker_refuses_resolve_axi_run_without_developer_opt_in(monkeypatch):
     """The broker is customer runtime: a queued `run` script would be
     caller-supplied Python on the shared Resolve connection, so
