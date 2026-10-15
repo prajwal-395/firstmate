@@ -1,0 +1,21 @@
+{
+  "sample_id": "replace-with-stable-id",
+  "source_id": "source-id-from-editorial-eval-corpus",
+  "split": "held_out",
+  "condition": "clean",
+  "annotator_id": "human-annotator-id",
+  "reviewer_id": "independent-reviewer-id",
+  "audio_start_seconds": 0.0,
+  "audio_end_seconds": 5.0,
+  "words": [
+    {
+      "text": "verbatim word",
+      "speaker": "speaker-id-or-null",
+      "start": 0.12,
+      "end": 0.42
+    }
+  ],
+  "review_status": "double_checked_against_source_audio",
+  "boundary_timebase": "seconds from source start; intervals [start, end)",
+  "notes": "Keep held-out gold outside tuning workspaces; never derive text or word times from a model output."
+}

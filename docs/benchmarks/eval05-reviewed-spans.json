@@ -1,0 +1,112 @@
+{
+  "schema": "speech-eval-reviewed-spans-v1",
+  "system": {
+    "transcriber": "da / Voz 0.1.1",
+    "aligner": "Montreal Forced Aligner english_us_arpa v3.0.0",
+    "transcript_record": "GEO Podcast - Synced, saved 2026-10-04",
+    "transcription_path": "hybrid"
+  },
+  "cost_measurements": [
+    {
+      "source_id": "LC4932",
+      "split": "training",
+      "audio_seconds": 0.84,
+      "elapsed_seconds": 39.399,
+      "breakdown_seconds": {
+        "voz": 3.05,
+        "language_id": 0.156,
+        "mfa": 36.193
+      },
+      "measurement": "transcript.reindex, hybrid-MFA, 2026-10-04",
+      "scope": "one CTA correction span; model pass excludes audio extraction"
+    }
+  ],
+  "samples": [
+    {
+      "reference": {
+        "sample_id": "lc-0034-ai-sees-you",
+        "words": [
+          {"text": "AI", "speaker": "Craig"},
+          {"text": "sees", "speaker": "Craig"},
+          {"text": "you", "speaker": "Craig"}
+        ]
+      },
+      "hypothesis": {
+        "status": "answered",
+        "words": [
+          {"text": "AI", "speaker": "Craig"},
+          {"text": "sees", "speaker": "Craig"},
+          {"text": "you", "speaker": "Craig"}
+        ]
+      },
+      "split": "calibration",
+      "condition": "unknown",
+      "source_id": "LCATL0012",
+      "human_evidence": "geo-podcast marker feedback: 'aics you' corrected to 'AI sees you'",
+      "audio_seconds": 1.32
+    },
+    {
+      "reference": {
+        "sample_id": "lc-0035-gemini",
+        "words": [{"text": "Gemini", "speaker": "Craig"}]
+      },
+      "hypothesis": {
+        "status": "answered",
+        "words": [{"text": "Gemini", "speaker": "Craig"}]
+      },
+      "split": "training",
+      "condition": "unknown",
+      "source_id": "LCATL0014",
+      "human_evidence": "geo-podcast marker feedback: 'Jim and i' corrected to 'Gemini'",
+      "audio_seconds": 0.45
+    },
+    {
+      "reference": {
+        "sample_id": "lc-0102-single-probably",
+        "words": [{"text": "probably", "speaker": "Akshita"}]
+      },
+      "hypothesis": {
+        "status": "answered",
+        "words": [
+          {"text": "probably", "speaker": "Akshita"},
+          {"text": "probably", "speaker": "Akshita"}
+        ]
+      },
+      "split": "training",
+      "condition": "unknown",
+      "source_id": "LC4932",
+      "human_evidence": "geo-podcast review: two hearings agree one 'probably'; second aligned token was a 0.16 s sliver",
+      "audio_seconds": 0.88
+    },
+    {
+      "reference": {
+        "sample_id": "pull-from-there",
+        "words": [
+          {"text": "pull", "speaker": "Akshita"},
+          {"text": "from", "speaker": "Akshita"},
+          {"text": "there", "speaker": "Akshita"}
+        ]
+      },
+      "hypothesis": {
+        "status": "answered",
+        "words": [
+          {"text": "pull", "speaker": "Akshita"},
+          {"text": "from", "speaker": "Akshita"},
+          {"text": "there", "speaker": "Akshita"}
+        ]
+      },
+      "split": "training",
+      "condition": "unknown",
+      "source_id": "LC4932",
+      "human_evidence": "geo-podcast review: the transcriber had dropped 'pull from there'; reviewed transcription restored it",
+      "audio_seconds": 0.68
+    }
+  ],
+  "limitations": [
+    "Only explicitly human-reviewed wording is included; no full-sentence text was inferred.",
+    "Word boundaries are not manually annotated in these records; start and end values are intentionally absent.",
+    "All spans are training or calibration sources. No held-out gold is present.",
+    "Speech condition is unknown; the feedback records do not support accent, overlap, or noise labels.",
+    "Hypotheses are from the saved hybrid Voz/MFA transcript and may include recorded transcript corrections."
+  ]
+}
