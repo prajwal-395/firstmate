@@ -3707,7 +3707,14 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   fi
   raw_status=$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")
   baseline=$(fm_backend_herdr_classify_submit_agent_status "$raw_status")
-  confirm_sleep=$(fm_backend_herdr_submit_confirm_budget "$sleep_s")
+  # The first Enter attempt's confirmation window scales with the submitted
+  # line: a harness cannot clear its composer before it has accepted the whole
+  # line, and that acceptance latency grows with length (incident
+  # fm-doorbell-not-submitted, 2026-10-15: a short fixed window burned both
+  # retries before a loaded pane accepted a long doorbell, leaving it typed
+  # but unsubmitted). bin/fm-composer-lib.sh owns the window shape and the
+  # tmux core sizes the same way; later attempts keep the caller's budget.
+  confirm_sleep=$(fm_submit_confirm_budget "$(fm_backend_herdr_submit_confirm_budget "$sleep_s")" "${#text}")
   # Typing never starts a turn, so a footer read taken after the literal send
   # and before the first Enter is still a pre-submission baseline.
   if [ "$baseline" = idle ]; then
@@ -3730,6 +3737,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
     if [ "$baseline" = idle ]; then
       verdict=$(fm_backend_herdr_wait_for_working "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" \
         "$confirm_sleep" "$FM_BACKEND_HERDR_SUBMIT_POLLS")
+      confirm_sleep=$sleep_s
       case "$verdict" in
         busy) printf 'empty'; return 0 ;;
         unknown) printf 'unknown'; return 0 ;;
