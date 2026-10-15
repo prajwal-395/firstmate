@@ -132,6 +132,13 @@ def _write_shim(tmp_path: Path, script: str) -> Path:
 
 
 def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
+    tools = shim.parent / "tools"
+    tools.mkdir(exist_ok=True)
+    lock_python = tools / "python3"
+    lock_python.write_text(
+        f"#!/bin/sh\nexec \"{sys.executable}\" \"$@\"\n", encoding="utf-8"
+    )
+    lock_python.chmod(0o755)
     return subprocess.run(
         [str(LOCAL_GATE), *args],
         capture_output=True,
@@ -140,9 +147,12 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
         cwd=REPO_ROOT,
         env={
             **os.environ,
+            "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+            "VEP_HEAVY_WORK_LOCK_DIR": str(shim.parent / "heavy-work.lock"),
             "FULL_SUITE_GATE_PYTHON": str(shim),
             "FULL_SUITE_GATE_SKIP_NATIVE_PREP": "1",
         },
+        timeout=60,
     )
 
 
