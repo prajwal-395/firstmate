@@ -26,6 +26,9 @@ FPS = 30
 @pytest.fixture
 def world(tmp_path, monkeypatch, stub_resolve_script):
     recipe = golden_edit.MONOLOGUE
+    # Generated source media belongs to this run, not the user's shared
+    # qualification cache.
+    monkeypatch.setattr(golden, "media_root", lambda: tmp_path / "media")
     media = golden_edit.ensure_media(recipe)
     folder = golden_edit.make_project_folder(tmp_path, recipe, media)
     golden_edit.in_process_steps(monkeypatch)

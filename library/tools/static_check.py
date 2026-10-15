@@ -57,8 +57,8 @@ import ast
 import functools
 import inspect
 import json
-import os
 import operator
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -146,6 +146,46 @@ def home_paths(roots=None) -> list:
     return out
 
 
+def private_data_home_paths(files=None) -> list:
+    """Tests may not derive fixtures from a private Documents data tree."""
+    candidates = _test_files() if files is None else files
+    out = []
+    for path in candidates:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        prose = _docstring_lines(tree)
+        private_layout = any(
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.lineno not in prose
+            and node.value in {"work_stuff", "FIRSTMATE_HOME"}
+            for node in ast.walk(tree)
+        )
+        if not private_layout:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            is_expanduser = (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "expanduser"
+            )
+            is_home = (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "home"
+            )
+            if (is_expanduser and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value == "~") or is_home:
+                out.append(
+                    f"{_rel(path)}:{node.lineno}: private Documents data "
+                    "path derived from the user's home"
+                )
+    return out
+
+
 def project_root_reads(files=None) -> list:
     """Test source that reads the configured real-projects root constant.
 
@@ -168,11 +208,12 @@ def project_root_reads(files=None) -> list:
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr == "PROJECTS_ROOT":
                 out.append(f"{path.name}:{node.lineno}: .PROJECTS_ROOT")
-            elif isinstance(node, ast.ImportFrom):
-                if any(alias.name == "PROJECTS_ROOT" for alias in node.names):
-                    out.append(
-                        f"{path.name}:{node.lineno}: from {node.module} import PROJECTS_ROOT"
-                    )
+            elif (isinstance(node, ast.ImportFrom)
+                  and any(alias.name == "PROJECTS_ROOT"
+                          for alias in node.names)):
+                out.append(
+                    f"{path.name}:{node.lineno}: from {node.module} import PROJECTS_ROOT"
+                )
     return out
 
 
@@ -633,9 +674,9 @@ _BRIDGE_MARKERS = (
 
 def creative_code_markers(registry=None, repo_root=REPO_ROOT) -> list:
     """Removed floor shapes in capabilities whose model owns quantity."""
-    from library.tools import capabilities
-
     import re
+
+    from library.tools import capabilities
 
     registry = capabilities.all() if registry is None else tuple(registry)
     step_dirs = {
@@ -696,6 +737,8 @@ def problems() -> list:
     """Every static source-policy violation.  Empty is clean."""
     out = []
     out += [f"home_paths: {p}" for p in home_paths()]
+    out += [f"private_data_home_paths: {p}"
+            for p in private_data_home_paths()]
     out += [f"resolve_access: {p}" for p in resolve_access()]
     out += [f"syspath: {p}" for p in syspath()]
     out += [f"project_root_reads: {p}" for p in project_root_reads()]

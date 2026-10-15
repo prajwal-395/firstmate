@@ -44,6 +44,19 @@ def test_a_home_path_in_prose_is_not_a_path(tmp_path):
     assert static_check.home_paths(roots=[tmp_path]) == []
 
 
+def test_private_documents_fixture_fallback_is_named(tmp_path):
+    mod = tmp_path / "test_example.py"
+    mod.write_text(
+        'ROOT = os.path.join(os.path.expanduser("~"), "Documents", '
+        '"work_stuff", "firstmate", "data")\n',
+        encoding="utf-8",
+    )
+    found = static_check.private_data_home_paths(files=[mod])
+    assert found == [
+        f"{mod}:1: private Documents data path derived from the user's home"
+    ]
+
+
 def test_a_projects_root_attribute_read_is_named(tmp_path):
     mod = tmp_path / "test_example.py"
     mod.write_text("root = paths.PROJECTS_ROOT\n", encoding="utf-8")

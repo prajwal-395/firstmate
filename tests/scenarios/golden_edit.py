@@ -316,6 +316,12 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
         empty = folder.parent / variable.lower()
         empty.mkdir(exist_ok=True)
         monkeypatch.setenv(variable, str(empty))
+        if variable == "PIPELINE_MUSIC_LIBRARY":
+            # library.tools.paths may have imported the configured path
+            # before the test installs its environment, so bind its cached
+            # constant to the same fixture directory too.
+            from library.tools import paths
+            monkeypatch.setattr(paths, "MUSIC_LIBRARY", empty)
     return asked
 
 

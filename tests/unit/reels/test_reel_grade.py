@@ -1,21 +1,25 @@
 """The declared CDL reaches reel picture clips, CDL-first: it resolves from
 the same declaration the Fusion half reads, `SetCDL` lands on node 1 of
-footage picture items only, and the pixel proof (skipped without the
-grade-variant stills) shows the split comes from the CDL.
+footage picture items only, and a generated pixel fixture shows the
+shadow split comes from the CDL.
 
 History: `docs/evidence/series_look.md` (test_reel_grade_cdl.py).
 """
 from __future__ import annotations
+
 import os
 import sys
+from dataclasses import dataclass
 from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import yaml
-from dataclasses import dataclass
-
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
+import threading
+import time
 
 from library.tools import reel_look
 from library.tools.resource_leases import (
@@ -24,8 +28,6 @@ from library.tools.resource_leases import (
     resource_lease,
 )
 from library.tools.series_look import LookDeclarationError
-import threading
-import time
 
 
 @pytest.fixture(autouse=True)
@@ -239,9 +241,8 @@ def test_apply_cdl_records_a_failure_without_stopping_the_reel():
 
 # ── 3. The full declared look in decoded pixels ─────────────────────────
 #
-# The still recipe is `data/vep-grade-variants-to-choose-from/report.md`
-# in the firstmate home, section 2: CDL
-# first (as SetCDL on the timeline item), then the Fusion chain in node
+# The pixel recipe: CDL first (as SetCDL on the timeline item), then the
+# Fusion chain in node
 # order - pivot contrast, glow, grain, vignette. The Fusion nodes are
 # approximated in numpy exactly as that section describes them (Glow =
 # thresholded blur screen-blended; Grain = gaussian noise; Vignette =
@@ -320,41 +321,24 @@ def _recipe_full(x, cdl, fusion, cdl_first=True):
     return x
 
 
-# The lane output the pixel proofs compare against. It lives with the
-# lane - `data/vep-grade-variants-to-choose-from/` in the firstmate
-# home - never in this repo, so a machine without it SKIPS these
-# proofs (naming this path) rather than erroring or passing silent.
-#
-# Reached through `PIPELINE_GRADE_VARIANTS_DIR` rather than spelled: an
-# absolute path into one machine's home is not a fixture, and
-# `tests/tooling/test_tests_never_reach_real_projects.py` refuses one in a test
-# module. The default is the lane's own layout relative to a firstmate
-# home named by `FIRSTMATE_HOME`, so the machine that ran the grade lane
-# still finds it with nothing set.
-GRADE_VARIANTS_DIR = os.environ.get("PIPELINE_GRADE_VARIANTS_DIR") or os.path.join(
-    os.environ.get("FIRSTMATE_HOME")
-    or os.path.join(os.path.expanduser("~"), "Documents", "work_stuff",
-                    "firstmate"),
-    "data", "vep-grade-variants-to-choose-from")
-
-
-def _stills():
+def _stills(tmp_path):
+    """Build a tiny deterministic neutral still and its reference grade."""
     from PIL import Image
 
-    variant = GRADE_VARIANTS_DIR
-    missing = [name for name in ("v00_neutral.jpg", "v04_teal_split.jpg")
-               if not os.path.exists(os.path.join(variant, name))]
-    if missing:
-        pytest.skip(
-            "needs the captain's project stills at "
-            f"{variant} - {', '.join(missing)} absent there "
-            "(data/vep-grade-variants-to-choose-from/ in the firstmate "
-            "home, the machine that ran the grade lane)")
-    window = (slice(260, 1661), slice(18, 1061))  # report.md s2
-    neutral = (np.asarray(Image.open(
-        os.path.join(variant, "v00_neutral.jpg"))).astype(float) / 255.0)[window]
-    still = (np.asarray(Image.open(
-        os.path.join(variant, "v04_teal_split.jpg"))).astype(float) / 255.0)[window]
+    neutral = np.empty((64, 64, 3), dtype=np.uint8)
+    neutral[:32] = [24, 20, 18]
+    neutral[32:] = [140, 132, 120]
+    neutral_path = tmp_path / "neutral.png"
+    Image.fromarray(neutral).save(neutral_path)
+    neutral = np.asarray(Image.open(neutral_path)).astype(float) / 255.0
+    fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
+              "glow_size": 3.5, "grain_power": 0.35,
+              "vignette_blend": 0.35, "vignette_soft": 0.30}
+    reference = _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion,
+                             cdl_first=True)
+    still_path = tmp_path / "reference.png"
+    Image.fromarray((reference * 255).astype("uint8")).save(still_path)
+    still = np.asarray(Image.open(still_path)).astype(float) / 255.0
     return neutral, still
 
 
@@ -368,13 +352,13 @@ def _masks(neutral):
     return luminance > 0.45, luminance < 0.18
 
 
-def test_shadow_separation_comes_from_the_cdl_not_the_fusion():
+def test_shadow_separation_comes_from_the_cdl_not_the_fusion(tmp_path):
     """Without the CDL the reel gets the texture and the falloff but
     not the colour separation: the Fusion four alone leave the shadows
     where the neutral had them (no B-R separation), while the full look
     lands on the still's."""
 
-    neutral, still = _stills()
+    neutral, still = _stills(tmp_path)
     _skin, shadow = _masks(neutral)
     fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
               "glow_size": 3.5, "grain_power": 0.35,
