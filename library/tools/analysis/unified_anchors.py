@@ -52,6 +52,7 @@ import numpy as np
 from library.tools.analysis import footage_segments as segments_mod
 from library.tools.analysis.footage_query import (
     _BM25,
+    _OCR_WORD,
     ABSENT_MARGIN,
     ABSENT_PROBES,
     EG2_TEXT_DIM,
@@ -59,8 +60,6 @@ from library.tools.analysis.footage_query import (
     RRF_K,
     VIDEO_EMBED_BATCH_CHUNKS,
     _has_visual_intent,
-    _tokenize as _query_tokenize,
-    _OCR_WORD,
     cut_video_windows,
     extract_chunk_frames,
     ingest_fingerprint,
@@ -70,6 +69,9 @@ from library.tools.analysis.footage_query import (
     load_eg2_text_embedder,
     load_eg2_video_embedder,
     ocr_text_matches,
+)
+from library.tools.analysis.footage_query import (
+    _tokenize as _query_tokenize,
 )
 from library.tools.ren_refusal import RenRefusal
 
@@ -632,6 +634,17 @@ _SPOKEN_INTENT = re.compile(
     r"mentions?|asks?|asked|asking|shout out|quotes?|recites?)\b",
     re.IGNORECASE)
 
+_MOTION_INTENT = re.compile(
+    r"\b(motion|moving|moves|move|shaking|shaky|"
+    r"camera movement|pan(?:ning)?|tilt(?:ing)?|tracking)\b", re.IGNORECASE)
+_ACTION_INTENT = re.compile(
+    r"\b(action|doing|drink(?:ing)?|pick(?:ing)? up|put(?:ting)? down|"
+    r"wave(?:s|d|ing)?|point(?:s|ed|ing)|gesture|gestur(?:e|ing)|"
+    r"open(?:s|ed|ing)?|close(?:s|d|ing)?)\b", re.IGNORECASE)
+_LOCOMOTION_INTENT = re.compile(
+    r"\b(?:(?:he|she|they|someone|person|man|woman|host)\s+"
+    r"(?:is\s+)?|(?:while|as)\s+)(?:walking|running)\b", re.IGNORECASE)
+
 
 def route_query_intent(query: str) -> str:
     """One of ``spoken``/``shot``/``text``/``visual``/``general``.
@@ -653,6 +666,23 @@ def route_query_intent(query: str) -> str:
     return "general"
 
 
+def route_query_intents(query: str) -> tuple[str, ...]:
+    """Return every evidence intent a query needs, without loading a model."""
+    text = query or ""
+    intents = []
+    if _TEXT_INTENT.search(text):
+        intents.append("text")
+    if _SPOKEN_INTENT.search(text):
+        intents.append("spoken")
+    if _MOTION_INTENT.search(text) or _LOCOMOTION_INTENT.search(text):
+        intents.append("motion")
+    if _ACTION_INTENT.search(text) or _LOCOMOTION_INTENT.search(text):
+        intents.append("action")
+    if _SHOT_INTENT.search(text) or _has_visual_intent(text):
+        intents.append("shot")
+    return tuple(intents or ("general",))
+
+
 #: Dense anchors that can answer each intent.  Speech content lives in
 #: the transcript: the audio tower hears the same speech, but a text
 #: query against speech-audio similarity is unproven, so ``spoken``
@@ -667,7 +697,29 @@ INTENT_ANCHORS = {
     "text": ("video", "still", "description"),
     "visual": ("video", "still", "audio", "description", "transcript"),
     "general": ("video", "still", "audio", "description", "transcript"),
+    "motion": ("video", "description"),
+    "action": ("video", "description"),
 }
+
+
+def anchors_for_query(query: str) -> tuple[str, ...]:
+    """Union required anchors while excluding unrelated expensive lanes."""
+    return tuple(anchor for anchor in UNIFIED_ANCHORS
+                 if any(anchor in INTENT_ANCHORS[intent]
+                        for intent in route_query_intents(query)))
+
+
+def required_capabilities_for_query(query: str) -> tuple[str, ...]:
+    """Name transcript and temporal evidence readers required by the query."""
+    capabilities = []
+    for intent in route_query_intents(query):
+        if intent == "spoken":
+            capabilities.append("transcript_search")
+        elif intent == "motion":
+            capabilities.append("measured_motion")
+        elif intent == "action":
+            capabilities.extend(("temporal_action_candidates", "action_verification"))
+    return tuple(dict.fromkeys(capabilities))
 
 
 def _ocr_exact(query_tokens: list, text: str) -> bool:
@@ -847,8 +899,9 @@ class UnifiedIndex:
             anchor_weaks = {a: weak_floor for a in UNIFIED_ANCHORS}
 
         visual_intent = _has_visual_intent(query or "")
-        intent = route_query_intent(query or "")
-        lanes = INTENT_ANCHORS[intent]
+        intents = route_query_intents(query or "")
+        intent = intents[0] if len(intents) == 1 else "multi"
+        lanes = anchors_for_query(query or "")
         coverage = self.payload.get("coverage", {})
         per_clip = coverage.get("per_clip", {})
         # The 2218 rule: a visual question needs PICTURE evidence.  Heard
@@ -872,7 +925,9 @@ class UnifiedIndex:
             "window_count": n,
             "results": [], "weak": [], "considered": n, "retained": 0,
             "abstained": False, "degraded": None, "error": None,
-            "query_intent": intent, "intent_lanes": list(lanes),
+            "query_intent": intent, "query_intents": list(intents),
+            "intent_lanes": list(lanes),
+            "required_capabilities": list(required_capabilities_for_query(query or "")),
             "answer_status": None, "coverage": coverage,
         }
         if n == 0:
@@ -916,8 +971,7 @@ class UnifiedIndex:
                 hits = matrix @ vector
                 for pos, d in enumerate(descriptors):
                     for row in by_id.get(d["anchor_id"], ()):
-                        if hits[row] > scores[pos]:
-                            scores[pos] = hits[row]
+                        scores[pos] = max(scores[pos], hits[row])
             elif len(matrix) == n:
                 scores = (matrix @ vector).astype("float32")
             else:

@@ -24,9 +24,12 @@ from library.tools.analysis.unified_anchors import (
     UNIFIED_DESCRIPTORS_FILE,
     UNIFIED_WINDOW_S,
     UnifiedIndex,
+    anchors_for_query,
     build_unified,
     extract_window_audio,
+    required_capabilities_for_query,
     route_query_intent,
+    route_query_intents,
 )
 from library.tools.ren_refusal import RenRefusal
 
@@ -501,6 +504,28 @@ def test_route_query_intent_sends_each_question_to_its_evidence():
     assert INTENT_ANCHORS["spoken"] == ("transcript",)
     assert set(INTENT_ANCHORS["shot"]) == {"video", "still", "description"}
     assert set(INTENT_ANCHORS["general"]) == set(UNIFIED_ANCHORS)
+
+
+def test_route_query_preserves_multiple_evidence_needs_without_audio_cost():
+    query = "what does she say while walking?"
+    assert route_query_intents(query) == ("spoken", "motion", "action")
+    assert set(anchors_for_query(query)) == {"video", "description", "transcript"}
+    assert required_capabilities_for_query(query) == (
+        "transcript_search", "measured_motion", "temporal_action_candidates",
+        "action_verification",
+    )
+    assert "audio" not in anchors_for_query(query)
+
+
+def test_motion_and_action_queries_use_temporal_picture_anchors():
+    assert route_query_intents("find the camera movement") == ("motion", "shot")
+    assert set(anchors_for_query("find the camera movement")) == {
+        "video", "still", "description"
+    }
+    assert route_query_intents("when does he drink from the cup?") == ("action",)
+    assert set(anchors_for_query("when does he drink from the cup?")) == {
+        "video", "description"
+    }
 
 
 def _manual_unified_index(root, monkeypatch, descriptors, anchor_rows,
