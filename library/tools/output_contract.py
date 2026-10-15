@@ -478,6 +478,23 @@ def survey() -> list[OutputRow]:
     for classifier in CLASSIFIERS:
         constants.pop(classifier, None)
 
+    # CAP-03: a capability-owned executor is the step's own
+    # implementation under a new path. The producer naming its own
+    # output is not a reader, so the capability packages implementing
+    # a step are excluded exactly like the step's own directory; a
+    # module in any OTHER package naming the key still counts.
+    from library.tools import operations as _operations
+
+    capability_own: dict[str, set[str]] = {}
+    for _op in _operations.all():
+        _executor = getattr(_op, "executor_path", None)
+        if not _executor:
+            continue
+        _parent = _executor.rpartition("/")[0]
+        if _parent:
+            capability_own.setdefault(_op.owning_dir, set()).add(
+                _parent + "/")
+
     rows: list[OutputRow] = []
     for process_id, dag in processes.every_dag().items():
         node_dir = {node["id"]: node.get("step_ref", "").split("/")[-1]
@@ -490,6 +507,7 @@ def survey() -> list[OutputRow]:
                 continue
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             own = f"library/steps/{step_dir}/"
+            cap_own = capability_own.get(step_dir, set())
 
             bridge_path = _LIBRARY_ROOT / "steps" / step_dir / "bridge.py"
             bridge_keys = (_string_constants(bridge_path)
@@ -516,7 +534,9 @@ def survey() -> list[OutputRow]:
                 readers = tuple(
                     (rel, literals[name][0])
                     for rel, literals in sorted(constants.items())
-                    if name in literals and not rel.startswith(own))
+                    if name in literals and not rel.startswith(own)
+                    and not any(rel.startswith(prefix)
+                                for prefix in cap_own))
                 # A collision SUBTRACTS the credit. The readers are kept
                 # on the row so `disagreements` can tell a live collision
                 # from a stale entry, and `routes` ignores them.

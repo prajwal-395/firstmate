@@ -1401,6 +1401,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Index each clip's speech, sound and motion over time",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="index_project",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(
             "temporal_event_indices",
             "total_indexed",
@@ -2089,6 +2090,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Re-measure the speech in one region, back at the raw footage",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="reindex_region",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(),
         consumes=(),
         # REGION only, for the same reason: re-indexing everything is
@@ -2100,6 +2102,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Put a re-measured region back into the per-clip speech index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="splice_region_index",
+        executor_path="library/capabilities/temporal/index.py",
         produces=(),
         consumes=(),
         scopes=(REGION,),

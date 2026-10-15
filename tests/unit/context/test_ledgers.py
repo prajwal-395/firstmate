@@ -192,9 +192,11 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
     """The bookkeeping and the step agree: one clip in, one clip indexed."""
     root, state, files = project
     import importlib.util
+    # CAP-03: the step file is a thin adapter; the seam must reach the
+    # capability module whose globals build_temporal_index reads.
     spec = importlib.util.spec_from_file_location(
         "temporal_index_step",
-        STEPS_ROOT / "step_1_04_temporal_index" / "step.py")
+        PILOT_ROOT / "library" / "capabilities" / "temporal" / "index.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 

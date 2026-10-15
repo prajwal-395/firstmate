@@ -424,7 +424,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/checkpoints.py',
         'library/tools/versions/variants.py',
         'library/tools/video_prefs.py',
-        'library/steps/step_1_04_temporal_index/step.py',
+        'library/capabilities/temporal/index.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
         'library/tools/analysis/source_separation.py',
@@ -476,7 +476,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/window_frames.py',
         'library/processes/edit_video/run_pipeline.py',
         'library/tools/project_model_narrative.py',
-        'library/steps/step_1_04_temporal_index/media_decode.py',
+        'library/capabilities/temporal/media_decode.py',
         'library/tools/analysis/sound_event_pipeline.py',
         'library/tools/audio_chain.py',
         'library/tools/audio_classification.py',
@@ -909,7 +909,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/checkpoints.py',
         'library/tools/versions/variants.py',
         'library/tools/video_prefs.py',
-        'library/steps/step_1_04_temporal_index/step.py',
+        'library/capabilities/temporal/index.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
         'library/tools/analysis/source_separation.py',
@@ -961,7 +961,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/window_frames.py',
         'library/processes/edit_video/run_pipeline.py',
         'library/tools/project_model_narrative.py',
-        'library/steps/step_1_04_temporal_index/media_decode.py',
+        'library/capabilities/temporal/media_decode.py',
         'library/tools/analysis/sound_event_pipeline.py',
         'library/tools/audio_chain.py',
         'library/tools/audio_classification.py',
@@ -1410,7 +1410,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/checkpoints.py',
         'library/tools/versions/variants.py',
         'library/tools/video_prefs.py',
-        'library/steps/step_1_04_temporal_index/step.py',
+        'library/capabilities/temporal/index.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
         'library/tools/analysis/source_separation.py',
@@ -1461,7 +1461,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/window_frames.py',
         'library/processes/edit_video/run_pipeline.py',
         'library/tools/project_model_narrative.py',
-        'library/steps/step_1_04_temporal_index/media_decode.py',
+        'library/capabilities/temporal/media_decode.py',
         'library/tools/analysis/sound_event_pipeline.py',
         'library/tools/audio_chain.py',
         'library/tools/audio_classification.py',
@@ -1917,7 +1917,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/checkpoints.py',
         'library/tools/versions/variants.py',
         'library/tools/video_prefs.py',
-        'library/steps/step_1_04_temporal_index/step.py',
+        'library/capabilities/temporal/index.py',
         'library/tools/motion_evidence.py',
         'library/tools/analysis/music_pipeline.py',
         'library/tools/analysis/source_separation.py',
@@ -1969,7 +1969,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/window_frames.py',
         'library/processes/edit_video/run_pipeline.py',
         'library/tools/project_model_narrative.py',
-        'library/steps/step_1_04_temporal_index/media_decode.py',
+        'library/capabilities/temporal/media_decode.py',
         'library/tools/analysis/sound_event_pipeline.py',
         'library/tools/audio_chain.py',
         'library/tools/audio_classification.py',
@@ -2046,6 +2046,11 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_04_temporal_index": (
+        # The legacy step delegates indexing here; code changes alter
+        # cached indexes. The shared FFmpeg graph that supplies the
+        # per-clip visual measurements moved with it.
+        "library/capabilities/temporal/index.py",
+        "library/capabilities/temporal/media_decode.py",
         # FI-14 camera/subject and novelty evidence derived from M2.
         "library/tools/motion_evidence.py",
         # Deterministic shot hierarchy and evidence-linked profiles.
@@ -2086,8 +2091,6 @@ STEP_IMPLEMENTATION_DEPS = {
         # aim. Step 1.04 runs no Vision pass of its own (MU-12); the
         # file is declared only because the import graph reaches it.
         "library/tools/vision_measure.py",
-        # Shared FFmpeg graph that supplies the per-clip visual measurements.
-        "library/steps/step_1_04_temporal_index/media_decode.py",
         # Span extraction feeding region re-measurement.
         "library/tools/timeline_transcript.py",
         "library/tools/overlapped_speech.py",
@@ -2466,7 +2469,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/checkpoints.py',
         'library/tools/versions/variants.py',
         'library/tools/video_prefs.py',
-        'library/steps/step_1_04_temporal_index/step.py',
         'library/tools/analysis/music_pipeline.py',
         'library/tools/analysis/source_separation.py',
         'library/tools/analysis/ocr_extractor.py',

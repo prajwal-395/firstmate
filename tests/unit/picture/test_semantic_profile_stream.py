@@ -195,7 +195,7 @@ def test_failed_clip_publish_retries_without_changing_other_clip(
 
 def test_failed_temporal_index_write_preserves_cache_and_retries(
         tmp_path, monkeypatch):
-    from library.steps.step_1_04_temporal_index import step as temporal_step
+    from library.capabilities.temporal import index as temporal_step
 
     first = tmp_path / "clip_001.json"
     failed = tmp_path / "clip_002.json"

@@ -844,7 +844,7 @@ def measure_reference_sound_design(video_path: str) -> dict:
             "reason": "no extractable audio stream",
         }
     try:
-        from library.steps.step_1_04_temporal_index.step import (
+        from library.capabilities.temporal.index import (
             classify_onsets,
             detect_onsets_with_strength,
         )

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from library.steps.step_1_04_temporal_index import step as temporal_index
+from library.capabilities.temporal import index as temporal_index
 from library.tools import hybrid_transcription
 
 

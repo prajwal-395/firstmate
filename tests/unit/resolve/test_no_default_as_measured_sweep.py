@@ -16,7 +16,7 @@ numpy = pytest.importorskip(
     "numpy", reason="measurement math needs numpy; CI installs it",
 )
 
-from library.steps.step_1_04_temporal_index import step as step_1_04
+from library.capabilities.temporal import index as step_1_04
 from library.steps.step_3_03_review_rough_cut.step import placed_windows
 from library.steps.step_6_01_render.resolve_build_timeline import (
     caption_block_offsets,

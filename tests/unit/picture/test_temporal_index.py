@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from library.steps.step_1_04_temporal_index.step import (
+from library.capabilities.temporal.index import (
     decompose_camera_motion,
     write_sound_memory,
 )
@@ -39,7 +39,7 @@ from library.tools.context_views import build_view
 def test_batch_audio_is_published_under_each_clip_cache_name(tmp_path,
                                                             monkeypatch):
     """Prosody reads clip ids; batched extraction starts source-keyed."""
-    from library.steps.step_1_04_temporal_index import step as temporal
+    from library.capabilities.temporal import index as temporal
     from library.tools import concurrency_routing, footage_identity
     from library.tools.project_layout import Area, ProjectLayout
 
@@ -84,7 +84,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 STEP_PATH = os.path.join(
-    PROJECT_ROOT, "library", "steps", "step_1_04_temporal_index", "step.py")
+    PROJECT_ROOT, "library", "capabilities", "temporal", "index.py")
 
 
 def _face_presence_returns():
@@ -119,7 +119,7 @@ def test_every_return_path_carries_face_center_x():
 def test_face_presence_keeps_only_consumed_tracks(tmp_path, monkeypatch):
     import numpy as np
 
-    from library.steps.step_1_04_temporal_index import step as s
+    from library.capabilities.temporal import index as s
 
     frames = np.zeros((2, 2, 2, 3), dtype=np.uint8)
     frames[0, :, :, 0] = 255
@@ -145,7 +145,7 @@ def test_face_presence_keeps_only_consumed_tracks(tmp_path, monkeypatch):
 def test_color_curve_keeps_consumed_measurements(tmp_path):
     import numpy as np
 
-    from library.steps.step_1_04_temporal_index import step as s
+    from library.capabilities.temporal import index as s
 
     frames = np.zeros((2, 45, 80, 3), dtype=np.uint8)
     frames[0, :, :, 0] = 255
@@ -166,7 +166,7 @@ def test_color_curve_keeps_consumed_measurements(tmp_path):
 
 
 def test_cached_temporal_index_sheds_unread_analysis_fields():
-    from library.steps.step_1_04_temporal_index.step import (
+    from library.capabilities.temporal.index import (
         shed_unread_analysis_fields,
     )
 
@@ -195,7 +195,7 @@ class TestCascadeAvailability:
 
     def test_returns_none_without_a_usable_cascade(self, monkeypatch, tmp_path):
         """OpenCV 5: the attribute is simply gone."""
-        from library.steps.step_1_04_temporal_index import step as s
+        from library.capabilities.temporal import index as s
 
         class FakeCv2:
             data = None
@@ -227,7 +227,7 @@ class TestCascadeAvailability:
         assert s._load_face_cascade() is None
 
     def test_returns_the_classifier_when_everything_is_present(self, monkeypatch, tmp_path):
-        from library.steps.step_1_04_temporal_index import step as s
+        from library.capabilities.temporal import index as s
 
         xml = tmp_path / "haarcascade_frontalface_default.xml"
         xml.write_text("<opencv_storage/>")
@@ -272,7 +272,7 @@ class TestCascadeAvailability:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.steps.step_1_04_temporal_index import step as s  # noqa: E402
+from library.capabilities.temporal import index as s  # noqa: E402
 
 _SECTION_1_MARK = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -506,7 +506,7 @@ cv2 = pytest.importorskip(
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.steps.step_1_04_temporal_index.step import (  # noqa: E402
+from library.capabilities.temporal.index import (  # noqa: E402
     _block_match_shift,
     _compass,
     _direction_of,
@@ -651,7 +651,7 @@ def _frames(kind, n=15):
 
 
 def _flow_of(kind, monkeypatch):
-    import library.steps.step_1_04_temporal_index.step as step_1_04
+    import library.capabilities.temporal.index as step_1_04
 
     frames = _frames(kind)
     stack = numpy.stack(frames)
@@ -678,7 +678,7 @@ def test_static_pan_and_zoom_sequences_classify(monkeypatch):
 
 
 def test_burst_sequence_peaks_where_the_burst_is(monkeypatch):
-    import library.steps.step_1_04_temporal_index.step as step_1_04
+    import library.capabilities.temporal.index as step_1_04
 
     base = _noise()
     frames = [base.copy()] * 5
@@ -715,7 +715,7 @@ def test_backfill_predicate():
 
 def test_backfill_writes_nothing_when_nothing_is_measured(
         monkeypatch, tmp_path):
-    import library.steps.step_1_04_temporal_index.step as step_1_04
+    import library.capabilities.temporal.index as step_1_04
 
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(b"0")
@@ -816,7 +816,7 @@ def test_temporal_index_runs_no_vision_pass_of_its_own(tmp_path,
     """
     if shutil.which("ffmpeg") is None:
         pytest.skip("ffmpeg is required to index a synthetic clip")
-    from library.steps.step_1_04_temporal_index import step as ti
+    from library.capabilities.temporal import index as ti
     from library.tools.project_layout import ProjectLayout
 
     clip = tmp_path / "clip.mp4"
@@ -871,7 +871,7 @@ def test_a_cached_index_sheds_the_retired_vision_keys():
     fresh one disagree on shape. Shedding reports whether anything
     changed, so an index without them is never rewritten.
     """
-    from library.steps.step_1_04_temporal_index import step as ti
+    from library.capabilities.temporal import index as ti
 
     index = {"clip_id": "clip_001", "face_presence": {"values": [0.9]}}
     index.update({key: {"samples": []} for key in ti.RETIRED_VISION_KEYS})
@@ -1088,7 +1088,7 @@ class TestParallelLanesKeepTheSerialContract:
 
     def test_parallel_run_matches_serial_run_row_for_row(
             self, tmp_path, monkeypatch):
-        from library.steps.step_1_04_temporal_index import step as ti
+        from library.capabilities.temporal import index as ti
         from library.tools.project_layout import ProjectLayout
 
         project = tmp_path / "project"

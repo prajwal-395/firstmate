@@ -256,7 +256,12 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
     from library.capabilities.semantics import analyse as semantic_cap
     monkeypatch.setattr(semantic_cap, "_analyse_missing", analyse)
 
-    temporal = load_step_module("step_1_04_temporal_index", "step.py")
+    load_step_module("step_1_04_temporal_index", "step.py")
+    # CAP-03: the step body moved to library/capabilities, so the seams
+    # below patch the capability module whose globals the moved
+    # index_project actually reads; the adapter re-exports only the
+    # public names, never the privates this seam reaches.
+    from library.capabilities.temporal import index as temporal
 
     def hear(requests, whisper_model_size="large-v3", language="en"):
         catalog = json.loads((folder / "pipeline_output" / "steps"
