@@ -134,8 +134,12 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "passed": 0, "failed": 0, "elapsed": 0.0,
                 "selection": [], "selected_files": [], "skipped_files": {},
                 "base_sha": base, "pr_base_sha": pr_base,
-                "result_class": "stale_base", "reason": "stale base",
-                "timed_out": False}
+                "result_class": "stale_base",
+                "reason": ("needs update from main: PR base "
+                           f"{pr_base[:12]} is behind current main "
+                           f"{base[:12]}"),
+                "timed_out": False,
+                "command": "no tests run: PR base is behind current main"}
     local_head = hygiene.fetch_pr(mirror, number)
     if local_head != head:
         raise hygiene.HygieneRefused(
@@ -305,8 +309,7 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
     done_at = time.time()
     non_verdict = (outcome.get("timed_out")
                    or outcome.get("result_class") == "environment"
-                   or outcome.get("reason") in {"no tests executed",
-                                                  "stale base"})
+                   or outcome.get("reason") == "no tests executed")
     if non_verdict:
         prior = state.read_checks(world.state_dir).get(outcome["head"], {})
         retries = int(prior.get("timeout_retries", 0) or 0) + 1
@@ -394,10 +397,9 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
         description = f"ren-ci: {record.get('passed', 0)} passed"
         description += (capped_suffix + mandatory_suffix + tier2_suffix
                         + reuse_suffix)
-    elif record.get("result_class") in {"timeout_no_tests", "stale_base", "environment"} or record.get(
-            "reason") in {"no tests executed", "stale base"}:
-        reason = ("stale base" if record.get("result_class") == "stale_base"
-                  else "environment issue" if record.get("result_class") == "environment"
+    elif record.get("result_class") in {"timeout_no_tests", "environment"} or record.get(
+            "reason") == "no tests executed":
+        reason = ("environment issue" if record.get("result_class") == "environment"
                   else "timed out" if record.get("timed_out")
                   else "no tests executed")
         diagnostic = record.get("timeout_diagnostic", "")
@@ -555,7 +557,6 @@ def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
             # An incomplete Tier-1 run never judges code. Retry it with
             # capped backoff indefinitely; it must not become a red check.
             if (known.get("result_class") == "timeout_no_tests"
-                    or known.get("result_class") == "stale_base"
                     or known.get("result_class") == "environment"
                     or known.get("timed_out")
                     or known.get("reason") == "no tests executed"):

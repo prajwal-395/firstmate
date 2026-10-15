@@ -414,21 +414,48 @@ def test_timeout_exhaustion_stays_pending_and_keeps_the_label(
     assert record["result_class"] == "timeout_no_tests"
 
 
-def test_no_tests_and_stale_base_are_non_verdicts(
-        tmp_path, faked_github):
+def test_no_tests_are_a_non_verdict(tmp_path, faked_github):
     world = queue.World(state_dir=str(tmp_path))
-    for number, kind, reason in ((23, "timeout_no_tests", "no tests executed"),
-                                 (24, "stale_base", "stale base")):
-        pr = _pr(number, labels=[config.READY_LABEL])
-        outcome = {**_outcome(pr, ok=False), "passed": 0, "failed": 0,
-                   "result_class": kind, "reason": reason}
-        record = daemon.finish_tier1(world, pr, outcome,
-                                     seen_at=time.time(), slot=0)
-        assert record["result_class"] == kind
-        assert not any(call[0] == pr["head"] and call[1] == "failure"
-                       for call in faked_github.posts)
-        assert not any(call[0] == "unlabel" and call[1] == number
-                       for call in faked_github.posts)
+    pr = _pr(23, labels=[config.READY_LABEL])
+    outcome = {**_outcome(pr, ok=False), "passed": 0, "failed": 0,
+               "result_class": "timeout_no_tests",
+               "reason": "no tests executed"}
+    record = daemon.finish_tier1(world, pr, outcome,
+                                 seen_at=time.time(), slot=0)
+    assert record["result_class"] == "timeout_no_tests"
+    assert not any(call[0] == pr["head"] and call[1] == "failure"
+                   for call in faked_github.posts)
+    assert not any(call[0] == "unlabel" and call[1] == 23
+                   for call in faked_github.posts)
+
+
+def test_moving_main_stale_base_gets_terminal_explained_status(
+        monkeypatch, tmp_path, faked_github):
+    from library.tools.local_ci import github
+
+    pr = {**_pr(24, labels=[config.READY_LABEL]), "base_sha": "old-main"}
+    faked_github.prs = [pr]
+    monkeypatch.setattr(github, "main_sha", lambda: "new-main")
+    monkeypatch.setattr(daemon.hygiene, "ensure_mirror", lambda *a: "mirror")
+    monkeypatch.setattr(daemon.hygiene, "fetch_base", lambda *a: None)
+    world = queue.World(state_dir=str(tmp_path))
+
+    outcome = daemon.run_tier1(world, pr, workers=1)
+    assert outcome["result_class"] == "stale_base"
+    assert "needs update from main" in outcome["reason"]
+    record = daemon.finish_tier1(world, pr, outcome,
+                                 seen_at=time.time(), slot=0)
+
+    assert record["status_posted"] is True
+    assert "timeout_retries" not in record
+    assert any(call[0] == pr["head"] and call[1] == "failure"
+               and "needs update from main" in call[2]
+               for call in faked_github.posts)
+    assert ("unlabel", 24, config.READY_LABEL) in faked_github.posts
+
+    done = {"refused": []}
+    due, _ = daemon._discover_due(world, done)
+    assert due == []
 
 
 def test_three_day_ledger_fixture_classifies_each_head_once():
