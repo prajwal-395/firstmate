@@ -152,6 +152,14 @@ def _start_checkpoint(job: dict) -> None:
 #: `cmd_run` is the one caller-script verb on the list. The recorded
 #: path requires a purpose and keeps its own backup and inventory guard;
 #: unrecorded runs still need the developer opt-in (checked below).
+#: `cmd_project_scratch` is the one project-lifecycle verb on the list:
+#: the scratch create|import|open|restore|delete verbs switch projects
+#: by design, so they can never go through `timeline.apply_patch`, and
+#: running them locally would dodge the broker's exclusive section.
+#: They carry their own guard instead - `Ren Scratch - ` prefix only,
+#: dirty-state refusal that never saves or discards, origin read-back
+#: and restore - and always run EXCLUSIVE (forced in `_resolve_axi_shape`,
+#: since `--apply` is checked in the command body, after scheduling).
 _BROKER_ALLOWLIST = frozenset({
     # reads that reach Resolve on every call
     "cmd_cursor", "cmd_project", "cmd_pool", "cmd_renders",
@@ -161,6 +169,8 @@ _BROKER_ALLOWLIST = frozenset({
     "cmd_fusion", "cmd_captions", "cmd_frames",
     # pool read; `--apply` is refused by the command itself
     "cmd_multicam_sync",
+    # scratch-project lifecycle; EXCLUSIVE with its own prefix/dirty/read-back guard
+    "cmd_project_scratch",
     # developer escape hatch, behind RESOLVE_AXI_ALLOW_RUN on the broker
     "cmd_run",
 })
@@ -301,6 +311,7 @@ def _resolve_axi_shape(params: dict) -> dict:
                 f"{resolve_axi.RUN_OPT_IN_ENV}=1")
     exclusive = bool(getattr(args, "unsafe", False)
                      or getattr(args, "apply", False)
+                     or name == "cmd_project_scratch"
                      or (name == "cmd_run" and bool(
                          getattr(args, "purpose", "")
                          or getattr(args, "workflow_name", ""))))

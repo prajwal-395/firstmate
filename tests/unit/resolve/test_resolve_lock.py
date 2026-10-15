@@ -1311,6 +1311,23 @@ def test_broker_still_runs_an_allowlisted_read():
     assert shape["priority"] == "read"
 
 
+def test_broker_runs_the_scratch_lifecycle_as_an_exclusive_job():
+    """The sanctioned scratch verbs switch projects by design, so they
+    can never go through `timeline.apply_patch`; they run ON the broker
+    as exclusive jobs under their own prefix/dirty/read-back guard.
+    Exclusive even without `--apply`: the flag is checked in the command
+    body, after scheduling, and a shared slot must never hold one."""
+    shape = jobs.prepare("resolve_axi", {"argv": [
+        "project", "scratch", "create", "Ren Scratch - proof", "--apply"]})
+    assert shape["executed"] is True
+    assert shape["mode"] == "exclusive"
+    assert shape["priority"] == "mutation"
+    assert shape["coalesce_key"] is None
+    shape = jobs.prepare("resolve_axi", {"argv": [
+        "project", "scratch", "delete", "Ren Scratch - proof"]})
+    assert shape["mode"] == "exclusive"
+
+
 def test_patch_job_uses_its_capability_execution_contract():
     shape = jobs.prepare("timeline.apply_patch", {"patch": {
         "id": "p1", "capability": "reel.touchup", "project": "Podcast",

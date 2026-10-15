@@ -40,6 +40,30 @@ and timeline if an indirect API call switched it.
 `--unsafe`. Do not use `--borrow` on a recorded run: recorded scripts cannot
 switch projects.
 
+## Scratch projects
+
+Use the typed lifecycle for disposable projects; names must begin with
+`Ren Scratch - `:
+
+```sh
+resolve-axi project scratch create "Ren Scratch - grade check" --apply
+resolve-axi project scratch import /tmp/source.drp "Ren Scratch - imported check" --apply
+resolve-axi project scratch open "Ren Scratch - grade check" --apply
+resolve-axi project scratch restore --apply
+resolve-axi project scratch delete "Ren Scratch - grade check" --apply
+```
+
+Create makes one empty current timeline. Import creates a new project under
+the supplied name. Create, import and delete restore the starting project,
+timeline and page and report the read-back. Open intentionally leaves the
+scratch project current and records the starting project, timeline id and
+page; `restore` returns to that exact state and clears the record. Every
+operation saves the project it is leaving first - the `borrowed()` rule:
+save where the captain's rule allows a borrow-shaped flow, never discard -
+and refuses when the save fails. Ren never discards anyone's edits. Delete only
+accepts a closed `Ren Scratch - ` project, including an explicit refusal for
+`Podcast (field test)`.
+
 ## Promote a recurring script
 
 After two runs with the same normalized Python syntax or purpose, Ren lists a

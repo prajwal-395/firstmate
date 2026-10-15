@@ -35,7 +35,9 @@ source clips; build verified by the pool listing, sync planned with
 `audio isolate` (per-track voice isolation, verified by re-read),
 `ingest` (pool imports), `relink` (re-point moved media, verified by
 re-read), `render queue|start|stop`,
-`project set` (one setting), `timeline duplicate` (versioning), and
+`project set` (one setting), `project scratch create|import|open|restore|delete`
+(Ren Scratch - prefixed projects only, with origin read-back/restore),
+`timeline duplicate` (versioning), and
 `sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
 (Resolve's own AI beside Ren's - transcription with speakers, scene
 cuts, audio classes, IntelliSearch, Smart Reframe, Magic Mask and
@@ -48,11 +50,13 @@ Safety shape, stated once:
   `--apply` (`markers restore`, `markers reply`, `edit *`,
   `multicam build`, `color lut|group`, `audio isolate`, `ingest`,
   `relink`,
-  `render queue|start|stop`, `project set`, `timeline duplicate`,
+  `render queue|start|stop`, `project set`,
+  `project scratch create|import|open|restore|delete`, `timeline duplicate`,
   `sense *`)
   and `run --unsafe`.
-- Nothing here opens or creates a project or timeline, and nothing
-  moves the current-timeline cursor. `timeline list/get` use recorded
+- No command opens or creates projects except the explicitly named
+  `project scratch` lifecycle, and nothing creates timelines except
+  `project scratch create`. `timeline list/get` use recorded
   generations; `timeline get --refresh-live` requires the exact target
   to be current. Other timeline reads use `GetTimelineByIndex`, never
   `SetCurrentTimeline`. Opening something is a write to the captain's
@@ -3051,7 +3055,7 @@ class _NoProjectSwitchManager:
     """A script-facing manager view that refuses project lifecycle calls."""
 
     _BLOCKED = frozenset({"LoadProject", "CreateProject", "DeleteProject",
-                          "CloseProject", "OpenProject"})
+                           "CloseProject", "OpenProject", "ImportProject"})
 
     def __init__(self, manager):
         self._manager = manager
@@ -3183,7 +3187,8 @@ def _cmd_run_recorded(args) -> int:
         message, fix = _copygrades_refusal(script, purpose)
         return fail(message, fix)
     switch_names = {"LoadProject", "CreateProject", "DeleteProject",
-                    "CloseProject", "OpenProject", "open_project"}
+                    "CloseProject", "OpenProject", "ImportProject",
+                    "open_project"}
     switch_calls = {node.attr for node in ast.walk(tree)
                     if isinstance(node, ast.Attribute)
                     and node.attr in switch_names}
@@ -5886,6 +5891,41 @@ def cmd_project_checkpoint(args) -> int:
         return fail(f"project checkpoint failed: {exc}", f"{TOOL} project")
 
 
+def cmd_project_scratch(args) -> int:
+    """Operate on Ren-owned scratch projects under the exclusive lease."""
+    if not args.apply:
+        return fail(
+            "scratch project lifecycle changes the Resolve session; pass --apply",
+            f"{TOOL} project scratch --help")
+    try:
+        from library.tools import resolve_scratch_projects as scratch
+        with _lease(exclusive=True):
+            resolve = _connect()
+            manager = resolve.GetProjectManager()
+            if manager is None:
+                raise AxiError("Resolve returned no live Project Manager")
+            if args.scratch_command == "create":
+                result = scratch.create(resolve, manager, args.name)
+            elif args.scratch_command == "import":
+                result = scratch.import_project(resolve, manager,
+                                                args.drp, args.name)
+            elif args.scratch_command == "open":
+                result = scratch.open_project(resolve, manager, args.name)
+            elif args.scratch_command == "restore":
+                result = scratch.restore_recorded(resolve, manager)
+            elif args.scratch_command == "delete":
+                result = scratch.delete(resolve, manager, args.name)
+            else:
+                raise AxiError("choose a scratch lifecycle operation")
+        emit([kv_block("project_scratch", result),
+              help_block([f"{TOOL} project scratch restore --apply",
+                          f"{TOOL} project scratch delete <scratch-name> --apply"])])
+        return 0
+    except Exception as exc:  # noqa: BLE001 - lifecycle refusal is user-facing
+        return fail(f"scratch project operation failed: {exc}",
+                    f"{TOOL} project scratch --help")
+
+
 def cmd_timeline_checkpoint(args) -> int:
     """Duplicate and export a timeline checkpoint under the Resolve lease."""
     if not args.apply:
@@ -8200,6 +8240,29 @@ def build_parser() -> Parser:
     q.add_argument("--new-name", default="", help="unused Resolve project name required with --restore")
     q.add_argument("--apply", action="store_true", help="write the checkpoint or import a new project")
     q.set_defaults(func=cmd_project_checkpoint)
+
+    q = psubs.add_parser(
+        "scratch", help="create, import, open, restore or delete 'Ren Scratch - ' projects")
+    ss = q.add_subparsers(dest="scratch_command", required=True)
+    sq = ss.add_parser("create", help="create a named scratch project with one empty current timeline")
+    sq.add_argument("name", help="project name beginning with 'Ren Scratch - '")
+    sq.add_argument("--apply", action="store_true", help="perform the create and restore the starting project")
+    sq.set_defaults(func=cmd_project_scratch)
+    sq = ss.add_parser("import", help="import a .drp into a new scratch project")
+    sq.add_argument("drp", help="existing .drp file")
+    sq.add_argument("name", help="new project name beginning with 'Ren Scratch - '")
+    sq.add_argument("--apply", action="store_true", help="perform the import and restore the starting project")
+    sq.set_defaults(func=cmd_project_scratch)
+    for verb, description in (
+            ("open", "open an existing scratch project with settled read-back"),
+            ("delete", "delete an existing closed scratch project")):
+        sq = ss.add_parser(verb, help=description)
+        sq.add_argument("name", help="exact project name beginning with 'Ren Scratch - '")
+        sq.add_argument("--apply", action="store_true", help="perform the scratch project operation")
+        sq.set_defaults(func=cmd_project_scratch)
+    sq = ss.add_parser("restore", help="restore the project, timeline and page recorded by scratch open")
+    sq.add_argument("--apply", action="store_true", help="restore the recorded origin")
+    sq.set_defaults(func=cmd_project_scratch)
 
     p = subs.add_parser(
         "ownership",
