@@ -1,5 +1,14 @@
 # Ren end-to-end utility benchmark
 
+> Status note, 2026-10-15 (CAP-01): the two operational failures recorded
+> below - the `temporal.index` routing failure and the depth lane's missing
+> checkpoint - were measured before
+> [PR 2503](https://github.com/prajwal-395/video_editing_pilot/pull/2503)
+> merged. The semantic-to-temporal route has since been re-qualified on a
+> temporary project with every analysis capability built, and the pinned
+> depth assets now resolve on this machine. The numbers below are the frozen
+> pre-merge record and are kept as-is.
+
 This FI-01 baseline combines the existing corpus metric and retrieval evaluators
 with a separately measured one-source operational pass. The ledger always lists
 all six phases. A phase can be `measured` even when an ingest is partial; its

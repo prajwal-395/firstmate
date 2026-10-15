@@ -61,12 +61,13 @@ def _run_analysis(copy_path: Path, run_dir: Path, run_id: str) -> dict:
     command = [str(REPO_ROOT / "bin" / "ren"), "analyze",
                str(copy_path.parent), "--into", str(projects),
                "--slug", slug, "--memory-root", str(memory), "--json",
-               # The editing DAG's temporal-index operation currently
-               # refuses its declared semantic document input when reached
-               # through `ren analyze`. This qualification needs semantic
-               # analysis plus the independently built text index; do not
-               # turn that known wiring defect into a false workflow pass.
-               "--skip", "temporal.index", "--skip", "prosody.analyse"]
+               # The analysis runs the normal capability composition:
+               # semantic analysis first, then the temporal index over
+               # its profiles (CAP-01, qualified 2026-10-15 on a
+               # temporary project with every capability built), then
+               # prosody over the temporal indices. No lane is skipped;
+               # a refusal or failure in any of them fails this stage.
+               ]
     with perf_ledger.span("ren_analysis_cli", subprocesses=1, calls=1):
         result = subprocess.run(
             command, cwd=REPO_ROOT, capture_output=True, text=True,

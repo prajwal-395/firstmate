@@ -198,6 +198,23 @@ def test_the_probe_names_only_known_reasons(tmp_path, monkeypatch):
         assert reason in depth.ESTIMATOR_REASONS
 
 
+def test_pinned_machine_assets_resolve_where_installed(monkeypatch):
+    """Record the depth asset resolution outcome on the running machine.
+
+    Regression context for CAP-01: the 2026-10-14 FI-01 benchmark failed
+    the depth lane because its checkpoint was unavailable; PR 2503 pinned
+    the Depth Anything V2 Small assets to the machine cache. Where those
+    assets are installed this resolves to the pinned estimator; elsewhere
+    the test skips naming the missing environment rather than failing.
+    """
+    monkeypatch.delenv("PIPELINE_DEPTH_CHECKPOINT", raising=False)
+    monkeypatch.delenv("PIPELINE_DEPTH_REPO", raising=False)
+    name, reason = depth.probe_estimator()
+    if name is None:
+        pytest.skip(f"no depth assets on this machine: {reason}")
+    assert name == "depth-anything-v2-small"
+
+
 def test_the_probe_finds_the_pinned_machine_cache_without_environment(
         tmp_path, monkeypatch):
     checkpoint = tmp_path / "depth_anything_v2_vits.pth"

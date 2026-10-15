@@ -12,11 +12,14 @@ than five minutes. Ren copies the file byte-for-byte into the qualification
 media store, checks its SHA-256, and leaves the source untouched. The report
 records the source and copy paths, file hash, index query and chosen clip id.
 
-The command runs two consecutive clean rounds. Each round runs semantic
-analysis and the source-memory search lanes in a disposable collection
-project, skipping `temporal.index` and `prosody.analyse` because the current
-analysis orchestrator cannot supply the temporal operation's required
-semantic documents. It uses the fresh text index to choose a timed passage,
+The command runs two consecutive clean rounds. Each round runs the normal
+analysis composition in a disposable collection project: semantic analysis
+first, then the temporal index over its profiles, then prosody over the
+temporal indices, with the source-memory search lanes beside them. The
+semantic-to-temporal route (CAP-01) was qualified on 2026-10-15: on a
+temporary project every analysis capability reported built, and the built
+temporal index carried regional motion measured over the semantic pass's
+own action spans. It uses the fresh text index to choose a timed passage,
 builds an A/V edit with `EditPatch`, adds a scripted editor
 marker, applies a later Ren clip insertion and reads the marker back, exports
 through the Resolve broker, masters the audio and runs the deterministic

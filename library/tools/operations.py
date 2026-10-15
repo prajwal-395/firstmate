@@ -1395,8 +1395,10 @@ _REGISTRY: tuple[Operation, ...] = (
             "audio_indices",
             "source",
         ),
-        # Semantic profiles reach the coordinated temporal pass through
-        # per-clip stream records, not a DAG state edge. Keep the optional
+        # Semantic profiles reach the temporal pass two ways: the DAG
+        # state edge the manifest declares (the route CAP-01 qualified)
+        # hands them over when present, and per-clip stream records
+        # cover the coordinated pass. Keep the
         # semantic_analysis_documents argument for direct/legacy callers.
         consumes=("raw_footage_files", "clip_catalog"),
         execution=ExecutionPolicy(phases=(

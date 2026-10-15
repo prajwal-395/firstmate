@@ -109,7 +109,7 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
         qw.prepare_broker_job({**params, "source_sha256": "z" * 64})
 
 
-def test_workflow_analysis_selects_only_supported_analysis_capabilities(
+def test_workflow_analysis_runs_the_full_composition_unskipped(
         tmp_path, monkeypatch):
     copy_path = tmp_path / "qualification" / "real_footage" / "source.mxf"
     copy_path.parent.mkdir(parents=True)
@@ -133,8 +133,8 @@ def test_workflow_analysis_selects_only_supported_analysis_capabilities(
     result = qw._run_analysis(copy_path, run_dir, "test-run")
 
     assert result["index_file"] == index
-    assert seen["command"][-4:] == ["--skip", "temporal.index",
-                                    "--skip", "prosody.analyse"]
+    assert "--skip" not in seen["command"]
+    assert seen["command"][-1] == "--json"
     assert seen["kwargs"]["encoding"] == "utf-8"
     assert result["evidence"]["command"][1] == "analyze"
 
