@@ -459,7 +459,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
     for path in timing_records:
         with open(path, encoding="utf-8") as handle:
             records.append(json.load(handle))
-    return {
+    result = {
         "eval_set": eval_set["name"],
         "ran_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "code_revision": footage_analysis._git_head(),
@@ -470,6 +470,12 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
         "processing_time": processing_time([r for r in records if r]),
         "results": results,
     }
+    if "visual" in families:
+        from library.tools.visual_retrieval_benchmark import enrich_visual_result
+        enrich_visual_result(eval_set, result, frame_index=frame_index, corpus=corpus,
+                             rules=eval_set["scoring"]["visual"])
+        result["summary"]["visual_benchmark"] = result["visual_benchmark"]
+    return result
 
 
 def summarise(results: List[dict], latency: Dict[str, list]) -> dict:

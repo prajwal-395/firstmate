@@ -2643,3 +2643,20 @@ def test_search_json_unified_rows_carry_band():
     assert hits[0]["dense"] == 0.6
     assert hits[1]["file"] == "IMG_0001.MOV"
     assert hits[1]["source_digest"] == "d1"
+
+
+def test_visual_retrieval_benchmark_reports_uncertainty_and_operating_cost():
+    """Acceptance check: this contract is absent on the pre-benchmark main."""
+    from library.tools.visual_retrieval_benchmark import enrich_visual_result
+
+    eval_set = {"queries": [{"id": "V", "family": "visual", "query": "open laptop",
+                             "category": "object", "positive_frames": {}}]}
+    result = {"results": [{"id": "V", "family": "visual", "kind": "present",
+                           "recall": 1.0, "precision": 1.0, "returned": 1,
+                           "spans_touched": 1, "seconds": 0.01,
+                           "rows": [{"hit": True, "ambiguous": False}]}]}
+    enrich_visual_result(eval_set, result)
+    report = result["visual_benchmark"]
+    assert report["macro_recall_ci95"]["n"] == 1
+    assert report["baseline"]["status"] == "not measured"
+    assert report["useful_interval_cost"]["seconds_per_useful_interval"] == 0.01

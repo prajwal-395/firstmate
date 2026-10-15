@@ -1,0 +1,286 @@
+{
+ "name": "visual-retrieval-held-out-2026-10-14",
+ "schema_version": 1,
+ "registered_before_measurement": true,
+ "protocol": "Frozen visual query subset from retrieval_eval_set.json. Positive intervals are restricted to the declared held-out assets; other positive labels are excluded. No held-out query or interval is used for tuning/calibration.",
+ "source_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+ "held_out_assets": [
+  "LC4930",
+  "LCATL0011"
+ ],
+ "query_provenance": "V02, V03, V05, VX1, VX2, VX3 are inherited from library/tools/retrieval_eval_set.json, with V02 and V03 positive labels supplemented by held-out frame inspection. V06 and V07 were added and labeled by visual inspection of every cached 10-second source-memory frame before this benchmark run. No held-out labels or queries were used for tuning/calibration.",
+ "corpus": {
+  "description": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources, 3.02 h",
+  "assets": {
+   "LC4930": "sha256:9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "LC4931": "sha256:c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+   "LC4932": "sha256:dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+   "LCATL0011": "sha256:d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+   "LCATL0012": "sha256:4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+   "LCATL0013": "sha256:157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+   "LCATL0014": "sha256:f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1"
+  },
+  "durations": {
+   "LCATL0012": 288.955,
+   "LC4930": 225.225,
+   "LCATL0014": 838.004,
+   "LCATL0013": 4099.596,
+   "LC4932": 4941.103,
+   "LCATL0011": 214.548,
+   "LC4931": 287.621
+  }
+ },
+ "ground_truth_mapping": {
+  "multicam_offsets_to_reference": {
+   "LC4930": 0.0,
+   "LCATL0011": 11.31,
+   "LCATL0012": 0.0,
+   "LC4931": -0.3,
+   "LC4932": 0.0,
+   "LCATL0013": 3.8,
+   "LCATL0014": 4103.39
+  },
+  "groups": {
+   "LC4930": "A",
+   "LCATL0011": "A",
+   "LC4931": "B",
+   "LCATL0012": "B",
+   "LC4932": "C",
+   "LCATL0013": "C",
+   "LCATL0014": "C"
+  },
+  "basis": "M6 conversation-clock offsets, cross-checked against the captain's Resolve timeline to 0.075 s (docs/SOURCE_MEMORY.md M6); used ONLY to copy a hand-marked moment onto the other angles of the same recording"
+ },
+ "scoring": {
+  "speech": {
+   "top_k": 5,
+   "overlap_tolerance_seconds": 1.0,
+   "hit": "a returned range on an asset overlapping any instance of a relevant moment, each padded by the tolerance",
+   "recall": "relevant moments with at least one instance hit / relevant moments",
+   "precision": "returned ranges that hit / returned ranges",
+   "abstention": "a query with no relevant moment is correct when nothing is retained above the floor"
+  },
+  "visual": {
+   "top_k": 5,
+   "frame_pad_seconds": 5.0,
+   "spans": "each positive grid frame becomes [t-5, t+5]; adjacent ones merge; ambiguous frames neither count for nor against",
+   "precision": "returned ranges whose best frame lies in a positive span / returned ranges that do not lie wholly in an ambiguous span",
+   "recall": "positive spans touched by a returned range / positive spans",
+   "abstention": "an absent query is correct only if nothing is returned; a refused query is correct when expect=refused"
+  },
+  "person": {
+   "tolerance_seconds": 0.5,
+   "recall": "seconds of ground truth covered by returned spans (padded by the tolerance) / seconds of ground truth",
+   "precision": "seconds of returned spans covered by ground truth (padded) / seconds of returned spans, inside the scored window",
+   "window_on_screen": "every source of the corpus",
+   "window_speaking": "the union of both speakers' turns, each padded by 1.0 s, per asset"
+  },
+  "verified_predicate": {
+   "event_pad_seconds": 1.0,
+   "recall": "events overlapped by a YES span / events",
+   "precision_strict": "YES spans overlapping an event / YES spans inside the window",
+   "precision_lenient": "YES spans overlapping an event or an ambiguous event / YES spans inside the window"
+  }
+ },
+ "queries": [
+  {
+   "id": "V02",
+   "family": "visual",
+   "query": "an open laptop with its lid raised",
+   "positive_frames": {
+    "LCATL0011": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793
+    ],
+    "LC4930": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803
+    ]
+   },
+   "ambiguous_frames": {},
+   "note": "",
+   "category": "object",
+   "annotation_note": "LCATL0011 labels inherited from FI-01; LC4930 samples added by inspecting every cached 10-second frame. Open laptop remains visible at the frame edge throughout both held-out views. Evaluation-only; no tuning/calibration."
+  },
+  {
+   "id": "V03",
+   "family": "visual",
+   "query": "a blue laptop screen at the edge of the frame",
+   "positive_frames": {
+    "LC4930": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803
+    ]
+   },
+   "ambiguous_frames": {},
+   "note": "the screen of Craig's open laptop seen from Akshita's camera",
+   "category": "object_and_composition"
+  },
+  {
+   "id": "V05",
+   "family": "visual",
+   "query": "a person gesturing with both hands",
+   "expect": "refused",
+   "note": "an action query the frame index refuses by design (footage_frames.ACTION_PATTERNS): a refusal is the correct abstention",
+   "category": "action_refusal"
+  },
+  {
+   "id": "VX1",
+   "family": "visual",
+   "query": "a dog lying on the floor",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it",
+   "category": "absent_object"
+  },
+  {
+   "id": "VX2",
+   "family": "visual",
+   "query": "a busy city street full of cars",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it",
+   "category": "absent_scene"
+  },
+  {
+   "id": "VX3",
+   "family": "visual",
+   "query": "a whiteboard covered in handwriting",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it",
+   "category": "absent_object"
+  },
+  {
+   "id": "V06",
+   "family": "visual",
+   "query": "a man seated behind a laptop in a dark geometric studio",
+   "category": "person_and_composition",
+   "positive_frames": {
+    "LCATL0011": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793
+    ]
+   },
+   "ambiguous_frames": {},
+   "annotation_note": "All cached 10-second source-memory frames were inspected in a contact sheet; positive on every listed sampled frame. Labels are frozen evaluation-only; no tuning/calibration."
+  },
+  {
+   "id": "V07",
+   "family": "visual",
+   "query": "a woman wearing glasses at a table with a leafy plant behind her",
+   "category": "person_and_scene",
+   "positive_frames": {
+    "LC4930": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803
+    ]
+   },
+   "ambiguous_frames": {},
+   "annotation_note": "All cached 10-second source-memory frames were inspected in a contact sheet; positive on every listed sampled frame. Labels are frozen evaluation-only; no tuning/calibration."
+  }
+ ]
+}
