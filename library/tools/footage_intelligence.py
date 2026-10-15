@@ -115,12 +115,20 @@ def select(memory_only: bool = False, with_: Sequence[str] = (),
 def compose(capability_ids: Sequence[str]) -> tuple:
     """Order the selection so every capability follows what it requires.
 
-    Read off `CapabilitySpec.requires` / `.effects` - the derived
-    requirement vocabulary - never a hand-written order. Ties keep the
+    Migrated analysis capabilities resolve from their capability-owned
+    declarations (`capability_contracts.compose_ordered`) with no DAG
+    import.  Anything unmigrated falls back to the derived requirement
+    vocabulary (`CapabilitySpec.requires` / `.effects`). Ties keep the
     roster's order. A requirement no selected capability effects is left
     to the project's recorded state, and `Operation.execute` refuses
     naming it when that state does not hold it either.
     """
+    from library.tools import capability_contracts
+    try:
+        rank = {cid: i for i, cid in enumerate(ROSTER)}
+        return capability_contracts.compose_ordered(capability_ids, rank=rank)
+    except KeyError:
+        pass
     from library.tools import capabilities
     specs = {cid: capabilities.get(cid) for cid in capability_ids}
     rank = {cid: i for i, cid in enumerate(ROSTER)}

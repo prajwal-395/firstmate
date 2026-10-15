@@ -177,6 +177,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        # Analysis composition resolves from capability-owned declarations,
+        # so a fix to the contracts changes the order preflight runs in.
+        'library/tools/capability_contracts.py',
         'library/tools/heavy_work_lock.py',
         'library/tools/person_entity.py',
         'library/tools/person_regions.py',
@@ -654,6 +657,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        # Analysis composition resolves from capability-owned declarations,
+        # so a fix to the contracts changes the order preflight runs in.
+        'library/tools/capability_contracts.py',
         'library/tools/heavy_work_lock.py',
         'library/tools/person_entity.py',
         'library/tools/person_regions.py',
@@ -1149,6 +1155,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        # Analysis composition resolves from capability-owned declarations,
+        # so a fix to the contracts changes the order preflight runs in.
+        'library/tools/capability_contracts.py',
         'library/tools/heavy_work_lock.py',
         'library/tools/person_entity.py',
         'library/tools/person_regions.py',
@@ -1659,6 +1668,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        # Analysis composition resolves from capability-owned declarations,
+        # so a fix to the contracts changes the order preflight runs in.
+        'library/tools/capability_contracts.py',
         'library/tools/person_entity.py',
         'library/tools/person_regions.py',
         'library/tools/project_registry.py',
@@ -2204,6 +2216,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/depth.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
+        # Analysis composition resolves from capability-owned declarations,
+        # so a fix to the contracts changes the order preflight runs in.
+        'library/tools/capability_contracts.py',
         'library/tools/heavy_work_lock.py',
         'library/tools/person_entity.py',
         'library/tools/person_regions.py',

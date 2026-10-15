@@ -17,7 +17,11 @@ computed from it:
 
     id, summary, scopes, executor,  library/tools/operations.py (the registry)
     produces
-    requires                        library/tools/requirements.py, through
+    requires                        capability-owned declarations in
+                                    `library/tools/capability_contracts.py`
+                                    for migrated analysis ids, projected to
+                                    the node-keyed `requirements.py` checkers;
+                                    unmigrated ids still read through
                                     the DAG adapter (still node-keyed)
     effects                         the requirements whose key, at the
                                     capability's node, it `produces`
@@ -57,8 +61,8 @@ from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
 
-from library.tools.ast_cache import parse_file, parse_source
 from library.tools import dag_adapter
+from library.tools.ast_cache import parse_file, parse_source
 from library.tools.operations import PatchSemantics
 from library.tools.scope import PROJECT
 
@@ -174,6 +178,8 @@ class CapabilitySpec:
     """The evidence `cost_class` was decided from."""
     creative_policy: str | None = None
     """Machine-readable owner of creative choice cardinality, when any."""
+    requires_contracts: tuple = ()
+    """Typed capability-owned declarations for migrated requirements."""
 
     @property
     def exclusion(self) -> str | None:
@@ -273,7 +279,11 @@ def spec_of(op) -> CapabilitySpec:
     from library.tools.project_layout import AREAS
 
     node = dag_adapter.node_of(op)
-    requires = dag_adapter.requirements_consumed(op)
+    from library.tools import capability_contracts
+    declarations = capability_contracts.requirements_for(op.name)
+    requires = (capability_contracts.project_to_legacy(declarations)
+                if declarations is not None
+                else dag_adapter.requirements_consumed(op))
     # The registry's own test for what the model owes a body, asked of an
     # empty dict so it names every declared model output. A
     # caller-supplied unit is handed its arguments, never the answer.
@@ -289,6 +299,7 @@ def spec_of(op) -> CapabilitySpec:
             path=f"library/steps/{op.owning_dir}/{op.body}",
             attr=op.attr),
         requires=tuple(r.name for r in requires),
+        requires_contracts=tuple(declarations or ()),
         effects=tuple(r.name for r in dag_adapter.requirements_produced(op)),
         produces=tuple(op.produces),
         consumes=tuple(op.consumes),
@@ -768,6 +779,7 @@ def data_capabilities() -> tuple:
             scopes=(PROJECT,),
             executor="data",
             requires=(),
+            requires_contracts=(),
             effects=(),
             produces=(),
             consumes=(),

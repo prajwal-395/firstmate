@@ -1,14 +1,20 @@
 """Behavioral capability resolution beyond the graph-wide contract audit.
 """
 from __future__ import annotations
+
 from dataclasses import replace
+
 import pytest
-from library.tools import dag_adapter, operations
-from library.tools import capabilities
-from library.tools import edit_patch
+
+from library.tools import (
+    capabilities,
+    dag_adapter,
+    edit_patch,
+    operations,
+    patch_algebra,
+    processes,
+)
 from library.tools import machine_needs as mn
-from library.tools import patch_algebra
-from library.tools import processes
 
 
 def test_a_capability_without_a_legacy_node_refuses_node_keyed_questions():
@@ -30,6 +36,121 @@ def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
         operations.get(capability).gather(str(tmp_path))
     with pytest.raises(RuntimeError, match="audio_spine"):
         operations.get("subtitles.plan").gather(str(tmp_path))
+
+
+def test_analysis_requirements_are_capability_owned_and_project_losslessly(monkeypatch):
+    """The analysis declarations stand alone; node requirements remain a
+    compatibility projection with identical order and refusal behavior."""
+    from library.tools import capability_contracts, requirements
+    from library.tools import footage_intelligence as footage
+
+    analysis_ids = tuple(capability_contracts.ANALYSIS_REQUIRES)
+    assert set(analysis_ids) >= set(footage.ROSTER), (
+        "every roster analysis capability must carry an owned declaration")
+
+    # The envelope each declaration promises.
+    for capability_id in analysis_ids:
+        for item in capability_contracts.requirements_for(capability_id):
+            assert (item.requirement_id or "").strip(), capability_id
+            assert (item.evidence.provenance or "").strip(), capability_id
+            assert (item.evidence.producer or "").strip(), capability_id
+            assert (item.evidence.producer_version or "").strip(), (
+                capability_id)
+            assert item.evidence.certainty, capability_id
+            assert set(item.evidence.certainty) <= set(
+                capability_contracts.CERTAINTY_LEVELS), capability_id
+
+    for capability_id in analysis_ids:
+        op = operations.get(capability_id)
+        declared = capability_contracts.requirements_for(capability_id)
+        assert declared is not None
+        assert capability_contracts.requirement_ids_for(capability_id) == tuple(
+            item.requirement_id for item in declared)
+        projected = capability_contracts.project_to_legacy(declared)
+        consumed = dag_adapter.requirements_consumed(op)
+        assert tuple(r.name for r in projected) == tuple(
+            r.name for r in consumed)
+        # The operation's own contract is the same vocabulary.
+        assert tuple(r.name for r in op.requires) == tuple(
+            r.name for r in projected)
+
+    # Every projected requirement refuses and satisfies exactly as the
+    # node-keyed one does: same missing key, same producers, same verdicts.
+    # The witnesses drive each verdict both ways (an environment probe may
+    # pass on this machine, so the bare empty context is not a refusal).
+    for capability_id in analysis_ids:
+        op = operations.get(capability_id)
+        for projected_req, dag_req in zip(
+                capability_contracts.project_to_legacy(
+                    capability_contracts.requirements_for(capability_id)),
+                dag_adapter.requirements_consumed(op)):
+            assert projected_req.name == dag_req.name
+            refuted = projected_req.check(dag_req.refuting_context())
+            dag_refuted = dag_req.check(dag_req.refuting_context())
+            assert not refuted.is_satisfied
+            assert (refuted.missing, refuted.produced_by,
+                    refuted.reason) == (
+                dag_refuted.missing, dag_refuted.produced_by,
+                dag_refuted.reason)
+            satisfied = projected_req.check(
+                dag_req.satisfying_context())
+            dag_satisfied = dag_req.check(dag_req.satisfying_context())
+            assert satisfied.is_satisfied == dag_satisfied.is_satisfied
+            assert satisfied.is_satisfied
+
+    # The transitional composer (spec requires/effects) and the owned
+    # declarations agree on every analysis selection, before the DAG is
+    # refused below.
+    selections = (
+        footage.ROSTER,
+        footage.ANALYSIS,
+        tuple(reversed(footage.ROSTER)),
+        ("footage.scan", "temporal.index"),
+        ("footage.catalog", "temporal.index", "prosody.analyse"),
+    )
+    for selection in selections:
+        specs = {cid: capabilities.spec_of(operations.get(cid))
+                 for cid in selection}
+        after = {cid: {other for other, o in specs.items() if other != cid
+                       and set(o.effects) & set(spec.requires)}
+                 for cid, spec in specs.items()}
+        rank = {cid: i for i, cid in enumerate(footage.ROSTER)}
+        ordered: list[str] = []
+        while len(ordered) < len(specs):
+            ready = sorted((cid for cid in specs if cid not in ordered
+                            and after[cid] <= set(ordered)),
+                           key=lambda c: rank.get(c, len(rank)))
+            ordered.append(ready[0])
+        assert footage.compose(selection) == tuple(ordered), selection
+    expected = footage.compose(footage.ROSTER)
+
+    # Building CapabilitySpec's input contract uses the declarations, not
+    # requirements_consumed's DAG based derivation.
+    monkeypatch.setattr(dag_adapter, "requirements_consumed", lambda op: (_ for _ in ()).throw(
+        AssertionError("analysis capability consulted DAG requirement projection")))
+    for capability_id in analysis_ids:
+        spec = capabilities.spec_of(operations.get(capability_id))
+        assert tuple(item.requirement_id for item in spec.requires_contracts) == spec.requires
+
+    # Analysis composition resolves from the declarations with no DAG read:
+    # every adapter entry point refuses and the order is unchanged.
+    for entry in ("requirements_consumed", "requirements_produced",
+                  "node_of", "requirement_index"):
+        monkeypatch.setattr(
+            dag_adapter, entry,
+            lambda *a, entry=entry, **k: (_ for _ in ()).throw(
+                AssertionError(
+                    f"analysis composition consulted dag_adapter.{entry}")))
+    assert footage.compose(footage.ROSTER) == expected
+    assert footage.compose(tuple(reversed(footage.ROSTER))) == expected
+
+    # Compatibility evaluation retains the same executable refusal for a
+    # missing required raw-footage input.
+    raw = next(r for r in requirements.all_requirements()
+               if r.name == "state.semantic_analysis.raw_footage_files")
+    result = raw.check(requirements.Context())
+    assert not result.is_satisfied
+    assert result.missing == "raw_footage_files"
 
 
 # --------------------------------------------------------------------------
@@ -317,8 +438,7 @@ def test_the_five_vocabularies_are_views_over_the_algebra():
     recorded as one atomic entry. It is excluded here because it is a
     container over the algebra, not a member of it.
     """
-    from library.tools import edit_algebra
-    from library.tools import captain_edits, edit_ledger, edit_operations
+    from library.tools import captain_edits, edit_algebra, edit_ledger, edit_operations
     views = {
         "ledger": {name: name for name in edit_ledger.OPS
                    if name != "edit_program"},
