@@ -13,7 +13,7 @@ and points here.
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
 Exercise the collection half with an analysis dir of copied profiles and `raw_footage_files: []`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
 """
-import json, sys, subprocess, os, glob, time
+import json, sys, subprocess, os, glob, time, select
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
@@ -34,6 +34,12 @@ from library.tools import code_identity, footage_identity
 # wedge is broken after this long on ONE clip, never after N times it.
 CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S", 3600))
 _PROGRESS_POLL_S = 5.0
+VISION_STALL_TIMEOUT_S = int(os.environ.get(
+    "PIPELINE_VISION_STALL_TIMEOUT_S", 600))
+
+
+class VisionStalled(RuntimeError):
+    """The vision child stopped producing logs and profile progress."""
 
 
 def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
@@ -47,42 +53,101 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
     prepended to the result, so the runner rejects the whole step as
     "Step produced invalid JSON" AFTER every clip was analysed
     (measured 2026-09-24 on the rung-0a proof run: 11 profiles
-    collected, step failed, retry burned the same wall twice). Both of
-    the child's streams go to this process's stderr descriptor, where
-    the runner streams them as the step's log, live.
+    collected, step failed, retry burned the same wall twice). See
+    below for where the captured streams go.
 
     `progress` is a zero-argument callable returning a count that grows
     as the child finishes clips (profiles on disk); the
     `CLIP_ANALYSIS_TIMEOUT_S` deadline restarts whenever it grows. A
+    child that produces no log line and no new profile for
+    `VISION_STALL_TIMEOUT_S` (env `PIPELINE_VISION_STALL_TIMEOUT_S`,
+    default 600) is killed and raises `VisionStalled`, so a wedged
+    model pass releases its memory instead of sleeping forever. A
     nonzero exit raises `CalledProcessError`; an overrun kills the child
     and raises `TimeoutExpired`.
+
+    Both of the child's streams are captured to a pipe and forwarded to
+    this process's stderr, where the runner streams them as the step's
+    log, live. Capturing (rather than inheriting the stderr descriptor)
+    is what lets the stall bound watch for log output.
     """
-    stderr_fd = sys.stderr.fileno()
-    child = subprocess.Popen(cmd, stdout=stderr_fd, stderr=stderr_fd)
+    child_env = os.environ.copy()
+    child_env["PYTHONUNBUFFERED"] = "1"
+    # The child resolves its model through Hugging Face Hub; these flags
+    # make every hub access in the child use the local cache and refuse
+    # network access instead of blocking on or downloading hub metadata.
+    # The loader itself sets the same flags around `load`
+    # (`vision_pipeline_v3._huggingface_offline`); this is the outer
+    # half, so no other hub touch in the child can wait on the network.
+    child_env["HF_HUB_OFFLINE"] = "1"
+    child_env["TRANSFORMERS_OFFLINE"] = "1"
+    child = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0,
+        env=child_env)
     last = progress() if progress else None
     deadline = time.monotonic() + CLIP_ANALYSIS_TIMEOUT_S
+    stall_deadline = time.monotonic() + VISION_STALL_TIMEOUT_S
+    returncode = None
     try:
         while True:
-            try:
-                returncode = child.wait(
-                    timeout=max(0.0, min(poll_s, deadline - time.monotonic())))
+            remaining = max(0.0, min(
+                poll_s, deadline - time.monotonic(),
+                stall_deadline - time.monotonic()))
+            readable, _, _ = select.select([child.stdout], [], [], remaining)
+            if readable:
+                try:
+                    output = os.read(child.stdout.fileno(), 65536)
+                except OSError:
+                    output = b""
+                if output:
+                    sys.stderr.buffer.write(output)
+                    sys.stderr.buffer.flush()
+                    stall_deadline = time.monotonic() + VISION_STALL_TIMEOUT_S
+            returncode = child.poll()
+            if returncode is not None:
                 break
-            except subprocess.TimeoutExpired:
-                pass
             if progress:
                 now = progress()
                 if now != last:
                     last = now
                     deadline = time.monotonic() + CLIP_ANALYSIS_TIMEOUT_S
+                    stall_deadline = time.monotonic() + VISION_STALL_TIMEOUT_S
+            if time.monotonic() >= stall_deadline:
+                raise VisionStalled(
+                    "Vision analysis stalled: no log or completed profile "
+                    f"for {VISION_STALL_TIMEOUT_S}s; stopped child to release "
+                    "model memory")
             if time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(cmd, CLIP_ANALYSIS_TIMEOUT_S)
     finally:
         if child.poll() is None:
             child.kill()
             child.wait()
+        try:
+            _drain_child_output(child)
+        finally:
+            child.stdout.close()
     if returncode:
         raise subprocess.CalledProcessError(returncode, cmd)
     return returncode
+
+
+def _drain_child_output(child):
+    """Forward whatever the child wrote before it exited.
+
+    The poll loop above forwards log lines while the child runs; without
+    this, the lines it wrote between the last read and its exit would be
+    lost. A closed pipe reads as empty, so this never blocks.
+    """
+    while True:
+        try:
+            output = os.read(child.stdout.fileno(), 65536)
+        except OSError:
+            return
+        if not output:
+            return
+        sys.stderr.buffer.write(output)
+        sys.stderr.buffer.flush()
 
 
 def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
@@ -116,6 +181,8 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
         try:
             run(base_cmd + ['--clip', *pending], progress=_profiles_on_disk)
             return
+        except VisionStalled as exc:
+            failure = str(exc)
         except subprocess.TimeoutExpired:
             failure = "Timeout"
         except subprocess.CalledProcessError as e:

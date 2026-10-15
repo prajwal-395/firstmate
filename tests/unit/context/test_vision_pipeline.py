@@ -1,6 +1,6 @@
 import json
 import pytest
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 import os
@@ -2486,6 +2486,35 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
         assert results[0][0] == "host answer"
 
     assert scheduler.jobs() == []
+
+
+def test_semantic_model_load_is_explicitly_huggingface_offline(
+        tmp_path, monkeypatch):
+    seen = {}
+    model = SimpleNamespace(config=SimpleNamespace(revision="cached"))
+
+    @contextmanager
+    def managed(_name, loader):
+        loaded = loader()
+        yield (*loaded,)
+
+    def load(model_id):
+        seen.update(model_id=model_id,
+                    hub=os.environ.get("HF_HUB_OFFLINE"),
+                    transformers=os.environ.get("TRANSFORMERS_OFFLINE"))
+        return model, object()
+
+    monkeypatch.setattr(vp, "managed_model", managed)
+    monkeypatch.setattr(vp, "load", load)
+    monkeypatch.setattr(vp, "heavy_work_reservation",
+                        lambda *_a, **_k: nullcontext())
+    monkeypatch.setattr(vp, "heavy_work_lock",
+                        lambda *_a, **_k: nullcontext())
+
+    with vp._LazyAnalyzer(None, str(tmp_path)) as analyzer:
+        assert analyzer.model is model
+    assert seen == {"model_id": vp.MODEL_ID, "hub": "1",
+                    "transformers": "1"}
 
 
 def test_write_scene_memory_serializes_the_vlm_scene_pass_and_boundaries(

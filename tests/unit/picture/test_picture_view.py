@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 import os
+import time
 import pytest
 import subprocess
 from library.capabilities.semantics import analyse as semantic_step
@@ -986,3 +987,14 @@ def test_the_wedge_ceiling_restarts_on_each_finished_clip(monkeypatch):
     _run_clip_vision(sleeper, progress=lambda: next(ticks), poll_s=0.1)
     with pytest.raises(subprocess.TimeoutExpired):
         _run_clip_vision(sleeper, progress=lambda: 0, poll_s=0.1)
+
+
+def test_vision_child_is_killed_after_stall_without_output(monkeypatch):
+    monkeypatch.setattr(semantic_step, "VISION_STALL_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(semantic_step, "CLIP_ANALYSIS_TIMEOUT_S", 10)
+    started = time.monotonic()
+    with pytest.raises(semantic_step.VisionStalled, match="release model memory"):
+        _run_clip_vision(
+            [sys.executable, "-c", "import time; time.sleep(10)"],
+            progress=lambda: 0, poll_s=0.05)
+    assert time.monotonic() - started < 2

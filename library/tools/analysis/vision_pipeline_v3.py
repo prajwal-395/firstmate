@@ -93,6 +93,27 @@ _LOCAL_GEMMA_INFERENCE = threading.Lock()
 
 
 @contextmanager
+def _huggingface_offline():
+    """Make this model load use the local cache and refuse network access.
+
+    MLX-VLM resolves model IDs through Hugging Face Hub. The offline flags
+    must be present around `load`, where that resolution happens, so a live
+    semantic pass can neither wait on nor download hub metadata.
+    """
+    names = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+    previous = {name: os.environ.get(name) for name in names}
+    os.environ.update({name: "1" for name in names})
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+@contextmanager
 def _semantic_model_memory_reservation():
     """Keep the loaded Gemma weights reserved across non-local waits.
 
@@ -3384,6 +3405,20 @@ class _LazyAnalyzer:
     when a pass actually runs: a compose from cached layers never loads
     gemma. Its RAM reservation spans that lifetime. The CPU/GPU lease is
     taken only for the load, unload and individual local inference calls.
+
+    Memory attribution (measured 2026-10-15 for the 14 GB hang with no
+    output): before the first profile lands, the only large resident is
+    the Gemma 4 12B 4-bit weights mapped by `load()` below. Frames are
+    JPEG files on disk (`extract_frames` returns path lists),
+    windows are MP4 files on disk (`extract_video_clips`), and the
+    worker pool is one local thread plus a bounded cloud lane holding
+    no decoded frames - nothing decodes all frames up front and no pool
+    buffers them. The weights are not avoidable at equal quality, so
+    the fix is fail-fast: the load below is cache-only (a missing
+    cache raises at once instead of hanging on hub metadata), and a
+    pass that then stalls is killed by the parent's stall bound
+    (`analyse._run_clip_vision`), which reclaims the weights with the
+    child process.
     """
 
     def __init__(self, harness, project_folder):
@@ -3400,7 +3435,11 @@ class _LazyAnalyzer:
 
             memory_context = _semantic_model_memory_reservation()
             memory_context.__enter__()
-            context = managed_model("gemma-4", lambda: load(MODEL_ID))
+            def load_cached_model():
+                with _huggingface_offline():
+                    return load(MODEL_ID)
+
+            context = managed_model("gemma-4", load_cached_model)
             entered = False
             try:
                 with _semantic_inference_admission():
