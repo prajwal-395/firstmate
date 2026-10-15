@@ -124,6 +124,10 @@ those entities record how the footage can realize it.
     be unique and stable.
   - `purpose`: why this beat exists in the edit - the job it does for
     the story.
+  - `required`: `true` only when the attached brief makes this beat
+    mandatory; otherwise `false`. The speech planner refuses a missing
+    required beat and names it. Do not turn a creative preference into a
+    requirement.
   - `setup_for`: the `beat_id` of a later beat this one sets up, or
     null. A beat that plants something the payoff lands on.
   - `payoff_of`: the `beat_id` of an earlier beat this one pays off,

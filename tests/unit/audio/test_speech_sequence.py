@@ -7,18 +7,18 @@ clip_011 data, written under `tmp_path`. History: docs/evidence/transcription.md
 """
 import ast
 import inspect
+import io
 import json
 import sys
 from pathlib import Path
-import pytest
-import io
 
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import library.steps.step_2_02_speech_sequence.post_bridge as pb  # noqa: E402
+import library.steps.step_2_02_speech_sequence.post_bridge as pb
 
 FIXTURE = (REPO_ROOT / "tests" / "fixtures" / "captured_run"
            / "clip_011_speech_regions.json")
@@ -241,7 +241,7 @@ def test_the_ranking_puts_completeness_before_the_gap():
 # On 001's run of record body[0] shipped a 1.169s silence inside a 2.982s
 # block, voiced_fraction 0.474, the worst of eight, and nothing said so.
 
-from library.tools.alignment_findings import (  # noqa: E402
+from library.tools.alignment_findings import (
     passage_rows,
     summary_lines,
 )
@@ -303,7 +303,7 @@ def test_an_unmeasured_passage_keeps_its_row_and_says_so():
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from library.tools.duration_targets import (  # noqa: E402
+from library.tools.duration_targets import (
     get_speech_duration_zone,
     get_target_duration_zone,
 )
@@ -403,6 +403,33 @@ def test_main_refuses_speech_over_target_inside_the_total_max(
     assert "above the speech ceiling" in out["error"]
 
 
+def test_main_names_reversed_setup_and_payoff_beats(
+        clip_011, index_dir_2, capsys, monkeypatch):
+    payload = json.loads(_payload(clip_011, index_dir_2, None))
+    payload["intent_model"] = {"beats": [
+        {"beat_id": "beat:1", "purpose": "setup",
+         "setup_for": "beat:2"},
+        {"beat_id": "beat:2", "purpose": "payoff",
+         "payoff_of": "beat:1"},
+    ]}
+    for index, passage in enumerate(
+            payload["speech_sequence"]["body_sequence"]):
+        passage["serves_beats"] = ["beat:2" if index == 0 else "beat:1"]
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    with pytest.raises(SystemExit) as excinfo:
+        pb.main()
+
+    assert excinfo.value.code == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["step"] == "2.02_bridge"
+    assert out["error"] == "speech sequence violates narrative constraints"
+    assert out["problems"] == [
+        ("setup beat 'beat:1' must precede payoff beat 'beat:2', "
+         "but their speech passages are reversed or interleaved")
+    ]
+
+
 # --------------------------------------------------------------------------
 # From test_speech_sequence_stated_trim.py
 #
@@ -465,9 +492,9 @@ def test_a_stated_trim_moves_only_the_played_bound(index_dir_3):
     word's 9.6; seconds trim the tail; frames and seconds that agree on
     one edge ship the frames. The words stay as measured."""
     rows = [
-        (dict(trim_head_frames=4), 9.6 + 4 / FPS, 11.9),
-        (dict(trim_tail_seconds=0.5), 9.6, 11.4),
-        (dict(trim_head_frames=4, trim_head_seconds=4 / FPS),
+        ({"trim_head_frames": 4}, 9.6 + 4 / FPS, 11.9),
+        ({"trim_tail_seconds": 0.5}, 9.6, 11.4),
+        ({"trim_head_frames": 4, "trim_head_seconds": 4 / FPS},
          9.6 + 4 / FPS, 11.9),
     ]
     for trim, start, end in rows:

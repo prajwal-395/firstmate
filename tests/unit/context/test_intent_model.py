@@ -150,6 +150,13 @@ def test_a_beat_with_no_purpose_is_refused():
     assert any("no purpose" in p for p in problems)
 
 
+def test_a_non_boolean_required_beat_flag_is_refused():
+    model = _model()
+    model["beats"][0]["required"] = "yes"
+    problems = intent_model.validate_intent_model(model, CATALOG)
+    assert any("required must be true or false" in p for p in problems)
+
+
 def test_a_duplicate_beat_id_is_refused():
     model = _model()
     model["beats"][1]["beat_id"] = "beat:1"
@@ -258,6 +265,31 @@ def test_a_passage_serving_no_beat_needs_no_beat_named():
     for."""
     passages = [{"position": 1, "serves_beats": []}]
     assert intent_model.validate_serves_beats(passages, {}) == []
+
+
+def test_a_required_beat_missing_from_the_sequence_is_named():
+    model = _model()
+    model["beats"][1]["required"] = True
+    passages = [{"position": 1, "serves_beats": ["beat:1"]}]
+    problems = intent_model.validate_narrative_constraints(passages, model)
+    assert problems == [
+        "required beat 'beat:2' (land the payoff) is missing from the speech sequence"
+    ]
+
+
+def test_a_setup_that_follows_its_payoff_is_named_as_contradictory():
+    model = _model()
+    passages = [{"position": 1, "serves_beats": ["beat:2"]},
+                {"position": 2, "serves_beats": ["beat:1"]}]
+    problems = intent_model.validate_narrative_constraints(passages, model)
+    assert problems == [
+        "setup beat 'beat:1' must precede payoff beat 'beat:2', but their speech passages are reversed or interleaved"
+    ]
+
+
+def test_non_required_beats_remain_optional_for_editorial_flexibility():
+    model = _model()
+    assert intent_model.validate_narrative_constraints([], model) == []
 
 
 # ── The queries a reader makes ────────────────────────────────────

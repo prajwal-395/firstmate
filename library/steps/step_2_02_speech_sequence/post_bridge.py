@@ -1240,6 +1240,16 @@ def main():
             }))
             sys.exit(1)
 
+        problems = intent_model.validate_narrative_constraints(
+            enriched.get("body_sequence", []), model)
+        if problems:
+            print(json.dumps({
+                "error": "speech sequence violates narrative constraints",
+                "step": "2.02_bridge",
+                "problems": problems,
+            }))
+            sys.exit(1)
+
     # Gap 9: score the ordering and re-order on a low score. The LLM
     # produced this ordering in one call; this is the deterministic
     # second pass that checks redundancy, setup/payoff adjacency,

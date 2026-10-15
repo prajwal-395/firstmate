@@ -227,6 +227,8 @@ def validate_intent_model(model: dict, catalog_clip_ids=None) -> list:
             seen_beats.add(beat_id)
         if not entry.get(PURPOSE):
             problems.append(f"beat {label}: no purpose")
+        if "required" in entry and not isinstance(entry["required"], bool):
+            problems.append(f"beat {label}: required must be true or false")
         _check_span(entry, f"beat {label}", catalog_clip_ids, problems)
 
     for beat_id, role, other in setup_payoff_links(model):
@@ -419,6 +421,47 @@ def validate_serves_beats(entries: list, model: dict,
                 problems.append(
                     f"{label}: names beat {beat_id!r}, "
                     f"which is not in the intent model")
+    return problems
+
+
+def validate_narrative_constraints(passages: list, model: dict) -> list:
+    """Check the hard beat commitments against the proposed speech order.
+
+    Only beats explicitly marked ``required`` and declared setup/payoff
+    links are hard constraints. The remaining beats can be selected and
+    ordered to suit the editorial goal.
+    """
+    model = _as_dict(model)
+    positions = {}
+    for index, passage in enumerate(_as_list(passages)):
+        for beat_id in _as_list(_as_dict(passage).get(SERVES_BEATS)):
+            if beat_id:
+                positions.setdefault(beat_id, []).append(index)
+
+    problems = []
+    for entry in beats(model):
+        beat_id = entry.get(BEAT_ID)
+        if entry.get("required") is True and beat_id not in positions:
+            problems.append(
+                f"required beat {beat_id!r} ({entry.get(PURPOSE, '')}) "
+                "is missing from the speech sequence")
+
+    checked_links = set()
+    for beat_id, role, other_id in setup_payoff_links(model):
+        setup_id, payoff_id = ((beat_id, other_id) if role == "setup"
+                               else (other_id, beat_id))
+        if (setup_id, payoff_id) in checked_links:
+            continue
+        checked_links.add((setup_id, payoff_id))
+        setup_positions = positions.get(setup_id, [])
+        payoff_positions = positions.get(payoff_id, [])
+        if not setup_positions or not payoff_positions:
+            continue
+        if max(setup_positions) >= min(payoff_positions):
+            problems.append(
+                f"setup beat {setup_id!r} must precede payoff beat "
+                f"{payoff_id!r}, but their speech passages are reversed "
+                "or interleaved")
     return problems
 
 

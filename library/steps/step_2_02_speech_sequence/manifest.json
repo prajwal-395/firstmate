@@ -28,7 +28,7 @@
         "name": "intent_model",
         "type": "object",
         "required": false,
-        "description": "State input: intent_model - step 2.01's structured intent model (beats, claims, key moments, pacing curve). Each passage names the beats it serves in `serves_beats`; the post-bridge refuses a passage that names no beat the model has, or a beat it does not. Absent on runs whose creative_direction predates the model, in which case no beat is required. See library/tools/intent_model.py."
+        "description": "State input: intent_model - step 2.01's structured intent model (beats, claims, key moments, pacing curve). Each passage names the beats it serves in `serves_beats`; the post-bridge refuses unknown or omitted beat attribution, a missing beat marked `required`, and a declared setup/payoff whose passages are reversed or interleaved. Other beats remain optional. Absent on runs whose creative_direction predates the model. See library/tools/intent_model.py."
       },
       {
         "name": "project_config",
