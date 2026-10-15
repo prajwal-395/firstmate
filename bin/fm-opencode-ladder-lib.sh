@@ -25,10 +25,15 @@
 # fixed by economics rather than ranked by the captain, while the workspace
 # inside the Go tier is ranked by billing timing, never by fixed order.
 #
-# QUOTA SOURCES. OpenCode free is reactive because quota-axi has no free row:
-# bin/fm-opencode-retry.sh records the vendor retry horizon and the pane-text
-# detector covers an idle refusal. Codex and OpenCode Go use fresh known zero
-# quota rows only when quota-axi supplies a valid reset timestamp; the main
+# QUOTA SOURCES. OpenCode free is reactive through bin/fm-opencode-retry.sh,
+# which records the vendor retry horizon, and through the pane-text detector
+# covering an idle refusal; a fresh quota-axi opencode row, when the vendor
+# publishes one, is honored the same predictive way as the other rungs.
+# Codex and OpenCode Go use fresh exhausted quota rows: runway exhausted_now
+# first, then a fresh known zero reading, mirroring the typed dispatch
+# resolver. An exhausted row without a parseable future reset still records
+# its rung cap with a conservative bounded horizon rather than leaving the
+# rung open; the main
 # Go workspace also accepts reactive vendor evidence. Workspace-keyed Go
 # rows feed their matching rung, while an unlabelled row retains its
 # long-standing main-workspace meaning. Reactive evidence carries a
@@ -134,50 +139,93 @@ FM_OPENCODE_LADDER_PLUS_RUNG='plus'
 # shellcheck disable=SC2034
 FM_OPENCODE_LADDER_GO_SECOND_RUNG='go-second'
 
-# quota-axi availability is deliberately strict: a fresh known zero reading
-# plus a valid future reset records a durable cap, while a fresh known positive
+# quota-axi availability is deliberately strict: a fresh exhausted reading
+# (runway exhausted_now first, then a fresh known zero reading, mirroring the
+# typed dispatch resolver) records a durable cap, while a fresh known positive
 # reading retires it. Unknown or stale readings leave the rung record alone.
 # Refresh predictive rung records from one quota-axi snapshot. The retry helper
 # remains the only durable store and owns both recording and retiring caps.
+# Row selection is account-aware: Codex Plus reads the codex-home row (falling
+# back to default, then to an unlabelled schema-5 row), each Go workspace reads
+# its own opencode-go row, and free reads the opencode row when quota-axi
+# publishes one. A healthy second account never masks the serving row's
+# exhaustion. An exhausted row without a parseable future reset still records
+# the cap with a conservative bounded horizon (FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS,
+# default 3600) rather than leaving the rung looking open; the notice marks the
+# horizon as a bound rather than a reset.
+fm_opencode_ladder_quota_cap_one() {  # <state-dir> <report> <rung> <provider> <workspace> <model> <fallback-s>
+  local state_dir=$1 report=$2 rung=$3 provider=$4 workspace=$5 model=$6 fallback_s=$7
+  local row reset_s reset_ms bare now_s
+  bare=$(fm_opencode_ladder_bare_model "$model")
+  row=$(printf '%s' "$report" | jq -c --arg provider "$provider" --arg workspace "$workspace" --arg bare "$bare" '
+    [.providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))] as $rows
+    | (if $provider == "codex" then
+         ([$rows[] | select(.accountKey == "codex-home")] | first)
+         // ([$rows[] | select(.accountKey == "default")] | first)
+         // ([$rows[] | select(has("accountKey") | not)] | first)
+       elif $provider == "opencode-go" and $workspace == "second" then
+         ([$rows[] | select(.accountKey == "second")] | first)
+       elif $provider == "opencode-go" then
+         ([$rows[] | select(.accountKey == "main")] | first)
+         // ([$rows[] | select(has("accountKey") | not)] | first)
+       else
+         ([$rows[] | select(.accountKey == "default")] | first)
+         // ([$rows[] | select(has("accountKey") | not)] | first)
+         // ($rows | first)
+       end) as $row
+    | $row // empty
+    | . as $p
+    | {windows: ($p.windows // []),
+       avail: ([$p.quotaSemantics.effectiveAvailability[]?
+                 | select(.scope == "all_models" and .status == "known"
+                          and (.effectivePercentRemaining | type == "number" and . > 0))] | length),
+       bad: (([$p.quotaSemantics.effectiveAvailability[]?
+                | select(.scope == "all_models" or .scope == "all_products"
+                         or ((($bare // "") != "") and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare))))
+                | select((.runway.status // "") == "exhausted_now")] | first)
+              // ([$p.quotaSemantics.effectiveAvailability[]?
+                | select(.scope == "all_models" or .scope == "all_products"
+                         or ((($bare // "") != "") and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare))))
+                | select(.status == "known" and (.effectivePercentRemaining | type) == "number"
+                         and .effectivePercentRemaining <= 0)] | first))} as $v
+    | {has_row: true, avail: $v.avail, bad: $v.bad,
+       reset: (if $v.bad == null then null
+               else ($v.bad
+                     | (if (.resetsAt | type) == "string" then .resetsAt
+                        else ([.limitingWindowIds[]? as $id | $v.windows[]? | select(.id == $id) | .resetsAt]
+                              | map(select(type == "string")) | max // null) end)) end)}' 2>/dev/null) || return 0
+  [ -n "$row" ] || return 0
+  if [ "$(printf '%s' "$row" | jq -r '.bad != null' 2>/dev/null)" = true ]; then
+    reset_s=$(printf '%s' "$row" | jq -r '.reset | try fromdateiso8601 catch empty' 2>/dev/null)
+    case "$reset_s" in ''|*[!0-9]*) reset_s= ;; esac
+    now_s=$(date +%s)
+    if [ -z "$reset_s" ] || [ "$reset_s" -le "$now_s" ]; then
+      reset_s=$((now_s + fallback_s))
+      printf 'notice: opencode ladder: %s quota is exhausted with no parseable reset; recording a conservative %ss cap instead of leaving the rung open\n' \
+        "$rung" "$fallback_s" >&2
+    fi
+    reset_ms=$((reset_s * 1000))
+    "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$rung" "$reset_ms" 2>/dev/null || true
+    return 0
+  fi
+  if [ "$(printf '%s' "$row" | jq -r '(.avail // 0) > 0' 2>/dev/null)" = true ]; then
+    "$_FM_OPENCODE_LADDER_RETRY" clear-cap "$state_dir" "$rung" 2>/dev/null || true
+  fi
+}
+
 fm_opencode_ladder_quota_caps() {  # <state-dir>
-  local state_dir=$1 report provider workspace reset_s reset_ms rung available
+  local state_dir=$1 report fallback_s
   [ -d "$state_dir" ] || return 0
   command -v quota-axi >/dev/null 2>&1 || return 0
   command -v jq >/dev/null 2>&1 || return 0
   report=$(quota-axi --json 2>/dev/null) || return 0
-  for provider in codex opencode-go; do
-    for workspace in main second; do
-      [ "$provider" = opencode-go ] || [ "$workspace" = main ] || continue
-      rung=plus
-      if [ "$provider" = opencode-go ]; then
-        rung=go
-        [ "$workspace" = second ] && rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
-      fi
-      available=$(printf '%s' "$report" | jq -r --arg provider "$provider" --arg workspace "$workspace" '
-        .providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))
-        | select($provider == "codex" or ((.accountKey // "main") == (if $workspace == "main" then "main" else "second" end)))
-        | .quotaSemantics.effectiveAvailability[]?
-        | select(.scope == "all_models" and .status == "known" and (.effectivePercentRemaining | type == "number" and . > 0))
-        | "available"' 2>/dev/null | head -n 1)
-      if [ "$available" = available ]; then
-        "$_FM_OPENCODE_LADDER_RETRY" clear-cap "$state_dir" "$rung" 2>/dev/null || true
-        continue
-      fi
-      reset_s=$(printf '%s' "$report" | jq -r --arg provider "$provider" --arg workspace "$workspace" '
-        .providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))
-        | select($provider == "codex" or ((.accountKey // "main") == (if $workspace == "main" then "main" else "second" end)))
-        | . as $p | .quotaSemantics.effectiveAvailability[]?
-        | select(.scope == "all_models" and .status == "known" and .effectivePercentRemaining == 0)
-        | (if (.resetsAt | type) == "string" then .resetsAt
-           else ([.limitingWindowIds[]? as $id | $p.windows[]? | select(.id == $id) | .resetsAt]
-                 | map(select(type == "string")) | max // empty) end)
-        | try fromdateiso8601 catch empty' 2>/dev/null | head -n 1)
-      case "$reset_s" in ''|*[!0-9]*) continue ;; esac
-      [ "$reset_s" -gt "$(date +%s)" ] || continue
-      reset_ms=$((reset_s * 1000))
-      "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$rung" "$reset_ms" 2>/dev/null || true
-    done
-  done
+  printf '%s' "$report" | jq -e '.providers | type == "array"' >/dev/null 2>&1 || return 0
+  fallback_s=${FM_OPENCODE_CODEX_LIMIT_FALLBACK_SECS:-3600}
+  case "$fallback_s" in ''|*[!0-9]*) fallback_s=3600 ;; esac
+  fm_opencode_ladder_quota_cap_one "$state_dir" "$report" plus codex main "$FM_OPENCODE_LADDER_PLUS_MODEL" "$fallback_s"
+  fm_opencode_ladder_quota_cap_one "$state_dir" "$report" go opencode-go main "$FM_OPENCODE_LADDER_GO" "$fallback_s"
+  fm_opencode_ladder_quota_cap_one "$state_dir" "$report" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" opencode-go second "$FM_OPENCODE_LADDER_GO" "$fallback_s"
+  fm_opencode_ladder_quota_cap_one "$state_dir" "$report" free opencode main "$FM_OPENCODE_LADDER_FREE" "$fallback_s"
 }
 
 fm_opencode_ladder_go_reactive_capped() {  # <state-dir>

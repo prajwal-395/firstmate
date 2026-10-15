@@ -5,8 +5,8 @@
 # (gpt-6-luna at the configured Codex profile effort, or xhigh by default), then paid Go.
 # New spawns climb back when the preceding tier becomes available again.
 #
-# OpenCode free exhaustion is reactive because quota-axi has no free row.
-# Codex Plus and Go use fresh zero-availability readings with reset timestamps;
+# OpenCode free exhaustion is reactive, plus a fresh quota-axi opencode row when the vendor publishes one.
+# Codex Plus and Go use fresh exhausted readings (runway exhausted_now, then a known zero reading);
 # Go also accepts reactive vendor-cap evidence.
 #
 # The load-bearing contracts:
@@ -1321,6 +1321,202 @@ test_bills_go_names_only_the_go_tier() {
   pass "only the Go tier bills a Go workspace, in either id form"
 }
 
+# --- exhausted rungs the quota snapshot proves --------------------------------
+# 2026-10-13: three spawns printed 'free is capped; dispatching on Codex
+# Plus' while quota-axi showed Codex at 0% with runway exhausted_now on the
+# five-hour window, and the workers landed on 'You've hit your usage limit'.
+# 2026-10-14: two workers launched onto free while its cap was still active.
+# Each case below reproduces one ignored exhaustion with a recorded quota-axi
+# JSON fixture - never real spend - and pins the skip to the next rung.
+
+test_codex_exhausted_now_without_reset_skips_plus() {
+  local state out fixture
+  state=$(fresh_state codex-no-reset)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  fixture="$TMP_ROOT/codex-exhausted-no-reset.json"
+  cat > "$fixture" <<'JSON'
+{"schemaVersion":5,"providers":[
+{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},
+{"provider":"opencode-go","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}}
+]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "an exhausted Plus rung must still dispatch, said: $out"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "Codex exhausted_now with no parseable reset must skip Plus for Go, got '$GOT'"
+  case "$NOTE" in *'conservative'*'instead of leaving the rung open'*) : ;; *)
+    fail "the bound horizon must be owned as conservative: ${NOTE:-<silent>}" ;; esac
+  "$HELPER" check-cap "$state" plus >/dev/null \
+    || fail "exhausted_now without a reset must still record the Plus cap"
+  pass "Codex exhausted_now without a reset skips Plus for Go"
+}
+
+test_codex_home_exhaustion_not_masked_by_work_account() {
+  local state out fixture
+  state=$(fresh_state codex-home-masked)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  fixture="$TMP_ROOT/codex-home-masked.json"
+  cat > "$fixture" <<'JSON'
+{"schemaVersion":6,"providers":[
+{"provider":"codex","accountKey":"codex-home","state":{"status":"fresh","stale":false},"windows":[{"id":"five_hour","resetsAt":"2030-01-01T00:00:00Z"}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"},"limitingWindowIds":["five_hour"]}]}},
+{"provider":"codex","accountKey":"openai-codex-work","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}}]}},
+{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}}
+]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "an exhausted home row must still dispatch, said: $out"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "an exhausted codex-home row must skip Plus for Go despite a healthy work account, got '$GOT'"
+  "$HELPER" check-cap "$state" plus >/dev/null \
+    || fail "a healthy work account must never retire the serving row's Plus cap"
+  pass "an exhausted codex-home row skips Plus despite a healthy work account"
+}
+
+test_quota_free_row_exhaustion_skips_free() {
+  local state out fixture
+  state=$(fresh_state quota-free-row)
+  fixture="$TMP_ROOT/quota-free-row.json"
+  cat > "$fixture" <<'JSON'
+{"schemaVersion":5,"providers":[
+{"provider":"opencode","state":{"status":"fresh","stale":false},"windows":[{"id":"monthly","resetsAt":"2030-01-01T00:00:00Z"}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"},"limitingWindowIds":["monthly"]}]}},
+{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}},
+{"provider":"opencode-go","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}}
+]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "an exhausted free row must still dispatch, said: $out"
+  split_gate "$out"
+  [ "$GOT" = gpt-6-luna ] || fail "a quota-exhausted free row must skip free for Codex Plus, got '$GOT'"
+  "$HELPER" check-cap "$state" free >/dev/null \
+    || fail "an exhausted opencode row must record the free rung cap"
+  pass "a quota-exhausted free row skips free for Codex Plus"
+}
+
+test_quota_free_row_positive_retires_free_cap() {
+  local state out fixture
+  state=$(fresh_state quota-free-retire)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  fixture="$TMP_ROOT/quota-free-retire.json"
+  cat > "$fixture" <<'JSON'
+{"schemaVersion":5,"providers":[
+{"provider":"opencode","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}},
+{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}},
+{"provider":"opencode-go","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"}}]}}
+]}
+JSON
+  out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") \
+    || fail "a retired free cap must dispatch, said: $out"
+  split_gate "$out"
+  [ "$GOT" = "$FREE" ] || fail "a positive opencode row must retire the free cap and dispatch free, got '$GOT'"
+  [ ! -e "$state/.opencode-cap-free" ] || fail "a positive opencode row must retire the free rung cap"
+  pass "a positive opencode row retires the free cap"
+}
+
+# --- relaunch without an explicit model takes the shared gate ------------------
+# 2026-10-13: a relaunch with --harness opencode and no model came up on Codex
+# while Codex Plus was exhausted. A relaunch naming no model is a modelless
+# dispatch, so it enters the rung gate from free exactly like a fresh launch
+# instead of staying on the recorded harness past its cap.
+
+relaunch_dead_fakebin() {  # <dir> -> fakebin with a dead tmux endpoint and shell ps
+  local fakebin
+  fakebin=$(spawn_fakebin "$1")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = list-windows ]; then
+  case "$*" in
+    *"${FM_FAKE_DEAD_SESSION:?}"*) printf '%s\n' "${FM_FAKE_DEAD_WINDOW:?}"; exit 0 ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "$*" in
+    *'pane_tty'*) printf '/dev/ttys999\n'; exit 0 ;;
+    *'pane_current_command'*) printf 'bash\n'; exit 0 ;;
+    *'pane_pid'*) printf '111\n'; exit 0 ;;
+    *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  esac
+  printf 'firstmate\n'; exit 0
+fi
+case "${1:-}" in
+  display-message) printf 'firstmate\n'; exit 0 ;;
+  list-windows) exit 0 ;;
+  has-session|new-session|new-window|kill-window) exit 0 ;;
+  send-keys)
+    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
+      prev=
+      for a in "$@"; do
+        if [ "$prev" = "-l" ]; then
+          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
+        fi
+        prev=$a
+      done
+    fi
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *ttys999*"-o pid="*) printf '111 111 111 bash\n'; exit 0 ;;
+esac
+case "$*" in
+  *"-p 111"*"-o args="*) printf -- '-bash\n'; exit 0 ;;
+esac
+exec /bin/ps "$@"
+SH
+  chmod +x "$fakebin/ps"
+  printf '%s\n' "$fakebin"
+}
+
+test_relaunch_without_model_follows_ladder_gate() {
+  local dir="$TMP_ROOT/relaunch-gate" home proj wt fakebin launch log_home
+  local herdr_calls
+  mkdir -p "$dir/home/data/task-relaunch" "$dir/home/state" "$dir/home/config" "$dir/home/projects"
+  home="$dir/home"
+  proj="$dir/proj"
+  wt="$dir/wt"
+  fakebin=$(relaunch_dead_fakebin "$dir/fake")
+  fm_git_worktree "$proj" "$wt" "wt-relaunch"
+  printf '# Task\n\n## Captain'"'"'s intent\n\nroute this test lane\n\n## Firstmate spec\n\nopencode ladder dispatch\n' > "$home/data/task-relaunch/brief.md"
+  touch "$home/state/.last-watcher-beat"
+  record_cap "$home/state" free-cap 78840 "$FREE" || fail "record refused free cap"
+  "$HELPER" record-cap "$home/state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  cat > "$home/state/task-relaunch.meta" <<META
+harness=codex
+kind=ship
+project=$proj
+worktree=$wt
+branch=fm/task-relaunch
+mode=no-mistakes
+yolo=off
+window=fakesess:fm-task-relaunch
+META
+  if ! env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
+    FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" FM_FAKE_AGY_CALL_LOG="$dir/agy-calls.log" \
+    FM_FAKE_DEAD_SESSION=fakesess FM_FAKE_DEAD_WINDOW=fm-task-relaunch \
+    "$SPAWN" task-relaunch --relaunch >"$dir/spawn.log" 2>&1; then
+    fail "modelless relaunch must not refuse past capped rungs: $(cat "$dir/spawn.log")"
+  fi
+  log_home="$dir/launch.log"
+  [ -f "$log_home" ] || fail "modelless relaunch wrote no launch command: $(cat "$dir/spawn.log")"
+  launch=$(read_launch "$log_home")
+  assert_contains "$launch" "opencode --model '$GO'" "a modelless relaunch past capped free and Plus must launch on Go"
+  assert_not_contains "$launch" "codex --model" "a modelless relaunch must not stay on capped Codex Plus"
+  assert_contains "$(cat "$home/state/task-relaunch.meta")" "harness=opencode" "the relaunched record must follow the Go rung"
+  assert_contains "$(cat "$home/state/task-relaunch.meta")" "model=$GO" "the relaunched record must name the Go model"
+  pass "a relaunch without an explicit model follows the ladder gate"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
@@ -1375,3 +1571,8 @@ test_weekly_cap_falls_back_and_returns
 test_longcat_unreachable_while_second_plan_live
 test_unstarted_window_never_prioritizes_idle_plan
 test_bills_go_names_only_the_go_tier
+test_codex_exhausted_now_without_reset_skips_plus
+test_codex_home_exhaustion_not_masked_by_work_account
+test_quota_free_row_exhaustion_skips_free
+test_quota_free_row_positive_retires_free_cap
+test_relaunch_without_model_follows_ladder_gate
