@@ -3530,6 +3530,13 @@ def migrate_project_evidence(project_folder: str, *,
         except ImportError:
             from tools.ocr_project_model import migrate_ocr_artifact
         migrate_ocr_artifact(builder, project_folder, clip_id, digest)
+    # Typed temporal action hypotheses are derived only after both M3 hand
+    # samples and M3d/MU-15 object tracks have reached the Project Model.
+    # They cite those measurements and stay candidates pending L3 review.
+    from library.tools.temporal_action_candidates import candidates_from_model
+    for action_rule in ("drink_from_cup", "pick_up_put_down"):
+        builder.model["events"].extend(
+            candidates_from_model(builder.model, rule=action_rule))
     _migrate_music_signals(builder, project_folder, root)
     _derive_track_motion_events(builder)
     from library.tools import cross_modal_grounding

@@ -130,6 +130,13 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Deterministic hand/object action candidates are materialized by
+        # Project Model migration and must invalidate segmentation rows.
+        "library/tools/temporal_action_candidates.py",
+        "library/tools/analysis/open_vocabulary_detect.py",
+        "library/tools/analyzer_providers.py",
+        "library/tools/query_directed_acquisition.py",
+        "library/tools/evidence_query.py",
         "library/tools/ocr_project_model.py",
         "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
@@ -600,6 +607,13 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Temporal action candidates are part of the scan's Project Model
+        # migration and invalidate scan rows when their rules change.
+        "library/tools/temporal_action_candidates.py",
+        "library/tools/analysis/open_vocabulary_detect.py",
+        "library/tools/analyzer_providers.py",
+        "library/tools/query_directed_acquisition.py",
+        "library/tools/evidence_query.py",
         "library/tools/ocr_project_model.py",
         "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
@@ -1093,6 +1107,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # The catalog's Project Model migration materializes these events.
+        "library/tools/temporal_action_candidates.py",
+        "library/tools/analysis/open_vocabulary_detect.py",
+        "library/tools/analyzer_providers.py",
+        "library/tools/query_directed_acquisition.py",
+        "library/tools/evidence_query.py",
         "library/tools/ocr_project_model.py",
         "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
@@ -1576,6 +1596,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/temporal_action_candidates.py",
+        "library/tools/analysis/open_vocabulary_detect.py",
+        "library/tools/analyzer_providers.py",
+        "library/tools/query_directed_acquisition.py",
+        "library/tools/evidence_query.py",
         "library/tools/ocr_project_model.py",
         "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",
@@ -2060,6 +2085,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        "library/tools/temporal_action_candidates.py",
+        "library/tools/analysis/open_vocabulary_detect.py",
+        "library/tools/analyzer_providers.py",
+        "library/tools/query_directed_acquisition.py",
+        "library/tools/evidence_query.py",
         "library/tools/ocr_project_model.py",
         "library/tools/evidence_contract.py",
         "library/tools/cross_modal_grounding.py",

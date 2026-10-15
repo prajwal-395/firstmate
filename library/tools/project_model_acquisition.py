@@ -234,3 +234,71 @@ def query_project(
         window_seconds_by_lane={"m4": WINDOW_SECONDS},
         producer_cost_per_window_seconds={"m4": M4_WINDOW_COST_SECONDS},
     )
+
+
+def verify_action_candidates(
+    source_digest: str,
+    candidates: list[dict[str, Any]],
+    *,
+    max_candidates: int = 8,
+    memory_root: str | Path | None = None,
+    model: Any = None,
+) -> list[dict[str, Any]]:
+    """Send only the highest ranked action intervals to the existing Gemma M8.
+
+    M8 writes a separate cached verdict in source memory; the measured
+    Project Model observations and candidate Event records are untouched.
+    The caller can direct writes to a scratch memory root for evaluations.
+    """
+    if max_candidates < 0:
+        raise ValueError("max_candidates must be non-negative")
+    if max_candidates == 0:
+        return []
+    from library.tools import person_measurements, span_verification
+
+    root = Path(memory_root).expanduser() if memory_root else None
+    m3 = person_measurements.read_m3(source_digest, root)
+    if m3 is None:
+        return [{"candidate_id": row["id"], "status": "not_yet_analysed"}
+                for row in candidates[:max_candidates]]
+    ordered = sorted(candidates,
+                     key=lambda row: (-len(row["evidence_ids"]),
+                                      row["interval"]["start"], row["id"]))
+    frames = m3["frames"]
+    spans_by_kind: dict[str, list[dict[str, Any]]] = {}
+    ids_by_kind: dict[str, list[str]] = {}
+    deferred = []
+    for candidate in ordered[:max_candidates]:
+        interval = candidate["interval"]
+        start_s, end_s = interval["start"] / 1000, interval["end"] / 1000
+        selected = [frame for frame in frames
+                    if start_s <= float(frame["t"]) <= end_s]
+        if len(selected) < 2:
+            deferred.append({"candidate_id": candidate["id"],
+                             "status": "not_yet_analysed"})
+            continue
+        kind = candidate["kind"]
+        spans_by_kind.setdefault(kind, []).append(
+            {"start": start_s, "end": end_s,
+             "frames": [{"t": float(frame["t"]), "d": 0.0,
+                         "box": None} for frame in selected]})
+        ids_by_kind.setdefault(kind, []).append(candidate["id"])
+    if not spans_by_kind:
+        return deferred
+    statements = {
+        "drink_from_cup": "drink from a cup",
+        "pick_up_put_down": "pick up an object and put it back down",
+        "hand_to_face": "touches their face or hair with a hand",
+    }
+    results = list(deferred)
+    for kind, spans in spans_by_kind.items():
+        statement = statements.get(kind)
+        if statement is None:
+            raise ValueError(f"no verifier statement for action {kind!r}")
+        verdicts = span_verification.verify_spans(
+            source_digest, spans, statement, root=root, model=model)
+        results.extend(
+            {"candidate_id": candidate_id, "status": verdict["answer"],
+             "verdict": verdict}
+            for candidate_id, verdict in zip(ids_by_kind[kind], verdicts))
+    return results
