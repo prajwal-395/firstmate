@@ -208,17 +208,11 @@ def _timeline_identity(timeline):
     two timelines can resemble in name and must never be substituted
     (AGENTS.md 5) - the name is only the fallback where no id answers.
     """
-    try:
-        unique = timeline.GetUniqueId()
-    except Exception:
-        unique = None
-    if unique:
-        return ("id", str(unique))
-    try:
-        name = timeline.GetName()
-    except Exception:
-        name = None
-    return ("name", name)
+    from library.tools.timeline_read import timeline_identity
+
+    identity = timeline_identity(timeline)
+    kind = "id" if identity.timeline_id != identity.name else "name"
+    return kind, identity.timeline_id
 
 
 def _timeline_size(timeline):
@@ -1518,20 +1512,17 @@ def main(argv=None) -> int:
                 return 2
             view = timeline_read.refresh(
                 project, timeline, project_folder=args.project_folder)
-            read_source = "live_refresh"
         elif args.project:
             view = timeline_read.read(
                 args.project, args.timeline, caller="reel_read.cli")
-            read_source = "recorded_generation"
         else:
             view = timeline_read.read_any(
                 args.timeline, caller="reel_read.cli")
-            read_source = "recorded_generation"
         result = dict(view.snapshot)
         result["project"] = view.generation.project
         result["mode"] = args.mode
         result["read_generation"] = view.summary()
-        result["read_source"] = read_source
+        result["read_source"] = view.source
         result["freshness_note"] = (
             "This is the latest recorded generation; live edits after "
             "verified_at may not be present."

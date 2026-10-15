@@ -1076,10 +1076,11 @@ def read_requests_since(since: float, path: Path | None = None,
 
 def timeline_key(resolve_project, timeline) -> tuple:
     """`(project name, timeline id, timeline name)` for the store."""
-    from library.tools.reel_read import _timeline_identity
+    from library.tools.timeline_read import timeline_identity
 
-    _kind, value = _timeline_identity(timeline)
-    return resolve_project.GetName(), str(value), timeline.GetName()
+    project = resolve_project.GetName()
+    identity = timeline_identity(timeline, project)
+    return identity.project, identity.timeline_id, identity.name
 
 
 def read_live(resolve_project, timeline, project_folder=None) -> dict:
@@ -1131,15 +1132,15 @@ def observe(resolve_project, timeline,
 
 
 def clips(snapshot: dict) -> list:
-    from library.tools.reel_read import clips_of
+    from library.tools.timeline_read import clip_records
 
-    return clips_of(snapshot)
+    return clip_records(snapshot)
 
 
 def markers(snapshot: dict) -> dict:
-    from library.tools.reel_read import markers_of
+    from library.tools.timeline_read import marker_records
 
-    return markers_of(snapshot)
+    return marker_records(snapshot)
 
 
 def _marker_keys(snapshot: dict) -> set:
@@ -1272,24 +1273,25 @@ def _main(argv=None) -> int:
     store = ShadowStore(args.db)
     try:
         timeline_id = store.resolve_timeline(project, timeline)
-        head = store.head(project, timeline_id)
         if args.command == "log":
             out = [g.summary() for g in store.history(project,
                                                       timeline_id)]
         elif args.command == "diff":
-            earlier = store.get(project, timeline_id, args.since)
-            later = (store.get(project, timeline_id, args.to)
-                     if args.to is not None else head)
+            from library.tools import timeline_read
+            earlier = timeline_read.read_generation(
+                project, timeline_id, args.since, store=store)
+            later = timeline_read.read_generation(
+                project, timeline_id,
+                args.to if args.to is not None else None, store=store)
             out = {"from": earlier.summary(), "to": later.summary(),
-                   "diff": diff(store.snapshot(earlier),
-                                store.snapshot(later))}
+                   "diff": diff(earlier.snapshot, later.snapshot)}
         else:
-            generation = (store.get(project, timeline_id,
-                                    args.generation)
-                          if args.generation is not None else head)
-            snap = store.snapshot(generation)
-            body = {"show": snap, "clips": clips(snap),
-                    "markers": markers(snap)}[args.command]
+            from library.tools import timeline_read
+            view = timeline_read.read_generation(
+                project, timeline_id, args.generation, store=store)
+            generation, snap = view.generation, view.snapshot
+            body = {"show": snap, "clips": list(view.clip_details),
+                    "markers": list(view.marker_details)}[args.command]
             out = {"generation": generation.summary(), args.command: body}
     except ShadowError as missing:
         print(f"timeline_shadow: {missing}", file=sys.stderr)

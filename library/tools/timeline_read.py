@@ -22,9 +22,54 @@ read when they need to observe unrecorded hand edits.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from library.tools import timeline_shadow
 from library.tools.timeline_shadow import Generation, ShadowError, ShadowStore
+
+
+@dataclass(frozen=True)
+class TimelineIdentity:
+    """Stable identity shared by recorded and live timeline reads."""
+
+    project: str
+    timeline_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TimelineClip:
+    """Canonical structural fields for one clip in a timeline row."""
+
+    unique_id: str | None
+    name: str
+    record_in: Any
+    record_out: Any
+    duration: Any
+    source_in_frame: Any
+    source_out_frame: Any
+
+
+@dataclass(frozen=True)
+class TimelineTrack:
+    """A typed timeline row, in Resolve track and clip order."""
+
+    media_type: str
+    index: int
+    name: str
+    clips: tuple[TimelineClip, ...]
+
+
+@dataclass(frozen=True)
+class TimelineMarker:
+    """One marker note with its plane retained as part of its identity."""
+
+    level: str
+    frame: Any
+    color: str
+    name: str
+    note: str
+    clip_unique_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +78,58 @@ class TimelineRead:
 
     generation: Generation
     snapshot: dict
+    source: str = "recorded_generation"
+
+    @property
+    def identity(self) -> TimelineIdentity:
+        return TimelineIdentity(self.generation.project,
+                                self.generation.timeline_id,
+                                self.generation.timeline_name)
+
+    @property
+    def rows(self) -> tuple[TimelineTrack, ...]:
+        """Typed row schema; the legacy snapshot remains available."""
+        tracks = self.snapshot.get("tracks", ())
+        result = []
+        for row in tracks:
+            clips = tuple(TimelineClip(
+                unique_id=clip.get("unique_id"),
+                name=clip.get("name", ""),
+                record_in=clip.get("record_in"),
+                record_out=clip.get("record_out"),
+                duration=clip.get("duration"),
+                source_in_frame=clip.get("source_in_frame"),
+                source_out_frame=clip.get("source_out_frame"),
+            ) for clip in row.get("clips", ()))
+            result.append(TimelineTrack(
+                media_type=row.get("type", ""),
+                index=int(row.get("index", 0)),
+                name=row.get("name", ""),
+                clips=clips,
+            ))
+        return tuple(result)
+
+    @property
+    def markers(self) -> tuple[TimelineMarker, ...]:
+        """Timeline, clip, and pool notes in one stable list."""
+        return tuple(TimelineMarker(
+            level=marker.get("level", "timeline"),
+            frame=marker.get("frame"),
+            color=marker.get("color", ""),
+            name=marker.get("name", ""),
+            note=marker.get("note", ""),
+            clip_unique_id=marker.get("clip_unique_id"),
+        ) for marker in marker_records(self.snapshot))
+
+    @property
+    def clip_details(self) -> tuple[dict, ...]:
+        """Full clip records for compatibility consumers, owned here."""
+        return tuple(clip_records(self.snapshot))
+
+    @property
+    def marker_details(self) -> tuple[dict, ...]:
+        """Full marker records for compatibility consumers, owned here."""
+        return tuple(marker_records(self.snapshot))
 
     def summary(self) -> dict:
         return self.generation.summary()
@@ -73,6 +170,39 @@ def _choose_head(heads: list[Generation], project: str, name: str,
         "to record a new or renamed timeline.")
 
 
+def timeline_identity(timeline, project: str = "") -> TimelineIdentity:
+    """Read a live handle's canonical identity at the shared API boundary."""
+    try:
+        value = timeline.GetUniqueId()
+    except Exception:
+        value = None
+    if not value:
+        try:
+            value = timeline.GetName()
+        except Exception as exc:
+            raise ShadowError(f"timeline identity could not be read ({exc})") from exc
+    try:
+        name = timeline.GetName()
+    except Exception as exc:
+        raise ShadowError(f"timeline name could not be read ({exc})") from exc
+    return TimelineIdentity(project, str(value), str(name))
+
+
+def clip_records(snapshot: dict) -> list[dict]:
+    """Flatten the canonical track/clip snapshot in timeline order."""
+    return [clip for track in snapshot.get("tracks", ())
+            for clip in track.get("clips", ())]
+
+
+def marker_records(snapshot: dict) -> list[dict]:
+    """Return every marker note, or timeline-plane markers in old snapshots."""
+    markers = snapshot.get("markers", {})
+    if "notes" in markers:
+        return [dict(marker) for marker in markers["notes"]]
+    return [dict(marker, level="timeline")
+            for marker in markers.get("timeline", ())]
+
+
 def read(project: str, timeline: str, *, generation: int | None = None,
          allow_prefix: bool = False, caller: str = "timeline_read.read",
          store: ShadowStore | None = None) -> TimelineRead:
@@ -105,6 +235,20 @@ def read(project: str, timeline: str, *, generation: int | None = None,
     return result
 
 
+def read_generation(project: str, timeline_id: str,
+                    generation: int | None = None, *,
+                    store: ShadowStore | None = None) -> TimelineRead:
+    """Read one exact recorded timeline generation by canonical identity."""
+    store = store or ShadowStore()
+    selected = store.head(project, timeline_id) if generation is None else \
+        store.get(project, timeline_id, generation)
+    if selected is None:
+        raise ShadowError(
+            f"no recorded timeline generations for {timeline_id!r} in "
+            f"project {project!r}; refresh a timeline first")
+    return TimelineRead(selected, store.snapshot(selected))
+
+
 def read_transform(project: str, timeline: str, unique_id: str, *,
                    generation: int | None = None,
                    allow_prefix: bool = False,
@@ -124,7 +268,7 @@ def read_transform(project: str, timeline: str, unique_id: str, *,
     """
     view = read(project, timeline, generation=generation,
                 allow_prefix=allow_prefix, caller=caller, store=store)
-    for clip in timeline_shadow.clips(view.snapshot):
+    for clip in clip_records(view.snapshot):
         if clip.get("unique_id") == unique_id:
             return dict(clip.get("transform") or {})
     raise ShadowError(
@@ -195,7 +339,7 @@ def list_timelines(project: str | None = None, *,
         store.record_read_request(caller, project or "(all projects)", None,
                                   "miss")
         raise ShadowError(
-            f"no recorded timeline generations"
+            "no recorded timeline generations"
             + (f" for project {project!r}" if project else "") + "; "
             "refresh a timeline first with `ren resolved submit "
             "timeline.snapshot`")
@@ -213,4 +357,5 @@ def refresh(resolve_project, timeline, *,
     store = store or ShadowStore()
     generation = timeline_shadow.observe(
         resolve_project, timeline, store, project_folder=project_folder)
-    return TimelineRead(generation, store.snapshot(generation))
+    return TimelineRead(generation, store.snapshot(generation),
+                        "live_refresh")
