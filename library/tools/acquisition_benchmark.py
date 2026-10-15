@@ -44,7 +44,7 @@ def _index(dataset: dict) -> tuple[dict, dict]:
         if row.get("lane") not in LANES:
             raise ValueError(f"{task_id}: lane must be one of {sorted(LANES)}")
         if not isinstance(row.get("gold_ids"), list):
-            raise ValueError(f"{task_id}: gold_ids must be a list")
+            raise TypeError(f"{task_id}: gold_ids must be a list")
         tasks[task_id] = row
     groups: dict[str, list[dict]] = defaultdict(list)
     seen: set[tuple[str, str, str]] = set()
@@ -62,7 +62,7 @@ def _index(dataset: dict) -> tuple[dict, dict]:
         seen.add(key)
         predicted = run.get("predicted_ids", [])
         if not isinstance(predicted, list):
-            raise ValueError(f"{task_id}: predicted_ids must be a list")
+            raise TypeError(f"{task_id}: predicted_ids must be a list")
         for name in ("cost_seconds", "peak_rss_mb"):
             _number(run.get(name), f"{task_id} {name}")
         groups[task_id].append(run)
@@ -203,7 +203,6 @@ def evaluate(dataset: dict, *, noninferiority_margin: float = 0.02) -> dict:
     baseline_cost = (paired_baselines[best_baseline]["mean_cost_seconds"]
                      if best_baseline else None)
     adaptive_paired = _aggregate([adaptive_by_task[key] for key in sorted(paired_ids)])
-    adaptive = _aggregate(policies["adaptive"])
     qualified = [lane for lane, result in fitted["by_lane"].items()
                  if result["calibration"].get("status") == "measured"]
     if baseline is None or adaptive_paired["status"] != "measured":
