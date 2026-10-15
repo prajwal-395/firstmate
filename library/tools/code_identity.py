@@ -1542,6 +1542,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_03_semantic_analysis": (
+        # The legacy step delegates analysis here; code changes alter cached profiles.
+        "library/capabilities/semantics/analyse.py",
         # VI-09's temporal intervals are joined into the M4 scene read.
         "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.

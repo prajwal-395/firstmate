@@ -1365,6 +1365,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Run the v3 vision pass over clips without a profile",
         owning_dir="step_1_03_semantic_analysis", body="step.py",
         attr="analyse_semantics",
+        executor_path="library/capabilities/semantics/analyse.py",
         produces=("semantic_analysis_documents", "total_clips_analyzed"),
         consumes=("raw_footage_files",),
         execution=ExecutionPolicy(phases=(

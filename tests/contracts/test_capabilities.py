@@ -51,6 +51,21 @@ def test_footage_catalog_executor_is_capability_owned_and_step_is_adapter():
     assert op.run is catalog_footage is step_catalog
 
 
+def test_semantic_executor_is_capability_owned_and_keeps_child_dispatch():
+    from library.capabilities.semantics.analyse import analyse_semantics
+    from library.steps.step_1_03_semantic_analysis.step import (
+        analyse_semantics as step_analyse,
+    )
+
+    op = operations.get("semantics.analyse")
+    spec = capabilities.spec_of(op)
+    assert spec.executor.path == "library/capabilities/semantics/analyse.py"
+    assert op.run is analyse_semantics is step_analyse
+    assert op.execution.phase("dispatch").entry_points == (
+        "library.steps.step_1_03_semantic_analysis",
+    )
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (
