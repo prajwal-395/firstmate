@@ -650,4 +650,7 @@ pub struct EditPatch {
     /// The plan's commit.
     #[serde(default)]
     pub base_git_sha: String,
+    /// Project Model revision read while constructing this edit.
+    #[serde(default)]
+    pub expected_model_revision: Option<u64>,
 }

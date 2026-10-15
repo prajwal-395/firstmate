@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 import pytest
 import time
-from library.tools import capabilities, edit_patch, patch_algebra
+from library.tools import capabilities, edit_patch, patch_algebra, project_model_store
 from library.tools import timeline_shadow as shadow
 from library.tools.resolve_lock import assume_sole_writer
 from tests.resolve_double import (
@@ -209,6 +209,59 @@ def test_live_patch_retry_is_idempotent_and_changed_reuse_refuses(world):
                        match="already used with different contents"):
         edit_patch.apply_live_patch(**changed)
     assert 12 in timeline.markers and 13 not in timeline.markers
+
+
+def test_edit_patch_pins_and_persists_project_model_readback(world):
+    project, timeline, _item, store, _base = world
+
+    model = json.loads(Path(
+        "native/ren-protocol/fixtures/project-model.json"
+    ).read_text(encoding="utf-8"))
+    project_folder = store.path.parent
+    project_model_store.commit_project_model(
+        project_folder, model, expected_revision=0)
+    receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="reel.touchup",
+        operations=[{"op": "marker.add", "frame": 16, "color": "Blue",
+                     "name": "model audit"}],
+        conflict_domains=("markers",), idempotency_key="model-audited-edit",
+        store=store, project_folder=project_folder)
+    revision, updated = project_model_store.load_project_model(project_folder)
+    assert revision == 2
+    operation = next(row for row in updated["edits"]
+                     if row["id"] == f"edit_patch:{receipt['patch_id']}")
+    assert operation["after"]["operations"][0]["op"] == "marker.add"
+    assert operation["after"]["expected_model_revision"] == 1
+    assert operation["after"]["resolve_execution"]["status"] == "committed"
+    assert operation["after"]["resolve_readback"]["end_frame"] >= 0
+    assert operation["after"]["source_to_timeline"]
+    assert operation["after"]["source_to_timeline"][0]["timeline_item_id"]
+    state = next(row for row in updated["timeline_states"]
+                 if row["timeline_id"] == "Reel 09")
+    assert state["generation"] == receipt["generation"]
+    assert operation["id"] in state["edit_operation_ids"]
+
+
+def test_edit_patch_refuses_stale_project_model_revision_before_resolve(world):
+    project, timeline, _item, store, base = world
+
+    model = json.loads(Path(
+        "native/ren-protocol/fixtures/project-model.json"
+    ).read_text(encoding="utf-8"))
+    project_folder = store.path.parent
+    project_model_store.commit_project_model(
+        project_folder, model, expected_revision=0)
+    patch = _patch(
+        "stale-model-edit", base.generation,
+        [{"op": "marker.add", "frame": 18, "color": "Blue",
+          "name": "stale"}],
+        ["markers"], [[18, 19]], expected_model_revision=0)
+    with pytest.raises(edit_patch.PatchRefused,
+                       match="Project Model revision 0"):
+        edit_patch.apply_patch(
+            patch, resolve=FakeResolve(project), project=project,
+            timeline=timeline, store=store, project_folder=project_folder)
+    assert 18 not in timeline.markers
 
 
 def test_a_clip_insert_places_a_pool_clip_and_commits_as_a_generation(world):

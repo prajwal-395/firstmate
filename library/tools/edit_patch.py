@@ -173,6 +173,9 @@ class EditPatch:
     preconditions: tuple = ()
     postconditions: tuple = ()
     base_git_sha: str = ""
+    # Project Model head used while constructing this edit. When a project
+    # model exists, live writes require this pin and refuse if it has moved.
+    expected_model_revision: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> EditPatch:
@@ -198,7 +201,8 @@ class EditPatch:
                                 data.get("preconditions", ())),
             postconditions=tuple(dict(c) for c in
                                  data.get("postconditions", ())),
-            base_git_sha=data.get("base_git_sha", ""))
+            base_git_sha=data.get("base_git_sha", ""),
+            expected_model_revision=data.get("expected_model_revision"))
 
     def to_dict(self) -> dict:
         out = asdict(self)
@@ -603,6 +607,17 @@ def apply_live_patch(*, project, timeline, capability: str,
                     "new idempotency key")
             return _receipt_of(generation)
 
+    model_revision = None
+    if project_folder:
+        from pathlib import Path
+
+        from library.tools import project_model_store
+        try:
+            model_revision, _ = project_model_store.load_project_model(
+                Path(project_folder))
+        except FileNotFoundError:
+            model_revision = None
+
     with resolve_lock.cursor_excursion(
             project, timeline, f"prepare EditPatch {patch_id}"):
         base = shadow.observe(project, timeline, store)
@@ -653,7 +668,8 @@ def apply_live_patch(*, project, timeline, capability: str,
             base_generation=base.generation, capability=capability,
             affected_spans=tuple(spans),
             conflict_domains=conflict_domains, operations=operations,
-            preconditions=preconditions, postconditions=postconditions)
+            preconditions=preconditions, postconditions=postconditions,
+            expected_model_revision=model_revision)
         return apply_patch(patch, resolve=None, project=project,
                            timeline=timeline, store=store,
                            project_folder=project_folder)
@@ -709,6 +725,32 @@ def apply_patch(patch, *, resolve, project, timeline,
                     "a patch id is a durable identity for one complete patch",
                     "retry the original patch unchanged, or assign a new id")
             return _receipt_of(gen)
+    model_revision = None
+    if project_folder:
+        from pathlib import Path
+
+        from library.tools import project_model_store
+        try:
+            model_revision, _ = project_model_store.load_project_model(
+                Path(project_folder))
+        except FileNotFoundError:
+            # Projects predating the canonical model remain on the legacy
+            # path. Once a model exists, its revision is mandatory.
+            model_revision = None
+        if model_revision is not None:
+            if (type(patch.expected_model_revision) is not int
+                    or patch.expected_model_revision < 0):
+                _refuse(
+                    patch, "has an invalid Project Model revision",
+                    "the expected revision must be a non-negative integer",
+                    "rebuild the patch against the current Project Model")
+            if model_revision != patch.expected_model_revision:
+                _refuse(
+                    patch, f"was planned on Project Model revision "
+                    f"{patch.expected_model_revision}, but the head is "
+                    f"{model_revision}",
+                    "a stale edit cannot overwrite newer editorial state",
+                    "rebuild the patch against the current Project Model")
     if head.generation != patch.base_generation:
         from library.tools import patch_algebra
         moved, reason = patch_algebra.carry(patch, store, project_name,
@@ -857,6 +899,14 @@ def apply_patch(patch, *, resolve, project, timeline,
         expected_head=head.generation,
         patch={**patch.to_dict(), "operations": recorded_operations},
         receipt=receipt)
+    if model_revision is not None:
+        from library.tools import project_model_editorial
+        project_model_editorial.commit_edit_readback(
+            project_folder, patch=patch,
+            readback=store.snapshot(generation),
+            execution=receipt,
+            generation=generation.generation,
+            expected_revision=model_revision)
     _emit_patch_event(project_folder, receipt, generation.generation)
     return _receipt_of(generation)
 

@@ -113,6 +113,7 @@ def commit_timeline_state(project, state: Mapping[str, Any], *,
     """CAS one current timeline state into the Project Model event history."""
     import copy
     from pathlib import Path
+
     from library.tools import project_model_store
 
     if not isinstance(state, Mapping):
@@ -125,6 +126,84 @@ def commit_timeline_state(project, state: Mapping[str, Any], *,
         Path(project), {"timeline_states": rows},
         expected_revision=expected_revision, author=author,
         reason=f"timeline state update: {state['timeline_id']}",
+    )
+
+
+def commit_edit_readback(project, *, patch: Any, readback: Mapping[str, Any],
+                         execution: Mapping[str, Any],
+                         generation: int, expected_revision: int,
+                         author: str = "ren") -> int:
+    """Commit an applied EditPatch and its Resolve readback with CAS.
+
+    The operation retains the complete replayable patch and the observed
+    timeline snapshot. The current composition references that operation;
+    a concurrent Project Model writer makes this commit fail closed.
+    """
+    import copy
+    from pathlib import Path
+
+    from library.tools import project_model_store
+
+    revision, model = project_model_store.load_project_model(Path(project))
+    if revision != expected_revision:
+        raise RuntimeError(
+            f"stale project model revision {expected_revision}; current revision is {revision}"
+        )
+    operation = patch_to_operation(patch)
+    source_to_timeline = []
+    for track in readback["tracks"]:
+        for clip in track["clips"]:
+            source_start = int(clip["source_in_frame"])
+            source_end = int(clip["source_out_frame"])
+            timeline_start = int(clip["record_in"])
+            timeline_end = int(clip["record_out"])
+            if source_end <= source_start or timeline_end <= timeline_start:
+                raise EditorialMigrationError(
+                    f"Resolve readback has an invalid source/timeline span "
+                    f"for clip {clip['unique_id']!r}"
+                )
+            source_to_timeline.append({
+                "timeline_item_id": str(clip["unique_id"]),
+                "source_file": str(clip["source_file"]),
+                "source_frames": [source_start, source_end],
+                "timeline_frames": [timeline_start, timeline_end],
+                "mapping_kind": (
+                    "one_to_one" if source_end - source_start ==
+                    timeline_end - timeline_start else "retimed"
+                ),
+            })
+    operation["after"] = {
+        **operation["after"],
+        "resolve_readback": copy.deepcopy(dict(readback)),
+        "resolve_execution": copy.deepcopy(dict(execution)),
+        "source_to_timeline": source_to_timeline,
+        "resolve_generation": generation,
+    }
+    edits = list(model.get("edits", []))
+    existing = next((row for row in edits if row["id"] == operation["id"]), None)
+    if existing is not None and existing != operation:
+        raise EditorialMigrationError(
+            f"Project Model edit {operation['id']!r} already has different contents"
+        )
+    if existing is None:
+        edits.append(operation)
+    state = timeline_state_for(model, patch.timeline) or {
+        "id": stable_id("timeline_state", patch.timeline),
+        "timeline_id": patch.timeline,
+        "generation": 0,
+        "clip_use_ids": [],
+        "edit_operation_ids": [],
+    }
+    state["generation"] = generation
+    if operation["id"] not in state["edit_operation_ids"]:
+        state["edit_operation_ids"].append(operation["id"])
+    states = [row for row in model.get("timeline_states", [])
+              if row["timeline_id"] != patch.timeline]
+    states.append(state)
+    return project_model_store.append_model_patch(
+        Path(project), {"edits": edits, "timeline_states": states},
+        expected_revision=expected_revision, author=author,
+        reason=f"EditPatch {patch.id} Resolve readback",
     )
 
 
@@ -463,6 +542,7 @@ def patch_to_operation(patch: Any, *, intent_id: str | None = None) -> dict[str,
             "preconditions": [dict(c) for c in patch.preconditions],
             "postconditions": [dict(c) for c in patch.postconditions],
             "base_git_sha": patch.base_git_sha,
+            "expected_model_revision": patch.expected_model_revision,
         },
         "intent_id": intent_id,
         "evidence_ids": [],
@@ -508,6 +588,7 @@ def operation_to_patch(operation: Mapping[str, Any]) -> dict[str, Any]:
         "preconditions": after.get("preconditions", []),
         "postconditions": after.get("postconditions", []),
         "base_git_sha": after.get("base_git_sha", ""),
+        "expected_model_revision": after.get("expected_model_revision"),
     }
     return EditPatch.from_dict(data).to_dict()
 

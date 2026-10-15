@@ -43,6 +43,16 @@
         "type": "string"
       }
     },
+    "expected_model_revision": {
+      "description": "Project Model revision read while constructing this edit.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "default": null,
+      "minimum": 0
+    },
     "id": {
       "description": "Idempotency key, chosen by the author.",
       "type": "string"

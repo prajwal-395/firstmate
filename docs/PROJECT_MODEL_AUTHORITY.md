@@ -22,6 +22,12 @@ Timeline compositions are represented by `timeline_states`, alongside the
 existing clip uses, edit operations, and frame maps. The model validator checks
 their stable IDs and references. `project_model_editorial.timeline_state_for`
 reads the current state, while `commit_timeline_state` writes it with CAS into
-the same event history. Live editing-runner writes still need a separate
-cutover after the Phase A gate; this schema and reader do not claim that those
-writes have migrated.
+the same event history. `edit_patch.apply_live_patch` reads the current model
+revision when it constructs a patch; a patch with an absent or stale revision
+is refused before Resolve is touched. After application, the same revision is
+used as the CAS for an event that records the prepared operations, execution
+receipt, Resolve snapshot, source-to-timeline frame mappings, and the timeline
+state's edit-operation reference. A concurrent model change makes the write
+refuse to overwrite newer model state; the applied Resolve generation remains
+in the timeline shadow for reconciliation. The bulk render builder remains a
+separate producer and does not yet claim this editing-state contract.
