@@ -21,7 +21,6 @@
 #   fm-test-run.sh --list-scheduled --lane portable-parallel-1
 #   fm-test-run.sh --list-families
 #   fm-test-run.sh --list-concurrent-safe-families
-#   fm-test-run.sh --concurrent-safe-family-jobs-max <name>
 #   fm-test-run.sh --list-lanes
 #   fm-test-run.sh --check-coverage
 #
@@ -54,21 +53,20 @@
 #                   silently pass as a gate skip.
 #   --jobs N        run the selected scripts with up to N concurrent workers.
 #                   Plain --changed and a plain list of script paths use
-#                   min(4, cpus) workers when multiple selected scripts are
-#                   admissible; --lane, --family, and --all stay serial unless
+#                   up to the available CPU count when multiple selected
+#                   scripts are admissible; --lane, --family, and --all stay serial unless
 #                   asked for concurrency explicitly.
 #                   N>1 is allowed only when every selected script is proven
 #                   safe to run concurrently: individually in the proven-isolated
 #                   set (bin/fm-test-isolation-proof.sh --list), or in a family
 #                   carrying a recorded concurrent proof
-#                   (list_concurrent_safe_families below). Overall cap is 8;
-#                   family proofs may impose a lower cap. Individually proven
+#                   (list_concurrent_safe_families below). Individually proven
 #                   scripts share one phase; scripts admitted only by a family
 #                   proof run in a separate phase for each family. Concurrent
 #                   phases use serial weights, longest-hint-first. Unproven stateful
 #                   scripts run serially after all concurrent phases. Default is
 #                   1 (serial) except for plain --changed and a plain list of
-#                   script paths, which use the bounded automatic scheduler.
+#                   script paths, which use the automatic CPU-count scheduler.
 #   --per-script-timeout-secs N
 #                   terminate a script that runs longer than N seconds and
 #                   record it as exit 124 (0 disables, the default). The
@@ -198,7 +196,6 @@ EXCLUDE_FAMILIES=()
 FAIL_ON_GATE_SKIP=
 JOBS=1
 JOBS_EXPLICIT=0
-JOBS_MAX=8
 MAX_WALL_MS=
 PER_SCRIPT_TIMEOUT_SECS=0
 # Bound applied automatically on the automatic --changed path, derived from
@@ -745,14 +742,6 @@ family_is_concurrent_safe() {
     [ "$line" = "$want" ] && return 0
   done < <(list_concurrent_safe_families)
   return 1
-}
-
-concurrent_safe_family_jobs_max() {
-  case "$1" in
-    watcher-wake-lock|pure-contract-unit|pr-forge) printf '4\n' ;;
-    secondmate|session-bootstrap|standalone) printf '4\n' ;;
-    *) printf '1\n' ;;
-  esac
 }
 
 # A script may run under --jobs when it is individually proven isolated or is
@@ -2284,15 +2273,6 @@ while [ "$#" -gt 0 ]; do
       LIST_CONCURRENT_SAFE_FAMILIES=1
       shift
       ;;
-    --concurrent-safe-family-jobs-max)
-      [ "$#" -gt 1 ] || die "--concurrent-safe-family-jobs-max requires a family name"
-      concurrent_safe_family_jobs_max "$2"
-      exit 0
-      ;;
-    --concurrent-safe-family-jobs-max=*)
-      concurrent_safe_family_jobs_max "${1#--concurrent-safe-family-jobs-max=}"
-      exit 0
-      ;;
     --list-lanes)
       LIST_LANES=1
       shift
@@ -2389,7 +2369,6 @@ case "$JOBS" in
   ''|*[!0-9]*) die "--jobs must be a positive integer" ;;
 esac
 [ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
-[ "$JOBS" -le "$JOBS_MAX" ] || die "--jobs is capped at $JOBS_MAX (got $JOBS)"
 
 if [ -n "$MAX_WALL_MS" ]; then
   case "$MAX_WALL_MS" in
@@ -2404,7 +2383,7 @@ esac
 
 # Refuse before any suite is selected or run. The inspection modes execute
 # nothing: --list-families, --list-concurrent-safe-families, --list-lanes,
-# --check-coverage, --concurrent-safe-family-jobs-max and --aggregate-json have
+# --check-coverage and --aggregate-json have
 # already exited above, and --list/--list-scheduled print their selection and
 # exit below. An unset MODE still falls through to the usage error, so a caller
 # who named no selection mode is told that rather than this.
@@ -2517,7 +2496,7 @@ for s in "${SCRIPTS[@]}"; do
   [ -x "$s" ] || [ -r "$s" ] || die "test script not readable: $s"
 done
 
-# Plain --changed and a plain list of script paths both use the bounded
+# Plain --changed and a plain list of script paths both use the CPU-count
 # representative-suite scheduler; numeric --jobs retains the strict all-script
 # admission rule below. Naming scripts is how a local verification round asks
 # for exactly those subjects, so it gets bounded concurrency rather than a
@@ -2536,7 +2515,6 @@ if { [ "$MODE" = changed ] || [ "$MODE" = scripts ]; } && [ "$JOBS_EXPLICIT" -eq
   done
   if [ "$auto_admissible" -gt 1 ]; then
     JOBS=$(cpu_count)
-    [ "$JOBS" -le 4 ] || JOBS=4
     [ "$JOBS" -ge 1 ] || JOBS=1
     [ "$JOBS" -eq 1 ] || AUTO_CONCURRENCY=1
   fi
@@ -2558,12 +2536,6 @@ if [ "$JOBS" -gt 1 ] && [ "$AUTO_CONCURRENCY" -eq 0 ]; then
   for s in "${SCRIPTS[@]}"; do
     if ! script_allows_concurrency "$s"; then
       die "--jobs $JOBS refused: $s is not in the proven-isolated set (see bin/fm-test-isolation-proof.sh --list) and its family has no recorded concurrent proof. Unproven stateful scripts stay serial."
-    fi
-    if ! is_proven_isolated_script "$s"; then
-      family=$(family_for_basename "$(basename "$s")")
-      family_jobs_max=$(concurrent_safe_family_jobs_max "$family")
-      [ "$JOBS" -le "$family_jobs_max" ] \
-        || die "--jobs $JOBS refused: family $family is proven only up to $family_jobs_max concurrent workers"
     fi
   done
 fi

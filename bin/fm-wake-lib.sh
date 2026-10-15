@@ -1598,9 +1598,7 @@ fm_local_firstmate_state_dirs() {  # <first-state>
   done
 }
 
-# The one lock serializing Treehouse slot allocation and return for a project,
-# and project capacity admission (bin/fm-project-capacity-lib.sh), which a
-# fresh spawn evaluates under it on every backend.
+# The one lock serializing Treehouse slot allocation and return for a project.
 #
 # It is anchored in the local root home's state directory so that every home on
 # this machine that can reach the same pool - the root, and each secondmate home

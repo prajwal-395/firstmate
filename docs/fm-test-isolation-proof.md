@@ -103,8 +103,8 @@ Those runs exercised the production path that the family admission enables.
 
 These scripts assert how quickly a real watcher reaches its next poll, so they are sensitive to CPU oversubscription rather than to shared state.
 An earlier attempt on the same host measured three failures (`fm-watch-checkpoint`, `fm-watch-recovery-loop`, `fm-watch-arm`) while six unrelated busy processes were running, at roughly ten runnable processes against fourteen cores.
-That is the margin this family has: four workers is proven, and the failures reappear well before the machine is merely busy.
-Keep `--jobs` for this family at or below the proven bound rather than raising it to fill a larger machine.
+The recorded runs establish that four workers pass under the measured conditions; the earlier failures show that CPU oversubscription can still affect timing-sensitive assertions.
+Family admission is based on the recorded proof membership, and the runner no longer imposes a numeric worker ceiling.
 
 The archived harness runs showed why ordering matters: the candidate sum was 818s and the balanced four-worker target 205s, but alphabetical order finished in 395s because the 193s `fm-watch-triage` started last and ran alone at the tail.
 Both `bin/fm-test-run.sh` and the current proof harness therefore order concurrent runs longest-hint-first.

@@ -4,7 +4,7 @@
 #
 # This is the single owner of the proven portable candidate set, the reusable
 # concurrent proof run, and its isolation checks. Production portable CI shards,
-# bounded local fm-test-run.sh --jobs admission, and family worker caps are owned
+# local fm-test-run.sh --jobs admission are owned
 # by bin/fm-test-run.sh (docs/fm-test-portable-shards.md).
 #
 # It does NOT compose production CI shard membership; fm-test-run.sh owns that
@@ -25,8 +25,8 @@
 #                records which families passed.
 #   --jobs N     max concurrent workers (default: 4; min 1)
 #   --json path  write a pool-scoped machine-readable proof artifact after the
-#                run; fm_test_run_jobs_enabled is true only for a successful
-#                concurrent run within that pool's recorded admission cap
+#                run; fm_test_run_jobs_enabled is true for a successful
+#                concurrent run whose pool the production runner admits
 #   --list       print the proven candidate paths (one per line) and exit 0
 #   --list-exclusions
 #                print basename + reason for scripts deliberately kept serial
@@ -573,11 +573,8 @@ if [ -n "$JSON_PATH" ]; then
   # Stable record order for the artifact.
   sort -t$'\t' -k1,1 "$RECORDS" -o "$RECORDS"
   jobs_enabled=0
-  jobs_max=0
-  if "$ROOT/bin/fm-test-run.sh" --list-concurrent-safe-families | grep -Fxq "$POOL"; then
-    jobs_max=$("$ROOT/bin/fm-test-run.sh" --concurrent-safe-family-jobs-max "$POOL")
-  fi
-  if [ "$AGG_RC" -eq 0 ] && [ "$JOBS" -gt 1 ] && [ "$JOBS" -le "$jobs_max" ]; then
+  if [ "$AGG_RC" -eq 0 ] && [ "$JOBS" -gt 1 ] &&
+    { [ "$POOL" = portable ] || "$ROOT/bin/fm-test-run.sh" --list-concurrent-safe-families | grep -Fxq "$POOL"; }; then
     jobs_enabled=1
   fi
   write_json_artifact "$JSON_PATH" \

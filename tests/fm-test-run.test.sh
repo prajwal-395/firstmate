@@ -496,7 +496,6 @@ SH
   case "$expected_jobs" in
     ''|*[!0-9]*) expected_jobs=1 ;;
   esac
-  [ "$expected_jobs" -le 4 ] || expected_jobs=4
   [ "$expected_jobs" -ge 1 ] || expected_jobs=1
   python3 - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'PY' \
     || fail "changed timing artifacts did not record their resolved worker counts"
@@ -636,7 +635,6 @@ SH
   case "$expected_jobs" in
     ''|*[!0-9]*) expected_jobs=1 ;;
   esac
-  [ "$expected_jobs" -le 4 ] || expected_jobs=4
   [ "$expected_jobs" -ge 1 ] || expected_jobs=1
   python3 - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'PYJSON' \
     || fail "script-list timing artifacts did not record their resolved worker counts"
@@ -1435,11 +1433,11 @@ test_jobs_admits_a_concurrent_safe_family() {
     || fail "the admitted concurrent run did not report both scripts green: $(cat "$tmp/out")"
 
   set +e
-  "$RUNNER" --jobs 5 tests/fm-session-lock-ancestry.test.sh \
-    >"$tmp/over-cap.out" 2>"$tmp/over-cap.err"
+  "$RUNNER" --jobs 12 tests/fm-session-lock-ancestry.test.sh \
+    >"$tmp/high-concurrency.out" 2>"$tmp/high-concurrency.err"
   rc=$?
   set -e
-  [ "$rc" -eq 2 ] || fail "a family run above its proven four-worker cap must be refused, got $rc"
+  [ "$rc" -eq 0 ] || fail "a proven family run above four workers must be admitted, got $rc: $(cat "$tmp/high-concurrency.err")"
 
   external="$tmp/fm-session-lock-ancestry.test.sh"
   printf '#!/usr/bin/env bash\necho "ok - colliding external fixture"\n' >"$external"
