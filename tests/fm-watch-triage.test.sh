@@ -242,7 +242,7 @@ test_status_span_survives_a_later_routine_append() {
   [ "$event" = "done: release 1.4.0 published and installed" ] \
     || fail "the span reported '$event' instead of the completion it found"
   # A blocker is the away-mode shape of the same masking.
-  printf 'blocked: cannot reach the release host\npaused: waiting for release access\n' \
+  printf 'blocked: cannot reach the release host\npaused: waits-for=task:release-access waiting for release access\n' \
     > "$state/blocked.status"
   status_span_has_actionable "$state/blocked.status" 0 \
     || fail "a blocked: event hidden behind a current wait was classified routine"
@@ -332,7 +332,7 @@ test_stale_is_terminal_classifier() {
   stale_is_terminal "default:w1:p2" "$state" || fail "terminal herdr stale status not resolved through metadata"
   printf 'working: compiling\n' > "$state/nonterm.status"
   stale_is_terminal "sess:fm-nonterm" "$state" && fail "non-terminal stale classified terminal"
-  printf 'paused: waiting on upstream PR #123 to land\nOnce it is merged I will rebase and continue.\n' > "$state/prose-pause.status"
+  printf 'paused: waits-for=pr:https://example.com/pull/123 waiting on upstream PR to land\nOnce it is merged I will rebase and continue.\n' > "$state/prose-pause.status"
   stale_is_terminal "sess:fm-prose-pause" "$state" && fail "prose mentioning a legacy token escalated a multi-line pause as terminal"
   status_is_paused_or_captain_held "$(last_status_line "$state/prose-pause.status")" \
     || fail "prose mentioning a legacy token hid a multi-line pause from the wait cadence"
@@ -378,7 +378,7 @@ test_classifier_primitives() {
   FM_CAPTAIN_RE='custom-verb:' status_is_captain_relevant "done: x" && fail "FM_CAPTAIN_RE override did not replace the default verb set"
   FM_CAPTAIN_RE='merged|custom-verb:' status_is_captain_relevant "working: rebased onto merged #76" \
     && fail "FM_CAPTAIN_RE override bypassed working: suppression"
-  FM_CAPTAIN_RE='checks green|custom-verb:' status_is_captain_relevant "paused: checks green pending approval" \
+  FM_CAPTAIN_RE='checks green|custom-verb:' status_is_captain_relevant "paused: waits-for=task:ci-checks checks green pending approval" \
     && fail "FM_CAPTAIN_RE override bypassed paused: suppression"
   FM_CAPTAIN_RE='custom-verb:' status_is_captain_relevant "custom-verb: x" \
     || fail "nonterminal suppression weakened custom bare-line behavior"
@@ -481,8 +481,8 @@ test_unrecognized_status_prefix_is_visible() {
   printf 'working: still on it\n' > "$state/working.status"
   status_span_has_actionable "$state/working.status" 0 \
     && fail "working: became a supervisor event"
-  printf 'paused: waiting on the upstream release\nMore detail: still waiting.\n' > "$state/prose.status"
-  [ "$(last_status_line "$state/prose.status")" = 'paused: waiting on the upstream release' ] \
+  printf 'paused: waits-for=task:upstream-release waiting on the upstream release\nMore detail: still waiting.\n' > "$state/prose.status"
+  [ "$(last_status_line "$state/prose.status")" = 'paused: waits-for=task:upstream-release waiting on the upstream release' ] \
     || fail "continuation prose hid the paused declaration"
   status_is_paused "$(last_status_line "$state/prose.status")" \
     || fail "continuation prose cleared the pause classification"
@@ -490,8 +490,8 @@ test_unrecognized_status_prefix_is_visible() {
     && fail "a paused declaration or its continuation became a supervisor event"
   for continuation in 'https://github.com/o/r/pull/12' 'Reason: upstream is slow' \
     'Note: see above' 'e.g.: the release notes' '10:30 retry scheduled'; do
-    printf 'paused: waiting on the upstream release\n%s\n' "$continuation" > "$state/paused-cont.status"
-    [ "$(last_status_line "$state/paused-cont.status")" = 'paused: waiting on the upstream release' ] \
+    printf 'paused: waits-for=task:upstream-release waiting on the upstream release\n%s\n' "$continuation" > "$state/paused-cont.status"
+    [ "$(last_status_line "$state/paused-cont.status")" = 'paused: waits-for=task:upstream-release waiting on the upstream release' ] \
       || fail "continuation '$continuation' hid the paused declaration"
     status_is_paused "$(last_status_line "$state/paused-cont.status")" \
       || fail "continuation '$continuation' cleared the pause classification"
@@ -515,7 +515,7 @@ test_unrecognized_status_prefix_is_visible() {
 
   (
     export FM_CLASSIFY_PAUSED_VERB=holding
-    printf 'holding: for the upstream release\n' > "$state/renamed-pause.status"
+    printf 'holding: waits-for=task:upstream-release for the upstream release\n' > "$state/renamed-pause.status"
     status_is_paused "$(last_status_line "$state/renamed-pause.status")" \
       || fail "an overridden pause verb was treated as unrecognized"
     status_span_has_actionable "$state/renamed-pause.status" 0 \
@@ -565,16 +565,15 @@ test_crew_is_provably_working_classifier() {
 # that merely mentions "paused" does not false-match, and a genuine blocker stays a
 # blocker.
 test_status_is_paused_classifier() {
-  status_is_paused 'paused: holding for the upstream release' || fail "paused verb not recognized"
-  status_is_paused '  paused:   waiting on a rate-limit reset' || fail "leading-space paused verb not recognized"
+  status_is_paused 'paused: waits-for=task:upstream-release holding for the upstream release' || fail "paused verb not recognized"
+  status_is_paused '  paused:   waits-for=process:4242 waiting on a rate-limit reset' || fail "leading-space paused verb not recognized"
   status_is_paused 'blocked: the build is paused upstream' && fail "a blocked line mentioning paused false-matched"
   status_is_paused 'working: paused the animation loop' && fail "a working line mentioning paused false-matched"
   status_is_paused 'done: shipped' && fail "done classified as paused"
   status_is_paused '' && fail "empty line classified as paused"
-  # A pause is deliberately NOT captain-relevant: it is a stop-nagging signal, not
-  # work to keep surfacing.
-  status_is_captain_relevant 'paused: holding for the upstream release' && fail "paused is captain-relevant (should not be)"
-  status_is_paused_or_captain_held 'paused: holding for the upstream release' \
+  # A qualified pause is deliberately NOT captain-relevant: it is a stop-nagging signal.
+  status_is_captain_relevant 'paused: waits-for=task:upstream-release holding for the upstream release' && fail "qualified paused is captain-relevant (should not be)"
+  status_is_paused_or_captain_held 'paused: waits-for=task:upstream-release holding for the upstream release' \
     || fail "declared pause not recognized by the bounded-idle classifier"
   status_is_paused_or_captain_held 'captain-held [key=route]: tracked by task-decision-route' \
     || fail "captain-held transfer not recognized by the bounded-idle classifier"
@@ -585,7 +584,7 @@ test_status_is_paused_classifier() {
   # verb it is naming.
   status_is_captain_held 'captain-held [key=route]: tracked by task-decision-route' \
     || fail "captain-held verb not recognized"
-  status_is_captain_held 'paused: holding for the upstream release' \
+  status_is_captain_held 'paused: waits-for=task:upstream-release holding for the upstream release' \
     && fail "a declared pause matched the captain-held verb"
   status_is_captain_held 'working: the captain-held backlog item is next' \
     && fail "a working line mentioning captain-held false-matched"
@@ -2633,7 +2632,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   statusf="$state/held.status"
   # A DECLARED pause (not captain-relevant), .seen-* primed so the signal scan does
   # not pre-empt the stale path.
-  printf 'paused: holding for the upstream tool release\n' > "$statusf"
+  printf 'paused: waits-for=task:upstream-tool holding for the upstream tool release\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle, holding for upstream")
@@ -2867,7 +2866,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   window="test:fm-held"
   printf 'idle bare shell after agent exit\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
-  printf 'paused: held per captain while an external decision is pending\n' > "$statusf"
+  printf 'paused: waits-for=decision:review held while an external review decision is pending\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
@@ -2938,7 +2937,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   window="test:fm-gate"
   printf 'idle external-decision gate\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/gate.meta"
-  printf 'paused: waiting at an active external-decision gate\n' > "$statusf"
+  printf 'paused: waits-for=decision:external-gate waiting at an active external-decision gate\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gate_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle external-decision gate")
@@ -2987,7 +2986,7 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
   local spec name initial replacement expected dir state fakebin out capture_file
   local statusf window key sig back pid wakes
   for spec in \
-    'paused-replacement|paused: waiting on validation run one|paused: waiting on validation run two|awaiting external' \
+    'paused-replacement|paused: waits-for=task:validation-one waiting on validation run one|paused: waits-for=task:validation-two waiting on validation run two|awaiting external' \
     'captain-held-replacement|captain-held [key=route]: awaiting the routing call|captain-held [key=release]: awaiting the release call|awaiting the captain'
   do
     name=${spec%%|*}; spec=${spec#*|}
@@ -3088,7 +3087,7 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
   local spec name status_line dir state fakebin out capture_file statusf window key
   local sig round wakes bare text throttle replacement
   for spec in \
-    'paused-pipeline-churn|paused: waiting on the validation run to finish' \
+    'paused-pipeline-churn|paused: waits-for=task:validation-run waiting on the validation run to finish' \
     'captain-held-churn|captain-held [key=route]: awaiting the captain on the routing call'
   do
     name=${spec%%|*}; status_line=${spec#*|}
@@ -3132,7 +3131,7 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
     # declaration's throttle, or an unrelated replacement wait can stay silent
     # for nearly the whole old cadence window.
     case "$name" in
-      paused-pipeline-churn) replacement='paused: waiting on the replacement validation run' ;;
+      paused-pipeline-churn) replacement='paused: waits-for=task:replacement-validation waiting on the replacement validation run' ;;
       captain-held-churn) replacement='captain-held [key=release]: awaiting the captain on the release call' ;;
     esac
     printf '%s\n' "$replacement" >> "$statusf"
@@ -3178,7 +3177,7 @@ test_live_paused_until_controls_recheck_time() {
   window="test:fm-parked"
   printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
   future=$(iso_utc_at "$(( $(date +%s) + 7200 ))")
-  printf 'paused: rate limit until %s\n' "$future" > "$statusf"
+  printf 'paused: waits-for=task:rate-limit-reset rate limit until %s\n' "$future" > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   printf 'parked, elapsed 1s' > "$capture_file"
@@ -3194,7 +3193,7 @@ test_live_paused_until_controls_recheck_time() {
   [ "$wakes" -eq 0 ] || fail "a live worker produced $wakes wakes before its declared time"
 
   past=$(iso_utc_at "$(( $(date +%s) - 120 ))")
-  printf 'paused: rate limit until %s\n' "$past" >> "$statusf"
+  printf 'paused: waits-for=task:rate-limit-reset rate limit until %s\n' "$past" >> "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
   printf 'parked, elapsed 3s' > "$capture_file"
   parked_watch_round "$state" "$fakebin" "$out" "$capture_file" "$window" exit \
@@ -3321,7 +3320,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   local working='state: working · source: run-step · ci running'
 
   dir=$(wedge_threshold_fixture declared-wait-working \
-    'paused: final validation at step 6/6 - clean whole-assembly baseline (~20 min)' 0)
+    'paused: waits-for=task:validation-run final validation at step 6/6 - clean whole-assembly baseline (~20 min)' 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   window="test:fm-wedge"; key=$(printf '%s' "$window" | tr ':/.' '___')
   n=1
@@ -3342,7 +3341,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   # down. So the recheck is governed by how old the declaration is, and the age
   # it publishes is that declaration's age, named as the declaration it is.
   dir=$(wedge_threshold_fixture declared-wait-aged \
-    'paused: waiting on the upstream release cut' 2000)
+    'paused: waits-for=task:upstream-release waiting on the upstream release cut' 2000)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a declaration older than the recheck cadence was never rechecked: $(cat "$out")"
@@ -3368,7 +3367,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   # so the exemption ends exactly where the declaration does - as long as nothing
   # ELSE accounts for the quiet.
   past=$(iso_utc_at "$(( $(date +%s) - 7200 ))")
-  dir=$(wedge_threshold_fixture declared-wait-elapsed "paused: waiting on the build queue until $past" 0)
+  dir=$(wedge_threshold_fixture declared-wait-elapsed "paused: waits-for=task:build-queue waiting on the build queue until $past" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a declared wait whose own clearing time had passed stayed silent"
@@ -3404,7 +3403,7 @@ test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
   local working='state: working · source: run-step · ci running'
 
   dir=$(wedge_threshold_fixture default-answer-after-wait \
-    "$(printf 'needs-decision: which color\npaused: waiting on the vendor release\nresolved [key=default]: answered: blue')" 0)
+    "$(printf 'needs-decision: which color\npaused: waits-for=task:vendor-release waiting on the vendor release\nresolved [key=default]: answered: blue')" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   window="test:fm-wedge"; key=$(printf '%s' "$window" | tr ':/.' '___')
   n=1
@@ -3419,7 +3418,7 @@ test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
     || fail "a default-key answer let a waiting lane count $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
 
   dir=$(wedge_threshold_fixture keyless-retraction \
-    "$(printf 'paused: waiting on the vendor release\nresolved: the vendor shipped')" 0)
+    "$(printf 'paused: waits-for=task:vendor-release waiting on the vendor release\nresolved: the vendor shipped')" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a worker's own keyless resolved line did not retract its wait: $(cat "$out")"
@@ -4470,7 +4469,7 @@ test_secondmate_paused_resurfaces_in_normal_mode() {
   window="test:fm-secondmate-held"
   printf 'idle awaiting external\n' > "$capture_file"
   printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-held.meta"
-  printf 'paused: awaiting the upstream release\nThe release window opens tomorrow.\n\n' > "$statusf"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\nThe release window opens tomorrow.\n\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
@@ -4583,7 +4582,7 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-transition"
   printf 'idle awaiting external\n' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/transition.meta"
-  printf 'paused: awaiting the upstream release\n' > "$state/transition.status"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\n' > "$state/transition.status"
   sig=$(seen_sig "$state/transition.status"); printf '%s' "$sig" > "$state/.seen-transition_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle awaiting external")
@@ -4640,7 +4639,7 @@ test_nonterminal_paused_rechecks_authoritative_state() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-pause-recheck"
   printf 'idle awaiting external\n' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/pause-recheck.meta"
-  printf 'paused: awaiting the upstream release\n' > "$state/pause-recheck.status"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\n' > "$state/pause-recheck.status"
   sig=$(seen_sig "$state/pause-recheck.status"); printf '%s' "$sig" > "$state/.seen-pause-recheck_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle awaiting external")
@@ -4670,7 +4669,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-working"
   printf 'idle awaiting external\n' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/paused-working.meta"
-  printf 'paused: awaiting the upstream release\n' > "$state/paused-working.status"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\n' > "$state/paused-working.status"
   sig=$(seen_sig "$state/paused-working.status"); printf '%s' "$sig" > "$state/.seen-paused-working_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle awaiting external")
@@ -5289,7 +5288,7 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated() {
   printf 'Working... (7200.4s) lavish-axi poll' > "$capture_file"
   printf 'window=%s\nkind=scout\nharness=pi\n' "$window" > "$state/review-scout.meta"
   record_pi_busy "$state" review-scout
-  printf 'paused: hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
+  printf 'paused: waits-for=decision:lavish-review hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review-scout_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   # No completed turn for hours (the single blocking poll call): age the spawn
@@ -5396,7 +5395,7 @@ test_afk_busy_declared_pause_hands_off_plain_stale() {
   printf 'Working... (7200.4s) lavish-axi poll' > "$capture_file"
   printf 'window=%s\nkind=scout\nharness=pi\n' "$window" > "$state/afk-review-scout.meta"
   record_pi_busy "$state" afk-review-scout
-  printf 'paused: hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
+  printf 'paused: waits-for=decision:lavish-review hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-afk-review-scout_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   touch -t 200001010000 "$state/afk-review-scout.meta"
@@ -5501,7 +5500,7 @@ SH
   chmod +x "$fakebin/tmux"
   printf 'window=%s\nkind=scout\nharness=pi\n' "$window" > "$state/afk-ticking-scout.meta"
   record_pi_busy "$state" afk-ticking-scout
-  printf 'paused: hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
+  printf 'paused: waits-for=decision:lavish-review hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-afk-ticking-scout_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   touch -t 200001010000 "$state/afk-ticking-scout.meta"
@@ -6556,7 +6555,7 @@ test_afk_paused_changed_pane_hands_off_plain_stale() {
   printf 'idle, awaiting upstream\n' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/afk-held.meta"
   statusf="$state/afk-held.status"
-  printf 'paused: awaiting the upstream tool release\n' > "$statusf"
+  printf 'paused: waits-for=task:upstream-tool awaiting the upstream tool release\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
@@ -6797,7 +6796,7 @@ paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
   statusf="$state/until.status"
   printf 'idle, waiting for the reset\n' > "$dir/pane.txt"
   printf 'window=%s\nkind=secondmate\n' "$window" > "$state/until.meta"
-  printf 'paused: rate limit resets, until %s, then resuming\n' "$(iso_utc_at "$until")" > "$statusf"
+  printf 'paused: waits-for=task:rate-limit-reset rate limit resets, until %s, then resuming\n' "$(iso_utc_at "$until")" > "$statusf"
   back=$(( $(date +%s) - age ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
@@ -7036,7 +7035,7 @@ test_armed_source_with_explicit_owner_is_absorbed() {
   # live-parked-unarmed case). The armed procevent source is what absorbs it.
   printf 'idle, lavish review armed\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
-  printf 'paused: hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
+  printf 'paused: waits-for=decision:lavish-review hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle, lavish review armed")
@@ -7086,7 +7085,7 @@ test_unarmed_pause_still_surfaces() {
   # the pause still surfaces immediately.
   printf 'idle, awaiting captain review\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
-  printf 'paused: waiting for manual captain review\n' > "$statusf"
+  printf 'paused: waits-for=decision:manual-review waiting for manual captain review\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle, awaiting captain review")
@@ -7126,7 +7125,7 @@ test_reused_worktree_slot_stale_source_not_absorbed() {
   printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
   # Task created at 01:00
   touch -t 202601010100 "$state/review.meta"
-  printf 'paused: waiting for review\n' > "$statusf"
+  printf 'paused: waits-for=decision:review waiting for review\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle, waiting for review")

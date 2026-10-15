@@ -815,7 +815,7 @@ test_stale_diagnostic_wedge_survives_busy_housekeeping() {
     case "$case_name" in
       working) status_line='working: building' ;;
       prior-terminal) status_line='done: already surfaced' ;;
-      paused) status_line='paused: awaiting an external dependency' ;;
+      paused) status_line='paused: waits-for=task:release-check awaiting the external dependency' ;;
     esac
     printf '%s\n' "$status_line" > "$state/$task.status"
     printf 'Working...\n' > "$pane"
@@ -879,7 +879,7 @@ test_enriched_wedge_under_declared_wait_uses_pause_cadence() {
   task=paused-wedge-w1; win="sess:fm-$task"; pane="$dir/pane.txt"
   key=$(printf '%s' "$task" | tr ':/.' '___')
   fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
-  printf 'working: dispatching the long audit\npaused: the audit engine is running to completion\n' \
+  printf 'working: dispatching the long audit\npaused: waits-for=process:4242 the audit engine is running to completion\n' \
     > "$state/$task.status"
   printf 'idle prompt $\n' > "$pane"
   case "$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")" in
@@ -959,7 +959,7 @@ test_stale_actionable_wait_escalates_and_keeps_pause_cadence() {
   local dir state win key out reason resumed_win resumed_key
   dir=$(make_supercase stale-actionable-wait); state="$dir/state"
   win="sess:fm-waiting-r10"; key=$(printf '%s' waiting-r10 | tr ':/.' '___')
-  printf 'blocked [key=release]: need captain approval\npaused: waiting for release access\n' \
+  printf 'blocked [key=release]: need captain approval\npaused: waits-for=task:release-access waiting for release access\n' \
     > "$state/waiting-r10.status"
 
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")
@@ -978,7 +978,7 @@ test_stale_actionable_wait_escalates_and_keeps_pause_cadence() {
     || fail "an actionable current wait was also aged as a wedge"
 
   resumed_win="sess:fm-resumed-r10"; resumed_key=$(printf '%s' resumed-r10 | tr ':/.' '___')
-  printf 'paused: old wait\nworking: resumed after access arrived\n' > "$state/resumed-r10.status"
+  printf 'paused: waits-for=task:old-release old wait\nworking: resumed after access arrived\n' > "$state/resumed-r10.status"
   printf '1' > "$state/.subsuper-paused-$resumed_key"
   FM_ESCALATE_BATCH_SECS=999 handle_wake "stale: $resumed_win" "$state"
   [ ! -e "$state/.subsuper-paused-$resumed_key" ] \
@@ -995,7 +995,7 @@ test_stale_paused_classifies_pause() {
   local dir state out pause_reason
   dir=$(make_supercase stale-paused)
   state="$dir/state"
-  pause_reason='paused: waiting for upstream checks green, merged, and blocked state to clear'
+  pause_reason='paused: waits-for=task:upstream-checks waiting for upstream checks green, merged, and blocked state to clear'
   status_is_captain_relevant "$pause_reason" && fail "pause reason phrases made the status captain-relevant"
   printf '%s\n' "$pause_reason" > "$state/held-w9.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9" "$state")
@@ -1010,14 +1010,14 @@ test_stale_pause_survives_a_foreign_resolved_line() {
   local dir state out
   dir=$(make_supercase stale-paused-foreign-resolved)
   state="$dir/state"
-  printf 'needs-decision: which color\npaused: waiting on the vendor release\nresolved [key=default]: answered: blue\n' \
+  printf 'needs-decision: which color\npaused: waits-for=task:vendor-release waiting on the vendor release\nresolved [key=default]: answered: blue\n' \
     > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
-  case "$out" in pause\|*"paused: waiting on the vendor release") ;; *) fail "a default-key answer cleared the pause: $out" ;; esac
-  printf 'paused: waiting on the vendor release\nresolved [key=legal]: counsel answered\n' > "$state/held-w9r.status"
+  case "$out" in pause\|*"paused: waits-for=task:vendor-release waiting on the vendor release") ;; *) fail "a default-key answer cleared the pause: $out" ;; esac
+  printf 'paused: waits-for=task:vendor-release waiting on the vendor release\nresolved [key=legal]: counsel answered\n' > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
   case "$out" in pause\|*) ;; *) fail "a differently keyed resolved line cleared the pause: $out" ;; esac
-  printf 'paused: waiting on the vendor release\nresolved: the vendor shipped\n' > "$state/held-w9r.status"
+  printf 'paused: waits-for=task:vendor-release waiting on the vendor release\nresolved: the vendor shipped\n' > "$state/held-w9r.status"
   out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9r" "$state" '' 1)
   case "$out" in pause\|*) fail "the worker's own keyless resolved line did not retract the pause: $out" ;; esac
   printf 'captain-held [key=route]: tracked by task-decision-route\nresolved [key=default]: answered: blue\n' > "$state/held-w9r.status"
@@ -1049,7 +1049,7 @@ test_handle_wake_paused_records_pause_marker() {
   dir=$(make_supercase handle-paused)
   state="$dir/state"
   win="sess:fm-held-w10"
-  printf 'paused: awaiting the vendor rate-limit reset\n' > "$state/held-w10.status"
+  printf 'paused: waits-for=task:vendor-rate-limit awaiting the vendor rate-limit reset\n' > "$state/held-w10.status"
   key=$(printf '%s' "held-w10" | tr ':/.' '___')
   date +%s > "$state/.subsuper-stale-$key"
   FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
@@ -1065,7 +1065,7 @@ test_handle_wake_paused_signal_records_pause_marker() {
   state="$dir/state"
   win="sess:fm-held-w10-signal"
   printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-signal.meta"
-  printf 'paused: awaiting the vendor rate-limit reset\n' > "$state/held-w10-signal.status"
+  printf 'paused: waits-for=task:vendor-rate-limit awaiting the vendor rate-limit reset\n' > "$state/held-w10-signal.status"
   key=$(printf '%s' "held-w10-signal" | tr ':/.' '___')
   date +%s > "$state/.subsuper-stale-$key"
   FM_STATE_OVERRIDE="$state" handle_wake "signal: $state/held-w10-signal.status" "$state"
@@ -1106,7 +1106,7 @@ test_housekeeping_migrates_watcher_pause_marker() {
   state="$dir/state"
   win="sess:fm-held-w10-migrate"
   printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-migrate.meta"
-  printf 'paused: awaiting the upstream release\n' > "$state/held-w10-migrate.status"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\n' > "$state/held-w10-migrate.status"
   key=$(printf '%s' "$win" | tr '.:/' '___')
   : > "$state/.paused-$key"
   FM_STATE_OVERRIDE="$state" housekeeping "$state"
@@ -1140,7 +1140,7 @@ test_housekeeping_seeds_pause_marker_from_status() {
   state="$dir/state"
   win="sess:fm-held-w10-seed"
   printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-seed.meta"
-  printf 'paused: awaiting the upstream release\n' > "$state/held-w10-seed.status"
+  printf 'paused: waits-for=task:upstream-release awaiting the upstream release\n' > "$state/held-w10-seed.status"
   key=$(printf '%s' "held-w10-seed" | tr '.:/' '___')
   FM_STATE_OVERRIDE="$state" housekeeping "$state"
   [ -e "$state/.subsuper-paused-$key" ] || fail "paused status did not seed daemon pause tracking"
@@ -1156,7 +1156,7 @@ test_housekeeping_paused_resurfaces_and_resets() {
   dir=$(make_supercase paused-resurface)
   state="$dir/state"; fakebin="$dir/fakebin"
   win="sess:fm-held-w11"; pane="$dir/pane.txt"
-  printf 'paused: holding for the upstream tool release\n' > "$state/held-w11.status"
+  printf 'paused: waits-for=task:upstream-tool holding for the upstream tool release\n' > "$state/held-w11.status"
   printf 'idle prompt $\n' > "$pane"
   key=$(printf '%s' "held-w11" | tr ':/.' '___')
   echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
@@ -1242,7 +1242,7 @@ test_housekeeping_paused_resumed_cleared() {
   dir=$(make_supercase paused-resumed)
   state="$dir/state"; fakebin="$dir/fakebin"
   win="sess:fm-held-w12"; pane="$dir/pane.txt"
-  printf 'paused: holding for the upstream tool release\nworking: upstream landed, resuming\n' \
+  printf 'paused: waits-for=task:upstream-tool holding for the upstream tool release\nworking: upstream landed, resuming\n' \
     > "$state/held-w12.status"
   printf 'Working...\n' > "$pane"
   fm_write_meta "$state/held-w12.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
@@ -1278,7 +1278,7 @@ test_housekeeping_busy_declared_wait_matures_its_window() {
     state="$dir/state"; fakebin="$dir/fakebin"
     task="held-w12b-$case_name"; win="sess:fm-$task"; pane="$dir/pane.txt"
     case "$case_name" in
-      paused) printf 'paused: the audit engine is running to completion\n' > "$state/$task.status"
+      paused) printf 'paused: waits-for=process:4242 the audit engine is running to completion\n' > "$state/$task.status"
               digest="awaiting external" ;;
       captain-held) printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$state/$task.status"
               digest="awaiting the captain" ;;
@@ -1360,14 +1360,14 @@ test_housekeeping_declared_time_controls_pause_recheck() {
     distant=$(date -u -d "@$((now + 31536000))" +%Y-%m-%dT%H:%M:%SZ)
     past=$(date -u -d "@$((now - 120))" +%Y-%m-%dT%H:%M:%SZ)
   fi
-  printf 'paused: waiting for release until %s\n' "$future" > "$state/$task.status"
+  printf 'paused: waits-for=task:release waiting for release until %s\n' "$future" > "$state/$task.status"
   echo $((now - 60)) > "$state/.subsuper-paused-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
     FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
   [ ! -s "$state/.subsuper-escalations" ] \
     || fail "a near-future declared time was rechecked before that time"
 
-  printf 'paused: waiting for release until %s\n' "$distant" > "$state/$task.status"
+  printf 'paused: waits-for=task:release waiting for release until %s\n' "$distant" > "$state/$task.status"
   echo $((now - 300)) > "$state/.subsuper-paused-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
     FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
@@ -1378,7 +1378,7 @@ test_housekeeping_declared_time_controls_pause_recheck() {
   grep -F 'declared clearing time has passed' "$state/.subsuper-escalations" >/dev/null \
     && fail "the bounded daemon recheck falsely claimed the future declared time passed"
 
-  printf 'paused: waiting for release until %s\n' "$past" > "$state/$task.status"
+  printf 'paused: waits-for=task:release waiting for release until %s\n' "$past" > "$state/$task.status"
   date +%s > "$state/.subsuper-paused-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
     FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
@@ -1399,7 +1399,7 @@ test_housekeeping_paused_unpaused_cleared() {
   dir=$(make_supercase paused-unpaused)
   state="$dir/state"; fakebin="$dir/fakebin"
   win="sess:fm-held-w13"; pane="$dir/pane.txt"
-  printf 'paused: holding for the upstream release\nworking: resumed, upstream landed\n' > "$state/held-w13.status"
+  printf 'paused: waits-for=task:upstream-release holding for the upstream release\nworking: resumed, upstream landed\n' > "$state/held-w13.status"
   printf 'idle prompt $\n' > "$pane"
   key=$(printf '%s' "held-w13" | tr ':/.' '___')
   echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
@@ -1433,7 +1433,7 @@ test_housekeeping_stale_marker_transitions_to_pause() {
   local dir state fakebin win pane key
   dir=$(make_supercase stale-to-paused)
   state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-held-w14"; pane="$dir/pane.txt"
-  printf 'paused: awaiting the upstream tool release\n' > "$state/held-w14.status"
+  printf 'paused: waits-for=task:upstream-tool awaiting the upstream tool release\n' > "$state/held-w14.status"
   printf 'idle prompt $\n' > "$pane"
   key=$(printf '%s' "held-w14" | tr ':/.' '___')
   echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-stale-$key"

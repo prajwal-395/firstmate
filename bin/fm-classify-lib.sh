@@ -81,9 +81,10 @@ unset _fm_classify_nounset
 #
 # Free-text tokens (PR ready, checks green, ready in branch, merged) exist only for
 # legacy lines that lack a standard terminal verb. status_is_captain_relevant is
-# verb-aware: a nonterminal working: or paused: line never becomes captain-relevant
-# merely because its prose contains one of those tokens (for example
-# "working: rebased onto merged #76").
+# verb-aware: a nonterminal working: line never becomes captain-relevant merely
+# because its prose contains one of those tokens (for example "working: rebased
+# onto merged #76"). A pause is quiet only when it carries a parseable external-
+# wait reference; an unqualified pause is captain-relevant.
 # A declaration whose prefix is not one of those verbs is still an event, shown
 # as the line itself. That covers an unknown word such as parked: or holding:,
 # and a known verb whose correlation token is missing or mismatched, so the
@@ -93,10 +94,10 @@ unset _fm_classify_nounset
 FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
 
 # The declared-wait verb. A crew (or firstmate steering it) appends
-#   paused: <reason>
-# to declare a known wait expected to clear on its own. The legacy "external
-# wait" name and "awaiting external" reason also cover the worker's own work;
-# they do not identify a separate classification or liveness source.
+#   paused: waits-for=<task|pr|lease|lock|process|decision>:<identifier> <reason>
+# to declare a known wait expected to clear on its own. The reference must name
+# an outside task, PR URL, lease, lock, process, or decision key; pauses without
+# one are invalid and surface immediately for supervision.
 # bin/fm-brief.sh owns worker-facing declaration and resolution instructions.
 # Unlike `blocked:` (stuck, firstmate must help), an idle `paused:` pane is EXPECTED, so
 # the stale path bounds repeats instead of escalating a possible wedge; a live
@@ -290,7 +291,7 @@ status_is_terminal_verb() {
 
 # 0 if the given (last) status line matches a captain-relevant verb.
 # Verb-aware by default: terminal verbs always match; nonterminal progress verbs
-# (working, resolved, captain-held) and paused never match from free-text prose;
+# (working, resolved, captain-held) and qualified pauses never match from free-text prose;
 # only lines without those leading verbs may still match free-text tokens for
 # legacy bare lines such as "merged" or "PR ready".
 # Regex matching ignores any emission-time tag before the first colon - here and
@@ -302,8 +303,12 @@ status_is_captain_relevant() {
   [ -n "$line" ] || return 1
   status_line_verb "$line" verb
   case "$verb" in
-    working|resolved|captain-held|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+    working|resolved|captain-held)
       return 1
+      ;;
+    "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+      status_is_paused "$line" && return 1
+      return 0
       ;;
   esac
   # An unrecognized prefix is surfaced as itself. The check sits after the
@@ -389,7 +394,8 @@ status_is_suppressed_child_fact() {  # <state-dir> <task-id> <status-line>
   status_line_is_bare_child_fact "$3"
 }
 
-# 0 if a status line's leading verb is the pause verb (paused: <reason>). A pure
+# 0 if a status line's leading verb is the pause verb and it names an external
+# wait in the classifier's waits-for form. A pure
 # read of the line itself, so the daemon's classify_stale can reuse the last line
 # it already read without a fm-crew-state.sh call. Matches only the verb before the
 # first colon, so a reason mentioning "paused" elsewhere does not false-match.
@@ -397,7 +403,8 @@ status_is_paused() {  # <status-line>
   local line=$1 verb
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
-  [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ]
+  [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ] || return 1
+  [[ "$line" =~ [[:space:]]waits-for=(task|pr|lease|lock|process|decision):[A-Za-z0-9._/@:+#=-]+([[:space:]]|$) ]]
 }
 
 # 0 if a status line's leading verb is the verified captain-held transfer verb.

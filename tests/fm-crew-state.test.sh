@@ -2858,7 +2858,7 @@ test_no_run_idle_pane_paused() {
   make_repo_on_branch "$d/wt" fm/feat-pause
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-pause.meta" "window=fm:fm-feat-pause" "worktree=$d/wt" "kind=ship" "harness=claude"
-  printf 'paused: holding for the upstream tool release\n' > "$d/state/feat-pause.status"
+  printf 'paused: waits-for=task:tool-release holding for the upstream tool release\n' > "$d/state/feat-pause.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" feat-pause
@@ -2970,9 +2970,9 @@ test_latest_status_preserves_legacy_completions() {
     line=$(last_status_line "$d/state/task.status")
     [ "$line" = 'working: following up on merged work' ] || fail "later working event did not supersede legacy completion"
     status_is_captain_relevant "$line" && fail "legacy prose made a working event captain-relevant"
-    printf 'paused: waiting on upstream PR #123 to land\nOnce it is %s I will rebase and continue.\n\n' "$event" > "$d/state/task.status"
+    printf 'paused: waits-for=pr:https://example.com/pull/123 waiting for upstream PR to land\nOnce it is %s I will rebase and continue.\n\n' "$event" > "$d/state/task.status"
     line=$(last_status_line "$d/state/task.status")
-    [ "$line" = 'paused: waiting on upstream PR #123 to land' ] || fail "continuation prose mentioning '$event' hid a multi-line pause: $line"
+    [ "$line" = 'paused: waits-for=pr:https://example.com/pull/123 waiting for upstream PR to land' ] || fail "continuation prose mentioning '$event' hid a multi-line pause: $line"
     status_is_paused "$line" || fail "a multi-line pause lost pause handling behind prose mentioning '$event'"
   done
   (
@@ -3024,7 +3024,7 @@ test_no_run_idle_pane_custom_paused_verb() {
   make_repo_on_branch "$d/wt" fm/feat-custom-pause
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-custom-pause.meta" "window=fm:fm-feat-custom-pause" "worktree=$d/wt" "kind=ship" "harness=claude"
-  printf 'awaiting: vendor maintenance window\n' > "$d/state/feat-custom-pause.status"
+  printf 'awaiting: waits-for=task:vendor-maintenance vendor maintenance window\n' > "$d/state/feat-custom-pause.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" feat-custom-pause
