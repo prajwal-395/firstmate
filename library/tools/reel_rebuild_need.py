@@ -87,6 +87,7 @@ ENGINE_CODE_TREES = (
     "library/steps/step_4_05_render_subtitles",
     "library/steps/step_4_06_render_motion_graphics",
     "library/steps/step_1_02_catalog_footage",
+    "library/capabilities",
 )
 """Source trees whose content decides what a reel build places.
 
@@ -105,7 +106,10 @@ through `library/tools/vision_measure`, inside `library/tools`; it left
 `test_reel_rebuild_need.py`
 walks the build's real import closure and FAILS on a module no tree
 here contains, so the day this path reaches a new one the list is
-corrected rather than quietly under-covering.
+corrected rather than quietly under-covering. `library/capabilities`
+is reached the same way: the step adapters the operation registry
+resolves import their executors from it (1.02's adapter importing the
+catalog executor), so capability-owned code is engine code.
 """
 
 CODE_SUFFIXES = (".py",)
