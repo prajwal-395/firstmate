@@ -1,0 +1,95 @@
+{
+  "annotation": {
+    "access_audit_id": "eval06-held-out-audit-001",
+    "access_audit_sha256": "13257f55a9c947fd3c3af30cbad8a78f3027d4ccc7e9f9d536c48f73df5898c8",
+    "annotation_id": "eval06-held-out-v1",
+    "label_set_sha256": "b2731fc0466f4cf2c15f49df324511c9673c48645431b59e0f3098f94b25220f",
+    "review_status": "author_reviewed_against_stills",
+    "source_ids": [
+      "LC4930",
+      "LCATL0011"
+    ],
+    "split": "held_out",
+    "tuning_access": false
+  },
+  "by_class": {
+    "laptop": {
+      "cross_clip_abstentions": 0,
+      "cross_clip_entities": 0,
+      "cross_clip_entities_scored": 0,
+      "cross_clip_identity_accuracy": null,
+      "detection_precision": null,
+      "detection_recall": 0.0,
+      "fragmentations": 0,
+      "identity_false_negatives": 6,
+      "identity_false_positives": 0,
+      "identity_switches": 0,
+      "identity_true_positives": 0,
+      "idf1": 0.0,
+      "predicted_observations": 0,
+      "prediction_abstentions": 0,
+      "state_transition_accuracy": null,
+      "state_transitions_scored": 0,
+      "state_transitions_unscored": 0,
+      "visibility_counts": {
+        "occluded": 6,
+        "visible": 6
+      },
+      "visible_gt_observations": 6
+    },
+    "person": {
+      "cross_clip_abstentions": 2,
+      "cross_clip_entities": 2,
+      "cross_clip_entities_scored": 0,
+      "cross_clip_identity_accuracy": null,
+      "detection_precision": 0.6428571428571429,
+      "detection_recall": 0.6428571428571429,
+      "fragmentations": 0,
+      "identity_false_negatives": 12,
+      "identity_false_positives": 12,
+      "identity_switches": 6,
+      "identity_true_positives": 2,
+      "idf1": 0.14285714285714285,
+      "predicted_observations": 14,
+      "prediction_abstentions": 0,
+      "state_transition_accuracy": null,
+      "state_transitions_scored": 0,
+      "state_transitions_unscored": 4,
+      "visibility_counts": {
+        "absent": 6,
+        "occluded": 4,
+        "visible": 14
+      },
+      "visible_gt_observations": 14
+    }
+  },
+  "cost": {
+    "failures": [],
+    "frames_processed": 12,
+    "frames_requested": 12,
+    "measurement_scope": "12 held-out stills (2 sources x 6), Apple Vision person-instance masks on this machine",
+    "model_pass_seconds_per_processed_frame": 0.10683333333333334,
+    "peak_rss_mb": 70.53,
+    "wall_seconds": 1.282
+  },
+  "hard_case_coverage": {
+    "complete": true,
+    "lookalike_pairs": 1,
+    "occlusion_cases": 1
+  },
+  "iou_threshold": 0.5,
+  "prediction_abstentions": 0,
+  "producer": {
+    "name": "apple-vision-person-instance",
+    "revision": "person-instance-mask-v1 helper-4d7f934364b5",
+    "sampling_schedule": "held-out stills at 15/45/75/105/135/165 s per source, one independent pass each",
+    "threshold": null
+  },
+  "schema": "object-continuity-score-v1",
+  "scorer_wall_seconds": 0.0016186670000024606,
+  "visibility_counts": {
+    "absent": 6,
+    "occluded": 10,
+    "visible": 20
+  }
+}

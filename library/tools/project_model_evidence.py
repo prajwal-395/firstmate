@@ -27,8 +27,16 @@ Identity policy (fail-closed, never guessed):
   person (``person_entity.join_voices_across_sources``) - never by
   merging two persons.
 - Object instances stay per-clip: MU-15's existing SAM 2 track samples
-  support continuity only within that track. No cross-clip object
-  re-identification is measured, so no cross-clip link is minted.
+  support continuity only within that track. The held-out benchmark at
+  ``docs/benchmarks/object-continuity-benchmark.md`` measures cross-clip
+  re-identification; this migration still mints no cross-clip object link,
+  because a score alone does not authorize one. First measured report is
+  ``docs/benchmarks/2026-10-14-object-continuity-benchmark.json``
+  (held-out LC4930 + LCATL0011, 12 stills, Apple Vision person-instance
+  producer at 0.107 s/frame: person precision/recall 0.643, IDF1 0.143
+  with 6 identity switches from per-frame track IDs, 2 of 2 cross-clip
+  entities abstained, 4 state transitions unscored, laptop recall 0.0
+  from the person-only producer).
 - A face-seeded (1.06) subject mask reaches the roster Person only when
   exactly one roster person holds a face span covering the track's first
   sample; otherwise it stays on its per-clip object entity and the
@@ -3810,8 +3818,10 @@ def evidence_coverage(project_folder: str, model: dict[str, Any],
             "dropped": report.get("dropped") or [],
             "notes": report.get("notes") or [],
             "absent_identity": [
-                ("cross-clip object links: withheld, no re-identification "
-                 "measurement"),
+                ("cross-clip object links: withheld pending a linking "
+                 "producer; first held-out measurement abstains on 2 of 2 "
+                 "cross-clip entities "
+                 "(2026-10-14-object-continuity-benchmark.json)"),
                 ("M10 relations: candidates stay observations until an "
                  "object instance resolves the object end"),
             ]}
