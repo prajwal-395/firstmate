@@ -306,6 +306,7 @@ def validate_manifest_semantics(manifest: dict) -> list[str]:
     errors.extend(_check_sfx_distributed(manifest))
     errors.extend(_check_vfx_distinct(manifest))
     errors.extend(_check_broll_differs_from_aroll(manifest))
+    errors.extend(_check_broll_no_duplicate_windows(manifest))
     errors.extend(_check_overlay_segments_do_not_overlap(manifest))
     errors.extend(_check_no_fabricated_source_ranges(manifest))
     errors.extend(_check_no_repeated_source_audio(manifest))
@@ -528,6 +529,44 @@ def _check_broll_differs_from_aroll(manifest: dict) -> list[str]:
                     f"({os.path.basename(clip.get('source_file', ''))}) - "
                     f"that is not a cutaway"
                 )
+    return errors
+
+
+def _check_broll_no_duplicate_windows(manifest: dict) -> list[str]:
+    """Two V2 clips playing the same source window is a repeated shot.
+
+    F05: B-roll must respect source diversity and repeated-shot
+    constraints. The planner (`select_broll`) refuses a replayed window
+    where it is decided; this is the half that catches a hand-edited
+    manifest, or a producer that did not go through the planner. Same
+    clip with a DIFFERENT window is a different shot and passes - the
+    key is the file plus the rounded source range, at the plan's own
+    3dp rounding.
+    """
+    clips = (manifest.get("tracks", {}).get("V2", {}) or {}).get(
+        "clips", []) or []
+    seen: dict = {}
+    errors = []
+    for clip in clips:
+        source = clip.get("source_file")
+        src_in, src_out = clip.get("source_in"), clip.get("source_out")
+        if (not source or isinstance(source, bool)
+                or not isinstance(src_in, (int, float))
+                or not isinstance(src_out, (int, float))
+                or isinstance(src_in, bool) or isinstance(src_out, bool)):
+            continue
+        key = (source, round(float(src_in), 3), round(float(src_out), 3))
+        label = clip.get("label", "?")
+        if key in seen:
+            errors.append(
+                f"V2 clip '{label}' replays the same source window "
+                f"({os.path.basename(str(source))} "
+                f"{key[1]:.3f}-{key[2]:.3f}s) as '{seen[key]}' - a "
+                f"repeated shot. Pick a different moment or a "
+                f"different clip."
+            )
+        else:
+            seen[key] = label
     return errors
 
 

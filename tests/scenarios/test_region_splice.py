@@ -210,8 +210,11 @@ def test_a_fresh_cutaway_colliding_with_a_kept_one_is_refused(stored_2):
 
 
 def test_a_fresh_cutaway_outside_the_region_is_refused(stored_2):
+    # The out-of-region entry carries its own clip: two fresh entries on
+    # one window refuse as a repeated shot before the splice runs, which
+    # would test the duplicate refusal instead of the region one.
     with pytest.raises(SpliceRefused, match="not in the region"):
-        _splice([_cut(1, "clip_c"), _cut(2, "clip_c")], stored_2,
+        _splice([_cut(1, "clip_c"), _cut(2, "clip_b")], stored_2,
                 _region(4.0, 8.0))
 
 

@@ -117,6 +117,69 @@ def find_best_segment(
 MIN_INTERJECTION_SECONDS = 0.5
 
 
+def _window_key(source_file: str, video_in: float, video_out: float) -> tuple:
+    """The identity of one placed source window, at the plan's rounding.
+
+    Two placements naming the same file and the same rounded seconds play
+    the same shot twice - a redundant insert (F05), not two cutaways.
+    """
+    return (source_file or "", round(float(video_in), 3),
+            round(float(video_out), 3))
+
+
+def _refuse_reused_window(window_key: tuple, where: str,
+                          first_where: str) -> None:
+    """Refuse a source window a cutaway already plays (F05).
+
+    Source diversity and repeated-shot constraints are mechanical: the
+    same seconds of the same file on two timeline spans is the same shot
+    replayed, whichever block each covers. The fix is a different moment
+    or a different clip, so the refusal names both placements and the
+    window, and travels the post-bridge retry path back to the model.
+    """
+    raise ValueError(
+        f"B-roll {where} replays the same source window as "
+        f"{first_where} ({window_key[0]} "
+        f"{window_key[1]:.3f}-{window_key[2]:.3f}s) - a repeated shot. "
+        f"Pick a different moment or a different clip."
+    )
+
+
+def _selection_evidence(spine_pos, block_type: str, block_start: float,
+                       block_end: float, placed_start: float,
+                       placed_end: float, shortfall: float,
+                       rationale: str, preferred_moment: str,
+                       search_status: str, basis: str,
+                       basis_detail: str) -> dict:
+    """The receipt joining a cutaway to the slot it covers (F05).
+
+    A selection is evidence-explained when one record names the relation
+    the model stated (rationale / preferred moment), the evidence that
+    vouched for the clip (search status) and chose its seconds (window
+    basis), and the time coverage the placement actually carries (the
+    block's span beside the placed span, with the shortfall). An entry
+    that states neither a rationale nor a moment is recorded as
+    `unreasoned` - said aloud, not silently carried.
+    """
+    reasoned = bool((rationale or "").strip()
+                    or (preferred_moment or "").strip())
+    return {
+        "spine_block_position": spine_pos,
+        "block_type": block_type,
+        "relation": "reasoned" if reasoned else "unreasoned",
+        "selection_rationale": rationale,
+        "preferred_moment": preferred_moment,
+        "search_status": search_status,
+        "window_basis": basis,
+        "window_basis_detail": basis_detail,
+        "block_timeline_start": block_start,
+        "block_timeline_end": block_end,
+        "placed_timeline_start": placed_start,
+        "placed_timeline_end": placed_end,
+        "coverage_shortfall_seconds": shortfall,
+    }
+
+
 def _resolve_slip(broll: dict, spine_pos, clip_id: str,
                   timed_spine: dict) -> float:
     """The stated source slip in seconds, or 0.0.
@@ -276,6 +339,11 @@ def resolve_broll(
     assignments = []
     covered_positions = set()
 
+    # Every source window this call places, to its first placement. A
+    # second placement of the same window is a repeated shot (F05) and
+    # refuses below, in assignments and interjections alike.
+    placed_windows = {}
+
     for broll in broll_creative:
         clip_id = broll["clip_id"]
         spine_pos = broll["spine_block_position"]
@@ -369,6 +437,17 @@ def resolve_broll(
                 )
             video_in, video_out = shifted_in, shifted_out
 
+        # A repeated shot refuses here, naming both placements (F05).
+        # The same seconds of the same file on two timeline spans is one
+        # shot replayed, not two cutaways - whichever blocks they cover.
+        source_file = clip.get("source_file") or clip.get("path")
+        window_key = _window_key(source_file, video_in, video_out)
+        if window_key in placed_windows:
+            _refuse_reused_window(
+                window_key, f"for block {spine_pos} ({clip_id})",
+                placed_windows[window_key])
+        placed_windows[window_key] = f"block {spine_pos} ({clip_id})"
+
         # A cutaway can be shorter than the block it covers - but only
         # where something plays underneath. A speech, hook or picture
         # block (or a bookend card) puts a clip on V1 - `block_reaches_v1`, the one
@@ -440,6 +519,16 @@ def resolve_broll(
             # a receipt beside the decision, not a second decision.
             "search_status": search_provenance["search_status"],
             "search_evidence": search_provenance["search_evidence"],
+            # The evidence joining this cutaway to its slot (F05): the
+            # stated relation, what vouched for the clip and chose its
+            # seconds, and the block's span beside the placed span.
+            "selection_evidence": _selection_evidence(
+                spine_pos, spine_block.get("block_type",
+                                           "transition_slot"),
+                spine_block["timeline_start"], spine_block["timeline_end"],
+                timeline_start, timeline_end, shortfall, rationale,
+                preferred_moment, search_provenance["search_status"],
+                choice.basis, choice.basis_detail),
             # Seconds of the slot the cutaway does not cover, with the
             # A-roll picture playing underneath. 0.0 is full cover. The
             # shortening used to be announced on stderr only, which nothing
@@ -532,6 +621,20 @@ def resolve_broll(
         )
         video_in, video_out = choice.as_tuple()
 
+        # A repeated shot refuses here too (F05) - an interjection
+        # replaying an assignment's (or another interjection's) window
+        # is the same redundancy on a free stretch of V2.
+        interjection_source = clip.get("source_file") or clip.get("path")
+        interjection_key = _window_key(
+            interjection_source, video_in, video_out)
+        if interjection_key in placed_windows:
+            _refuse_reused_window(
+                interjection_key,
+                f"interjection over block {spine_pos} ({clip_id})",
+                placed_windows[interjection_key])
+        placed_windows[interjection_key] = (
+            f"interjection over block {spine_pos} ({clip_id})")
+
         # Same invariant the assignment path enforces: a cutaway may end
         # early, but it must never claim more timeline than its source can
         # fill, or V2 freezes mid-cutaway. An interjection makes no coverage
@@ -581,6 +684,17 @@ def resolve_broll(
                     interjection_provenance["search_status"],
                 "search_evidence":
                     interjection_provenance["search_evidence"],
+                # The evidence joining this cutaway to its slot (F05):
+                # the requested span beside the placed span, with the
+                # same stated-relation and window-basis receipt an
+                # assignment carries.
+                "selection_evidence": _selection_evidence(
+                    spine_pos, "interjection", requested_start,
+                    requested_end, timeline_start, timeline_end,
+                    interjection_shortfall, rationale or purpose,
+                    preferred_moment,
+                    interjection_provenance["search_status"],
+                    choice.basis, choice.basis_detail),
                 # Seconds of the placed window the cutaway does not cover.
                 # 0.0 is full cover. Same declaration the assignment path
                 # carries, for the same reason: a shortening nothing
