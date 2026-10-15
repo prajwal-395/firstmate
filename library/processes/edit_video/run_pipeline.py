@@ -2761,31 +2761,53 @@ def run_pipeline(
     # steps this run may touch; --from and --step narrow that further and
     # behave exactly as they always have.
     selected = list(scope.steps_to_run)
-    # CAP-06 shadow: run the capability compiler against the already
-    # resolved compatibility scope. Policy, state satisfaction, refusal,
-    # and review behavior remain owned by run_scope until a full reference
-    # edit qualifies the switch. A mismatch is recorded, never acted on.
-    from library.tools import capabilities, capability_plan, processes
-    process_capabilities = tuple(
-        spec for spec in capabilities.all()
-        if spec.legacy and spec.legacy.process == processes.EDIT_VIDEO)
-    node_to_capability = {
-        spec.legacy.node_id: spec.id
-        for spec in process_capabilities
-    }
+    # CAP-06: scope/refusal policy resolves the compatibility closure first.
+    # The capability planner independently proves the same executable
+    # closure from typed capability dependencies; a closure disagreement
+    # refuses before execution. A capability whose executor is the node's
+    # normal project run stands in for that legacy node; caller supplied
+    # and region capabilities remain separate entry points. The registry
+    # order is only the stable tie breaker. Exact execution order stays
+    # with the compatibility scope: the measured plan order still differs
+    # from it (e.g. subtitles resolve after the rough-cut review it
+    # consumes, while the DAG runs them before), so reordering would change
+    # what each step reads. A divergence is reported for contract repair
+    # instead of acted on.
+    from library.tools import (capabilities, capability_plan,
+                               dag_adapter, processes)
+    process_capabilities = capabilities.run_order(processes.EDIT_VIDEO)
+    process_executors = {}
+    for spec in process_capabilities:
+        node_id = spec.legacy.node_id
+        operation = dag_adapter.run_capability(node_id)
+        if operation is None:
+            continue
+        if operation.name == spec.id:
+            process_executors[node_id] = spec
     selected_capabilities = tuple(
-        node_to_capability[node] for node in selected
-        if node in node_to_capability)
-    shadow_plan = capability_plan.compile_plan(
-        process_capabilities, selected_capabilities,
-        satisfied=(set(node_to_capability.values())
-                   - set(selected_capabilities)))
-    legacy_order = tuple(node for node in selected
-                         if node in node_to_capability)
-    shadow_order = tuple(node for node in capability_plan.legacy_steps(
-        shadow_plan, process_capabilities) if node in set(legacy_order))
-    if shadow_order != legacy_order:
-        print("  CAP-06 shadow order differs from the resolved edit scope; "
+        process_executors[node].id for node in selected
+        if node in process_executors)
+    selected_capability_set = set(selected_capabilities)
+    try:
+        compat_plan = capability_plan.compile_plan(
+            tuple(process_executors.values()), selected_capabilities,
+            satisfied=(set(spec.id for spec in process_executors.values())
+                       - selected_capability_set))
+    except capability_plan.PlanError as exc:
+        raise RuntimeError(
+            "capability plan cannot satisfy the resolved execution "
+            f"closure; refusing before execution: {exc}") from exc
+    plan_order = capability_plan.legacy_steps(
+        compat_plan, tuple(process_executors.values()))
+    if (len(plan_order) != len(selected_capability_set)
+            or set(plan_order) != {
+                node for node in selected if node in process_executors}):
+        raise RuntimeError(
+            "capability plan disagrees with the resolved execution closure; "
+            "refusing before execution")
+    if list(plan_order) != [node for node in selected
+                            if node in process_executors]:
+        print("  CAP-06 plan order differs from the resolved edit scope; "
               "keeping compatibility order", file=sys.stderr)
     steps_to_run = []
     if from_step:

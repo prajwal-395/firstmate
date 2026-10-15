@@ -62,6 +62,29 @@ def test_capability_plan_refuses_excluded_goals():
                                      excluded=(target.id,))
 
 
+def test_execution_plan_preserves_both_processes_exact_node_order():
+    """The capability executor order matches both compatibility fixtures."""
+    from library.tools import capability_plan
+
+    for process_id in processes.process_ids():
+        compatibility_order = capabilities.run_order(process_id)
+        executor_specs = []
+        for spec in compatibility_order:
+            operation = dag_adapter.run_capability(spec.legacy.node_id)
+            if operation is None:
+                continue
+            if operation.name == spec.id:
+                executor_specs.append(spec)
+        old_capabilities = tuple(spec.id for spec in executor_specs)
+        plan = capability_plan.compile_plan(
+            tuple(executor_specs),
+            old_capabilities,
+        )
+        assert capability_plan.legacy_steps(
+            plan, tuple(executor_specs)) == tuple(
+                spec.legacy.node_id for spec in executor_specs)
+
+
 def test_footage_scan_executor_is_capability_owned_and_step_is_adapter():
     from library.capabilities.footage.scan import scan_project_folder
     from library.steps.step_1_01_scan_project.step import (

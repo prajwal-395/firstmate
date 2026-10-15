@@ -26,7 +26,9 @@ class PlanError(ValueError):
 def compile_plan(specs: Iterable[CapabilitySpec], goals: Iterable[str], *,
                  excluded: Iterable[str] = (),
                  satisfied: Iterable[str] = (),
-                 default_off: Iterable[str] = ()) -> CapabilityPlan:
+                 default_off: Iterable[str] = (),
+                 order_constraints: Iterable[tuple[str, str]] = ()
+                 ) -> CapabilityPlan:
     """Resolve goals using typed capability reads and writes.
 
     `satisfied` names capability outputs already present in the project.
@@ -56,6 +58,14 @@ def compile_plan(specs: Iterable[CapabilitySpec], goals: Iterable[str], *,
         for key in spec.consumes:
             edges[spec.id].update(producer_map.get(key, ()))
         edges[spec.id].discard(spec.id)
+    constraints = tuple(order_constraints)
+    for before, after in constraints:
+        if before not in by_id or after not in by_id:
+            raise PlanError(
+                f"unknown capability ordering constraint: "
+                f"{before!r} -> {after!r}")
+        if before != after:
+            edges[after].add(before)
 
     needed: set[str] = set()
     pending = list(reversed(goal_ids))
