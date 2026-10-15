@@ -8,7 +8,6 @@ exhaustion, a signed-off reel - each file a learning through
 answer being recorded.
 """
 import sys
-import time
 from pathlib import Path
 
 from library.tools import learned_context
@@ -109,18 +108,28 @@ def test_a_signed_off_reel_files_a_settled_decision_every_step_reads(tmp_path):
         str(tmp_path), "music_selection")
 
 
-def test_filing_is_one_atomic_write_under_five_ms(tmp_path):
-    """Learning filing is one atomic JSON write - fast enough to fire
-    from every rejection path without costing the run."""
+def test_filing_is_one_atomic_write(tmp_path, monkeypatch):
+    """A filing publishes its complete JSON with one atomic replacement."""
     project = str(tmp_path)
-    learned_context.record_gate_rejection(
+    first = learned_context.record_gate_rejection(
         project, "plan_transitions", "warm-up.")
-    start = time.perf_counter()
+    replacements = []
+    replace = learned_context.os.replace
+
+    def record_replace(source, destination):
+        replacements.append((Path(source), Path(destination)))
+        replace(source, destination)
+
+    monkeypatch.setattr(learned_context.os, "replace", record_replace)
     learning = learned_context.record_gate_rejection(
         project, "plan_transitions", "No crash zooms.")
-    elapsed_ms = (time.perf_counter() - start) * 1000
     assert learning is not None
-    assert elapsed_ms < 5.0, f"filing took {elapsed_ms:.2f} ms"
+    assert len(replacements) == 1
+    source, destination = replacements[0]
+    assert source.parent == destination.parent
+    assert destination == Path(project) / "learned_context" / "learnings.json"
+    assert not source.exists()
+    assert learned_context._load(project) == [first, learning]
 
 
 def test_filing_never_fails_the_run(tmp_path):

@@ -139,7 +139,18 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
         f"#!/bin/sh\nexec \"{sys.executable}\" \"$@\"\n", encoding="utf-8"
     )
     lock_python.chmod(0o755)
-    return subprocess.run(
+    # Keep the subprocess on the real scheduler code path while making
+    # admission independent of the host's transient memory pressure.
+    (tools / "sitecustomize.py").write_text(
+        "from library.tools import resource_scheduler\n"
+        "resource_scheduler._memory_available_gb = lambda: (12.0, 24.0)\n",
+        encoding="utf-8",
+    )
+    # The gate is a real subprocess and must not join the machine's
+    # scheduler (or this test session's scheduler). Its admission path is
+    # still exercised against a real scheduler in this private store.
+    lock_dir = shim.parent / "gate-heavy-work.lock"
+    result = subprocess.run(
         [str(LOCAL_GATE), *args],
         capture_output=True,
         encoding="utf-8",
@@ -148,12 +159,19 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
         env={
             **os.environ,
             "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
-            "VEP_HEAVY_WORK_LOCK_DIR": str(shim.parent / "heavy-work.lock"),
+            "PYTHONPATH": f"{tools}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+            "VEP_HEAVY_WORK_LOCK_DIR": str(lock_dir),
+            # The pytest session may itself inherit the pooled gate token.
+            # Do not let the child appear covered by that shared grant.
+            "VEP_HEAVY_WORK_OWNER": "",
             "FULL_SUITE_GATE_PYTHON": str(shim),
             "FULL_SUITE_GATE_SKIP_NATIVE_PREP": "1",
+            "REN_CI_SHADOW_AUDIT": "queue",
         },
-        timeout=60,
+        timeout=180,
     )
+    assert (lock_dir.parent / "resource-scheduler.sqlite3").is_file()
+    return result
 
 
 def _report_shim(tmp_path: Path, report_body: str | None, exit_code: int = 0) -> Path:

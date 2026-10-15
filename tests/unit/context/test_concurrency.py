@@ -4,23 +4,7 @@ The captain, 2026-09-12: *"today that judgement is mine and I have got
 it wrong twice today"*. So the table has to answer the dispatch
 question on its own, and these are the answers a supervisor reads.
 """
-from library.tools.concurrency_routing import (
-    FREE,
-    may_run_together,
-    route,
-)
 import json
-from pathlib import Path
-import pytest
-from library.tools import declaration_keys as dk
-from library.tools.declaration_keys import (
-    DeclarationConflict,
-    DeclarationKeyError,
-    edit_declaration,
-    entry_key,
-    read_entries,
-    write_entries,
-)
 import os
 import select
 import signal
@@ -30,7 +14,25 @@ import sys
 import threading
 import time
 from contextlib import closing
+from pathlib import Path
+
+import pytest
+
+from library.tools import declaration_keys as dk
 from library.tools import heavy_work_lock, resource_scheduler
+from library.tools.concurrency_routing import (
+    FREE,
+    may_run_together,
+    route,
+)
+from library.tools.declaration_keys import (
+    DeclarationConflict,
+    DeclarationKeyError,
+    edit_declaration,
+    entry_key,
+    read_entries,
+    write_entries,
+)
 
 # Bound at import, before conftest's per-test memory fixture runs: the
 # one test that asserts the reading comes from the running OS calls this.
@@ -444,7 +446,6 @@ def test_release_tolerates_legacy_directory_disappearing_during_cleanup(
     def remove_bridge():
         (scheduler.legacy_dir / resource_scheduler.OWNER_FILE).unlink()
         scheduler.legacy_dir.rmdir()
-        return None
 
     # Simulate the directory disappearing after _drop_legacy_dir_if_idle's
     # exists check but before its iterdir call.
@@ -485,7 +486,6 @@ def test_dead_legacy_owner_is_reclaimed_before_admission(scheduler):
 
 def test_dead_job_reaps_after_network_hostname_changes(scheduler, monkeypatch):
     import json
-    import sqlite3
     import time
 
     stable_id = "mac-test-machine"
@@ -519,13 +519,12 @@ def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
     profile = "native_refresh:ren-native"
     held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     waiter_code = (
-        "import sys; sys.path.insert(0, %r);"
+        f"import sys; sys.path.insert(0, {str(REPO_ROOT_2)!r});"
         " from pathlib import Path;"
         " from library.tools import resource_scheduler as rs;"
-        " s=rs.Scheduler(Path(%r));"
-        " t=s.acquire('live waiter', rs.demand_for(%r),"
-        " announce=lambda _: None, timeout=15); s.release(t)"
-        % (str(REPO_ROOT_2), str(scheduler.legacy_dir), profile))
+        f" s=rs.Scheduler(Path({str(scheduler.legacy_dir)!r}));"
+        f" t=s.acquire('live waiter', rs.demand_for({profile!r}),"
+        " announce=lambda _: None, timeout=15); s.release(t)")
     waiter = subprocess.Popen([sys.executable, "-c", waiter_code],
                               cwd=REPO_ROOT_2, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True,
@@ -803,18 +802,18 @@ def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
     memory = scheduler.acquire(
         "native build", resource_scheduler.demand_for(
             "native_refresh:ren-native"))
-    large, large_box = _acquire_in_thread(
-        scheduler, "same native directory",
-        "native_refresh:ren-native")
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        if any(job["owner"] == "same native directory"
-               and job["state"] == "waiting"
-               for job in scheduler.jobs()):
-            break
-        time.sleep(0.01)
-    else:
-        pytest.fail("same-directory writer did not enter the queue")
+    queued = threading.Event()
+    admitted, large_box = threading.Event(), []
+
+    def acquire_same_directory():
+        large_box.append(scheduler.acquire(
+            "same native directory",
+            resource_scheduler.demand_for("native_refresh:ren-native"),
+            announce=lambda line: queued.set()))
+        admitted.set()
+
+    threading.Thread(target=acquire_same_directory, daemon=True).start()
+    assert queued.wait(5), "same-directory writer did not enter the queue"
 
     inference = scheduler.acquire(
         "other native directory", resource_scheduler.demand_for(
@@ -823,7 +822,7 @@ def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
     scheduler.release(inference)
     scheduler.release(memory)
 
-    assert large.wait(5), "queued full-machine job must run after holder releases"
+    assert admitted.wait(5), "queued writer must run after holder releases"
     scheduler.release(large_box[0])
 
 
@@ -848,12 +847,11 @@ def test_killed_holder_frees_machine_within_lease(scheduler):
     hand. A `kill -9` during the grant must free the next acquire within
     the lease bound, on every acquire and on jobs listing."""
     holder_code = (
-        "import sys; sys.path.insert(0, %r);"
+        f"import sys; sys.path.insert(0, {str(REPO_ROOT_2)!r});"
         " from library.tools import resource_scheduler as rs;"
-        " s=rs.Scheduler(__import__('pathlib').Path(%r));"
+        f" s=rs.Scheduler(__import__('pathlib').Path({str(scheduler.legacy_dir)!r}));"
         " s.acquire('killed-holder', {'gpu': 1}, announce=lambda l: None);"
-        " import time; time.sleep(30)" % (str(REPO_ROOT_2),
-                                          str(scheduler.legacy_dir)))
+        " import time; time.sleep(30)")
     holder = subprocess.Popen(
         [sys.executable, "-c", holder_code],
         cwd=REPO_ROOT_2, stdout=subprocess.DEVNULL,
@@ -931,12 +929,12 @@ def test_abnormal_exit_without_release_frees_grant(scheduler, monkeypatch):
     monkeypatch.setattr(resource_scheduler, "LEASE_SECONDS", 0.5)
     monkeypatch.setattr(resource_scheduler, "HEARTBEAT_SECONDS", 0.1)
     exiter_code = (
-        "import sys, os; sys.path.insert(0, %r);"
+        f"import sys, os; sys.path.insert(0, {str(REPO_ROOT_2)!r});"
         " from library.tools import resource_scheduler as rs;"
-        " s=rs.Scheduler(__import__('pathlib').Path(%r));"
+        f" s=rs.Scheduler(__import__('pathlib').Path({str(scheduler.legacy_dir)!r}));"
         " s.acquire('abnormal-holder', {'gpu': 1},"
         " announce=lambda l: None);"
-        " os._exit(3)" % (str(REPO_ROOT_2), str(scheduler.legacy_dir)))
+        " os._exit(3)")
     exiter = subprocess.Popen(
         [sys.executable, "-c", exiter_code], cwd=REPO_ROOT_2,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -953,11 +951,11 @@ def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
     """Nested code cannot grow into a second exclusive build directory."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         tmp_path / "heavy-work.lock")
-    with heavy_work_lock.heavy_work_lock(
-            "outer", "native_refresh:ren-native"):
-        with pytest.raises(heavy_work_lock.GrantTooSmall):
-            heavy_work_lock.take_heavy_lock(
-                "other writer", "native_refresh:resolve-control")
+    with (heavy_work_lock.heavy_work_lock(
+            "outer", "native_refresh:ren-native"),
+          pytest.raises(heavy_work_lock.GrantTooSmall)):
+        heavy_work_lock.take_heavy_lock(
+            "other writer", "native_refresh:resolve-control")
 
 
 def test_model_memory_reservation_admits_only_bounded_nested_inference(
@@ -972,10 +970,10 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
             "semantic weights", memory_profile,
             nested_profiles=(inference_profile,)):
         assert [job["demand"] for job in scheduler.jobs()] == [{}]
-        with pytest.raises(heavy_work_lock.GrantTooSmall):
-            with heavy_work_lock.heavy_work_lock(
-                    "unlisted nested work", "full_suite_gate"):
-                pass
+        with (pytest.raises(heavy_work_lock.GrantTooSmall),
+              heavy_work_lock.heavy_work_lock(
+                  "unlisted nested work", "full_suite_gate")):
+            pass
 
         with heavy_work_lock.heavy_work_lock(
                 "semantic inference", inference_profile):
@@ -1031,18 +1029,18 @@ def test_memory_session_folds_and_rejects_exclusive_build_profiles(
         scheduler, monkeypatch):
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
-    with heavy_work_lock.heavy_work_lock(
-            "ordinary grant", "semantics.analyse:inference"):
-        with heavy_work_lock.heavy_work_reservation(
-                "late memory", "semantics.analyse:model_memory",
-                nested_profiles=("semantics.analyse:inference",)):
-            pass
+    with (heavy_work_lock.heavy_work_lock(
+            "ordinary grant", "semantics.analyse:inference"),
+          heavy_work_lock.heavy_work_reservation(
+              "late memory", "semantics.analyse:model_memory",
+              nested_profiles=("semantics.analyse:inference",))):
+        pass
 
-    with pytest.raises(ValueError, match="empty or RAM-only"):
-        with heavy_work_lock.heavy_work_reservation(
-                "not a memory profile", "native_refresh:ren-native",
-                nested_profiles=()):
-            pass
+    with (pytest.raises(ValueError, match="empty or RAM-only"),
+          heavy_work_lock.heavy_work_reservation(
+              "not a memory profile", "native_refresh:ren-native",
+              nested_profiles=())):
+        pass
 
 
 def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
@@ -1126,6 +1124,7 @@ def test_lane_width_is_the_machines_measured_cores(monkeypatch):
     differently because they ARE different. A hardcoded width here
     would starve one and oversubscribe the other."""
     import os
+
     from library.tools.concurrency_routing import lane_width
 
     monkeypatch.setattr(os, "cpu_count", lambda: 3)
