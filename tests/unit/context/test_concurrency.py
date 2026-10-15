@@ -304,7 +304,7 @@ def test_reentrant_child_does_not_deadlock_on_its_parent_lock(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", LOCK_MODULE, "run", "--owner", "outer",
          "--", sys.executable, "-c", child],
-        cwd=REPO_ROOT_2, env=_environment(home), timeout=5, check=False)
+        cwd=REPO_ROOT_2, env=_environment(home), timeout=30, check=False)
 
     assert result.returncode == 0
     assert not _lock_path(home).exists()
@@ -317,7 +317,7 @@ def test_gate_runner_releases_lock_after_child_error_exit(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", LOCK_MODULE, "run", "--owner", "test gate",
          "--", sys.executable, "-c", "raise SystemExit(7)"],
-        cwd=REPO_ROOT_2, env=_environment(home), timeout=5, check=False)
+        cwd=REPO_ROOT_2, env=_environment(home), timeout=30, check=False)
 
     assert result.returncode == 7
     assert not _lock_path(home).exists()
@@ -333,13 +333,13 @@ def test_gate_runner_releases_lock_after_term_signal(tmp_path):
          "--", sys.executable, "-c", "import time; time.sleep(30)"],
         cwd=REPO_ROOT_2, env=_environment(home),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.monotonic() + 3
+    deadline = time.monotonic() + 30
     while not lock_path.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
 
     assert lock_path.exists()
     process.send_signal(signal.SIGTERM)
-    assert process.wait(timeout=5) == 128 + signal.SIGTERM
+    assert process.wait(timeout=30) == 128 + signal.SIGTERM
     assert not lock_path.exists()
 
 
@@ -354,13 +354,16 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
 
     with heavy_work_lock.heavy_work_lock(
             "live test holder", "native_refresh:ren-native"):
+        # The waiter admits through the live probe in its own process;
+        # it inherits the session's plentiful-memory seam from the
+        # environment (tests/conftest.py), never the host's pressure.
         process = subprocess.Popen(
             [sys.executable, "-m", LOCK_MODULE, "run", "--owner", "waiter",
              "--profile", "native_refresh:ren-native",
              "--", sys.executable, "-c", "pass"],
             cwd=REPO_ROOT_2, env=_environment(home),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        ready, _, _ = select.select([process.stdout], [], [], 3)
+        ready, _, _ = select.select([process.stdout], [], [], 30)
         assert ready
         line = process.stdout.readline()
         assert "live test holder" in line
@@ -369,7 +372,7 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
         assert lock_path.exists()
 
     assert process is not None
-    assert process.wait(timeout=5) == 0
+    assert process.wait(timeout=30) == 0
     assert not lock_path.exists()
 
 
@@ -398,7 +401,11 @@ def test_admission_guard_uses_live_available_memory(monkeypatch):
 def test_memory_reading_is_taken_from_the_running_os(monkeypatch):
     # conftest fakes plenty of memory for every test, so this one calls
     # the saved real implementation: the reference below is bound at
-    # module import, before any per-test fixture runs.
+    # module import, before any per-test fixture runs. The session also
+    # exports the probe's test seam to subprocesses, which the real
+    # implementation reads first - deleted here so this is the OS.
+    monkeypatch.delenv(resource_scheduler.MEMORY_OVERRIDE_ENV,
+                       raising=False)
     reading = _REAL_MEMORY_READING()
     assert reading is not None
     available, total = reading
@@ -479,7 +486,7 @@ def test_dead_legacy_owner_is_reclaimed_before_admission(scheduler):
         json.dumps({"owner": "orphan", "pid": 2**30,
                     "host": socket.gethostname()}), encoding="utf-8")
     token = scheduler.acquire("replacement", {"cpu": 1},
-                              announce=lambda line: None, timeout=1)
+                              announce=lambda line: None, timeout=10)
     scheduler.release(token)
     assert not scheduler.legacy_dir.exists()
 
@@ -505,17 +512,24 @@ def test_dead_job_reaps_after_network_hostname_changes(scheduler, monkeypatch):
 
 
 def test_scheduler_wait_timeout_removes_its_waiting_row(scheduler):
+    # The defect is the leftover row, which any positive timeout
+    # covers: 10 ms was scheduling granularity under load (a slow first
+    # loop iteration expired before the waiter even queued), so the
+    # bound is generous and the assertion stays on the row.
     profile = "native_refresh:ren-native"
     held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     with pytest.raises(resource_scheduler.Cancelled, match="timed out"):
         scheduler.acquire("bounded waiter", resource_scheduler.demand_for(profile),
-                          announce=lambda line: None, timeout=0.01)
+                          announce=lambda line: None, timeout=2)
     assert [job["owner"] for job in scheduler.jobs()] == ["holder"]
     scheduler.release(held)
 
 
 def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
     """A separate live process keeps its row through stale heartbeat checks."""
+    # The waiter admits in its own process through the live probe; it
+    # inherits the session's plentiful-memory seam (tests/conftest.py),
+    # so host pressure never reads as a dead waiter here.
     profile = "native_refresh:ren-native"
     held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     waiter_code = (
@@ -530,7 +544,7 @@ def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
                               stderr=subprocess.PIPE, text=True,
                               encoding="utf-8")
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if any(job["owner"] == "live waiter" and job["state"] == "waiting"
                    for job in scheduler.jobs()):
@@ -559,12 +573,12 @@ def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
         assert [job["owner"] for job in scheduler.jobs()] == [
             "holder", "live waiter"]
         scheduler.release(held)
-        stdout, stderr = waiter.communicate(timeout=10)
+        stdout, stderr = waiter.communicate(timeout=30)
         assert waiter.returncode == 0, stdout + stderr
     finally:
         if waiter.poll() is None:
             waiter.terminate()
-            waiter.wait(timeout=5)
+            waiter.wait(timeout=30)
         if scheduler.jobs() and any(job["owner"] == "holder"
                                     for job in scheduler.jobs()):
             scheduler.release(held)
@@ -622,7 +636,7 @@ def test_placement_and_gates_are_not_cpu_throttled(scheduler):
     second_gate, box = _acquire_in_thread(scheduler, "gate 2",
                                           "full_suite_gate")
 
-    assert second_gate.wait(5)
+    assert second_gate.wait(30)
     scheduler.release(box[0])
     scheduler.release(placement)
     scheduler.release(gate)
@@ -649,7 +663,7 @@ def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
                           time.time(), holder))
         waiters = [_acquire_in_thread(
             scheduler, "large waiter", {"cpu": 8, "ram_gb": 8})]
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if any(job["owner"] == "large waiter"
                    for job in scheduler.jobs()):
@@ -658,7 +672,7 @@ def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
         for index in range(4):
             waiters.append(_acquire_in_thread(
                 scheduler, f"small waiter {index}", {"cpu": 2, "ram_gb": 2}))
-        assert all(event.wait(2) for event, _ in waiters), (
+        assert all(event.wait(30) for event, _ in waiters), (
             "all five waiters fit once static CPU/RAM declarations are removed")
         running = [job for job in scheduler.jobs()
                    if job["state"] == "running"]
@@ -669,7 +683,7 @@ def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
     finally:
         if other_process.poll() is None:
             other_process.terminate()
-            other_process.wait(timeout=5)
+            other_process.wait(timeout=30)
 
 
 def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
@@ -705,13 +719,41 @@ def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
              resource_scheduler.SCHEDULER_POLICY_VERSION))
     try:
         announced = []
-        with pytest.raises(resource_scheduler.Cancelled, match="timed out"):
-            scheduler.acquire(
-                "backfill",
-                resource_scheduler.demand_for("native_refresh:ren-resolved"),
-                announce=announced.append, timeout=0.3)
-        assert any("aged eligible waiter aged waiter" in line
-                   for line in announced), announced
+        seen_aged_waiter = threading.Event()
+        stop = threading.Event()
+        outcome = {}
+
+        def wait_for_backfill():
+            def announce(line):
+                announced.append(line)
+                if "aged eligible waiter aged waiter" in line:
+                    seen_aged_waiter.set()
+
+            try:
+                scheduler.acquire(
+                    "backfill",
+                    resource_scheduler.demand_for(
+                        "native_refresh:ren-resolved"),
+                    announce=announce, cancelled=stop.is_set)
+            except resource_scheduler.Cancelled as exc:
+                outcome["cancelled"] = str(exc)
+
+        backfill_waiter = threading.Thread(
+            target=wait_for_backfill, daemon=True)
+        backfill_waiter.start()
+        # Explicit synchronisation, not a wall-clock timeout: the wait
+        # ends when the announcement proves the backfill queued behind
+        # the aged waiter. A fixed 0.3 s bound expired on a slow first
+        # admission loop before anything was announced, failing the
+        # test with an empty announcement list under load.
+        assert seen_aged_waiter.wait(30), (
+            f"backfill never queued behind the aged waiter: {announced}")
+        stop.set()
+        backfill_waiter.join(timeout=30)
+        assert not backfill_waiter.is_alive(), (
+            "backfill did not stop when cancelled")
+        assert "stopped waiting" in outcome.get("cancelled", ""), (
+            announced, outcome)
         # The same waiter, young, does not stop backfill on a free key.
         with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
             conn.execute("UPDATE jobs SET enqueued_at = ? WHERE token = ?",
@@ -719,7 +761,7 @@ def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
         backfill = scheduler.acquire(
             "backfill",
             resource_scheduler.demand_for("native_refresh:ren-resolved"),
-            announce=lambda line: None, timeout=5)
+            announce=lambda line: None, timeout=30)
         scheduler.release(backfill)
     finally:
         with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
@@ -728,7 +770,7 @@ def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
         scheduler.release(holder)
         if other_process.poll() is None:
             other_process.terminate()
-            other_process.wait(timeout=5)
+            other_process.wait(timeout=30)
     assert scheduler.jobs() == []
 
 
@@ -740,10 +782,10 @@ def test_render_model_and_gate_are_not_static_resource_throttled(scheduler):
         "semantics.analyse:inference"))
     render, box = _acquire_in_thread(scheduler, "render",
                                      "render.build:render")
-    assert render.wait(5)
+    assert render.wait(30)
     second, box2 = _acquire_in_thread(scheduler, "render 2",
                                       "render.build:render")
-    assert second.wait(5), "Resolve's own lease arbitrates render access"
+    assert second.wait(30), "Resolve's own lease arbitrates render access"
     for token in (box[0], box2[0], gate, vlm):
         scheduler.release(token)
 
@@ -761,7 +803,7 @@ def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
 
     (legacy / "owner").unlink()
     legacy.rmdir()
-    assert admitted.wait(5)
+    assert admitted.wait(30)
     with pytest.raises(FileExistsError):
         legacy.mkdir()  # what old code does to take the lock
     scheduler.release(box[0])
@@ -784,17 +826,27 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
                       time.time(), vlm))
     second, second_box = _acquire_in_thread(
         scheduler, "gemma 2", "native_refresh:ren-native")
-    time.sleep(0.1)  # the second build writer queues on the same directory
+    # Explicit synchronisation, not a fixed sleep: the second writer
+    # must be observed in the queue before the placement tries to
+    # backfill past it.
+    queue_deadline = time.monotonic() + 30
+    while time.monotonic() < queue_deadline:
+        if any(job["owner"] == "gemma 2" and job["state"] == "waiting"
+               for job in scheduler.jobs()):
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("second build writer did not enter the queue")
     placement, box = _acquire_in_thread(scheduler, "placement",
                                         "native_refresh:resolve-control")
 
-    assert placement.wait(5), "unrelated exclusive keys can run together"
+    assert placement.wait(30), "unrelated exclusive keys can run together"
     scheduler.release(box[0])
     scheduler.release(vlm)
-    assert second.wait(5)
+    assert second.wait(30)
     scheduler.release(second_box[0])
     other_process.terminate()
-    other_process.wait(timeout=5)
+    other_process.wait(timeout=30)
 
 
 def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
@@ -813,16 +865,16 @@ def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
         admitted.set()
 
     threading.Thread(target=acquire_same_directory, daemon=True).start()
-    assert queued.wait(5), "same-directory writer did not enter the queue"
+    assert queued.wait(30), "same-directory writer did not enter the queue"
 
     inference = scheduler.acquire(
         "other native directory", resource_scheduler.demand_for(
             "native_refresh:resolve-control"),
-        announce=lambda line: None, timeout=2)
+        announce=lambda line: None, timeout=30)
     scheduler.release(inference)
     scheduler.release(memory)
 
-    assert admitted.wait(5), "queued writer must run after holder releases"
+    assert admitted.wait(30), "queued writer must run after holder releases"
     scheduler.release(large_box[0])
 
 
@@ -856,7 +908,7 @@ def test_killed_holder_frees_machine_within_lease(scheduler):
         [sys.executable, "-c", holder_code],
         cwd=REPO_ROOT_2, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL)
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if any(job["owner"] == "killed-holder" and job["state"] == "running"
                for job in scheduler.jobs()):
@@ -864,16 +916,16 @@ def test_killed_holder_frees_machine_within_lease(scheduler):
         time.sleep(0.02)
     else:
         holder.kill()
-        holder.wait(timeout=5)
+        holder.wait(timeout=30)
         pytest.fail("holder never reached running")
     holder_pid = holder.pid
     holder.kill()
-    holder.wait(timeout=5)
+    holder.wait(timeout=30)
     assert not resource_scheduler._alive(holder_pid)
 
     started = time.monotonic()
     token = scheduler.acquire("next", {"gpu": 1},
-                              announce=lambda line: None, timeout=10)
+                              announce=lambda line: None, timeout=30)
     elapsed = time.monotonic() - started
     assert elapsed < resource_scheduler.LEASE_SECONDS + 10
     scheduler.release(token)
@@ -915,7 +967,9 @@ def test_stale_heartbeat_lease_frees_grant(scheduler, monkeypatch):
 def test_zombie_holder_reads_as_dead():
     """A zombie still answers `kill(pid, 0)` but holds nothing."""
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    deadline = time.monotonic() + 30
     while proc.poll() is None:
+        assert time.monotonic() < deadline, "short-lived child never exited"
         time.sleep(0.01)
     try:
         assert not resource_scheduler._alive(proc.pid)
@@ -938,11 +992,11 @@ def test_abnormal_exit_without_release_frees_grant(scheduler, monkeypatch):
     exiter = subprocess.Popen(
         [sys.executable, "-c", exiter_code], cwd=REPO_ROOT_2,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    assert exiter.wait(timeout=5) == 3
+    assert exiter.wait(timeout=30) == 3
     started = time.monotonic()
     token = scheduler.acquire("next", {"gpu": 1},
-                              announce=lambda line: None, timeout=10)
-    assert time.monotonic() - started < 10
+                              announce=lambda line: None, timeout=30)
+    assert time.monotonic() - started < 30
     scheduler.release(token)
     assert scheduler.jobs() == []
 
@@ -983,7 +1037,7 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
 
             competing, box = _acquire_in_thread(
                 scheduler, "second inference", inference_profile)
-            assert competing.wait(5), "model passes are not GPU serialized"
+            assert competing.wait(30), "model passes are not GPU serialized"
 
         scheduler.release(box[0])
         assert [job["demand"] for job in scheduler.jobs()] == [{}]

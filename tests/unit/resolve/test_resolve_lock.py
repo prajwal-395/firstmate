@@ -118,13 +118,13 @@ def test_a_reentrant_lease_survives_the_outer_release(lock_dir, unguarded):
     exclusive_acquired = threading.Event()
 
     def exclusive_holder():
-        with resolve_lease("live run", exclusive=True, timeout=1.0):
+        with resolve_lease("live run", exclusive=True, timeout=30.0):
             exclusive_acquired.set()
             time.sleep(0.4)
 
     def reentrant_probe():
-        assert exclusive_acquired.wait(5.0)
-        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
+        assert exclusive_acquired.wait(30.0)
+        with resolve_lease("watchdog probe", exclusive=False, timeout=30.0):
             time.sleep(0.6)
             result["held"] = resolve_lock.held()
 
@@ -160,7 +160,7 @@ def _exclusive_flock_busy(lock_dir) -> bool:
     probe = subprocess.run(
         [sys.executable, "-c", _EXCLUSIVE_FLOCK_PROBE.format(
             path=str(lock_dir / resolve_lock.LOCK_FILENAME))],
-        capture_output=True, text=True, encoding="utf-8", timeout=30,
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
         check=False)
     return probe.stdout.strip() == "BUSY"
 
@@ -183,22 +183,22 @@ def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
     result_written = threading.Event()
 
     def exclusive_holder():
-        with resolve_lease("live run", exclusive=True, timeout=1.0):
+        with resolve_lease("live run", exclusive=True, timeout=30.0):
             exclusive_acquired.set()
-            assert probe_inside.wait(5.0)
+            assert probe_inside.wait(30.0)
         exclusive_released.set()
 
     def reentrant_probe():
         try:
-            assert exclusive_acquired.wait(5.0)
+            assert exclusive_acquired.wait(30.0)
             with resolve_lease("watchdog probe", exclusive=False,
-                               timeout=1.0):
+                               timeout=30.0):
                 probe_inside.set()
-                assert exclusive_released.wait(5.0)
+                assert exclusive_released.wait(30.0)
                 result["held"] = resolve_lock.held()
                 result["exclusive_held"] = resolve_lock.exclusive_held()
                 result_written.set()
-                assert release_probe.wait(5.0)
+                assert release_probe.wait(30.0)
         finally:
             release_probe.set()
 
@@ -210,7 +210,7 @@ def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
     # The outer exclusive lease has released; the probe is still inside.
     # Wait for the probe to write its result before asserting, so a slow
     # probe does not read as a missing key.
-    assert result_written.wait(5.0)
+    assert result_written.wait(30.0)
     assert result["held"] is True
     assert result["exclusive_held"] is False
     assert _exclusive_flock_busy(lock_dir), (

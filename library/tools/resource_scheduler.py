@@ -107,8 +107,28 @@ def capacity() -> Dict[str, int]:
     return {"native_" + part: 1 for part in NATIVE_PARTS}
 
 
+MEMORY_OVERRIDE_ENV = "VEP_SCHEDULER_MEMORY_GB"
+"""Test seam for the memory probe: when set to "<available>,<total>"
+gigabytes, `_memory_available_gb` returns it instead of reading the OS.
+
+Scheduler tests (including the subprocesses they spawn, which inherit
+the environment) admit against fixed memory rather than the host's
+transient pressure. Unset - or unparseable, which falls through to the
+live reading - in production, where admission always reads the running
+OS. This changes no admission decision, only where the probe reads."""
+
+
 def _memory_available_gb() -> tuple[float, float] | None:
     """Return OS measured available and total memory, or fail closed."""
+    override = os.environ.get(MEMORY_OVERRIDE_ENV)
+    if override:
+        try:
+            available_s, _, total_s = override.partition(",")
+            available, total = float(available_s), float(total_s)
+            if total > 0 and available >= 0:
+                return available, total
+        except ValueError:
+            pass
     try:
         meminfo = Path("/proc/meminfo")
         if meminfo.is_file():

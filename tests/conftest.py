@@ -225,6 +225,20 @@ atexit.register(shutil.rmtree, _heavy_sandbox, True)
 # Plain setattr, not `monkeypatch`: a per-test `monkeypatch.undo()`
 # must not restore live memory mid-suite (the broker section above
 # records the same undo hazard for its env var).
+#
+# The function stub above covers this process only. Scheduler tests
+# also spawn subprocesses that admit through the same probe
+# (`test_concurrency.py`: live waiters, killed holders, abnormal
+# exiters, and `heavy_work_lock run` gate/waiter shims), and those
+# children read the LIVE host - measured 2026-10-15 as gate-runner and
+# waiter timeouts plus scheduler flakes while the machine was out of
+# memory. So the session also exports the probe's test seam
+# (`VEP_SCHEDULER_MEMORY_GB`, read by `_memory_available_gb` before it
+# touches the OS): children inherit plentiful memory the way they
+# inherit the private lock dir above. Tests OF the guard patch the
+# function itself (unaffected); the one test asserting the reading
+# comes from the running OS deletes this variable first.
+os.environ["VEP_SCHEDULER_MEMORY_GB"] = "12.0,24.0"
 
 
 @pytest.fixture(autouse=True)
