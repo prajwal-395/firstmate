@@ -481,6 +481,98 @@ def test_two_brokers_share_one_instance_lease(tmp_path):
     assert acquired.startswith("ACQUIRED"), acquired
 
 
+_CROSS_BROKER_SHARED_HOLDER = textwrap.dedent("""
+    import sys, time
+    from contextlib import contextmanager
+    sys.path.insert(0, {repo!r})
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    with resolve_lock.resolve_lease({purpose!r}, exclusive=False,
+                                    owner={owner!r}, timeout=5.0):
+        print("HELD", flush=True)
+        time.sleep({seconds})
+    print("RELEASED", flush=True)
+""")
+
+_CROSS_BROKER_WAITER = textwrap.dedent("""
+    import sys, time
+    from contextlib import contextmanager
+    sys.path.insert(0, {repo!r})
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    started = time.monotonic()
+    with resolve_lock.resolve_lease({purpose!r}, exclusive={exclusive},
+                                    owner={owner!r}, timeout=5.0) as lease:
+        elapsed = time.monotonic() - started
+        print("ACQUIRED %.3f %.3f %s" % (elapsed, lease.wait_seconds,
+                                        lease.waited_on), flush=True)
+""")
+
+
+def test_cross_broker_shared_reads_coexist(tmp_path):
+    """Independent broker processes may hold shared read leases together."""
+    broker_a, broker_b, instance = (tmp_path / name for name in
+                                    ("broker-a", "broker-b", "instance"))
+    for directory in (broker_a, broker_b, instance):
+        directory.mkdir()
+    reader_a = _spawn_cross_broker(
+        _CROSS_BROKER_SHARED_HOLDER.format(
+            repo=REPO_ROOT, purpose="timeline read A",
+            owner="reader-a", seconds=0.8),
+        broker_a, instance)
+    try:
+        assert reader_a.stdout.readline().strip() == "HELD"
+        reader_b = _spawn_cross_broker(
+            _CROSS_BROKER_WAITER.format(
+                repo=REPO_ROOT, purpose="timeline read B", owner="reader-b",
+                exclusive="False"), broker_b, instance)
+        acquired, _ = reader_b.communicate(timeout=10)
+        assert acquired.startswith("ACQUIRED 0."), acquired
+    finally:
+        reader_a.communicate(timeout=10)
+
+
+@pytest.mark.parametrize("purpose", ["render", "timeline write"])
+def test_cross_broker_queued_exclusive_work_resumes_after_shared_read(
+        tmp_path, purpose):
+    """A render or write waits for a reader, then resumes on that instance.
+
+    The measured wait is emitted by the acquiring lease. Separate broker
+    dirs prove the queue is the instance flock, not a broker-local queue.
+    """
+    broker_a, broker_b, instance = (tmp_path / name for name in
+                                    ("broker-a", "broker-b", "instance"))
+    for directory in (broker_a, broker_b, instance):
+        directory.mkdir()
+    reader = _spawn_cross_broker(
+        _CROSS_BROKER_SHARED_HOLDER.format(
+            repo=REPO_ROOT, purpose="read render inputs",
+            owner="reader", seconds=0.8),
+        broker_a, instance)
+    try:
+        assert reader.stdout.readline().strip() == "HELD"
+        render = _spawn_cross_broker(
+            _CROSS_BROKER_WAITER.format(
+                repo=REPO_ROOT, purpose=purpose, owner="writer",
+                exclusive="True"), broker_b, instance)
+        output, _ = render.communicate(timeout=10)
+        assert output.startswith("ACQUIRED "), output
+        elapsed = float(output.split()[1])
+        lock_wait = float(output.split()[2])
+        print(f"cross-broker {purpose}: total={elapsed:.3f}s, "
+              f"lease_wait={lock_wait:.3f}s")
+        assert elapsed >= 0.5, output
+        assert lock_wait >= 0.5, output
+    finally:
+        reader.communicate(timeout=10)
+
+
 def test_separate_instance_dirs_do_not_contend(tmp_path):
     """The redirect still isolates: different instance dirs are different
     leases, which is what keeps the suite off the captain's session."""
