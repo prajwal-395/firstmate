@@ -13,7 +13,9 @@ import json
 
 import pytest
 
-from library.tools.project_work_state import main, project_now_state
+from library.tools.project_work_state import (
+    main, project_launch_pack, project_now_state,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -235,3 +237,55 @@ def test_now_verb_is_registered_in_both_front_doors():
     native = (repo / "native" / "ren-cli" / "src" / "commands.rs").read_text(
         encoding="utf-8")
     assert 'name: "now"' in native
+
+
+def test_launch_pack_contains_now_state_and_invalidates_fingerprint(tmp_path):
+    project = _write_project(tmp_path / "show")
+    _write_request(project, "plan_sfx")
+    _write_proposal(project)
+    _write_state(project, preflight_completed={"scan": {}})
+    (project / "pipeline_run.json").write_text(json.dumps({
+        "status": "running", "current_step": "plan_sfx",
+    }), encoding="utf-8")
+
+    pack = project_launch_pack(str(project), captured_at="2026-10-15T12:00:00Z")
+    same = project_launch_pack(str(project), captured_at="2026-10-15T12:00:00Z")
+    assert pack == same
+    assert pack["schema"] == "ren-launch-pack/1"
+    assert pack["project"] == {"slug": "show", "name": "Show",
+                                "path": str(project)}
+    assert pack["state"] == project_now_state(str(project))
+    assert pack["state"]["run"]["status"] == "running"
+    assert [ask["id"] for ask in pack["state"]["asks"]["pending"]] == [
+        "plan_sfx"]
+    assert pack["state"]["reels"]["total"] == 1
+
+    (project / "pipeline_run.json").write_text(json.dumps({
+        "status": "running", "current_step": "render",
+    }), encoding="utf-8")
+    changed = project_launch_pack(str(project), captured_at="2026-10-15T12:00:00Z")
+    assert changed["snapshot"]["fingerprint"] != pack["snapshot"]["fingerprint"]
+
+
+def test_launch_pack_refuses_missing_project_with_structured_refusal():
+    from library.tools.ren_refusal import RenRefusal
+
+    with pytest.raises(RenRefusal) as error:
+        project_launch_pack("does-not-exist")
+    assert error.value.code == "REN_LAUNCH_PACK_PROJECT_INVALID"
+    assert error.value.to_dict()["fix"]
+
+
+def test_launch_pack_is_registered_for_cli_and_mcp():
+    from pathlib import Path
+
+    from ren.commands import VERBS
+
+    repo = Path(__file__).resolve().parents[3]
+    verb = next(verb for verb in VERBS if verb.name == "launch-pack")
+    assert verb.read_only and verb.json
+    assert verb.module_argv == ("library.tools.project_work_state", "launch-pack")
+    assert verb.input_schema["required"] == ["project"]
+    native = (repo / "native" / "ren-cli" / "src" / "commands.rs").read_text(
+        encoding="utf-8")
+    assert 'name: "launch-pack"' in native

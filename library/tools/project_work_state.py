@@ -8,6 +8,8 @@ read-only mode so asking "where were we?" cannot migrate a project.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -479,6 +481,57 @@ def project_now_state(project_ref: str) -> dict:
     return state
 
 
+LAUNCH_PACK_SCHEMA = "ren-launch-pack/1"
+LAUNCH_PACK_MAX_BYTES = 256 * 1024
+LAUNCH_PACK_STALE_INSTRUCTION = (
+    "Before acting on this snapshot, run `ren launch-pack <project> --json` "
+    "again and compare its fingerprint; use the newer snapshot if it changed.")
+
+
+def project_launch_pack(project_ref: str, *, captured_at: str | None = None) -> dict:
+    """Build a bounded, read-only snapshot suitable for a lane brief.
+
+    The fingerprint covers the exact `ren now` state and its project identity,
+    but not the capture time or stale-snapshot instruction.
+    """
+    from library.tools.ren_refusal import RenRefusal
+
+    try:
+        state = project_now_state(project_ref)
+    except (FileNotFoundError, ValueError) as exc:
+        raise RenRefusal(
+            what=f"Project {project_ref!r} could not be read",
+            why=str(exc),
+            fix=f"Check the project slug or path, then retry: ren projects",
+            code="REN_LAUNCH_PACK_PROJECT_INVALID",
+            recovery_class="needs_question") from exc
+
+    identity = dict(state["project"])
+    fingerprint_input = json.dumps(
+        {"schema": LAUNCH_PACK_SCHEMA, "project": identity, "state": state},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    fingerprint = hashlib.sha256(fingerprint_input).hexdigest()
+    pack = {
+        "schema": LAUNCH_PACK_SCHEMA,
+        "project": identity,
+        "snapshot": {
+            "captured_at": captured_at or datetime.now(timezone.utc).isoformat(
+                timespec="seconds").replace("+00:00", "Z"),
+            "fingerprint": fingerprint,
+        },
+        "state": state,
+        "stale_snapshot_instruction": LAUNCH_PACK_STALE_INSTRUCTION,
+    }
+    encoded = json.dumps(pack, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > LAUNCH_PACK_MAX_BYTES:
+        raise RenRefusal(
+            what="The project's state snapshot is too large for a launch pack",
+            why=f"The bounded payload limit is {LAUNCH_PACK_MAX_BYTES} bytes",
+            fix=f"Reduce the project's recorded state, then retry `ren launch-pack {project_ref} --json`",
+            code="REN_LAUNCH_PACK_TOO_LARGE")
+    return pack
+
+
 def _now_summary(state: dict) -> str:
     project = state["project"].get("name") or state["project"]["slug"]
     pipeline = state["pipeline"]
@@ -542,6 +595,18 @@ def main(argv=None) -> int:
     from ren import hosts
     hosts.ensure_harness_output_env()
     raw = list(argv) if argv is not None else sys.argv[1:]
+    if raw and raw[0] == "launch-pack":
+        parser = argparse.ArgumentParser(
+            prog="ren launch-pack",
+            description="Emit a bounded project snapshot for a lane brief")
+        parser.add_argument("project", help="project slug or path")
+        parser.add_argument("--json", action="store_true",
+                            help="print the launch pack as JSON")
+        args = parser.parse_args(raw[1:])
+        pack = project_launch_pack(args.project)
+        print(json.dumps(pack, indent=2, ensure_ascii=False) if args.json
+              else f"{pack['project']['name']}: {pack['snapshot']['fingerprint']}")
+        return 0
     if raw and raw[0] == "now":
         parser = argparse.ArgumentParser(
             prog="ren now",
