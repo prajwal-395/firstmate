@@ -200,33 +200,21 @@ def _run(project_folder: str, args) -> int:
 def _run_capabilities(project_folder: str, args) -> int:
     """The capability loop of `run`, inside its assignment act."""
     from library.tools.ren_refusal import REFUSAL_EXIT_CODE
-    # ONE HOLD for the whole run: build, ask, the gate and promotion.
-    # `rebuild_reels_in_project` holds the exclusive instance lease for
-    # its own body, and that body ends where `reel.build` returns -
-    # the gate (`reel.verify`) and the promotion inside it are later
-    # capabilities of this loop. Measured 2026-10-05: a 6-reel build's
-    # hold released at 20:24:01.307, a queued caption smoke was granted
-    # the instance 2ms later, and the verify that followed read the
-    # master and all six stagings changed under it ("timelines were
-    # MODIFIED during verification", the cursor on Reel 01 where the
-    # gate's first read had found the master). The inner holds are
-    # reentrant no-ops under this one, and a child inherits it.
+    # Resolve exclusion belongs to each capability's cursor-sensitive
+    # work. `reel.build` prepares graphics and renders before its
+    # per-placement lease; `reel.verify` and promotion take their own
+    # read/write leases. Holding the instance across this capability
+    # loop serializes preparation and rendering for minutes, and hides
+    # the build's own short placement boundary. Each capability must
+    # revalidate its project, timeline and inputs after taking its lease.
     from library.tools import (capabilities, event_log, operations, processes,
-                               provenance, resolve_lock)
+                               provenance)
     with contextlib.ExitStack() as held:
         # The run's lease events belong to this project: without this
         # the instance lease's hook never fires here, the same gap the
         # edit runner closed per step. Restored on every exit - a
         # refusal returns through the stack like any other.
         held.enter_context(event_log.scoped_log(project_folder))
-        try:
-            held.enter_context(
-                resolve_lock.resolve_lease("build reels", exclusive=True))
-        except resolve_lock.ResolveBusy as busy:
-            from library.tools.ren_refusal import emit_refusal_result
-            print(busy.render(), file=sys.stderr)
-            emit_refusal_result(busy)
-            return REFUSAL_EXIT_CODE
         for spec in capabilities.run_order(processes.REELS):
             op = operations.get(spec.id)
             if op.caller_supplied:

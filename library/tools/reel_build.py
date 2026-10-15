@@ -14418,6 +14418,40 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     f"place {name}", capability="reel.build",
                     phase="apply", project=resolve_name,
                     timeline=name) as _lease:
+                # Preparation/rendering can take minutes. Revalidate the
+                # exact project, master revision, and plan inputs only after
+                # this placement owns the Resolve cursor, so stale work is
+                # refused before it creates or changes a staging timeline.
+                if resolve_project_exactly(
+                        resolve.GetProjectManager(), resolve_name) is not project:
+                    raise ReelBuildError(
+                        "Resolve project identity changed during reel "
+                        "preparation; refusing placement")
+                try:
+                    _live_master_digest = _need.carried_digest_live(
+                        project, timeline)
+                except Exception as _stale_master:
+                    raise ReelBuildError(
+                        "master timeline could not be revalidated after "
+                        f"preparation: {_stale_master}; refusing placement") \
+                        from _stale_master
+                if _live_master_digest != _master_digest:
+                    raise ReelBuildError(
+                        "master timeline changed during reel preparation; "
+                        "refusing placement so the stale plan is not applied")
+                with open(os.path.join(
+                        project_folder, "pipeline_output/scratch/"
+                        "timeline_transcript/transcript.json"), "rb") as _f:
+                    _live_transcript_digest = hashlib.sha256(
+                        _f.read()).hexdigest()
+                if _live_transcript_digest != transcript_source_digest:
+                    raise ReelBuildError(
+                        "timeline transcript changed during reel preparation; "
+                        "refusing placement")
+                if _plan_hash(proposal_path) != _plan_digest:
+                    raise ReelBuildError(
+                        "approved reel plan changed during preparation; "
+                        "refusing placement")
                 _decision = _need.decide(
                     final, _derivation,
                     _carried_self_read(final),

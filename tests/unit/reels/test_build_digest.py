@@ -130,18 +130,32 @@ def test_only_reel_scopes_the_digest(tmp_path, monkeypatch, capsys):
 
 def test_a_refused_build_digest_carries_the_refusal_code(
         tmp_path, monkeypatch, capsys):
-    from library.tools import capabilities, project_format, resolve_lock
+    from library.tools import (capabilities, operations, project_format,
+                               provenance, resolve_lock)
 
     project = _fixture_project(tmp_path)
     monkeypatch.delenv(EVENT_LOG_ENV, raising=False)
     monkeypatch.delenv("REN_OUTPUT", raising=False)
     monkeypatch.setattr(
         project_format, "ensure_project_format", lambda _folder: None)
-    monkeypatch.setattr(capabilities, "run_order", lambda _process: [])
+    monkeypatch.setattr(capabilities, "run_order", lambda _process: [
+        SimpleNamespace(id="reel.build")])
 
     def _busy(*args, **kwargs):
         raise resolve_lock.ResolveBusy("busy", "test", "retry")
     monkeypatch.setattr(resolve_lock, "resolve_lease", _busy)
+
+    class BuildOperation:
+        name = "reel.build"
+        caller_supplied = False
+
+        def execute(self, *_args, **_kwargs):
+            with resolve_lock.resolve_lease("place Reel 01"):
+                raise AssertionError("busy lease unexpectedly acquired")
+
+    monkeypatch.setattr(operations, "get", lambda _id: BuildOperation())
+    monkeypatch.setattr(provenance, "observing_operation",
+                        lambda *_a, **_kw: contextlib.nullcontext())
 
     assert run_reels.run(str(project), _args(json=True)) == 4
 

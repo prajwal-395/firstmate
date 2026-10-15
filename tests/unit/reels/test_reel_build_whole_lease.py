@@ -780,8 +780,9 @@ def test_synthetic_120_second_preparation_has_zero_lease_hold():
 # with only their own per-section holds: the verify read the master
 # and all six stagings changed under it ("timelines were MODIFIED
 # during verification", the cursor on Reel 01 where its first read had
-# found the master) and nothing was promoted. The fix is one exclusive
-# hold around the whole capability loop in `run_reels.run`.
+# found the master) and nothing was promoted. The run now permits this
+# gap; the verification refusal is the recovery behavior that keeps the
+# ungraded staging from promotion.
 #
 # Both processes share one file-backed fake Resolve (current timeline
 # and timeline inventory), so a write by one is a change the other's
@@ -951,18 +952,14 @@ def _role_events(log: Path) -> list:
 @pytest.mark.serial(
     reason="Two real processes contend for one flock; keep child "
            "startup out of xdist saturation.")
-def test_a_writer_queued_behind_a_build_cannot_land_before_its_verify(
+def test_writer_in_capability_gap_causes_safe_verify_refusal(
         tmp_path):
-    """The smoke that queued behind the build's hold waits for the gate
-    and the promotion too, not just for `reel.build`.
+    """A writer may use the gap, but stale state cannot pass verification.
 
     The build-reels run starts first; the smoke starts once the build
-    is inside its build hold, so it queues exactly as it did live. On
-    the old shape the build's hold ends where `reel.build` returns, the
-    smoke takes the instance in the gap before `reel.ask`, moves the
-    cursor and changes the inventory, and the verify reads the change
-    and fails. Under one hold for the whole run the smoke's first write
-    comes after the promotion.
+    is inside its placement hold, so it queues until placement ends.
+    It then moves the cursor before verify. Verify must refuse and leave
+    the staging intact rather than promote content it did not grade.
     """
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
@@ -997,13 +994,9 @@ def test_a_writer_queued_behind_a_build_cannot_land_before_its_verify(
 
     events = _role_events(log)
     assert smoke.returncode == 0, (out_s, err_s)
-    assert build.returncode == 0, (
-        f"the build-reels run failed - the smoke landed inside it. "
-        f"Events: {events}\n{err_b}")
-    verify_end = next(t for t, role, event in events
-                      if role == "build" and event == "verify-end")
-    smoke_start = next(t for t, role, event in events
-                       if role == "smoke" and event == "write-start")
-    assert smoke_start >= verify_end, (
-        f"the smoke wrote at {smoke_start:.3f}, before the build's gate "
-        f"and promotion ended at {verify_end:.3f}. Events: {events}")
+    assert build.returncode != 0, (out_b, err_b)
+    assert any(role == "build" and event == "verify-modified"
+               for _, role, event in events), events
+    final_state = json.loads(state.read_text(encoding="utf-8"))
+    assert "Reel 01 (rebuild staging)" in final_state["timelines"]
+    assert "Reel 01" not in final_state["timelines"]

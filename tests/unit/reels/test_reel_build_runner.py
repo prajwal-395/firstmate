@@ -1099,6 +1099,33 @@ def test_the_first_build_places_everything_and_records_its_signature(
 
 
 @pytest.mark.usefixtures("mock_dvr")
+def test_master_revision_changed_during_prepare_refuses_before_placement(
+        project):
+    """The placement lease revalidates the master after plan/render work."""
+    from library.tools import reel_rebuild_need
+    from library.tools.reel_build import ReelBuildError
+
+    resolve_project = FakeProject([MASTER])
+    world = World(resolve_project)
+    original = reel_rebuild_need.carried_digest_live
+    calls = 0
+
+    def changed_after_preparation(current_project, timeline):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original(current_project, timeline)
+        return {"revision": "changed during preparation"}
+
+    with _patched(resolve_project, world) as placed, \
+            patch.object(reel_rebuild_need, "carried_digest_live",
+                         side_effect=changed_after_preparation):
+        with pytest.raises(ReelBuildError, match="master timeline changed"):
+            rebuild_reels_in_project(str(project), organise=False)
+
+    assert calls == 2
+    placed.assert_not_called()
+@pytest.mark.usefixtures("mock_dvr")
 def test_the_second_build_of_the_same_state_places_nothing(project):
     resolve_project = FakeProject([MASTER])
     world = World(resolve_project)
