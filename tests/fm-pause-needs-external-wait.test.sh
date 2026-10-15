@@ -15,6 +15,14 @@ status_is_captain_relevant "$invalid" || { echo 'FAIL: invalid pause did not sur
 status_is_paused "$valid" || { echo 'FAIL: named external wait stopped being absorbed' >&2; exit 1; }
 status_is_captain_relevant "$valid" && { echo 'FAIL: valid external wait became captain-relevant' >&2; exit 1; }
 [ "$(status_paused_until "$valid")" -gt "$(date +%s)" ] || { echo 'FAIL: valid wait lost its until recheck' >&2; exit 1; }
+status_file=$(mktemp)
+trap 'rm -f "$status_file"' EXIT
+printf '%s\n' "$invalid" > "$status_file"
+status_span_has_actionable "$status_file" 0 \
+  || { echo 'FAIL: invalid pause status log did not produce a supervisor action' >&2; exit 1; }
+printf '%s\n' "$valid" > "$status_file"
+status_span_has_actionable "$status_file" 0 \
+  && { echo 'FAIL: valid external wait status log produced a supervisor action' >&2; exit 1; }
 for external in \
   'task:vep-render-a' \
   'pr:https://github.com/example/project/pull/42' \

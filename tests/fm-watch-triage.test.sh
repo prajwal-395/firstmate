@@ -515,7 +515,7 @@ test_unrecognized_status_prefix_is_visible() {
 
   (
     export FM_CLASSIFY_PAUSED_VERB=holding
-    printf 'holding: for the upstream release\n' > "$state/renamed-pause.status"
+    printf 'holding: waits-for=task:upstream-release for the upstream release\n' > "$state/renamed-pause.status"
     status_is_paused "$(last_status_line "$state/renamed-pause.status")" \
       || fail "an overridden pause verb was treated as unrecognized"
     status_span_has_actionable "$state/renamed-pause.status" 0 \
