@@ -29,5 +29,12 @@ used as the CAS for an event that records the prepared operations, execution
 receipt, Resolve snapshot, source-to-timeline frame mappings, and the timeline
 state's edit-operation reference. A concurrent model change makes the write
 refuse to overwrite newer model state; the applied Resolve generation remains
-in the timeline shadow for reconciliation. The bulk render builder remains a
-separate producer and does not yet claim this editing-state contract.
+in the timeline shadow for reconciliation. The bulk manifest renderer records
+the completed live timeline in the shadow, then commits that exact generation
+as the Project Model `timeline_states` projection with the model revision read
+before Resolve was changed. If a concurrent model writer advances the event
+head, only the rendered timeline state is replayed onto the newer head; the
+event reason records both the original and conflicting revisions. The shadow
+generation is linked to the committed model revision after the model event
+lands. Projects without a canonical model retain legacy render behavior until
+their model is created.

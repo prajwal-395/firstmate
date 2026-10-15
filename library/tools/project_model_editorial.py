@@ -97,7 +97,9 @@ class EditorialMigrationError(ValueError):
     """A legacy editorial row that cannot become model data, refused by name."""
 
 
-def timeline_state_for(model: Mapping[str, Any], timeline_id: str) -> dict[str, Any] | None:
+def timeline_state_for(
+    model: Mapping[str, Any], timeline_id: str
+) -> dict[str, Any] | None:
     """Read the current canonical ordered timeline composition from a model."""
     rows = [row for row in model.get("timeline_states", [])
             if row["timeline_id"] == timeline_id]
@@ -129,6 +131,78 @@ def commit_timeline_state(project, state: Mapping[str, Any], *,
     )
 
 
+def commit_rendered_timeline(project, *, timeline_id: str, generation: int,
+                             expected_revision: int, author: str = "render.build",
+                             max_reconciliations: int = 3) -> dict[str, Any]:
+    """Commit a rendered Resolve generation, reconciling concurrent model writes.
+
+    Resolve is the timeline truth. If its write succeeds while another model
+    writer advances the event head, replay only this timeline-state projection
+    onto the new head. The other writer's collections and timeline states are
+    retained. The event reason records both revisions so the recovery is
+    auditable in the Project Model history.
+    """
+    from pathlib import Path
+
+    from library.tools import project_model_store
+
+    if not isinstance(timeline_id, str) or not timeline_id:
+        raise EditorialMigrationError("rendered timeline needs a stable timeline_id")
+    if (isinstance(generation, bool) or not isinstance(generation, int)
+            or generation < 1):
+        raise EditorialMigrationError("rendered timeline generation must be positive")
+    if (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)
+            or expected_revision < 0):
+        raise EditorialMigrationError(
+            "expected Project Model revision must be non-negative")
+    project = Path(project)
+    state = {
+        "id": stable_id("timeline_state", timeline_id),
+        "timeline_id": timeline_id,
+        "generation": generation,
+        "clip_use_ids": [],
+        "edit_operation_ids": [],
+    }
+    attempted_revision = expected_revision
+    for attempt in range(max_reconciliations + 1):
+        try:
+            revision = commit_timeline_state(
+                project, state, expected_revision=expected_revision, author=author)
+            return {"status": "committed", "revision": revision,
+                    "expected_revision": attempted_revision,
+                    "reconciled": attempt > 0,
+                    "timeline_id": timeline_id, "generation": generation}
+        except RuntimeError as exc:
+            if "stale project model revision" not in str(exc):
+                raise
+            if attempt == max_reconciliations:
+                return {"status": "refused", "reason": str(exc),
+                        "expected_revision": attempted_revision,
+                        "timeline_id": timeline_id, "generation": generation}
+            expected_revision, model = project_model_store.load_project_model(project)
+            rows = [row for row in model.get("timeline_states", [])
+                    if row["timeline_id"] != timeline_id]
+            rows.append(state)
+            try:
+                revision = project_model_store.append_model_patch(
+                    project, {"timeline_states": rows},
+                    expected_revision=expected_revision, author=author,
+                    reason=(f"Resolve render reconciliation: timeline {timeline_id} "
+                            f"generation {generation}; initial model revision "
+                            f"{attempted_revision}, conflict observed at revision "
+                            f"{expected_revision}"),
+                )
+            except RuntimeError as retry_exc:
+                if "stale project model revision" in str(retry_exc):
+                    continue
+                raise
+            return {"status": "committed", "revision": revision,
+                    "expected_revision": attempted_revision, "reconciled": True,
+                    "conflicted_revision": expected_revision,
+                    "timeline_id": timeline_id, "generation": generation}
+    raise AssertionError("unreachable reconciliation loop")
+
+
 def commit_edit_readback(project, *, patch: Any, readback: Mapping[str, Any],
                          execution: Mapping[str, Any],
                          generation: int, expected_revision: int,
@@ -147,7 +221,8 @@ def commit_edit_readback(project, *, patch: Any, readback: Mapping[str, Any],
     revision, model = project_model_store.load_project_model(Path(project))
     if revision != expected_revision:
         raise RuntimeError(
-            f"stale project model revision {expected_revision}; current revision is {revision}"
+            f"stale project model revision {expected_revision}; current revision "
+            f"is {revision}"
         )
     operation = patch_to_operation(patch)
     source_to_timeline = []
@@ -348,7 +423,9 @@ def spans_to_intervals(
     return intervals
 
 
-def assert_no_frame_pin(label: str, row: Mapping[str, Any], anchor: Mapping[str, Any]) -> None:
+def assert_no_frame_pin(
+    label: str, row: Mapping[str, Any], anchor: Mapping[str, Any]
+) -> None:
     """Refuse a frame-based anchor or pin; never silently promote one."""
     kind = anchor.get("kind")
     if kind in FRAME_ANCHOR_KINDS:

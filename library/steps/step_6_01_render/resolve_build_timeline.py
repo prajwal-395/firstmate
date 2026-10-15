@@ -1618,6 +1618,7 @@ def _build_timeline_under_lease(
     project_folder: str = "",
     confirm_open_project: bool = False,
     _prepared: Optional[dict] = None,
+    _project_model_revision: Optional[int] = None,
 ) -> dict:
     """Build a complete Resolve timeline from an assembly manifest.
 
@@ -4562,6 +4563,38 @@ def _build_timeline_under_lease(
             results["warnings"].append(msg)
             print(f"  ⚠ {msg}", file=sys.stderr)
 
+    # The bulk manifest renderer is a Project Model timeline producer. The
+    # shadow generation is recorded from Resolve's completed timeline first;
+    # then its exact generation is committed with the model revision read
+    # before the Resolve mutation. A concurrent model writer is reconciled
+    # by replaying only this timeline state onto the newer event head.
+    if results.get("success") and project_folder and _project_model_revision is not None:
+        try:
+            from library.tools import project_model_editorial, timeline_shadow
+
+            generation = timeline_shadow.observe(
+                project, timeline, project_folder=project_folder)
+            results["project_model"] = project_model_editorial.commit_rendered_timeline(
+                project_folder, timeline_id=generation.timeline_id,
+                generation=generation.generation,
+                expected_revision=_project_model_revision)
+            if results["project_model"]["status"] == "committed":
+                timeline_shadow.ShadowStore().attach_model_link(
+                    project=generation.project,
+                    timeline_id=generation.timeline_id,
+                    generation=generation.generation,
+                    model_revision=results["project_model"]["revision"])
+            if results["project_model"]["status"] != "committed":
+                results["warnings"].append(
+                    "Resolve timeline generation was recorded, but its Project Model "
+                    "link needs reconciliation: "
+                    + results["project_model"].get("reason", "unknown refusal"))
+        except Exception as exc:  # noqa: BLE001 - do not disguise a built timeline
+            results["project_model"] = {"status": "refused", "reason": repr(exc)}
+            results["warnings"].append(
+                f"Project Model timeline reconciliation failed: {exc!r}; "
+                "the Resolve generation remains in timeline shadow")
+
     _clock.lap(None)
     return results
 
@@ -4575,6 +4608,14 @@ def build_timeline(
     confirm_open_project: bool = False,
 ) -> dict:
     """Prepare a placement plan, then execute it under Resolve and machine leases."""
+    model_revision = None
+    if project_folder:
+        try:
+            from library.tools.project_model_store import load_project_model
+            model_revision, _model = load_project_model(project_folder)
+        except (FileNotFoundError, ValueError):
+            # Older projects without a canonical model remain renderable.
+            model_revision = None
     prepared = _prepare_timeline_build(
         manifest, subtitle_overlay_path, motion_graphics_path, project_folder)
     if prepared["errors"]:
@@ -4610,6 +4651,7 @@ def build_timeline(
             project_folder=project_folder,
             confirm_open_project=confirm_open_project,
             _prepared=prepared,
+            _project_model_revision=model_revision,
         )
 
 

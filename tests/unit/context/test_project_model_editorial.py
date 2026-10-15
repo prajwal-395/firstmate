@@ -91,7 +91,10 @@ def test_timeline_state_reader_and_cas_share_project_model_revision(tmp_path):
     import json
     from pathlib import Path
 
-    from library.tools.project_model_store import commit_project_model, load_project_model
+    from library.tools.project_model_store import (
+        commit_project_model,
+        load_project_model,
+    )
 
     model = json.loads(Path(
         "native/ren-protocol/fixtures/project-model.json"
@@ -108,6 +111,53 @@ def test_timeline_state_reader_and_cas_share_project_model_revision(tmp_path):
     assert editorial.timeline_state_for(current, "timeline-1") == state
     with pytest.raises(RuntimeError, match="stale project model revision"):
         editorial.commit_timeline_state(tmp_path, state, expected_revision=1)
+
+
+def test_render_generation_reconciles_model_conflict_without_losing_writer(
+        tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    from library.tools import project_model_store
+
+    model = json.loads(Path(
+        "native/ren-protocol/fixtures/project-model.json"
+    ).read_text(encoding="utf-8"))
+    project_model_store.commit_project_model(tmp_path, model, expected_revision=0)
+    original = editorial.commit_timeline_state
+    injected = False
+
+    def concurrent_writer(project, state, *, expected_revision, author="ren"):
+        nonlocal injected
+        if not injected:
+            injected = True
+            revision, _current = project_model_store.load_project_model(project)
+            project_model_store.append_model_patch(
+                project, {"timeline_states": [{
+                    "id": "timeline-state:concurrent",
+                    "timeline_id": "timeline-concurrent", "generation": 3,
+                    "clip_use_ids": [], "edit_operation_ids": [],
+                }]}, expected_revision=revision, reason="concurrent writer")
+        return original(project, state, expected_revision=expected_revision,
+                        author=author)
+
+    monkeypatch.setattr(editorial, "commit_timeline_state", concurrent_writer)
+    result = editorial.commit_rendered_timeline(
+        tmp_path, timeline_id="timeline-render", generation=7,
+        expected_revision=1)
+
+    assert result["status"] == "committed"
+    assert result["reconciled"] is True
+    assert result["expected_revision"] == 1
+    revision, current = project_model_store.load_project_model(tmp_path)
+    assert revision == 3
+    assert editorial.timeline_state_for(current, "timeline-concurrent")[
+        "generation"] == 3
+    state = editorial.timeline_state_for(current, "timeline-render")
+    assert state["generation"] == 7
+    events = project_model_store._read_events(
+        tmp_path / project_model_store.STORE_DIR / project_model_store.EVENTS_FILE)
+    assert "Resolve render reconciliation" in events[-1]["reason"]
 
 
 def test_aroll_node_becomes_clip_use_on_shared_clocks():
