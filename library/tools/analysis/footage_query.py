@@ -4367,6 +4367,10 @@ def main(argv=None):
                                "about the person (e.g. \"covers his mouth "
                                "with his hand\") and return only the spans "
                                "it verifies, each with its reason")
+    p_search.add_argument("--max-tier", type=int, choices=[0, 1], default=None,
+                          help="with --verify: maximum candidate tier sent to "
+                               "the VLM (hand_near_mouth defaults to 0; use "
+                               "1 to include marginal candidates)")
     p_search.add_argument("--json", action="store_true",
                           help="print the whole answer as JSON: one hit "
                                "list on every mode (text, --sound, --ocr, "
@@ -4569,7 +4573,8 @@ def main(argv=None):
         started = time.perf_counter()
         if args.verify is not None:
             answer = event_spans.verified_query(args.project, args.person,
-                                                args.predicate, args.verify)
+                                                args.predicate, args.verify,
+                                                max_tier=args.max_tier)
         else:
             answer = event_spans.query(args.project, args.person, args.predicate)
         elapsed = time.perf_counter() - started

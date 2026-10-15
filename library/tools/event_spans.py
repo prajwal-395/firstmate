@@ -1420,6 +1420,17 @@ def _candidate_spans(person: dict, predicate: str,
                 "python3 -m library.tools.event_spans build <project>")
         for span in body["spans"]:
             if span.get("face_track") in tracks:
+                # Older M7 records predate tiering. Hand-to-mouth frames
+                # already carry the measured face-width distance, so apply
+                # the same cheap 1.25-width strong-tier cutoff at read time
+                # without rewriting shared source memory.
+                if predicate == "hand_near_mouth" and "tier" not in span:
+                    distances = [frame.get("d") for frame in span["frames"]
+                                 if frame.get("d") is not None]
+                    span_tier = (TIER_STRONG if distances and
+                                 min(distances) <= HAND_MOUTH_TIER0_DISTANCE
+                                 else TIER_MARGINAL)
+                    span = {**span, "tier": span_tier}
                 spans.append({"content_digest": digest,
                               "source_file": record["source_file"], **span})
     return sorted(spans, key=lambda s: (s["source_file"], s["start"]))
@@ -1436,8 +1447,9 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
     Spans verify strongest-tier first (tier 0 before tier 1), so the
     VLM sees the best-measured geometry before the marginal band.
     `max_tier` budgets VLM calls: spans above it are reported under
-    `skipped_by_tier` and never sent to the verifier. The default
-    (`None`) verifies every tier, exactly as before tiering existed."""
+    `skipped_by_tier` and never sent to the verifier. Hand-near-mouth
+    defaults to tier 0; pass `max_tier=1` to include its marginal candidates.
+    Other predicates keep their existing all-tier default."""
     from library.tools import span_verification
 
     if predicate not in CANDIDATE_PREDICATES:
@@ -1462,6 +1474,8 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
     ordered = sorted(candidates, key=lambda s: (s.get("tier", TIER_STRONG),
                                                 -(s.get("score", 0.0) or 0.0),
                                                 s["start"]))
+    if max_tier is None and predicate == "hand_near_mouth":
+        max_tier = TIER_STRONG
     skipped_by_tier = 0
     if max_tier is not None:
         kept = [s for s in ordered if s.get("tier", TIER_STRONG) <= max_tier]

@@ -312,7 +312,8 @@ def test_verified_query_verifies_strongest_first_and_budgets_by_tier(
     record = {"content_digest": "d" * 64, "source_file": "cam.MOV",
               "predicates": {"speaking": {"spans": []},
                              "on_screen": {"spans": []}},
-              "candidates": {"hand_raise": {"spans": [marginal, strong]}}}
+              "candidates": {"hand_near_mouth":
+                              {"spans": [marginal, strong]}}}
     person = {"person_id": "p1",
               "face_tracks": [{"content_digest": "d" * 64,
                                "track_id": "face_001"}]}
@@ -332,7 +333,8 @@ def test_verified_query_verifies_strongest_first_and_budgets_by_tier(
 
     monkeypatch.setattr(span_verification, "verify_spans", fake_verify)
 
-    full = event_spans.verified_query("/proj", "p1", "hand_raise", "raises a hand")
+    full = event_spans.verified_query(
+        "/proj", "p1", "hand_near_mouth", "covers his mouth", max_tier=1)
     assert seen == [[1.0, 5.0]]  # tier 0 first, both verified
     assert full["candidates"] == 2
     assert full["cost"]["by_tier"] == {
@@ -341,11 +343,40 @@ def test_verified_query_verifies_strongest_first_and_budgets_by_tier(
 
     seen.clear()
     budgeted = event_spans.verified_query(
-        "/proj", "p1", "hand_raise", "raises a hand", max_tier=0)
+        "/proj", "p1", "hand_near_mouth", "covers his mouth")
     assert seen == [[1.0]]  # the marginal span never reaches the VLM
     assert budgeted["verified_candidates"] == 1
     assert budgeted["skipped_by_tier"] == 1
     assert budgeted["cost"]["vlm_calls"] == 1
+
+    record["candidates"] = {"hand_raise": {"spans": [marginal, strong]}}
+    seen.clear()
+    other = event_spans.verified_query(
+        "/proj", "p1", "hand_raise", "raises a hand")
+    assert seen == [[1.0, 5.0]]
+    assert other["verified_candidates"] == 2
+
+
+def test_legacy_hand_candidates_get_tiered_from_recorded_distance(monkeypatch):
+    """Older M7 files have no tier field, but retain frame distances.
+    The query derives the same strong/marginal split without writing M7."""
+    strong = {"face_track": "face_001", "start": 1.0, "end": 2.0,
+              "frames": [{"index": 2, "t": 1.0, "d": 1.2, "box": None}]}
+    marginal = {"face_track": "face_001", "start": 5.0, "end": 6.0,
+                "frames": [{"index": 10, "t": 5.0, "d": 1.4, "box": None}]}
+    record = {"content_digest": "d" * 64, "source_file": "cam.MOV",
+              "candidates": {"hand_near_mouth":
+                              {"spans": [strong, marginal]}}}
+    person = {"person_id": "p1", "face_tracks": [
+        {"content_digest": "d" * 64, "track_id": "face_001"}]}
+    monkeypatch.setattr(event_spans, "resolve_person",
+                        lambda *args, **kwargs: (person, {"by": "test"}))
+    monkeypatch.setattr(event_spans, "read_m7",
+                        lambda *args, **kwargs: record)
+    spans = event_spans._candidate_spans(person, "hand_near_mouth")
+    assert [span["tier"] for span in spans] == [0, 1]
+    assert "tier" not in strong
+    assert "tier" not in marginal
 
 
 class TestEventLanes:
