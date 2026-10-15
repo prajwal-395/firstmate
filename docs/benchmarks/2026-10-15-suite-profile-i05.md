@@ -113,3 +113,18 @@ after-run was not performed. Parallel test clocks overlapping explains
 the 20:19.57 excess in summed test time over wall time; nested subprocess
 tests contribute their full elapsed time to that sum. The stopped worker
 accounts for one unusually long row.
+
+## I06 follow-up: golden scenario reuse
+
+I06 redirected the follow-up to the golden monologue and conversation
+scenarios, whose baseline rows took 63-104 seconds. Inspection found no
+additional safe fixture cache that would remove their measured work:
+`golden_edit.ensure_media` and `golden.ensure_media` already reuse
+recipe-keyed generated media across runs. The conversation's two
+parameter cases intentionally use different frame rates and media keys.
+Each scenario also exercises analysis and/or the pipeline/build against a
+fresh project under `tmp_path` and a fresh Resolve double; sharing those
+results would bypass the workflow being asserted or leak mutable project
+state between cases. Analysis and planning in the conversation test are
+themselves assertions, so replacing them with cached output would weaken
+coverage. No test shortcut was made. Gate-smoke rows were left to PR 2570.
