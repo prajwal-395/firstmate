@@ -384,12 +384,12 @@ def enrich_visual_result(eval_set: dict, result: dict, *, floor: float | None = 
         }
     result["visual_benchmark"] = summary
     if evaluator_labels_path is not None:
-        # Human pilot labels stay separate from the frozen benchmark inputs.
+        # Evaluator labels stay separate from the frozen benchmark inputs.
         from library.tools.blind_label_pilot import label_summary
-        summary["human_calibration_labels"] = label_summary(
+        summary["evaluator_calibration_labels"] = label_summary(
             evaluator_labels_path, kind="search")
         if evaluator_window_scores is not None:
             from library.tools.blind_label_pilot import calibrate_abstention
-            summary["human_abstention_calibration"] = calibrate_abstention(
+            summary["evaluator_abstention_calibration"] = calibrate_abstention(
                 evaluator_labels_path, evaluator_window_scores)
     return result

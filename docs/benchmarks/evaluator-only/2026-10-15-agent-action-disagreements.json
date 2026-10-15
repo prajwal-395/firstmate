@@ -1,0 +1,2283 @@
+{
+  "schema": "ren-agent-action-disagreements-v1",
+  "third_labeller_requested": true,
+  "labels": [
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 3.5,
+        "note": "descending concrete stairs; feet not in frame, motion parallax and downward path confirm",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_lot",
+        "start": 0.0,
+        "end": 3.5
+      }
+    },
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "buildings_trees_background",
+        "start": 0.0,
+        "end": 3.5
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 9.0,
+        "end": 17.1,
+        "verb": "move camera around the front cabin and seats",
+        "object": "car interior",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 17.1,
+        "note": "seated; camera pans across wheel, dash, console",
+        "object": "driver_seat",
+        "start": 9.0,
+        "verb": "sit"
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "operator_shoes",
+        "start": 0.0,
+        "end": 4.0
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "steering_wheel",
+        "start": 8.0,
+        "end": 17.1
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "dashboard_console",
+        "start": 8.0,
+        "end": 17.1
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "car_seats",
+        "start": 6.0,
+        "end": 9.0
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "matched interval but action wording or boundary differs",
+      "temporal_iou": 0.5,
+      "a": {
+        "start": 6.0,
+        "end": 13.0,
+        "verb": "raise both arms and stretch",
+        "object": "none",
+        "certainty": "high"
+      },
+      "b": {
+        "certainty": "high",
+        "end": 14.0,
+        "note": "hands clasped behind head, elbows out t9-14",
+        "object": null,
+        "start": 9.0,
+        "verb": "stretch_arms_behind_head"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 14.0,
+        "end": 19.0,
+        "verb": "pull seat belt across body",
+        "object": "seat belt",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 20.0,
+        "end": 27.8,
+        "verb": "sit facing camera and speak with small hand gestures",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 27.7,
+        "note": "mouth moving in most frames; audio not checked",
+        "object": null,
+        "start": 1.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 24.0,
+        "note": "pulls belt across chest t18-24, belt worn after",
+        "object": "seatbelt",
+        "start": 18.0,
+        "verb": "fasten_seatbelt"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "low",
+        "end": 27.7,
+        "note": "final frame blurred, hand reaching toward lens",
+        "object": "camera",
+        "start": 27.0,
+        "verb": "reach_for_camera"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 27.77,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "seat belt",
+        "start": 13.0,
+        "end": 27.77,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man_driver",
+        "start": 0.0,
+        "end": 27.7
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "dash_hanging_device",
+        "start": 0.0,
+        "end": 27.7
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "seatbelt",
+        "start": 18.0,
+        "end": 27.7
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "bracelet",
+        "start": 0.0,
+        "end": 15.0
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 17.0,
+        "note": "operator pans camera: passenger window, dash, wheel, road",
+        "object": "camera",
+        "start": 0.0,
+        "verb": "pan_camera"
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "steering_wheel_dashboard",
+        "start": 3.0,
+        "end": 26.7
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "driver_hand",
+        "start": 4.0,
+        "end": 5.0
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "buildings_power_lines_roadside",
+        "start": 12.0,
+        "end": 26.7
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 5.0,
+        "note": "view swings across intersection, turn signal area; turning path visible",
+        "object": "car",
+        "start": 0.0,
+        "verb": "turn_through_intersection"
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "navigation phone on dashboard",
+        "start": 1.0,
+        "end": 7.9,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "traffic_lights_street_signs",
+        "start": 3.0,
+        "end": 6.0
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "other_cars",
+        "start": 3.0,
+        "end": 7.9
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "driver_hand_on_wheel",
+        "start": 3.0,
+        "end": 4.0
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 3.5,
+        "note": "t1-3 frames show blurred close-up of interior trim, lens likely handled",
+        "object": "camera",
+        "start": 1.0,
+        "verb": "adjust_camera"
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "navigation phone",
+        "start": 0.0,
+        "end": 22.87,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "the_works_monument_sign",
+        "start": 4.0,
+        "end": 6.0
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "buildings_storefronts",
+        "start": 4.0,
+        "end": 22.8
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "matched interval but action wording or boundary differs",
+      "temporal_iou": 0.8946,
+      "a": {
+        "start": 20.0,
+        "end": 139.13,
+        "verb": "continue walking and talking to camera, gesturing intermittently",
+        "object": "none",
+        "certainty": "medium"
+      },
+      "b": {
+        "certainty": "high",
+        "end": 139.1,
+        "note": "talking; face partly out of frame t0-5 so start is partial",
+        "object": null,
+        "start": 6.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 0.0,
+        "end": 4.0,
+        "verb": "walk while filming a selfie",
+        "object": "none",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 4.0,
+        "end": 15.0,
+        "verb": "walk beside building and look up at facade",
+        "object": "building",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 15.0,
+        "end": 19.0,
+        "verb": "touch face near eye",
+        "object": "none",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 139.1,
+        "note": "background moves past continuously, selfie framing",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "low",
+        "end": 4.0,
+        "note": "t3 shows knee up, hand on knee; seated or leaning, ambiguous",
+        "object": null,
+        "start": 2.5,
+        "verb": "sit_or_lean"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 10.0,
+        "note": "hand to eye/face",
+        "object": null,
+        "start": 9.0,
+        "verb": "rub_face"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 27.0,
+        "note": "index finger point toward lens",
+        "object": null,
+        "start": 26.0,
+        "verb": "point"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 33.0,
+        "note": "points at wayfinding sign behind",
+        "object": "signboard",
+        "start": 31.0,
+        "verb": "point_at_sign"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 39.0,
+        "note": "hand to cap brim",
+        "object": "cap",
+        "start": 38.0,
+        "verb": "adjust_cap"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 105.0,
+        "note": "hand to forehead/eye",
+        "object": null,
+        "start": 104.0,
+        "verb": "touch_face"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 139.13,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "large patterned building facade",
+        "start": 0.0,
+        "end": 139.13,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "sidewalk and street",
+        "start": 0.0,
+        "end": 139.13,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 139.1
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_structure",
+        "start": 0.0,
+        "end": 30.0
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_structure",
+        "start": 44.0,
+        "end": 90.0
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_structure",
+        "start": 115.0,
+        "end": 139.1
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "plaza_trees_sky",
+        "start": 30.0,
+        "end": 44.0
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "plaza_trees_sky",
+        "start": 90.0,
+        "end": 115.0
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "signboard",
+        "start": 30.0,
+        "end": 33.0
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 4.5,
+        "end": 9.07,
+        "verb": "walk with camera pointed downward, then briefly reveal self",
+        "object": "sidewalk",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 9.0,
+        "note": "continuous forward motion past storefront, feet visible t7-8",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 7.0,
+        "note": "face enters frame briefly, appears to talk",
+        "object": null,
+        "start": 6.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person in cap and light shirt",
+        "start": 5.0,
+        "end": 9.07,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "patio_furniture",
+        "start": 0.0,
+        "end": 4.0
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "sandwich_board_sign",
+        "start": 1.0,
+        "end": 3.0
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "firewood_stack",
+        "start": 0.0,
+        "end": 3.0
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "operator_shoe",
+        "start": 5.0,
+        "end": 8.0
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "matched interval but action wording or boundary differs",
+      "temporal_iou": 0.625,
+      "a": {
+        "start": 2.0,
+        "end": 18.0,
+        "verb": "walk across plaza toward building",
+        "object": "none",
+        "certainty": "high"
+      },
+      "b": {
+        "certainty": "high",
+        "end": 12.0,
+        "note": "back to lens, shrinking with distance, static camera",
+        "object": null,
+        "start": 2.0,
+        "verb": "walk_away_from_camera"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 0.0,
+        "end": 2.0,
+        "verb": "hold selfie framing and turn toward plaza",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 18.0,
+        "end": 45.94,
+        "verb": "face camera and talk with small gestures",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 1.5,
+        "note": "close selfie, mouth moving",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 18.0,
+        "note": "small distant figure near pergola, near-static",
+        "object": null,
+        "start": 12.0,
+        "verb": "stand"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 29.0,
+        "note": "growing figure approaching static camera",
+        "object": null,
+        "start": 18.0,
+        "verb": "walk_toward_camera"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 45.9,
+        "note": "close selfie monologue, mouth moving",
+        "object": null,
+        "start": 29.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 43.0,
+        "note": "head tilted down, likely checking phone/recording; ambiguous",
+        "object": "phone",
+        "start": 36.0,
+        "verb": "look_down_at_device"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 45.94,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "baseball cap",
+        "start": 0.0,
+        "end": 45.94,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "backpack",
+        "start": 8.0,
+        "end": 45.94,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 45.9
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "pergola_structure",
+        "start": 0.0,
+        "end": 45.9
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parked_cars_background",
+        "start": 0.0,
+        "end": 45.9
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 3.5,
+        "note": "index finger point gesture",
+        "object": null,
+        "start": 2.0,
+        "verb": "point"
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 5.0,
+        "note": "hand to mouth/chin",
+        "object": null,
+        "start": 4.0,
+        "verb": "touch_face"
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 6.3
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_lot_cars_background",
+        "start": 0.0,
+        "end": 6.3
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 0.0,
+        "end": 42.0,
+        "verb": "walk through plaza while speaking to camera",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 42.0,
+        "end": 81.0,
+        "verb": "continue walking and gesturing while talking",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 81.0,
+        "end": 123.0,
+        "verb": "walk past colorful mural and storefronts",
+        "object": "none",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 123.0,
+        "end": 151.0,
+        "verb": "walk beside parking area and look around",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 151.0,
+        "end": 188.58,
+        "verb": "sit in car and handle a small item near face",
+        "object": "small item, possibly keys",
+        "certainty": "ambiguous"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 134.0,
+        "note": "static selfie monologue in plaza, gaze mostly to lens with look-aways",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 8.0,
+        "note": "both hands raised, palms out",
+        "object": null,
+        "start": 7.0,
+        "verb": "raise_hands"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 23.0,
+        "note": "palms pressed together at t8, t12, t21-22 while talking",
+        "object": null,
+        "start": 21.0,
+        "verb": "press_palms_together"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 36.0,
+        "note": "leaning Chin/arms on crossed arms t31-36",
+        "object": null,
+        "start": 31.0,
+        "verb": "lean_on_arms"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 70.0,
+        "note": "fiddling with ring or small item between fingers",
+        "object": "ring",
+        "start": 68.0,
+        "verb": "fiddle_with_ring"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 87.0,
+        "note": "open hand extended toward lens",
+        "object": null,
+        "start": 85.0,
+        "verb": "hold_hand_to_lens"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 93.0,
+        "note": "finger point while talking",
+        "object": null,
+        "start": 92.0,
+        "verb": "point"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "low",
+        "end": 162.0,
+        "note": "cap present t0-161, absent t162-167; removal moment not directly seen",
+        "object": "cap",
+        "start": 161.0,
+        "verb": "remove_cap"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "low",
+        "end": 168.0,
+        "note": "cap back on at t168; replacement moment not directly seen",
+        "object": "cap",
+        "start": 167.0,
+        "verb": "replace_cap"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 136.0,
+        "note": "abrupt motion, view swings to sky and mural wall",
+        "object": "camera",
+        "start": 134.0,
+        "verb": "pick_up_camera"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 188.5,
+        "note": "walking selfie, background streams past: mural, apartments, stairs, cars",
+        "object": null,
+        "start": 136.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 188.5,
+        "note": "mouth moving while walking",
+        "object": null,
+        "start": 135.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 151.0,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 151.0,
+        "end": 188.58,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "backpack",
+        "start": 0.0,
+        "end": 151.0,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "colorful mural wall",
+        "start": 72.0,
+        "end": 121.0,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "small object held near face",
+        "start": 151.0,
+        "end": 188.58,
+        "certainty": "ambiguous"
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "cap",
+        "start": 168.0,
+        "end": 188.5
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 188.5
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "mural_wall",
+        "start": 136.0,
+        "end": 150.0
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "apartment_buildings",
+        "start": 150.0,
+        "end": 188.5
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "backpack_straps",
+        "start": 143.0,
+        "end": 188.5
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 41.5,
+        "note": "talking throughout",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 5.5,
+        "note": "index finger point, storefront behind",
+        "object": null,
+        "start": 4.0,
+        "verb": "point"
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 16.0,
+        "note": "index finger raised while talking",
+        "object": null,
+        "start": 15.0,
+        "verb": "point"
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 41.51,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 41.5
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "apartment_buildings",
+        "start": 0.0,
+        "end": 41.5
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "storefronts",
+        "start": 4.0,
+        "end": 6.0
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parked_cars_street",
+        "start": 18.0,
+        "end": 41.5
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 85.5,
+        "note": "talking throughout",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 80.5,
+        "note": "hand to ear/cap area, brief",
+        "object": "cap",
+        "start": 79.0,
+        "verb": "adjust_cap"
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 85.52,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "parked vehicles",
+        "start": 0.0,
+        "end": 85.52,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 85.5
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "backpack_straps",
+        "start": 0.0,
+        "end": 85.5
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "shops_street",
+        "start": 0.0,
+        "end": 70.0
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_string_lights",
+        "start": 70.0,
+        "end": 85.5
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "trees_sunset_sky",
+        "start": 10.0,
+        "end": 85.5
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 0.0,
+        "end": 4.7,
+        "verb": "brief selfie in car; small head movement and speech",
+        "object": "none",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 4.7,
+        "note": "view travels from building to street, operator on foot",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "low",
+        "end": 2.5,
+        "note": "framing holds on window reflection t1-2, may have paused",
+        "object": null,
+        "start": 1.0,
+        "verb": "pause"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 4.7,
+        "note": "view sweeps from facade to street",
+        "object": "camera",
+        "start": 2.5,
+        "verb": "pan_camera"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 4.7,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "car interior",
+        "start": 0.0,
+        "end": 4.7,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "brick_building",
+        "start": 0.0,
+        "end": 4.0
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "window_with_operator_reflection",
+        "start": 1.0,
+        "end": 2.5
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "street_with_cars",
+        "start": 3.0,
+        "end": 4.7
+      }
+    },
+    {
+      "take": "IMG_1819",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "sidewalk_trees",
+        "start": 0.0,
+        "end": 4.7
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 0.0,
+        "end": 18.0,
+        "verb": "sit in car and talk to camera",
+        "object": "none",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 18.0,
+        "end": 34.0,
+        "verb": "lift and display keys, then gesture with them",
+        "object": "keys",
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "start": 34.0,
+        "end": 52.55,
+        "verb": "continue talking and gesturing while seated",
+        "object": "keys",
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 51.0,
+        "note": "continuous walking selfie",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 51.0,
+        "note": "talking throughout",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 33.5,
+        "note": "index finger raised, held up while talking",
+        "object": null,
+        "start": 31.0,
+        "verb": "point_up"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 51.0,
+        "note": "open-hand wave at lens",
+        "object": null,
+        "start": 50.0,
+        "verb": "wave"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 52.5,
+        "note": "t51-52 frames fully obscured red blur, hand over lens ends take",
+        "object": "camera",
+        "start": 51.0,
+        "verb": "cover_lens"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 52.55,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "key fob and keys",
+        "start": 17.0,
+        "end": 52.55,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 52.5
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "backpack_straps",
+        "start": 0.0,
+        "end": 52.5
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "street_shops",
+        "start": 0.0,
+        "end": 52.5
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_facade",
+        "start": 30.0,
+        "end": 52.5
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "hand_over_lens",
+        "start": 50.0,
+        "end": 52.5
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 41.9,
+        "note": "walking through covered parking garage, ceiling and lights stream past",
+        "object": null,
+        "start": 0.0,
+        "verb": "walk"
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 41.94,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "key fob and keys",
+        "start": 0.0,
+        "end": 41.94,
+        "certainty": "medium"
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 41.9
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "backpack_straps",
+        "start": 0.0,
+        "end": 41.9
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_interior",
+        "start": 0.0,
+        "end": 41.9
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 85.8,
+        "note": "talking throughout",
+        "object": null,
+        "start": 0.0,
+        "verb": "speak_to_camera"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 85.8,
+        "note": "small dark object in right hand from t5 to end, manipulated throughout",
+        "object": "small_handheld_object",
+        "start": 5.0,
+        "verb": "hold_object"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "high",
+        "end": 85.0,
+        "note": "object used in pointing, showing, and fiddling gestures",
+        "object": "small_handheld_object",
+        "start": 6.0,
+        "verb": "gesture_with_object"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 32.0,
+        "note": "gaze shifts out side window",
+        "object": null,
+        "start": 30.0,
+        "verb": "look_out_window"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 44.0,
+        "note": "gaze shifts out side window",
+        "object": null,
+        "start": 43.0,
+        "verb": "look_out_window"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "certainty": "medium",
+        "end": 69.0,
+        "note": "gaze shifts out side window",
+        "object": null,
+        "start": 68.0,
+        "verb": "look_out_window"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "person",
+        "start": 0.0,
+        "end": 85.82,
+        "certainty": "high"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "agent-actions-a",
+      "label": {
+        "object": "small object in hand",
+        "start": 0.0,
+        "end": 85.82,
+        "certainty": "ambiguous"
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "man",
+        "start": 0.0,
+        "end": 85.8
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "small_handheld_object",
+        "start": 5.0,
+        "end": 85.8
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "parking_garage_through_windows",
+        "start": 0.0,
+        "end": 85.8
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "reason": "unmatched label",
+      "labeller": "vep-agent-actions-b2",
+      "label": {
+        "object": "bracelet_ring",
+        "start": 0.0,
+        "end": 85.8
+      }
+    }
+  ]
+}

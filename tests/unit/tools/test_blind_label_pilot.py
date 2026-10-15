@@ -105,6 +105,68 @@ def test_search_labels_can_calibrate_abstention_without_mutating_inputs(tmp_path
     )
 
 
+def test_agent_labels_ingest_models_agreement_and_individual_votes(tmp_path):
+    kit = {
+        "kit_id": "kit",
+        "items": [
+            {"id": "s1", "kind": "search", "query": "red cup",
+             "prompt": "red cup"},
+            {"id": "s2", "kind": "search", "query": "blue cup",
+             "prompt": "blue cup"},
+        ],
+    }
+    answers = {
+        "kind": "agent-labels",
+        "note": "agent labels from independent blind labellers (model-a, model-b, model-c tie-break)",
+        "agreement_rate": 0.5,
+        "items": [
+            {"id": "s1", "label": "present", "resolution": "agreed",
+             "labels": {"a": "present", "b": "present"}},
+            {"id": "s2", "label": "absent", "resolution": "third-labeller",
+             "labels": {"a": "present", "b": "absent", "c": "absent"}},
+        ],
+    }
+    ap, kp = tmp_path / "agents.json", tmp_path / "kit.json"
+    ap.write_text(json.dumps(answers), encoding="utf-8")
+    kp.write_text(json.dumps(kit), encoding="utf-8")
+    output = tmp_path / "agent-labels.json"
+    ingest(ap, kp, output)
+    record = json.loads(output.read_text(encoding="utf-8"))
+    assert record["label_type"] == "agent"
+    assert record["labeller_models"] == ["model-a", "model-b", "model-c tie-break"]
+    assert record["agreement_rate"] == 0.5
+    assert record["labels"][1]["individual_labels"] == {
+        "a": "present", "b": "absent", "c": "absent"
+    }
+    assert label_summary(output, kind="search")["source"].startswith(
+        "evaluator-only agent labels"
+    )
+
+
+def test_calibration_reports_not_found_precision_and_recall(tmp_path):
+    kit = {"kit_id": "kit", "items": [
+        {"id": f"s{i}", "kind": "search", "query": "q", "prompt": "q"}
+        for i in range(4)
+    ]}
+    answers = {
+        "schema": "ren-blind-editorial-answers-v1", "kit_id": "kit",
+        "labeller": "test", "labels": [
+            {"item_id": "s0", "judgment": "absent"},
+            {"item_id": "s1", "judgment": "absent"},
+            {"item_id": "s2", "judgment": "present"},
+            {"item_id": "s3", "judgment": "present"},
+        ],
+    }
+    ap, kp = tmp_path / "a.json", tmp_path / "k.json"
+    ap.write_text(json.dumps(answers), encoding="utf-8")
+    kp.write_text(json.dumps(kit), encoding="utf-8")
+    record = tmp_path / "labels.json"
+    ingest(ap, kp, record)
+    measured = calibrate_abstention(record, {"s0": .1, "s1": .2, "s2": .8, "s3": .9})
+    assert measured["not_found_precision"] == 1.0
+    assert measured["not_found_recall"] == 1.0
+
+
 def test_eval04_proposals_are_taken_only_from_calibration_outputs(tmp_path):
     run_root = tmp_path / "runner"
     run_root.mkdir()

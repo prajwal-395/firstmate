@@ -1,0 +1,531 @@
+{
+  "schema": "ren-blind-editorial-labels-v1",
+  "kit_id": "ren-blind-editorial-pilot-2026-10",
+  "evaluator_only": true,
+  "training_data": false,
+  "calibration_inputs": false,
+  "label_type": "agent",
+  "labeller_models": [
+    "codex gpt-6.1",
+    "opencode muse-spark",
+    "claude sonnet tie-break"
+  ],
+  "agreement_rate": 0.9,
+  "note": "agent labels from independent blind labellers (codex gpt-6.1, opencode muse-spark, claude sonnet tie-break); NOT human ground truth",
+  "labelled_date": "2026-10-15",
+  "labels": [
+    {
+      "item": {
+        "id": "search-001",
+        "kind": "search",
+        "start_seconds": 8,
+        "end_seconds": 16,
+        "query": "a woman wearing glasses at a table",
+        "prompt": "a woman wearing glasses at a table",
+        "media": "search-001.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-002",
+        "kind": "search",
+        "start_seconds": 38,
+        "end_seconds": 46,
+        "query": "leafy plants behind a seated woman",
+        "prompt": "leafy plants behind a seated woman",
+        "media": "search-002.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-003",
+        "kind": "search",
+        "start_seconds": 68,
+        "end_seconds": 76,
+        "query": "a thin white pole at the left edge of the frame",
+        "prompt": "a thin white pole at the left edge of the frame",
+        "media": "search-003.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-004",
+        "kind": "search",
+        "start_seconds": 98,
+        "end_seconds": 106,
+        "query": "a hand in the foreground at the bottom of the frame",
+        "prompt": "a hand in the foreground at the bottom of the frame",
+        "media": "search-004.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "third-labeller",
+      "individual_labels": {
+        "a": "present",
+        "b": "absent",
+        "c": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-005",
+        "kind": "search",
+        "start_seconds": 128,
+        "end_seconds": 136,
+        "query": "a woman wearing glasses at a table",
+        "prompt": "a woman wearing glasses at a table",
+        "media": "search-005.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-006",
+        "kind": "search",
+        "start_seconds": 158,
+        "end_seconds": 166,
+        "query": "a man wearing glasses at a table",
+        "prompt": "a man wearing glasses at a table",
+        "media": "search-006.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-007",
+        "kind": "search",
+        "start_seconds": 188,
+        "end_seconds": 196,
+        "query": "a thin white pole at the right edge of the frame",
+        "prompt": "a thin white pole at the right edge of the frame",
+        "media": "search-007.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-008",
+        "kind": "search",
+        "start_seconds": 218,
+        "end_seconds": 226,
+        "query": "a green plant in front of the speaker",
+        "prompt": "a green plant in front of the speaker",
+        "media": "search-008.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-009",
+        "kind": "search",
+        "start_seconds": 248,
+        "end_seconds": 256,
+        "query": "a horse galloping on a beach",
+        "prompt": "a horse galloping on a beach",
+        "media": "search-009.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-010",
+        "kind": "search",
+        "start_seconds": 278,
+        "end_seconds": 286,
+        "query": "someone snowboarding down a mountain",
+        "prompt": "someone snowboarding down a mountain",
+        "media": "search-010.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-011",
+        "kind": "search",
+        "start_seconds": 8,
+        "end_seconds": 16,
+        "query": "an open laptop at the left edge of the frame",
+        "prompt": "an open laptop at the left edge of the frame",
+        "media": "search-011.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-012",
+        "kind": "search",
+        "start_seconds": 38,
+        "end_seconds": 46,
+        "query": "a hand in the foreground at the bottom of the frame",
+        "prompt": "a hand in the foreground at the bottom of the frame",
+        "media": "search-012.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-013",
+        "kind": "search",
+        "start_seconds": 68,
+        "end_seconds": 76,
+        "query": "two people seated across a table",
+        "prompt": "two people seated across a table",
+        "media": "search-013.mp4"
+      },
+      "judgment": "unsure",
+      "resolution": "third-labeller",
+      "individual_labels": {
+        "a": "absent",
+        "b": "present",
+        "c": "unsure"
+      }
+    },
+    {
+      "item": {
+        "id": "search-014",
+        "kind": "search",
+        "start_seconds": 98,
+        "end_seconds": 106,
+        "query": "an open laptop at the right edge of the frame",
+        "prompt": "an open laptop at the right edge of the frame",
+        "media": "search-014.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-015",
+        "kind": "search",
+        "start_seconds": 128,
+        "end_seconds": 136,
+        "query": "a woman wearing glasses at a table",
+        "prompt": "a woman wearing glasses at a table",
+        "media": "search-015.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-016",
+        "kind": "search",
+        "start_seconds": 158,
+        "end_seconds": 166,
+        "query": "a dog sitting beside the speaker",
+        "prompt": "a dog sitting beside the speaker",
+        "media": "search-016.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-017",
+        "kind": "search",
+        "start_seconds": 188,
+        "end_seconds": 196,
+        "query": "a person riding a bicycle outdoors",
+        "prompt": "a person riding a bicycle outdoors",
+        "media": "search-017.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-018",
+        "kind": "search",
+        "start_seconds": 8,
+        "end_seconds": 16,
+        "query": "a person walking outdoors",
+        "prompt": "a person walking outdoors",
+        "media": "search-018.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-019",
+        "kind": "search",
+        "start_seconds": 28,
+        "end_seconds": 36,
+        "query": "trees beside a road",
+        "prompt": "trees beside a road",
+        "media": "search-019.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    },
+    {
+      "item": {
+        "id": "search-020",
+        "kind": "search",
+        "start_seconds": 58,
+        "end_seconds": 66,
+        "query": "a person driving a red sports car",
+        "prompt": "a person driving a red sports car",
+        "media": "search-020.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-021",
+        "kind": "search",
+        "start_seconds": 88,
+        "end_seconds": 96,
+        "query": "a close-up of a coffee cup",
+        "prompt": "a close-up of a coffee cup",
+        "media": "search-021.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-022",
+        "kind": "search",
+        "start_seconds": 118,
+        "end_seconds": 126,
+        "query": "snowboarding down a mountain",
+        "prompt": "snowboarding down a mountain",
+        "media": "search-022.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-023",
+        "kind": "search",
+        "start_seconds": 148,
+        "end_seconds": 156,
+        "query": "a parked car beside trees",
+        "prompt": "a parked car beside trees",
+        "media": "search-023.mp4"
+      },
+      "judgment": "unsure",
+      "resolution": "third-labeller",
+      "individual_labels": {
+        "a": "present",
+        "b": "unsure",
+        "c": "unsure"
+      }
+    },
+    {
+      "item": {
+        "id": "search-024",
+        "kind": "search",
+        "start_seconds": 8,
+        "end_seconds": 16,
+        "query": "a person walking indoors",
+        "prompt": "a person walking indoors",
+        "media": "search-024.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-025",
+        "kind": "search",
+        "start_seconds": 48,
+        "end_seconds": 56,
+        "query": "a motorcycle on a city street",
+        "prompt": "a motorcycle on a city street",
+        "media": "search-025.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-026",
+        "kind": "search",
+        "start_seconds": 218,
+        "end_seconds": 226,
+        "query": "a computer screen displaying a map",
+        "prompt": "a computer screen displaying a map",
+        "media": "search-026.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-027",
+        "kind": "search",
+        "start_seconds": 18,
+        "end_seconds": 26,
+        "query": "a laptop open on the table",
+        "prompt": "a laptop open on the table",
+        "media": "search-027.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-028",
+        "kind": "search",
+        "start_seconds": 108,
+        "end_seconds": 116,
+        "query": "a person speaking into a handheld microphone",
+        "prompt": "a person speaking into a handheld microphone",
+        "media": "search-028.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-029",
+        "kind": "search",
+        "start_seconds": 248,
+        "end_seconds": 256,
+        "query": "a bookshelf filled with books",
+        "prompt": "a bookshelf filled with books",
+        "media": "search-029.mp4"
+      },
+      "judgment": "absent",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "absent",
+        "b": "absent"
+      }
+    },
+    {
+      "item": {
+        "id": "search-030",
+        "kind": "search",
+        "start_seconds": 168,
+        "end_seconds": 176,
+        "query": "a man speaking to camera while walking",
+        "prompt": "a man speaking to camera while walking",
+        "media": "search-030.mp4"
+      },
+      "judgment": "present",
+      "resolution": "agreed",
+      "individual_labels": {
+        "a": "present",
+        "b": "present"
+      }
+    }
+  ]
+}

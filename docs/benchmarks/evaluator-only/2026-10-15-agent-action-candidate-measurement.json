@@ -1,0 +1,106 @@
+{
+  "method": "Apple Vision M3 over scratch-only M2 2Hz I-frame samples; event_spans geometric candidate generators; one shared visible-person track per take; candidate-to-consensus action match requires same take, mapped compatible predicate, temporal IoU >= 0.5. Only stretch_arms_behind_head -> hand_raise and put_on_cap -> object_pickup were considered semantically compatible.",
+  "candidate_count_by_predicate": {
+    "hand_raise": 1,
+    "object_pickup": 2,
+    "nod": 5
+  },
+  "compatible_agent_label_count": 2,
+  "matched_count": 1,
+  "recall": 0.5,
+  "boundary_mae_seconds": {
+    "start": 0.7189999999999994,
+    "end": 2.4540000000000006
+  },
+  "matches": [
+    {
+      "take": "IMG_1808",
+      "verb": "stretch_arms_behind_head",
+      "predicate": "hand_raise",
+      "label": [
+        7.5,
+        13.5
+      ],
+      "candidate": [
+        8.219,
+        15.954
+      ],
+      "iou": 0.6246747101963568,
+      "start_error_s": 0.7189999999999994,
+      "end_error_s": 2.4540000000000006
+    }
+  ],
+  "candidates": [
+    {
+      "take": "IMG_1808",
+      "predicate": "hand_raise",
+      "start": 8.219,
+      "end": 15.954,
+      "tier": 0,
+      "score": 3.409
+    },
+    {
+      "take": "IMG_1808",
+      "predicate": "nod",
+      "start": 12.087,
+      "end": 17.886,
+      "tier": 0,
+      "score": 1.768
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "object_pickup",
+      "start": 84.603,
+      "end": 85.571,
+      "tier": 0,
+      "score": 1.926
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "object_pickup",
+      "start": 17.889,
+      "end": 19.822,
+      "tier": 1,
+      "score": 1.051
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "nod",
+      "start": 154.22,
+      "end": 160.988,
+      "tier": 1,
+      "score": 1.406
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "nod",
+      "start": 164.857,
+      "end": 169.69,
+      "tier": 1,
+      "score": 1.266
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "nod",
+      "start": 172.591,
+      "end": 177.425,
+      "tier": 1,
+      "score": 1.134
+    },
+    {
+      "take": "IMG_1816",
+      "predicate": "nod",
+      "start": 19.822,
+      "end": 24.655,
+      "tier": 1,
+      "score": 1.041
+    }
+  ],
+  "schema": "ren-agent-action-candidate-measurement-v1",
+  "evaluator_only": true,
+  "training_data": false,
+  "calibration_inputs": false,
+  "label_type": "agent",
+  "label_source": "docs/benchmarks/evaluator-only/2026-10-15-agent-action-consensus.json",
+  "held_out_accessed": false
+}

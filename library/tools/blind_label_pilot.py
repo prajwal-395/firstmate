@@ -215,11 +215,20 @@ def generate(
 
 def validate_answers(answers: dict, kit: dict) -> list[str]:
     errors = []
-    if answers.get("schema") != "ren-blind-editorial-answers-v1":
+    if answers.get("schema") not in {
+        "ren-blind-editorial-answers-v1",
+        "ren-blind-agent-labels-v1",
+    }:
         errors.append("answers schema is missing or unsupported")
     if answers.get("kit_id") != kit.get("kit_id"):
         errors.append("kit_id does not match the kit")
-    if not isinstance(answers.get("labeller"), str) or not answers["labeller"].strip():
+    is_agent = answers.get("schema") == "ren-blind-agent-labels-v1"
+    if is_agent:
+        if not isinstance(answers.get("labeller_models"), list) or not answers["labeller_models"]:
+            errors.append("agent labels require labeller_models")
+        if not isinstance(answers.get("agreement_rate"), (int, float)) or not 0 <= answers["agreement_rate"] <= 1:
+            errors.append("agent labels require agreement_rate in [0, 1]")
+    elif not isinstance(answers.get("labeller"), str) or not answers["labeller"].strip():
         errors.append("labeller is required")
     labels = answers.get("labels")
     if not isinstance(labels, list):
@@ -240,6 +249,12 @@ def validate_answers(answers: dict, kit: dict) -> list[str]:
         kind = expected[item_id]["kind"]
         if row.get("judgment") not in KINDS[kind]:
             errors.append(f"{item_id} has an invalid {kind} judgment")
+        if is_agent:
+            if row.get("resolution") not in {"agreed", "third-labeller"}:
+                errors.append(f"{item_id} has an invalid agent-label resolution")
+            labels = row.get("labels")
+            if not isinstance(labels, dict) or not labels or any(v not in KINDS[kind] for v in labels.values()):
+                errors.append(f"{item_id} has invalid individual agent labels")
         if kind == "search" and row.get("note"):
             errors.append(f"{item_id} search labels do not accept notes")
         if (
@@ -256,23 +271,47 @@ def validate_answers(answers: dict, kit: dict) -> list[str]:
 
 def ingest(answers_path: Path, kit_path: Path, destination: Path) -> dict:
     answers, kit = _read(answers_path), _read(kit_path)
+    if answers.get("kind") == "agent-labels":
+        note = str(answers.get("note", ""))
+        match = re.search(r"independent blind labellers \((.*?)\)(?:;|$)", note)
+        models = [part.strip() for part in match.group(1).split(",")] if match else []
+        answers = {
+            "schema": "ren-blind-agent-labels-v1",
+            "kit_id": kit["kit_id"],
+            "labeller_models": models,
+            "agreement_rate": answers.get("agreement_rate"),
+            "note": note,
+            "labels": [
+                {"item_id": row["id"], "judgment": row["label"],
+                 "resolution": row["resolution"], "labels": row["labels"]}
+                for row in answers["items"]
+            ],
+        }
     errors = validate_answers(answers, kit)
     if errors:
         raise ValueError("invalid answer file: " + "; ".join(errors))
     today = dt.datetime.now(dt.UTC).date().isoformat()
     items = {row["id"]: row for row in kit["items"]}
+    is_agent = answers.get("schema") == "ren-blind-agent-labels-v1"
     document = {
         "schema": SCHEMA,
         "kit_id": kit["kit_id"],
         "evaluator_only": True,
         "training_data": False,
         "calibration_inputs": False,
-        "labeller": answers["labeller"],
+        "label_type": "agent" if is_agent else "human",
+        **({
+            "labeller_models": answers["labeller_models"],
+            "agreement_rate": answers["agreement_rate"],
+            "note": answers.get("note", ""),
+        } if is_agent else {"labeller": answers["labeller"]}),
         "labelled_date": today,
         "labels": [
             {
                 "item": items[row["item_id"]],
                 "judgment": row["judgment"],
+                **({"resolution": row["resolution"], "individual_labels": row["labels"]}
+                   if is_agent else {}),
                 **(
                     {"note": row.get("note", "")}
                     if items[row["item_id"]]["kind"] == "edit"
@@ -304,11 +343,12 @@ def read_evaluator_labels(path: Path | None, *, kind: str | None = None) -> list
         raise ValueError("not an evaluator-only blind-label record")
     if kind not in {None, "search", "edit"}:
         raise ValueError("kind must be search, edit, or None")
-    return [row for row in doc["labels"] if kind is None or row["item"]["kind"] == kind]
+    return [row | {"label_type": doc.get("label_type", "human")}
+            for row in doc["labels"] if kind is None or row["item"]["kind"] == kind]
 
 
 def label_summary(path: Path | None, *, kind: str) -> dict:
-    """Return observed human outcomes for D02 search or F02/F03 edit checks."""
+    """Return evaluator outcomes for D02 search or F02/F03 edit checks."""
     rows = read_evaluator_labels(path, kind=kind)
     counts: dict[str, int] = {}
     for row in rows:
@@ -322,7 +362,7 @@ def label_summary(path: Path | None, *, kind: str) -> dict:
             "judgment_counts": counts,
             "absent_count": len(negatives),
             "calibration_item_ids": [r["item"]["id"] for r in negatives],
-            "source": "evaluator-only human labels; not a frozen benchmark input",
+            "source": _label_source(rows),
         }
     accepted = sum(row["judgment"] == "acceptable" for row in judged)
     return {
@@ -331,7 +371,7 @@ def label_summary(path: Path | None, *, kind: str) -> dict:
         "judged_count": len(judged),
         "acceptable_rate": accepted / len(judged) if judged else None,
         "proposal_item_ids": [r["item"]["id"] for r in judged],
-        "source": "evaluator-only human labels; not a frozen benchmark input",
+        "source": _label_source(rows),
     }
 
 
@@ -374,14 +414,24 @@ def calibrate_abstention(path: Path, scores: dict[str, float]) -> dict:
             "balanced_accuracy": (sensitivity + specificity) / 2,
             "present_retained_rate": sensitivity,
             "absent_abstained_rate": specificity,
+            "not_found_precision": tn / (tn + (positives - tp)) if tn + (positives - tp) else None,
+            "not_found_recall": specificity,
+            "not_found_true_positives": tn,
+            "not_found_false_positives": positives - tp,
             "judged_count": len(judged),
-            "method": "balanced accuracy over labeled windows",
+            "method": "balanced accuracy over labeled windows; not_found means score below cutoff",
         }
         if best is None or candidate["balanced_accuracy"] > best["balanced_accuracy"]:
             best = candidate
     best["status"] = "measured candidate; requires review before policy change"
-    best["source"] = "evaluator-only human labels; not a frozen benchmark input"
+    best["source"] = _label_source(rows)
     return best
+
+
+def _label_source(rows: list[dict]) -> str:
+    agent = any(row.get("label_type") == "agent" for row in rows)
+    return ("evaluator-only agent labels; not human ground truth or a frozen benchmark input"
+            if agent else "evaluator-only human labels; not a frozen benchmark input")
 
 
 def add_runner_proposals(

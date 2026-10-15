@@ -1,0 +1,1521 @@
+{
+  "schema": "ren-agent-action-consensus-v1",
+  "evaluator_only": true,
+  "training_data": false,
+  "calibration_inputs": false,
+  "label_type": "agent",
+  "labeller_models": [
+    "agent-actions-a",
+    "vep-agent-actions-b2"
+  ],
+  "match_policy": "same take; compatible non-stopword verb or object token; temporal IoU >= 0.5; one-to-one maximum-IoU matching",
+  "boundary_policy": "mean of the two annotator boundaries for matched pairs; no invented labels for unmatched rows",
+  "labels": [
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "object",
+      "name": "concrete_stairs",
+      "start": 0.0,
+      "end": 3.535,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9804,
+        "a": {
+          "object": "concrete steps and landing",
+          "start": 0.0,
+          "end": 3.57,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "concrete_stairs",
+          "start": 0.0,
+          "end": 3.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "object",
+      "name": "metal_handrail",
+      "start": 0.0,
+      "end": 3.535,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9804,
+        "a": {
+          "object": "metal handrails",
+          "start": 0.0,
+          "end": 3.57,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "metal_handrail",
+          "start": 0.0,
+          "end": 3.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1806",
+      "split": "calibration",
+      "kind": "object",
+      "name": "parked_cars",
+      "start": 0.0,
+      "end": 3.535,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9804,
+        "a": {
+          "object": "parked cars",
+          "start": 0.0,
+          "end": 3.57,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "parked_cars",
+          "start": 0.0,
+          "end": 3.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "open_car_door",
+      "object": "car_door",
+      "start": 0.0,
+      "end": 5.25,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9091,
+        "a": {
+          "start": 0.0,
+          "end": 5.0,
+          "verb": "reach for and pull car door handle",
+          "object": "dark car door",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 5.5,
+          "note": "hand on handle t0-4, door swings open t5",
+          "object": "car_door",
+          "start": 0.0,
+          "verb": "open_car_door"
+        }
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "enter_car",
+      "object": "car",
+      "start": 5.25,
+      "end": 9.25,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.7778,
+        "a": {
+          "start": 5.0,
+          "end": 9.0,
+          "verb": "open door and lean into car",
+          "object": "car door",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "medium",
+          "end": 9.5,
+          "note": "heavy motion blur t6-9, partial view",
+          "object": "car",
+          "start": 5.5,
+          "verb": "enter_car"
+        }
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "name": "car_interior",
+      "start": 5.0,
+      "end": 17.1,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "object": "car seats and steering wheel",
+          "start": 5.0,
+          "end": 17.1,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "car_interior",
+          "start": 5.0,
+          "end": 17.1
+        }
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "name": "operator_hand",
+      "start": 0.0,
+      "end": 5.5,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8333,
+        "a": {
+          "object": "person's hand and forearm",
+          "start": 0.0,
+          "end": 6.0,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "operator_hand",
+          "start": 0.0,
+          "end": 5.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1807",
+      "split": "calibration",
+      "kind": "object",
+      "name": "car_exterior_door_handle",
+      "start": 0.0,
+      "end": 8.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.6,
+        "a": {
+          "object": "dark car and open door",
+          "start": 0.0,
+          "end": 10.0,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "car_exterior_door_handle",
+          "start": 0.0,
+          "end": 6.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "put_on_cap",
+      "object": "cap",
+      "start": 0.0,
+      "end": 5.25,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9091,
+        "a": {
+          "start": 0.0,
+          "end": 5.0,
+          "verb": "adjust cap and settle into seat",
+          "object": "cap",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 5.5,
+          "note": "places cap on head t0-5, settled by t5",
+          "object": "cap",
+          "start": 0.0,
+          "verb": "put_on_cap"
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "stretch_arms_behind_head",
+      "object": null,
+      "start": 7.5,
+      "end": 13.5,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.5,
+        "a": {
+          "start": 6.0,
+          "end": 13.0,
+          "verb": "raise both arms and stretch",
+          "object": "none",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 14.0,
+          "note": "hands clasped behind head, elbows out t9-14",
+          "object": null,
+          "start": 9.0,
+          "verb": "stretch_arms_behind_head"
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 27.735,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9975,
+        "a": {
+          "object": "dark baseball cap",
+          "start": 0.0,
+          "end": 27.77,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 27.7
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "car_interior",
+      "start": 0.0,
+      "end": 27.735,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9975,
+        "a": {
+          "object": "car seat and cabin",
+          "start": 0.0,
+          "end": 27.77,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "car_interior",
+          "start": 0.0,
+          "end": 27.7
+        }
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "drive",
+      "object": "car",
+      "start": 0.0,
+      "end": 26.74,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.997,
+        "a": {
+          "start": 0.0,
+          "end": 26.78,
+          "verb": "drive along road; steering and viewpoint move with vehicle",
+          "object": "car steering wheel and road",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 26.7,
+          "note": "road scenery moving past entire take, car in traffic",
+          "object": "car",
+          "start": 0.0,
+          "verb": "drive"
+        }
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "name": "car_interior",
+      "start": 0.0,
+      "end": 26.74,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.997,
+        "a": {
+          "object": "car dashboard and steering wheel",
+          "start": 0.0,
+          "end": 26.78,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "car_interior",
+          "start": 0.0,
+          "end": 26.7
+        }
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "name": "navigation_display",
+      "start": 2.5,
+      "end": 26.74,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9564,
+        "a": {
+          "object": "mounted navigation phone",
+          "start": 3.0,
+          "end": 26.78,
+          "certainty": "medium"
+        },
+        "b": {
+          "object": "navigation_display",
+          "start": 2.0,
+          "end": 26.7
+        }
+      }
+    },
+    {
+      "take": "IMG_1809",
+      "split": "calibration",
+      "kind": "object",
+      "name": "road_through_windshield",
+      "start": 1.0,
+      "end": 26.74,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9223,
+        "a": {
+          "object": "road, traffic and roadside buildings",
+          "start": 0.0,
+          "end": 26.78,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "road_through_windshield",
+          "start": 2.0,
+          "end": 26.7
+        }
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "drive",
+      "object": "car",
+      "start": 0.0,
+      "end": 7.9,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "start": 0.0,
+          "end": 7.9,
+          "verb": "drive through an urban street and turn through an intersection",
+          "object": "car and road",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 7.9,
+          "note": "moving through intersection, other cars and signals visible",
+          "object": "car",
+          "start": 0.0,
+          "verb": "drive"
+        }
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "name": "dashboard_navigation_display",
+      "start": 0.0,
+      "end": 7.9,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "object": "car dashboard and steering wheel",
+          "start": 0.0,
+          "end": 7.9,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "dashboard_navigation_display",
+          "start": 0.0,
+          "end": 7.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1810",
+      "split": "calibration",
+      "kind": "object",
+      "name": "intersection",
+      "start": 0.0,
+      "end": 7.9,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "object": "intersection, traffic lights and street signs",
+          "start": 0.0,
+          "end": 7.9,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "intersection",
+          "start": 0.0,
+          "end": 7.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "drive",
+      "object": "car",
+      "start": 0.0,
+      "end": 22.835,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9969,
+        "a": {
+          "start": 0.0,
+          "end": 22.87,
+          "verb": "drive along commercial street past storefronts and parked cars",
+          "object": "car and road",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 22.8,
+          "note": "continuous forward driving through commercial streets",
+          "object": "car",
+          "start": 0.0,
+          "verb": "drive"
+        }
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "name": "road_street",
+      "start": 0.0,
+      "end": 22.835,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9969,
+        "a": {
+          "object": "commercial buildings and street",
+          "start": 0.0,
+          "end": 22.87,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "road_street",
+          "start": 0.0,
+          "end": 22.8
+        }
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "name": "dashboard_navigation_display",
+      "start": 2.5,
+      "end": 22.835,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.7783,
+        "a": {
+          "object": "car dashboard and steering wheel",
+          "start": 0.0,
+          "end": 22.87,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "dashboard_navigation_display",
+          "start": 5.0,
+          "end": 22.8
+        }
+      }
+    },
+    {
+      "take": "IMG_1811",
+      "split": "calibration",
+      "kind": "object",
+      "name": "other_cars",
+      "start": 3.5,
+      "end": 22.835,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.6909,
+        "a": {
+          "object": "other cars",
+          "start": 0.0,
+          "end": 22.87,
+          "certainty": "medium"
+        },
+        "b": {
+          "object": "other_cars",
+          "start": 7.0,
+          "end": 22.8
+        }
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "speak_to_camera",
+      "object": null,
+      "start": 13.0,
+      "end": 139.115,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8946,
+        "a": {
+          "start": 20.0,
+          "end": 139.13,
+          "verb": "continue walking and talking to camera, gesturing intermittently",
+          "object": "none",
+          "certainty": "medium"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 139.1,
+          "note": "talking; face partly out of frame t0-5 so start is partial",
+          "object": null,
+          "start": 6.0,
+          "verb": "speak_to_camera"
+        }
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 139.115,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 139.13,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 139.1
+        }
+      }
+    },
+    {
+      "take": "IMG_1812",
+      "split": "held_out",
+      "kind": "object",
+      "name": "backpack_straps",
+      "start": 0.0,
+      "end": 139.115,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "backpack straps",
+          "start": 0.0,
+          "end": 139.13,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "backpack_straps",
+          "start": 0.0,
+          "end": 139.1
+        }
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "pan_camera",
+      "object": "camera",
+      "start": 0.0,
+      "end": 4.25,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8889,
+        "a": {
+          "start": 0.0,
+          "end": 4.5,
+          "verb": "approach storefront while camera pans across entrance",
+          "object": "storefront",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "medium",
+          "end": 4.0,
+          "note": "view sweeps across brick storefront and patio",
+          "object": "camera",
+          "start": 0.0,
+          "verb": "pan_camera"
+        }
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "name": "brick_storefront",
+      "start": 0.0,
+      "end": 4.5,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8,
+        "a": {
+          "object": "brick storefront and open entrance",
+          "start": 0.0,
+          "end": 5.0,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "brick_storefront",
+          "start": 0.0,
+          "end": 4.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1813",
+      "split": "held_out",
+      "kind": "object",
+      "name": "sidewalk_railing",
+      "start": 2.0,
+      "end": 9.035,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.5513,
+        "a": {
+          "object": "sidewalk and paved forecourt",
+          "start": 0.0,
+          "end": 9.07,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "sidewalk_railing",
+          "start": 4.0,
+          "end": 9.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "walk_away_from_camera",
+      "object": null,
+      "start": 2.0,
+      "end": 15.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.625,
+        "a": {
+          "start": 2.0,
+          "end": 18.0,
+          "verb": "walk across plaza toward building",
+          "object": "none",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 12.0,
+          "note": "back to lens, shrinking with distance, static camera",
+          "object": null,
+          "start": 2.0,
+          "verb": "walk_away_from_camera"
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "name": "plaza",
+      "start": 0.0,
+      "end": 45.92,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9991,
+        "a": {
+          "object": "plaza and paved walkway",
+          "start": 0.0,
+          "end": 45.94,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "plaza",
+          "start": 0.0,
+          "end": 45.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "name": "brick_buildings",
+      "start": 0.0,
+      "end": 45.92,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9991,
+        "a": {
+          "object": "modern brick and glass building",
+          "start": 0.0,
+          "end": 45.94,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "brick_buildings",
+          "start": 0.0,
+          "end": 45.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "speak_to_camera",
+      "object": null,
+      "start": 0.0,
+      "end": 6.3,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "start": 0.0,
+          "end": 6.3,
+          "verb": "hold selfie framing and speak to camera",
+          "object": "none",
+          "certainty": "medium"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 6.3,
+          "note": "selfie monologue, mouth moving",
+          "object": null,
+          "start": 0.0,
+          "verb": "speak_to_camera"
+        }
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 6.3,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "object": "person in baseball cap",
+          "start": 0.0,
+          "end": 6.3,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 6.3
+        }
+      }
+    },
+    {
+      "take": "IMG_1815",
+      "split": "calibration",
+      "kind": "object",
+      "name": "brick_building_background",
+      "start": 0.0,
+      "end": 6.3,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 1.0,
+        "a": {
+          "object": "plaza and building in background",
+          "start": 0.0,
+          "end": 6.3,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "brick_building_background",
+          "start": 0.0,
+          "end": 6.3
+        }
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "name": "plaza_pergola_background",
+      "start": 0.0,
+      "end": 142.5,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8874,
+        "a": {
+          "object": "plaza buildings and sidewalks",
+          "start": 0.0,
+          "end": 151.0,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "plaza_pergola_background",
+          "start": 0.0,
+          "end": 134.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 174.79,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.8537,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 188.58,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 161.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1816",
+      "split": "calibration",
+      "kind": "object",
+      "name": "parked_cars_street",
+      "start": 155.5,
+      "end": 188.54,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.7584,
+        "a": {
+          "object": "car cabin",
+          "start": 151.0,
+          "end": 188.58,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "parked_cars_street",
+          "start": 160.0,
+          "end": 188.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "walk",
+      "object": null,
+      "start": 0.0,
+      "end": 41.505,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "start": 0.0,
+          "end": 41.51,
+          "verb": "walk through outdoor parking and storefront area while speaking to camera",
+          "object": "none",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 41.5,
+          "note": "continuous walking selfie through commercial street",
+          "object": null,
+          "start": 0.0,
+          "verb": "walk"
+        }
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 41.505,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 41.51,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 41.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "name": "backpack_straps",
+      "start": 0.0,
+      "end": 41.505,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "backpack",
+          "start": 0.0,
+          "end": 41.51,
+          "certainty": "medium"
+        },
+        "b": {
+          "object": "backpack_straps",
+          "start": 0.0,
+          "end": 41.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1817",
+      "split": "held_out",
+      "kind": "object",
+      "name": "storefronts",
+      "start": 9.0,
+      "end": 41.505,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.5661,
+        "a": {
+          "object": "storefronts, parked cars and sidewalk",
+          "start": 0.0,
+          "end": 41.51,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "storefronts",
+          "start": 18.0,
+          "end": 41.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "walk",
+      "object": null,
+      "start": 0.0,
+      "end": 85.51,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "start": 0.0,
+          "end": 85.52,
+          "verb": "walk through multilevel parking garage while speaking to camera",
+          "object": "none",
+          "certainty": "high"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 85.5,
+          "note": "continuous walking selfie, evening light",
+          "object": null,
+          "start": 0.0,
+          "verb": "walk"
+        }
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 85.51,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 85.52,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 85.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1818",
+      "split": "held_out",
+      "kind": "object",
+      "name": "parked_cars",
+      "start": 0.0,
+      "end": 85.51,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "parking garage structure and lights",
+          "start": 0.0,
+          "end": 85.52,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "parked_cars",
+          "start": 0.0,
+          "end": 85.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "name": "parked_cars",
+      "start": 0.0,
+      "end": 52.525,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.999,
+        "a": {
+          "object": "car cabin and seat",
+          "start": 0.0,
+          "end": 52.55,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "parked_cars",
+          "start": 0.0,
+          "end": 52.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1820",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 52.525,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.999,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 52.55,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 52.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "speak_to_camera",
+      "object": null,
+      "start": 0.0,
+      "end": 41.92,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.999,
+        "a": {
+          "start": 0.0,
+          "end": 41.94,
+          "verb": "sit in car, speak to camera, and repeatedly gesture with keys",
+          "object": "keys",
+          "certainty": "medium"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 41.9,
+          "note": "talking throughout, gaze mostly to lens",
+          "object": null,
+          "start": 0.0,
+          "verb": "speak_to_camera"
+        }
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 41.92,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.999,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 41.94,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 41.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1821",
+      "split": "held_out",
+      "kind": "object",
+      "name": "parked_cars_garage",
+      "start": 2.0,
+      "end": 41.92,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9037,
+        "a": {
+          "object": "car cabin",
+          "start": 0.0,
+          "end": 41.94,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "parked_cars_garage",
+          "start": 4.0,
+          "end": 41.9
+        }
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "action",
+      "verb": "sit_in_car",
+      "object": "car",
+      "start": 0.0,
+      "end": 85.81,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "start": 0.0,
+          "end": 85.82,
+          "verb": "sit in car and talk to camera, gesturing with a small object",
+          "object": "small object, likely key fob",
+          "certainty": "ambiguous"
+        },
+        "b": {
+          "certainty": "high",
+          "end": 85.8,
+          "note": "seated in parked car inside garage, framing static",
+          "object": "car",
+          "start": 0.0,
+          "verb": "sit_in_car"
+        }
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "name": "car_interior",
+      "start": 0.0,
+      "end": 85.81,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "car cabin",
+          "start": 0.0,
+          "end": 85.82,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "car_interior",
+          "start": 0.0,
+          "end": 85.8
+        }
+      }
+    },
+    {
+      "take": "IMG_1822",
+      "split": "held_out",
+      "kind": "object",
+      "name": "cap",
+      "start": 0.0,
+      "end": 85.81,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "agent-actions-a",
+          "vep-agent-actions-b2"
+        ],
+        "iou": 0.9998,
+        "a": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 85.82,
+          "certainty": "high"
+        },
+        "b": {
+          "object": "cap",
+          "start": 0.0,
+          "end": 85.8
+        }
+      }
+    }
+  ]
+}

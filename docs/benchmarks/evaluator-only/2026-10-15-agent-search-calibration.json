@@ -1,0 +1,225 @@
+{
+  "backend": "clip-vit-large-patch14",
+  "scoring": "max CLIP ViT-L/14 cosine over 1-fps frames extracted within each 8-second blind window; 336px short edge",
+  "scores": {
+    "search-001": 0.2077435851097107,
+    "search-002": 0.15211117267608643,
+    "search-003": 0.1362711489200592,
+    "search-004": 0.14405319094657898,
+    "search-005": 0.17051151394844055,
+    "search-006": 0.14786240458488464,
+    "search-007": 0.13656365871429443,
+    "search-008": 0.14574962854385376,
+    "search-009": 0.07605771720409393,
+    "search-010": 0.10124912858009338,
+    "search-011": 0.2237021028995514,
+    "search-012": 0.17910781502723694,
+    "search-014": 0.20965802669525146,
+    "search-015": 0.12105165421962738,
+    "search-016": 0.14496442675590515,
+    "search-017": 0.09322839230298996,
+    "search-018": 0.2093602418899536,
+    "search-019": 0.12434767931699753,
+    "search-020": 0.15447644889354706,
+    "search-021": 0.12389679253101349,
+    "search-022": 0.125766322016716,
+    "search-024": 0.17780344188213348,
+    "search-025": 0.14703857898712158,
+    "search-026": 0.11545877903699875,
+    "search-027": 0.1685647964477539,
+    "search-028": 0.17187102138996124,
+    "search-029": 0.10847207903862,
+    "search-030": 0.26303303241729736
+  },
+  "per_item": {
+    "search-001": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.2077435851097107,
+      "max_frame_index": 2
+    },
+    "search-002": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.15211117267608643,
+      "max_frame_index": 7
+    },
+    "search-003": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.1362711489200592,
+      "max_frame_index": 4
+    },
+    "search-004": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.14405319094657898,
+      "max_frame_index": 0
+    },
+    "search-005": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.17051151394844055,
+      "max_frame_index": 7
+    },
+    "search-006": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.14786240458488464,
+      "max_frame_index": 5
+    },
+    "search-007": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.13656365871429443,
+      "max_frame_index": 5
+    },
+    "search-008": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.14574962854385376,
+      "max_frame_index": 7
+    },
+    "search-009": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.07605771720409393,
+      "max_frame_index": 1
+    },
+    "search-010": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.10124912858009338,
+      "max_frame_index": 2
+    },
+    "search-011": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.2237021028995514,
+      "max_frame_index": 2
+    },
+    "search-012": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.17910781502723694,
+      "max_frame_index": 6
+    },
+    "search-014": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.20965802669525146,
+      "max_frame_index": 1
+    },
+    "search-015": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.12105165421962738,
+      "max_frame_index": 7
+    },
+    "search-016": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.14496442675590515,
+      "max_frame_index": 2
+    },
+    "search-017": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.09322839230298996,
+      "max_frame_index": 3
+    },
+    "search-018": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.2093602418899536,
+      "max_frame_index": 2
+    },
+    "search-019": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.12434767931699753,
+      "max_frame_index": 2
+    },
+    "search-020": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.15447644889354706,
+      "max_frame_index": 6
+    },
+    "search-021": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.12389679253101349,
+      "max_frame_index": 0
+    },
+    "search-022": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.125766322016716,
+      "max_frame_index": 1
+    },
+    "search-024": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.17780344188213348,
+      "max_frame_index": 7
+    },
+    "search-025": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.14703857898712158,
+      "max_frame_index": 7
+    },
+    "search-026": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.11545877903699875,
+      "max_frame_index": 1
+    },
+    "search-027": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.1685647964477539,
+      "max_frame_index": 0
+    },
+    "search-028": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.17187102138996124,
+      "max_frame_index": 5
+    },
+    "search-029": {
+      "judgment": "absent",
+      "n_frames": 8,
+      "max_cosine": 0.10847207903862,
+      "max_frame_index": 5
+    },
+    "search-030": {
+      "judgment": "present",
+      "n_frames": 8,
+      "max_cosine": 0.26303303241729736,
+      "max_frame_index": 1
+    }
+  },
+  "calibration": {
+    "cutoff": 0.14998678863048553,
+    "balanced_accuracy": 0.725,
+    "present_retained_rate": 0.75,
+    "absent_abstained_rate": 0.7,
+    "not_found_precision": 0.875,
+    "not_found_recall": 0.7,
+    "not_found_true_positives": 14,
+    "not_found_false_positives": 2,
+    "judged_count": 28,
+    "method": "balanced accuracy over labeled windows; not_found means score below cutoff",
+    "status": "measured candidate; requires review before policy change",
+    "source": "evaluator-only agent labels; not human ground truth or a frozen benchmark input"
+  },
+  "schema": "ren-agent-visual-search-calibration-v1",
+  "evaluator_only": true,
+  "training_data": false,
+  "calibration_inputs": false,
+  "label_type": "agent",
+  "label_source": "docs/benchmarks/evaluator-only/2026-10-15-agent-search-labels.json",
+  "held_out_accessed": false
+}
