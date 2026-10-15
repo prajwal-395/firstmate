@@ -45,6 +45,10 @@ DIALOGUE_PLANS = (
     ("multicam_sync", [
         {"predicate": "measurement", "measurement_type": "sync.multicam_offset"},
     ]),
+    ("speaker_camera", [
+        {"predicate": "measurement", "measurement_type": "event.speaking_span"},
+        {"predicate": "measurement", "measurement_type": "person.face_frame"},
+    ]),
     ("scene_structure", [
         {"predicate": "measurement", "measurement_type": "video.scene_boundary"},
     ]),
@@ -272,6 +276,7 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
                     "evidence_contract") or {}
                 measurements.append({
                     "evidence_id": str(evidence_id),
+                    "asset_id": observation.get("asset_id"),
                     "measurement_type": native.get("measurement_type"),
                     "value": native.get("value"),
                     "interval": observation.get("interval"),
@@ -346,6 +351,121 @@ def _tick_seconds(point: dict[str, Any]) -> float | None:
     return float(tick) / evidence_query.TICKS_PER_SECOND
 
 
+def _dialogue_exchange(answer: dict[str, Any], start: float, end: float
+                       ) -> dict[str, Any] | None:
+    """Return one measured, alternating two-turn exchange in the brief.
+
+    A word overlap alone is not a dialogue edit. Both turns must have
+    explicit speaker ids and queried word evidence; otherwise the caller
+    abstains instead of emitting an isolated word or an ungrounded angle.
+    """
+    observations: dict[str, dict[str, Any]] = {}
+    for present in answer.get("present_intervals", []):
+        if present["plan"] != "speech_attributed":
+            continue
+        for measurement in present["measurements"]:
+            if measurement["measurement_type"] not in {
+                    "speech.word", "person.voice_turn"}:
+                continue
+            observations[measurement["evidence_id"]] = measurement
+
+    turns = []
+    for evidence_id, measurement in observations.items():
+        if measurement["measurement_type"] != "person.voice_turn":
+            continue
+        value = measurement["value"]
+        interval = measurement["interval"]
+        if not isinstance(value, dict) or not isinstance(
+                value.get("voice_track"), str):
+            continue
+        turn_start = interval["start"] / evidence_query.TICKS_PER_SECOND
+        turn_end = interval["end"] / evidence_query.TICKS_PER_SECOND
+        if turn_end <= start or turn_start >= end:
+            continue
+        turns.append({"id": evidence_id, "speaker": value["voice_track"],
+                      "start": max(start, turn_start),
+                      "end": min(end, turn_end)})
+    turns.sort(key=lambda row: (row["start"], row["end"], row["speaker"]))
+
+    exchanges = []
+    for question, response in zip(turns, turns[1:]):
+        gap = response["start"] - question["end"]
+        if (question["speaker"] == response["speaker"] or gap < 0
+                or gap > 12.0):
+            continue
+        members = [question, response]
+        evidence = []
+        for evidence_id, measurement in observations.items():
+            interval = measurement["interval"]
+            item_start = interval["start"] / evidence_query.TICKS_PER_SECOND
+            item_end = interval["end"] / evidence_query.TICKS_PER_SECOND
+            if measurement["measurement_type"] == "speech.word":
+                if any(item_start < turn["end"] and item_end > turn["start"]
+                       for turn in members):
+                    evidence.append(measurement)
+            elif evidence_id in {turn["id"] for turn in members}:
+                evidence.append(measurement)
+        if not any(row["measurement_type"] == "speech.word"
+                   for row in evidence):
+            continue
+        exchanges.append({"start_seconds": question["start"],
+                          "end_seconds": response["end"],
+                          "evidence": evidence,
+                          "speakers": [question["speaker"],
+                                       response["speaker"]]})
+    if not exchanges:
+        return None
+    exchanges.sort(key=lambda row: (
+        -(row["end_seconds"] - row["start_seconds"]),
+        row["start_seconds"]))
+    return exchanges[0]
+
+
+def _speaker_camera_mapping(answer: dict[str, Any],
+                            speakers: list[str]) -> dict[str, Any]:
+    """Map speakers to a camera only when M7 links voice to visible face.
+
+    A co-occurring face is insufficient: the speaking-span measurement
+    must carry both the voice and face-track identities, and a measured
+    face frame must overlap that span on the same camera asset.
+    """
+    evidence: dict[str, dict[str, Any]] = {}
+    for present in answer.get("present_intervals", []):
+        if present["plan"] != "speaker_camera":
+            continue
+        rows = present["measurements"]
+        faces = [row for row in rows
+                 if row["measurement_type"] == "person.face_frame"]
+        for row in rows:
+            if row["measurement_type"] != "event.speaking_span":
+                continue
+            value = row["value"]
+            if not isinstance(value, dict) or not value.get("face_track"):
+                continue
+            interval = row["interval"]
+            face_evidence = [
+                face for face in faces
+                if face["asset_id"] == row["asset_id"]
+                and face["interval"]["clock_id"] == interval["clock_id"]
+                and face["interval"]["start"] < interval["end"]
+                and face["interval"]["end"] > interval["start"]]
+            if not face_evidence:
+                continue
+            voice_track = value.get("voice_track")
+            if voice_track in speakers:
+                evidence.setdefault(voice_track, {})[
+                    str(row["asset_id"])] = {
+                        "face_track": value["face_track"],
+                        "evidence_ids": [row["evidence_id"], *[
+                            face["evidence_id"] for face in face_evidence]]}
+    if any(speaker not in evidence for speaker in speakers):
+        return {"status": "abstained",
+                "reason": "no measured voice-to-visible-face mapping for "
+                          "every exchange speaker"}
+    return {"status": "mapped", "speaker_to_camera": {
+        speaker: evidence[speaker] for speaker in speakers}}
+
+
 def _word_rows_from_answers(
         answers_by_moment: dict[str, dict[str, Any]],
         moments: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -409,6 +529,17 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
     for cut_range in (brief.get("brief") or {}).get("cut_ranges", []):
         moment_id = cut_range.get("moment_id")
         answer = answers_by_moment.get(moment_id, {})
+        dialogue_exchange = None
+        if "dialogue_multicam" in task_types:
+            dialogue_exchange = _dialogue_exchange(
+                answer, cut_range["start_seconds"], cut_range["end_seconds"])
+            if dialogue_exchange is None:
+                abstentions.append({"moment_id": moment_id,
+                                    "reason": "no complete exchange with "
+                                              "two distinct measured speaker "
+                                              "turns and queried word evidence",
+                                    "required_plans": [["speech_attributed"]]})
+                continue
         required_plans = [REQUIRED_SELECTION_PLANS.get(
             task_type, frozenset()) for task_type in task_types]
         required_plans = [plans for plans in required_plans if plans]
@@ -452,6 +583,36 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
             continue
         intersections.sort(key=lambda row: (-(row[1] - row[0]), row[0]))
         start, end, selected = intersections[0]
+        if dialogue_exchange is not None:
+            start = dialogue_exchange["start_seconds"]
+            end = dialogue_exchange["end_seconds"]
+            exchange_measurements = dialogue_exchange["evidence"]
+            selected = [{"evidence_ids": [row["evidence_id"]
+                                           for row in exchange_measurements],
+                         "measurements": exchange_measurements,
+                         "plan": "speech_attributed",
+                         "clock_id": next((item["clock_id"]
+                                           for item in answer.get(
+                                               "present_intervals", [])
+                                           if item["plan"] ==
+                                           "speech_attributed"), None)}]
+            camera_selection = _speaker_camera_mapping(
+                answer, dialogue_exchange["speakers"])
+            if camera_selection["status"] == "mapped":
+                camera_evidence_ids = sorted({
+                    evidence_id
+                    for camera in camera_selection["speaker_to_camera"].values()
+                    for asset in camera.values()
+                    for evidence_id in asset["evidence_ids"]})
+                camera_measurements = [row for item in answer.get(
+                    "present_intervals", [])
+                    if item["plan"] == "speaker_camera"
+                    for row in item["measurements"]
+                    if row["evidence_id"] in camera_evidence_ids]
+                selected[0]["evidence_ids"].extend(camera_evidence_ids)
+                selected[0]["measurements"].extend(camera_measurements)
+        else:
+            camera_selection = None
         if any(not item["evidence_ids"] or not item["measurements"]
                for item in selected):
             abstentions.append({"moment_id": moment_id,
@@ -483,9 +644,16 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                                 "evidence_ids": evidence_ids,
                                 "evidence_plans": sorted({item["plan"]
                                                            for item in selected}),
+                                "dialogue_exchange": ({
+                                    "speakers": dialogue_exchange["speakers"],
+                                    "complete_turn_count": 2}
+                                    if dialogue_exchange else None),
+                                "camera_selection": camera_selection,
                                 "technical_measurements": [
                                     item for item in measurements
-                                    if item.get("value") is not None],
+                                    if item["measurement_type"] not in {
+                                        "speech.word", "person.voice_turn"}
+                                    and item.get("value") is not None],
                                 "edit_point_verification": {
                                     "status": "verified" if ticks else
                                     "no_signal_candidate",

@@ -86,6 +86,7 @@ Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
 from __future__ import annotations
 
 import json
+import math
 import os
 from typing import Optional
 
@@ -560,16 +561,32 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
     that pair identifies a placed clip exactly and survives the SFX
     allocator spreading one bucket across A3, A4 and A5.
 
-    Two things are delivered.  The music bed carries the per-block curve
-    `audio_mix.music_automation` planned.  Every other planned audio clip
-    carries its static `volume_db` - which until now reached nothing,
-    because `SetProperty("Volume", ...)` is one of the calls Resolve
-    declines - plus, where step 4.04 cut a sound short, the one-frame
-    de-click ramp `declick_curve` builds from its `fade_out_seconds`.
+    The music bed carries the per-block curve
+    `audio_mix.music_automation` planned. Dialogue and sound clips carry
+    an explicit static `volume_db` when their manifest asks for one.
+    Dialogue also accepts `audio_mix.delivery_loudness`, a measured
+    pre-render LUFS value and declared target; its difference is applied
+    as clip gain at placement. Dialogue stays at unity when neither is
+    supplied. A sound cut short also gets the one-frame de-click ramp
+    `declick_curve` builds from its `fade_out_seconds`.
     """
     tracks = manifest.get("tracks", {}) or {}
     audio_mix = manifest.get("audio_mix", {}) or {}
     automation = audio_mix.get("music_automation", []) or []
+    delivery = audio_mix.get("delivery_loudness") or {}
+    delivery_gain = None
+    if delivery:
+        try:
+            measured_lufs = float(delivery["measured_lufs"])
+            target_lufs = float(delivery["target_lufs"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OtioMixError(
+                "audio_mix.delivery_loudness requires numeric "
+                "measured_lufs and target_lufs") from exc
+        if not (math.isfinite(measured_lufs) and math.isfinite(target_lufs)):
+            raise OtioMixError(
+                "audio_mix.delivery_loudness values must be finite")
+        delivery_gain = target_lufs - measured_lufs
     fade_seconds = float(
         ((audio_mix.get("track_levels") or {}).get("A2_music") or {})
         .get("fade_duration_seconds", 1.0))
@@ -599,17 +616,20 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
         })
 
     for name, track in sorted(tracks.items()):
-        if track_role(name) != "sfx":
+        role = track_role(name)
+        if role not in ("dialogue", "sfx"):
             continue
         for clip in track.get("clips", []) or []:
             source = clip.get("source_file", "")
             level = clip.get("volume_db")
+            if role == "dialogue" and delivery_gain is not None:
+                level = delivery_gain + float(level or 0.0)
             if not source or level is None:
                 continue
             start = _start_frame(clip, fps)
             frames = max(0, _end_frame(clip, fps) - start)
             targets.append({
-                "role": "sfx",
+                "role": role,
                 "source_file": source,
                 "start_frame": start,
                 "level_db": float(level),

@@ -61,12 +61,16 @@ def _word_obs(obs_id, measurement_type, clock_id, start, end, lane):
 
 
 def _evidenced_model():
-    return {"id": "model-evidenced", "revision": 7, "assets": [], "clocks": [],
+    model = {"id": "model-evidenced", "revision": 7, "assets": [], "clocks": [],
             "observations": [
                 _word_obs("obs-word-1", "speech.word", "c1",
-                          10000, 15000, "m1"),
+                          12000, 13000, "m1"),
                 _word_obs("obs-turn-1", "person.voice_turn", "c1",
-                          12000, 18000, "m3b"),
+                          12000, 15000, "m3b"),
+                _word_obs("obs-word-2", "speech.word", "c1",
+                          16000, 17000, "m1"),
+                _word_obs("obs-turn-2", "person.voice_turn", "c1",
+                          15000, 18000, "m3b"),
             ],
             "signals": [
                 {"id": "sig-1", "measurement_type": "speech",
@@ -74,6 +78,16 @@ def _evidenced_model():
                  "interval": {"clock_id": "c1", "start": 12000, "end": 15000},
                  "samples": [{"tick": 13000}]},
             ]}
+
+    model["observations"][0]["payload"]["evidence_contract"]["value"] = {
+        "text": "question?"}
+    model["observations"][1]["payload"]["evidence_contract"]["value"] = {
+        "voice_track": "voice_001"}
+    model["observations"][2]["payload"]["evidence_contract"]["value"] = {
+        "text": "answer."}
+    model["observations"][3]["payload"]["evidence_contract"]["value"] = {
+        "voice_track": "voice_002"}
+    return model
 
 
 def _word_rows():
@@ -126,6 +140,12 @@ def test_evidenced_model_grounds_cuts_inside_brief_ranges(tmp_path):
     assert any(node["node_type"] == "spine_block" for node in graph["nodes"])
     cut_reason = diagnostics["cuts"][0]["reason"]
     assert cut_reason["creative_rationale"] == "Keep the complete beat."
+    assert cut_reason["dialogue_exchange"] == {
+        "speakers": ["voice_001", "voice_002"],
+        "complete_turn_count": 2}
+    assert cut_reason["camera_selection"]["status"] == "abstained"
+    assert (diagnostics["cuts"][0]["start_seconds"],
+            diagnostics["cuts"][0]["end_seconds"]) == (12.0, 18.0)
     assert cut_reason["evidence_ids"]
     assert {row["measurement_type"] for row in
             cut_reason["factual_evidence"]} == {
@@ -153,7 +173,7 @@ def test_project_model_word_measurements_build_speech_blocks_by_default(
         .read_text(encoding="utf-8"))
     block = next(node for node in graph["nodes"]
                  if node["node_type"] == "spine_block")
-    assert block["payload"]["word_timestamp_count"] == 1
+    assert block["payload"]["word_timestamp_count"] == 2
 
 
 def test_cuts_without_word_timings_never_become_speech_blocks(tmp_path):
@@ -167,6 +187,52 @@ def test_cuts_without_word_timings_never_become_speech_blocks(tmp_path):
     assert diagnostics["graph_node_count"] == 0
     assert all(item["reason"].startswith("no measured word timings")
                for item in diagnostics["ungraphable"])
+
+
+def test_single_speaker_turns_do_not_claim_a_complete_exchange(tmp_path):
+    model = _evidenced_model()
+    model["observations"][3]["payload"]["evidence_contract"]["value"][
+        "voice_track"] = "voice_001"
+
+    _, diagnostics = runner.run_task(
+        _brief(), model, split="calibration", run_name="run-a",
+        output_root=tmp_path, source_durations={"LCATL0012": 288.955})
+
+    assert diagnostics["cuts"] == []
+    assert diagnostics["abstentions"][0]["reason"].startswith(
+        "no complete exchange")
+
+
+def test_speaker_camera_requires_face_backed_speaking_spans():
+    def measurement(evidence_id, measurement_type, value, start, end,
+                    asset_id="cam-a"):
+        return {"evidence_id": evidence_id, "measurement_type": measurement_type,
+                "value": value, "asset_id": asset_id,
+                "interval": {"clock_id": asset_id, "start": start,
+                             "end": end}}
+
+    answer = {"present_intervals": [{
+        "plan": "speaker_camera", "measurements": [
+            measurement("speak-a", "event.speaking_span",
+                        {"voice_track": "voice_001", "face_track": "face_1"},
+                        10000, 12000),
+            measurement("face-a", "person.face_frame", {"face": {}},
+                        11000, 11001),
+            measurement("speak-b", "event.speaking_span",
+                        {"voice_track": "voice_002", "face_track": "face_2"},
+                        12000, 14000),
+            measurement("face-b", "person.face_frame", {"face": {}},
+                        13000, 13001),
+        ]}]}
+
+    mapping = runner._speaker_camera_mapping(
+        answer, ["voice_001", "voice_002"])
+
+    assert mapping == {"status": "mapped", "speaker_to_camera": {
+        "voice_001": {"cam-a": {"face_track": "face_1",
+                                  "evidence_ids": ["speak-a", "face-a"]}},
+        "voice_002": {"cam-a": {"face_track": "face_2",
+                                  "evidence_ids": ["speak-b", "face-b"]}}}}
 
 
 def test_object_evidence_cannot_be_assumed_to_prove_an_action(tmp_path):
@@ -325,7 +391,8 @@ def test_cut_point_verification_uses_source_clock_signal_and_is_written(tmp_path
     verification = diagnostics["cuts"][0]["reason"][
         "edit_point_verification"]
     assert verification == {"status": "verified", "tick_seconds": 13.0,
-                            "measurement_ids": ["sig-phoneme-source-a"]}
+                            "measurement_ids": ["sig-1",
+                                                "sig-phoneme-source-a"]}
     timeline = json.loads(
         (tmp_path / "dialogue-multicam-cut" / "run-a" / "edit.otio.json")
         .read_text(encoding="utf-8"))

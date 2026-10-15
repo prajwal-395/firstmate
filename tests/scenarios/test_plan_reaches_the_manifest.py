@@ -677,6 +677,34 @@ def test_sfx_volume_db_now_has_a_route():
 
 
 @pytest.mark.usefixtures("_sole_writer")
+def test_measured_delivery_loudness_reaches_dialogue_through_otio():
+    """A measured pre-render miss becomes A1 gain at placement time."""
+    manifest = {
+        "tracks": {"A1": {"clips": [
+            {"source_file": "/dialogue.wav", "timeline_in": 0.0,
+             "timeline_out": 2.0, "label": "dialogue"}] }},
+        "audio_mix": {"delivery_loudness": {
+            "measured_lufs": -28.10, "target_lufs": -14.0}},
+    }
+
+    targets = otio_mix.mix_targets(manifest, fps=FPS)
+
+    assert len(targets) == 1
+    assert targets[0]["role"] == "dialogue"
+    assert targets[0]["level_db"] == pytest.approx(14.10)
+    assert targets[0]["keyframes"] == {}
+
+
+@pytest.mark.usefixtures("_sole_writer")
+def test_invalid_delivery_loudness_refuses_instead_of_using_zero_gain():
+    manifest = {"tracks": {"A1": {"clips": []}},
+                "audio_mix": {"delivery_loudness": {"target_lufs": -14}}}
+
+    with pytest.raises(otio_mix.OtioMixError, match="measured_lufs"):
+        otio_mix.mix_targets(manifest, fps=FPS)
+
+
+@pytest.mark.usefixtures("_sole_writer")
 def test_a_clip_the_allocator_moved_to_another_track_is_still_matched():
     """Overlapping SFX are spread across A3, A4, A5 by the timeline
     builder. A target names a FILE and a FRAME, so it follows."""

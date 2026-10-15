@@ -304,3 +304,30 @@ render request took 6.8s wall time, including 0.3s scheduler queue wait and
 6.3s execution. The held-out render took 8.0s wall time, including 0.15s
 scheduler queue wait and 7.45s execution. No metered GPU/model cost was
 incurred for evidence acquisition.
+
+## Complete-exchange and delivery-mix follow-up (2026-10-15)
+
+The runner now requires two distinct measured voice turns with queried word
+evidence before it emits a dialogue cut. Calibration LCATL0012 yields one
+complete exchange, 102.0-116.0s (`voice_001` then `voice_002`); its former
+isolated-word cuts are not carried forward. Held-out LCATL0011 has no pair of
+distinct measured speakers in either requested range, so it abstains with zero
+cuts and zero graph nodes. The query now also requests face-backed M7 speaking
+spans; neither source has a measured voice-to-face mapping, so angle choice is
+reported as abstained. No reference edit or gold range was added.
+
+The measured calibration render at unity was -29.68 LUFS and -11.20 dBTP.
+Its black-frame, freeze-frame, silence-under-picture, resolution, frame-rate,
+duration and audio-stream checks passed; loudness failed by 15.68 dB. The new
+`audio_mix.delivery_loudness` target carries the measured pre-render LUFS and
+declared target into A1 as a static clip gain through `otio_mix` at placement.
+The Resolve scratch render after the measured +15.68 dB correction was -14.08
+LUFS, showing the declared -14 target reached through OTIO. It failed the
+true-peak gate at +4.40 dBTP. Resolve did not expose the configured
+`Pipeline_Master_Limiter` preset, so the limiter did not reach the master.
+Picture, silence, resolution, frame-rate, duration and audio-stream checks
+passed on this render. The render is therefore not approved for delivery.
+
+The held-out edit was not rendered: the complete-exchange gate correctly
+produced no supported cut. The task still lacks a held-out exchange, a visible
+speaker-to-camera mapping, and frozen human references/gold ranges.
