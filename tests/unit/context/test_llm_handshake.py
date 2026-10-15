@@ -3,14 +3,16 @@ interview asks in chat instead of the summary; the marker hook suggests
 a verb linked to the marker it names.
 """
 from __future__ import annotations
+
 import json
+import os
 import threading
 import time
 from pathlib import Path
+
 import pytest
-from library.tools import briefing_chat, llm_handshake
-import os
-from library.tools import review_gate
+
+from library.tools import briefing_chat, llm_handshake, review_gate
 
 
 def test_publishing_retry_request_hides_old_request_before_clearing_response(
@@ -143,6 +145,13 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
             if req.exists():
                 request = llm_handshake.read_request(req)
                 assert request["kind"] == "briefing_interview"
+                layout = request["request_layout"]
+                assert layout["stable_prefix"].endswith(request["expected_schema"])
+                assert [section["name"] for section in layout["sections"]] == [
+                    "task_instructions", "constraints", "context",
+                    "task_context", "evidence"]
+                assert request["questions"]
+                assert layout["stable_prefix_sha256"]
                 assert request["footage_inventory"] == [
                     "1 video clip(s) cataloged.", "first-steps.mp4 (18 seconds)"]
                 assert all("audience" not in q["question"].lower()

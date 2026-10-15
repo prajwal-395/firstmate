@@ -11,7 +11,6 @@ import copy
 import json
 import os
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -33,6 +32,12 @@ def test_agent_benchmark_matches_golden_exactly(tmp_path):
     assert [task["task_id"] for task in result["tasks"]] == \
         list(eval_harness.AGENT_TASK_ORDER)
     assert result["failures"] == []
+    prefix = result["request_prefix"]
+    assert prefix["stable_prefix_bytes"] > 0
+    assert prefix["total_request_bytes"] >= prefix["stable_prefix_bytes"]
+    assert prefix["stable_prefix_ratio"] >= prefix["minimum_fixed_prefix_ratio"]
+    assert prefix["legacy_baseline_ratio"] == 0
+    assert prefix["legacy_baseline_meets_minimum"] is False
     for task in result["tasks"]:
         assert task["golden_match"] is True
         assert task["deltas"] == {"calls": 0, "bytes_out": 0,
@@ -60,6 +65,7 @@ def test_agent_scores_reproduce_on_rerun(tmp_path):
                     if key != "wall_s"}
         assert scored == rescored
     assert first["failures"] == second["failures"] == []
+    assert first["request_prefix"] == second["request_prefix"]
 
 
 def test_changed_response_or_action_fails_golden():

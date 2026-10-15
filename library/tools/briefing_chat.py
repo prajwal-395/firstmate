@@ -90,15 +90,15 @@ def build_prompt(questions, footage_inventory=None) -> str:
         "Conduct the briefing interview with the user, IN CHAT, now. The quick footage inventory below is evidence, not creative intent.",
         "Ask only unresolved questions whose answer could change the creative direction. Phrase each as a goal or outcome, never as a tool or editing method. State the assumed default visibly and record it even if the user declines. The user can correct methods later.",
         "",
-        "Ask each question below in conversation, in plain language, one at a "
-        "time. Do not paste this JSON at them. When they have answered (or "
-        "declined - an empty answer list is complete, never a failure), write "
-        "the response file as a JSON object:",
+        ("Ask each question below in conversation, in plain language, one at a "
+         "time. Do not paste this JSON at them. When they have answered (or "
+         "declined - an empty answer list is complete, never a failure), write "
+         "the response file as a JSON object:"),
         "",
         '  {"brief_answers": [{"question": "...", "answer": "..."}, ...]}',
         "",
-        "Then the run continues with those answers attached to every planning "
-        "step. Questions:",
+        ("Then the run continues with those answers attached to every planning "
+         "step. Questions:"),
     ]
     if footage_inventory:
         lines.extend(["", "Quick footage inventory:"])
@@ -260,8 +260,8 @@ def answers_for(project_folder: str) -> list:
     """
     import json as _json
     try:
-        from library.tools.project_layout import ProjectLayout as _Layout
         from library.tools import reel_request as _reel_request
+        from library.tools.project_layout import ProjectLayout as _Layout
         state_path = str(_Layout(project_folder).pipeline_data_path)
         with open(state_path, encoding="utf-8") as handle:
             state = _json.load(handle)
@@ -375,8 +375,17 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
             "assumed_default": q["what_assumed_instead"],
         } for q in questions],
         "project_folder": project_folder,
-        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
+        "expected_schema": _json.dumps({
+            "type": "object", "required": ["brief_answers"],
+            "properties": {"brief_answers": {"type": "array", "items": {
+                "type": "object", "required": ["question", "answer"],
+                "properties": {"question": {"type": "string"},
+                               "answer": {"type": "string"}},
+                "additionalProperties": False}}},
+            "additionalProperties": False}, separators=(",", ":")),
     }
+    payload["request_layout"] = _handshake.request_layout(payload)
     req_path = _handshake.request_path(project_folder, STEP_ID)
     res_path = _handshake.response_path(project_folder, STEP_ID)
     _os.makedirs(_os.path.dirname(req_path), exist_ok=True)
@@ -426,6 +435,6 @@ def conduct_if_needed(project_folder: str, state: dict, full_auto,
             state_path = str(_L(project_folder).pipeline_data_path)
             with open(state_path, "w", encoding="utf-8") as handle:
                 _json.dump(state, handle, indent=2)
-        except Exception:  # noqa: BLE001 - the run still continues
+        except Exception:  # noqa: BLE001, S110 - the run still continues
             pass
     return state

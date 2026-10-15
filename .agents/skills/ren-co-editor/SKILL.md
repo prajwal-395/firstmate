@@ -258,6 +258,12 @@ each request, in order:
    answer is the prompt, then `constraints`, then `context` with every
    `<<shared HASH>>` read as that text - exactly
    `llm_handshake.read_request`. A request also names its
+   `request_layout.stable_prefix` first, then its named `sections` in order.
+   The prefix contains host-stable instructions and `expected_schema`; its
+   `stable_prefix_sha256` fingerprints those exact UTF-8 bytes. The sections
+   carry task instructions, constraints, context and any evidence. Keep this
+   order when forming the model request; each section names the request field
+   that supplies its content, avoiding another copy in the wire file.
    `expected_schema` (the shape your answer must satisfy), `step_id`,
    `project_folder`, `timestamp` and `kind` (`llm_step`,
    `briefing_interview`, or `edit_spec`). `--json` gives the same.

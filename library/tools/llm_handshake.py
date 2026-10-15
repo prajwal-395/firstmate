@@ -120,6 +120,42 @@ REQUEST_KEYS = (
     "expected_schema", "project_folder", "timestamp",
 )
 
+# Host instructions are deliberately independent of project, step and prompt.
+# The schema follows them in the byte-stable prefix; task material follows in
+# named sections so hosts can reuse this front matter across projects.
+STABLE_HOST_INSTRUCTIONS = (
+    "Follow the task instructions and use only the supplied task context and "
+    "evidence. Return one JSON object matching the schema below.\n"
+)
+
+
+def request_layout(request: dict) -> dict:
+    """Return the deterministic model-facing prefix and named variable parts."""
+    schema = request.get("expected_schema", "")
+    prefix = STABLE_HOST_INSTRUCTIONS + "\nJSON schema:\n" + str(schema)
+    # Section references avoid copying prompt/context text into the wire
+    # form (LE-11 stores each shared prompt body once).
+    sections = [
+        {"name": "task_instructions", "field": "prompt"},
+        {"name": "constraints", "field": "constraints"},
+        {"name": "context", "field": "context"},
+    ]
+    if "questions" in request:
+        sections.extend((
+            {"name": "task_context", "fields": [
+                "questions", "intent_view", "assumptions"]},
+            {"name": "evidence", "field": "footage_inventory"},
+        ))
+    if "images" in request:
+        sections.append({"name": "evidence_images", "field": "images"})
+    encoded = prefix.encode("utf-8")
+    return {
+        "stable_prefix": prefix,
+        "stable_prefix_bytes": len(encoded),
+        "stable_prefix_sha256": hashlib.sha256(encoded).hexdigest(),
+        "sections": sections,
+    }
+
 
 class SharedTextMissing(ValueError):
     """A request names shared text that is absent or not what it hashed."""
@@ -319,7 +355,7 @@ def read_request(path) -> dict:
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError(f"{path} is not a JSON object")
+        raise ValueError(f"{path} is not a JSON object")  # noqa: TRY004 - malformed handshake is a value error
     return materialize(payload, path.parent)
 
 
@@ -501,6 +537,7 @@ def build_request(step_id: str, prompt: str, constraints: str,
     }
     if images is not None:
         request["images"] = _checked_images(images, step_id)
+    request["request_layout"] = request_layout(request)
     return request
 
 

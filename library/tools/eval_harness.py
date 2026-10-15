@@ -2540,9 +2540,9 @@ def score_agent_transcript(transcript: list) -> dict:
         if not isinstance(request["tool"], str) or not request["tool"]:
             raise ValueError(f"turn {position}: empty tool name")
         if not isinstance(request["args"], dict):
-            raise ValueError(f"turn {position}: args must be an object")
+            raise ValueError(f"turn {position}: args must be an object")  # noqa: TRY004 - input contract uses ValueError
         if not isinstance(reply, dict):
-            raise ValueError(f"turn {position}: response must be an object")
+            raise ValueError(f"turn {position}: response must be an object")  # noqa: TRY004 - input contract uses ValueError
         action = turn.get("expect_action", "")
         if not isinstance(action, str) or not action.strip():
             raise ValueError(f"turn {position}: empty expected action")
@@ -2635,7 +2635,25 @@ def run_agent_benchmark(fixture_dir: str | Path) -> dict:
     fixtures_dir = out / "fixtures"
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
+    from library.tools import llm_handshake
+    benchmark_request = llm_handshake.build_request(
+        "eval_prefix_probe", "Evaluate the supplied task.", "",
+        "project: fixture", '{"result":"string"}', "/fixture/project",
+        "2000-01-01T00:00:00+00:00")
+    layout = benchmark_request["request_layout"]
+    request_bytes = len(agent_canonical_bytes(benchmark_request))
+    prefix_ratio = layout["stable_prefix_bytes"] / request_bytes
     result: dict = {"measurement_version": AGENT_MEASUREMENT_VERSION,
+                    "request_prefix": {
+                        "stable_prefix_bytes": layout["stable_prefix_bytes"],
+                        "total_request_bytes": request_bytes,
+                        "stable_prefix_ratio": prefix_ratio,
+                        "stable_prefix_sha256": layout["stable_prefix_sha256"],
+                        "minimum_fixed_prefix_ratio": 0.10,
+                        # Prior requests had no explicit invariant prefix.
+                        "legacy_baseline_ratio": 0.0,
+                        "legacy_baseline_meets_minimum": False,
+                    },
                     "tasks": [], "failures": []}
     for task_id in AGENT_TASK_ORDER:
         try:
@@ -3019,8 +3037,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

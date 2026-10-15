@@ -51,6 +51,31 @@ def test_constraints_are_on_disk_once_and_the_prompt_rebuilds(tmp_path):
     assert list(rebuilt) == list(payload)
 
 
+def test_stable_prefix_is_identical_across_projects_and_sections_round_trip(
+        tmp_path):
+    first, second = tmp_path / "one", tmp_path / "two"
+    first.mkdir()
+    second.mkdir()
+    one = _request(first, context="project: one\nevidence: A\n")
+    two = _request(second, context="project: two\nevidence: B\n")
+    a = one["request_layout"]
+    b = two["request_layout"]
+    assert a["stable_prefix"].encode("utf-8") == b["stable_prefix"].encode("utf-8")
+    assert a["stable_prefix_sha256"] == b["stable_prefix_sha256"]
+    assert a["stable_prefix_bytes"] == len(a["stable_prefix"].encode("utf-8"))
+    assert [section["name"] for section in a["sections"]] == [
+        "task_instructions", "constraints", "context"]
+    assert a["sections"][2]["field"] == "context"
+    assert one[a["sections"][2]["field"]].startswith("project: one")
+    assert "expected_schema" in one
+
+    path = _requests_dir(first) / "plan_cut.json"
+    llm_handshake.write_request_file(path, one)
+    rebuilt = llm_handshake.read_request(path)
+    assert rebuilt == one
+    assert rebuilt["request_layout"] == one["request_layout"]
+
+
 def test_a_prompt_that_does_not_end_with_its_constraints_refuses(tmp_path):
     payload = dict(_request(tmp_path), prompt="something else")
     with pytest.raises(ValueError, match="does not end with its"):
