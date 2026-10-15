@@ -50,6 +50,18 @@ on the four Craig angles' geo-podcast M3
 (`data/vep-structured-footage-query/eval/diag_720_m3.json` in
 firstmate's home), not a measured recall bar: hand_raise 33 spans,
 object_pickup 81 and nod 33 per 1.51 h, against hand_near_mouth's 257.
+Those counts predate merging (same-track spans within `MERGE_MAX_GAP_S`
+now merge) and boundary tightening; the thresholds are unchanged.
+
+**Tiering: cheap filters before any VLM call.** Every candidate span
+carries `tier` (0 = strong evidence, 1 = marginal) and `score`
+(higher = stronger), computed from the same measured geometry that
+proposed it - no model, no decode. `verified_query` verifies tier 0
+first and reports per-tier costs, so a caller can budget VLM calls
+(`max_tier`) without re-running the geometry. Motion spans are
+tightened to the motion's measured onset and last moving frame rather
+than the full detector window, so EVAL-03 IoU is measured against the
+motion, not its window.
 
 **Names.** A person is named by the project's declaration
 (`source.person_names`, `person_entity.declared_person_names`) when it
@@ -204,6 +216,40 @@ PICKUP_WINDOW = 6
 ENTER_LEAVE_FRAMES = 3
 """Run frames a person_enters/person_leaves span shows the VLM, beside
 the frame on the far side of the boundary - the transition it judges."""
+
+MERGE_MAX_GAP_S = 1.0
+"""Same-track spans of one candidate predicate separated by at most
+this long merge into one span before verification. Intermittent M3
+detection fragments one hold into several spans that the VLM would
+judge identically; merging cuts one VLM call per fragment without
+dropping coverage (the union still covers every hit frame). Distinct
+track runs (enters/leaves) never merge: each boundary is its own event."""
+
+STILLNESS_FRACTION = 0.25
+"""Per-frame stillness floor as a fraction of a motion predicate's
+threshold over its window. A run's trailing frames whose signal moves
+less than this ended after the motion stopped: the detector window
+still looks back over the motion, but nothing moves any more, so the
+span ends at the last moving frame."""
+
+HAND_MOUTH_TIER0_DISTANCE = 1.25
+"""A hand-at-mouth candidate whose closest approach is within this many
+face widths verifies in tier 0. The measured candidate table on the
+four Craig angles reaches 14/17 labelled events at this cutoff; the
+1.25-1.5 band adds the remaining 2 at the cost of most of the 257
+spans, so it verifies in tier 1."""
+
+STRONG_RISE_MULTIPLE = 1.5
+"""A hand-raise / object-pickup candidate whose completing rise is at
+least this multiple of its threshold verifies in tier 0; a bare
+threshold crossing (slow drift, jitter) verifies in tier 1."""
+
+STRONG_NOD_MULTIPLE = 1.5
+"""A nod candidate whose completing peak-to-peak displacement is at
+least this multiple of its threshold verifies in tier 0."""
+
+TIER_STRONG = 0
+TIER_MARGINAL = 1
 
 STATUS_BUILT = "built"
 
@@ -401,7 +447,7 @@ def person_enters_candidates(m3: dict, assignment: List[List[Optional[str]]]
     half = frame_spacing(times) / 2.0
     spans = []
     for track_id, track_runs in _track_runs(assignment).items():
-        for first, last, _count in track_runs:
+        for first, last, count in track_runs:
             shown = ([first - 1] if first > 0 else [])
             shown += list(range(first, min(first + ENTER_LEAVE_FRAMES, last + 1)))
             frames = []
@@ -409,10 +455,23 @@ def person_enters_candidates(m3: dict, assignment: List[List[Optional[str]]]
                 face = _face_of_track(m3["frames"][i], assignment[i], track_id)
                 frames.append({"index": i, "t": times[i], "d": float(d),
                                "box": face["box"] if face else None})
+            # A track present from the first frame shows no entry
+            # transition (there is no frame before it); the VLM cannot
+            # judge an entry it cannot see, so the clip edge verifies
+            # in tier 1, after every mid-clip appearance.
+            edge = first == 0
             spans.append({"face_track": track_id,
                           "start": round(max(0.0, times[shown[0]] - half), 3),
                           "end": round(times[shown[-1]] + half, 3),
-                          "frames": frames})
+                          "frames": frames,
+                          "tier": TIER_MARGINAL if edge else TIER_STRONG,
+                          "score": float(count),
+                          "tier_reason": (
+                              "track present at clip open: no entry "
+                              "transition visible" if edge else
+                              "mid-clip appearance with a visible "
+                              "before-frame")})
+    spans.sort(key=lambda s: (s["tier"], -s["score"], s["start"]))
     return spans
 
 
@@ -429,7 +488,7 @@ def person_leaves_candidates(m3: dict, assignment: List[List[Optional[str]]]
     last_index = len(times) - 1
     spans = []
     for track_id, track_runs in _track_runs(assignment).items():
-        for first, last, _count in track_runs:
+        for first, last, count in track_runs:
             shown = list(range(max(first, last - ENTER_LEAVE_FRAMES + 1),
                                last + 1))
             if last < last_index:
@@ -440,10 +499,22 @@ def person_leaves_candidates(m3: dict, assignment: List[List[Optional[str]]]
                 d = 0.0 if i == last + 1 else float(last - i + 1)
                 frames.append({"index": i, "t": times[i], "d": d,
                                "box": face["box"] if face else None})
+            # A track present until the last frame shows no exit
+            # transition (there is no frame after it); the clip end
+            # verifies in tier 1, after every mid-clip disappearance.
+            edge = last == last_index
             spans.append({"face_track": track_id,
                           "start": round(max(0.0, times[shown[0]] - half), 3),
                           "end": round(times[shown[-1]] + half, 3),
-                          "frames": frames})
+                          "frames": frames,
+                          "tier": TIER_MARGINAL if edge else TIER_STRONG,
+                          "score": float(count),
+                          "tier_reason": (
+                              "track present at clip end: no exit "
+                              "transition visible" if edge else
+                              "mid-clip disappearance with a visible "
+                              "after-frame")})
+    spans.sort(key=lambda s: (s["tier"], -s["score"], s["start"]))
     return spans
 
 
@@ -625,30 +696,193 @@ def _hand_rises(m3: dict, window: int) -> List[Optional[float]]:
     return rises
 
 
+def _tighten_rise_run(sig: Sequence[Optional[float]], lo: int,
+                      first: int, last: int, window: int,
+                      need: float) -> Tuple[int, int]:
+    """Tighten a rise-type run to its measured core.
+
+    The hit at `first` means the signal rose `need` over
+    `[first-window, first]`; the rise's core is the SHORTEST trailing
+    sub-interval that still clears `need`, so an abrupt lift starts the
+    span one frame before its step instead of a full window back, while
+    a gradual lift keeps the whole window. The tail ends at the last
+    frame that still moves (per-frame floor `STILLNESS_FRACTION` of the
+    threshold rate): later hits only repeat the window over a hand that
+    has already stopped. Falls back to `[lo, max(first, ...)]` whenever
+    the signal is missing, so tightening never drops the hit frame."""
+    floor = max(lo, first - window)
+    end_val = sig[first] if 0 <= first < len(sig) else None
+    tight_lo = lo
+    if end_val is not None:
+        # Largest k first: the shortest trailing sub-interval that
+        # still clears `need` is the motion's core. An abrupt step
+        # clears it in one frame (onset one frame back); a gradual
+        # lift needs the whole window (onset stays at `lo`).
+        for k in range(first, floor, -1):
+            before = sig[k - 1] if 0 <= k - 1 < len(sig) else None
+            if before is None:
+                tight_lo = k
+                break
+            if before - end_val >= need:
+                tight_lo = k - 1
+                break
+    eps = STILLNESS_FRACTION * need / window if window > 0 else 0.0
+    tight_last = first
+    for e in range(first, last + 1):
+        if not (0 < e < len(sig)):
+            continue
+        now, prev = sig[e], sig[e - 1]
+        if now is None or prev is None:
+            continue
+        if abs(now - prev) >= eps:
+            tight_last = e
+    return max(lo, tight_lo), max(first, tight_last)
+
+
+def _tighten_oscillation_run(sig: Sequence[Optional[float]], lo: int,
+                             first: int, last: int, window: int,
+                             need: float) -> Tuple[int, int]:
+    """Tighten an oscillation-type run to its measured core.
+
+    The hit at `first` means the window ending there displaced `need`
+    peak-to-peak with a direction reversal; the core is the shortest
+    trailing slice (at least 3 frames, the minimum that can reverse)
+    that still does. The tail ends at the last moving frame, as in
+    `_tighten_rise_run`."""
+    floor = max(lo, first - window)
+    tight_lo = lo
+    # Largest k first, as in `_tighten_rise_run`: the shortest
+    # trailing slice (at least 3 frames, the minimum that can reverse)
+    # that still displaces `need` with a reversal is the oscillation.
+    for k in range(first, floor - 1, -1):
+        if first - k + 1 < 3:
+            continue
+        vals = sig[k:first + 1]
+        if any(v is None for v in vals):
+            tight_lo = k
+            break
+        if max(vals) - min(vals) >= need:
+            steps = [b - a for a, b in zip(vals, vals[1:])]
+            if any(s > 0 for s in steps) and any(s < 0 for s in steps):
+                tight_lo = k - 1 if k - 1 >= lo else lo
+                break
+    eps = STILLNESS_FRACTION * need / window if window > 0 else 0.0
+    tight_last = first
+    for e in range(first, last + 1):
+        if not (0 < e < len(sig)):
+            continue
+        now, prev = sig[e], sig[e - 1]
+        if now is None or prev is None:
+            continue
+        if abs(now - prev) >= eps:
+            tight_last = e
+    return max(lo, tight_lo), max(first, tight_last)
+
+
 def _motion_spans(m3: dict, assignment: List[List[Optional[str]]],
-                  hit_flags: Dict[str, List[bool]], window: int) -> List[dict]:
+                  hit_flags: Dict[str, List[bool]], window: int, *,
+                  signals: Optional[Dict[str, List[Optional[float]]]] = None,
+                  evidence: Optional[Dict[Tuple[str, int], dict]] = None,
+                  signal_kind: str = "rise",
+                  strong_multiple: float = STRONG_RISE_MULTIPLE) -> List[dict]:
     """Candidate spans for a motion predicate. `hit_flags[track]` marks
     the frames where the motion completed; each run of hits becomes a
-    span covering `window` lead-in frames before the run's first hit
-    (the motion's start) through its last hit, every frame carrying
-    `d = |i - first_hit|` so the verifier is shown the transition the
-    motion is, not only its end state."""
+    span tightened to the motion's measured onset through its last
+    moving frame (see `_tighten_rise_run` / `_tighten_oscillation_run`),
+    every frame carrying `d = |i - first_hit|` so the verifier is shown
+    the transition the motion is, not only its end state.
+
+    `signals[track]` is the per-frame motion signal (hand-top-y for
+    lifts, face-centre-y for nods) and `evidence[(track, first_hit)]`
+    carries the absolute `need` the hit cleared and its `multiple` of
+    the threshold. Spans without evidence keep the full window and
+    verify in the marginal tier. Every span carries `tier`, `score`
+    (higher is stronger) and `tier_reason`, from geometry alone."""
+    tighten = (_tighten_rise_run if signal_kind == "rise"
+               else _tighten_oscillation_run)
     times = [f["t"] for f in m3["frames"]]
     spans = []
     for track_id in sorted(hit_flags):
         flags = hit_flags[track_id]
+        sig = (signals or {}).get(track_id)
         for first, last, _count in runs(flags):
             lo = max(0, first - window)
+            tight_lo, tight_last = lo, last
+            multiple = None
+            if evidence is not None and sig is not None:
+                info = evidence.get((track_id, first)) or {}
+                if info.get("need"):
+                    multiple = info.get("multiple")
+                    tight_lo, tight_last = tighten(
+                        sig, lo, first, last, window, info["need"])
             frames = []
-            for i in range(lo, last + 1):
+            for i in range(tight_lo, tight_last + 1):
                 face = _face_of_track(m3["frames"][i], assignment[i], track_id)
                 frames.append({"index": i, "t": times[i],
                                "d": float(abs(i - first)),
                                "box": face["box"] if face else None})
-            start, end = span_bounds(times, lo, last)
+            start, end = span_bounds(times, tight_lo, tight_last)
+            if multiple is not None and multiple >= strong_multiple:
+                tier, reason = TIER_STRONG, (
+                    f"motion {multiple:.2f}x the geometric threshold")
+            else:
+                tier, reason = TIER_MARGINAL, (
+                    "bare threshold crossing" if multiple is not None
+                    else "no measured evidence strength")
             spans.append({"face_track": track_id, "start": start, "end": end,
-                          "frames": frames})
+                          "frames": frames, "tier": tier,
+                          "score": round(multiple, 3) if multiple is not None
+                          else 0.0,
+                          "tier_reason": reason})
     return spans
+
+
+def finalize_candidates(spans: List[dict],
+                        max_gap_s: float = MERGE_MAX_GAP_S) -> List[dict]:
+    """Merge same-track, same-tier spans at most `max_gap_s` apart, then
+    order strongest-tier first.
+
+    Fragments of one episode (intermittent M3 detection splits a run the
+    gap bridge does not reunite) would cost one VLM call each for the
+    same judgement; the union still covers every hit frame. Merging
+    stops at a tier boundary so a marginal hover never stretches a
+    strong span's measured extent. One limit: two distinct events
+    inside one merged span score one match under one-to-one EVAL-03
+    matching, so `max_gap_s` stays at one second. Spans without
+    tier/score (pre-tier M7 records) verify as tier 0, preserving old
+    order."""
+    by_track: Dict[str, List[dict]] = {}
+    for span in spans:
+        by_track.setdefault(
+            (span.get("face_track"), span.get("tier", TIER_STRONG)),
+            []).append(span)
+    merged = []
+    for track_spans in by_track.values():
+        ordered = sorted(track_spans, key=lambda s: s["start"])
+        current = None
+        for span in ordered:
+            if current is not None and span["start"] - current["end"] <= max_gap_s:
+                current["end"] = max(current["end"], span["end"])
+                seen = {f["index"] for f in current["frames"]}
+                current["frames"] = sorted(
+                    current["frames"] + [f for f in span["frames"]
+                                         if f["index"] not in seen],
+                    key=lambda f: f["t"])
+                if span.get("tier", TIER_STRONG) < current.get(
+                        "tier", TIER_STRONG):
+                    current["tier"] = span["tier"]
+                    current["tier_reason"] = span.get("tier_reason", "")
+                current["score"] = max(current.get("score", 0.0),
+                                       span.get("score", 0.0))
+                current["tier_reason"] = (
+                    f"merged fragments: {current.get('tier_reason', '')}")
+            else:
+                current = dict(span)
+                current["frames"] = list(span["frames"])
+                merged.append(current)
+    merged.sort(key=lambda s: (s.get("tier", TIER_STRONG),
+                               -(s.get("score", 0.0) or 0.0), s["start"]))
+    return merged
 
 
 def _all_tracks(assignment: List[List[Optional[str]]]) -> List[str]:
@@ -656,11 +890,15 @@ def _all_tracks(assignment: List[List[Optional[str]]]) -> List[str]:
 
 
 def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
-                             ) -> List[dict]:
+                              ) -> List[dict]:
     """Per face track, runs of frames whose hand-to-lips distance is under
     `HAND_CANDIDATE_MAX_DISTANCE`, each frame carrying its distance and
     face box so a verifier can choose and crop frames without re-reading
-    M3."""
+    M3. Tier 0 is the measured high-recall band (closest approach within
+    `HAND_MOUTH_TIER0_DISTANCE`); the looser band verifies in tier 1.
+    Band flicker (an isolated single frame against time-adjacent hits in
+    the other band) is smoothed before runs form, so shrapnel does not
+    multiply spans; genuine dwells still split by band."""
     width, height = (m3.get("instrument") or {})["frame_pixels"]
     times = [f["t"] for f in m3["frames"]]
     per_track: Dict[str, Dict[int, dict]] = {}
@@ -675,7 +913,48 @@ def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
             if held is None or d < held["d"]:
                 per_track[track_id][i] = {"index": i, "t": times[i],
                                           "d": round(d, 3), "box": face["box"]}
-    return _spans_from_hits(per_track, times)
+    spans = []
+    # Runs form per tier band, so a marginal hover adjacent to a firm
+    # hold never stretches the strong span's measured extent: each
+    # band's spans cover only that band's frames. Before banding, an
+    # isolated single frame whose time-adjacent hits (within a second
+    # either side) both sit in the other band takes their band: a
+    # half-second band touch is detection flicker, not an episode.
+    # Frames keep their measured distance; only the band - the tier -
+    # is smoothed, and a lone touch with no near neighbour never flips.
+    band_of: Dict[str, Dict[int, int]] = {}
+    for track_id, frames in per_track.items():
+        band_of[track_id] = {
+            i: (TIER_STRONG if frame["d"] <= HAND_MOUTH_TIER0_DISTANCE
+                else TIER_MARGINAL)
+            for i, frame in frames.items()}
+    for track_id, frames in per_track.items():
+        bands = band_of[track_id]
+        order = sorted(frames)
+        for pos, i in enumerate(order):
+            before = next((order[k] for k in range(pos - 1, -1, -1)
+                           if times[order[k]] >= times[i] - 1.0), None)
+            after = next((order[k] for k in range(pos + 1, len(order))
+                          if times[order[k]] <= times[i] + 1.0), None)
+            if (before is not None and after is not None
+                    and bands[before] == bands[after] != bands[i]):
+                bands[i] = bands[before]
+    bands: Dict[int, Dict[str, Dict[int, dict]]] = {
+        TIER_STRONG: {}, TIER_MARGINAL: {}}
+    for track_id, frames in per_track.items():
+        for i, frame in frames.items():
+            bands[band_of[track_id][i]].setdefault(track_id, {})[i] = frame
+    for band, subset in bands.items():
+        for span in _spans_from_hits(subset, times):
+            closest = min(f["d"] for f in span["frames"])
+            span["tier"] = band
+            span["tier_reason"] = (
+                f"closest approach {closest:.2f} face widths" if band == TIER_STRONG
+                else f"closest approach {closest:.2f} face widths, "
+                     "loose band only")
+            span["score"] = round(-closest, 3)
+            spans.append(span)
+    return finalize_candidates(spans)
 
 
 def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
@@ -687,8 +966,10 @@ def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
     answer: the rule proposes, the VLM disposes."""
     times = [f["t"] for f in m3["frames"]]
     rises = _hand_rises(m3, HAND_RAISE_WINDOW)
+    tops = [_hand_top_y(frame) for frame in m3["frames"]]
     hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
                                         for t in _all_tracks(assignment)}
+    evidence: Dict[Tuple[str, int], dict] = {}
     for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
         rise = rises[i]
         if rise is None:
@@ -704,7 +985,14 @@ def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
             if top_now >= centre:
                 continue
             hit_flags[track_id][i] = True
-    return _motion_spans(m3, assignment, hit_flags, HAND_RAISE_WINDOW)
+            need = HAND_RAISE_MIN_RISE * face_height
+            evidence.setdefault((track_id, i), {
+                "need": need, "multiple": round(rise / need, 3)})
+    signals = {track: list(tops) for track in hit_flags}
+    return finalize_candidates(_motion_spans(
+        m3, assignment, hit_flags, HAND_RAISE_WINDOW,
+        signals=signals, evidence=evidence, signal_kind="rise",
+        strong_multiple=STRONG_RISE_MULTIPLE))
 
 
 def nod_candidates(m3: dict, assignment: List[List[Optional[str]]]
@@ -725,6 +1013,7 @@ def nod_candidates(m3: dict, assignment: List[List[Optional[str]]]
                 "cy": centre, "h": bottom - top, "box": face["box"]}
     hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
                                         for t in _all_tracks(assignment)}
+    evidence: Dict[Tuple[str, int], dict] = {}
     for track_id, frames in per_track.items():
         for i in sorted(frames):
             window = list(range(i - NOD_WINDOW, i + 1))
@@ -741,7 +1030,18 @@ def nod_candidates(m3: dict, assignment: List[List[Optional[str]]]
             if not (any(s > 0 for s in steps) and any(s < 0 for s in steps)):
                 continue
             hit_flags[track_id][i] = True
-    return _motion_spans(m3, assignment, hit_flags, NOD_WINDOW)
+            need = NOD_MIN_DISPLACEMENT * mean_h
+            evidence.setdefault((track_id, i), {
+                "need": need, "multiple": round(p2p / need, 3)})
+    signals = {track: [frames.get(i, {}).get("cy")
+                       for i in range(len(times))]
+               for track, frames in per_track.items()}
+    for track in hit_flags:
+        signals.setdefault(track, [None] * len(times))
+    return finalize_candidates(_motion_spans(
+        m3, assignment, hit_flags, NOD_WINDOW,
+        signals=signals, evidence=evidence, signal_kind="oscillation",
+        strong_multiple=STRONG_NOD_MULTIPLE))
 
 
 def object_pickup_candidates(m3: dict, assignment: List[List[Optional[str]]]
@@ -753,8 +1053,10 @@ def object_pickup_candidates(m3: dict, assignment: List[List[Optional[str]]]
     the rule proposes, the VLM disposes."""
     times = [f["t"] for f in m3["frames"]]
     rises = _hand_rises(m3, PICKUP_WINDOW)
+    tops = [_hand_top_y(frame) for frame in m3["frames"]]
     hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
                                         for t in _all_tracks(assignment)}
+    evidence: Dict[Tuple[str, int], dict] = {}
     for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
         rise = rises[i]
         if rise is None:
@@ -777,7 +1079,14 @@ def object_pickup_candidates(m3: dict, assignment: List[List[Optional[str]]]
             if top_before <= before_bottom or top_now >= bottom:
                 continue
             hit_flags[track_id][i] = True
-    return _motion_spans(m3, assignment, hit_flags, PICKUP_WINDOW)
+            need = PICKUP_MIN_RISE * face_height
+            evidence.setdefault((track_id, i), {
+                "need": need, "multiple": round(rise / need, 3)})
+    signals = {track: list(tops) for track in hit_flags}
+    return finalize_candidates(_motion_spans(
+        m3, assignment, hit_flags, PICKUP_WINDOW,
+        signals=signals, evidence=evidence, signal_kind="rise",
+        strong_multiple=STRONG_RISE_MULTIPLE))
 
 
 # ── building M7 ─────────────────────────────────────────────────────
@@ -1118,11 +1427,17 @@ def _candidate_spans(person: dict, predicate: str,
 
 def verified_query(project_folder: str, person_query: str, predicate: str,
                    statement: str, root: Optional[Path] = None,
-                   model=None) -> dict:
+                   model=None, max_tier: Optional[int] = None) -> dict:
     """person x candidate predicate -> the local VLM judges `statement`
     on each candidate span's frames -> the YES spans, placed like any
     other hit. Every verdict (yes, no or unparsed) is returned with its
-    reason; only YES spans are hits."""
+    reason; only YES spans are hits.
+
+    Spans verify strongest-tier first (tier 0 before tier 1), so the
+    VLM sees the best-measured geometry before the marginal band.
+    `max_tier` budgets VLM calls: spans above it are reported under
+    `skipped_by_tier` and never sent to the verifier. The default
+    (`None`) verifies every tier, exactly as before tiering existed."""
     from library.tools import span_verification
 
     if predicate not in CANDIDATE_PREDICATES:
@@ -1144,21 +1459,34 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
             "an unbuilt source would read as 'never happens there'",
             f"python3 -m library.tools.event_spans build '{project_folder}'")
     candidates = _candidate_spans(person, predicate, root)
+    ordered = sorted(candidates, key=lambda s: (s.get("tier", TIER_STRONG),
+                                                -(s.get("score", 0.0) or 0.0),
+                                                s["start"]))
+    skipped_by_tier = 0
+    if max_tier is not None:
+        kept = [s for s in ordered if s.get("tier", TIER_STRONG) <= max_tier]
+        skipped_by_tier = len(ordered) - len(kept)
+        ordered = kept
     items = timeline_items(project_folder)
     files = _digest_of_files(project_folder)
     by_digest: Dict[str, List[dict]] = {}
-    for span in candidates:
+    for span in ordered:
         by_digest.setdefault(span["content_digest"], []).append(span)
     hits, rejected = [], []
     calls = cached = 0
     vlm_seconds = 0.0
+    tier_cost: Dict[int, Dict[str, float]] = {}
     for digest, spans in by_digest.items():
         verdicts = span_verification.verify_spans(digest, spans, statement,
                                                   root=root, model=model)
         for span, verdict in zip(spans, verdicts):
+            tier = span.get("tier", TIER_STRONG)
+            row = tier_cost.setdefault(tier, {"candidates": 0, "calls": 0})
+            row["candidates"] += 1
             cached += verdict["cached"]
             if not verdict["cached"]:
                 calls += 1
+                row["calls"] += 1
                 vlm_seconds += verdict["seconds"]
             entry = {"source_file": span["source_file"], "start": span["start"],
                      "end": span["end"],
@@ -1186,8 +1514,12 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
                          "constant offset, recorded source extent)"},
         "timeline_transcript": bool(items),
         "candidates": len(candidates),
+        "verified_candidates": len(ordered),
+        "skipped_by_tier": skipped_by_tier,
         "cost": {"vlm_calls": calls, "cached_verdicts": cached,
-                 "vlm_seconds": round(vlm_seconds, 1)},
+                 "vlm_seconds": round(vlm_seconds, 1),
+                 "by_tier": {str(tier): row
+                             for tier, row in sorted(tier_cost.items())}},
         "spans": len(hits), "spans_placed": len(placed),
         "source_seconds": round(sum(h["end"] - h["start"] for h in hits), 1),
         "hits": hits, "rejected": rejected,

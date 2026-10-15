@@ -44,13 +44,18 @@ def _frames_with_hand(hand_ys, face_cy=0.3):
 def test_hand_raise_proposes_a_span_when_a_hand_is_lifted_above_the_face():
     """A hand lifted from the lap into the air proposes no candidate unless
     the rule looks for a rise ending above the face's centre - and the
-    verifier must be shown the transition, not only the raised hand."""
+    verifier must be shown the transition, not only the raised hand.
+
+    The span is tightened to the motion's measured onset and last moving
+    frame: the step happens between t=2.5 and t=3.0, so the span shows
+    exactly the before/after pair, not the full detector window."""
     hand_ys = [0.7] * 6 + [0.08] * 6  # low, then above the face's centre
     frames, assignment = _frames_with_hand(hand_ys)
     spans = event_spans.hand_raise_candidates(_m3(frames), assignment)
     assert len(spans) == 1
     shown = span_verification.select_frames(spans[0])
-    assert [f["t"] for f in shown] == [2.0, 2.5, 3.0, 3.5]
+    assert [f["t"] for f in shown] == [2.5, 3.0]
+    assert spans[0]["tier"] == 0  # an abrupt 12x-threshold rise is strong
 
 
 def test_hand_raise_proposes_nothing_when_the_hand_stays_low():
@@ -187,6 +192,160 @@ def test_the_prompt_judges_a_sequence_so_an_event_description_works():
     prompt = span_verification.PROMPT.format(n=4, statement="enters the frame")
     assert "enters the frame" in prompt
     assert "across the sequence" in prompt
+
+
+# ── tiering: cheap filters before any VLM call ───────────────────
+
+
+def test_a_gradual_lift_keeps_a_longer_lead_in_than_an_abrupt_step():
+    """Tightening follows the measured onset: an abrupt step clears the
+    threshold in one frame (one before-frame), while a gradual lift
+    needs several frames to accumulate it (a longer lead-in)."""
+    gradual = [0.7 - 0.04 * i for i in range(12)]  # never abrupt
+    frames, assignment = _frames_with_hand(gradual)
+    [span] = event_spans.hand_raise_candidates(_m3(frames), assignment)
+    assert [f["t"] for f in span["frames"]] == [3.5, 4.0, 4.5, 5.0, 5.5]
+    assert span["tier"] == 0  # 3.2x the threshold is still strong
+
+
+def test_a_bare_threshold_crossing_verifies_in_the_marginal_tier():
+    """A rise that barely clears the geometric threshold (slow drift,
+    jitter) still proposes - the verifier disposes - but in tier 1,
+    after every strong motion."""
+    hand_ys = [0.34] * 6 + [0.28] * 6  # rise 0.06 over a 0.05 threshold
+    frames, assignment = _frames_with_hand(hand_ys)
+    [span] = event_spans.hand_raise_candidates(_m3(frames), assignment)
+    assert span["tier"] == 1
+    assert span["score"] == pytest.approx(1.2)
+
+
+def test_mid_clip_transitions_outrank_clip_edges():
+    """A mid-clip appearance shows the entry; a track present from the
+    first frame shows none. The edge verifies in tier 1 so budgeted
+    verification spends its VLM calls on visible transitions first."""
+    mid, mid_assign = [], []
+    for i in range(10):
+        present = i >= 4
+        mid.append({"t": i * 0.5,
+                    "faces": [_face(0.3)] if present else [], "hands": []})
+        mid_assign.append(["face_001"] if present else [])
+    [enter] = event_spans.person_enters_candidates(_m3(mid), mid_assign)
+    assert enter["tier"] == 0
+
+    edge, edge_assign = [], []
+    for i in range(10):
+        edge.append({"t": i * 0.5, "faces": [_face(0.3)], "hands": []})
+        edge_assign.append(["face_001"])
+    [edge_enter] = event_spans.person_enters_candidates(
+        _m3(edge), edge_assign)
+    assert edge_enter["tier"] == 1
+    [edge_leave] = event_spans.person_leaves_candidates(
+        _m3(edge), edge_assign)
+    assert edge_leave["tier"] == 1
+
+
+def _mouth_frames(hand_ys, t0=0.0):
+    """Faces with lips plus a hand at `hand_ys[i]` (None: no hand)."""
+    face = {"box": [0.45, 0.2, 0.55, 0.4], "outer_lips": [[0.5, 0.4]]}
+    frames, assignment = [], []
+    for i, y in enumerate(hand_ys):
+        hands = [] if y is None else [
+            {"joints": {"wrist": [0.5, y, 0.9]}}]
+        frames.append({"t": round(t0 + i * 0.5, 3), "faces": [dict(face)],
+                        "hands": hands})
+        assignment.append(["face_001"])
+    return frames, assignment
+
+
+def test_detection_gap_fragments_merge_into_one_span():
+    """Two hit frames missed mid-hold split the run the gap bridge does
+    not reunite; merging reunites them into one span (one VLM call)."""
+    hand_ys = [0.42, 0.42, None, None, 0.42, 0.42]
+    frames, assignment = _mouth_frames(hand_ys)
+    spans = event_spans.hand_at_mouth_candidates(_m3(frames), assignment)
+    assert len(spans) == 1
+    assert "merged" in spans[0]["tier_reason"]
+    assert spans[0]["tier"] == 0
+
+
+def test_a_hold_and_an_adjacent_hover_stay_split_by_tier():
+    """A firm hold next to a loose-band hover must not stretch the
+    strong span: runs form per tier band, so each span covers only its
+    own band's frames."""
+    hand_ys = [0.42] * 4 + [0.65] * 4  # hold, then loose hover, gapless
+    frames, assignment = _mouth_frames(hand_ys)
+    spans = event_spans.hand_at_mouth_candidates(_m3(frames), assignment)
+    assert [s["tier"] for s in spans] == [0, 1]
+    assert spans[0]["end"] <= spans[1]["start"]
+
+
+def test_an_isolated_band_flicker_joins_its_neighbours():
+    """One loose-band frame inside a firm hold is flicker, not an
+    episode: it joins the hold's span instead of splitting it."""
+    hand_ys = [0.42, 0.42, 0.65, 0.42, 0.42]
+    frames, assignment = _mouth_frames(hand_ys)
+    spans = event_spans.hand_at_mouth_candidates(_m3(frames), assignment)
+    assert len(spans) == 1
+    assert spans[0]["tier"] == 0
+
+
+def test_a_lone_touch_with_no_near_neighbour_keeps_its_band():
+    """Smoothing never flips a touch nobody is near: a lone hit far
+    from every other hit keeps its own span and tier."""
+    hand_ys = [0.42, None, None, None, None, 0.65, 0.65]
+    frames, assignment = _mouth_frames(hand_ys)
+    spans = event_spans.hand_at_mouth_candidates(_m3(frames), assignment)
+    assert [s["tier"] for s in spans] == [0, 1]
+
+
+def test_verified_query_verifies_strongest_first_and_budgets_by_tier(
+        monkeypatch):
+    """Tier 0 spans reach the verifier before tier 1, and max_tier=0
+    skips the marginal band entirely, reporting the skip and per-tier
+    costs instead of spending the calls."""
+    strong = {"face_track": "face_001", "start": 1.0, "end": 2.0,
+              "frames": [{"index": 2, "t": 1.0, "d": 0.1, "box": None}],
+              "tier": 0, "score": 3.0, "tier_reason": "strong"}
+    marginal = {"face_track": "face_001", "start": 5.0, "end": 6.0,
+                "frames": [{"index": 10, "t": 5.0, "d": 1.4, "box": None}],
+                "tier": 1, "score": -1.4, "tier_reason": "marginal"}
+    record = {"content_digest": "d" * 64, "source_file": "cam.MOV",
+              "predicates": {"speaking": {"spans": []},
+                             "on_screen": {"spans": []}},
+              "candidates": {"hand_raise": {"spans": [marginal, strong]}}}
+    person = {"person_id": "p1",
+              "face_tracks": [{"content_digest": "d" * 64,
+                               "track_id": "face_001"}]}
+    monkeypatch.setattr(event_spans, "resolve_person",
+                        lambda *args, **kwargs: (person, {"by": "test"}))
+    monkeypatch.setattr(event_spans, "read_m7",
+                        lambda *args, **kwargs: record)
+    monkeypatch.setattr(event_spans, "timeline_items", lambda *args: [])
+    monkeypatch.setattr(event_spans, "_digest_of_files", lambda *args: {})
+    seen = []
+
+    def fake_verify(digest, spans, statement, **kwargs):
+        seen.append([s["start"] for s in spans])
+        return [{"answer": "no", "reason": "t", "frames": [], "frame_t": None,
+                 "model": "m", "cached": False, "seconds": 0.1}
+                for _ in spans]
+
+    monkeypatch.setattr(span_verification, "verify_spans", fake_verify)
+
+    full = event_spans.verified_query("/proj", "p1", "hand_raise", "raises a hand")
+    assert seen == [[1.0, 5.0]]  # tier 0 first, both verified
+    assert full["candidates"] == 2
+    assert full["cost"]["by_tier"] == {
+        "0": {"candidates": 1, "calls": 1},
+        "1": {"candidates": 1, "calls": 1}}
+
+    seen.clear()
+    budgeted = event_spans.verified_query(
+        "/proj", "p1", "hand_raise", "raises a hand", max_tier=0)
+    assert seen == [[1.0]]  # the marginal span never reaches the VLM
+    assert budgeted["verified_candidates"] == 1
+    assert budgeted["skipped_by_tier"] == 1
+    assert budgeted["cost"]["vlm_calls"] == 1
 
 
 class TestEventLanes:
