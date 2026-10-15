@@ -339,6 +339,11 @@ def test_parse_compact_window_repairs_the_measured_shapes_only():
         '"t": "person_talking_to_camera"}')
     assert repaired is False
     assert parsed["t"] == "person_talking_to_camera"
+    wrapped, repaired = vp.parse_compact_window(
+        'Here is the result: {"a": [], "s": [], "c": [], '
+        '"t": "scenery", "p": []} Done.')
+    assert repaired is True
+    assert wrapped["t"] == "scenery"
     assert vp.parse_compact_window("not json at all {{{") == ({}, False)
     assert vp.parse_compact_window("") == ({}, False)
 
@@ -462,47 +467,27 @@ def test_window_cache_matches_cold_results_and_remeasures_only_changed_window(
 
 
 @pytest.mark.usefixtures("mock_mlx_functions")
-def test_analyze_windows_falls_back_to_full_prompt():
-    """An unparseable compact answer is re-asked with the canonical
-    prompt; the re-ask recovers the window, and only when both fail is
-    it recorded UNPARSED - a dropped window is never acceptable."""
-    import json as _json
+def test_unparseable_window_is_unmeasured_without_retry_or_fallback():
+    """The A4 run recorded two empty compact attempts plus a full prompt
+    fallback for this failure shape. An unrecoverable window now stays
+    explicitly unmeasured after one bounded parse attempt."""
     analyzer = _SeqAnalyzer(["not json at all {{{",
                              "still not json ][["])
     entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
                                  None, "")
-    assert len(analyzer.calls) == 2
+    assert len(analyzer.calls) == 1
     assert '"a"' in analyzer.calls[0]["prompt"]
     assert analyzer.calls[0]["kwargs"]["max_tokens"] == \
         vp.MAX_TOKENS["window_all_compact"]
-    assert '"actions"' in analyzer.calls[1]["prompt"]
-    assert analyzer.calls[1]["kwargs"]["max_tokens"] == \
-        vp.MAX_TOKENS["window_all"]
     entry = entries[0]
-    assert entry["prompt_path"] == "full_fallback"
+    assert entry["prompt_path"] == "unmeasured"
     assert entry["parse_error"] is True
     assert entry["actions"] == []
-
-    canonical = _json.dumps({
-        "actions": [{"start": 0, "end": 10, "action": "speaking",
-                     "speech_cue": None, "body_language": "upright"}],
-        "scene": [{"start": 0, "end": 10, "location": "office",
-                   "type": "indoor", "lighting": "warm",
-                   "notable_features": ["whiteboard"]}],
-        "camera": [{"start": 0, "end": 10, "mode": "handheld",
-                    "framing": "medium", "stability": "steady",
-                    "movement": "stationary"}],
-        "assessment": {"content_type": "person_talking_to_camera",
-                       "primary_subject_visible": [[0, 10]]},
-    })
-    analyzer = _SeqAnalyzer(["not json at all {{{", canonical])
-    entry = vp.analyze_windows(analyzer, _window_clips(), 10.0, None, "")[0]
-    assert len(analyzer.calls) == 2
-    assert entry["prompt_path"] == "full_fallback"
-    assert "parse_error" not in entry
-    assert entry["actions"][0]["action"] == "speaking"
-    assert entry["scene"][0]["notable_features"] == ["whiteboard"]
-    assert entry["analysis_time_s"] == 39.0
+    assert entry["scene"] == []
+    assert entry["camera"] == []
+    assert entry["assessment"] is None
+    assert entry["scene_measured"] is False
+    assert entry["analysis_time_s"] == 19.5
 
 
 # ── Findings 2 and 3 (rung 0): still paths the host can open ──
@@ -605,7 +590,8 @@ class _StubWindowAnalyzer:
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
                            max_tokens=512, label="pass", audio=None,
-                           request_kind=None, request_id=None):
+                           request_kind=None, request_id=None,
+                           retry_on_empty=True):
         if label.startswith("Objects"):
             return [], json.dumps([]), 0.1
         result = {

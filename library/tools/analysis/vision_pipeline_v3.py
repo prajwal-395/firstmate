@@ -604,6 +604,20 @@ def parse_compact_window(text):
             return result, False
     except (json.JSONDecodeError, ValueError):
         pass
+    # A video model sometimes prefixes or suffixes otherwise-valid JSON
+    # with a short explanation. Extract only a complete object carrying a
+    # compact schema key; arbitrary brace-shaped prose is not accepted.
+    decoder = json.JSONDecoder()
+    for start, char in enumerate(stripped):
+        if char != "{":
+            continue
+        try:
+            result, _end = decoder.raw_decode(stripped, start)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(result, dict) and set(result) & {"a", "s", "c",
+                                                        "t", "p"}:
+            return result, True
     base = _close_section_arrays(stripped)
     # The bogus `[` the rewrite removes was usually balanced by a
     # surplus `]` before the final `}` - drop up to two.
@@ -826,7 +840,7 @@ class VisionAnalyzer:
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
                            max_tokens=512, label="pass", audio=None,
                            request_kind=None, request_id=None,
-                           still_executor=None):
+                           still_executor=None, retry_on_empty=True):
         """Run analysis with one retry on direct-call or parse failure.
 
         Args:
@@ -880,8 +894,9 @@ class VisionAnalyzer:
                 print(f"    ⚠ {label}: JSON parse failed after retry")
             return result, text.strip(), elapsed
 
-        # Retry once if parse produced empty result
-        if not result:
+        # Video windows opt out of a second generation on parse failure:
+        # unrecoverable output is explicitly recorded as unmeasured.
+        if not result and retry_on_empty:
             retry_suffix = "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown, no explanation, no text before or after the JSON."
             result2, text2, elapsed2 = run_attempt(
                 prompt + retry_suffix, 2)
@@ -2508,18 +2523,14 @@ def _expand_or_canonical(parsed):
     return parsed
 
 
-def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
-                    audio, label, request_id=None):
-    """One window's model call: compact first, full canonical fallback.
+def run_window_call(analyzer, compact_prompt, video, audio, label,
+                    request_id=None):
+    """Make one compact window call and apply bounded JSON repairs.
 
     Returns (expanded_result, compact_raw, elapsed_total, prompt_path)
     where prompt_path is "compact", "compact_repaired" or
-    "full_fallback". A window the compact answer cannot describe is
-    re-asked with the full canonical prompt rather than recorded as
-    UNPARSED - measured 2026-09-24, the diet drops the `]]` closing a
-    section array on ~1 in 8 windows and the retry repeats it, and a
-    dropped window is never acceptable: the fallback costs one full
-    call and its wall joins the window's total.
+    "unmeasured". Unrecoverable output is not retried or replaced with
+    observations from a second prompt.
     """
     state = {}
 
@@ -2531,19 +2542,12 @@ def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
     result, raw, elapsed = analyzer.analyze_with_retry(
         compact_prompt, _parse, video=video, audio=audio,
         max_tokens=MAX_TOKENS["window_all_compact"], label=label,
-        request_kind="window", request_id=f"{request_id or label}:compact")
+        request_kind="window", request_id=f"{request_id or label}:compact",
+        retry_on_empty=False)
     if result:
         path = "compact_repaired" if state.get("repaired") else "compact"
         return _expand_or_canonical(result), raw, elapsed, path
-    fb_result, _fb_raw, fb_elapsed = analyzer.analyze_with_retry(
-        fallback_prompt, parse_json_object, video=video, audio=audio,
-        max_tokens=MAX_TOKENS["window_all"],
-        label=label + " fallback", request_kind="window",
-        request_id=f"{request_id or label}:full_fallback")
-    elapsed += fb_elapsed
-    if fb_result:
-        fb_result = _expand_or_canonical(fb_result)
-    return fb_result, raw, elapsed, "full_fallback"
+    return {}, raw, elapsed, "unmeasured"
 
 
 def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
@@ -2564,9 +2568,8 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
     (`_expand_or_canonical`) before anything reads it, so every
     consumer below is unchanged. A compact answer that still does not
     parse - directly or via the section-array repair in
-    `parse_compact_window` - is re-asked once with the retired
-    canonical prompt (`run_window_call`); only a window both answers
-    fail to describe is recorded UNPARSED.
+    `parse_compact_window` - is recorded unmeasured without another
+    inference call.
 
     Each window clip keeps its audio track, which the model hears
     alongside the video (`audio=`); `fps` records the sampling the call
@@ -2576,11 +2579,9 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
     list (the shape `analyze_actions` used to return, unchanged), plus
     `scene`, `camera` and `assessment` sections answered from the same
     call, and `prompt_path` recording which prompt described it
-    ("compact", "compact_repaired" or "full_fallback"). Each entry
-    carries ``parse_error`` only when the compact answer AND the full
-    fallback both could not be parsed, so consumers can distinguish
-    *unparsed* (the model returned gibberish twice) from *genuinely
-    empty* (the model saw nothing happening).
+    ("compact", "compact_repaired" or "unmeasured"). Each entry
+    carries ``parse_error`` when the compact answer could not be parsed,
+    so consumers can distinguish *unparsed* from *genuinely empty*.
 
     An answer that came back without a key is not an answer of ``[]``.
     """
@@ -2617,20 +2618,18 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
             "boundaries": boundaries_text,
         }
         prompt = PROMPT_WINDOW_ALL_COMPACT.format(**prompt_args)
-        fallback_prompt = PROMPT_WINDOW_ALL.format(**prompt_args)
-
         video = clip_info["path"]
         audio = video if clip_info.get("has_audio") else None
         result, _raw, elapsed, prompt_path = run_window_call(
-            analyzer, prompt, fallback_prompt, video, audio,
+            analyzer, prompt, video, audio,
             f"Window [{w_start:.0f}-{w_end:.0f}s]",
             request_id=(f"{request_prefix}:window:"
                         f"{w_start:.3f}-{w_end:.3f}"))
 
         # `parse_compact_window` returns {} on total parse failure.
         # An empty dict is falsy; a dict with empty sections is truthy.
-        # The distinction matters: {} means neither the compact nor
-        # the fallback response could be parsed at all, while
+        # The distinction matters: {} means the compact response could
+        # not be parsed at all, while
         # {"actions": []} means the model saw nothing happening in
         # this window.
         parse_failed = not result
@@ -2654,7 +2653,7 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
             "assessment": assessment,
             "analysis_time_s": round(elapsed, 2),
             # Which prompt described this window - "compact",
-            # "compact_repaired" or "full_fallback" (see
+            # "compact_repaired" or "unmeasured" (see
             # `run_window_call`). A dropped window is never silent
             # about how it was recovered.
             "prompt_path": prompt_path,
@@ -2671,8 +2670,8 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
         if parse_failed:
             entry["parse_error"] = True
             print(f"    ⚠ Window [{w_start:.0f}-{w_end:.0f}s]: "
-                  f"window recorded as UNPARSED (neither the compact "
-                  f"nor the full fallback response parsed)",
+                  f"window recorded as UNPARSED (compact response "
+                  f"could not be parsed)",
                   file=sys.stderr)
 
         # The model hears HOW speech is delivered in the window's audio,
