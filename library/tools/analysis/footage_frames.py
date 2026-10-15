@@ -414,6 +414,9 @@ class FrameIndex:
             "frame_count": len(self.frames),
             "results": [],
             "refused": None,
+            # CLIP's held-out score distributions overlap, so a ranked
+            # candidate is never evidence enough to call a find or a miss.
+            "answer_status": "not_analyzed",
         }
         matched = action_refusal_match(query)
         if matched is not None and not include_actions:
@@ -428,14 +431,17 @@ class FrameIndex:
                          f"(candidate predicates: {event_pipeline_pointer()}); "
                          "or retry with --include-actions to rank anyway"),
             }
+            report["answer_status"] = "not_analyzed"
             return report
         if not self.frames or self.matrix is None:
             report["error"] = ("this frame index holds no embeddings; "
                                "build it with `ren search-index <project> --frames`")
+            report["answer_status"] = "not_analyzed"
             return report
         vector = self._encode_text(query)
         if vector is None:
             report["error"] = "CLIP is not available on this machine"
+            report["answer_status"] = "not_analyzed"
             return report
         scores = self.matrix @ vector
         order = np.argsort(-scores)[:max(0, top_k)]
@@ -450,6 +456,7 @@ class FrameIndex:
                 "score": round(float(scores[i]), 4),
                 "verified": False,
             })
+        report["answer_status"] = "insufficient_evidence"
         return report
 
     def search_ranges(self, query: str, top_ranges: int = 5,

@@ -2238,6 +2238,7 @@ class FootageIndex:
             query, mode, signal_merge=merge_signals, candidate_mask=mask)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
+            report["answer_status"] = "insufficient_evidence"
             if external_hits is not None:
                 merge_external_evidence(report, external_hits)
             return report
@@ -2311,8 +2312,17 @@ class FootageIndex:
                     "kind": self.segments[best]["kind"],
                 }
         report["abstained"] = not report["results"]
-        report["answer_status"] = ("found" if report["results"] else
-                                   "not_found" if visual_intent else "abstained")
+        # A lexical-only fallback can rank useful leads, but it cannot
+        # distinguish an absent subject from different wording. Keep those
+        # rows visible as leads without presenting them as confirmed finds.
+        if report["results"]:
+            report["answer_status"] = (
+                "insufficient_evidence" if dense is None or mode == "lexical"
+                else "found")
+        else:
+            report["answer_status"] = (
+                "not_found" if dense is not None
+                else "insufficient_evidence")
         if external_hits is not None:
             merge_external_evidence(report, external_hits)
         return report
@@ -3737,7 +3747,8 @@ def _print_unified_report(report):
 def _print_frame_report(report):
     """A frame search report as a person reads it: ranges, never absence."""
     print(f"query: {report['query']!r}  scope={report['scope']}  "
-          f"{report['frame_count']} frames indexed")
+          f"{report['frame_count']} frames indexed  "
+          f"answer_status={report['answer_status']}")
     if report.get("embed_backend"):
         print(f"backend: {report['embed_backend']}")
     if report.get("error"):
@@ -4009,7 +4020,7 @@ def _unified_json_hits(report, sources) -> list:
 def _frame_json_hits(report, sources) -> list:
     """Frame-index ranges as stable hits.  The frame lane has no floor
     and no abstain - it ranks whatever stills it holds, every range
-    unverified - so every row is strong, scored by its best CLIP
+    unverified - so every row is unverified, scored by its best CLIP
     cosine.  A range is picture evidence with no text; `text` is empty
     rather than invented."""
     hits = []
@@ -4022,12 +4033,12 @@ def _frame_json_hits(report, sources) -> list:
             start_s=span.get("start"), end_s=span.get("end"),
             kind="visual",
             score=span.get("best_score"), dense=None,
-            band="strong", text=""))
+            band="unverified", text=""))
     return hits
 
 
 def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
-                hits=(), error=None, extra=None) -> dict:
+                hits=(), error=None, answer_status=None, extra=None) -> dict:
     """The one `--json` envelope every search lane returns."""
     answer = {
         "query": query,
@@ -4039,6 +4050,8 @@ def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
     }
     if error is not None:
         answer["error"] = error
+    if answer_status is not None:
+        answer["answer_status"] = answer_status
     if extra:
         answer.update(extra)
     return answer
@@ -4087,7 +4100,9 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             query=query, mode="visual",
             abstained=not report["ranges"],
             hits=_frame_json_hits(report, sources),
-            error=report.get("error"))
+            error=report.get("error"),
+            answer_status=report["answer_status"],
+            extra={"notice": report["notice"]})
     if lane == "chunks":
         idx = FootageIndex(project_folder, index_dir=index_dir)
         report = idx.search_chunks(query, top_k=top_k, floor=floor)
@@ -4118,7 +4133,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
         query=query, mode=mode, floor=report["floor"],
         weak_floor=report["weak_floor"], abstained=report["abstained"],
         hits=_text_json_hits(report, sources),
-        error=report.get("error"))
+        error=report.get("error"), answer_status=report["answer_status"])
     answer["retrieval"] = {
         "index_candidates": report["segment_count"],
         "constraint_candidates": report["constraint_candidates"],

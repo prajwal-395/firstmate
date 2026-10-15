@@ -335,6 +335,7 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
     assert idx.matrix is None
     report = idx.search_report("pollen", top_k=1, mode="hybrid")
     assert report["results"][0]["kind"] == "speech"
+    assert report["answer_status"] == "insufficient_evidence"
     assert report["backend_answered"] == "bm25"
     assert "keyword match only" in report["degraded"]
     assert "error" in idx.search("pollen", mode="dense")[0]
@@ -363,7 +364,7 @@ def test_visual_intent_on_transcript_only_index_says_not_analysed(
 def test_visual_intent_returns_measured_picture_rows_not_speech(offline_index):
     idx, _ = offline_index
     report = idx.search_report("find the shot of a bicycle", mode="lexical")
-    assert report["answer_status"] == "found"
+    assert report["answer_status"] == "insufficient_evidence"
     assert report["results"]
     assert all(hit["kind"] != "speech" for hit in report["results"])
 
@@ -432,6 +433,7 @@ def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
     )
     assert report["considered"] == len(idx.segments)
     assert report["retained"] == 0
+    assert report["answer_status"] == "not_found"
 
     # And the list-returning form agrees: an empty list, not an error row.
     assert idx.search("parking", floor=best + 0.01) == []
@@ -1100,6 +1102,7 @@ def frame_index(project_3, tmp_path, stub_clip, stub_m2):
 def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
     """t=0/10/20 on one clip are one range; t=100 and the other clip are not."""
     report = frame_index.search_ranges("a laptop on a table", top_ranges=5)
+    assert report["answer_status"] == "insufficient_evidence"
     assert report["refused"] is None
     ranges = report["ranges"]
     assert [(r["clip_id"], r["start"], r["end"]) for r in ranges] == [
@@ -1148,6 +1151,7 @@ def test_hits_are_ranked_unverified_and_never_claim_absence(
 
     monkeypatch.setattr(footage_frames, "_load_clip", flat_loader)
     report = frame_index.search_frames("a birthday cake with candles", top_k=3)
+    assert report["answer_status"] == "insufficient_evidence"
     assert report["refused"] is None
     assert len(report["results"]) == 3, (
         "all-zero scores still return top-k: ranking is the answer")
@@ -2593,6 +2597,8 @@ def test_search_json_visual_lane_shares_the_hit_shape(
          "--index-dir", str(index_dir)]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["mode"] == "visual"
+    assert answer["answer_status"] == "insufficient_evidence"
+    assert "absence cannot be concluded" in answer["notice"]
     assert answer["abstained"] is False
     top = answer["hits"][0]
     assert set(top) == _HIT_KEYS
@@ -2601,7 +2607,7 @@ def test_search_json_visual_lane_shares_the_hit_shape(
     assert top["file"] == "IMG_0001.MOV"
     assert (top["start_s"], top["end_s"]) == (2.0, 2.5)
     assert top["kind"] == "visual"
-    assert top["band"] == "strong"
+    assert top["band"] == "unverified"
     assert top["score"] == pytest.approx(1.0)
 
 

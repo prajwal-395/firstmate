@@ -87,3 +87,33 @@ operational measurements. The retained FI-01 visual result is the before
 measurement: macro recall 0.155 and macro precision 0.3625 over four present
 queries. It is a narrower, all-source score and is not directly comparable to
 the held-out-only figures.
+
+## Negative-query decision (2026-10-15)
+
+The EVAL-02 held-out set contains no visual calibration queries. Its three
+negative queries are evaluation-only, so they cannot be used to choose a
+threshold. The earlier CLIP calibration measured an absent maximum of 0.191
+inside the present range 0.197-0.232, and an all-miss query reached 0.232.
+There is no score cutoff supported by those calibration measurements that can
+separate absent from present footage while preserving recall. The existing
+`footage_query` dense floors belong to different text embedding backends and
+cannot be transferred to CLIP scores. Per the protocol, no visual cutoff was
+shipped and retrieval ranking and pool size remain unchanged.
+
+The frame search labels ranked CLIP candidates `insufficient_evidence` and
+unsupported or unavailable searches `not_analyzed`; it continues to mark every
+candidate unverified and says absence cannot be concluded. The segmented text
+search reports `not_found` only when dense evidence was available and no row
+cleared its existing backend floor. Lexical-only results are
+`insufficient_evidence` rather than confirmed finds.
+
+| EVAL-02 full-index metric | Before | After |
+|---|---:|---:|
+| Negative queries returning candidates | 3/3 (1.0 false-return rate) | 3/3 (1.0; no supported CLIP cutoff) |
+| Positive macro recall | 0.1473 | 0.1473 (ranking unchanged) |
+| Positive macro precision | 0.2000 | 0.2000 (ranking unchanged) |
+
+This is a measurement-only result for visual abstention: reliable visual
+`not_found` remains unsupported until a separate, leakage-safe visual
+calibration set provides score separation. The new statuses prevent ranked
+CLIP leads and lexical-only matches from being presented as confirmed findings.
