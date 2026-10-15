@@ -65,6 +65,73 @@ def test_recording_is_thread_local_and_counts_calls(tmp_path):
     assert all(row["capability"] == "qualification_workflow" for row in rows)
 
 
+def test_media_decode_rows_match_source_and_purpose_and_refresh_on_mutation(
+        tmp_path):
+    ledger = tmp_path / "perf.jsonl"
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"first source revision")
+
+    with perf_ledger.recording(ledger, "r1", "semantic_analysis"):
+        for _ in range(2):
+            with perf_ledger.media_decode(
+                    source, purpose="semantic.coarse_frames",
+                    media_kind="video", access_pattern="random_seek",
+                    calls=3):
+                pass
+        source.write_bytes(b"second source revision")
+        with perf_ledger.media_decode(
+                source, purpose="semantic.coarse_frames",
+                media_kind="video", access_pattern="random_seek",
+                calls=3):
+            pass
+        with perf_ledger.media_decode(
+                source, purpose="semantic.coarse_frames",
+                media_kind="video", access_pattern="random_seek",
+                calls=0, cache_hits=3):
+            pass
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    decodes = [row for row in rows
+               if row.get("layer") == "media_decode"]
+    assert len(decodes) == 4
+    assert decodes[0]["source_fingerprint"] == decodes[1]["source_fingerprint"]
+    assert decodes[2]["source_fingerprint"] != decodes[1]["source_fingerprint"]
+    assert all(row["decode_purpose"] == "semantic.coarse_frames"
+               for row in decodes)
+    assert all(row["source_changed_during_decode"] is False
+               for row in decodes)
+    requests = [row for row in rows
+                if row.get("family") == "media_decode_requests"]
+    assert [row["count"] for row in requests] == [3, 3, 3]
+    cache_hits = [row for row in rows
+                  if row.get("family") == "media_decode_cache_hits"]
+    assert [row["count"] for row in cache_hits] == [3]
+
+
+def test_record_media_decode_measures_requests_and_cache_hits(tmp_path):
+    ledger = tmp_path / "perf.jsonl"
+    with perf_ledger.recording(ledger, "r1", "semantic_analysis"):
+        perf_ledger.record(
+            "media_decode", 2.5, started_at=10.0,
+            decode_purpose="semantic.action_windows", media_kind="video",
+            access_pattern="random_seek", source_fingerprint="abc",
+            source_changed_during_decode=False, calls=2, cache_hits=1,
+            bytes_written=1024)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    measured = [row for row in rows if row.get("layer") == "media_decode"]
+    assert len(measured) == 1
+    assert measured[0]["decode_purpose"] == "semantic.action_windows"
+    assert measured[0]["source_fingerprint"] == "abc"
+    assert measured[0]["calls"] == 2
+    assert measured[0]["cache_hits"] == 1
+    assert measured[0]["bytes_written"] == 1024
+    assert [(row["family"], row["count"]) for row in rows
+            if row.get("kind") == "count"] == [
+                ("media_decode_requests", 2),
+                ("media_decode_cache_hits", 1)]
+
+
 def test_profile_cli_reads_a_standalone_ledger(tmp_path, capsys):
     path = tmp_path / "perf.jsonl"
     path.write_text(json.dumps({

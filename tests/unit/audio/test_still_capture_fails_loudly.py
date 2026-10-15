@@ -161,7 +161,7 @@ def test_every_ffmpeg_capture_helper_rejects_a_zero_byte_still(tmp_path):
     from library.steps.step_6_02_validate_output.bridge import (
         _extract_frame as validate_extract_frame,
     )
-    from library.tools.analysis.vision_pipeline_v3 import extract_frames
+    from library.tools.analysis import vision_pipeline_v3
 
     source = tmp_path / "clip.mp4"
     source.write_bytes(b"fake-video")
@@ -175,5 +175,7 @@ def test_every_ffmpeg_capture_helper_rejects_a_zero_byte_still(tmp_path):
             str(source), 30, str(tmp_path / "frame.png")) is False
         # The vision pass is never handed an empty file, and does not
         # leave it cached for the next run either.
-        assert extract_frames(source, 10.0, tmp_path, interval_s=5.0) == []
-    assert list((tmp_path / "clip" / "frames").iterdir()) == []
+        assert vision_pipeline_v3.extract_frames(
+            source, 10.0, tmp_path, interval_s=5.0) == []
+    frame_dir = vision_pipeline_v3._source_cache_dir(tmp_path, source) / "frames"
+    assert list(frame_dir.iterdir()) == []

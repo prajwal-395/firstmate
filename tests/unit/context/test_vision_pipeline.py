@@ -21,6 +21,7 @@ import subprocess
 import threading
 from library.tools.analysis import measurement_layers as ml
 from library.tools.analysis import vision_pipeline_v3 as vp
+from library.tools import perf_ledger
 import sys
 import textwrap
 import time
@@ -1835,6 +1836,34 @@ def test_selected_window_caches_are_keyed_by_source_starts(tmp_path, monkeypatch
         row["path"] for row in second)
 
 
+def test_coarse_frame_cache_reuses_same_source_and_invalidates_mutation(
+        tmp_path, monkeypatch):
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"first source")
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        Path(command[-1]).write_bytes(b"frame")
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(vp.subprocess, "run", fake_run)
+    first = vp.extract_frames(source, 10.0, tmp_path / "cache")
+    repeated = vp.extract_frames(source, 10.0, tmp_path / "cache")
+    assert [row["timestamp"] for row in repeated] == [
+        row["timestamp"] for row in first]
+    assert len(calls) == 3
+    assert [row["path"] for row in repeated] == [row["path"] for row in first]
+
+    source.write_bytes(b"second source")
+    changed = vp.extract_frames(source, 10.0, tmp_path / "cache")
+    assert len(calls) == 6
+    assert [row["timestamp"] for row in changed] == [
+        row["timestamp"] for row in first]
+    assert {row["path"] for row in changed}.isdisjoint(
+        row["path"] for row in first)
+
+
 def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
     source = tmp_path / "source.mov"
     source.write_bytes(b"source")
@@ -2050,6 +2079,42 @@ def test_prefetched_windows_preserve_order_and_close_after_early_exit():
     iterator.close()
     assert not early.thread_alive
     assert early._count == 1
+
+
+def test_prefetched_window_decode_records_reuse_and_source_identity(tmp_path):
+    ledger = tmp_path / "perf.jsonl"
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"stable media source")
+    output_dir = tmp_path / "clips"
+    output_dir.mkdir()
+    output = output_dir / "window_000.mp4"
+
+    def producer(_stop):
+        if not output.exists():
+            output.write_bytes(b"window")
+        yield {"index": 0, "start": 0.125, "end": 1.375,
+               "path": str(output), "has_audio": True}
+
+    with perf_ledger.recording(ledger, "r1", "semantic_analysis"):
+        for _ in range(2):
+            windows = vp._WindowClipPrefetch(
+                producer, expected_count=1, source_path=source,
+                output_dir=output_dir)
+            assert len(list(windows)) == 1
+            windows.record_decode()
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    decodes = [row for row in rows if row.get("layer") == "media_decode"]
+    assert len(decodes) == 2
+    assert decodes[0]["decode_purpose"] == "semantic.action_windows"
+    assert decodes[0]["source_fingerprint"] == decodes[1][
+        "source_fingerprint"]
+    assert decodes[0]["calls"] == 1
+    assert decodes[0]["bytes_written"] == len(b"window")
+    assert decodes[0]["source_windows"] == [
+        {"start_s": 0.125, "end_s": 1.375}]
+    assert decodes[1]["calls"] == 0
+    assert decodes[1]["cache_hits"] == 1
 
 
 def test_prefetch_producer_error_cleans_up_thread_and_temp_output(

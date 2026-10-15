@@ -1012,6 +1012,18 @@ def probe_clip(clip_path):
 #  Frame & Video Clip Extraction
 # ═══════════════════════════════════════════════════════════════════════
 
+def _source_cache_dir(cache_dir, clip_path):
+    """Return a cache namespace tied to the media content identity."""
+    clip_path = Path(clip_path)
+    try:
+        from library.tools.footage_identity import fingerprint
+        digest = fingerprint(str(clip_path))["content_digest"]
+    except OSError:
+        # Keep the historical path for callers inspecting a missing source;
+        # extraction itself will still fail or return no usable outputs.
+        return Path(cache_dir).resolve() / clip_path.stem
+    return Path(cache_dir).resolve() / digest / clip_path.stem
+
 def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S):
     """Extract frames at a fixed interval. Returns list of {timestamp, path}.
 
@@ -1029,8 +1041,32 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     wherever the pipeline was launched, which is nowhere the host can
     open. See tests/unit/context/test_vision_pipeline.py (finding 2).
     """
+    clip_path = Path(clip_path)
     cache_dir = Path(cache_dir).resolve()
-    frame_dir = cache_dir / clip_path.stem / "frames"
+    frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
+    n_frames = max(1, int(math.ceil(duration / interval_s))) + 1
+    pending = sum(
+        not _usable_frame(frame_dir / f"frame_{i:04d}.jpg")
+        for i in range(n_frames))
+    if pending:
+        with perf_ledger.media_decode(
+                clip_path, purpose="semantic.coarse_frames",
+                media_kind="video", access_pattern="random_seek",
+                calls=pending, cache_hits=n_frames - pending) as measurement:
+            frames = _extract_frames(clip_path, duration, cache_dir, interval_s)
+            measurement["bytes_written"] = sum(
+                Path(row["path"]).stat().st_size for row in frames)
+        return frames
+    with perf_ledger.media_decode(
+            clip_path, purpose="semantic.coarse_frames",
+            media_kind="video", access_pattern="random_seek",
+            calls=0, cache_hits=n_frames):
+        return _extract_frames(clip_path, duration, cache_dir, interval_s)
+
+
+def _extract_frames(clip_path, duration, cache_dir, interval_s):
+    cache_dir = Path(cache_dir).resolve()
+    frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
 
     n_frames = max(1, int(math.ceil(duration / interval_s))) + 1
@@ -1098,7 +1134,7 @@ def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
     the still-vision request's `images` (finding 2).
     """
     cache_dir = Path(cache_dir).resolve()
-    frame_dir = cache_dir / clip_path.stem / "detail_frames"
+    frame_dir = _source_cache_dir(cache_dir, clip_path) / "detail_frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
 
     result = {}
@@ -1308,6 +1344,22 @@ def _video_height(path):
         return 0
 
 
+def _snapshot_window_outputs(directory):
+    if directory is None:
+        return {}
+    directory = Path(directory)
+    if not directory.is_dir():
+        return {}
+    snapshot = {}
+    for path in directory.glob("*.mp4"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        snapshot[path] = (stat.st_size, stat.st_mtime_ns)
+    return snapshot
+
+
 class _WindowClipPrefetch:
     """Bounded, ordered producer for window cuts consumed during inference."""
 
@@ -1317,11 +1369,31 @@ class _WindowClipPrefetch:
         def __init__(self, error):
             self.error = error
 
-    def __init__(self, producer, expected_count):
+    def __init__(self, producer, expected_count, source_path=None,
+                 output_dir=None):
         self.expected_count = expected_count
         self.extraction_wall_s = None
         self.ffprobe_spawns = None
         self._probe_start = ffprobe_spawn_count()
+        self.extraction_started_at = time.time()
+        self.source_path = Path(source_path) if source_path else None
+        self.output_dir = Path(output_dir) if output_dir else None
+        self._outputs_before = self._output_snapshot()
+        identity = {}
+        if self.source_path is not None:
+            try:
+                from library.tools.footage_identity import fingerprint
+                identity = fingerprint(str(self.source_path))
+            except OSError:
+                identity = {}
+        self.source_fingerprint = identity.get("content_digest")
+        self.source_size_bytes = identity.get("size_bytes")
+        self.source_changed_during_decode = False
+        self.decode_calls = 0
+        self.cache_hits = 0
+        self.bytes_written = 0
+        self._produced_paths = []
+        self.source_windows = []
         self._queue = queue.Queue(maxsize=1)
         self._stop = threading.Event()
         self._started = time.perf_counter()
@@ -1330,6 +1402,7 @@ class _WindowClipPrefetch:
         self._clips = []
         self._iterated = False
         self._complete = False
+        self._decode_recorded = False
         self._producer = producer
         self._thread = threading.Thread(
             target=self._run,
@@ -1337,6 +1410,9 @@ class _WindowClipPrefetch:
             daemon=False,
         )
         self._thread.start()
+
+    def _output_snapshot(self):
+        return _snapshot_window_outputs(self.output_dir)
 
     def __len__(self):
         return self._count if self._complete else self.expected_count
@@ -1362,6 +1438,11 @@ class _WindowClipPrefetch:
         failure = None
         try:
             for item in self._producer(self._stop):
+                if "path" in item:
+                    self._produced_paths.append(Path(item["path"]))
+                if "start" in item and "end" in item:
+                    self.source_windows.append({
+                        "start_s": item["start"], "end_s": item["end"]})
                 if self._stop.is_set() or not self._publish(item):
                     break
         except BaseException as exc:  # noqa: BLE001 - wake the consumer for any worker failure
@@ -1369,6 +1450,22 @@ class _WindowClipPrefetch:
         finally:
             self.extraction_wall_s = time.perf_counter() - self._started
             self.ffprobe_spawns = ffprobe_spawn_count() - self._probe_start
+            after = self._output_snapshot()
+            changed = [path for path, stat in after.items()
+                       if self._outputs_before.get(path) != stat]
+            self.decode_calls = len(changed)
+            self.cache_hits = sum(
+                path not in changed for path in self._produced_paths)
+            self.bytes_written = sum(after[path][0] for path in changed)
+            if self.source_path is not None:
+                try:
+                    from library.tools.footage_identity import fingerprint
+                    current = fingerprint(str(self.source_path))
+                    self.source_changed_during_decode = (
+                        current.get("content_digest") != self.source_fingerprint
+                        or current.get("size_bytes") != self.source_size_bytes)
+                except OSError:
+                    self.source_changed_during_decode = True
         if failure is not None:
             self._publish(failure)
         self._publish(self._STOP)
@@ -1400,6 +1497,24 @@ class _WindowClipPrefetch:
             except queue.Empty:
                 pass
             self._thread.join(timeout=0.05)
+
+    def record_decode(self):
+        """Append the completed window decode to the current capability."""
+        if self._decode_recorded:
+            return
+        self._decode_recorded = True
+        perf_ledger.record(
+            "media_decode", self.extraction_wall_s or 0.0,
+            started_at=self.extraction_started_at, backend="ffmpeg",
+            subprocesses=self.ffprobe_spawns or 0,
+            decode_purpose="semantic.action_windows",
+            media_kind="video", access_pattern="random_seek",
+            source_fingerprint=self.source_fingerprint,
+            source_size_bytes=self.source_size_bytes,
+            source_changed_during_decode=self.source_changed_during_decode,
+            calls=self.decode_calls, cache_hits=self.cache_hits,
+            bytes_written=self.bytes_written,
+            source_windows=self.source_windows)
 
 
 def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S,
@@ -1584,7 +1699,8 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
             }
 
     if prefetch:
-        return _WindowClipPrefetch(produce_windows, len(window_specs))
+        return _WindowClipPrefetch(
+            produce_windows, len(window_specs), clip_path, clip_dir)
     return list(produce_windows(threading.Event()))
 
 
@@ -3875,9 +3991,30 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
         extraction_started = time.perf_counter()
         video_clips = []
         if cached.get("windows") is None:
-            video_clips = extract_video_clips(
-                clip_path, duration, cache_dir, prefetch=False,
-                window_starts_s=window_plan["window_starts_s"])
+            window_dir = Path(cache_dir) / clip_path.stem / "clips"
+            before = _snapshot_window_outputs(window_dir)
+            with perf_ledger.media_decode(
+                    clip_path, purpose="semantic.action_windows",
+                    media_kind="video", access_pattern="random_seek",
+                    calls=0) as measurement:
+                video_clips = extract_video_clips(
+                    clip_path, duration, cache_dir, prefetch=False,
+                    window_starts_s=window_plan["window_starts_s"])
+                after = _snapshot_window_outputs(window_dir)
+                changed = [path for path, stat in after.items()
+                           if before.get(path) != stat]
+                measurement["calls"] = len(changed)
+                measurement["cache_hits"] = sum(
+                    Path(item["path"]) in before
+                    and before[Path(item["path"])]
+                    == after.get(Path(item["path"]))
+                    for item in video_clips)
+                measurement["bytes_written"] = sum(
+                    after[path][0] for path in changed)
+                measurement["subprocesses"] = ffprobe_spawn_count()
+                measurement["source_windows"] = [
+                    {"start_s": item["start"], "end_s": item["end"]}
+                    for item in video_clips]
         extraction_wall = round(time.perf_counter() - extraction_started, 2)
         extraction_spawns = ffprobe_spawn_count()
         audio_count = sum(1 for item in video_clips
@@ -3906,10 +4043,6 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                 window_params.append(params)
                 window_cache_hits.append(cached_window is not None)
 
-        perf_ledger.record(
-            "demux", extraction_wall, backend="ffmpeg",
-            subprocesses=extraction_spawns,
-            decoded_source_s=round(float(duration or 0.0), 3))
         context = {
             "clip_order": len(contexts), "meta": meta,
             "clip_order_in_input": clip_order,
@@ -4196,6 +4329,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             finally:
                 if isinstance(video_clips, _WindowClipPrefetch):
                     video_clips.close()
+                    video_clips.record_decode()
 
             if isinstance(video_clips, _WindowClipPrefetch):
                 window_extraction_wall_s = round(
@@ -4213,10 +4347,6 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                   f"{window_extraction_ffprobe_spawns} ffprobe spawns]")
             # Extraction ran in a producer thread BESIDE inference, so
             # its wall overlaps gemma_inference's; the profile says so.
-            perf_ledger.record(
-                "demux", window_extraction_wall_s, backend="ffmpeg",
-                subprocesses=window_extraction_ffprobe_spawns,
-                decoded_source_s=round(float(duration or 0.0), 3))
             profile.setdefault("analysis_metadata", {}).update({
                 "semantic_window_plan": window_plan,
                 "window_extraction_wall_s": window_extraction_wall_s,

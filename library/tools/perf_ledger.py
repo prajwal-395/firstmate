@@ -83,7 +83,8 @@ SCHEDULE = "schedule"
 # use ``count_call``; the report returns zero for an uninstrumented family
 # instead of implying that it was measured.
 COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
-                  "probes", "hashes", "subprocess_spawns", "cli_starts")
+                  "probes", "hashes", "subprocess_spawns", "cli_starts",
+                  "media_decode_requests", "media_decode_cache_hits")
 GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
                    "graphics_render", "hyperframes-caption",
                    "ffframes-caption"}
@@ -96,7 +97,7 @@ EXTERNAL_LAYERS = {
     "host_model": "model_inference",
     "semantic_inference_attempt": "model_inference",
     "model_load": "model_runtime",
-    "demux": "ffmpeg",
+    "demux": "ffmpeg", "media_decode": "ffmpeg",
     "resolve_render": "resolve_api", "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
     "broker_request": "resolve_broker",
@@ -389,21 +390,90 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
             # say exactly which seconds were this layer's own.
             row["self_intervals"] = _gaps(
                 (started, started + wall), frame["children"])
-        if int(row.get("subprocesses") or 0) > 0:
-            count_call("subprocess_spawns", int(row["subprocesses"]))
-        if layer in GRAPHICS_LAYERS:
-            count_call("graphics_renders", int(row.get("calls") or 1))
-        row.update({
-            "kind": SPAN, "layer": layer,
-            "run_id": _env(RUN_ENV),
-            "capability": _env(CAPABILITY_ENV),
-            "started_at": round(started, 3),
-            "wall_s": round(max(0.0, wall - frame["child_wall"]), 3),
-            "cpu_s": round(max(0.0, cpu - frame["child_cpu"]), 3),
-            "self_peak_rss_mb": _maxrss_mb(resource.RUSAGE_SELF),
-        })
-        _attach_backends(row)
-        _append(path, row, required=_required_persistence())
+        measured_decode = (
+            layer != "media_decode"
+            or int(row.get("calls") or 0) > 0
+            or int(row.get("cache_hits") or 0) > 0)
+        if measured_decode:
+            if int(row.get("subprocesses") or 0) > 0:
+                count_call("subprocess_spawns", int(row["subprocesses"]))
+            if layer == "media_decode":
+                common = {
+                    "decode_purpose": row["decode_purpose"],
+                    "media_kind": row["media_kind"],
+                    "source_fingerprint": row.get("source_fingerprint"),
+                    "source_changed_during_decode": row.get(
+                        "source_changed_during_decode", False),
+                }
+                if int(row.get("calls") or 0) > 0:
+                    count_call("media_decode_requests",
+                               int(row["calls"]), **common)
+                if int(row.get("cache_hits") or 0) > 0:
+                    count_call("media_decode_cache_hits",
+                               int(row["cache_hits"]), **common)
+            if layer in GRAPHICS_LAYERS:
+                count_call("graphics_renders", int(row.get("calls") or 1))
+            row.update({
+                "kind": SPAN, "layer": layer,
+                "run_id": _env(RUN_ENV),
+                "capability": _env(CAPABILITY_ENV),
+                "started_at": round(started, 3),
+                "wall_s": round(max(0.0, wall - frame["child_wall"]), 3),
+                "cpu_s": round(max(0.0, cpu - frame["child_cpu"]), 3),
+                "self_peak_rss_mb": _maxrss_mb(resource.RUSAGE_SELF),
+            })
+            _attach_backends(row)
+            _append(path, row, required=_required_persistence())
+
+
+@contextmanager
+def media_decode(source_path, *, purpose: str, media_kind: str,
+                 access_pattern: str, calls: int = 1, cache_hits: int = 0,
+                 decoded_source_s: float | None = None,
+                 **fields: Any) -> Iterator[dict[str, Any]]:
+    """Measure a real media decode with stable source and purpose identity.
+
+    Fingerprinting is only done when a ledger is attached. The existing
+    footage identity contract (size plus SHA-256 of both file ends) avoids
+    reading multi-gigabyte sources just to attribute a decode. Matching
+    ``source_fingerprint`` and ``decode_purpose`` rows identify repeated
+    work; ``source_changed_during_decode`` makes a concurrent source edit
+    visible instead of silently assigning one identity to mixed input.
+    """
+    fingerprint = None
+    path = _env(LEDGER_ENV)
+    if path:
+        try:
+            from library.tools.footage_identity import fingerprint as identify
+            fingerprint = identify(str(source_path))
+        except (OSError, ValueError, TypeError):
+            fingerprint = None
+    identity = (fingerprint or {}).get("content_digest")
+    stat_size = (fingerprint or {}).get("size_bytes")
+    row_fields = {
+        **fields,
+        "decode_purpose": purpose,
+        "media_kind": media_kind,
+        "access_pattern": access_pattern,
+        "source_fingerprint": identity,
+        "source_size_bytes": stat_size,
+        "calls": int(calls),
+        "cache_hits": int(cache_hits),
+    }
+    if decoded_source_s is not None:
+        row_fields["decoded_source_s"] = round(float(decoded_source_s), 3)
+    with span("media_decode", **row_fields) as row:
+        try:
+            yield row
+        finally:
+            changed = False
+            if path and fingerprint is not None:
+                try:
+                    current = identify(str(source_path))
+                    changed = current != fingerprint
+                except (OSError, ValueError, TypeError):
+                    changed = True
+                row["source_changed_during_decode"] = changed
 
 
 def record(layer: str, wall_s: float, started_at: float | None = None,
@@ -420,6 +490,22 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
     if not path:
         return
     wall_s = max(0.0, float(wall_s))
+    if layer == "media_decode":
+        calls = int(fields.get("calls") or 0)
+        cache_hits = int(fields.get("cache_hits") or 0)
+        if calls <= 0 and cache_hits <= 0:
+            return
+        common = {
+            "decode_purpose": fields["decode_purpose"],
+            "media_kind": fields["media_kind"],
+            "source_fingerprint": fields.get("source_fingerprint"),
+            "source_changed_during_decode": fields.get(
+                "source_changed_during_decode", False),
+        }
+        if calls > 0:
+            count_call("media_decode_requests", calls, **common)
+        if cache_hits > 0:
+            count_call("media_decode_cache_hits", cache_hits, **common)
     if started_at is None:
         started_at = time.time() - wall_s
     stack = getattr(_local, "stack", None)

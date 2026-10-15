@@ -2860,10 +2860,16 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
     for key, source_path, index_path, require_picture in items:
         if not source_path or not os.path.isfile(source_path):
             continue
+        digest = fingerprint(source_path)["content_digest"]
         if _load_cached_index(index_path, expected_language=language,
                               require_picture=require_picture) is not None:
+            from library.tools import perf_ledger
+            with perf_ledger.media_decode(
+                    source_path, purpose="temporal.audio_16k_mono",
+                    media_kind="audio", access_pattern="sequential",
+                    calls=0, cache_hits=1):
+                pass
             continue
-        digest = fingerprint(source_path)["content_digest"]
         needs_by_digest.setdefault(digest, {"source_path": source_path,
                                             "keys": []})["keys"].append(key)
     if not needs_by_digest:
@@ -2885,8 +2891,14 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
         try:
             # The digest is the producer cache key, independent of a
             # project's clip numbering.
-            audio_path = clip_audio_16k(source_path, audio_dir,
-                                        clip_id=f"source-{key}")
+            from library.tools import perf_ledger
+            with perf_ledger.media_decode(
+                    source_path, purpose="temporal.audio_16k_mono",
+                    media_kind="audio", access_pattern="sequential",
+                    subprocesses=1) as measurement:
+                audio_path = clip_audio_16k(
+                    source_path, audio_dir, clip_id=f"source-{key}")
+                measurement["bytes_written"] = os.path.getsize(audio_path)
             onsets, onset_strengths = detect_onsets_with_strength(
                 audio_path)
         except Exception as e:

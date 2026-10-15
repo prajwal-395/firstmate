@@ -71,12 +71,20 @@ def decode_temporal_media(
     ]
     timeout = max(600.0, float(duration) * 1.5 + 120.0)
     try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        from library.tools import perf_ledger
+        with perf_ledger.media_decode(
+                video_path, purpose="temporal.shared_video_measurements",
+                media_kind="video", access_pattern="sequential",
+                decoded_source_s=duration, subprocesses=1) as measurement:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            measurement["bytes_written"] = sum(
+                path.stat().st_size for path in paths.values()
+                if path.is_file())
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"  WARNING: shared video decode failed ({error}); "
               "using individual measurements", file=sys.stderr)
