@@ -69,6 +69,30 @@ def test_pick_up_put_down_uses_ordered_raise_and_lower_transition():
     assert event["kind"] == "pick_up_put_down"
 
 
+def test_hand_object_contact_is_a_measured_candidate_with_phases():
+    [event] = candidates_from_model(_model(), rule="hand_object_contact")
+    assert event["kind"] == "hand_object_contact"
+    assert event["status"] == "candidate"
+    assert event["phases"]["execution"] == {"start": 1000, "end": 2001}
+    assert event["phases"]["preparation"] is None
+    assert event["phases"]["completion"] is None
+
+
+def test_pointing_uses_sustained_index_extension_without_inventing_target():
+    model = {"entities": [], "tracks": [], "observations": [
+        {"id": f"pose-{tick}", "modality": "face_frame",
+         "interval": {"clock_id": "clock-1", "start": tick, "end": tick + 1},
+         "payload": {"hands": [{"joints": {
+             "wrist": [.2, .2, .9], "indexTip": [.5, .2, .9]}}]}}
+        for tick in (1000, 1500, 3000)
+    ]}
+    [event] = candidates_from_model(model, rule="pointing")
+    assert event["kind"] == "pointing"
+    assert event["evidence_ids"] == ["pose-1000", "pose-1500"]
+    assert event["participant_ids"] == []
+    assert event["certainty"] == "inferred"
+
+
 def test_hand_to_face_requires_repeated_measured_landmark_contact():
     model = {"entities": [], "tracks": [], "observations": [
         {"id": f"pose-{tick}", "modality": "face_frame",

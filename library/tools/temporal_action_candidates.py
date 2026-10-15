@@ -15,8 +15,64 @@ from typing import Any
 RULES = {
     "drink_from_cup": {"object_terms": ("cup", "mug"), "needs_mouth": True},
     "pick_up_put_down": {"object_terms": (), "needs_mouth": False},
+    "hand_object_contact": {"object_terms": (), "needs_mouth": False},
     "hand_to_face": {"object_terms": (), "needs_mouth": False},
+    "pointing": {"object_terms": (), "needs_mouth": False},
 }
+
+
+def _pointing_candidates(face_rows: list[dict[str, Any]], *,
+                         min_extension: float = .12,
+                         max_gap_ticks: int = 1000) -> list[dict[str, Any]]:
+    """Nominate sustained pointing gestures from confident hand landmarks.
+
+    Coordinates are normalized by the upstream M3 contract. This only
+    proposes spans: an extended index finger may point at anything, so the
+    candidate carries no target identity or verified action claim.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in face_rows:
+        grouped[row["interval"]["clock_id"]].append(row)
+    proposals = []
+    for clock_id, rows in grouped.items():
+        rows.sort(key=lambda row: row["interval"]["start"])
+        hits = []
+        for row in rows:
+            for hand in row["payload"].get("hands") or []:
+                joints = hand.get("joints") or {}
+                wrist = joints.get("wrist")
+                tip = next((joint for name, joint in joints.items()
+                            if name.lower() in ("index_tip", "indextip")), None)
+                if not wrist or not tip or wrist[2] < .35 or tip[2] < .35:
+                    continue
+                if hypot(float(tip[0]) - float(wrist[0]),
+                         float(tip[1]) - float(wrist[1])) < min_extension:
+                    continue
+                hits.append(row)
+                break
+        groups = []
+        for row in hits:
+            tick = row["interval"]["start"]
+            if groups and tick - groups[-1][-1]["interval"]["start"] <= max_gap_ticks:
+                groups[-1].append(row)
+            else:
+                groups.append([row])
+        for group in groups:
+            if len(group) < 2:
+                continue
+            start, end = group[0]["interval"]["start"], group[-1]["interval"]["end"]
+            proposals.append({
+                "id": f"event-candidate-pointing-{clock_id}-{start}-{end}",
+                "interval": {"clock_id": clock_id, "start": start, "end": end},
+                "kind": "pointing", "participant_ids": [],
+                "status": "candidate", "certainty": "inferred",
+                "evidence_ids": sorted({row["id"] for row in group}),
+                "confidence": None, "state_changes": [],
+                "phases": {"preparation": None,
+                           "execution": {"start": start, "end": end},
+                           "completion": None},
+            })
+    return sorted(proposals, key=lambda row: (row["interval"]["start"], row["id"]))
 
 
 def nominate_hand_motion_intervals(frames: list[dict[str, Any]], *,
@@ -191,6 +247,9 @@ def candidates_from_model(model: dict[str, Any], *, rule: str = "drink_from_cup"
     if rule == "hand_to_face":
         proposals = _hand_to_face_candidates(face_rows)
         return proposals[:top_k] if top_k is not None else proposals
+    if rule == "pointing":
+        proposals = _pointing_candidates(face_rows)
+        return proposals[:top_k] if top_k is not None else proposals
     object_rows: dict[tuple[str, int], dict] = {}
     for row in observations:
         if row["modality"] == "object_track_sample":
@@ -257,6 +316,38 @@ def candidates_from_model(model: dict[str, Any], *, rule: str = "drink_from_cup"
                     mouth_near = True
             hits.append({"sample": sample, "box": box, "refs": refs,
                          "hand_near": hand_near, "mouth_near": mouth_near})
+        if rule == "hand_object_contact":
+            groups = []
+            current = []
+            for hit in hits:
+                tick = hit["sample"]["tick"]
+                if hit["hand_near"]:
+                    if (current and tick - current[-1]["sample"]["tick"]
+                            > 2000):
+                        groups.append(current)
+                        current = []
+                    current.append(hit)
+                elif current:
+                    groups.append(current)
+                    current = []
+            if current:
+                groups.append(current)
+            for group in groups:
+                if len(group) < 2:
+                    continue
+                left, right = group[0]["sample"]["tick"], group[-1]["sample"]["tick"] + 1
+                proposals.append({
+                    "id": f"event-candidate-hand_object_contact-{track_id}-{left}-{right}",
+                    "interval": {"clock_id": clock_id, "start": left, "end": right},
+                    "kind": rule, "participant_ids": [entity["id"]],
+                    "status": "candidate", "certainty": "inferred",
+                    "evidence_ids": sorted({ref for hit in group for ref in hit["refs"]}),
+                    "confidence": None, "state_changes": [],
+                    "phases": {"preparation": None,
+                               "execution": {"start": left, "end": right},
+                               "completion": None},
+                })
+            continue
         # Require an ordered object-state transition. A single moved box near
         # a hand or face is not enough to claim an action.
         for before, middle, after in zip(hits, hits[1:], hits[2:]):
