@@ -39,6 +39,18 @@ def test_footage_scan_executor_is_capability_owned_and_step_is_adapter():
     assert "_scan" in step_scan.__code__.co_names
 
 
+def test_footage_catalog_executor_is_capability_owned_and_step_is_adapter():
+    from library.capabilities.footage.catalog import catalog_footage
+    from library.steps.step_1_02_catalog_footage.step import (
+        catalog_footage as step_catalog,
+    )
+
+    op = operations.get("footage.catalog")
+    spec = capabilities.spec_of(op)
+    assert spec.executor.path == "library/capabilities/footage/catalog.py"
+    assert op.run is catalog_footage is step_catalog
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (

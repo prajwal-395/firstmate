@@ -1348,6 +1348,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Extract per-file metadata into the ordered clip catalog",
         owning_dir="step_1_02_catalog_footage", body="step.py",
         attr="catalog_footage",
+        executor_path="library/capabilities/footage/catalog.py",
         produces=(
             "clip_catalog",
             "project_fps",

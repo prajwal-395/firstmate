@@ -1042,6 +1042,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_02_catalog_footage": (
+        # The legacy step adapter delegates the catalog measurement here.
+        "library/capabilities/footage/catalog.py",
         # The shared analysis import closure includes the source-separation
         # helper, whose changes must invalidate cached catalog consumers.
         "library/tools/analysis/source_separation.py",
