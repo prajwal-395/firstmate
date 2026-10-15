@@ -321,6 +321,29 @@ def test_visibility_names_the_mug_gap(fixture_project):
                for note in report["notes"])
 
 
+def test_visibility_does_not_claim_a_frame_without_track_geometry(
+        fixture_project):
+    seg_path = ProjectLayout(str(fixture_project["project"])).step_dir(
+        "object_segmentation") / "clip_obj_segmentation.json"
+    doc = json.loads(seg_path.read_text(encoding="utf-8"))
+    mug = next(obj for obj in doc["objects"]
+               if obj["object_id"] == "obj_3")
+    # Simulate an artifact whose frame list includes a propagated mask but
+    # whose stored track has no bbox for it. Migration skips such a sample.
+    mug["frames"].append(3)
+    mug["frames"].sort()
+    _write(seg_path, doc)
+
+    model, _report = _migrate(fixture_project)
+    visibility = next(o["payload"] for o in
+                      _observations_by_modality(model, "object_visibility")
+                      if o["payload"]["object_id"] == "obj_3")
+    assert visibility["visible_ticks"] == [0, 500, 1000, 2500, 3000, 3500]
+    assert visibility["gaps"] == [{
+        "start_tick": 1500, "end_tick": 2500,
+        "missing_frames": [3, 4]}]
+
+
 # ── The acceptance: two objects, separate identities, explicit gaps ──
 
 

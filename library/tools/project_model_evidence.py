@@ -2743,9 +2743,22 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 builder, digest, clock_id, clip_id, obj, object_id,
                 entity_id, frames, bboxes, sample_fps, frame_width,
                 frame_height, first_t, last_t, track_method)
-        _migrate_object_visibility(builder, digest, clock_id, clip_id,
-                                   object_id, entity_id, frames,
-                                   sample_fps, first_t, last_t)
+        # A frame index alone is not evidence that the migrated track has
+        # geometry there. Segmentation artifacts can list a propagated mask
+        # frame without a bbox; the sample loop above skips that frame. Keep
+        # visibility aligned with the observations the model can actually
+        # query, and let the missing index become an explicit coverage gap.
+        sampled_frames = [frame_idx for frame_idx in frames
+                          if bboxes.get(frame_idx,
+                                        bboxes.get(str(frame_idx))) is not None]
+        if sampled_frames:
+            _migrate_object_visibility(builder, digest, clock_id, clip_id,
+                                       object_id, entity_id, sampled_frames,
+                                       sample_fps, first_t, last_t)
+        else:
+            builder.notes.append(
+                f"{clip_id}/{object_id}: no track samples have usable "
+                "bounding boxes; visibility is unmeasured")
         mask_entity = entity_id
         if (obj.get("label") == FACE_SEED_LABEL
                 and category == FACE_SEED_CATEGORY):
