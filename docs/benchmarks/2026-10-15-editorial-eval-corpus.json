@@ -1,0 +1,958 @@
+{
+ "schema_version": 1,
+ "corpus_id": "ren-editorial-eval-2026-10",
+ "policy": {
+  "rights_basis": "Captain policy adopted 2026-10-14: rights-cleared real footage from Ren existing projects, permitted for benchmarking and training.",
+  "rights_reference": "captain policy, 2026-10-14 intelligence-efficiency architecture note",
+  "source_scope": "Existing Ren project camera originals only: 7 GEO podcast MXF plus 17 Apple 001 iPhone takes; no downloads or generated media",
+  "split_unit": "leakage_group_id; synchronized cameras or takes from one session stay in one split (all 17 Apple 001 takes share one session group)",
+  "collections": {
+   "geo-podcast": "Seven GEO podcast MXF camera originals (podcast media folder).",
+   "apple-001": "Seventeen iPhone takes IMG_1806-IMG_1822 from 001/raw (read-only; exports/ and pipeline_output/ excluded). Single outing session; one leakage group."
+  },
+  "hash_provenance": "sha256 is the full-file SHA-256 measured from read-only disk 2026-10-15 (podcast MXF) and at manifest build time (Apple 001). The FI-01 corpus manifest digest is a partial fingerprint (size plus first/last 1MB per footage_identity.fingerprint) and is not used here."
+ },
+ "annotation_schema": {
+  "id": "editorial-evidence-v1",
+  "version": 1,
+  "fields": {
+   "scene": {
+    "required": [
+     "scene_type",
+     "setting",
+     "participants"
+    ]
+   },
+   "actions": {
+    "required": [
+     "entity_id",
+     "action",
+     "start_seconds",
+     "end_seconds",
+     "confidence"
+    ]
+   },
+   "objects": {
+    "required": [
+     "entity_id",
+     "label",
+     "start_seconds",
+     "end_seconds",
+     "visibility",
+     "confidence"
+    ]
+   },
+   "camera_motion": {
+    "required": [
+     "motion_type",
+     "start_seconds",
+     "end_seconds",
+     "confidence"
+    ]
+   },
+   "speech": {
+    "required": [
+     "speaker_id",
+     "verbatim_text",
+     "start_seconds",
+     "end_seconds",
+     "overlap",
+     "noise_condition"
+    ]
+   },
+   "ambience_music": {
+    "required": [
+     "kind",
+     "start_seconds",
+     "end_seconds",
+     "confidence"
+    ]
+   },
+   "provenance": {
+    "required": [
+     "annotator_id",
+     "review_status",
+     "evidence_ref"
+    ]
+   }
+  },
+  "timebase": "seconds from source start; intervals are [start_seconds, end_seconds)",
+  "guidance": "Use unknown rather than infer unsupported labels; preserve separate person/object identities and overlapping speech."
+ },
+ "sources": [
+  {
+   "source_id": "LCATL0013",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0013.MXF",
+   "sha256": "82002f89c434cb76c0bcbf7cf924e7929c22483ed3e94a9a0139c3d19619e58e",
+   "size_bytes": 50216119344,
+   "duration_seconds": 4099.5955,
+   "genre": "podcast_interview",
+   "split": "training",
+   "leakage_group_id": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LCATL0013:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LC4932",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LC4932.MXF",
+   "sha256": "94a7888ae879351c5a526b3d2141228ed6f026a9accdc0c043a130c080f36597",
+   "size_bytes": 59972918320,
+   "duration_seconds": 4941.102833,
+   "genre": "podcast_interview",
+   "split": "training",
+   "leakage_group_id": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LC4932:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LCATL0014",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "sha256": "ff8ed7fee0109968d89a6e612dd34dd01070007ec61876abe251efbc481b0f58",
+   "size_bytes": 10275455024,
+   "duration_seconds": 838.003833,
+   "genre": "podcast_interview",
+   "split": "training",
+   "leakage_group_id": "82532ce9b7eb2626146f97881dd49460de2ea48d09602e99a51ebc3590118550",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LCATL0014:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LCATL0012",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+   "sha256": "bd5da72f95f6b61fdab451b8fea84a928ad3517290048b0f8a5e494cfa597dff",
+   "size_bytes": 3514985520,
+   "duration_seconds": 288.955333,
+   "genre": "podcast_interview",
+   "split": "calibration",
+   "leakage_group_id": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LCATL0012:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LC4931",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+   "sha256": "b18ab61af2b9c462a1494f23d8b8bd7800e02af1b54475a911fb719f7fd9998e",
+   "size_bytes": 3485794864,
+   "duration_seconds": 287.620667,
+   "genre": "podcast_interview",
+   "split": "calibration",
+   "leakage_group_id": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LC4931:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LC4930",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+   "size_bytes": 2721983536,
+   "duration_seconds": 225.225,
+   "genre": "podcast_interview",
+   "split": "held_out",
+   "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LC4930:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": false
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "LCATL0011",
+   "path": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+   "size_bytes": 2622977072,
+   "duration_seconds": 214.547667,
+   "genre": "podcast_interview",
+   "split": "held_out",
+   "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "tasks": [
+    "dialogue",
+    "multi_camera"
+   ],
+   "project_id": "lucie/geo-podcast",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_policy_2026-10-14",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain policy authorizes rights-cleared Ren project footage for benchmarking and training; footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "LCATL0011:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": false
+   },
+   "collection": "geo-podcast"
+  },
+  {
+   "source_id": "IMG_1806",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1806.MOV",
+   "sha256": "9157fe1dd5a10f97c6964ee49cd7be1669f184ad60440f110304430dc8bdf109",
+   "size_bytes": 7354921,
+   "duration_seconds": 3.5667,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1806:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1807",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1807.MOV",
+   "sha256": "92d4aea107117deade35b0ebfa2d8196c515bba73c0511c1cdff595380344e87",
+   "size_bytes": 34335027,
+   "duration_seconds": 17.103333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1807:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1808",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+   "sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+   "size_bytes": 55898936,
+   "duration_seconds": 27.7717,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1808:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1809",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1809.MOV",
+   "sha256": "339c79d32d1a9a817bbf1923532626a9da2e97197fe8bced4abf1c52e7636f8e",
+   "size_bytes": 53533485,
+   "duration_seconds": 26.776667,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1809:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1810",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1810.MOV",
+   "sha256": "609fe2554541fc872d2c708bdce8cf61e0fe6ea02d3b29de22a6a6671b4cad8b",
+   "size_bytes": 16034230,
+   "duration_seconds": 7.903333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1810:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1811",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+   "sha256": "ba6ae9fea8ed3ae09424239937046cb0b7a08013c2d4b82eaa3ff9005789d86b",
+   "size_bytes": 45671150,
+   "duration_seconds": 22.87,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1811:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1812",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+   "sha256": "66b0fcfef2f854b6d4c5048f81e291fdbc24e851c5efa8f2617415a0278c7a2a",
+   "size_bytes": 278358717,
+   "duration_seconds": 139.1317,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1812:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1813",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1813.MOV",
+   "sha256": "025b61901db5e35fb0b7bd852bfe76fcd404cc4bb9208c9e2e66ee2acf90454d",
+   "size_bytes": 18307687,
+   "duration_seconds": 9.068333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1813:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1814",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+   "sha256": "2421eaa7470d2f84c119108cf06a49d9b6069c8331b75bc890e67003aecdb377",
+   "size_bytes": 91864561,
+   "duration_seconds": 45.943333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1814:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1815",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1815.MOV",
+   "sha256": "f1fe5a67ed34fa347855225a38d2c761d216845d23f38cf676c4dedc664d9087",
+   "size_bytes": 12863382,
+   "duration_seconds": 6.3,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1815:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1816",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+   "sha256": "4ec8fdef4e8bcc4d2d62b8f0b1319107302d26cfb974c3537254470afd344646",
+   "size_bytes": 376996868,
+   "duration_seconds": 188.578333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1816:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1817",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+   "sha256": "5822f2325a7410efb4faace9655e52304a986a295a689207da11553cb053a5c7",
+   "size_bytes": 83151788,
+   "duration_seconds": 41.51,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1817:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1818",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+   "sha256": "848f587ca79321d348279912ae462624170eba221284b438c707fe51b98d5cf2",
+   "size_bytes": 171386022,
+   "duration_seconds": 85.518333,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1818:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1819",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1819.MOV",
+   "sha256": "327e89b9abcb5c919afbbe056f63516e2018e8519569048c927e93658ca31235",
+   "size_bytes": 9619425,
+   "duration_seconds": 4.7,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1819:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1820",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+   "sha256": "84a38f61d47cd1f80e5cfd30d4896775fabcf93ff443adde11ed978b412997be",
+   "size_bytes": 104957569,
+   "duration_seconds": 52.545,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1820:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1821",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1821.MOV",
+   "sha256": "e1a31bbe4d84dcd1a6a8b89a25d6bb216405a6ab1279eecb3ca5a98c00083dc5",
+   "size_bytes": 84079385,
+   "duration_seconds": 41.9417,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1821:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  },
+  {
+   "source_id": "IMG_1822",
+   "collection": "apple-001",
+   "path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+   "sha256": "8407494951676a40fd4003f056ee926c0581dac921717567e534ee1441709623",
+   "size_bytes": 171765203,
+   "duration_seconds": 85.82,
+   "genre": "vlog_walk_and_talk",
+   "split": "calibration",
+   "leakage_group_id": "54e2b8482d91b87be9854f50b59a2f426c9786ba2f869208241ecd8d98bd8d30",
+   "tasks": [
+    "monologue",
+    "outdoor_vlog"
+   ],
+   "project_id": "apple/001",
+   "rights": {
+    "status": "cleared",
+    "basis": "captain_001_clearance_2026-10-15",
+    "permitted_uses": [
+     "benchmarking",
+     "training"
+    ],
+    "evidence": "Captain 2026-10-15: podcast footage cleared and 001 footage good; general permission for his material unless he says otherwise. Footage stays read-only."
+   },
+   "annotation": {
+    "annotation_id": "IMG_1822:editorial-evidence-v1",
+    "schema": "editorial-evidence-v1",
+    "state": "not_started",
+    "access": "not_created",
+    "tuning_access": true
+   }
+  }
+ ],
+ "coverage": [
+  {
+   "task": "podcast_interview",
+   "status": "present",
+   "source_count": 7,
+   "detail": "GEO podcast/interview camera originals with dialogue and multi-camera coverage."
+  },
+  {
+   "task": "dialogue",
+   "status": "present_unannotated",
+   "source_count": 7,
+   "detail": "Podcast dialogue present; gold transcript and event annotation not yet entered."
+  },
+  {
+   "task": "multi_camera",
+   "status": "present",
+   "source_count": 7,
+   "detail": "Three synchronized camera groups; grouped by session to prevent leakage."
+  },
+  {
+   "task": "non_podcast_scenes",
+   "status": "present",
+   "source_count": 17,
+   "detail": "Apple 001 daylight outdoor vlog takes: street, sidewalk, storefront, parking lot/garage and in-vehicle segments."
+  },
+  {
+   "task": "outdoor_vlog",
+   "status": "present",
+   "source_count": 17,
+   "detail": "Daylight outdoor walk-and-talk vlog: selfie walking, handheld and mounted takes."
+  },
+  {
+   "task": "street",
+   "status": "present",
+   "source_count": 17,
+   "detail": "Urban street, sidewalk, storefront and parking-lot/garage segments within the 001 outing."
+  },
+  {
+   "task": "monologue",
+   "status": "present_unannotated",
+   "source_count": 17,
+   "detail": "To-camera monologue present; no gold transcript entered (profiles record empty transcripts)."
+  },
+  {
+   "task": "actions",
+   "status": "not_assessed",
+   "source_count": 0,
+   "detail": "Walking, gesturing and handling objects occur, but no action gold labels exist."
+  },
+  {
+   "task": "objects",
+   "status": "not_assessed",
+   "source_count": 0,
+   "detail": "Cars, buildings and street furniture occur, but no object gold labels exist."
+  },
+  {
+   "task": "camera_motion",
+   "status": "not_assessed",
+   "source_count": 0,
+   "detail": "Walking/handheld shake and static mounted takes occur, but no camera-motion gold labels exist."
+  },
+  {
+   "task": "classroom",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "No classroom footage in either collection."
+  },
+  {
+   "task": "product",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "No product close-up or product-focused source in either collection."
+  },
+  {
+   "task": "b_roll",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "Both collections are A-roll takes; no standalone B-roll source."
+  },
+  {
+   "task": "noisy_speech",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "Outdoor 001 takes may carry wind/street noise, but no noisy-speech labels exist; the prior survey found a near-silent ISO channel, not noisy-environment speech."
+  },
+  {
+   "task": "ambience",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "No ambience-focused source or labels."
+  },
+  {
+   "task": "music",
+   "status": "absent",
+   "source_count": 0,
+   "detail": "No music-bearing source or labels."
+  }
+ ],
+ "held_out_access": {
+  "status": "labels_not_created",
+  "policy": "Held-out labels must be held by a corpus custodian outside tuning workspaces; tuning access is denied.",
+  "tuning_access": false,
+  "label_payloads_in_repository": false,
+  "custodian": "corpus owner",
+  "access_audit": "No held-out label files are included in this repository; source footage is read-only and not a label payload."
+ }
+}
