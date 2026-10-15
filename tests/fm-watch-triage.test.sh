@@ -565,8 +565,8 @@ test_crew_is_provably_working_classifier() {
 # that merely mentions "paused" does not false-match, and a genuine blocker stays a
 # blocker.
 test_status_is_paused_classifier() {
-  status_is_paused 'paused: holding for the upstream release' || fail "paused verb not recognized"
-  status_is_paused '  paused:   waiting on a rate-limit reset' || fail "leading-space paused verb not recognized"
+  status_is_paused 'paused: waits-for=task:upstream-release holding for the upstream release' || fail "paused verb not recognized"
+  status_is_paused '  paused:   waits-for=process:4242 waiting on a rate-limit reset' || fail "leading-space paused verb not recognized"
   status_is_paused 'blocked: the build is paused upstream' && fail "a blocked line mentioning paused false-matched"
   status_is_paused 'working: paused the animation loop' && fail "a working line mentioning paused false-matched"
   status_is_paused 'done: shipped' && fail "done classified as paused"
