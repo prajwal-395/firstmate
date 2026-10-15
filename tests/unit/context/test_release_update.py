@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 import urllib.request
@@ -30,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ren import engine_root, release, upgrade
+from ren import engine_root, release, update, upgrade
 from ren.version import format_version
 
 
@@ -187,17 +186,19 @@ def _fake_engine(path: Path) -> Path:
 def _build_artifact(dest: Path, sha: str) -> Path:
     """Build a release artifact the way .github/workflows/release.yml does."""
     engine = dest / "engine"
-    subprocess.run(
+    built = subprocess.run(
         [sys.executable, "-m", "ren.package_engine",
          "--src", str(REPO_ROOT), "--dest", str(engine),
          "--channel", "stable", "--sha", sha, "--built-at", "2026-10-06"],
-        check=True, capture_output=True, text=True, encoding="utf-8")
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    assert built.returncode == 0, built.stderr + built.stdout
     zip_path = dest / "ren-engine-v0.1.0.zip"
-    subprocess.run(
+    archived = subprocess.run(
         [sys.executable, str(REPO_ROOT / ".github" / "scripts"
                              / "package_engine_archive.py"),
          "--engine", str(engine), "--archive", str(zip_path)],
-        check=True, capture_output=True, text=True, encoding="utf-8")
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    assert archived.returncode == 0, archived.stderr + archived.stdout
     digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
     (dest / "SHA256SUMS.txt").write_text(
         f"{digest}  ren-engine-v0.1.0.zip\n", encoding="utf-8")
@@ -227,38 +228,12 @@ def test_update_url_moves_the_install_onto_the_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade, "_verify_doctor", lambda *_args: None)
     monkeypatch.setattr(upgrade, "_verify_project_formats", lambda *_args: None)
 
-    env = {
-        "HOME": str(tmp_path / "home"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        "PIPELINE_VEP_HOME": str(home),
-        "PIPELINE_PYTHON": sys.executable,
-        "PYTHONPATH": str(REPO_ROOT),
-    }
-    # The child is the suite's doing: `ren update` verifies the
-    # candidate by running its `doctor`, whose Resolve probe takes the
-    # instance lease - and the lease ensures the broker. Without
-    # isolation the child looks like production use and spawns a
-    # DETACHED broker on the default socket (measured 2026-10-07: an
-    # orphaned broker on /tmp/ren-resolved.sock from this very test -
-    # the stripped env also lost TMPDIR, so the "default" resolved to
-    # /tmp rather than the session's directory). The three markers
-    # below keep the whole chain brokerless: the pytest marker makes
-    # the spawn guards refuse, the lock dir keeps every path off the
-    # default socket, and the watcher flag keeps any broker that did
-    # start from reading the live Resolve. REN_TESTS_ALLOW_BROKER_SPAWN
-    # is deliberately absent, so the chain cannot opt into spawning.
-    if os.environ.get("PYTEST_CURRENT_TEST"):
-        env["PYTEST_CURRENT_TEST"] = os.environ["PYTEST_CURRENT_TEST"]
-    if os.environ.get("PIPELINE_RESOLVE_LOCK_DIR"):
-        env["PIPELINE_RESOLVE_LOCK_DIR"] = os.environ[
-            "PIPELINE_RESOLVE_LOCK_DIR"]
-    env["REN_SHADOW_WATCHER"] = "0"
-    result = subprocess.run(
-        [sys.executable, "-m", "ren.cli", "update", "--url", zip_path.as_uri()],
-        capture_output=True, text=True, encoding="utf-8", env=env,
-        timeout=300, check=False)
-
-    assert result.returncode == 0, result.stderr + result.stdout
+    # Keep the verification seams in-process. A subprocess would lose these
+    # stubs and run the candidate's full machine doctor, making this test
+    # depend on the host's Python version, Resolve setup, and broker state.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(home))
+    assert update.main(["--url", zip_path.as_uri()]) == 0
     assert engine_root.version_at_pointer(
         engine_root.current_link(home), home) == expected_build
     assert engine_root.version_at_pointer(
