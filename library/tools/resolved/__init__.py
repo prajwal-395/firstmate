@@ -56,8 +56,12 @@ starter lock serializes concurrent starters, so one broker serves a
 socket; `ren resolved stop` is the clean stop. A broker that dies is
 restarted by the next client that calls.
 
-Socket and database live in `resolve_lock.lock_dir()`, next to the
-lease, so `PIPELINE_RESOLVE_LOCK_DIR` isolates a test's broker exactly
-as it isolates a test's lease. `tests/unit/resolve/test_resolve_lock.py`,
+Socket and database live in `resolve_lock.lock_dir()` (per broker, so
+`PIPELINE_RESOLVE_LOCK_DIR` isolates a test's broker and a scratch
+broker keeps its private queue and job state); the instance flock,
+lease record and captain's signal live in
+`resolve_lock.instance_lock_dir()` (machine-wide, so every broker
+driving the one Resolve queues on the same lease).
+`tests/unit/resolve/test_resolve_lock.py`,
 `tests/unit/resolve/test_ensure.py`.
 """

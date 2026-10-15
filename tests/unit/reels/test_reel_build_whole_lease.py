@@ -723,7 +723,14 @@ def test_graphics_prepare_runs_without_resolve_lease(
             return max(0.0, min(phase_end, hold_end)
                        - max(phase_start, hold_start))
 
-        assert all(overlap_seconds(prep, hold) == 0 for hold in holds)
+        # Only an EXCLUSIVE hold can move the cursor, so only one can
+        # cover prepare: the shared acceptance readers this test stages
+        # may land inside any phase's window (a saturated machine starts
+        # their process late), and their sub-millisecond hold then reads
+        # as a 1ms overlap - which is not a placement lease held across
+        # prepare. A row without the key fails closed as exclusive.
+        assert all(overlap_seconds(prep, hold) == 0
+                   for hold in holds if hold.get("exclusive", True))
         assert any(overlap_seconds(placement, hold) > 0 for hold in holds)
         assert result["timelines_built"]
     finally:

@@ -29,13 +29,34 @@ pub const DB_NAME: &str = "ren-resolved.sqlite3";
 pub const LEASE_NAME: &str = "resolve_instance.lease.json";
 
 /// The lock directory: `PIPELINE_RESOLVE_LOCK_DIR`, else the system temp -
-/// the same rule as `resolve_lock.lock_dir`.
+/// the same rule as `resolve_lock.lock_dir`. The broker's socket,
+/// database and cancel markers live here, per broker.
 pub fn lock_dir() -> std::path::PathBuf {
     if let Some(value) = std::env::var_os("PIPELINE_RESOLVE_LOCK_DIR") {
         let text = value.to_string_lossy().to_string();
         if !text.is_empty() {
             return std::path::PathBuf::from(text);
         }
+    }
+    std::env::temp_dir()
+}
+
+/// Where the Resolve INSTANCE lease lives: one per machine, shared by
+/// every broker driving the one Resolve. Mirrors
+/// `resolve_lock.instance_lock_dir`: an explicit
+/// `PIPELINE_RESOLVE_INSTANCE_DIR` wins; inside the test suite with no
+/// explicit redirect the broker lock dir keeps isolating it; otherwise
+/// the system temp, whatever `PIPELINE_RESOLVE_LOCK_DIR` says.
+pub fn instance_lock_dir() -> std::path::PathBuf {
+    if let Some(value) = std::env::var_os("PIPELINE_RESOLVE_INSTANCE_DIR") {
+        let text = value.to_string_lossy().to_string();
+        if !text.is_empty() {
+            return std::path::PathBuf::from(text);
+        }
+    }
+    let in_tests = std::env::var_os("PYTEST_CURRENT_TEST").is_some_and(|v| !v.is_empty());
+    if in_tests {
+        return lock_dir();
     }
     std::env::temp_dir()
 }
@@ -413,7 +434,7 @@ fn start_shadow_watcher() -> Option<Child> {
 
 /// Read the diagnostic lease record without entering the Resolve worker.
 fn active_lease() -> Option<protocol::LeaseStatus> {
-    let path = lock_dir().join(LEASE_NAME);
+    let path = instance_lock_dir().join(LEASE_NAME);
     let body = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&body).ok()
 }

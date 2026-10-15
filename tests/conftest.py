@@ -273,8 +273,19 @@ _CONFIGURED_RESOLVE_LOCK_DIR_ENV = "PIPELINE_TESTS_CONFIGURED_RESOLVE_LOCK_DIR"
 os.environ.setdefault(
     _CONFIGURED_RESOLVE_LOCK_DIR_ENV,
     os.environ.get(_resolve_lock.LOCK_DIR_ENV, ""))
+_CONFIGURED_RESOLVE_INSTANCE_DIR_ENV = "PIPELINE_TESTS_CONFIGURED_RESOLVE_INSTANCE_DIR"
+os.environ.setdefault(
+    _CONFIGURED_RESOLVE_INSTANCE_DIR_ENV,
+    os.environ.get(_resolve_lock.INSTANCE_LOCK_DIR_ENV, ""))
 _SESSION_RESOLVE_DIR = tempfile.mkdtemp(prefix="ren-test-resolve-", dir="/tmp")
 os.environ[_resolve_lock.LOCK_DIR_ENV] = _SESSION_RESOLVE_DIR
+# The instance lease is machine-wide and deliberately NOT pinned here:
+# under the suite `resolve_lock.instance_lock_dir()` follows
+# `PIPELINE_RESOLVE_LOCK_DIR` unless `PIPELINE_RESOLVE_INSTANCE_DIR`
+# is set, so the session dir above keeps isolating the lease and a
+# per-test lock dir keeps isolating its own test. Pinning an instance
+# dir here would merge every test's lease into one file while helpers
+# like `_exclusive_flock_busy` still probe the per-test dir.
 # A broker a test starts is a detached process this file's guards do not
 # reach; hosting the shadow watcher, it read the LIVE Resolve project
 # against the machine's shadow store. No test broker hosts it; the one
@@ -298,6 +309,11 @@ def _remove_session_resolve_dir():
         os.environ[_resolve_lock.LOCK_DIR_ENV] = original
     else:
         os.environ.pop(_resolve_lock.LOCK_DIR_ENV, None)
+    instance_original = os.environ.get(_CONFIGURED_RESOLVE_INSTANCE_DIR_ENV)
+    if instance_original:
+        os.environ[_resolve_lock.INSTANCE_LOCK_DIR_ENV] = instance_original
+    else:
+        os.environ.pop(_resolve_lock.INSTANCE_LOCK_DIR_ENV, None)
     shutil.rmtree(_SESSION_RESOLVE_DIR, True)
 
 

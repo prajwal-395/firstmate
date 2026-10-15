@@ -170,10 +170,26 @@ class CaptainPresent(ResolveBusy):
 # project: two lanes on two worktrees of two projects still drive the
 # one app, and a per-project lock would let them both in.
 #
-# `PIPELINE_RESOLVE_LOCK_DIR` redirects it, which is how a test
-# exercises contention without competing with a live captain.
+# The lease is keyed to the Resolve INSTANCE, not to the broker's lock
+# dir: a scratch broker (`PIPELINE_RESOLVE_LOCK_DIR` pointed at a
+# private dir for its own socket, shadow DB and job state) still drives
+# the same one Resolve, so its exclusive section must queue on the same
+# flock. The broker's socket, database, starter lock and log stay per
+# lock dir (`lock_dir()`); the instance flock, lease record, captain's
+# signal and activity-overlay singleton live per instance
+# (`instance_lock_dir()`). 2026-10-15 (F1 of the A4 reference
+# workflow): two scratch brokers on two sockets both held the exclusive
+# lease at once, because each flocked its own file.
+#
+# `PIPELINE_RESOLVE_INSTANCE_DIR` redirects the instance dir, which is
+# how a test exercises contention without competing with a live
+# captain. Inside the test suite with no explicit redirect, the
+# instance dir follows `PIPELINE_RESOLVE_LOCK_DIR` so the session
+# fixture's private dir keeps isolating the lease as before; outside
+# the suite the lock-dir redirect never moves the instance lease.
 
 LOCK_DIR_ENV = "PIPELINE_RESOLVE_LOCK_DIR"
+INSTANCE_LOCK_DIR_ENV = "PIPELINE_RESOLVE_INSTANCE_DIR"
 LOCK_FILENAME = "resolve_instance.lock"
 LEASE_FILENAME = "resolve_instance.lease.json"
 HANDOFF_FENCE_FILENAME = "resolve_handoff.fence"
@@ -210,12 +226,39 @@ def lock_dir() -> Path:
     return Path(directory)
 
 
+def _in_test_suite() -> bool:
+    """True where this process runs inside the test suite."""
+    if "pytest" in sys.modules:
+        return True
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def instance_lock_dir() -> Path:
+    """Where the Resolve INSTANCE lease lives: one per machine.
+
+    The broker's socket/database stay in `lock_dir()` (redirectable per
+    broker, so a scratch broker keeps its private queue and job state);
+    the flock, lease record, captain's signal and overlay singleton
+    live here, shared by every broker driving the one Resolve.
+    """
+    override = os.environ.get(INSTANCE_LOCK_DIR_ENV)
+    if override:
+        return Path(override)
+    if _in_test_suite():
+        # The suite's session fixture points PIPELINE_RESOLVE_LOCK_DIR
+        # at a private dir; without an explicit instance redirect that
+        # dir keeps isolating the lease, so unit tests never contend
+        # with the captain's live session.
+        return lock_dir()
+    return Path(tempfile.gettempdir())
+
+
 def lock_path() -> Path:
-    return lock_dir() / LOCK_FILENAME
+    return instance_lock_dir() / LOCK_FILENAME
 
 
 def lease_path() -> Path:
-    return lock_dir() / LEASE_FILENAME
+    return instance_lock_dir() / LEASE_FILENAME
 
 
 def handoff_fence_path() -> Path:
@@ -319,8 +362,9 @@ def default_owner() -> str:
 # ── The captain's signal ────────────────────────────────────────────
 #
 # One Resolve per machine, so the signal lives next to the lease:
-# machine-wide, in the same directory, under the same
-# `PIPELINE_RESOLVE_LOCK_DIR` redirect the tests use. Presence is the
+# machine-wide, in the instance directory (`instance_lock_dir()`),
+# under the same `PIPELINE_RESOLVE_INSTANCE_DIR` redirect the tests
+# use. Presence is the
 # whole protocol - the captain creates it and deletes it, the way
 # firstmate's own away posture is the presence of its record.
 #
@@ -343,7 +387,7 @@ CAPTAIN_NOTICE_SECONDS = 30.0
 
 
 def captain_path() -> Path:
-    return lock_dir() / CAPTAIN_FILENAME
+    return instance_lock_dir() / CAPTAIN_FILENAME
 
 
 @dataclass(frozen=True)
@@ -390,7 +434,7 @@ def captain_present() -> Optional[CaptainHold]:
 
 def captain_hold(note: str = "") -> CaptainHold:
     """Set the captain's signal. Agents wait until it is released."""
-    lock_dir().mkdir(parents=True, exist_ok=True)
+    instance_lock_dir().mkdir(parents=True, exist_ok=True)
     record = {"since": time.time(), "note": note,
               "pid": os.getpid(), "host": socket.gethostname()}
     captain_path().write_text(json.dumps(record, indent=2) + "\n",
@@ -683,20 +727,45 @@ def _take_holder(exclusive: bool, inherited) -> str | None:
         return mode
 
 
-def _acquire_fresh(mode: str) -> None:
+def _acquire_fresh(mode: str, handle, exclusive: bool,
+                   purpose: str) -> bool:
     """Record one more holder after the fence was taken.
 
     Always increments, never assigns: two threads can both be past
     their flock when shared, and assigning depth 1 would clobber the
     other holder - the first release would then drop `held()` (and the
     fence) under the survivor.
+
+    Returns True where this caller ESTABLISHED the fence (the 0-to-1
+    transition) and so owns `_lease_hold`, the lease file and the
+    inherited-env export. A concurrent fresh acquisition that lands
+    while another thread is already inside only joins the count: it
+    must not clobber the establisher's `previous_inherit` record, or
+    the export leaks after the last release and every subprocess
+    afterwards inherits a phantom holder (measured: the 8-thread
+    hammer left `PIPELINE_RESOLVE_LEASE_HELD_BY` set with depth 0,
+    refusing all later subprocess exclusive acquisitions as an
+    "inherited SHARED" upgrade). The joiner's own handle closes when
+    it exits; the establisher's rides `_lease_hold` to the release.
     """
-    global _depth, _mode
+    global _depth, _mode, _lease_hold
     with _state_lock:
+        establishing = (_depth == 0)
+        if establishing:
+            _lease_hold = {
+                "handle": handle,
+                "exclusive": exclusive,
+                "purpose": purpose,
+                "previous_inherit": os.environ.get(INHERIT_ENV),
+                "previous_inherit_mode": os.environ.get(INHERIT_MODE_ENV),
+            }
+            os.environ[INHERIT_ENV] = str(os.getpid())
+            os.environ[INHERIT_MODE_ENV] = mode
         _depth += 1
         _modes.append(mode)
         _holder_idents.append(threading.get_ident())
         _mode = _modes[0] if _modes else None
+        return establishing
 
 
 def another_thread_holds() -> bool:
@@ -842,7 +911,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                           qualification_project, locality, project,
                           timeline, description or purpose, progress) as broker_job:
             deadline = time.time() + resolved_timeout
-            lock_dir().mkdir(parents=True, exist_ok=True)
+            instance_lock_dir().mkdir(parents=True, exist_ok=True)
             handle = open(lock_path(), "a+", encoding="utf-8")
             try:
                 while True:
@@ -888,28 +957,21 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                               since=time.time(),
                               wait_seconds=wait_seconds,
                               waited_on=waited_on)
-                global _lease_hold
-                _lease_hold = {
-                    "handle": handle,
-                    "exclusive": exclusive,
-                    "purpose": purpose,
-                    "previous_inherit": os.environ.get(INHERIT_ENV),
-                    "previous_inherit_mode": os.environ.get(INHERIT_MODE_ENV),
-                }
-                _acquire_fresh("exclusive" if exclusive else "shared")
-                os.environ[INHERIT_ENV] = str(os.getpid())
-                os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
-                if exclusive:
+                established = _acquire_fresh(
+                    "exclusive" if exclusive else "shared",
+                    handle, exclusive, purpose)
+                if exclusive and established:
                     _write_lease(lease)
                 granted_at = time.time()
                 _cursor_switches, _last_set_id = 0, None
                 perf_ledger.record(perf_ledger.RESOLVE_WAIT, wait_seconds,
                                    started_at=acquire_start, outcome="granted",
                                    purpose=purpose, exclusive=exclusive)
-                _emit_instance_event(event_log.INSTANCE_LEASE_ACQUIRED,
-                                     purpose, exclusive,
-                                     wait_seconds=wait_seconds,
-                                     waited_on=waited_on)
+                if established:
+                    _emit_instance_event(event_log.INSTANCE_LEASE_ACQUIRED,
+                                         purpose, exclusive,
+                                         wait_seconds=wait_seconds,
+                                         waited_on=waited_on)
                 try:
                     with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
                                           purpose=purpose, exclusive=exclusive,
@@ -927,6 +989,12 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                     # no release can land between another thread's
                     # increment and its body.
                     _drop_holder("exclusive" if exclusive else "shared")
+                    if not established:
+                        # A joiner holds its own flock on its own handle
+                        # while inside; it closes it on the way out. The
+                        # establisher's handle instead rides `_lease_hold`
+                        # until the last release closes it.
+                        handle.close()
             finally:
                 if _lease_hold is None:
                     # Refused, or already released by the last holder's
@@ -1214,15 +1282,16 @@ def _start_activity_overlay() -> None:
         return
     import subprocess
     try:
-        lock_dir().mkdir(parents=True, exist_ok=True)
-        log = lock_dir() / "resolve-activity-overlay.log"
+        instance_lock_dir().mkdir(parents=True, exist_ok=True)
+        log = instance_lock_dir() / "resolve-activity-overlay.log"
         with log.open("ab") as output:
             output.write(
                 f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
                 f"launcher starting {binary}\n".encode("utf-8"))
             output.flush()
             subprocess.Popen(
-                [str(binary), str(lock_dir())], stdin=subprocess.DEVNULL,
+                [str(binary), str(instance_lock_dir())],
+                stdin=subprocess.DEVNULL,
                 stdout=output, stderr=subprocess.STDOUT,
                 start_new_session=True, close_fds=True)
     except OSError as exc:
@@ -1234,8 +1303,8 @@ def _start_activity_overlay() -> None:
 def _log_activity_overlay(message: str) -> None:
     """Keep launcher failures inspectable beside the instance lock."""
     try:
-        lock_dir().mkdir(parents=True, exist_ok=True)
-        path = lock_dir() / "resolve-activity-overlay.log"
+        instance_lock_dir().mkdir(parents=True, exist_ok=True)
+        path = instance_lock_dir() / "resolve-activity-overlay.log"
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with path.open("a", encoding="utf-8") as log:
             log.write(f"{stamp} {message}\n")
@@ -1247,7 +1316,7 @@ def _activity_overlay_is_running() -> bool:
     """Probe the overlay's singleton flock without disturbing its owner."""
     import fcntl
 
-    lock_file = lock_dir() / "resolve-activity-overlay.lock"
+    lock_file = instance_lock_dir() / "resolve-activity-overlay.lock"
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o600)
     try:

@@ -159,9 +159,10 @@ def ping(path=None) -> Optional[dict]:
             return _exchange(sock, stream, {"op": "ping"},
                              CONNECT_TIMEOUT_SECONDS)
     except (OSError, ValueError, BrokerError):
-        target = _path(path)
-        from library.tools.resolve_lock import LEASE_FILENAME, holder
-        lease = holder(target.parent / LEASE_FILENAME)
+        from library.tools.resolve_lock import holder
+        # The lease is machine-wide: a slow broker still reports the
+        # instance holder, whatever socket was pinged.
+        lease = holder()
         return {
             "ok": False,
             "pid": None,

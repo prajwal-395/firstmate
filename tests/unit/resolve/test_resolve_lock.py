@@ -433,6 +433,76 @@ def test_a_waiter_that_gives_up_names_the_holder(lock_dir):
     assert float(gave_up.split()[1]) < 3.0, gave_up
 
 
+def _spawn_cross_broker(source, broker_dir, instance_dir):
+    """A client of one broker: its socket dir differs, its instance is shared."""
+    env = dict(os.environ)
+    env[resolve_lock.LOCK_DIR_ENV] = str(broker_dir)
+    env[resolve_lock.INSTANCE_LOCK_DIR_ENV] = str(instance_dir)
+    # Independent brokers, not holder-spawned children: never inherit a
+    # leaseHeld by whatever ran before in this process (a leaked export
+    # would refuse every exclusive acquisition as a phantom upgrade).
+    env.pop(resolve_lock.INHERIT_ENV, None)
+    env.pop(resolve_lock.INHERIT_MODE_ENV, None)
+    return subprocess.Popen([sys.executable, "-c", source], env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8")
+
+
+def test_two_brokers_share_one_instance_lease(tmp_path):
+    """F1 (A4 reference workflow, 2026-10-15): two scratch brokers on two
+    sockets must not hold the exclusive lease at once.
+
+    Two real processes with DIFFERENT broker lock dirs but the SAME
+    instance dir: while the first holds exclusive, the second's short
+    wait refuses naming the holder; after the first exits, the second
+    acquires (recovery, no wedge).
+    """
+    broker_a = tmp_path / "broker-a"
+    broker_b = tmp_path / "broker-b"
+    instance = tmp_path / "instance"
+    broker_a.mkdir()
+    broker_b.mkdir()
+    instance.mkdir()
+    holder = _spawn_cross_broker(
+        _HOLDER.format(repo=REPO_ROOT, seconds=30.0), broker_a, instance)
+    try:
+        assert holder.stdout.readline().strip() == "HELD"
+        waiter = _spawn_cross_broker(
+            _WAITER.format(repo=REPO_ROOT, timeout=1.0), broker_b, instance)
+        gave_up, _ = waiter.communicate(timeout=30)
+        assert gave_up.startswith("BUSY"), gave_up
+        assert "holder" in gave_up and "holding for the demonstration" in gave_up
+    finally:
+        holder.kill()
+        holder.communicate(timeout=30)
+    waiter = _spawn_cross_broker(
+        _WAITER.format(repo=REPO_ROOT, timeout=5.0), broker_b, instance)
+    acquired, _ = waiter.communicate(timeout=30)
+    assert acquired.startswith("ACQUIRED"), acquired
+
+
+def test_separate_instance_dirs_do_not_contend(tmp_path):
+    """The redirect still isolates: different instance dirs are different
+    leases, which is what keeps the suite off the captain's session."""
+    broker_a = tmp_path / "broker-a"
+    broker_b = tmp_path / "broker-b"
+    instance_a = tmp_path / "instance-a"
+    instance_b = tmp_path / "instance-b"
+    for directory in (broker_a, broker_b, instance_a, instance_b):
+        directory.mkdir()
+    holder = _spawn_cross_broker(
+        _HOLDER.format(repo=REPO_ROOT, seconds=10.0), broker_a, instance_a)
+    try:
+        assert holder.stdout.readline().strip() == "HELD"
+        waiter = _spawn_cross_broker(
+            _WAITER.format(repo=REPO_ROOT, timeout=2.0), broker_b, instance_b)
+        acquired, _ = waiter.communicate(timeout=30)
+        assert acquired.startswith("ACQUIRED"), acquired
+    finally:
+        holder.kill()
+        holder.communicate(timeout=30)
+
+
 # ── Contention measurement: every acquisition says what it waited ──
 
 _WAITER_STATS = textwrap.dedent("""

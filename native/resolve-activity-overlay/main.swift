@@ -815,7 +815,8 @@ private final class OverlayController: NSObject, NSApplicationDelegate {
 }
 
 let arguments = CommandLine.arguments
-let envLockDir = ProcessInfo.processInfo.environment["PIPELINE_RESOLVE_LOCK_DIR"]
+let env = ProcessInfo.processInfo.environment
+let envLockDir = env["PIPELINE_RESOLVE_INSTANCE_DIR"] ?? env["PIPELINE_RESOLVE_LOCK_DIR"]
 let lockPath = arguments.dropFirst().first ?? envLockDir ?? NSTemporaryDirectory()
 private let controller = OverlayController(lockDir: URL(fileURLWithPath: lockPath, isDirectory: true))
 let application = NSApplication.shared

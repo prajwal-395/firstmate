@@ -570,9 +570,10 @@ class _Handler(socketserver.StreamRequestHandler):
         if op == "ping":
             from dataclasses import asdict
 
-            from library.tools.resolve_lock import LEASE_FILENAME, holder
-            socket_path = Path(self.server.server_address)
-            lease = holder(socket_path.parent / LEASE_FILENAME)
+            from library.tools.resolve_lock import holder
+            # The lease is machine-wide (instance dir), not per broker
+            # socket: every broker reports the same holder.
+            lease = holder()
             return {
                 "ok": True,
                 "pid": os.getpid(),
