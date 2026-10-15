@@ -18,18 +18,17 @@ def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
         with heavy_work_lock.heavy_work_reservation(
                 "semantic model", "semantics.analyse:model_memory",
                 nested_profiles=("semantics.analyse:inference",)):
+            # The model session is tracked first; its memory is governed
+            # by live OS headroom, not a static gigabyte reservation, so
+            # both demands are empty and the ordering is what is pinned.
             outer_demand = scheduler.jobs()[0]["demand"]
-            assert set(outer_demand) == {"ram_gb"}
+            assert outer_demand == {}
             with heavy_work_lock.heavy_work_lock(
                     "semantic inference", "semantics.analyse:inference"):
                 jobs = scheduler.jobs()
                 assert len(jobs) == 2
                 demands = [job["demand"] for job in jobs]
-                assert any(set(demand) == {"ram_gb"}
-                           for demand in demands)
-                assert any(set(demand) == {"cpu", "gpu"}
-                           and demand["gpu"] == 1
-                           for demand in demands)
+                assert demands == [{}, {}]
         return {"status": "complete"}
 
     monkeypatch.setattr(footage_analysis, "run_steps", run_steps)

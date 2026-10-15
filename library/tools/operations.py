@@ -214,13 +214,14 @@ FRESHNESS_REQUIREMENTS = (FRESHNESS_NONE,
 class ExecutionPhase:
     """One schedulable phase of a capability's execution contract.
 
-    `resources` are maximum amounts: the scheduler clamps them to the
-    machine's capacity. An exclusive Resolve mode also reserves the
-    scheduler's `resolve_cursor` resource, so the two schedulers share
-    one declaration. `lock_sites` name functions whose heavy-work lock
-    this phase owns; the contract audit compares them with the source.
-    `entry_points` are dispatch surfaces whose routing is derived from
-    this phase.
+    `resources` name scheduler-exclusive keys only (native build
+    directories). Static CPU/GPU/RAM/disk budgets are not declared
+    here: the scheduler admits by its exclusive keys plus a live OS
+    memory-headroom check, and Resolve's own lease arbitrates Resolve
+    work (captain's ruling, 2026-10-15). `lock_sites` name functions
+    whose heavy-work lock this phase owns; the contract audit compares
+    them with the source. `entry_points` are dispatch surfaces whose
+    routing is derived from this phase.
     """
 
     name: str
@@ -1360,25 +1361,22 @@ _REGISTRY: tuple[Operation, ...] = (
                 why="Vision reads source files and does not touch Resolve."),
             ExecutionPhase(
                 name="model_memory",
-                resources=(("ram_gb", 8),),
                 lock_sites=(
                     "library.tools.analysis.vision_pipeline_v3:"
                     "_semantic_model_memory_reservation",),
-                why="Keep loaded Gemma weights accounted for even while "
-                    "the local inference lane yields to host work.",
-                resource_basis=("RAM 8 GB is the measured resident ceiling: "
-                                "Gemma 4 12B 4-bit used 7.3-7.9 GB "
-                                "resident (docs/GEMMA_SERVER.md 5).")),
+                why="Track the loaded Gemma weights as a resident model "
+                    "session while the local inference lane yields to host "
+                    "work; admission is by live OS memory headroom, not a "
+                    "static gigabyte reservation."),
             ExecutionPhase(
                 name="inference",
-                resources=(("cpu", 2), ("gpu", 1)),
                 lock_sites=(
                     "library.tools.analysis.vision_pipeline_v3:"
                     "_semantic_inference_admission",),
-                why="Admit CPU and GPU only while local Gemma loads, "
-                    "unloads or generates an answer.",
-                resource_basis="CPU 2 is declared; the local Gemma model "
-                               "takes the GPU as one tenant."),
+                why="Admit local Gemma loads, unloads and generations as "
+                    "one model session; the model server and Resolve's own "
+                    "locks arbitrate the hardware, not a static CPU/GPU "
+                    "budget."),
         )),
     ),
     Operation(
@@ -1404,15 +1402,11 @@ _REGISTRY: tuple[Operation, ...] = (
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
                 name="image_defects",
-                resources=(("cpu", 2), ("ram_gb", 2), ("disk", 1)),
                 lock_sites=(
                     "library.tools.analysis.image_defects:measure_source",),
                 why="The optional VI-03 source sampler runs as bounded "
-                    "per-source picture analysis.",
-                resource_basis=(
-                    "The temporal.index:image_defects phase caps decoding at "
-                    "2 GB and "
-                    "one disk I/O unit; CPU demand is 2.")),
+                    "per-source picture analysis; admission is by live OS "
+                    "memory headroom, not a static CPU/RAM/disk budget."),
         )),
     ),
     Operation(
@@ -1685,12 +1679,9 @@ _REGISTRY: tuple[Operation, ...] = (
                 name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
                 freshness=FRESHNESS_TIMELINE_GENERATION,
-                resources=(("cpu", 2), ("ram_gb", 2)),
                 lock_sites=("library.tools.reel_build:rebuild_reels_in_project",),
-                why="One reel is placed under an exclusive cursor lease.",
-                resource_basis=("Resolve's placement CPU and RAM demand is "
-                                "declared, not measured; sample Resolve itself "
-                                "during a scratch-project placement.")),
+                why="One reel is placed under an exclusive cursor lease; "
+                    "no static CPU/RAM budget gates the placement."),
         ),
         patch=PatchSemantics(
             operations=("clip.insert",),
@@ -1859,15 +1850,11 @@ _REGISTRY: tuple[Operation, ...] = (
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
                 name="model_memory",
-                resources=(("ram_gb", 8),),
                 lock_sites=(
                     "library.tools.analysis.music_pipeline:separate_stems",),
-                why="Keep the cached Demucs separator within the machine's "
-                    "8 GB model-memory reservation.",
-                resource_basis=(
-                    "The cached HTDemucs pass measured 1.76 GiB peak RSS; "
-                    "the 8 GB ceiling reserves headroom for the selected "
-                    "track and other process memory.")),
+                why="Track the cached Demucs separator as a resident model "
+                    "session; admission is by live OS memory headroom, not "
+                    "a static gigabyte reservation."),
         )),
     ),
     Operation(
@@ -2229,25 +2216,20 @@ _REGISTRY: tuple[Operation, ...] = (
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
                 name="model_memory",
-                resources=(("ram_gb", 2),),
                 lock_sites=(
                     "library.steps.step_1_06_object_segmentation.step:"
                     "_sam_model_memory_session",),
-                why="Account for resident SAM 2 weights while this batch "
-                    "waits between selected clips; yield them to queued RAM "
-                    "work at clip boundaries.",
-                resource_basis=("2 GB exceeds the 1.3 GiB process peak "
-                                "measured on a four-frame FI-01 window.")),
+                why="Track resident SAM 2 weights as a model session while "
+                    "this batch waits between selected clips; admission is "
+                    "by live OS memory headroom, not a static reservation."),
             ExecutionPhase(
                 name="inference",
-                resources=(("cpu", 2), ("gpu", 1), ("disk", 1)),
                 lock_sites=(
                     "library.steps.step_1_06_object_segmentation.step:run_step",),
                 why="Admit decode, SAM 2 inference, and scratch frame I/O "
-                    "for one named clip at a time.",
-                resource_basis="Two CPU cores and one GPU tenant bound the "
-                               "serial clip pass; scratch frames use one "
-                               "disk unit."),
+                    "for one named clip at a time; the hardware is "
+                    "arbitrated by the model server and the OS, not a "
+                    "static CPU/GPU/disk budget."),
         )),
         # The plain step.py case: the whole gathered dict under `data`.
         # Its body was `main()` alone until its output had to be
@@ -2306,33 +2288,24 @@ _REGISTRY: tuple[Operation, ...] = (
                 name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
                 freshness=FRESHNESS_TIMELINE_GENERATION,
-                resources=(("cpu", 2), ("ram_gb", 2)),
                 lock_sites=(
                     "library.steps.step_6_01_render.resolve_build_timeline:"
                     "_build_timeline_under_lease",),
                 entry_points=("library.steps.step_6_01_render.resolve_build_timeline",),
-                why="The edit timeline is built under the exclusive cursor lease.",
-                resource_basis=("Resolve's placement CPU and RAM demand is "
-                                "declared, not measured; sample Resolve itself "
-                                "during a scratch-project placement.")),
+                why="The edit timeline is built under the exclusive cursor lease."),
             ExecutionPhase(
                 name="render", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
-                resources=(("resolve_render", 1),),
                 lock_sites=(
                     "library.tools.execution.resolve_render:"
                     "_render_timeline_under_lease",),
                 entry_points=("library.tools.execution.resolve_render",),
-                why="Resolve has one global render queue and render engine.",
-                resource_basis=(
-                    "Only Resolve's one render engine. The CPU, GPU, RAM and "
-                    "disk this phase used to declare were never measured, "
-                    "and on 2026-10-03 they queued a master render 249 s "
-                    "behind test gates while it held the Resolve lease "
-                    "(measured in "
-                    "https://github.com/prajwal-395/video_editing_pilot/pull/1620). "
-                    "The captain "
-                    "ruled not to hardcode CPU/GPU balancing for it.")),
+                why="Resolve has one global render queue and render engine, "
+                    "which arbitrate renders themselves (captain's ruling, "
+                    "2026-10-15: no hardcoded CPU/GPU balancing for it; "
+                    "before that, unmeasured CPU/GPU/RAM declarations queued "
+                    "a master render 249 s behind test gates while it held "
+                    "the Resolve lease)."),
         ),
         # D1b: the caption section places each overlay clip and sets
         # its tight-box transform in one verified transaction, so the

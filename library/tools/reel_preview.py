@@ -72,9 +72,11 @@ always rendered - fail-closed, said as `uncached`.
 
 The concurrency budget
 ----------------------
-One preview job at a time, never beside a Resolve render or a model
-pass: a miss renders under the `reel_preview` scheduler profile
-(`resource_scheduler`), which takes the whole GPU. The Resolve engine
+A miss renders under the `reel_preview` scheduler profile
+(`resource_scheduler`): engine then proxy encode in turn, never nested,
+under grants that gate on live OS memory headroom. The scheduler no
+longer serialises a preview against a Resolve render or a model pass:
+Resolve's own lease arbitrates Resolve work. The Resolve engine
 renders under `render.build:render`, `render_timeline`'s own grant, and
 its proxy encode under `reel_preview` afterwards - the two are taken in
 turn, never nested. A cache hit takes no grant at all.

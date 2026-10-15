@@ -1,53 +1,32 @@
-"""The machine's resource scheduler: jobs that can coexist do.
-
-One machine, one Resolve. Work that competes for it declares what it
-needs as a DEMAND over named resources, and the scheduler admits a job
-only while every resource stays within its capacity. Two jobs whose
-demands fit together run together; two that do not, serialise. It
-replaces the single machine-wide heavy-work mutex, which serialised a
-seconds-long Resolve placement behind a minutes-long test gate although
-they compete for nothing.
+"""Admit concurrent heavy work, guarding only true exclusives and memory.
 
 The resources
 -------------
-`resolve_cursor`  the Resolve instance cursor (capacity 1). The Resolve
-                  lease (`library/tools/resolve_lock.py`) stays the
-                  authority over the cursor and is always taken FIRST;
-                  this row records who holds Resolve alongside the
-                  machine's other resources.
-`resolve_render`  Resolve's render engine (capacity 1).
-`cpu`             cores (`os.cpu_count()`).
-`gpu`             the GPU as one tenant: local model inference and a
-                  Resolve render each take all of it (capacity 1).
-`ram_gb`          physical memory less `RAM_RESERVE_GB` for the OS and
-                  the captain's live Resolve.
-`disk`            I/O weight (capacity `DISK_CAPACITY`).
+Only `native_*` resources are scheduler exclusives: a native build
+directory has one writer. Resolve's lease and Resolve itself arbitrate
+Resolve work. CPU, GPU, disk, and RAM are not statically budgeted here;
+the scheduler checks live OS memory availability before each admission.
 
-Capability phases declare their resource demand on
-`operations.Operation.execution`; this module derives the profiles it
-admits. An exclusive Resolve phase also reserves `resolve_cursor`, so
-the resource scheduler and Resolve router cannot disagree. `machine` is
-the default and the old mutex exactly. Two workload profiles are not
-capabilities. `full_suite_gate` is a test runner. Its 8 GB RAM ceiling
-was measured at 6.69 GiB process-tree RSS peak at -n 6 across the
-2026-10-13 worker-count benchmark (the old 6 GB reservation predates
-that measurement). Its CPU demand
-stays declared: a noisy shared-machine run showed what the gate
-obtained, not what it asked for. `temporal.index:image_defects` caps VI-03's
-streaming source sampler at 2 GB. `reel_preview` is `ren preview`'s
-headless engine render and proxy encode (`library/tools/reel_preview.py`),
-an explicit verb rather than a capability like `ren deliver`. It takes
-the whole GPU, so a preview never runs beside a Resolve render or a
-model pass: one heavy media job at a time on the captain's Mac.
+Profiles are retained for call-site identity and reporting, but their
+CPU, GPU, RAM, and disk declarations do not throttle work. `machine` is
+an empty profile. Capability phases contribute only native build-directory
+exclusives. Live available memory is checked from `/proc/meminfo` or
+`vm_stat`; failure to measure refuses admission.
 
 The store
 ---------
 SQLite in WAL mode beside the old lock directory. Every state change is
 one `BEGIN IMMEDIATE` transaction, so admission is atomic across
 processes. A job is a row: `waiting` until admitted, then `running`.
-Admission is FIFO with backfill: a job runs when it fits beside every
-running job AND every job that queued before it, so a stream of small
-jobs cannot starve a large one. A dead holder is reaped by the next
+Admission backfills around waiters that cannot run now. Among eligible
+waiters, older jobs have priority with age: a younger job never jumps
+ahead of an older waiter that could run beside current holders on the
+same exclusive key, and backfill past any eligible older waiter is
+bounded by `BACKFILL_AGE_SECONDS` - past that age a younger job waits,
+so shared memory cannot be consumed ahead of the aged waiter forever.
+With exclusive-only admission the bound is a backstop (an eligible
+waiter admits itself within one poll); it bites only when memory
+headroom oscillates and backfill keeps edging an older waiter out. A dead holder is reaped by the next
 transaction, on every acquire and on every jobs listing: pid liveness
 (zombies read as dead) plus the pid's wall-clock start, so a recycled
 number never keeps a dead grant alive; and a heartbeat lease
@@ -64,19 +43,16 @@ What a grant really used
 Every grant is sampled while it runs (`TreeSampler`) and kept in the
 `grants` table when it is released;
 `python3 -m library.tools.heavy_work_lock history` sets the measured peak
-cores and resident memory beside each profile's declaration, which is
-how a declaration above is checked.
+cores and resident memory beside each profile, for operational evidence.
 
 The bridge to the old lock
 --------------------------
 Lanes still on code from before this module take the old mkdir lock at
 `HEAVY_LOCK_DIR` and know nothing of this store. So while ANY scheduler
 job runs, the scheduler holds that directory (its owner record carries
-`"scheduler": true`), and an old-code holder of it counts as a job
-demanding the whole machine. Old and new code therefore exclude each
-other exactly as two old lanes did, and no two full-suite gates can run
-at once across the switch. The bridge goes once no lane runs pre-
-scheduler code.
+`"scheduler": true`), so old-code holders and new-code jobs continue to
+exclude each other during rollout. The bridge goes once no lane runs
+pre-scheduler code.
 
 `tests/unit/context/test_concurrency.py`.
 """
@@ -95,14 +71,12 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-RESOURCES = ("resolve_cursor", "resolve_render", "cpu", "gpu", "ram_gb",
-             "disk", *("native_" + name.replace("-", "_") for name in (
-                 "ren-graphics-fframes", "resolve-control", "ren-resolved",
-                 "resolve-activity-overlay", "ren_native")))
+RESOURCES = tuple("native_" + name.replace("-", "_") for name in (
+    "ren-graphics-fframes", "resolve-control", "ren-resolved",
+    "resolve-activity-overlay", "ren_native"))
 NATIVE_PARTS = tuple(resource.removeprefix("native_")
                      for resource in RESOURCES if resource.startswith("native_"))
-RAM_RESERVE_GB = 8
-DISK_CAPACITY = 4
+MEMORY_HEADROOM_FRACTION = 0.10
 # Resolve's own process, by executable name (`TreeSampler`).
 RESOLVE_PROCESS = "Resolve"
 DB_FILENAME = "resource-scheduler.sqlite3"
@@ -112,6 +86,8 @@ BUSY_TIMEOUT_MS = 30_000
 STALL_SECONDS = 600
 LEASE_SECONDS = 60.0
 HEARTBEAT_SECONDS = 15.0
+BACKFILL_AGE_SECONDS = 300.0
+SCHEDULER_POLICY_VERSION = 1
 
 
 class Cancelled(Exception):
@@ -127,25 +103,52 @@ def _physical_ram_gb() -> int:
 
 
 def capacity() -> Dict[str, int]:
-    """What this machine has of each resource."""
-    return {
-        "resolve_cursor": 1,
-        "resolve_render": 1,
-        "cpu": os.cpu_count() or 1,
-        "gpu": 1,
-        "ram_gb": max(1, _physical_ram_gb() - RAM_RESERVE_GB),
-        "disk": DISK_CAPACITY,
-        **{"native_" + part: 1 for part in NATIVE_PARTS},
-    }
+    """Capacities for genuinely exclusive scheduler resources."""
+    return {"native_" + part: 1 for part in NATIVE_PARTS}
+
+
+def _memory_available_gb() -> tuple[float, float] | None:
+    """Return OS measured available and total memory, or fail closed."""
+    try:
+        meminfo = Path("/proc/meminfo")
+        if meminfo.is_file():
+            values = {}
+            for line in meminfo.read_text(encoding="utf-8").splitlines():
+                key, _, value = line.partition(":")
+                if key in {"MemAvailable", "MemTotal"}:
+                    values[key] = int(value.strip().split()[0]) / (1024 * 1024)
+            return values["MemAvailable"], values["MemTotal"]
+        out = subprocess.run(["vm_stat"], capture_output=True,
+                             encoding="utf-8", timeout=3,
+                             check=False).stdout
+        page_size = int(out.split("page size of ", 1)[1].split()[0])
+        pages = {}
+        for line in out.splitlines():
+            key, sep, value = line.partition(":")
+            if sep and key.strip() in {"Pages free", "Pages inactive",
+                                       "Pages speculative", "Pages purgeable"}:
+                pages[key.strip()] = int(value.strip().rstrip("."))
+        available = sum(pages.values()) * page_size / 2**30
+        return available, float(_physical_ram_gb())
+    except (OSError, ValueError, KeyError, IndexError,
+            subprocess.SubprocessError):
+        return None
+
+
+def _memory_allows_admission() -> bool:
+    """Retain proportional OS headroom using a live memory measurement."""
+    reading = _memory_available_gb()
+    if reading is None:
+        return False
+    available, total = reading
+    return total > 0 and available / total >= MEMORY_HEADROOM_FRACTION
 
 
 def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
-    """Materialize one capability phase's machine-clamped demand."""
-    demand = {resource: min(amount, cap[resource])
-              for resource, amount in phase.resources}
-    if phase.resolve_mode == "exclusive":
-        demand["resolve_cursor"] = 1
-    return {resource: amount for resource, amount in demand.items() if amount}
+    """Materialize only this phase's exclusive build-directory demand."""
+    return {resource: min(amount, cap[resource])
+            for resource, amount in phase.resources
+            if resource.startswith("native_") and amount}
 
 
 def profiles() -> Dict[str, Dict[str, int]]:
@@ -153,43 +156,15 @@ def profiles() -> Dict[str, Dict[str, int]]:
     from library.tools import capabilities
 
     cap = capacity()
-    declared = {
-        "machine": dict(cap),
-        # The full-suite runner is infrastructure, not a pipeline capability.
-        "full_suite_gate": {
-            "cpu": max(cap["cpu"] - 2, cap["cpu"] // 2 + 1),
-            "ram_gb": min(8, cap["ram_gb"]),
-            "disk": 2,
-        },
-        # VI-12 targeted evidence refinement may admit one bounded model /
-        # decode pass while leaving capacity for the rest of the machine.
-        "query_refinement": {
-            "cpu": min(4, cap["cpu"]),
-            "ram_gb": min(8, cap["ram_gb"]),
-            "disk": 1,
-            **({"gpu": 1} if cap.get("gpu", 0) else {}),
-        },
-        # `ren preview` (module docstring): a bounded engine render plus
-        # one proxy encode, serialised against every other GPU tenant.
-        "reel_preview": {
-            "cpu": min(4, cap["cpu"]),
-            "ram_gb": min(4, cap["ram_gb"]),
-            "disk": 2,
-            "gpu": 1,
-        },
-    }
+    declared = {"machine": {}, "full_suite_gate": {},
+                "query_refinement": {}, "reel_preview": {}}
     for part in NATIVE_PARTS:
-        declared[f"native_refresh:{part.replace('_', '-')}" ] = {
-            "cpu": min(2, cap["cpu"]),
-            "ram_gb": min(4, cap["ram_gb"]),
-            "disk": 1,
-            "native_" + part: 1,
-        }
+        declared[f"native_refresh:{part.replace('_', '-')}"] = {
+            "native_" + part: 1}
     for capability_id, execution in capabilities.executions():
         for phase in execution.phases:
             demand = _capability_demand(phase, cap)
-            if demand:
-                declared[f"{capability_id}:{phase.name}"] = demand
+            declared[f"{capability_id}:{phase.name}"] = demand
     return declared
 
 
@@ -211,6 +186,8 @@ def _fits(demands, cap: Dict[str, int]) -> bool:
     total: Dict[str, int] = {}
     for demand in demands:
         for k, v in demand.items():
+            if not k.startswith("native_"):
+                continue
             total[k] = total.get(k, 0) + v
     return all(total[k] <= cap.get(k, 0) for k in total)
 
@@ -465,13 +442,15 @@ class Scheduler:
             " demand TEXT NOT NULL,"
             " enqueued_at REAL NOT NULL,"
             " started_at REAL, last_cpu REAL, last_cpu_at REAL,"
-            " stalled INTEGER NOT NULL DEFAULT 0)")
+            " stalled INTEGER NOT NULL DEFAULT 0,"
+            " policy_version INTEGER NOT NULL DEFAULT 0)")
         have_jobs = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         if "machine_id" not in have_jobs:
             conn.execute("ALTER TABLE jobs ADD COLUMN machine_id TEXT NOT NULL"
                          " DEFAULT ''")
         for column, kind in (("last_cpu", "REAL"), ("last_cpu_at", "REAL"),
                              ("stalled", "INTEGER NOT NULL DEFAULT 0"),
+                             ("policy_version", "INTEGER NOT NULL DEFAULT 0"),
                              ("pid_start", "TEXT NOT NULL DEFAULT ''"),
                              ("heartbeat_at", "REAL")):
             if column not in have_jobs:
@@ -645,11 +624,11 @@ class Scheduler:
             self._reap(conn)
             conn.execute(
                 "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
-                " demand, enqueued_at, pid_start, heartbeat_at)"
-                " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?)",
+                " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
+                " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)",
                 (token, owner, os.getpid(), socket.gethostname(),
                  _machine_id(), json.dumps(demand, sort_keys=True), now,
-                 me_start, now))
+                 me_start, now, SCHEDULER_POLICY_VERSION))
         self._transaction(insert)
         announced = False
         deadline = None if timeout is None else time.monotonic() + max(0, timeout)
@@ -702,23 +681,42 @@ class Scheduler:
             if not holder_start or not me_start or holder_start == me_start:
                 nested_holder = True
                 break
-        ahead = conn.execute(
-            "SELECT owner, pid, state, demand FROM jobs WHERE id != ? AND"
-            " (state = 'running' OR id < ?) ORDER BY id",
-            (mine[0], mine[0])).fetchall()
-        # A nested acquisition by a process already holding resources must
-        # not sit behind a waiter that needs those resources released first.
-        # Keep every running grant as a constraint, but let the holder's
-        # request backfill past queued jobs. Once its grants are released,
-        # ordinary FIFO admission resumes, so large jobs still make progress.
-        if nested_holder:
-            ahead = [row for row in ahead if row[2] == "running"]
+        running = conn.execute(
+            "SELECT owner, pid, demand, policy_version FROM jobs"
+            " WHERE state = 'running'"
+            " AND id != ? ORDER BY id", (mine[0],)).fetchall()
         legacy = self._legacy_owner()
         if legacy is not None:
             return [f"lock held by {_label(legacy)}"]
-        if not _fits([demand] + [json.loads(d) for *_, d in ahead], cap):
-            return [f"{state} {owner} (pid {pid})"
-                    for owner, pid, state, _ in ahead]
+        if any(row[3] < SCHEDULER_POLICY_VERSION for row in running):
+            return ["running job uses an older resource policy"]
+        running_demands = [json.loads(row[2]) for row in running]
+        if not _fits([demand, *running_demands], cap):
+            return [f"running {row[0]} (pid {row[1]})" for row in running]
+        if not _memory_allows_admission():
+            return ["live OS memory pressure"]
+        # Backfill around an older waiter only when it cannot run beside
+        # current exclusive holders. Enqueue age gives older eligible jobs
+        # priority on a contended key, and bounds all backfill: once an
+        # eligible older waiter has queued past BACKFILL_AGE_SECONDS, a
+        # younger job waits for it, so shared memory cannot be consumed
+        # ahead of the aged waiter forever.
+        if not nested_holder:
+            older = conn.execute(
+                "SELECT owner, pid, demand, enqueued_at FROM jobs"
+                " WHERE state = 'waiting' AND id < ? ORDER BY id",
+                (mine[0],)).fetchall()
+            for owner, pid, raw_demand, enqueued_at in older:
+                older_demand = json.loads(raw_demand)
+                if not _fits([older_demand, *running_demands], cap):
+                    continue
+                contention = {key for key in demand
+                              if key.startswith("native_")
+                              and key in older_demand}
+                if contention:
+                    return [f"older eligible waiter {owner} (pid {pid})"]
+                if time.time() - enqueued_at > BACKFILL_AGE_SECONDS:
+                    return [f"aged eligible waiter {owner} (pid {pid})"]
         if not self._hold_legacy_dir():
             return ["lock directory claimed by an old-code lane"]
         now = time.time()

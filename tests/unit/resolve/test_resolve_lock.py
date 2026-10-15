@@ -927,7 +927,8 @@ def test_resolved_kpi_cli_passes_an_explicit_epoch_window(monkeypatch):
 
 def test_a_released_grant_keeps_what_it_measurably_used(tmp_path):
     scheduler = resource_scheduler.Scheduler(tmp_path / "heavy-work.lock")
-    token = scheduler.acquire("gate", {"cpu": 1}, announce=lambda _: None)
+    token = scheduler.acquire("gate", {"cpu": 1}, announce=lambda _: None,
+                              timeout=30)
     scheduler.release(token, "full_suite_gate",
                       {"cpu_s": 12.0, "peak_cores": 3.5,
                        "peak_rss_gb": 4.25, "samples": 6})
@@ -941,7 +942,8 @@ def test_a_measurement_that_cannot_be_kept_never_fails_the_release(
         tmp_path):
     """A gate's release raised on a grants table of another shape."""
     scheduler = resource_scheduler.Scheduler(tmp_path / "heavy-work.lock")
-    token = scheduler.acquire("gate", {"cpu": 1}, announce=lambda _: None)
+    token = scheduler.acquire("gate", {"cpu": 1}, announce=lambda _: None,
+                              timeout=30)
     with sqlite3.connect(scheduler.db_path) as db:
         db.execute("DROP TABLE grants")
         db.execute("CREATE TABLE grants (only_one TEXT NOT NULL)")

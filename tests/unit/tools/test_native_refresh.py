@@ -150,16 +150,13 @@ def test_busy_heavy_work_slot_defers_rebuild(tmp_path, monkeypatch):
 
 
 def test_native_build_demand_is_bounded_and_per_binary():
+    """One writer per native build directory; no static CPU/RAM/disk
+    budget gates the build (live OS memory headroom does)."""
     from library.tools import resource_scheduler
 
     demand = resource_scheduler.demand_for(
         "native_refresh:ren-graphics-fframes")
-    assert demand == {
-        "cpu": 2,
-        "ram_gb": 4,
-        "disk": 1,
-        "native_ren_graphics_fframes": 1,
-    }
+    assert demand == {"native_ren_graphics_fframes": 1}
 
 
 def test_native_rebuild_exclusion_waits_for_an_active_render(tmp_path):

@@ -32,6 +32,10 @@ import time
 from contextlib import closing
 from library.tools import heavy_work_lock, resource_scheduler
 
+# Bound at import, before conftest's per-test memory fixture runs: the
+# one test that asserts the reading comes from the running OS calls this.
+_REAL_MEMORY_READING = resource_scheduler._memory_available_gb
+
 
 BUILD = "library.tools.reel_build.rebuild_reels_in_project"
 PROMOTE = "library.tools.reel_build.promote_staged_reels"
@@ -346,9 +350,11 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_path)
     process = None
 
-    with heavy_work_lock.heavy_work_lock("live test holder"):
+    with heavy_work_lock.heavy_work_lock(
+            "live test holder", "native_refresh:ren-native"):
         process = subprocess.Popen(
             [sys.executable, "-m", LOCK_MODULE, "run", "--owner", "waiter",
+             "--profile", "native_refresh:ren-native",
              "--", sys.executable, "-c", "pass"],
             cwd=REPO_ROOT_2, env=_environment(home),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -370,12 +376,34 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
 
 def test_capability_resource_profiles_are_derived_from_execution_policy():
     profiles = resource_scheduler.profiles()
-    assert profiles["semantics.analyse:model_memory"] == {"ram_gb": 8}
-    assert profiles["semantics.analyse:inference"] == {
-        "cpu": 2, "gpu": 1}
-    assert profiles["render.build:render"]["resolve_cursor"] == 1
-    assert "local_vlm" not in profiles
-    assert "resolve_render" not in profiles
+    assert profiles["semantics.analyse:model_memory"] == {}
+    assert profiles["semantics.analyse:inference"] == {}
+    assert profiles["render.build:render"] == {}
+    assert all(not set(demand).intersection(
+        {"cpu", "gpu", "ram_gb", "disk", "resolve_cursor",
+         "resolve_render"}) for demand in profiles.values())
+
+
+def test_admission_guard_uses_live_available_memory(monkeypatch):
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (3.0, 24.0))
+    assert resource_scheduler._memory_allows_admission()
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (2.0, 24.0))
+    assert not resource_scheduler._memory_allows_admission()
+
+
+def test_memory_reading_is_taken_from_the_running_os(monkeypatch):
+    # conftest fakes plenty of memory for every test, so this one calls
+    # the saved real implementation: the reference below is bound at
+    # module import, before any per-test fixture runs.
+    reading = _REAL_MEMORY_READING()
+    assert reading is not None
+    available, total = reading
+    assert 0 < available <= total
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: None)
+    assert not resource_scheduler._memory_allows_admission()
 
 
 @pytest.fixture
@@ -383,7 +411,11 @@ def scheduler(tmp_path, monkeypatch):
     """A private scheduler on a fixed 10-core, 16 GB-usable machine."""
     monkeypatch.setattr(resource_scheduler, "capacity", lambda: {
         "resolve_cursor": 1, "resolve_render": 1, "cpu": 10, "gpu": 1,
-        "ram_gb": 16, "disk": 4})
+        "ram_gb": 16, "disk": 4,
+        **{"native_" + part: 1
+           for part in resource_scheduler.NATIVE_PARTS}})
+    monkeypatch.setattr(resource_scheduler, "_memory_allows_admission",
+                        lambda: True)
     monkeypatch.setattr(resource_scheduler, "POLL_SECONDS", 0.02)
     return resource_scheduler.Scheduler(tmp_path / "heavy-work.lock")
 
@@ -393,8 +425,10 @@ def _acquire_in_thread(scheduler, owner, profile):
     admitted, box = threading.Event(), []
 
     def run():
+        demand = (profile if isinstance(profile, dict)
+                  else resource_scheduler.demand_for(profile))
         box.append(scheduler.acquire(
-            owner, resource_scheduler.demand_for(profile),
+            owner, demand,
             announce=lambda line: None))
         admitted.set()
     threading.Thread(target=run, daemon=True).start()
@@ -437,9 +471,10 @@ def test_dead_job_reaps_after_network_hostname_changes(scheduler, monkeypatch):
 
 
 def test_scheduler_wait_timeout_removes_its_waiting_row(scheduler):
-    held = scheduler.acquire("holder", resource_scheduler.demand_for("machine"))
+    profile = "native_refresh:ren-native"
+    held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     with pytest.raises(resource_scheduler.Cancelled, match="timed out"):
-        scheduler.acquire("bounded waiter", {"cpu": 1},
+        scheduler.acquire("bounded waiter", resource_scheduler.demand_for(profile),
                           announce=lambda line: None, timeout=0.01)
     assert [job["owner"] for job in scheduler.jobs()] == ["holder"]
     scheduler.release(held)
@@ -447,15 +482,16 @@ def test_scheduler_wait_timeout_removes_its_waiting_row(scheduler):
 
 def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
     """A separate live process keeps its row through stale heartbeat checks."""
-    held = scheduler.acquire("holder", resource_scheduler.demand_for("machine"))
+    profile = "native_refresh:ren-native"
+    held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     waiter_code = (
         "import sys; sys.path.insert(0, %r);"
         " from pathlib import Path;"
         " from library.tools import resource_scheduler as rs;"
         " s=rs.Scheduler(Path(%r));"
-        " t=s.acquire('live waiter', rs.demand_for('machine'),"
+        " t=s.acquire('live waiter', rs.demand_for(%r),"
         " announce=lambda _: None, timeout=15); s.release(t)"
-        % (str(REPO_ROOT_2), str(scheduler.legacy_dir)))
+        % (str(REPO_ROOT_2), str(scheduler.legacy_dir), profile))
     waiter = subprocess.Popen([sys.executable, "-c", waiter_code],
                               cwd=REPO_ROOT_2, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True,
@@ -544,9 +580,8 @@ def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
     scheduler.release(token)
 
 
-def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
-    """Catches: the global mutex queueing a seconds-long Resolve placement
-    behind a minutes-long gate, and two full-suite gates running at once."""
+def test_placement_and_gates_are_not_cpu_throttled(scheduler):
+    """CPU-heavy gates and Resolve placement use their owning schedulers."""
     gate = scheduler.acquire(
         "gate", resource_scheduler.demand_for("full_suite_gate"))
     placement = scheduler.acquire(
@@ -554,20 +589,118 @@ def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
     second_gate, box = _acquire_in_thread(scheduler, "gate 2",
                                           "full_suite_gate")
 
-    assert not second_gate.wait(0.3)
-    scheduler.release(placement)
-    assert not second_gate.wait(0.3)
-    scheduler.release(gate)
     assert second_gate.wait(5)
     scheduler.release(box[0])
+    scheduler.release(placement)
+    scheduler.release(gate)
     assert scheduler.jobs() == []
     assert not scheduler.legacy_dir.exists()
 
 
-def test_a_render_is_admitted_beside_a_gate_and_a_model_run(scheduler):
-    """Catches: the render's unmeasured CPU/GPU/RAM demand queueing it
-    behind a full-suite gate or a Gemma run while it already holds the
-    Resolve lease - 249 s of an idle, held Resolve on 2026-10-03."""
+def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
+    """Live admission ignores stale declared CPU/RAM weights.
+
+    Before the policy change, an 8/8 holder plus an earlier queued 8/8 job
+    prevented a later 2/2 job from running on a 10/10 machine. Those values
+    no longer claim scheduler resources, so the small work runs immediately.
+    """
+    holder = scheduler.acquire("holder", {"cpu": 8, "ram_gb": 8})
+    other_process = subprocess.Popen([
+        sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("UPDATE jobs SET pid = ?, pid_start = ?,"
+                         " heartbeat_at = ? WHERE token = ?",
+                         (other_process.pid,
+                          resource_scheduler._pid_start(other_process.pid),
+                          time.time(), holder))
+        waiters = [_acquire_in_thread(
+            scheduler, "large waiter", {"cpu": 8, "ram_gb": 8})]
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if any(job["owner"] == "large waiter"
+                   for job in scheduler.jobs()):
+                break
+            time.sleep(0.01)
+        for index in range(4):
+            waiters.append(_acquire_in_thread(
+                scheduler, f"small waiter {index}", {"cpu": 2, "ram_gb": 2}))
+        assert all(event.wait(2) for event, _ in waiters), (
+            "all five waiters fit once static CPU/RAM declarations are removed")
+        running = [job for job in scheduler.jobs()
+                   if job["state"] == "running"]
+        assert len(running) == 6  # holder and all five waiting jobs
+        for _, box in waiters:
+            scheduler.release(box[0])
+        scheduler.release(holder)
+    finally:
+        if other_process.poll() is None:
+            other_process.terminate()
+            other_process.wait(timeout=5)
+
+
+def test_an_aged_eligible_waiter_stops_later_backfill(scheduler):
+    """Aging bound: an eligible waiter queued past BACKFILL_AGE_SECONDS
+    takes priority over backfill on unrelated keys, so oscillating memory
+    headroom cannot edge it out forever. A young waiter backfills freely."""
+    holder = scheduler.acquire(
+        "holder",
+        resource_scheduler.demand_for("native_refresh:ren-native"))
+    # A separate process holds the grant, so this process's candidate is
+    # not a nested request (nested requests backfill past waiters).
+    other_process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"])
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute("UPDATE jobs SET pid = ?, pid_start = ?,"
+                     " heartbeat_at = ? WHERE token = ?",
+                     (other_process.pid,
+                      resource_scheduler._pid_start(other_process.pid),
+                      time.time(), holder))
+    aged_demand = resource_scheduler.demand_for(
+        "native_refresh:resolve-control")
+    now = time.time()
+    with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+            " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
+            " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)",
+            ("aged-waiter-token", "aged waiter", os.getpid(), "test-host",
+             resource_scheduler._machine_id(),
+             json.dumps(aged_demand, sort_keys=True),
+             now - resource_scheduler.BACKFILL_AGE_SECONDS - 60,
+             resource_scheduler._pid_start(os.getpid()), now,
+             resource_scheduler.SCHEDULER_POLICY_VERSION))
+    try:
+        announced = []
+        with pytest.raises(resource_scheduler.Cancelled, match="timed out"):
+            scheduler.acquire(
+                "backfill",
+                resource_scheduler.demand_for("native_refresh:ren-resolved"),
+                announce=announced.append, timeout=0.3)
+        assert any("aged eligible waiter aged waiter" in line
+                   for line in announced), announced
+        # The same waiter, young, does not stop backfill on a free key.
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("UPDATE jobs SET enqueued_at = ? WHERE token = ?",
+                         (time.time(), "aged-waiter-token"))
+        backfill = scheduler.acquire(
+            "backfill",
+            resource_scheduler.demand_for("native_refresh:ren-resolved"),
+            announce=lambda line: None, timeout=5)
+        scheduler.release(backfill)
+    finally:
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("DELETE FROM jobs WHERE token = ?",
+                         ("aged-waiter-token",))
+        scheduler.release(holder)
+        if other_process.poll() is None:
+            other_process.terminate()
+            other_process.wait(timeout=5)
+    assert scheduler.jobs() == []
+
+
+def test_render_model_and_gate_are_not_static_resource_throttled(scheduler):
+    """Resolve's lease and Resolve arbitrate without a static GPU budget."""
     gate = scheduler.acquire(
         "gate", resource_scheduler.demand_for("full_suite_gate"))
     vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
@@ -577,11 +710,9 @@ def test_a_render_is_admitted_beside_a_gate_and_a_model_run(scheduler):
     assert render.wait(5)
     second, box2 = _acquire_in_thread(scheduler, "render 2",
                                       "render.build:render")
-    assert not second.wait(0.3), "one Resolve render engine"
-    for token in (box[0], gate, vlm):
+    assert second.wait(5), "Resolve's own lease arbitrates render access"
+    for token in (box[0], box2[0], gate, vlm):
         scheduler.release(token)
-    assert second.wait(5)
-    scheduler.release(box2[0])
 
 
 def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
@@ -605,10 +736,9 @@ def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
 
 
 def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
-    """Catches: placements arriving back to back keeping a second model
-    run queued forever while each one fits beside the running one."""
+    """A native writer waiter does not block unrelated build directories."""
     vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
-        "semantics.analyse:inference"))
+        "native_refresh:ren-native"))
     # Model a separate process: nested requests from this process are now
     # allowed to backfill past waiters that require its grant to be released.
     other_process = subprocess.Popen([
@@ -619,15 +749,17 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
                      (other_process.pid,
                       resource_scheduler._pid_start(other_process.pid),
                       time.time(), vlm))
-    second, _ = _acquire_in_thread(
-        scheduler, "gemma 2", "semantics.analyse:inference")
-    time.sleep(0.1)  # the second model run queues first, on the gpu
+    second, second_box = _acquire_in_thread(
+        scheduler, "gemma 2", "native_refresh:ren-native")
+    time.sleep(0.1)  # the second build writer queues on the same directory
     placement, box = _acquire_in_thread(scheduler, "placement",
-                                        "reel.build:apply")
+                                        "native_refresh:resolve-control")
 
-    assert not placement.wait(0.3)
+    assert placement.wait(5), "unrelated exclusive keys can run together"
+    scheduler.release(box[0])
     scheduler.release(vlm)
     assert second.wait(5)
+    scheduler.release(second_box[0])
     other_process.terminate()
     other_process.wait(timeout=5)
 
@@ -635,22 +767,24 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
 def test_nested_grant_bypasses_waiter_blocked_by_its_holder(scheduler):
     """A nested request cannot queue behind work waiting for its release."""
     memory = scheduler.acquire(
-        "analysis memory", resource_scheduler.demand_for(
-            "semantics.analyse:model_memory"))
-    large, large_box = _acquire_in_thread(scheduler, "full machine",
-                                          "machine")
+        "native build", resource_scheduler.demand_for(
+            "native_refresh:ren-native"))
+    large, large_box = _acquire_in_thread(
+        scheduler, "same native directory",
+        "native_refresh:ren-native")
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        if any(job["owner"] == "full machine" and job["state"] == "waiting"
+        if any(job["owner"] == "same native directory"
+               and job["state"] == "waiting"
                for job in scheduler.jobs()):
             break
         time.sleep(0.01)
     else:
-        pytest.fail("full-machine job did not enter the queue")
+        pytest.fail("same-directory writer did not enter the queue")
 
     inference = scheduler.acquire(
-        "analysis inference", resource_scheduler.demand_for(
-            "semantics.analyse:inference"),
+        "other native directory", resource_scheduler.demand_for(
+            "native_refresh:resolve-control"),
         announce=lambda line: None, timeout=2)
     scheduler.release(inference)
     scheduler.release(memory)
@@ -782,18 +916,19 @@ def test_abnormal_exit_without_release_frees_grant(scheduler, monkeypatch):
 
 
 def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
-    """Catches: a placement-sized grant silently admitting a nested render,
-    which needs the gpu it never reserved."""
+    """Nested code cannot grow into a second exclusive build directory."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         tmp_path / "heavy-work.lock")
-    with heavy_work_lock.heavy_work_lock("outer", "reel.build:apply"):
+    with heavy_work_lock.heavy_work_lock(
+            "outer", "native_refresh:ren-native"):
         with pytest.raises(heavy_work_lock.GrantTooSmall):
-            heavy_work_lock.take_heavy_lock("render", "render.build:render")
+            heavy_work_lock.take_heavy_lock(
+                "other writer", "native_refresh:resolve-control")
 
 
 def test_model_memory_reservation_admits_only_bounded_nested_inference(
         scheduler, monkeypatch):
-    """RAM stays held while GPU admissions come and go in a fixed order."""
+    """Model sessions constrain nested call sites without GPU budgeting."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
     memory_profile = "semantics.analyse:model_memory"
@@ -802,8 +937,7 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
     with heavy_work_lock.heavy_work_reservation(
             "semantic weights", memory_profile,
             nested_profiles=(inference_profile,)):
-        assert [job["demand"] for job in scheduler.jobs()] == [
-            {"ram_gb": 8}]
+        assert [job["demand"] for job in scheduler.jobs()] == [{}]
         with pytest.raises(heavy_work_lock.GrantTooSmall):
             with heavy_work_lock.heavy_work_lock(
                     "unlisted nested work", "full_suite_gate"):
@@ -812,18 +946,15 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
         with heavy_work_lock.heavy_work_lock(
                 "semantic inference", inference_profile):
             demands = [job["demand"] for job in scheduler.jobs()]
-            assert {"ram_gb": 8} in demands
-            assert {"cpu": 2, "gpu": 1} in demands
+            assert demands.count({}) == 2
             assert len(demands) == 2
 
             competing, box = _acquire_in_thread(
                 scheduler, "second inference", inference_profile)
-            assert not competing.wait(0.1), "the GPU admits one tenant"
+            assert competing.wait(5), "model passes are not GPU serialized"
 
-        assert competing.wait(5)
         scheduler.release(box[0])
-        assert [job["demand"] for job in scheduler.jobs()] == [
-            {"ram_gb": 8}]
+        assert [job["demand"] for job in scheduler.jobs()] == [{}]
 
     assert scheduler.jobs() == []
 
@@ -831,24 +962,17 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
 def test_sam_memory_session_is_scheduler_owned_and_has_a_ram_free_admission():
     memory = resource_scheduler.demand_for("objects.segment:model_memory")
     inference = resource_scheduler.demand_for("objects.segment:inference")
-    assert memory == {"ram_gb": 2}
-    assert inference["gpu"] == 1
-    assert "ram_gb" not in inference
+    assert memory == {}
+    assert inference == {}
 
 
-def test_model_memory_reservation_detects_a_waiting_ram_job(monkeypatch):
+def test_model_memory_session_yields_when_os_memory_headroom_is_low(monkeypatch):
     from library.tools import heavy_work_lock as lock
-
-    class SchedulerWithWaiter:
-        def jobs(self):
-            return [
-                {"state": "waiting", "demand": {"ram_gb": 8}},
-                {"state": "waiting", "demand": {"gpu": 1}},
-            ]
 
     monkeypatch.setattr(lock, "_memory_reservation",
                         {"owned": True, "token": "sam"})
-    monkeypatch.setattr(lock, "_scheduler", SchedulerWithWaiter)
+    monkeypatch.setattr(resource_scheduler, "_memory_allows_admission",
+                        lambda: False)
     try:
         assert lock.memory_reservation_contended()
     finally:
@@ -869,32 +993,27 @@ def test_folded_model_reservation_cannot_be_yielded_independently(monkeypatch):
         monkeypatch.setattr(lock, "_memory_reservation", None)
 
 
-def test_memory_reservation_must_be_outermost_and_ram_only(
+def test_memory_session_folds_and_rejects_exclusive_build_profiles(
         scheduler, monkeypatch):
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
     with heavy_work_lock.heavy_work_lock(
             "ordinary grant", "semantics.analyse:inference"):
-        with pytest.raises(heavy_work_lock.GrantTooSmall):
-            with heavy_work_lock.heavy_work_reservation(
-                    "late memory", "semantics.analyse:model_memory",
-                    nested_profiles=("semantics.analyse:inference",)):
-                pass
-
-    with pytest.raises(ValueError, match="RAM only"):
         with heavy_work_lock.heavy_work_reservation(
-                "not a memory profile", "semantics.analyse:inference",
+                "late memory", "semantics.analyse:model_memory",
+                nested_profiles=("semantics.analyse:inference",)):
+            pass
+
+    with pytest.raises(ValueError, match="empty or RAM-only"):
+        with heavy_work_lock.heavy_work_reservation(
+                "not a memory profile", "native_refresh:ren-native",
                 nested_profiles=()):
             pass
 
 
 def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
         scheduler, monkeypatch):
-    """The FI-01 Gemma refusal: a `machine` wrapper around the vision pass
-    made the model-memory reservation refuse with GrantTooSmall, so no
-    scene judgments were produced. A covering enclosing grant now carries
-    the reservation instead of refusing it - without a second scheduler
-    job, so two folded model loads still cannot exceed the budget."""
+    """A process-local model session folds into an enclosing heavy section."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
     memory_profile = "semantics.analyse:model_memory"
@@ -933,21 +1052,6 @@ def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
         scheduler.release(token, "machine", {})
     assert scheduler.jobs() == []
 
-    # An enclosing grant that does NOT cover the RAM still refuses:
-    # growing the grant from inside is how two jobs deadlock.
-    monkeypatch.setenv(heavy_work_lock.OWNER_ENV, scheduler.acquire(
-        "small wrapper",
-        resource_scheduler.demand_for(inference_profile),
-        announce=lambda line: None))
-    try:
-        with pytest.raises(heavy_work_lock.GrantTooSmall):
-            with heavy_work_lock.heavy_work_reservation(
-                    "late memory", memory_profile,
-                    nested_profiles=(inference_profile,)):
-                pass
-    finally:
-        inherited = os.environ.pop(heavy_work_lock.OWNER_ENV)
-        scheduler.release(inherited, inference_profile, {})
     assert scheduler.jobs() == []
 
 

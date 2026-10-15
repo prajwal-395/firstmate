@@ -613,9 +613,10 @@ def problems(registry=None) -> list:
                 out.append(f"{op.name}:{phase.name}: resource demand has no "
                            "measurement or declared basis")
             for site in phase.lock_sites:
-                if not phase.resources:
-                    out.append(f"{op.name}:{phase.name}: lock site {site} "
-                               "has no resource demand")
+                # A lock site with an empty demand is still guarded: the
+                # scheduler admits it by exclusive build-directory keys
+                # plus a live OS memory-headroom check, so per-phase
+                # static budgets are not what backs the lock.
                 if site in declared_lock_profiles:
                     out.append(f"heavy-work lock site {site} is declared by "
                                "more than one execution phase")

@@ -2429,11 +2429,13 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
     monkeypatch.setattr(resource_scheduler, "capacity", lambda: {
         "resolve_cursor": 1, "resolve_render": 1, "cpu": 10, "gpu": 1,
-        "ram_gb": 16, "disk": 4})
+        "ram_gb": 16, "disk": 4,
+        **{"native_" + part: 1
+           for part in resource_scheduler.NATIVE_PARTS}})
     scheduler = resource_scheduler.Scheduler(lock_dir)
     model = SimpleNamespace(config=SimpleNamespace(revision="fake"))
-    memory_demand = {"ram_gb": 8}
-    inference_demand = {"cpu": 2, "gpu": 1}
+    memory_demand = {}
+    inference_demand = {}
     host_waiting = threading.Event()
     release_host = threading.Event()
     failures = []

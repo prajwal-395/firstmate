@@ -1,10 +1,10 @@
 """Admission to the machine's heavy work, through the resource scheduler.
 
 A heavy section names the PROFILE of work it is (`resource_scheduler.
-profiles()`), and `library/tools/resource_scheduler.py` admits it while
-every resource stays within capacity: sections that can coexist do, and
-the rest queue. A section that names no profile demands the whole
-machine (`machine`), which is the old global mutex exactly.
+profiles()`). The scheduler permits concurrent work, protects one writer
+per native build directory, and checks live OS memory headroom. CPU, GPU,
+and disk declarations do not serialize jobs; Resolve's own lease and
+locks arbitrate Resolve work. `machine` is an empty profile.
 
 The job's token is carried in ``VEP_HEAVY_WORK_OWNER``. Child processes
 inherit it and re-enter without waiting on their own parent, as does a
@@ -12,10 +12,7 @@ nested section in the same process - but only for a demand the held
 grant already covers. A nested demand it does not cover RAISES: growing
 a grant while holding one is how two jobs deadlock.
 
-When an operation needs both this and Resolve's instance lease, it
-acquires the Resolve lease first and this second. Waiting on Resolve
-while holding machine resources would block unrelated heavy work and
-could deadlock a caller that takes them in the opposite order.
+Resolve's instance lease remains the authority over its cursor.
 """
 
 from __future__ import annotations
@@ -173,30 +170,18 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
 def take_heavy_memory_reservation(
         owner: str, profile: str, nested_profiles: tuple[str, ...],
         cancelled: Callable[[], bool] | None = None) -> None:
-    """Hold a RAM-only reservation while weights remain resident.
+    """Track a resident model session and permit named nested profiles.
 
-    Scoped admissions are separate scheduler jobs, acquired after this
-    reservation. They must not demand RAM, which fixes the order as
-    memory reservation -> inference admission and leaves no reverse edge
-    that could deadlock. Ordinary nested grants remain subject to
-    ``GrantTooSmall``.
-
-    When an enclosing ordinary grant already covers the RAM this
-    reservation demands (a `machine` wrapper around the whole run, for
-    example), the reservation folds into it: no second scheduler job is
-    taken, and the release below does not touch the scheduler. The
-    machine budget stays enforced by the enclosing grant, which already
-    accounts that RAM - and a `machine` grant is exclusive, so two
-    folded model loads still cannot coexist. An enclosing grant that
-    does NOT cover the RAM still refuses: growing the grant from inside
-    is how two jobs deadlock.
+    Model memory is governed by live OS headroom, not a profile
+    reservation. The empty scheduler grant records the session lifetime;
+    nested profile limits remain process-local.
     """
     global _memory_reservation
     demand = resource_scheduler.demand_for(profile)
-    if set(demand) != {"ram_gb"}:
+    if demand and set(demand) != {"ram_gb"}:
         raise ValueError(
-            f"heavy-work: persistent reservation {profile!r} must demand "
-            "RAM only")
+            f"heavy-work: persistent memory session {profile!r} must be "
+            "empty or RAM-only")
     admissions = {}
     for nested_profile in nested_profiles:
         nested_demand = resource_scheduler.demand_for(nested_profile)
@@ -206,12 +191,7 @@ def take_heavy_memory_reservation(
                 "demand RAM under a persistent memory reservation")
         admissions[nested_profile] = nested_demand
 
-    # The state guard makes the hierarchy a real process-local contract:
-    # an inference admission cannot start ahead of this RAM reservation.
-    # It is safe to wait here because we refuse an existing ordinary grant
-    # or inherited token before entering the scheduler - unless that
-    # grant already covers this RAM, in which case the reservation folds
-    # into it (no new job; the enclosing grant accounts the memory).
+    # The state guard makes nested-profile limits a process-local contract.
     with _state_guard:
         if _memory_reservation is not None:
             raise RuntimeError(
@@ -310,20 +290,12 @@ def release_heavy_memory_reservation() -> None:
 
 
 def memory_reservation_contended() -> bool:
-    """Whether another admitted waiter currently needs reserved RAM.
-
-    Model sessions call this between work units, after releasing their
-    inference admission. When a waiter needs RAM, the caller can unload its
-    model and release the reservation before that waiter is admitted.
-    Folded reservations cannot be yielded independently from their parent.
-    """
+    """Whether current OS memory headroom is too low for new admissions."""
     with _state_guard:
         held = _memory_reservation
         if held is None or not held.get("owned", True):
             return False
-    return any(job["state"] == "waiting"
-               and job["demand"].get("ram_gb", 0) > 0
-               for job in _scheduler().jobs())
+    return not resource_scheduler._memory_allows_admission()
 
 
 def release_heavy_lock() -> None:
@@ -368,12 +340,7 @@ def heavy_work_reservation(owner: str, profile: str, *,
                            nested_profiles: tuple[str, ...],
                            cancelled: Callable[[], bool] | None = None
                            ) -> Iterator[None]:
-    """Reserve persistent RAM, then allow only named RAM-free admissions.
-
-    Use for a loaded model whose memory stays resident across waits. The
-    nested admission is a separate scheduler job; it is never folded into
-    or grown from this reservation.
-    """
+    """Track a resident model and permit only its named nested profiles."""
     take_heavy_memory_reservation(owner, profile, nested_profiles,
                                   cancelled)
     try:

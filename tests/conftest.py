@@ -208,6 +208,35 @@ _heavy_work_lock.HEAVY_LOCK_DIR = Path(
     os.environ[_heavy_work_lock.LOCK_DIR_ENV])
 atexit.register(shutil.rmtree, _heavy_sandbox, True)
 
+# ── Scheduler admission never reads the live machine in a test ────
+#
+# `resource_scheduler` admits by exclusive keys plus a LIVE OS memory
+# headroom check. On a loaded machine that check refuses, and a test
+# that acquires without a timeout then waits forever: on 2026-10-15
+# the pooled full suite (pool 148, three suites at once) sat at 99%
+# with every xdist worker at 0% CPU for over an hour, each stuck in an
+# unbounded `acquire` while the gate held its (empty) grant. The
+# headroom a test sees is load, not behavior, so every test admits
+# against fixed plentiful memory instead. Tests OF the guard patch the
+# reading themselves; the one test that asserts the reading comes from
+# the running OS calls the saved real implementation.
+#
+# Plain setattr, not `monkeypatch`: a per-test `monkeypatch.undo()`
+# must not restore live memory mid-suite (the broker section above
+# records the same undo hazard for its env var).
+
+
+@pytest.fixture(autouse=True)
+def _scheduler_memory_is_plentiful():
+    from library.tools import resource_scheduler as _resource_scheduler
+
+    real = _resource_scheduler._memory_available_gb
+    _resource_scheduler._memory_available_gb = lambda: (12.0, 24.0)  # noqa: E731
+    try:
+        yield
+    finally:
+        _resource_scheduler._memory_available_gb = real
+
 # ── The Resolve broker is never a test's ────────────────────────────
 #
 # `library.tools.resolved.client.ensure` starts a DETACHED broker on

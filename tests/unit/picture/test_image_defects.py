@@ -54,8 +54,8 @@ def test_compression_proxy_and_sharpness_proxy_are_separate_signals():
     assert result["sampling"]["coverage"] == "sampled"
 
 
-def test_sampler_profile_obeys_the_two_gigabyte_ceiling():
-    assert profiles()["temporal.index:image_defects"]["ram_gb"] <= 2
+def test_sampler_profile_has_no_declared_memory_ceiling():
+    assert profiles()["temporal.index:image_defects"] == {}
 
 
 def test_source_memory_slot_round_trips_under_the_content_digest(tmp_path):

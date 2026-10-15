@@ -66,6 +66,7 @@ among several.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar
 
@@ -334,14 +335,11 @@ R = TypeVar("R")
 def lane_width() -> int:
     """How many FREE lanes may run at once on this machine.
 
-    The measured core count (`resource_scheduler.capacity()["cpu"]`,
-    live `os.cpu_count()`), never below one. No constant in this
+    The live `os.cpu_count()`, never below one. No constant in this
     module names a machine: a two-core Mac and a sixteen-core Studio
     answer differently because they ARE different.
     """
-    from library.tools import resource_scheduler
-
-    return max(1, int(resource_scheduler.capacity()["cpu"]))
+    return max(1, int(os.cpu_count() or 1))
 
 
 def run_lanes(fn: Callable[[T], R], items: Iterable[T]) -> List[R]:
