@@ -94,7 +94,7 @@ def _elapsed_s(status: dict) -> float | None:
     try:
         started = datetime.datetime.strptime(
             str(status.get("started_at")), "%Y-%m-%dT%H:%M:%S"
-        ).timestamp()
+        ).astimezone().timestamp()
     except (TypeError, ValueError):
         return None
     return max(0.0, round(time.time() - started, 1))
@@ -115,6 +115,13 @@ def _latest_progress_message(status: dict) -> str | None:
         return None
     message = last.get("message")
     return str(message) if message else None
+
+
+def _latest_progress_event(status: dict) -> dict | None:
+    events = status.get("progress_events")
+    if not isinstance(events, list) or not events or not isinstance(events[-1], dict):
+        return None
+    return dict(events[-1])
 
 
 def _base(project_ref: str, root: Path, status: dict, pid: int | None) -> dict:
@@ -237,6 +244,7 @@ def poll_once(project_ref: str, project_root: str) -> dict | None:
             return None
         event = _base(project_ref, root, status, pid)
         if _interrupted(status):
+            latest = _latest_progress_event(status)
             event.update(
                 {
                     "event": "ended",
@@ -247,8 +255,19 @@ def poll_once(project_ref: str, project_root: str) -> dict | None:
                     ),
                     "finished_at": status.get("finished_at"),
                     "pending_asks": len(asks),
+                    "progress": latest.get("message") if latest else None,
+                    "progress_event": latest,
+                    "interruption": {
+                        "detected": True,
+                        "reason": "The process ended without writing a run outcome.",
+                        "last_completed_step": status.get("last_completed_step"),
+                    },
+                    "retry": {
+                        "state": "not_started",
+                        "guidance": "Check `ren status` and the run log before resuming; Ren cannot tell whether the interrupted step was safe to repeat.",
+                    },
                     "next_command": f"ren status {project_ref}",
-                    "detail": "no live run; read its outcome",
+                    "detail": "The run was interrupted before recording an outcome. Check its last progress event and log before deciding whether to resume.",
                 }
             )
             return event
@@ -279,6 +298,7 @@ def poll_once(project_ref: str, project_root: str) -> dict | None:
                 "holders": holders,
                 "message": message,
                 "progress": _latest_progress_message(status),
+                "progress_event": _latest_progress_event(status),
                 "next_command": f"ren wait {project_ref}",
                 "detail": message or "the run waits on the heavy-work lock",
             }
@@ -311,6 +331,7 @@ def wait_for_event(
                     "event": "still_running",
                     "timeout_s": float(timeout),
                     "progress": _latest_progress_message(status),
+                    "progress_event": _latest_progress_event(status),
                     "next_command": f"ren wait {project_ref}",
                     "detail": "nothing needs the host yet; wait again",
                 }
@@ -385,8 +406,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

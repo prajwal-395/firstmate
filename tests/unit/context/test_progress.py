@@ -52,7 +52,7 @@ def test_progress_omits_estimate_without_two_history_samples(tmp_path,
     monkeypatch.setattr(progress.run_control, "read_run_status", lambda _:
                         {"status": "running", "steps_to_run": ["catalog"]})
     monkeypatch.setattr(progress.perf_ledger, "read_rows", lambda _: [])
-    report = progress.progress_report(str(tmp_path), broker_reader=lambda: {})
+    report = progress.progress_report(str(tmp_path), broker_reader=dict)
     assert report["estimated_seconds_remaining"] is None
     assert report["estimate_basis"] is None
 
@@ -68,7 +68,7 @@ def test_progress_capability_requires_built_search_index(tmp_path, monkeypatch):
                        / "output.json")
     temporal_output.parent.mkdir(parents=True)
     temporal_output.write_text("{}", encoding="utf-8")
-    report = progress.progress_report(str(tmp_path), broker_reader=lambda: {})
+    report = progress.progress_report(str(tmp_path), broker_reader=dict)
     assert report["available_capabilities"] == [{
         "id": "footage.search_index",
         "label": "Dialogue analysis is available; build its searchable index with `ren search-index`.",
@@ -76,5 +76,53 @@ def test_progress_capability_requires_built_search_index(tmp_path, monkeypatch):
     index = tmp_path / "pipeline_output/scratch/footage_index/footage_index.json"
     index.parent.mkdir(parents=True)
     index.write_text(json.dumps({"segments": []}), encoding="utf-8")
-    report = progress.progress_report(str(tmp_path), broker_reader=lambda: {})
+    report = progress.progress_report(str(tmp_path), broker_reader=dict)
     assert report["available_capabilities"][0]["id"] == "footage.search"
+
+
+def test_progress_explains_stage_unavailable_search_and_next_action(tmp_path, monkeypatch):
+    monkeypatch.setattr(progress, "_dag", lambda: [
+        {"id": "semantic_analysis", "name": "Semantic Analysis"},
+        {"id": "speech_sequence", "name": "Speech Sequence"},
+    ])
+    monkeypatch.setattr(progress.run_control, "read_run_status", lambda _:
+                        {"status": "running", "steps_to_run": [
+                            "semantic_analysis", "speech_sequence"],
+                         "active_steps": ["semantic_analysis"],
+                         "progress_events": [{"stage": "analysis",
+                                              "evidence": [{"kind": "step_output",
+                                                            "path": "/tmp/output.json"}],
+                                              "next_action": "Continue to the next planned step."}]})
+    monkeypatch.setattr(progress.perf_ledger, "read_rows", lambda _: [])
+    report = progress.progress_report(str(tmp_path), broker_reader=dict)
+    assert report["stage"] == "analysis"
+    assert "measuring the source material" in report["why"]
+    assert report["evidence"][0]["path"] == "/tmp/output.json"
+    assert report["next_action"] == "Continue to the next planned step."
+    assert report["unavailable_capabilities"][0]["id"] == "footage.search"
+    assert "Stage: analysis" in report["message"]
+    assert "Evidence: /tmp/output.json" in report["message"]
+    assert "Unavailable: footage.search" in report["message"]
+
+
+def test_progress_event_records_stage_evidence_and_action(tmp_path, monkeypatch):
+    from library.tools.project_layout import ProjectLayout
+
+    output = ProjectLayout(tmp_path).step_dir("catalog", "output.json")
+    output.parent.mkdir(parents=True)
+    output.write_text("{}", encoding="utf-8")
+    stored = {}
+    monkeypatch.setattr(progress, "progress_report", lambda _: {
+        "message": "Catalog finished.", "done": ["Catalog"],
+        "remaining_steps": 2,
+    })
+    monkeypatch.setattr(progress.run_control, "read_run_status", lambda _: {})
+    monkeypatch.setattr(progress.run_control, "write_run_status",
+                        lambda _project, **fields: stored.update(fields))
+
+    event = progress.record_progress_event(str(tmp_path), "catalog", "completed")
+
+    assert event["stage"] == "analysis"
+    assert event["evidence"] == [{"kind": "step_output", "path": str(output)}]
+    assert event["next_action"] == "Continue to the next planned step."
+    assert stored[progress.PROGRESS_EVENTS_KEY] == [event]

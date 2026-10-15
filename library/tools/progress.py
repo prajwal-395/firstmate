@@ -27,6 +27,47 @@ PROGRESS_EVENTS_KEY = "progress_events"
 #: honest here: the newest boundaries are what a reader asks about.
 MAX_PROGRESS_EVENTS = 500
 
+# Pipeline steps are grouped by the work a person sees. This is deliberately
+# a presentation map, not an alternate execution plan.
+_STAGE_BY_STEP = {
+    **dict.fromkeys(("scan", "catalog", "semantic_analysis", "temporal_index",
+                     "prosody_analysis", "ocr_extraction", "object_segmentation"),
+                    "analysis"),
+    **dict.fromkeys(("creative_direction", "speech_sequence", "music_selection",
+                     "music_analysis", "mesh_spine", "plan_picture", "assign_aroll",
+                     "select_broll", "review_rough_cut", "select_reels", "judge_reels",
+                     "plan_subtitles", "plan_transitions", "plan_vfx", "plan_sfx",
+                     "color_grade", "audio_mix", "build_edit_graph", "compile_manifest",
+                     "creative_cohesion"), "reasoning"),
+    **dict.fromkeys(("render_subtitles", "render_motion_graphics", "render"), "execution"),
+    "validate": "verification",
+}
+
+
+def _stage(step_id: str) -> str:
+    return _STAGE_BY_STEP.get(step_id, "execution")
+
+
+def _stage_reason(stage: str, step_id: str) -> str:
+    reasons = {
+        "analysis": "Ren is measuring the source material needed for later editorial decisions.",
+        "reasoning": "Ren is turning the available measurements and brief into an edit decision.",
+        "execution": "Ren is applying the approved plan to produce the requested output.",
+        "verification": "Ren is checking the output against its declared requirements.",
+    }
+    return reasons[stage]
+
+
+def _next_action(outcome: str) -> str:
+    return {
+        "completed": "Continue to the next planned step.",
+        "reused": "Continue using the existing result.",
+        "failed": "Inspect the failure evidence and revise or retry the step.",
+        "awaiting_llm": "Review the request and provide the requested decision.",
+        "paused": "Resume the run when ready.",
+        "held": "Review the hold and resume when ready.",
+    }.get(outcome, "Check the run status for the next action.")
+
 
 def _dag() -> list[dict]:
     path = Path(__file__).resolve().parents[1] / "processes" / "edit_video" / "dag.json"
@@ -91,7 +132,7 @@ def progress_report(project: str, *, broker_reader=_broker) -> dict:
     if running and running[0] in medians and current_started:
         try:
             started = datetime.datetime.strptime(
-                str(current_started), "%Y-%m-%dT%H:%M:%S").timestamp()
+                str(current_started), "%Y-%m-%dT%H:%M:%S").astimezone().timestamp()
             elapsed = max(0.0, time.time() - started)
             remaining_estimates.append(max(0.0, medians[running[0]] - elapsed))
         except (TypeError, ValueError):
@@ -127,13 +168,39 @@ def progress_report(project: str, *, broker_reader=_broker) -> dict:
     else:
         message = "No active run is recorded for this project."
 
+    unavailable = []
+    if not index_file.is_file():
+        if temporal_ready:
+            unavailable.append({"id": "footage.search", "reason": "The searchable footage index has not been built.", "next_action": "Run `ren search-index` when you want searchable footage."})
+        else:
+            unavailable.append({"id": "footage.search", "reason": "Dialogue analysis and its searchable index are not available in this project yet.", "next_action": "Run the relevant analysis before searching footage."})
+
+    latest_event = (status.get(PROGRESS_EVENTS_KEY) or [])
+    latest_event = latest_event[-1] if latest_event and isinstance(latest_event[-1], dict) else None
+    visible_stage = _stage(running[0]) if running else (latest_event or {}).get("stage")
+    visible_why = _stage_reason(visible_stage, running[0]) if running else (latest_event or {}).get("why")
+    visible_evidence = (latest_event or {}).get("evidence", [])
+    visible_next = (latest_event or {}).get("next_action") or ("Wait for the active step to finish." if state == "running" else "Review the run status.")
+    if visible_stage:
+        message += f" Stage: {visible_stage}. Why: {visible_why} Next: {visible_next}"
+    if visible_evidence:
+        message += " Evidence: " + ", ".join(str(row.get("path", row.get("ref", "")))
+                                                for row in visible_evidence if isinstance(row, dict))
+    if unavailable:
+        message += " Unavailable: " + " ".join(
+            f"{item['id']}: {item['reason']} {item['next_action']}" for item in unavailable)
     return {
         "project": str(root), "status": state, "message": message,
+        "stage": visible_stage,
+        "why": visible_why,
+        "evidence": visible_evidence,
+        "next_action": visible_next,
         "done": titles(done_ids), "running": titles(running),
         "up_next": titles(pending[:3]), "remaining_steps": len(pending),
         "estimated_seconds_remaining": eta,
         "estimate_basis": "median of at least two previous capability timings; omitted when history is insufficient" if eta is not None else None,
         "available_capabilities": capabilities,
+        "unavailable_capabilities": unavailable,
         "resolve": broker_reader(),
         "updated_at": status.get("updated_at"),
     }
@@ -169,7 +236,18 @@ def record_progress_event(project: str, step_id: str, outcome: str) -> dict | No
         "message": message,
         "steps_done": done,
         "steps_remaining": remaining,
+        "stage": _stage(step_id),
+        "why": _stage_reason(_stage(step_id), step_id),
+        "evidence": [],
+        "next_action": _next_action(outcome),
     }
+    try:
+        from library.tools.project_layout import ProjectLayout
+        output = ProjectLayout(project).step_dir(step_id, "output.json")
+        if output.is_file():
+            event["evidence"] = [{"kind": "step_output", "path": str(output)}]
+    except (KeyError, ValueError, OSError):
+        pass
     try:
         current = run_control.read_run_status(str(project))
         events = list(current.get(PROGRESS_EVENTS_KEY) or [])
@@ -204,8 +282,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

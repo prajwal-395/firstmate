@@ -14,9 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import run_control
+from library.tools import run_control, run_wait
 from library.tools import run_id as run_identity
-from library.tools import run_wait
 
 
 @pytest.fixture(autouse=True)
@@ -175,6 +174,23 @@ def test_wait_ended_on_finished_run(tmp_path):
     assert event["status"] == "SUCCESS"
     assert event["next_command"] == f"ren status {root}"
     assert wall < 2.0
+
+
+def test_wait_explains_interruption_and_preserves_last_progress_and_retry_state(tmp_path):
+    root = _project(tmp_path)
+    last = {"step": "semantic_analysis", "stage": "analysis",
+            "message": "Ren is measuring footage.", "next_action": "Inspect the run log."}
+    _write_running_status(root, progress_events=[last], last_completed_step="catalog")
+
+    event = run_wait.poll_once(str(root), str(root))
+
+    assert event["event"] == "ended"
+    assert event["status"] == "INTERRUPTED"
+    assert event["progress_event"] == last
+    assert event["interruption"]["detected"] is True
+    assert event["retry"]["state"] == "not_started"
+    assert "cannot tell whether" in event["retry"]["guidance"]
+    assert event["next_command"] == f"ren status {root}"
 
 
 def test_wait_ended_carries_refused(tmp_path):

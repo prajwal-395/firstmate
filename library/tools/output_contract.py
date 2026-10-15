@@ -235,16 +235,6 @@ REPORTED_NOT_CONSUMED = {
         "`step_2_04_music_selection/post_bridge.py` all read a different "
         "dict.",
 
-    ("ocr_extraction", "ocr_extraction"):
-        "Step 1.07's tracked on-screen strings. DECISION (2026-10-05): it "
-        "stays unread by a PIPELINE step - no DAG edge carries it - but it "
-        "is not a dead end: the footage search indexes the per-clip "
-        "`ocr_result.json` files from disk "
-        "(`footage_query.ocr_texts_for_project`), and `ren search --ocr "
-        "\"<text>\"` returns the spans where an on-screen string appeared. "
-        "The reader is a capability, not a step, so the edge survey cannot "
-        "see it. The step itself stays DESELECTED BY DEFAULT (445s on 001) "
-        "- the cost is unchanged - but the output now reaches a reader.",
 }
 
 
@@ -260,13 +250,9 @@ REPORTED_NOT_CONSUMED = {
 # deleted; `verify_reels.reel_verification` now has a reader in
 # `run_reels.report_reel_verification`, which names the plan and
 # the timelines a build graded instead of printing only that nothing
-# raised.  `ocr_extraction` left it on 2026-10-05: step 1.07's tracked
-# on-screen strings are now indexed by the footage search
-# (`footage_query.ocr_texts_for_project`, read by `ren search --ocr`),
-# so the extraction reaches a reader.  The step itself stays DESELECTED
-# BY DEFAULT - the 445s cost is unchanged - but the output is no longer
-# a dead end.  It is recorded in `REPORTED_NOT_CONSUMED` below, because
-# its reader is a capability and not a pipeline step.
+# raised. `ocr_extraction` left it on 2026-10-05: the footage search
+# (`footage_query.ocr_texts_for_project`, `ren search --ocr`) reads the
+# tracked on-screen strings, so the output no longer belongs in this table.
 
 UNREAD_FINDINGS = {
 }
