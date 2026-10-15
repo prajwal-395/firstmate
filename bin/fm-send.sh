@@ -810,7 +810,7 @@ else
   case "$MESSAGE" in
     *[![:space:]]*) ;;
     *)
-      echo "error: refusing to send an empty message to $T; nothing was sent" >&2
+      echo "error: refusing to send an empty message to $T; provide a nonempty message; nothing was sent" >&2
       exit 1
       ;;
   esac
