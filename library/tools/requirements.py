@@ -1636,6 +1636,21 @@ OPTIONALS: Tuple[Requirement, ...] = (
     _optional_requirement(
         "compile_manifest", "plan_vfx", "enhancement_spec",
         "plan_vfx planned the effects compile_manifest may take"),
+    # `library/steps/step_3_01_assign_aroll/manifest.json` declares
+    # `picture_plan` OPTIONAL; the DAG maps `picture_plan -> assign_aroll`
+    # for that key; the producer manifest declares `picture_plan` output.
+    # The assignment implementation uses it when the legacy runner has it,
+    # while the capability's required inputs remain spine and catalog.
+    _optional_requirement(
+        "assign_aroll", "plan_picture", "picture_plan",
+        "plan_picture selected optional shots assign_aroll may use"),
+    # `library/steps/step_3_01_assign_aroll/manifest.json` declares
+    # `audio_catalog` OPTIONAL; the DAG maps it from `catalog` to
+    # `assign_aroll`; the catalog manifest declares this output. The
+    # assignment implementation uses it only for voiceover-sourced blocks.
+    _optional_requirement(
+        "assign_aroll", "catalog", "audio_catalog",
+        "catalogued audio files assign_aroll may use for voiceover"),
 )
 
 

@@ -1550,6 +1550,7 @@ _REGISTRY: tuple[Operation, ...] = (
             "hook_assignment",
         ),
         consumes=("audio_spine", "clip_catalog", "project_fps"),
+        executor_path="library/capabilities/aroll/assign.py",
     ),
     Operation(
         name="aroll.splice",
@@ -1561,7 +1562,8 @@ _REGISTRY: tuple[Operation, ...] = (
             "voiceover_assignments",
             "hook_assignment",
         ),
-        consumes=("audio_spine", "clip_catalog", "project_fps"),
+        consumes=(),
+        caller_supplied=True,
         # REGION only, beside `aroll.assign`: the region's blocks are
         # re-assigned from the (re-anchored) spine and spliced into the
         # recorded output, supplied as `stored_assignments`. Every other
@@ -1569,6 +1571,7 @@ _REGISTRY: tuple[Operation, ...] = (
         # and a region whose blocks MOVED on the timeline is refused as
         # the re-plan it is.
         scopes=(REGION,),
+        executor_path="library/capabilities/aroll/assign.py",
     ),
     Operation(
         name="broll.resolve",

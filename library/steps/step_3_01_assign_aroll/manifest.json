@@ -29,6 +29,12 @@
         "type": "array",
         "required": false,
         "description": "State input: audio_catalog - step 1.02's voiceover/music files in audio_001 numbering. Read for the audio file a voiceover-sourced speech block's words play from; a voiceover block with no intake entry is refused by name. Absent on runs whose catalog predates it."
+      },
+      {
+        "name": "picture_plan",
+        "type": "object",
+        "required": false,
+        "description": "Optional global picture plan; selected clip IDs override the spine's clip references for matching blocks."
       }
     ],
     "outputs": [

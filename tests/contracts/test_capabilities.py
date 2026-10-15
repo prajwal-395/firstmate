@@ -168,6 +168,33 @@ def test_music_analysis_and_picture_plan_executors_are_capability_owned():
     assert capabilities.spec_of(picture).scopes == ("project",)
 
 
+def test_aroll_executors_are_capability_owned_and_step_is_adapter():
+    from library.capabilities.aroll.assign import (
+        assign_a_roll,
+        splice_region_aroll,
+    )
+    from library.steps.step_3_01_assign_aroll.step import (
+        assign_a_roll as step_assign,
+        splice_region_aroll as step_splice,
+    )
+
+    assign = operations.get("aroll.assign")
+    splice = operations.get("aroll.splice")
+    assert capabilities.spec_of(assign).executor.path == (
+        "library/capabilities/aroll/assign.py")
+    assert capabilities.spec_of(splice).executor.path == (
+        "library/capabilities/aroll/assign.py")
+    assert assign.run is assign_a_roll is step_assign
+    assert splice.run is splice_region_aroll is step_splice
+    assert assign.produces == (
+        "a_roll_assignments", "voiceover_assignments", "hook_assignment")
+    assert splice.produces == assign.produces
+    assert capabilities.spec_of(assign).scopes == ("project",)
+    assert capabilities.spec_of(splice).scopes == ("region",)
+    assert not capabilities.spec_of(assign).executor.path.startswith(
+        "library/steps/")
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (

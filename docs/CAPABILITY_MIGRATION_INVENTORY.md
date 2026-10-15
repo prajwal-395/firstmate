@@ -17,7 +17,7 @@ This inventory covers every Python executable remaining under `library/steps/` o
 | `step_2_05_mesh_spine/bridge.py`, `post_bridge.py` | legacy-adapted | Spine planning still executes in the numbered step. |
 | `step_2_06_music_analysis/step.py` | legacy-adapted | Adapter for `music.analyse` in `library/capabilities/music/analyse.py`. |
 | `step_3_00_plan_picture/step.py` | legacy-adapted | Adapter for `picture.plan` in `library/capabilities/picture/plan.py`. |
-| `step_3_01_assign_aroll/step.py` | legacy-adapted | A-roll assignment remains in the numbered step; next migration candidate. |
+| `step_3_01_assign_aroll/step.py` | legacy-adapted | Compatibility adapter for `aroll.assign` and `aroll.splice` in `library/capabilities/aroll/assign.py`. |
 | `step_3_02_select_broll/bridge.py`, `post_bridge.py` | legacy-adapted | B-roll selection remains in the numbered step. |
 | `step_3_03_review_rough_cut/step.py` | legacy-adapted | Review implementation remains in the numbered step. |
 | `step_3_04_select_reels/bridge.py`, `post_bridge.py`; `step_3_05_judge_reels/bridge.py`, `post_bridge.py` | legacy-adapted | Reel planning and judging remain in numbered steps. |
@@ -37,13 +37,17 @@ This inventory covers every Python executable remaining under `library/steps/` o
 | `step_7_01_build_reels/step.py` | genuinely pipeline-dependent | Reel builds operate on Resolve timelines and pipeline-owned reel state. |
 | `step_7_02_verify_reels/step.py` | genuinely pipeline-dependent | Reel verification reads the built Resolve timeline and its evidence. |
 
-No remaining Python executable was identified as obsolete. The next coherent batch should take A-roll assignment and splice from step 3.01, then the remaining music and planning bridge pairs. Resolve, manifest assembly, and reel timeline operations retain genuine pipeline context until their execution contracts can express those requirements directly.
+No remaining Python executable was identified as obsolete. A-roll assignment and splice moved in this batch; remaining candidates are listed below. Resolve, manifest assembly, and reel timeline operations retain genuine pipeline context until their execution contracts can express those requirements directly.
 
-## This batch: `music.analyse` and `picture.plan`
+## This batch: `aroll.assign` and `aroll.splice`
+
+Both implementations now live at `library/capabilities/aroll/assign.py`; their stable IDs, required consumed and produced keys, scope, and project execution inputs are declared in `library/tools/operations.py`. `aroll.assign` is project-scoped and consumes the timed spine, clip catalog, and project frame rate. Its optional `audio_catalog` and `picture_plan` inputs are declared by the step manifest, DAG edges, and `requirements.OPTIONALS`; the legacy runner passes them through when present. The capability returns A-roll, voiceover, and hook assignments without writing project artifacts. `aroll.splice` is region-scoped and caller-supplied because its stored assignments and refreshed inputs are explicit arguments; it returns the same assignment keys plus a splice report. The numbered step remains a compatibility adapter and the legacy DAG node remains attribution metadata.
+
+## Previous batch: `music.analyse` and `picture.plan`
 
 Both implementations now live at stable capability paths independent of step numbering. `library/tools/operations.py` declares their executor paths; the capability IDs, scopes, consumed and produced state keys, DAG dependencies, and execution effects remain in the operation registry and project layout. Music analysis retains its declared model-memory resource phase and persists analysis/evidence exactly as before. Picture planning retains the catalog fallback and optional footage-search hints. Their numbered step entry points remain compatibility adapters. The operation registry uses each explicit executor path; legacy DAG positions remain compatibility metadata.
 
-Batch 3 candidates: `aroll.assign` and `aroll.splice` in step 3.01, followed by music selection/spine bridge pairs and the remaining planning bridges. Keep `broll.resolve` with its separately owned lane.
+Remaining coherent candidates: music selection and spine bridge pairs; the remaining A-roll-independent planning bridges; and the reel selection/judging bridges. Keep `broll.resolve` with its separately owned lane. Manifest assembly, edit graph construction, Resolve rendering, and reel timeline operations retain pipeline context until their execution contracts can express those requirements directly.
 
 ## Batch 1: `objects.segment` and `ocr.extract`
 
