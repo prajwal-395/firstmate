@@ -1423,6 +1423,18 @@ _fm_composer_row_is_opencode_hint() {  # <trimmed-row>
     '^tab[[:space:]]+agents[[:space:]]+ctrl\+p[[:space:]]+commands[[:space:]]*$'
 }
 
+# _fm_composer_rows_are_wrapped_opencode_hint: recognize the narrow-pane
+# two-row rendering where the path/token cell overlaps the shortcut labels.
+# Both rows are required so arbitrary text containing one key label remains
+# unclaimed activity.
+_fm_composer_rows_are_wrapped_opencode_hint() {  # <row-one> <row-two>
+  local first=$1 second=$2
+  printf '%s\n' "$first" | LC_ALL=C grep -Eiq \
+    '^/.*/[0-9]+(\.[0-9]+)?[KMGT] \([0-9]{1,3}%ctrl\+p$' || return 1
+  printf '%s\n' "$second" | LC_ALL=C grep -Eiq \
+    '^[0-9]+/[^[:space:]]+[[:space:]]+commands[[:space:]]*$'
+}
+
 # _fm_composer_row_is_composer_furniture: 0 when <trimmed-row> is DEMONSTRABLY
 # a harness's own furniture drawn below its composer, given <proof-glyph> - the
 # agent glyph that proved the envelope above it. Exactly four things qualify,
@@ -1656,12 +1668,16 @@ _fm_composer_select_cursorless() {
         return 1
       fi
       while [ -n "$trimmed" ] && ! fm_composer_row_has_edge "$trimmed"; do
-        if ! _fm_composer_row_is_opencode_limit_notice "$trimmed" \
+        if _fm_composer_rows_are_wrapped_opencode_hint "$trimmed" \
+          "$(raw=$(_fm_composer_screen_row "$((next + 1))" "$plain"); fm_composer_normalize_trim_var raw; printf '%s' "$raw")"; then
+          next=$((next + 2))
+        elif ! _fm_composer_row_is_opencode_limit_notice "$trimmed" \
           && ! _fm_composer_row_is_opencode_hint "$trimmed"; then
           FM_COMPOSER_SELECTED_KIND=
           return 1
+        else
+          next=$((next + 1))
         fi
-        next=$((next + 1))
         raw=$(_fm_composer_screen_row "$next" "$plain")
         trimmed=$raw
         fm_composer_normalize_trim_var trimmed
