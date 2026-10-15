@@ -25,6 +25,43 @@ def test_a_capability_without_a_legacy_node_refuses_node_keyed_questions():
         nodeless.requires  # noqa: B018
 
 
+def test_capability_plan_matches_process_order_without_loading_a_dag(monkeypatch):
+    """Capability dependencies can order both process registries alone."""
+    from library.tools import capability_plan, dag_adapter
+
+    expected_by_process = {}
+    for process_id in processes.process_ids():
+        specs = tuple(spec for spec in capabilities.all()
+                      if spec.legacy and spec.legacy.process == process_id)
+        expected = tuple(spec.id for spec in capabilities.run_order(process_id))
+        expected_by_process[process_id] = expected
+        plan = capability_plan.compile_plan(specs, expected)
+        assert plan.ordered == expected
+        assert capability_plan.legacy_steps(plan, specs) == tuple(
+            spec.legacy.node_id for spec in capabilities.run_order(process_id))
+
+    monkeypatch.setattr(
+        dag_adapter, "node_of",
+        lambda *_: (_ for _ in ()).throw(AssertionError("DAG lookup")))
+    monkeypatch.setattr(
+        dag_adapter, "requirement_index",
+        lambda: (_ for _ in ()).throw(AssertionError("DAG lookup")))
+    for process_id, expected in expected_by_process.items():
+        specs = tuple(spec for spec in capabilities.all()
+                      if spec.legacy and spec.legacy.process == process_id)
+        capability_plan.compile_plan(specs, expected)
+
+
+def test_capability_plan_refuses_excluded_goals():
+    from library.tools import capability_plan
+
+    specs = capabilities.all()
+    target = next(spec for spec in specs if spec.legacy)
+    with pytest.raises(capability_plan.PlanError, match="excluded"):
+        capability_plan.compile_plan((target,), (target.id,),
+                                     excluded=(target.id,))
+
+
 def test_footage_scan_executor_is_capability_owned_and_step_is_adapter():
     from library.capabilities.footage.scan import scan_project_folder
     from library.steps.step_1_01_scan_project.step import (

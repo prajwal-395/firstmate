@@ -2761,6 +2761,32 @@ def run_pipeline(
     # steps this run may touch; --from and --step narrow that further and
     # behave exactly as they always have.
     selected = list(scope.steps_to_run)
+    # CAP-06 shadow: run the capability compiler against the already
+    # resolved compatibility scope. Policy, state satisfaction, refusal,
+    # and review behavior remain owned by run_scope until a full reference
+    # edit qualifies the switch. A mismatch is recorded, never acted on.
+    from library.tools import capabilities, capability_plan, processes
+    process_capabilities = tuple(
+        spec for spec in capabilities.all()
+        if spec.legacy and spec.legacy.process == processes.EDIT_VIDEO)
+    node_to_capability = {
+        spec.legacy.node_id: spec.id
+        for spec in process_capabilities
+    }
+    selected_capabilities = tuple(
+        node_to_capability[node] for node in selected
+        if node in node_to_capability)
+    shadow_plan = capability_plan.compile_plan(
+        process_capabilities, selected_capabilities,
+        satisfied=(set(node_to_capability.values())
+                   - set(selected_capabilities)))
+    legacy_order = tuple(node for node in selected
+                         if node in node_to_capability)
+    shadow_order = tuple(node for node in capability_plan.legacy_steps(
+        shadow_plan, process_capabilities) if node in set(legacy_order))
+    if shadow_order != legacy_order:
+        print("  CAP-06 shadow order differs from the resolved edit scope; "
+              "keeping compatibility order", file=sys.stderr)
     steps_to_run = []
     if from_step:
         # Fix H2: Ancestor-aware --from skip logic.
