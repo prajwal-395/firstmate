@@ -337,12 +337,39 @@ fm_task_inbox_doorbell_line() {  # <record-path>
     "$quoted"
 }
 
+# _fm_task_inbox_verify_submitted: confirm one typed doorbell line actually
+# left the composer. A swallowed Enter leaves the constant line pending on an
+# idle pane (incident fm-doorbell-not-submitted, 2026-10-15: typed but never
+# submitted until a manual Enter), and the submit verdict alone cannot prove
+# it because only send-failed is loud. When the composer still holds exactly
+# our line and the pane is not busy, press Enter again - never retype, so text
+# the worker already took can never duplicate - and re-check, bounded.
+# Returns 0 when the line is gone (submitted) or the pane turned busy (queued
+# mid-turn, which is a fine delivery), 1 when the line persists, the busy
+# read fails while the line persists, or an Enter keystroke fails. Never
+# presses Enter into a busy pane or any other pending text.
+_fm_task_inbox_verify_submitted() {  # <backend> <target> <line> [expected-label]
+  local backend=$1 target=$2 line=$3 label=${4:-} busy i=0
+  while [ "$i" -lt 2 ]; do
+    fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
+    busy=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null) || return 1
+    [ "$busy" != busy ] || return 0
+    fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 1
+    sleep 0.3
+    i=$((i + 1))
+  done
+  fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" && return 1
+  return 0
+}
+
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory
 # composer pre-check, then the backend's submit machinery with a minimal retry
-# budget, verdict discarded.
+# budget, then a submission verification that resubmits a swallowed Enter.
 # Returns 0 rang, 1 skipped because the composer PROVENLY holds pending text
 # other than our own doorbell (the watcher re-rings later), 2 the backend send
-# failed, 3 skipped because the endpoint is positively dead or missing (nothing
+# failed or the doorbell line is still unsubmitted after resubmission (loud so
+# the watcher re-rings rather than stall on a silent success), 3 skipped
+# because the endpoint is positively dead or missing (nothing
 # typed; recovery owns the record). No return value is delivery proof; the
 # acknowledgement move is the only delivery signal.
 # The skip is deliberately narrow: only an exact `pending` verdict can defer,
@@ -353,8 +380,9 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # positively identify (that classifier is advisory here by design).
 # A pending composer holding exactly our own doorbell line is a previous ring
 # whose Enter never landed, so on an agent not reported busy it is submitted
-# rather than skipped; skipping it would block every later ring. On both paths
-# a lost first Enter gets one confirmed retry.
+# rather than skipped; skipping it would block every later ring. The first
+# Enter gets a verified retry: a twice-swallowed Enter used to report success
+# with the line still pending, so persistence stays loud (2) instead.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
@@ -371,8 +399,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
         || return 1
       fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
       sleep 0.3
-      fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
-      fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+      _fm_task_inbox_verify_submitted "$backend" "$target" "$line" "$label" || return 2
       return 0
       ;;
   esac
@@ -386,6 +413,11 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   # The verdict is read only to report a failed keystroke; every other value
   # (empty, pending, unknown, ...) is deliberately ignored, never proof.
   [ "$verdict" != send-failed ] || return 2
+  # A non-empty verdict is not submission proof: a swallowed Enter reports
+  # pending while the line sits unsubmitted. Verify and resubmit (Enter only,
+  # never retype) so an unverified line stays loud and the watcher re-rings
+  # it; a busy pane holding the line is queued, which is a fine delivery.
+  [ "$verdict" = empty ] || _fm_task_inbox_verify_submitted "$backend" "$target" "$line" "$label" || return 2
   return 0
 }
 
