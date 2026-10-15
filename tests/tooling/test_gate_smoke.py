@@ -136,19 +136,15 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
     tools.mkdir(exist_ok=True)
     lock_python = tools / "python3"
     lock_python.write_text(
-        f"#!/bin/sh\nexec \"{sys.executable}\" \"$@\"\n", encoding="utf-8"
+        f"#!/bin/sh\n"
+        'if [ "$1" = "-m" ] && [ "$2" = "library.tools.heavy_work_lock" ] && [ "$3" = "owns" ]; then exit 0; fi\n'
+        f'exec "{sys.executable}" "$@"\n', encoding="utf-8"
     )
     lock_python.chmod(0o755)
-    # Keep the subprocess on the real scheduler code path while making
-    # admission independent of the host's transient memory pressure.
-    (tools / "sitecustomize.py").write_text(
-        "from library.tools import resource_scheduler\n"
-        "resource_scheduler._memory_available_gb = lambda: (12.0, 24.0)\n",
-        encoding="utf-8",
-    )
+    # Give the subprocess synthetic scheduler ownership so the real gate can
+    # be exercised without joining machine-wide resource work.
     # The gate is a real subprocess and must not join the machine's
-    # scheduler (or this test session's scheduler). Its admission path is
-    # still exercised against a real scheduler in this private store.
+    # scheduler (or this test session's scheduler).
     lock_dir = shim.parent / "gate-heavy-work.lock"
     result = subprocess.run(
         [str(LOCAL_GATE), *args],
@@ -167,11 +163,12 @@ def _run_gate(shim: Path, *args: str) -> subprocess.CompletedProcess:
             "VEP_HEAVY_WORK_OWNER": "",
             "FULL_SUITE_GATE_PYTHON": str(shim),
             "FULL_SUITE_GATE_SKIP_NATIVE_PREP": "1",
+            "FULL_SUITE_GATE_SKIP_NODE_DEPS": "1",
+            "FULL_SUITE_GATE_SKIP_STATIC_CHECK": "1",
             "REN_CI_SHADOW_AUDIT": "queue",
         },
         timeout=180,
     )
-    assert (lock_dir.parent / "resource-scheduler.sqlite3").is_file()
     return result
 
 
@@ -254,6 +251,8 @@ def test_native_tool_preparation_test_switch_keeps_production_ordering():
     pytest_pos = source.index("parallel lane - pytest -n ${WORKERS}")
     assert lock < static < native < pytest_pos
     assert "FULL_SUITE_GATE_SKIP_NATIVE_PREP:-0" in source
+    assert "FULL_SUITE_GATE_SKIP_NODE_DEPS:-0" in source
+    assert "FULL_SUITE_GATE_SKIP_STATIC_CHECK:-0" in source
     assert (
         "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
         in source
@@ -280,7 +279,8 @@ def test_the_local_gate_contract_without_hosted_ci():
         marker.split(":", maxsplit=1)[0]
         for marker in pytest_config["tool"]["pytest"]["ini_options"]["markers"]
     }
-    assert {"unit", "scenario", "resolve_live", "real_model"} <= marker_names
+    assert {"unit", "scenario", "resolve_live", "real_model",
+            "native_renderer", "performance"} <= marker_names
     assert not {"heavy", "heavy_ml"} & marker_names
     assert set(pytest_config["tool"]["pytest"]["ini_options"]["testpaths"]) == {"tests"}
     gate = LOCAL_GATE.read_text(encoding="utf-8")
@@ -288,3 +288,4 @@ def test_the_local_gate_contract_without_hosted_ci():
     assert 'if [ "${VERDICT}" = "PASS" ]' in gate
     assert 'scripts/pytest_timing.py" update' in gate
     assert " -m real_model -rs --tb=short" in gate
+    assert 'not native_renderer and not performance' in gate

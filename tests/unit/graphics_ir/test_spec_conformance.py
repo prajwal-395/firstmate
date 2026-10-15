@@ -128,6 +128,7 @@ def _check_conformance(engine: str, report: dict) -> None:
     assert report["reveal_ink_after"] > 0, f"{engine}: reveal never appears"
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(), reason="FFrames binary not available")
 def test_fframes_conforms_to_the_scene_ir(tmp_path):
     """FFrames draws what the IR declares, within the measured floor."""
@@ -141,6 +142,7 @@ def test_fframes_conforms_to_the_scene_ir(tmp_path):
     _check_conformance("fframes", _measure(sorted(frames), scene))
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _remotion_available(), reason="Remotion not available")
 def test_remotion_conforms_to_the_scene_ir(tmp_path):
     """Remotion draws what the IR declares, within the measured floor."""

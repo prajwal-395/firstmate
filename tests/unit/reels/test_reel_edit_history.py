@@ -436,6 +436,7 @@ class TestDriftAttribution:
         assert result["cause"] == "manual_edit"
         assert result["entry"]["id"] == manual["id"]
 
+    @pytest.mark.performance
     def test_attribution_reads_existing_history_under_ten_ms(
             self, tmp_path):
         import time

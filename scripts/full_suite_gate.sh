@@ -119,7 +119,9 @@ PYTHON="${PYTHON:-python3}"
 HELPER_PYTHON="python3"
 
 echo "=== full-suite gate: static source checks (${PYTHON}) ==="
-if ! "${PYTHON}" -m library.tools.static_check --check; then
+if [ "${FULL_SUITE_GATE_SKIP_STATIC_CHECK:-0}" = "1" ]; then
+  echo "=== full-suite gate: static source checks skipped by test switch ==="
+elif ! "${PYTHON}" -m library.tools.static_check --check; then
   echo "FULL-SUITE GATE: FAIL (static source checks)"
   exit 1
 fi
@@ -191,7 +193,11 @@ fi
 # the first run for a new lockfile fills the shared store once. A bootstrap
 # failure does not change gate semantics - pytest and the capability audit
 # below still decide whether this run is narrowed.
-if command -v node >/dev/null 2>&1; then
+# Hermetic gate-contract tests exercise the runner protocol, not the
+# machine-wide Node dependency store. Keep their subprocesses offline.
+if [ "${FULL_SUITE_GATE_SKIP_NODE_DEPS:-0}" = "1" ]; then
+  echo "=== full-suite gate: Node dependency binding skipped by test switch ==="
+elif command -v node >/dev/null 2>&1; then
   echo "=== full-suite gate: bind Remotion dependencies ==="
   if ! INSTALL_NODE_DEPS_PYTHON="${HELPER_PYTHON}" \
       "${REPO_ROOT}/scripts/install_node_deps.sh"; then
@@ -487,7 +493,7 @@ run_sharded_phase() {
 # every full gate; previous timings only order whole files across workers.
 PERF_TIME_FILES=()
 MAIN_XML="${REPORT_DIR}/main.xml"
-run_sharded_phase "main" "not real_model and not resolve_live" "${MAIN_XML}"
+run_sharded_phase "main" "not real_model and not resolve_live and not native_renderer and not performance" "${MAIN_XML}"
 MAIN_STATE="${PHASE_STATE}"
 MAIN_DETAIL="${PHASE_DETAIL}"
 

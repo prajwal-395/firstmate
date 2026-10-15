@@ -91,6 +91,7 @@ def _remotion_available() -> bool:
         return False
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(), reason="FFrames binary not available")
 @pytest.mark.skipif(not _remotion_available(), reason="Remotion not available")
 def test_fframes_matches_remotion_on_a_fixed_staged_scene(tmp_path):

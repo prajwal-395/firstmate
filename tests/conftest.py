@@ -86,7 +86,8 @@ def pytest_collection_modifyitems(items):
     """
     from tests import layers
 
-    categories = ("unit", "scenario", "resolve_live", "real_model")
+    categories = ("unit", "scenario", "resolve_live", "real_model",
+                  "native_renderer", "performance")
     for item in items:
         if any(item.get_closest_marker(name) for name in categories):
             continue

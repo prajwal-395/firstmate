@@ -192,6 +192,7 @@ def _escape_xml(text: str) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(),
                     reason="FFrames binary not available")
 @pytest.mark.skipif(not _BINARY_FRESH, reason=_BINARY_FRESH_REASON)

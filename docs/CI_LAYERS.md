@@ -86,6 +86,11 @@ mechanism as other environment gaps. Resolve-live tests carry their own marker a
 excluded because they control the running application. See [`HEAVY_TIER.md`](HEAVY_TIER.md)
 for the verified history and current role of timing data.
 
+Native renderer probes and timing benchmarks have dedicated pytest markers and stay out of
+the correctness gate. Run them explicitly with `pytest -m native_renderer` or
+`pytest -m performance`; their environment skips remain visible with `-rs` and must match
+`tests/skip_audit.py` declarations.
+
 ### Why layer 2 cannot be replaced by layer 1
 
 A fresh Linux checkout with nothing preinstalled is the only configuration that can see a

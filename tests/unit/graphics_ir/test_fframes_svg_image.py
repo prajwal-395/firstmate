@@ -62,6 +62,7 @@ def _avatar_bounds(props: dict):
     return node.bounds
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(), reason="FFrames binary not available")
 @pytest.mark.parametrize("as_data_uri", [True, False])
 def test_fframes_draws_an_svg_avatar(tmp_path, as_data_uri):

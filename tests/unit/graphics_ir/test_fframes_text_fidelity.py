@@ -104,6 +104,7 @@ def _text_node(
     )
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(), reason="FFrames binary not available")
 def test_text_node_opacity_ramp_renders(tmp_path):
     """A text node's own fade-in/fade-out ramps shape its pixels (G6)."""
@@ -158,6 +159,7 @@ def test_text_node_opacity_ramp_renders(tmp_path):
     )
 
 
+@pytest.mark.native_renderer
 @pytest.mark.skipif(not _fframes_available(), reason="FFrames binary not available")
 def test_whole_text_letter_spacing_renders(tmp_path):
     """A whole-text node's tracking widens its ink (G5)."""

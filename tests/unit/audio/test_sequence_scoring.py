@@ -138,6 +138,7 @@ class TestSetupPayoffIsAdjacent:
 
 # ── Performance ────────────────────────────────────────────────────
 
+@pytest.mark.performance
 class TestPerformance:
     """The scoring pass is O(n^2); <10 ms for 20 passages."""
 
