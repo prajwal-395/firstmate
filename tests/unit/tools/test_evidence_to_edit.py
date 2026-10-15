@@ -213,6 +213,65 @@ def test_missing_render_file_is_refused(tmp_path):
             render_output="dialogue-multicam-cut/run-a/absent.mp4")
 
 
+def test_queries_pin_to_the_moment_source_clock(tmp_path):
+    model = {"id": "model-clocks", "revision": 1,
+             "assets": [{"id": "SRC-A", "content_digest": "a"},
+                        {"id": "SRC-B", "content_digest": "b"}],
+             "clocks": [{"id": "clock-a", "domain": {"asset_id": "SRC-A"}},
+                        {"id": "clock-b", "domain": {"asset_id": "SRC-B"}}],
+             "observations": [
+                 {"id": "obs-a", "asset_id": "SRC-A",
+                  "provenance_id": "prov-a-m5",
+                  "interval": {"clock_id": "clock-a", "start": 10000,
+                               "end": 20000},
+                  "payload": {"evidence_contract": {
+                      "measurement_type": "audio.sound_event",
+                      "freshness": "fresh", "coverage": "full"}}},
+                 {"id": "obs-b", "asset_id": "SRC-B",
+                  "provenance_id": "prov-b-m5",
+                  "interval": {"clock_id": "clock-b", "start": 10000,
+                               "end": 20000},
+                  "payload": {"evidence_contract": {
+                      "measurement_type": "audio.sound_event",
+                      "freshness": "fresh", "coverage": "full"}}},
+             ],
+             "signals": []}
+    task = _brief(task_id="visual-action-object-cut",
+                  task_types=("visual_action", "visual_object"),
+                  moments=[_moment("v1", "SRC-A", 10.0, 20.0)])
+
+    entry, diagnostics = runner.run_task(
+        task, model, split="calibration", run_name="run-a",
+        output_root=tmp_path,
+        source_durations={"SRC-A": 100.0, "SRC-B": 100.0})
+
+    assert [cut["source_id"] for cut in diagnostics["cuts"]] == ["SRC-A"]
+    sound_rows = [row for row in entry["runs"][0]["evidence_decisions"]
+                  if row["decision"].startswith("query sound_energy")]
+    assert sound_rows and all("obs-b" not in row["evidence_ids"]
+                             for row in sound_rows)
+
+
+def test_source_scoping_limits_moments_and_cuts(tmp_path):
+    task = _brief(moments=[_moment("m1", "SRC-A", 10.0, 20.0),
+                           _moment("m2", "SRC-B", 10.0, 20.0)])
+
+    entry, diagnostics = runner.run_task(
+        task, _empty_model(), split="calibration", run_name="run-a",
+        output_root=tmp_path,
+        source_durations={"SRC-A": 100.0, "SRC-B": 100.0},
+        source_ids=["SRC-A"])
+
+    assert diagnostics["scoped_sources"] == ["SRC-A"]
+    assert len(entry["runs"][0]["evidence_decisions"]) < len(
+        runner.run_task(task, _empty_model(), split="calibration",
+                        run_name="run-b", output_root=tmp_path,
+                        source_durations={"SRC-A": 100.0,
+                                          "SRC-B": 100.0})[0]["runs"][0]
+        ["evidence_decisions"])
+    assert entry["brief"]["expected_source_moments"] != []
+
+
 def test_window_past_measured_duration_is_refused():
     task = _brief(moments=[_moment(start=280.0, end=300.0)])
 

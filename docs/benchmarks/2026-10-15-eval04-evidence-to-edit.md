@@ -88,25 +88,78 @@ render to scores) passes on synthetic fixtures with real ffmpeg renders
 and real `verify_render` verdicts; those fixtures stay in `/tmp` and
 are not benchmark results.
 
+## Real-footage repeats (2026-10-15)
+
+Measured with ffmpeg/ffprobe only (`real_footage_evidence.py`; no model
+passes, no downloads) under `heavy_work_lock --profile
+temporal.index:image_defects`: all four brief sources verified against
+the corpus manifest (durations within rounding, sizes exact; MXF
+23.976 fps, 001 MOV 29.993 fps). Scene detection over every brief
+window (2124.8 s wall, full-window decode) found zero cuts above
+threshold - static podcast cameras and continuous 001 takes - recorded
+as measured `confidently_absent`, not as missing work. Audio energy
+spans are dialogue-shaped on both podcast windows and continuous on
+both 001 takes (97 observations total).
+
+Run through the runner with clock-pinned scopes: both visual repeats
+reach `edit_graph` complete (sound-grounded action beats, zero
+constraint violations on the built graphs); both dialogue repeats
+complete evidence and plan but stop before the graph (no word-level
+speech evidence exists, so no speech blocks are emitted). Scoring stays
+fail-closed: `cut_accuracy`, `coverage`, and all human fields are absent
+until gold ranges and blinded references exist. The Resolve render
+slice (placement, render, `verify_render`) needs timelines that only a
+sanctioned creation path can make - see task status.
+
+## Resolve render slice (2026-10-15)
+
+Built and rendered in scratch project `Ren Scratch - EVAL04 evidence
+to edit` (created, opened, restored, and deleted through the
+sanctioned `resolve-axi project scratch` verbs; captain projects
+untouched). Placement and rendering went through Ren's own entry
+points - `resolve_build_timeline.build_timeline` and
+`execution.resolve_render.render_timeline` - under
+`reel.build:apply` / `render.build:render`, with no raw scripting.
+Both dialogue repeats rendered on Resolve at 1080p24 review grade
+(0.1% conform from 23.976, UHD downscale; program_channel 1
+operator-declared after per-channel measurement showed MXF CH0
+dominant at -29.5 dB against -69.3/-35.0/-37.1 dB). Both visual
+repeats rendered with ffmpeg at native 29.97 cadence. All four
+renders pass `verify_render` on every check except delivery loudness,
+which is an unaltered source property (-26.2/-22.1 LUFS dialogue,
+-21.7/-30.0 LUFS visual, against the -14 target).
+
+The missing call, exactly: no sanctioned entry point sets a scratch
+project's frame rate or resolution. `project scratch create` takes no
+rate parameters, `project set` cannot run while any broker serves,
+recorded-run `SetSetting` is refused by Resolve itself once timelines
+exist, and `build_timeline` refuses rate/resolution changes on any
+project holding the creation-time Empty timeline. Visual Resolve
+placement at native cadence waits on that call; until then visual
+review renders ship via ffmpeg and say so.
+
 ## In-flight evaluator dependencies
 
-EVAL-02, EVAL-03, EVAL-05, EVAL-06, and EVAL-07 scorers have not landed
-as pinned artefacts on this base (`external_scorer_status` in the
-runner checks and reports them pending). EVAL-04's acceptance contract
-records its own task-level measurements and does not substitute guessed
-values for those in-flight scorers.
+EVAL-02 has landed as `library/tools/visual_retrieval_benchmark.py`
+and the runner's `external_scorer_status` reports it available;
+wiring its retrieval scores into EVAL-04 visual grounding needs a
+footage index build over the 001 takes and stays future work.
+EVAL-03, EVAL-05, EVAL-06, and EVAL-07 have no pinned scorer artefact
+on this base. EVAL-04's acceptance contract records its own
+task-level measurements and does not substitute guessed values for
+those in-flight scorers.
 
 ## Pending for a measured benchmark
 
 Blinded human reference edits and gold cut-range freezes for both
-briefs (a human editor's work, not a model pass); held-out repeat runs
-on real footage (dialogue held-out sources exist; all 001 takes share
-one calibration leakage group, so the visual held-out repeat needs a
-corpus split decision); heavy evidence acquisition under
-`heavy_work_lock` with the narrowest matching profile from
-`resource_scheduler.profiles()`; timeline and render execution through
-resolve-axi under Ren's lease in Ren Qualification or a scratch
-project, never the native engine.
+briefs (a human editor's work, not a model pass - the exact ask is on
+the task status); held-out repeat coverage for the visual task (all 001
+takes share one calibration leakage group, so the visual held-out
+repeat needs a corpus split decision); native-cadence Resolve
+placement for the visual repeats (the missing rate call above); heavy
+evidence acquisition under `heavy_work_lock` with the narrowest
+matching profile from `resource_scheduler.profiles()` (word-level
+speech would unblock the dialogue graph).
 
 ## Current corpus limits
 

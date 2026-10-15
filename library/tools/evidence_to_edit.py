@@ -45,8 +45,16 @@ DIALOGUE_PLANS = (
     ("multicam_sync", [
         {"predicate": "measurement", "measurement_type": "sync.multicam_offset"},
     ]),
+    ("scene_structure", [
+        {"predicate": "measurement", "measurement_type": "video.scene_boundary"},
+    ]),
+    ("sound_energy", [
+        {"predicate": "measurement", "measurement_type": "audio.sound_event"},
+    ]),
 )
-"""Query plans behind a dialogue/multicam cut: attributed speech, then sync."""
+"""Query plans behind a dialogue/multicam cut: attributed speech, sync,
+scene structure, and sound energy. Only measured speech words can still
+place speech blocks; scene and sound rows corroborate the span."""
 
 VISUAL_PLANS = (
     ("objects", [
@@ -57,8 +65,16 @@ VISUAL_PLANS = (
         {"predicate": "measurement", "measurement_type": "person.face_frame"},
         {"predicate": "event_span", "event": "on_screen"},
     ]),
+    ("scene_structure", [
+        {"predicate": "measurement", "measurement_type": "video.scene_boundary"},
+    ]),
+    ("sound_energy", [
+        {"predicate": "measurement", "measurement_type": "audio.sound_event"},
+    ]),
 )
-"""Query plans behind a visual action/object cut: objects, then who is seen."""
+"""Query plans behind a visual action/object cut: objects, who is seen,
+scene structure, and sound energy. Scene and sound rows are measured
+without model passes, so visual action beats can ground on them."""
 
 PLANS_BY_TASK_TYPE = {
     "dialogue_multicam": DIALOGUE_PLANS,
@@ -140,6 +156,28 @@ def consult_model(model: dict[str, Any]) -> dict[str, Any]:
         "project_model")
 
 
+def _scope_for(model: dict[str, Any],
+               moment: dict[str, Any]) -> dict[str, Any]:
+    """The query scope for one moment, clock-pinned when the model allows.
+
+    An unscoped window reads every source clock in the model, so a query
+    about one take would answer with another take's evidence. When the
+    model names the moment source's clock, the scope pins to it; models
+    without clock mappings keep the unscoped window.
+    """
+    scope: dict[str, Any] = {"start_s": moment["start_seconds"],
+                             "end_s": moment["end_seconds"]}
+    for clock in model.get("clocks") or []:
+        if not isinstance(clock, dict):
+            continue
+        domain = clock.get("domain") or {}
+        if domain.get("asset_id") == moment["source_id"] and clock.get("id"):
+            scope["clock_id"] = clock["id"]
+            scope["asset_id"] = moment["source_id"]
+            break
+    return scope
+
+
 def consult_moment(model: dict[str, Any], moment: dict[str, Any],
                    task_types: list[str], *,
                    acquisition_budget_seconds: float = 0.0,
@@ -163,8 +201,7 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
         if plan_name in seen:
             continue
         seen.add(plan_name)
-        scope = {"start_s": moment["start_seconds"],
-                 "end_s": moment["end_seconds"]}
+        scope = _scope_for(model, moment)
         plan = evidence_query.compile_plan(list(predicates), scope=scope)
         answer = evidence_query.evidence_for(model, plan)
         statuses[plan_name] = answer["status"]
@@ -446,7 +483,8 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
              acquisition_budget_seconds: float = 0.0,
              metrics: dict[str, Any] | None = None,
              render_output: str | None = None,
-             verify_passed: bool | None = None) -> tuple[dict[str, Any],
+             verify_passed: bool | None = None,
+             source_ids: list[str] | None = None) -> tuple[dict[str, Any],
                                                         dict[str, Any]]:
     """Run one brief end to end and return its task entry plus diagnostics.
 
@@ -466,7 +504,18 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
         raise ValueError("; ".join(brief_errors + window_errors))
     ledger = [consult_model(model)]
     answers_by_moment: dict[str, dict[str, Any]] = {}
-    for moment in (task.get("brief") or {}).get("expected_source_moments", []):
+    brief_body = dict(task.get("brief") or {})
+    if source_ids is not None:
+        wanted = set(source_ids)
+        brief_body = dict(brief_body, **{
+            "expected_source_moments": [
+                moment for moment in brief_body.get("expected_source_moments", [])
+                if moment.get("source_id") in wanted],
+            "cut_ranges": [
+                cut for cut in brief_body.get("cut_ranges", [])
+                if cut.get("source_id") in wanted]})
+    scoped_task = dict(task, brief=brief_body)
+    for moment in brief_body.get("expected_source_moments", []):
         rows, answer = consult_moment(
             model, moment, task_types,
             acquisition_budget_seconds=acquisition_budget_seconds,
@@ -475,7 +524,7 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
         answers_by_moment[moment["id"]] = answer
     edit_rows, edit_points = consult_edit_points(model)
     ledger.extend(edit_rows)
-    cuts, abstentions = ground_cuts(task, answers_by_moment, edit_points)
+    cuts, abstentions = ground_cuts(scoped_task, answers_by_moment, edit_points)
     state, ungraphable = state_for_cuts(
         task_id, task_types, cuts, word_rows_by_source or {})
     graph = edit_graph.build_graph(state)
@@ -497,6 +546,7 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
     run = assemble_run(task, split, ledger, reviewable, stages, metrics)
     diagnostics = {"cuts": cuts, "abstentions": abstentions,
                    "ungraphable": ungraphable,
+                   "scoped_sources": source_ids,
                    "graph_node_count": graph.get("node_count", 0),
                    "external_scorers": external_scorer_status(
                        Path(__file__).resolve().parents[2])}
@@ -526,11 +576,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="JSON mapping source_id to measured word-timing "
                              "rows; cuts without word-level evidence never "
                              "become speech blocks")
+    parser.add_argument("--sources", default=None,
+                        help="comma-separated source_ids to run; moments and "
+                             "cuts on other sources are excluded from this "
+                             "run so one brief can repeat per split")
     args = parser.parse_args(argv)
     model = json.loads(Path(args.model).read_text(encoding="utf-8"))
     durations = json.loads(Path(args.durations).read_text(encoding="utf-8"))
     word_rows = (json.loads(Path(args.word_rows).read_text(encoding="utf-8"))
                  if args.word_rows else None)
+    only_sources = (args.sources.split(",") if args.sources else None)
     tasks = []
     for brief_path in args.brief:
         task = load_brief(Path(brief_path))
@@ -538,7 +593,8 @@ def main(argv: list[str] | None = None) -> int:
             task, model, split=args.split, run_name=args.run_name,
             output_root=args.output_root, source_durations=durations,
             word_rows_by_source=word_rows,
-            acquisition_budget_seconds=args.acquisition_budget_seconds)
+            acquisition_budget_seconds=args.acquisition_budget_seconds,
+            source_ids=only_sources)
         tasks.append(entry)
     report = {"tasks": tasks}
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
