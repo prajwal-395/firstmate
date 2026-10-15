@@ -1,8 +1,9 @@
-import json
 import io
+import json
 import sys
 from pathlib import Path
 
+import library.steps.step_2_02_speech_sequence.post_bridge as speech_bridge
 from library.tools.narrative_relations import (
     deterministic_candidates,
     to_interpretations,
@@ -10,7 +11,6 @@ from library.tools.narrative_relations import (
 from library.tools.project_model import validate_project_model
 from library.tools.project_model_narrative import persist_speech_sequence
 from library.tools.project_model_store import load_project_model
-import library.steps.step_2_02_speech_sequence.post_bridge as speech_bridge
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "narrative_relations_proxy.json"
 
@@ -121,4 +121,20 @@ def test_speech_sequence_run_persists_interpretations_for_project_model_query(
     assert records[0]["evidence_ids"] == ["speech:7"]
     assert records[0]["uncertainty"] == 0.5
     assert records[0]["certainty"] == "interpreted"
+
+    from library.tools.project_model_narrative import pipeline_reference
+    pipeline_view = pipeline_reference(sequence, result)
+    assert pipeline_view["body_sequence"] == sequence["body_sequence"]
+    assert pipeline_view["interpretation_ids"] == result["interpretation_ids"]
+    assert pipeline_view["project_model_revision"] == revision
+    assert "interpretations" not in pipeline_view
+    assert len(sequence["interpretations"]) == len(records)
+    from library.tools import capability_outputs
+    state = {}
+    capability_outputs.record(
+        state, "speech_sequence", {"speech_sequence": pipeline_view})
+    recorded = capability_outputs.value(
+        state, "speech.enrich", "speech_sequence")
+    assert "interpretations" not in recorded
+    assert recorded["project_model_revision"] == revision
 

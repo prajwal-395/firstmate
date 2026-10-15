@@ -7,6 +7,22 @@ from typing import Any
 AUTHOR = "narrative_relations.rules/1"
 
 
+def pipeline_reference(speech_sequence: dict[str, Any],
+                      persisted: dict[str, Any]) -> dict[str, Any]:
+    """Return the pipeline view after interpretations become model-owned.
+
+    The runner still needs the speech body for downstream planning, but
+    retaining interpretation rows there would create a second evidence
+    authority. Keep stable IDs and the exact committed model revision as
+    the reference back to the canonical event history.
+    """
+    sequence = dict(speech_sequence)
+    sequence.pop("interpretations", None)
+    sequence["interpretation_ids"] = list(persisted["interpretation_ids"])
+    sequence["project_model_revision"] = persisted["revision"]
+    return sequence
+
+
 def persist_speech_sequence(project_folder: str | Path,
                             speech_sequence: dict[str, Any]) -> dict[str, Any]:
     """Upsert the sequence's hypotheses by reference, preserving model authority."""

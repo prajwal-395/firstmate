@@ -4019,6 +4019,10 @@ def run_pipeline(
                     sequence = output["speech_sequence"]
                     persisted = project_model_narrative.persist_speech_sequence(
                         project_dir, sequence)
+                    output = dict(output)
+                    output["speech_sequence"] = (
+                        project_model_narrative.pipeline_reference(
+                            sequence, persisted))
                 except Exception as exc:  # noqa: BLE001 - canonical write is required
                     message = f"Project Model narrative persistence failed: {exc}"
                     print(f"     ✗ FAILED: {message}", file=sys.stderr)
