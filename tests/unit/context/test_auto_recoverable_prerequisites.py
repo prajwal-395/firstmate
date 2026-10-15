@@ -23,9 +23,9 @@ def _synthetic_dag():
     return {
         "id": "edit_video",
         "nodes": [
-            {"id": "producer", "name": "producer",
+            {"id": "scan", "name": "scan",
              "step_ref": "steps/step_1_01_scan_project"},
-            {"id": "consumer", "name": "consumer",
+            {"id": "catalog", "name": "catalog",
              "step_ref": "steps/step_1_02_catalog_footage"},
         ],
         # No data edge: the consumer's need arrives as a predicate
@@ -46,7 +46,7 @@ def _synthetic_manifests():
             },
             "classification": {"stage": "edit"},
         }
-        for node_id in ("producer", "consumer")
+        for node_id in ("scan", "catalog")
     }
 
 
@@ -55,22 +55,22 @@ def _synthetic_requirement():
     from library.tools import requirements as R
 
     def check(ctx: R.Context) -> R.Satisfaction:
-        if ctx.value_for("producer", "made_thing") is None:
+        if ctx.value_for("scan", "made_thing") is None:
             return R.UNSATISFIED(
-                "producer has made no thing, so consumer cannot run",
-                missing="made_thing", produced_by=("producer",))
+                "producer has made no thing, so catalog cannot run",
+                missing="made_thing", produced_by=("scan",))
         return R.SATISFIED(R.IN_STATE)
 
     return R.Requirement(
         name="t7.consumer_needs_thing", kind=R.KIND_PREDICATE,
-        describe="consumer runs on what producer makes",
-        produced_by=("producer",), consumers=("consumer",),
-        produced_keys=(("producer", "made_thing"),),
+        describe="catalog runs on what producer makes",
+        produced_by=("scan",), consumers=("catalog",),
+        produced_keys=(("scan", "made_thing"),),
         check=check,
         refuting_context=lambda: R.Context(),
         satisfying_context=lambda: R.Context(state={
             "capability_outputs": {
-                "producer": {"output": {"made_thing": {"_witness": True}}}}}),
+                "scan": {"output": {"made_thing": {"_witness": True}}}}}),
     )
 
 
@@ -98,8 +98,8 @@ def _drive(monkeypatch, project: Path, **kwargs):
     executed: list = []
 
     def implementation(step_dir):
-        node_id = ("producer" if Path(step_dir).name == "step_1_01_scan_project"
-                   else "consumer")
+        node_id = ("scan" if Path(step_dir).name == "step_1_01_scan_project"
+                   else "catalog")
         return {
             "type": "deterministic",
             "entry": str(Path(step_dir) / "step.py"),
@@ -108,8 +108,8 @@ def _drive(monkeypatch, project: Path, **kwargs):
         }
 
     def run_step(entry, _inputs):
-        node_id = ("producer" if Path(entry).parent.name
-                   == "step_1_01_scan_project" else "consumer")
+        node_id = ("scan" if Path(entry).parent.name
+                   == "step_1_01_scan_project" else "catalog")
         executed.append(node_id)
         return {"result": node_id}
 
@@ -119,6 +119,12 @@ def _drive(monkeypatch, project: Path, **kwargs):
     monkeypatch.setattr(runner, "apply_source_identity", lambda *_a: None)
     monkeypatch.setattr(
         runner, "parallel_workers_enabled", lambda *_a, **_k: False)
+    # This is a runner recovery test with synthetic nodes. The shadow
+    # capability compiler describes the real registry and is outside that
+    # fixture; compiling it against the synthetic requirement list couples
+    # this test to unrelated real capability declarations.
+    from library.tools import capabilities
+    monkeypatch.setattr(capabilities, "all", lambda: ())
     monkeypatch.setattr(
         runner.briefing_chat, "conduct_if_needed",
         lambda _project, state, *_a, **_k: state)
@@ -132,14 +138,14 @@ def test_missing_producer_is_auto_recoverable():
     from library.tools import requirements as R
 
     req = _synthetic_requirement()
-    unmet = R.check(["consumer"], R.Context(), [req])
+    unmet = R.check(["catalog"], R.Context(), [req])
     assert len(unmet) == 1
     assert R.is_auto_recoverable(unmet)
-    assert R.missing_producers(unmet) == ["producer"]
+    assert R.missing_producers(unmet) == ["scan"]
     refusal = R.MissingPrerequisiteRefused(unmet, "t7-project")
     assert refusal.recovery_class == "auto_recoverable"
-    assert refusal.fix == "ren edit t7-project --only producer"
-    assert refusal.producers == ("producer",)
+    assert refusal.fix == "ren edit t7-project --only scan"
+    assert refusal.producers == ("scan",)
 
 
 def test_agent_backend_adds_the_missing_producer(tmp_path, monkeypatch,
@@ -150,14 +156,14 @@ def test_agent_backend_adds_the_missing_producer(tmp_path, monkeypatch,
     executed = _drive(monkeypatch, project)
 
     summary = runner.run_pipeline(
-        str(project), only=["consumer"], full_auto="agent")
+        str(project), only=["catalog"], full_auto="agent")
 
     assert summary["status"] != "REFUSED", summary.get("reason", "")
-    assert executed == ["producer", "consumer"]
-    assert summary.get("auto_recovered_producers") == ["producer"]
+    assert executed == ["scan", "catalog"]
+    assert summary.get("auto_recovered_producers") == ["scan"]
     record = run_control.read_run_status(str(project))
-    assert record.get("auto_recovered_producers") == ["producer"]
-    assert "producer" in (record.get("steps_to_run") or [])
+    assert record.get("auto_recovered_producers") == ["scan"]
+    assert "scan" in (record.get("steps_to_run") or [])
     out, err = capsys.readouterr()
     assert "auto-recovered" in err
     # `emit_run_summary` prints the summary JSON, then the artifact
@@ -171,16 +177,16 @@ def test_default_backend_refuses_with_a_runnable_command(tmp_path,
     project = _fresh_project(tmp_path)
     _drive(monkeypatch, project)
 
-    summary = runner.run_pipeline(str(project), only=["consumer"])
+    summary = runner.run_pipeline(str(project), only=["catalog"])
 
     assert summary["status"] == "REFUSED"
     assert summary.get("recovery_class") == "auto_recoverable"
     fix = summary.get("fix", "")
     # The fix is a runnable command, not step-id prose: exactly the
     # command, with the producers as --only selections.
-    assert fix == "ren edit t7-project --only producer"
+    assert fix == "ren edit t7-project --only scan"
     assert "\n" not in fix
-    assert summary.get("producers") == ["producer"]
+    assert summary.get("producers") == ["scan"]
     assert fix in summary.get("reason", "")
 
 
