@@ -230,17 +230,24 @@ def disposable_checkout(mirror: str, rev: str, state: str = ""):
     # from the PID and wall clock.
     path = tempfile.mkdtemp(prefix=f"run-{os.getpid()}-", dir=root)
     try:
-        _git(mirror, "worktree", "add", "--detach", path, rev)
+        # Git updates the shared worktree registry under the common git
+        # directory. Concurrent add/remove/prune commands can race while
+        # registering per-worktree metadata, even when the checkout paths
+        # themselves are unique. Use the same cross-process lock as mirror
+        # fetches so every worker agrees on the registry mutation order.
+        with _mirror_lock(mirror):
+            _git(mirror, "worktree", "add", "--detach", path, rev)
         yield path
     finally:
-        try:
-            _git(mirror, "worktree", "remove", "--force", path)
-        except RuntimeError:
-            shutil.rmtree(path, ignore_errors=True)
-        try:
-            _git(mirror, "worktree", "prune")
-        except RuntimeError:
-            pass
+        with _mirror_lock(mirror):
+            try:
+                _git(mirror, "worktree", "remove", "--force", path)
+            except RuntimeError:
+                shutil.rmtree(path, ignore_errors=True)
+            try:
+                _git(mirror, "worktree", "prune")
+            except RuntimeError:
+                pass
 
 
 def bind_renderer_dependencies(checkout: str) -> None:

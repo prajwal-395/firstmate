@@ -95,21 +95,18 @@ def test_renderer_dependency_binding_refuses_when_the_script_fails(
 
 
 def test_parallel_checkouts_get_unique_paths_in_the_same_second(
-        mirror, tmp_path, monkeypatch):
+        mirror, tmp_path):
     state = str(tmp_path / "state")
     rev = _git(mirror, "rev-parse", "HEAD")
-    add_barrier = threading.Barrier(2)
+    start_barrier = threading.Barrier(2)
     entered = threading.Event()
     entered_paths = []
     entered_lock = threading.Lock()
-    original_git = hygiene._git
-
-    def synchronized_git(repo, *argv, **kwargs):
-        if argv[:2] == ("worktree", "add"):
-            add_barrier.wait(timeout=10)
-        return original_git(repo, *argv, **kwargs)
-
     def hold_checkout():
+        # Contend for the shared Git worktree registry at once. The
+        # production lock serializes the short registry updates, while the
+        # contexts below still overlap as live checkouts.
+        start_barrier.wait(timeout=10)
         with hygiene.disposable_checkout(mirror, rev, state) as checkout:
             with entered_lock:
                 entered_paths.append(checkout)
@@ -118,7 +115,6 @@ def test_parallel_checkouts_get_unique_paths_in_the_same_second(
             assert entered.wait(timeout=3), "both worktrees must be live together"
             return checkout
 
-    monkeypatch.setattr(hygiene, "_git", synchronized_git)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(hold_checkout) for _ in range(2)]
         paths = [future.result(timeout=10) for future in futures]
