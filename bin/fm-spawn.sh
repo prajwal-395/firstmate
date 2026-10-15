@@ -2694,12 +2694,14 @@ case "$HARNESS" in
     # rungs refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
     # recovery relaunches on. A relaunch already pinned to the second
-    # workspace skips the gate: the descent decided that move against the
-    # fourth rung's own cap, and the main Go rung's proven cap would refuse a
-    # request naming the same model id.
+    # workspace with an explicit model skips the gate: the descent decided
+    # that move against the fourth rung's own cap, and the main Go rung's
+    # proven cap would refuse a request naming the same model id. A relaunch
+    # without an explicit model takes the same gate as a fresh modelless
+    # launch instead, so it can never sit on a rung the current caps exclude.
     _FM_OPENCODE_RELAUNCH_WS=$RELAUNCH_PRIOR_WORKSPACE
     [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || _FM_OPENCODE_RELAUNCH_WS=$OPENCODE_WORKSPACE_ARG
-    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
+    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$MODEL_SET" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
@@ -2736,7 +2738,11 @@ case "$HARNESS" in
     fi
     ;;
   codex)
-    if [ "$DISPATCH_LADDER" = opencode ] && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
+    # A relaunch without an explicit model is a modelless dispatch, not a
+    # decision to stay on Codex Plus: it enters the shared rung gate from
+    # free exactly like a fresh typed-ladder launch, so a capped Plus rung
+    # routes onward instead of relaunching onto the refusal that stopped it.
+    if { [ "$DISPATCH_LADDER" = opencode ] || { [ "$RELAUNCH" -eq 1 ] && [ "$MODEL_SET" -eq 0 ]; }; } && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
