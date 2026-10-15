@@ -314,6 +314,51 @@ def _tick_seconds(point: dict[str, Any]) -> float | None:
     return float(tick) / evidence_query.TICKS_PER_SECOND
 
 
+def _word_rows_from_answers(
+        answers_by_moment: dict[str, dict[str, Any]],
+        moments: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Project fresh, queried speech-word measurements into spine rows.
+
+    The evidence query already filters by source clock, interval, freshness,
+    and the required speech-word/voice-turn join. Reuse only those returned
+    word measurements to build speech blocks; a raw transcript elsewhere in
+    the Project Model must not silently support a cut.
+    """
+    source_by_moment = {moment["id"]: moment["source_id"]
+                        for moment in moments}
+    rows: dict[str, list[dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for moment_id, answer in answers_by_moment.items():
+        source_id = source_by_moment[moment_id]
+        for present in answer["present_intervals"]:
+            if present["plan"] != "speech_attributed":
+                continue
+            for measurement in present["measurements"]:
+                if measurement["measurement_type"] != "speech.word":
+                    continue
+                value = measurement["value"]
+                if not isinstance(value, dict) or not isinstance(
+                        value.get("text"), str) or not value["text"].strip():
+                    continue
+                evidence_id = measurement["evidence_id"]
+                key = (source_id, evidence_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                interval = measurement["interval"]
+                rows.setdefault(source_id, []).append({
+                    "word": value["text"],
+                    "source_start": (interval["start"] /
+                                     evidence_query.TICKS_PER_SECOND),
+                    "source_end": (interval["end"] /
+                                   evidence_query.TICKS_PER_SECOND),
+                    "evidence_id": evidence_id,
+                })
+    for source_rows in rows.values():
+        source_rows.sort(key=lambda row: row["source_start"])
+    return rows
+
+
 def ground_cuts(brief: dict[str, Any], task_types: list[str],
                 answers_by_moment: dict[str, dict[str, Any]],
                 edit_points: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
@@ -633,8 +678,12 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
             [f"evidence_query:unavailable:{abstention['moment_id']}",
              f"project_model:{model.get('id', 'unidentified')}"],
             "evidence_query"))
+    word_rows = (word_rows_by_source if word_rows_by_source is not None else
+                 _word_rows_from_answers(
+                     answers_by_moment,
+                     brief_body.get("expected_source_moments", [])))
     state, ungraphable = state_for_cuts(
-        task_id, task_types, cuts, word_rows_by_source or {})
+        task_id, task_types, cuts, word_rows)
     graph = edit_graph.build_graph(state)
     artefacts = write_reviewable_output(output_root, task_id, run_name,
                                         graph, cuts, ledger)

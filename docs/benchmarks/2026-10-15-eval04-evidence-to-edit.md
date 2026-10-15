@@ -216,3 +216,53 @@ Resolve timeline and render execution use resolve-axi under Ren's lease, on
 the task's own timeline in `Ren Qualification` unless the scratch-project verb
 is available. Never write the captain's project or timeline; restore the
 Resolve state found before the task.
+
+## Dialogue evidence handoff follow-up (2026-10-15)
+
+The Project Model migration contained fresh Voz word observations aligned by
+MFA, plus `person.voice_turn` observations, for both dialogue sources. The
+`evidence_to_edit` runner now converts only the fresh, interval-filtered
+`speech_attributed` query results into graph word rows when no explicit row
+map is supplied. This preserves the evidence gate while allowing the graph to
+build from Project Model evidence. Calibration LCATL0012 and held-out LCATL0011
+both moved from 0 grounded cuts / 0 graph nodes to 2 grounded cuts / a complete
+edit graph. The selected word intervals are 17.67-18.77s ("discoverability,")
+and 80.32-80.92s ("systems") for calibration, and 14.78-15.52s ("cmo") and
+114.58-115.38s ("constantly") for held out. No dialogue cut was refused for
+missing speech evidence after this handoff.
+
+This does not satisfy the brief's complete-exchange intent: the deterministic
+planner retained isolated word intervals rather than complete question/answer
+beats. The model also has no visual speaker-to-face mapping or edit-point
+signal, and no human reference edit/gold ranges are frozen. Consequently the
+full task acceptance report remains incomplete even though evidence, plan and
+edit graph stages are complete.
+
+The calibration cuts were placed on a Ren Scratch timeline through a recorded
+`resolve-axi run`; the broker confirmed two video and two audio timeline items.
+The H.264 render landed at `/tmp/eval04/dialogue/calibration/eval04_calibration_dialogue.mp4`
+(1.83s, 1920x1080, 23.976 fps, one audio stream). `verify_render` failed the
+loudness gate: -28.10 LUFS, true peak -10.78 dBTP, 14.10 dB below its -14 LUFS
+target. Black-frame, freeze-frame, silence-under-picture, resolution, frame
+rate, duration and audio-stream checks passed.
+
+The held-out cuts were also placed and rendered on their own Ren Scratch
+timeline. The H.264 render landed at
+`/tmp/eval04/dialogue/heldout/eval04_heldout_dialogue.mp4` (1.66s,
+1920x1080, 23.976 fps, one audio stream). `verify_render` failed loudness at
+-24.03 LUFS, true peak -8.87 dBTP, 10.03 dB below target; black-frame,
+freeze-frame, silence-under-picture, resolution, frame rate, duration and
+audio-stream checks passed. Both render verdicts therefore failed, with
+loudness the exact missing render requirement. The broker closed after the
+calibration render request; Firstmate restarted it, after which held-out
+placement/render/verification completed. Both scratch projects were restored
+and deleted through `resolve-axi`; read-back confirmed the original project,
+timeline and Edit page.
+
+No Voz/MFA inference ran in this follow-up: existing fresh source-memory
+observations were reused. Project Model migration took about 71.6s wall time;
+the two runner invocations took under 0.2s combined. The calibration Resolve
+render request took 6.8s wall time, including 0.3s scheduler queue wait and
+6.3s execution. The held-out render took 8.0s wall time, including 0.15s
+scheduler queue wait and 7.45s execution. No metered GPU/model cost was
+incurred for evidence acquisition.

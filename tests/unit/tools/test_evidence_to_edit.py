@@ -133,6 +133,29 @@ def test_evidenced_model_grounds_cuts_inside_brief_ranges(tmp_path):
     assert cut_reason["technical_measurements"] == []
 
 
+def test_project_model_word_measurements_build_speech_blocks_by_default(
+        tmp_path):
+    model = _evidenced_model()
+    word = model["observations"][0]
+    word["interval"].update(start=12000, end=13000)
+    word["payload"]["evidence_contract"]["value"] = {"text": "hello"}
+
+    entry, diagnostics = runner.run_task(
+        _brief(), model, split="calibration", run_name="run-a",
+        output_root=tmp_path, source_durations={"LCATL0012": 288.955})
+
+    assert diagnostics["cuts"]
+    assert diagnostics["ungraphable"] == []
+    assert diagnostics["graph_node_count"] > 0
+    assert entry["runs"][0]["stages"]["edit_graph"] == "complete"
+    graph = json.loads(
+        (tmp_path / "dialogue-multicam-cut" / "run-a" / "edit-graph.json")
+        .read_text(encoding="utf-8"))
+    block = next(node for node in graph["nodes"]
+                 if node["node_type"] == "spine_block")
+    assert block["payload"]["word_timestamp_count"] == 1
+
+
 def test_cuts_without_word_timings_never_become_speech_blocks(tmp_path):
     task = _brief()
     _, diagnostics = runner.run_task(
