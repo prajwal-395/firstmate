@@ -1000,24 +1000,28 @@ test_ship_and_scout_teach_validation_round_pause() {
       FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes >/dev/null 2>&1
     fi
     brief="$home/data/$id/brief.md"
-    assert_grep "your own validation round, which you declare once just before its blocking hold" "$brief" \
-      "$kind brief did not teach workers to declare their validation-round wait before holding it"
-    assert_grep "append \`paused:\` once just before its first blocking command, then stay in the command" "$brief" \
-      "$kind brief's Waiting section does not declare the validation round once and then hold it"
+    assert_grep "Run your own tests, validation, and long commands in the foreground" "$brief" \
+      "$kind brief did not teach workers to run their own validation in the foreground"
+    assert_no_grep "your own validation round, which you declare once just before its blocking hold" "$brief" \
+      "$kind brief still teaches workers to declare their validation-round wait before holding it"
+    assert_no_grep "append \`paused:\` once just before its first blocking command" "$brief" \
+      "$kind brief still declares the validation round once and then holds it"
     assert_no_grep "is not a \`paused:\` wait" "$brief" \
       "$kind brief still tells workers never to declare a wait they hold in a command"
-    assert_grep "your own validation round" "$brief" \
-      "$kind brief did not teach workers to declare their validation-round wait"
-    assert_grep 'Before ending your turn with your own background shell or monitor still running' "$brief" \
-      "$kind brief did not require declaring a background-work wait"
-    assert_grep 'before waiting on your own pipeline run or a long foreground command' "$brief" \
-      "$kind brief did not require declaring a pipeline or foreground wait"
+    assert_grep "do not use \`paused:\` for your own work" "$brief" \
+      "$kind brief did not limit paused to external waits"
+    assert_grep "Keep validation and long commands in the foreground" "$brief" \
+      "$kind brief's Waiting section does not keep validation in the foreground"
+    assert_no_grep 'Before ending your turn with your own background shell or monitor still running' "$brief" \
+      "$kind brief still requires declaring a background-work wait"
+    assert_no_grep 'before waiting on your own pipeline run or a long foreground command' "$brief" \
+      "$kind brief still requires declaring a pipeline or foreground wait"
     assert_grep 'Firstmate may still raise one first-sight alert' "$brief" \
       "$kind brief incorrectly promised to suppress the first alert"
     assert_grep 'Do not declare active implementation or reasoning as a wait' "$brief" \
       "$kind brief did not limit the declaration to actual waits"
   done
-  pass "fm-brief.sh: ship and scout scaffolds declare a validation-round pause once, then hold it"
+  pass "fm-brief.sh: ship and scout scaffolds keep validation in the foreground, pausing only for external waits"
 }
 
 test_scout_and_secondmate_load_decision_hold_policy() {

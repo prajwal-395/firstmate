@@ -277,8 +277,8 @@ test_captain_relevance_and_pause_are_unchanged_without_a_token() {
   status_is_captain_relevant 'merged' || fail "legacy bare free-text regressed"
   status_is_captain_relevant 'resolved [key=q1]: answered' && fail "resolved regressed to captain-relevant"
 
-  status_is_paused 'paused: waiting on the upstream release' || fail "paused: regressed"
-  status_is_paused '  paused:   waiting on a reset' || fail "spaced paused: regressed"
+  status_is_paused 'paused: waits-for=task:upstream-release waiting on the upstream release' || fail "paused: regressed"
+  status_is_paused '  paused:   waits-for=process:4242 waiting on a reset' || fail "spaced paused: regressed"
   status_is_paused 'blocked: the build is paused upstream' && fail "paused-in-prose regressed"
   status_is_paused 'working: paused the animation loop' && fail "paused-in-prose regressed"
   status_is_paused '' && fail "empty line regressed"
@@ -318,7 +318,7 @@ test_consumer_verdicts_read_through_the_token() {
 
   # The pause and captain-held declarations the watcher reads to leave a
   # deliberately idle endpoint alone instead of aging it as a possible wedge.
-  status_is_paused "paused corr=$CORR: waiting on the upstream release" \
+  status_is_paused "paused corr=$CORR: waits-for=task:upstream-release waiting on the upstream release" \
     || fail "a correlated pause was not recognised as a declared external wait"
   status_is_paused_or_captain_held "captain-held corr=$CORR [key=r]: tracked as a hold" \
     || fail "a correlated captain-held was not recognised"
@@ -686,10 +686,13 @@ test_captain_override_ignores_event_time() {
     status_span_has_actionable "$dir/state/task.status" 0 \
       && fail "override surfaced excluded event: $line"
   done
-  for verb in working paused resolved captain-held; do
+  for verb in working resolved captain-held; do
     for line in "$verb: done: mentioned" "$verb [at=1700000000]: done: mentioned"; do
       status_is_captain_relevant "$line" && fail "override bypassed nonterminal suppression: $line"
     done
+  done
+  for line in 'paused: waits-for=task:upstream done: mentioned' 'paused [at=1700000000]: waits-for=task:upstream done: mentioned'; do
+    status_is_captain_relevant "$line" && fail "override bypassed qualified-pause suppression: $line"
   done
   FM_CAPTAIN_RE='^custom-verb: audit complete$'
   for line in 'custom-verb: audit complete' 'custom-verb [at=1700000000]: audit complete' \
