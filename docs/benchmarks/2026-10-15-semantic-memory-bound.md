@@ -48,16 +48,17 @@ Reproduced on the qualification source
 
 | | before | after |
 |---|---|---|
-| `model_memory` scheduler demand | `{}` (no reservation) | `{"ram_gb": 12}` |
-| Single-session peak, child process | 11.27 GB peak physical footprint (`/usr/bin/time -l`: 1.89 GB max RSS parent-side, 10.5 GB sampled physical peak) | unchanged - the bound, not the weights, is the fix |
+| `model_memory` scheduler demand | `{}` (no reservation) | `{"ram_gb": 15}` (current policy) |
+| Single-session peak, child process | 11.27 GB peak physical footprint on LCATL0011 (`/usr/bin/time -l`: 1.89 GB max RSS parent-side, 10.5 GB sampled physical peak) | 14.43 GB peak footprint in a separate fresh load-plus-inference measurement (1.69 GB peak RSS); not a paired LCATL0011 rerun |
 | Second concurrent session | admitted immediately; two ~11 GB sessions overlap into swap | waits on `live OS memory pressure` until the first unloads |
-| Outcome on LCATL0011 | Metal timeout after 1755 s, no profile | same single-session ceiling; overlap removed |
+| Outcome on LCATL0011 | Metal timeout after 1755 s, no profile | not rerun after the reservation change; admission serialization is the verified outcome |
 
-The 12 GB reservation is the measured 11.27 GB peak rounded up.
-Admission additionally requires 10% live OS headroom
-(`MEMORY_HEADROOM_FRACTION`), so on a 24 GB host a 12 GB session
-needs 14.4 GB available and two sessions cannot both hold grants
-once the first session's weights land.
+The current 15 GB reservation rounds up the broader 14.43 GB footprint
+measurement; see [`2026-10-15-memory-admission.md`](2026-10-15-memory-admission.md)
+for its method. Admission additionally preserves 10% live OS headroom
+(`MEMORY_HEADROOM_FRACTION`), so on a 24 GB host a fresh session needs
+at least 17.4 GB available. The reservation changes admission order, not
+the single-session peak.
 
 ## Original PR 2614 fix (superseded by the later footprint measurement)
 
@@ -90,11 +91,29 @@ reservation affects admission order only, never a pass's inputs.
   lands, admits after release.
 - `test_capability_resource_profiles_are_derived_from_execution_policy`:
   only `semantics.analyse:model_memory` carries `ram_gb`.
-- Suites on this branch: `test_concurrency` 59 passed,
+- Suites on the original PR 2614 branch: `test_concurrency` 59 passed,
   `test_vision_pipeline` 64 passed, `tests/contracts` 324 passed,
   `test_ledgers` + `test_parallel_lane_routing` 68 passed,
   `test_operations` 98 passed; `ruff check --config ruff-ci-gate.toml`
   clean on all touched files.
+
+## Rebase follow-up (2026-10-16)
+
+On rebased head `3bcca6a63ebf5d1ce21c03834b0364227b0fe18c`,
+`tests/unit/context/test_vision_pipeline.py` plus
+`tests/unit/picture/test_footage_analysis.py` passed (72 tests), and
+`ruff check --config ruff-ci-gate.toml` passed on the touched Python
+files. Scheduler admissions in these unit tests are faked; the tests
+assert the declared 15 GB demand without waiting on live host memory.
+
+Revalidated after rebasing onto `main` at `4f7e63b0c`: the vision-pipeline
+and footage-analysis tests passed (75 tests), then contracts, ledgers,
+parallel-lane routing, concurrency and the no-real-scheduler-memory guard
+passed (465 tests). Ruff passed on the touched Python files. The concurrency
+suite's `test_memory_reservations_wait_when_their_sum_exceeds_headroom` uses
+a private scheduler with a stubbed OS-memory reading to verify admission
+transactions; it now carries the explicit real-admission marker required by
+the suite guard.
 
 ## Residual risk, stated plainly
 
