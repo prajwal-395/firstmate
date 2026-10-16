@@ -66,7 +66,8 @@ def _model(*observations):
             "provenance": [
                 {"id": f"prov-{digest}-{lane}", "producer": "fixture"}
                 for digest in (D1, D2) for lane in ("m1", "m7")],
-            "clip_uses": [], "renders": [], "frame_maps": []}
+            "clip_uses": [], "renders": [], "frame_maps": [],
+            "time_transforms": []}
 
 
 def _speaking_model():
@@ -284,7 +285,20 @@ def test_interval_join_intersects_predicates():
     assert sorted(result["lanes"]) == ["m5", "m7"]
 
 
-def test_cross_clock_join_is_refused():
+def _clock_transform(*, error=0, domain=(0, 20000), offset=1000):
+    return {"id": "sync-d2-to-d1", "from_clock": f"clock-{D2}",
+            "to_clock": f"clock-{D1}", "provenance_id": "sync-prov",
+            "segments": [{
+                "from": {"clock_id": f"clock-{D2}", "start": domain[0],
+                         "end": domain[1]},
+                "to": {"clock_id": f"clock-{D1}", "start": domain[0] + offset,
+                       "end": domain[1] + offset},
+                "slope": {"numerator": 1, "denominator": 1},
+                "offset_ticks": offset, "uncertainty_ticks": error,
+                "invertible": True}]}
+
+
+def test_cross_clock_join_applies_time_transform():
     model = _model(
         _obs("obs-a", "event_span",
              {"predicate": "speaking", "voice_track": "v1",
@@ -305,10 +319,74 @@ def test_cross_clock_join_is_refused():
         {"predicate": "measurement",
          "measurement_type": "audio.sound_event",
          "clock_id": f"clock-{D2}"}])
+    model["time_transforms"] = [_clock_transform()]
+    answer = evidence_query.evidence_for(model, plan)
+    assert answer["status"] == PRESENT
+    result = answer["results"][0]
+    assert result["interval"]["clock_id"] == f"clock-{D1}"
+    assert (result["interval"]["start"], result["interval"]["end"]) == (
+        2000, 3000)
+    assert result["time_transform_ids"] == ["sync-d2-to-d1"]
+    assert result["clock_error_ticks"] == 0
+
+
+def test_cross_clock_transform_refuses_out_of_domain_and_excess_error():
+    model = _model(_obs(
+        "obs-a", "event_span", {"predicate": "speaking", "voice_track": "v1"},
+        digest=D1, start_s=1, end_s=3,
+        native=_native("event.speaking_span", {"predicate": "speaking"},
+                       digest=D1, lane="m7", start_tick=1000, end_tick=3000)),
+        _obs("obs-b", "sound_event", {"events": [{"label": "Speech"}]},
+             digest=D2, start_s=19, end_s=21, lane="m5",
+             native=_native("audio.sound_event", {"events": [{}]}, digest=D2,
+                            lane="m5", start_tick=19000, end_tick=21000)))
+    model["time_transforms"] = [_clock_transform(error=5)]
+    plan = evidence_query.compile_plan([
+        {"predicate": "event_span", "event": "speaking", "clock_id": f"clock-{D1}"},
+        {"predicate": "measurement", "measurement_type": "audio.sound_event",
+         "clock_id": f"clock-{D2}"}], max_clock_error_ticks=4)
     answer = evidence_query.evidence_for(model, plan)
     assert answer["status"] == INCONCLUSIVE
-    assert answer["results"] == []
-    assert any("clock" in reason for reason in answer["reasons"])
+    assert "error exceeds 4 ticks" in answer["reasons"][0]
+
+    model["time_transforms"] = [_clock_transform(domain=(0, 20000), error=0)]
+    # The second source observation extends beyond the transform's valid domain.
+    model["time_transforms"][0]["segments"][0]["from"]["end"] = 20000
+    answer = evidence_query.evidence_for(model, plan)
+    assert answer["status"] == INCONCLUSIVE
+    assert "outside the valid" in answer["reasons"][0]
+
+
+def test_piecewise_transform_splits_and_rejoins_source_interval():
+    model = _model(
+        _obs("obs-a", "event_span", {"predicate": "speaking", "voice_track": "v1"},
+             digest=D1, start_s=9, end_s=12,
+             native=_native("event.speaking_span", {"predicate": "speaking"},
+                            digest=D1, lane="m7", start_tick=9000, end_tick=12000)),
+        _obs("obs-b", "sound_event", {"events": [{"label": "Speech"}]},
+             digest=D2, start_s=9, end_s=11, lane="m5",
+             native=_native("audio.sound_event", {"events": [{}]}, digest=D2,
+                            lane="m5", start_tick=9000, end_tick=11000)))
+    transform = _clock_transform()
+    transform["segments"] = [
+        {"from": {"clock_id": f"clock-{D2}", "start": 0, "end": 10000},
+         "to": {"clock_id": f"clock-{D1}", "start": 0, "end": 10000},
+         "slope": {"numerator": 1, "denominator": 1},
+         "offset_ticks": 0, "uncertainty_ticks": 0, "invertible": True},
+        {"from": {"clock_id": f"clock-{D2}", "start": 10000, "end": 20000},
+         "to": {"clock_id": f"clock-{D1}", "start": 10000, "end": 30000},
+         "slope": {"numerator": 2, "denominator": 1},
+         "offset_ticks": -10000, "uncertainty_ticks": 0, "invertible": True}]
+    model["time_transforms"] = [transform]
+    plan = evidence_query.compile_plan([
+        {"predicate": "event_span", "event": "speaking", "clock_id": f"clock-{D1}"},
+        {"predicate": "measurement", "measurement_type": "audio.sound_event",
+         "clock_id": f"clock-{D2}"}])
+    answer = evidence_query.evidence_for(model, plan)
+    assert answer["status"] == PRESENT
+    assert len(answer["results"]) == 1
+    assert (answer["results"][0]["interval"]["start"],
+            answer["results"][0]["interval"]["end"]) == (9000, 12000)
 
 
 def test_independent_results_can_span_clocks():

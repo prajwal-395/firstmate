@@ -20,8 +20,9 @@ is ``confidently_absent``; a lane that never ran is
 filter keeps its semantics unchanged, and parity tests pin that. VLM
 facets (framing, camera mode, stability labels) have no evidence
 equivalent and are refused at compile time rather than mapped onto
-measurements. Synchronized cross-clock joins are refused (VI-02 owns
-the transform graph); independent mode returns per-observation results
+measurements. Synchronized cross-clock joins use bounded, piecewise
+Project Model time transforms and refuse missing, out-of-domain or
+over-bound mappings; independent mode returns per-observation results
 without comparing their clock ticks. Interpretations and evaluations are never query evidence: a
 result is carried by measurements, never by taste or a verdict.
 
@@ -29,8 +30,10 @@ result is carried by measurements, never by taste or a verdict.
 millisecond ticks on their own clock, converted without rounding the
 evidence (ticks are integers already). Joins intersect half-open
 ``[start, end)`` tick ranges within ONE clock only. ``join_mode`` defaults
-to ``synchronized``; ``independent`` answers each predicate observation
-separately and supports results from multiple source clocks.
+to ``synchronized``; it maps cross-clock intervals to the first predicate's
+clock using time transforms whose uncertainty is at most
+``max_clock_error_ticks`` (default zero). ``independent`` answers each
+predicate observation separately and supports multiple source clocks.
 
 **Reads.** The model dict only, plus an optional ``lane_presence``
 hook ``{(digest, lane): {"present": bool, "freshness": str}}`` that
@@ -41,6 +44,8 @@ Nothing is written anywhere.
 
 from __future__ import annotations
 
+from collections import deque
+from fractions import Fraction
 from itertools import pairwise
 from typing import Any
 
@@ -218,7 +223,8 @@ def _producer_version_of(model: dict[str, Any],
 def compile_plan(predicates: list[dict[str, Any]], *,
                  scope: dict[str, Any] | None = None,
                  level: str | None = None,
-                 join_mode: str = "synchronized") -> dict[str, Any]:
+                 join_mode: str = "synchronized",
+                 max_clock_error_ticks: int = 0) -> dict[str, Any]:
     """Compile typed predicates into a query plan, or raise.
 
     A predicate is ``{"predicate": "measurement", "measurement_type",
@@ -259,11 +265,14 @@ def compile_plan(predicates: list[dict[str, Any]], *,
     if join_mode not in ("synchronized", "independent"):
         raise EvidenceQueryError(
             "join_mode must be 'synchronized' or 'independent'")
+    if type(max_clock_error_ticks) is not int or max_clock_error_ticks < 0:
+        raise EvidenceQueryError("max_clock_error_ticks must be a non-negative integer")
     compiled = [_compile_predicate(predicate) for predicate in predicates]
     lanes = sorted({lane for lane in
                     (_required_lane(p) for p in compiled) if lane})
     return {"predicates": compiled, "required_lanes": lanes,
-            "scope": plan_scope, "level": level, "join_mode": join_mode}
+            "scope": plan_scope, "level": level, "join_mode": join_mode,
+            "max_clock_error_ticks": max_clock_error_ticks}
 
 
 def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
@@ -570,6 +579,92 @@ def _intersect(matches_per_predicate: list[list[dict[str, Any]]]
     return merged
 
 
+def _transform_path(model: dict[str, Any], source: str, target: str,
+                    ) -> list[tuple[dict[str, Any], bool]] | None:
+    """Find a directed path; bool marks inverse edges."""
+    queue = deque([(source, [])])
+    seen = {source}
+    while queue:
+        clock, path = queue.popleft()
+        if clock == target:
+            return path
+        for transform in model.get("time_transforms", []):
+            edges = [(transform.get("from_clock"), transform.get("to_clock"), False)]
+            if all(segment.get("invertible") for segment in transform.get("segments", [])):
+                edges.append((transform.get("to_clock"), transform.get("from_clock"), True))
+            for from_clock, to_clock, inverse in edges:
+                if from_clock != clock or to_clock in seen:
+                    continue
+                segments = transform.get("segments", [])
+                if (not segments or any(type(s.get("uncertainty_ticks")) is not int
+                                        or s["uncertainty_ticks"] < 0
+                                        for s in segments)):
+                    continue
+                seen.add(to_clock)
+                queue.append((to_clock, path + [(transform, inverse)]))
+    return None
+
+
+def _map_interval(clock: str, start: int, end: int,
+                  path: list[tuple[dict[str, Any], bool]], max_error: int
+                  ) -> tuple[list[tuple[str, int, int, int]] | None, bool]:
+    """Map intervals through piecewise segments, refusing uncovered ticks."""
+    pieces = [(clock, start, end, 0)]
+    for transform, inverse in path:
+        mapped: list[tuple[str, int, int, int]] = []
+        exceeded = False
+        for piece_clock, lo, hi, prior_error in pieces:
+            candidates = []
+            covered = []
+            for segment in transform["segments"]:
+                src_key, dst_key = ("to", "from") if inverse else ("from", "to")
+                src, dst = segment[src_key], segment[dst_key]
+                if src["clock_id"] != piece_clock:
+                    continue
+                a, b = max(lo, src["start"]), min(hi, src["end"])
+                if b <= a:
+                    continue
+                covered.append((a, b))
+                slope = segment["slope"]
+                ratio = Fraction(slope["numerator"], slope["denominator"])
+                if ratio <= 0:
+                    continue
+                output_ratio = 1 / ratio if inverse else ratio
+                uncertainty = segment["uncertainty_ticks"]
+                error = -(-(prior_error * output_ratio).numerator //
+                          (prior_error * output_ratio).denominator) + uncertainty
+                if error > max_error:
+                    exceeded = True
+                    continue
+                offset = segment["offset_ticks"]
+                if inverse:
+                    a, b = (Fraction(a - offset, 1) / ratio,
+                            Fraction(b - offset, 1) / ratio)
+                else:
+                    a, b = a * ratio + offset, b * ratio + offset
+                # Map to integral ticks conservatively: only retain the
+                # interval guaranteed to be covered under the error bound.
+                out_lo = -(-a.numerator // a.denominator) + uncertainty
+                out_hi = b.numerator // b.denominator - uncertainty
+                if out_hi > out_lo:
+                    candidates.append((dst["clock_id"], out_lo, out_hi, error))
+            candidates.sort(key=lambda row: row[1])
+            cursor = lo
+            for a, b in sorted(covered):
+                if a > cursor:
+                    break
+                cursor = max(cursor, b)
+                if cursor >= hi:
+                    break
+            if cursor < hi:
+                return None, exceeded
+            mapped.extend(candidates)
+        pieces = mapped
+        if not pieces:
+            return None, exceeded
+    return pieces, False
+
+
 def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                  lane_presence: dict[tuple[str, str], dict[str, Any]] | None = None
                  ) -> dict[str, Any]:
@@ -598,13 +693,47 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                      for match in matches})
     join_mode = plan.get("join_mode", "synchronized")
     if len(clocks) > 1 and join_mode == "synchronized":
-        return {"status": INCONCLUSIVE, "results": [],
-                "completeness_basis": [],
-                "required_missing_lanes": sorted(set(
-                    plan.get("required_lanes") or [])),
-                "reasons": [(f"predicates span clocks {clocks}: interval "
-                             f"joins need one clock, and cross-clock "
-                             f"transforms belong to VI-02, not this query")]}
+        target_clock = per_predicate[0][0]["clock_id"]
+        max_error = plan.get("max_clock_error_ticks", 0)
+        transformed: list[list[dict[str, Any]]] = []
+        refusal: str | None = None
+        for matches in per_predicate:
+            rows: list[dict[str, Any]] = []
+            for match in matches:
+                if match["clock_id"] == target_clock:
+                    rows.append(match)
+                    continue
+                path = _transform_path(model, match["clock_id"], target_clock)
+                if path is None:
+                    refusal = (f"no time-transform path from {match['clock_id']} "
+                               f"to {target_clock} within {max_error} ticks")
+                    break
+                pieces, exceeded = _map_interval(
+                    match["clock_id"], match["start"],
+                    match["end"], path, max_error)
+                if pieces is None:
+                    refusal = ((f"time-transform error exceeds {max_error} ticks "
+                                f"for interval [{match['start']}, {match['end']})")
+                               if exceeded else
+                               (f"interval [{match['start']}, {match['end']}) "
+                                f"is outside the valid time-transform domain"))
+                    break
+                for clock_id, start, end, error in pieces:
+                    rows.append({**match, "clock_id": clock_id,
+                                 "start": start, "end": end,
+                                 "transform_error_ticks": error,
+                                 "transform_ids": [t["id"] for t, _ in path]})
+            transformed.append(rows)
+            if refusal:
+                break
+        if refusal:
+            return {"status": INCONCLUSIVE, "results": [],
+                    "completeness_basis": [],
+                    "required_missing_lanes": sorted(set(
+                        plan.get("required_lanes") or [])),
+                    "reasons": [refusal]}
+        per_predicate = transformed
+        clocks = [target_clock]
     if join_mode == "independent":
         joined = [(match["start"], match["end"], [match])
                   for matches in per_predicate for match in matches]
@@ -632,6 +761,11 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
             "coverage": sorted({m["coverage"] for m in contributors}),
             "freshness": sorted({m["freshness"] for m in contributors}),
             "lanes": sorted({m["lane"] for m in contributors if m["lane"]}),
+            "time_transform_ids": sorted({transform_id
+                for match in contributors
+                for transform_id in match.get("transform_ids", [])}),
+            "clock_error_ticks": max((match.get("transform_error_ticks", 0)
+                                       for match in contributors), default=0),
         })
     reasons: list[str] = []
     if stale_dropped:

@@ -1128,10 +1128,22 @@ def _write_m6m7m8m10(memory: Path, digest: str) -> None:
         "group_id": "group-1", "group_members": [digest, "digest-bbb-002"],
         "reference_digest": "digest-bbb-002",
         "offset_to_reference_seconds": 0.5,
-        "path_to_reference": [digest],
-        "direct_measurement": {"agreement": 0.9},
+        "path_to_reference": [digest, "digest-bbb-002"],
+        "direct_measurement": {"agreement": 0.9, "offset_seconds": 0.5,
+                               "p5_seconds": 0.45, "p95_seconds": 0.55,
+                               "drift_seconds": 0.0,
+                               "drift_exceeds_tolerance": False},
         "resolve_cross_check": None, "timecode_cross_check": None,
         "ngram_size": 4, "built_at": "2026-10-13T00:00:00+00:00"})
+    _write(memory / "digest-bbb-002" / "clock.json", {
+        "content_digest": "digest-bbb-002", "source_file": "/nonexistent/b.mov",
+        "group_id": "group-1", "group_members": [digest, "digest-bbb-002"],
+        "reference_digest": "digest-bbb-002",
+        "offset_to_reference_seconds": 0.0,
+        "path_to_reference": ["digest-bbb-002"],
+        "direct_measurement": None, "resolve_cross_check": None,
+        "timecode_cross_check": None, "ngram_size": 4,
+        "built_at": "2026-10-13T00:00:00+00:00"})
     _write(memory / digest / "events.json", {
         "content_digest": digest, "size_bytes": 100,
         "source_file": "/nonexistent/a.mov", "status": "built",
@@ -1193,6 +1205,15 @@ def test_m6_m7_m8_m10_migrate_native_coverage_and_refusals(
     assert m6_records[0]["coverage"] == "complete"
     assert m6_records[0]["method"] == "conversation-clock-ngram-v4"
     assert m6_records[0]["value"]["offset_to_reference_seconds"] == 0.5
+    assert len(model["time_transforms"]) == 1
+    transform = model["time_transforms"][0]
+    assert transform["from_clock"] == f"clock-{D1}"
+    assert transform["to_clock"] == "clock-digest-bbb-002"
+    assert transform["segments"][0]["from"] == {
+        "clock_id": f"clock-{D1}", "start": 0, "end": 9500}
+    assert transform["segments"][0]["to"] == {
+        "clock_id": "clock-digest-bbb-002", "start": 500, "end": 10000}
+    assert transform["segments"][0]["uncertainty_ticks"] == 50
 
     m7_records = contracts["m7"]
     by_type = {record["measurement_type"] for record in m7_records}

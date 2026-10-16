@@ -87,6 +87,7 @@ import hashlib
 import json
 import math
 from dataclasses import replace
+from decimal import ROUND_CEILING, Decimal
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -258,6 +259,7 @@ class _Builder:
             "schema_version": SCHEMA_VERSION,
             "timebase_policy": "integer_ticks",
             "clocks": [],
+            "time_transforms": [],
             "assets": [],
             "streams": [],
             "entities": [],
@@ -2257,6 +2259,79 @@ def _migrate_multicam(builder: _Builder, digest: str, asset_id: str,
         None, "library.tools.conversation_clock", evidence=native)
 
 
+def _materialize_multicam_transforms(builder: _Builder,
+                                     digests: list[str],
+                                     durations: dict[str, float | None],
+                                     root: Path | None) -> None:
+    """Project directly measured M6 offsets as bounded source-clock maps.
+
+    Transitive M6 offsets and direct offsets without a measured spread do
+    not have an error bound, so they remain observations and cannot drive
+    synchronized joins.
+    """
+    clock_ids = {clock["id"] for clock in builder.model["clocks"]}
+    for digest in digests:
+        m6 = conversation_clock.read_clock(digest, root)
+        if not isinstance(m6, dict) or m6.get("content_digest") != digest:
+            continue
+        reference = m6.get("reference_digest")
+        if (not isinstance(reference, str) or reference == digest
+                or _clock_id(reference) not in clock_ids):
+            continue
+        direct = m6.get("direct_measurement")
+        if not isinstance(direct, dict):
+            continue
+        try:
+            offset = float(m6["offset_to_reference_seconds"])
+            p5, p95 = float(direct["p5_seconds"]), float(direct["p95_seconds"])
+            drift = abs(float(direct.get("drift_seconds") or 0.0))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (not all(math.isfinite(value) for value in (offset, p5, p95, drift))
+                or p95 < p5 or direct.get("drift_exceeds_tolerance") is True):
+            continue
+        duration = durations.get(digest)
+        reference_duration = durations.get(reference)
+        try:
+            duration = float(duration)
+            reference_duration = float(reference_duration)
+        except (TypeError, ValueError):
+            continue
+        if (not math.isfinite(duration)
+                or not math.isfinite(reference_duration)):
+            continue
+        # Clip the source domain to the part that maps inside the reference
+        # source's recorded duration. M6's source times are millisecond ticks.
+        offset_ticks = round(offset * TICKS_PER_SECOND)
+        src_start = max(0, -offset_ticks)
+        src_end = min(round(duration * TICKS_PER_SECOND),
+                      round(reference_duration * TICKS_PER_SECOND) - offset_ticks)
+        if src_end <= src_start:
+            continue
+        dst_start, dst_end = src_start + offset_ticks, src_end + offset_ticks
+        uncertainty = int((
+            (Decimal(str(p95)) - Decimal(str(p5))
+             + Decimal(str(drift)))
+            * Decimal(TICKS_PER_SECOND) / 2
+        ).to_integral_value(rounding=ROUND_CEILING))
+        builder.model["time_transforms"].append({
+            "id": f"transform-{digest}-to-{reference}",
+            "from_clock": _clock_id(digest),
+            "to_clock": _clock_id(reference),
+            "segments": [{
+                "from": {"clock_id": _clock_id(digest),
+                         "start": src_start, "end": src_end},
+                "to": {"clock_id": _clock_id(reference),
+                       "start": dst_start, "end": dst_end},
+                "slope": {"numerator": 1, "denominator": 1},
+                "offset_ticks": offset_ticks,
+                "uncertainty_ticks": uncertainty,
+                "invertible": True,
+            }],
+            "provenance_id": _prov_id(digest, "m6"),
+        })
+
+
 def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
                        clock_id: str, root: Path | None) -> None:
     """M3 frames ride M2 samples with one native record per sampled frame."""
@@ -3501,6 +3576,7 @@ def migrate_project_evidence(project_folder: str, *,
                              "the roster and nothing else")
     seen: dict[str, list[str]] = {}
     clip_digest: dict[str, str] = {}
+    durations: dict[str, float | None] = {}
     for clip in catalog:
         if not isinstance(clip, dict):
             continue
@@ -3522,10 +3598,12 @@ def migrate_project_evidence(project_folder: str, *,
                   first.get("file_path") or "")
         m0 = source_memory.read_m0(digest, root)
         duration = (m0 or {}).get("duration_seconds")
+        durations[digest] = duration
         _migrate_digest(builder, digest, uri, clip_ids, duration, root,
                         roster)
         _migrate_m3_frames(builder, digest, _asset_id(digest),
                            _clock_id(digest), root)
+    _materialize_multicam_transforms(builder, sorted(seen), durations, root)
     for digest in seen:
         _migrate_faces(builder, digest, _asset_id(digest),
                        _clock_id(digest), roster, root)
