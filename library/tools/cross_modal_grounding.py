@@ -1,10 +1,10 @@
 """Evidence-linked cross-modal grounding over the M1/M3/M5/M6/M7 model.
 
 This is a projection over measured source-memory lanes. It does not run a
-model or promote a text or visual hypothesis to fact. Speaker grounding is
-made only when the M1 utterance, diarized M3b voice turn, and M7 lip-backed
-voice/face span agree on the same source interval. Disagreement remains an
-explicit report with the observations that disagree.
+model or promote a text or visual hypothesis to fact. Speaker/person matches
+stay candidates even when the M1 utterance, diarized M3b voice turn, and M7
+lip-backed voice/face span agree. Disagreement remains an explicit report
+with the observations that disagree.
 """
 
 from __future__ import annotations
@@ -54,6 +54,144 @@ def _reference_ticks(interval: dict, offset: float) -> tuple[int, int]:
     start, end = map_interval(interval["start"] / 1000,
                               interval["end"] / 1000, offset)
     return (math.floor(start * 1000), math.ceil(end * 1000))
+
+
+def add_active_speaker_candidates(
+        model: dict[str, Any], *, max_error_ticks: int) -> dict[str, int]:
+    """Project raw ASD scores into candidate voice-to-visible-person relations.
+
+    Scores are evidence, not calibrated confidence. A voice turn on another
+    clock is joined only through a complete measured transform path whose
+    accumulated uncertainty is within ``max_error_ticks``. The resulting
+    relation is expressed on the face score's (visible camera) clock.
+    """
+    if type(max_error_ticks) is not int or max_error_ticks < 0:
+        raise ValueError("max_error_ticks must be a non-negative integer")
+    from library.tools.evidence_query import _map_interval, _transform_path
+    observations = model["observations"]
+    relations = model["relations"]
+    obs_by_id = {row["id"]: row for row in observations}
+    entities = {row["id"] for row in model["entities"]}
+    voices: dict[tuple[str, str], set[str]] = defaultdict(set)
+    people: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for link in model["identity_links"]:
+        obs = obs_by_id.get(link["observation_id"])
+        if obs is None:
+            continue
+        track = obs["payload"].get("voice_track")
+        if obs["modality"] == "voice_turn" and track is not None \
+                and link["method"] == "diarization":
+            voices[(obs["asset_id"], str(track))].add(link["entity_id"])
+        track = obs["payload"].get("face_track")
+        if obs["modality"] == "face" and track is not None \
+                and link["method"] == "face_embedding_cluster":
+            people[(obs["asset_id"], str(track))].add(link["entity_id"])
+
+    turns = [row for row in observations if row["modality"] == "voice_turn"]
+    faces = [row for row in observations if row["modality"] == "face"]
+    scores = [row for row in observations
+              if row["modality"] == "active_speaker_score"]
+    relation_ids = {row["id"] for row in relations}
+    alignment_count = relation_count = refused = 0
+    for score in scores:
+        payload = score["payload"]
+        if payload.get("raw_score") is None:
+            raise ValueError("active_speaker_score requires raw_score")
+        raw_score = float(payload["raw_score"])
+        if not math.isfinite(raw_score):
+            raise ValueError("active_speaker_score raw_score must be finite")
+        face_track = str(payload["face_track"])
+        voice_track = str(payload["voice_track"])
+        voice_asset_id = payload.get("voice_asset_id", score["asset_id"])
+        face_rows = [face for face in faces
+                     if face["asset_id"] == score["asset_id"]
+                     and str(face["payload"].get("face_track")) == face_track
+                     and face["interval"]["clock_id"] == score["interval"]["clock_id"]
+                     and _overlap(face["interval"], score["interval"]) > 0]
+        person_ids = people.get((score["asset_id"], face_track), set())
+        if not face_rows or len(person_ids) != 1:
+            continue
+        person_id = next(iter(person_ids))
+        if person_id not in entities:
+            continue
+        for turn in turns:
+            if turn["asset_id"] != score["asset_id"] \
+                    and turn["asset_id"] != voice_asset_id:
+                continue
+            if str(turn["payload"].get("voice_track")) != voice_track:
+                continue
+            speaker_ids = voices.get((turn["asset_id"], voice_track), set())
+            if len(speaker_ids) != 1:
+                continue
+            speaker_id = next(iter(speaker_ids))
+            if speaker_id not in entities:
+                continue
+            turn_interval = turn["interval"]
+            score_interval = score["interval"]
+            mapped: list[tuple[str, int, int, int]]
+            transform_path: list[tuple[dict[str, Any], bool]] = []
+            if turn_interval["clock_id"] == score_interval["clock_id"]:
+                mapped = [(score_interval["clock_id"], turn_interval["start"],
+                           turn_interval["end"], 0)]
+            else:
+                transform_path = _transform_path(
+                    model, turn_interval["clock_id"], score_interval["clock_id"])
+                if transform_path is None:
+                    refused += 1
+                    continue
+                pieces, exceeded = _map_interval(
+                    turn_interval["clock_id"], turn_interval["start"],
+                    turn_interval["end"], transform_path, max_error_ticks)
+                if pieces is None or exceeded:
+                    refused += 1
+                    continue
+                mapped = pieces
+            for clock_id, start, end, error in mapped:
+                lo = max(start, score_interval["start"])
+                hi = min(end, score_interval["end"])
+                if clock_id != score_interval["clock_id"] or hi <= lo:
+                    continue
+                evidence = {score["id"], turn["id"],
+                            *(face["id"] for face in face_rows)}
+                transform_ids = sorted({item[0]["id"] for item in transform_path})
+                for transform_id in transform_ids:
+                    alignment_id = (f"obs-asd-alignment-{score['id']}-"
+                                    f"{turn['id']}-{transform_id}-{lo}-{hi}")
+                    if alignment_id not in obs_by_id:
+                        observations.append({
+                            "id": alignment_id,
+                            "asset_id": score["asset_id"],
+                            "interval": {"clock_id": clock_id,
+                                         "start": lo, "end": hi},
+                            "modality": "time_alignment",
+                            "payload": {"time_transform_id": transform_id,
+                                        "source_clock_id": turn_interval["clock_id"],
+                                        "target_clock_id": clock_id,
+                                        "error_bound_ticks": error},
+                            "confidence": None,
+                            "provenance_id": turn["provenance_id"],
+                        })
+                        obs_by_id[alignment_id] = observations[-1]
+                    evidence.add(alignment_id)
+                    alignment_count += 1
+                relation_id = (f"relation-asd-{score['id']}-{speaker_id}-"
+                               f"{person_id}-{lo}-{hi}")
+                if relation_id in relation_ids:
+                    continue
+                relations.append({
+                    "id": relation_id, "subject_id": speaker_id,
+                    "predicate": "speaking_person_candidate",
+                    "object_id": person_id,
+                    "interval": {"clock_id": clock_id, "start": lo, "end": hi},
+                    "confidence": None, "provenance_id": score["provenance_id"],
+                    "evidence_ids": sorted(evidence), "status": "candidate",
+                    "certainty": "inferred", "relation_class": "temporal",
+                })
+                relation_ids.add(relation_id)
+                relation_count += 1
+    return {"relations_added": relation_count,
+            "alignment_observations_added": alignment_count,
+            "joins_refused": refused}
 
 
 def apply_project_model(model: dict[str, Any]) -> dict[str, int]:
@@ -148,7 +286,7 @@ def apply_project_model(model: dict[str, Any]) -> dict[str, int]:
                     "observation_id": utterance["id"],
                     "confidence": None,
                     "method": METHOD,
-                    "status": "verified",
+                    "status": "candidate",
                     "provenance_id": utterance["provenance_id"],
                     "supporting_observation_ids": sorted(support),
                     "scope": dict(interval),
@@ -166,14 +304,15 @@ def apply_project_model(model: dict[str, Any]) -> dict[str, int]:
                     relations.append({
                         "id": relation_id,
                         "subject_id": speaker_id,
-                        "predicate": "speaks_as",
+                        "predicate": "speaking_person_candidate",
                         "object_id": person_id,
                         "interval": dict(utterance["interval"]),
                         "confidence": None,
                         "provenance_id": utterance["provenance_id"],
                         "evidence_ids": sorted({utterance["id"], *support}),
-                        "status": "verified",
+                        "status": "candidate",
                         "certainty": "inferred",
+                        "relation_class": "temporal",
                     })
 
         # Deictic/coreferential language is grounded only against a unique

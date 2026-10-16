@@ -2,7 +2,9 @@
 
 import pytest
 
-from library.tools.cross_modal_grounding import apply_project_model, map_interval
+from library.tools.cross_modal_grounding import (
+    add_active_speaker_candidates, apply_project_model, map_interval,
+)
 
 
 def _model(*, second_person: bool = False) -> dict:
@@ -50,12 +52,15 @@ def test_utterance_is_grounded_only_when_voice_and_lip_evidence_agree():
     link = next(row for row in model["identity_links"]
                 if row["method"] == "cross-modal-grounding-v1")
     assert link["entity_id"] == "person-0"
-    assert link["status"] == "verified"
+    assert link["status"] == "candidate"
     assert set(link["supporting_observation_ids"]) == {
         "turn-0", "lip-0", "face-evidence"}
     relation = model["relations"][0]
     assert (relation["subject_id"], relation["predicate"],
-            relation["object_id"]) == ("speaker-0", "speaks_as", "person-0")
+            relation["object_id"]) == (
+                "speaker-0", "speaking_person_candidate", "person-0")
+    assert relation["status"] == "candidate"
+    assert relation["relation_class"] == "temporal"
     assert set(relation["evidence_ids"]) == {
         "utterance-0", "turn-0", "lip-0", "face-evidence"}
 
@@ -221,3 +226,96 @@ def test_synthetic_camera_offsets_align_speech_lips_and_audio():
 def test_invalid_interval_or_offset_refuses(span, offset):
     with pytest.raises(ValueError):
         map_interval(*span, offset)
+
+
+def _asd_model(*, clocks: tuple[str, str] = ("clock-a", "clock-a"),
+               transform_error: int = 0,
+               separate_assets: bool = False) -> dict:
+    voice_clock, face_clock = clocks
+    model = _model()
+    model["observations"] = [
+        {"id": "turn-asd", "asset_id": "asset-a",
+         "interval": {"clock_id": voice_clock, "start": 1000, "end": 2000},
+         "modality": "voice_turn", "payload": {"voice_track": "voice-0"},
+         "confidence": None, "provenance_id": "prov-turn"},
+        {"id": "face-asd", "asset_id": "asset-b" if separate_assets else "asset-a",
+         "interval": {"clock_id": face_clock, "start": 1000, "end": 2000},
+         "modality": "face", "payload": {"face_track": "face-0"},
+         "confidence": None, "provenance_id": "prov-face"},
+        {"id": "score-asd", "asset_id": "asset-b" if separate_assets else "asset-a",
+         "interval": {"clock_id": face_clock, "start": 1100, "end": 1900},
+         "modality": "active_speaker_score",
+         "payload": {"voice_track": "voice-0", "face_track": "face-0",
+                     "raw_score": 0.91, "score_kind": "uncalibrated",
+                     **({"voice_asset_id": "asset-a"} if separate_assets else {})},
+         "confidence": None, "provenance_id": "prov-asd"},
+    ]
+    model["identity_links"] = [
+        {"entity_id": "speaker-0", "observation_id": "turn-asd",
+         "method": "diarization"},
+        {"entity_id": "person-0", "observation_id": "face-asd",
+         "method": "face_embedding_cluster"},
+    ]
+    if voice_clock != face_clock:
+        model["time_transforms"] = [{
+            "id": "transform-a-to-b", "from_clock": voice_clock,
+            "to_clock": face_clock, "segments": [{
+                "from": {"clock_id": voice_clock, "start": 0, "end": 5000},
+                "to": {"clock_id": face_clock, "start": 0, "end": 5000},
+                "slope": {"numerator": 1, "denominator": 1},
+                "offset_ticks": 0, "uncertainty_ticks": transform_error,
+                "invertible": True}], "provenance_id": "prov-transform"}]
+    return model
+
+
+def test_active_speaker_score_becomes_candidate_on_visible_clock():
+    model = _asd_model()
+
+    result = add_active_speaker_candidates(model, max_error_ticks=0)
+
+    assert result == {"relations_added": 1,
+                      "alignment_observations_added": 0, "joins_refused": 0}
+    relation = model["relations"][0]
+    assert relation["predicate"] == "speaking_person_candidate"
+    assert relation["interval"] == {
+        "clock_id": "clock-a", "start": 1100, "end": 1900}
+    assert relation["status"] == "candidate"
+    assert relation["certainty"] == "inferred"
+    assert relation["relation_class"] == "temporal"
+    assert relation["confidence"] is None
+    assert {"score-asd", "turn-asd", "face-asd"} <= set(
+        relation["evidence_ids"])
+
+
+def test_active_speaker_cross_clock_join_cites_transform_and_observation():
+    model = _asd_model(clocks=("clock-a", "clock-b"), transform_error=25)
+
+    result = add_active_speaker_candidates(model, max_error_ticks=25)
+
+    assert result == {"relations_added": 1,
+                      "alignment_observations_added": 1, "joins_refused": 0}
+    alignment = next(row for row in model["observations"]
+                     if row["modality"] == "time_alignment")
+    assert alignment["payload"]["time_transform_id"] == "transform-a-to-b"
+    relation = model["relations"][0]
+    assert relation["interval"]["clock_id"] == "clock-b"
+    assert alignment["id"] in relation["evidence_ids"]
+
+
+def test_active_speaker_can_join_audio_from_another_camera_asset():
+    model = _asd_model(clocks=("clock-a", "clock-b"), separate_assets=True)
+
+    result = add_active_speaker_candidates(model, max_error_ticks=0)
+
+    assert result["relations_added"] == 1
+    assert model["relations"][0]["interval"]["clock_id"] == "clock-b"
+    assert {"turn-asd", "face-asd"} <= set(model["relations"][0]["evidence_ids"])
+
+
+def test_active_speaker_refuses_missing_or_over_error_transform():
+    model = _asd_model(clocks=("clock-a", "clock-b"), transform_error=26)
+
+    result = add_active_speaker_candidates(model, max_error_ticks=25)
+
+    assert result["joins_refused"] == 1
+    assert not model["relations"]

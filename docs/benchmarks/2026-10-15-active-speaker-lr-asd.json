@@ -1,0 +1,270 @@
+{
+  "schema": "ren-model-benchmark-scorecard-v1-provisional",
+  "candidate": "active_speaker.lr_asd",
+  "candidate_revision": "1b6dcd2d8fc2895683de6508ec6294ec47d388ca",
+  "checkpoint": {
+    "name": "pretrain_AVA.model",
+    "publisher": "https://github.com/Junhua-Liao/LR-ASD",
+    "publisher_revision": "1b6dcd2d8fc2895683de6508ec6294ec47d388ca",
+    "publisher_path": "weight/pretrain_AVA.model",
+    "bytes": 3426337,
+    "local_path": "removed after benchmark from /tmp/vep-mu-asd-models/LR-ASD/weight/pretrain_AVA.model",
+    "precision": "full precision",
+    "license_class": "MIT permissive"
+  },
+  "comparison": {
+    "incumbent": "Ren M7 link_voices_to_faces plus M3b speech_face_links",
+    "calibration": "GEO podcast LCATL0012 only",
+    "held_out": "LC4931 nine labeled windows plus Apple 001 IMG_1808 and IMG_1811, scored once after threshold freeze; LCATL0011 remains unmeasured",
+    "report_domains": [
+      "visible single-speaker",
+      "multiple visible faces",
+      "off-screen speech and voiceover",
+      "noisy audio",
+      "partially obscured face",
+      "measured synchronization offset"
+    ],
+    "labels": "Round-3 A/B independent labels plus round-3 Anthropic Claude/Sonnet 5.5 blind tie-break on 20 windows; structured JSON contains 58 turns; prose report count conflicts and is not used"
+  },
+  "quality_metrics": {
+    "speech_activity_precision": 0.9032,
+    "speech_activity_recall": 0.7442,
+    "visible_person_attribution_accuracy": 0.4615,
+    "off_screen_abstention_accuracy": 0.9286,
+    "contradiction_rate": null,
+    "temporal_iou": 0.6892,
+    "agent_label_agreement": {
+      "speech_presence_windows": "24/24 A/B (20 speech-present, 4 empty)",
+      "speech_interval_union_iou": 0.9553,
+      "speaker_attribution": "A/B not estimable; C tie-break structured labels: 19 visible, 35 off-screen, 4 uncertain turns across 20 windows",
+      "c_report_mismatch": "C prose report says 79 turns (29 visible, 44 off-screen, 6 uncertain); structured JSON has 58 (19, 35, 4); metrics use structured JSON"
+    },
+    "status": "LR-ASD measured on 20 blind agent-labeled windows; threshold calibrated on LCATL0012 and frozen for 11 other LC4931/Apple 001 windows. Candidate remains research-only: held-out visible attribution 6/13, no multi-face sample, no aligned incumbent or ECAPA predictions.",
+    "adapter_validation": {
+      "module": "library.tools.asd_lr",
+      "validated_at": "2026-10-16",
+      "frame_identical_to_smoke": true,
+      "frames_compared": 249,
+      "device": "mps-with-cpu-fallback",
+      "device_note": "torch 2.8.0 MPS has no max_pool3d kernel; inference refuses without PYTORCH_ENABLE_MPS_FALLBACK=1"
+    },
+    "calibration_smoke": {
+      "source_id": "LCATL0012",
+      "interval_seconds": [
+        40.0,
+        50.0
+      ],
+      "split": "calibration",
+      "face_track": "face_001",
+      "frame_count": 249,
+      "raw_active_score_mean": 0.902294,
+      "raw_active_score_min": 0.00019,
+      "raw_active_score_max": 0.999921,
+      "repeated_warm_scores_identical": true,
+      "ecapa_voice_001_turn_seconds": 9.96,
+      "ecapa_voice_002_turn_seconds": 0.0,
+      "m7_voice_001_face_001_span_seconds": [
+        40.0,
+        65.0
+      ],
+      "accuracy_claim": null
+    },
+    "active_speaker_evaluation": {
+      "label_source": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-mu-vlm-tiebreak/asd-tiebreak-labels.json",
+      "labeler": "Anthropic Claude/Sonnet 5.5 blind tie-break; agent labels, not gold truth",
+      "structured_label_counts": {
+        "windows": 20,
+        "turns": 58,
+        "visible": 19,
+        "offscreen": 35,
+        "uncertain": 4
+      },
+      "split": {
+        "calibration": "LCATL0012.MXF, 9 windows",
+        "held_out": "LC4931.MXF, 9 windows; Apple 001 IMG_1808.MOV and IMG_1811.MOV, one window each",
+        "held_out_window_count": 11
+      },
+      "threshold": {
+        "value": 0.4013986087,
+        "method": "maximize turn-level balanced accuracy over observed mean turn scores on LCATL0012 only; ties choose higher threshold"
+      },
+      "calibration_turn_metrics": {
+        "turns": 27,
+        "visible_turns": 6,
+        "offscreen_turns": 21,
+        "visible_correct": 6,
+        "offscreen_abstained_correctly": 19,
+        "accuracy": 0.9259,
+        "balanced_accuracy": 0.9524,
+        "turn_score_auc": 0.9762
+      },
+      "held_out_turn_metrics": {
+        "turns": 27,
+        "visible_turns": 13,
+        "offscreen_turns": 14,
+        "visible_correct": 6,
+        "offscreen_abstained_correctly": 13,
+        "accuracy": 0.7037,
+        "balanced_accuracy": 0.6951,
+        "visible_attribution_accuracy": 0.4615,
+        "offscreen_abstention_accuracy": 0.9286,
+        "turn_score_auc": 0.8462
+      },
+      "held_out_frame_metrics": {
+        "frames": 2674,
+        "positive_visible_frames": 1028,
+        "precision": 0.9032,
+        "recall": 0.7442,
+        "f1": 0.816,
+        "temporal_iou": 0.6892,
+        "uncertain_intervals_excluded": true,
+        "offscreen_and_silence_are_negative": true
+      },
+      "conditions": {
+        "multi_face_windows": 0,
+        "partially_obscured_windows": 4,
+        "masking_noise_windows": 1,
+        "documented_lip_audio_contradiction_windows": 3
+      },
+      "limitations": [
+        "Haar detector with largest-then-nearest crop heuristic; not Ren face tracking.",
+        "No aligned incumbent M7/M3b or ECAPA predictions; comparison and contradiction rate not measured.",
+        "No multiple-face labeled windows; AUD-032 remains unmeasured.",
+        "Sparse obscured/noise strata do not support separate accuracy claims.",
+        "Apple held-out has only two windows.",
+        "C tie-break is agent adjudication, not gold truth."
+      ]
+    }
+  },
+  "latency_seconds": {
+    "cold": 22.1957,
+    "warm": 18.1687,
+    "decode_preprocess_sum": 273.1689,
+    "inference_sum": 92.6478,
+    "model_load": 0.067,
+    "serialization_sum": 1.5166,
+    "windows": 20,
+    "warm_window_mean_excludes_first_window": true,
+    "scheduler_execution_wall": 371.4748,
+    "scheduler_queue_wait": 0.0194
+  },
+  "peak_memory_bytes": 1105954079,
+  "mps_driver_allocated_bytes_after_inference": 1170915459,
+  "end_to_end_cost": {
+    "wall_seconds": 371.4748,
+    "includes": [
+      "20 window video decode and resizing",
+      "audio decode and MFCC preprocessing",
+      "model load",
+      "inference",
+      "serialization"
+    ],
+    "excludes": [
+      "outer interpreter startup before scheduler grant"
+    ],
+    "first_window_seconds": 22.1957,
+    "remaining_19_window_mean_seconds": 18.1687
+  },
+  "upstream_only_metrics": {
+    "parameters_millions": 0.84,
+    "flops_giga": 0.51,
+    "ava_validation_map_percent": 94.45,
+    "source": "publisher README; not measured by Ren"
+  },
+  "adoption_decision": "research-only",
+  "decision_basis": "The frozen held-out turn evaluation attributes only 6/13 visible turns (46.2%), despite 13/14 off-screen abstentions; no multi-face sample or aligned incumbent/ECAPA comparison exists. Keep as a benchmark-only candidate and do not replace the baseline.",
+  "download_record": {
+    "model": "LR-ASD AVA checkpoint",
+    "revision": "1b6dcd2d8fc2895683de6508ec6294ec47d388ca",
+    "size_bytes": 3426337,
+    "path": "/tmp/vep-mu-asd-models/LR-ASD/weight/pretrain_AVA.model",
+    "cleanup": "AVA checkpoint deleted after labeled-window scoring; temporary checkout and predictions scheduled for removal after report update",
+    "retained": false
+  },
+  "integration": {
+    "project_model_relation": "speaking_person_candidate",
+    "projection": "library.tools.cross_modal_grounding.add_active_speaker_candidates",
+    "relation_shape": "subject diarized voice entity; object visible person entity; visible camera source clock; temporal; candidate/inferred",
+    "score_handling": "raw_score stays in active_speaker_score evidence; relation confidence remains null",
+    "clock_handling": "measured Project Model time transform IDs are cited by time_alignment observations; joins above required max_error_ticks are refused",
+    "runtime_adapter": "library.tools.asd_lr (benchmark-only; explicit checkout path, MPS-with-CPU-fallback, no vendored code, no fetched weights)"
+  },
+  "watched_candidate_c3asd": {
+    "status": "no usable weights located as of 2026-10-16; paper-only (arXiv 2607.03018); no download made",
+    "adoption_decision": "research-only"
+  },
+  "evidence_reconciliation_study": {
+    "source": "FunCineForge IJCAI-26 paper plus speaker_diarization recipe README; literature only, nothing imported",
+    "pattern_adopted": "ECAPA voice identity primary, ASD face scores auxiliary, disagreement as separate relation",
+    "out_of_scope": "dubbing synthesis, dataset construction, TTS"
+  },
+  "label_agreement": {
+    "round": 3,
+    "labelers": [
+      {
+        "id": "a",
+        "model_family": "OpenAI/Codex"
+      },
+      {
+        "id": "b",
+        "model_family": "opencode muse-spark"
+      }
+    ],
+    "window_keys_matched": 24,
+    "speech_presence": {
+      "agreement_windows": 24,
+      "total_windows": 24,
+      "rate": 1.0,
+      "both_speech_present": 20,
+      "both_empty": 4
+    },
+    "speech_interval_union": {
+      "method": "Union reported turn intervals within each window; calculate intersection over union to avoid penalizing differing within-speech segmentation.",
+      "a_turn_count": 24,
+      "b_turn_count": 48,
+      "a_union_seconds": 162.38,
+      "b_union_seconds": 161.42,
+      "intersection_seconds": 158.2,
+      "combined_union_seconds": 165.6,
+      "aggregate_iou": 0.9553,
+      "mean_iou_over_speech_windows": 0.9533,
+      "speech_windows": 20
+    },
+    "attribution": {
+      "status": "not estimable from independent A/B agreement",
+      "a_associations": {
+        "uncertain": 24
+      },
+      "b_associations": {
+        "visible": 25,
+        "offscreen": 23
+      },
+      "reason": "A marked every turn association uncertain and supplied pause-grouped intervals; B segmented 48 turns. The boundary sets are not reliably pairable and uncertainty is not agreement with a specific association."
+    },
+    "conditions": {
+      "status": "not scored",
+      "reason": "A marked multi-face, obscured-face, and masking-noise absent but uncertain in every window."
+    },
+    "third_labeler": {
+      "status": "completed",
+      "id": "c",
+      "model_family": "Anthropic Claude/Sonnet 5.5",
+      "packet_windows": 20,
+      "structured_counts": {
+        "turns": 58,
+        "visible": 19,
+        "offscreen": 35,
+        "uncertain": 4
+      },
+      "prose_report_counts": {
+        "turns": 79,
+        "visible": 29,
+        "offscreen": 44,
+        "uncertain": 6
+      },
+      "discrepancy": "Prose report totals conflict with structured JSON; evaluation uses structured JSON."
+    },
+    "interpretation": "A/B/C are agent labels and adjudication only; no human/gold truth is available."
+  },
+  "conservative_peak_footprint_bytes": 2276869538
+}

@@ -37,6 +37,7 @@ CERTAINTIES = {row.value for row in Certainty}
 # by that executor as cited overlap reports rather than relations, so the
 # audio_visual_event bucket only fills when an executor emits relation rows.
 PREDICATE_MODALITY = {
+    "speaking_person_candidate": "speech_person",
     "speaks_as": "speech_person",
     "speaker_face_disagreement": "speech_person",
     "refers_to": "speech_reference",

@@ -346,10 +346,10 @@ def test_m1_utterance_is_grounded_through_m3b_voice_and_m7_lips(
     grounding = next(row for row in model["identity_links"]
                      if row["observation_id"] == utterance["id"]
                      and row["method"] == "cross-modal-grounding-v1")
-    assert grounding["status"] == "verified"
+    assert grounding["status"] == "candidate"
     assert len(grounding["supporting_observation_ids"]) == 3
     relation = next(row for row in model["relations"]
-                    if row["predicate"] == "speaks_as")
+                    if row["predicate"] == "speaking_person_candidate")
     assert utterance["id"] in relation["evidence_ids"]
     validate_project_model(model)
 

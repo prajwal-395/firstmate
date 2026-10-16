@@ -110,6 +110,21 @@ def test_empty_denominators_report_null_not_zero(record):
     assert card["open_set_abstention_rate"] is None
 
 
+def test_project_model_exports_active_speaker_candidate_as_speech_person():
+    model = {"relations": [{
+        "subject_id": "speaker-1", "predicate": "speaking_person_candidate",
+        "object_id": "person-1", "certainty": "inferred",
+        "evidence_ids": ["score-1", "turn-1", "face-1"],
+        "provenance_id": "prov-asd", "status": "candidate",
+    }]}
+
+    predictions = predictions_from_project_model(model)
+
+    assert predictions["speech_person"][0]["predicate"] == (
+        "speaking_person_candidate")
+    assert predictions["speech_person"][0]["status"] == "candidate"
+
+
 def test_refuses_calibration_or_unsealed_held_out_labels(record):
     for field, value in (("split", "calibration"), ("annotation_state", "not_created")):
         invalid = copy.deepcopy(record)
