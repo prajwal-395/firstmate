@@ -1,0 +1,258 @@
+{
+  "schema": "vlm-candidate-scorecard-v1",
+  "split": "calibration",
+  "label_type": "blind agent consensus (2 families + tiebreak); not human/gold labels",
+  "label_sources": [
+    "docs/benchmarks/evaluator-only/2026-10-15-agent-action-consensus.json",
+    "docs/benchmarks/2026-10-16-vlm-round2-consensus.json"
+  ],
+  "generator": "docs/benchmarks/semantic_vlm_probe.py",
+  "candidates": [
+    {
+      "model": "mlx-community/gemma-4-12b-it-4bit",
+      "role": "baseline",
+      "precision": "MLX 4-bit",
+      "revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "weights_path": "/Users/prajwal/.cache/huggingface/hub/models--mlx-community--gemma-4-12b-it-4bit/snapshots/73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "artifact_GB": 6.77,
+      "quality": {
+        "json_valid_rate": 0.889,
+        "schema_valid_rate": 0.889,
+        "fenced_rate": 0.556,
+        "timestamps_valid_rate": 0.889,
+        "object_precision": 0.167,
+        "object_recall": 0.214,
+        "object_hallucinated": 30,
+        "object_missed": 22,
+        "action_precision": 0.0,
+        "action_recall": 0.0,
+        "action_hallucinated": 3,
+        "action_missed": 11,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 15.4,
+        "warm_mean_per_sample": 82.0,
+        "decode_mean_per_sample": 3.52,
+        "serialize_mean_per_sample": 0.151,
+        "end_to_end_per_sample": 87.4
+      },
+      "peak_memory_GB": {
+        "mlx": 7.99,
+        "rss": 3.06
+      },
+      "license": {
+        "published": null,
+        "lane_class": "conditional Gemma Terms (registry record)",
+        "lane_record": "library/model_registry/registry.json"
+      },
+      "decision": "retain baseline",
+      "decision_why": "Incumbent default stays; every challenger is scored against these numbers."
+    },
+    {
+      "model": "mlx-community/Qwen3.5-4B-4bit",
+      "role": "candidate",
+      "precision": "MLX 4-bit",
+      "revision": "0e7ffd5c629ef7719d4cbc04069232580bfa9d9c",
+      "weights_path": "/tmp/vep-mu-vlm-weights/Qwen3.5-4B-4bit",
+      "artifact_GB": 3.06,
+      "quality": {
+        "json_valid_rate": 0.778,
+        "schema_valid_rate": 0.778,
+        "fenced_rate": 0.778,
+        "timestamps_valid_rate": 0.556,
+        "object_precision": 0.231,
+        "object_recall": 0.214,
+        "object_hallucinated": 20,
+        "object_missed": 22,
+        "action_precision": 0.25,
+        "action_recall": 0.182,
+        "action_hallucinated": 6,
+        "action_missed": 9,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 5.9,
+        "warm_mean_per_sample": 54.7,
+        "decode_mean_per_sample": 0.84,
+        "serialize_mean_per_sample": 0.019,
+        "end_to_end_per_sample": 56.2
+      },
+      "peak_memory_GB": {
+        "mlx": 5.38,
+        "rss": 1.82
+      },
+      "license": {
+        "published": null,
+        "lane_class": "conditional Apache (conversion artifact needs review)",
+        "lane_record": "vep-mu-license qwen35_4b.json"
+      },
+      "decision": "conditional fallback",
+      "decision_why": "Quality at or above incumbent (obj P 0.231 vs 0.167, same R; act P/R 0.25/0.18 vs 0/0), 1.5x faster warm, 5.4 vs 8.0 GB. Adoptable only as opt-in fallback behind the capability interface after the license lane clears the MLX conversion artifact and held-out confirms. Default unchanged."
+    },
+    {
+      "model": "smdesai/SmolVLM2-2.2B-Instruct-4bit",
+      "role": "candidate",
+      "precision": "MLX 4-bit",
+      "revision": "0a4ab666f99095e6c6bd0e1e49aca8822fc46df2",
+      "weights_path": "/tmp/vep-mu-vlm-weights/SmolVLM2-2.2B-Instruct-4bit",
+      "artifact_GB": 1.46,
+      "quality": {
+        "json_valid_rate": 1.0,
+        "schema_valid_rate": 1.0,
+        "fenced_rate": 0.0,
+        "timestamps_valid_rate": 1.0,
+        "object_precision": 0.0,
+        "object_recall": 0.0,
+        "object_hallucinated": 9,
+        "object_missed": 28,
+        "action_precision": 0.0,
+        "action_recall": 0.0,
+        "action_hallucinated": 9,
+        "action_missed": 11,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 4.0,
+        "warm_mean_per_sample": 54.3,
+        "decode_mean_per_sample": 1.57,
+        "serialize_mean_per_sample": 0.108,
+        "end_to_end_per_sample": 56.4
+      },
+      "peak_memory_GB": {
+        "mlx": 3.97,
+        "rss": 0.85
+      },
+      "license": {
+        "published": "apache-2.0",
+        "lane_class": "conditional Apache",
+        "lane_record": "vep-mu-license smolvlm2.json"
+      },
+      "decision": "reject",
+      "decision_why": "Schema-perfect, content-vacuous: echoes the prompt schema placeholders. Research-only for a redesigned narrow prompt."
+    },
+    {
+      "model": "mlx-community/SmolVLM2-500M-Video-Instruct-mlx",
+      "role": "candidate",
+      "precision": "MLX BF16/full precision",
+      "revision": "fa57db46815177fbdfd65cc85a2b3416a8332268",
+      "weights_path": "/tmp/vep-mu-vlm-weights/SmolVLM2-500M-Video-Instruct-mlx",
+      "artifact_GB": 1.02,
+      "quality": {
+        "json_valid_rate": 1.0,
+        "schema_valid_rate": 0.0,
+        "fenced_rate": 0.0,
+        "timestamps_valid_rate": 0.0,
+        "object_precision": 0.0,
+        "object_recall": 0.0,
+        "object_hallucinated": 0,
+        "object_missed": 28,
+        "action_precision": 0.0,
+        "action_recall": 0.0,
+        "action_hallucinated": 0,
+        "action_missed": 11,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 2.6,
+        "warm_mean_per_sample": 13.3,
+        "decode_mean_per_sample": 1.8,
+        "serialize_mean_per_sample": 0.075,
+        "end_to_end_per_sample": 15.4
+      },
+      "peak_memory_GB": {
+        "mlx": 3.21,
+        "rss": 1.04
+      },
+      "license": {
+        "published": "apache-2.0",
+        "lane_class": "conditional Apache",
+        "lane_record": "vep-mu-license smolvlm2.json"
+      },
+      "decision": "reject",
+      "decision_why": "Valid JSON arrays of placeholder rows; no instruction following under this prompt. Research-only."
+    },
+    {
+      "model": "mlx-community/SmolVLM2-256M-Video-Instruct-mlx",
+      "role": "candidate",
+      "precision": "MLX BF16/full precision",
+      "revision": "79901655c1a3d7ed6646c91325e3fde47e40e611",
+      "weights_path": "/tmp/vep-mu-vlm-weights/SmolVLM2-256M-Video-Instruct-mlx",
+      "artifact_GB": 0.52,
+      "quality": {
+        "json_valid_rate": 0.111,
+        "schema_valid_rate": 0.0,
+        "fenced_rate": 0.0,
+        "timestamps_valid_rate": 0.0,
+        "object_precision": 1.0,
+        "object_recall": 0.0,
+        "object_hallucinated": 0,
+        "object_missed": 28,
+        "action_precision": 1.0,
+        "action_recall": 0.0,
+        "action_hallucinated": 0,
+        "action_missed": 11,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 5.9,
+        "warm_mean_per_sample": 27.2,
+        "decode_mean_per_sample": 2.94,
+        "serialize_mean_per_sample": 0.112,
+        "end_to_end_per_sample": 30.9
+      },
+      "peak_memory_GB": {
+        "mlx": 2.7,
+        "rss": 1.12
+      },
+      "license": {
+        "published": "apache-2.0",
+        "lane_class": "conditional Apache",
+        "lane_record": "vep-mu-license smolvlm2.json"
+      },
+      "decision": "reject",
+      "decision_why": "Echoes the schema template; one top-level array. Research-only."
+    },
+    {
+      "model": "mlx-community/Qwen3.5-4B-8bit",
+      "role": "precision-gap",
+      "precision": "MLX 8-bit",
+      "revision": "1704583a86670ba531b7f2c92530a2f725cfd45b",
+      "weights_path": "/tmp/vep-mu-vlm-weights/Qwen3.5-4B-8bit",
+      "artifact_GB": 5.16,
+      "quality": {
+        "json_valid_rate": 0.778,
+        "schema_valid_rate": 0.778,
+        "fenced_rate": 0.778,
+        "timestamps_valid_rate": 0.778,
+        "object_precision": 0.308,
+        "object_recall": 0.286,
+        "object_hallucinated": 18,
+        "object_missed": 20,
+        "action_precision": 0.25,
+        "action_recall": 0.182,
+        "action_hallucinated": 6,
+        "action_missed": 9,
+        "error_samples": 0
+      },
+      "latency_s": {
+        "cold_load": 9.8,
+        "warm_mean_per_sample": 166.0,
+        "decode_mean_per_sample": 1.61,
+        "serialize_mean_per_sample": 0.048,
+        "end_to_end_per_sample": 168.8
+      },
+      "peak_memory_GB": {
+        "mlx": 7.49,
+        "rss": 1.35
+      },
+      "license": {
+        "published": null,
+        "lane_class": "conditional Apache (conversion artifact needs review)",
+        "lane_record": "vep-mu-license qwen35_4b.json"
+      },
+      "decision": "precision-gap reference only",
+      "decision_why": "8-bit rerun of the shortlisted Qwen to report the quality gap per download conditions; not a separate adoption candidate. Gap over 4-bit: obj P +0.08, R +0.07 at 3x warm latency and 7.5 vs 5.4 GB. Confirms 4-bit as ship precision."
+    }
+  ]
+}

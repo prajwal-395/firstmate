@@ -1,0 +1,630 @@
+{
+  "schema": "vlm-round2-consensus-v1",
+  "split": "calibration",
+  "label_type": "blind agent consensus; not human/gold labels",
+  "labeller_models": [
+    "openai",
+    "opencode muse-spark"
+  ],
+  "match_policy": "same window; label token-overlap similarity >= 0.4; temporal IoU >= 0.5; greedy one-to-one by similarity*IoU",
+  "boundary_policy": "mean of the two agent boundaries for matched pairs; no invented labels for unmatched rows",
+  "scene_map": {
+    "indoor vehicle cabin": "vehicle-cabin",
+    "car_interior": "vehicle-cabin",
+    "outdoor paved plaza": "outdoor-plaza",
+    "outdoor_plaza": "outdoor-plaza",
+    "indoor studio interview set": "indoor-studio",
+    "indoor_studio": "indoor-studio",
+    "unknown": "unknown"
+  },
+  "labels": [
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "car seats",
+      "start": 0.0,
+      "end": 10.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 0.6667,
+        "a": {
+          "object": "car seats",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "b": {
+          "object": "car_front_seats",
+          "start": 0.0,
+          "end": 10.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "young man",
+      "start": 0.0,
+      "end": 10.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 0.4,
+        "a": {
+          "object": "young man",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "b": {
+          "object": "young_man_in_light_shirt",
+          "start": 0.0,
+          "end": 10.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "baseball cap",
+      "start": 0.0,
+      "end": 10.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "claim": {
+          "object": "baseball cap",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "tiebreak": {
+          "object": "baseball cap",
+          "start": 0,
+          "end": 10
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "black_box_device_hanging_from_mirror_with_red_button",
+      "start": 1.0,
+      "end": 10.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-b",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 0.8,
+        "similarity": 0.4167,
+        "claim": {
+          "object": "black_box_device_hanging_from_mirror_with_red_button",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "tiebreak": {
+          "object": "black boxed device hanging from rear-view mirror",
+          "start": 2,
+          "end": 10
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "adjusting cap with hand",
+      "start": 0.0,
+      "end": 6.25,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 0.7857,
+        "similarity": 0.4444,
+        "claim": {
+          "action": "adjusting cap with hand",
+          "start": 0.0,
+          "end": 7.0
+        },
+        "tiebreak": {
+          "action": "adjusting cap on head with one hand, then both hands",
+          "start": 0,
+          "end": 5.5
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "seatbelt",
+      "start": 19.0,
+      "end": 20.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "claim": {
+          "object": "seatbelt",
+          "start": 19.0,
+          "end": 20.0
+        },
+        "tiebreak": {
+          "object": "seatbelt",
+          "start": 19,
+          "end": 20
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "baseball cap",
+      "start": 10.0,
+      "end": 20.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "claim": {
+          "object": "baseball cap",
+          "start": 10.0,
+          "end": 20.0
+        },
+        "tiebreak": {
+          "object": "baseball cap",
+          "start": 10,
+          "end": 20
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "young man",
+      "start": 10.0,
+      "end": 20.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 0.4,
+        "claim": {
+          "object": "young man",
+          "start": 10.0,
+          "end": 20.0
+        },
+        "tiebreak": {
+          "object": "person (young man, selfie view)",
+          "start": 10,
+          "end": 20
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "object",
+      "name": "black_box_device_hanging_from_mirror_with_red_button",
+      "start": 10.0,
+      "end": 20.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-b",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 0.4167,
+        "claim": {
+          "object": "black_box_device_hanging_from_mirror_with_red_button",
+          "start": 10.0,
+          "end": 20.0
+        },
+        "tiebreak": {
+          "object": "black boxed device hanging from rear-view mirror",
+          "start": 10,
+          "end": 20
+        }
+      }
+    },
+    {
+      "take": "IMG_1808",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "reclining with hands behind head",
+      "start": 10.0,
+      "end": 13.5,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 0.75,
+        "similarity": 0.5,
+        "claim": {
+          "action": "reclining with hands behind head",
+          "start": 10.0,
+          "end": 14.0
+        },
+        "tiebreak": {
+          "action": "hands clasped behind head",
+          "start": 10,
+          "end": 13
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "name": "brick buildings",
+      "start": 0.0,
+      "end": 10.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "a": {
+          "object": "brick buildings",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "b": {
+          "object": "brick_building",
+          "start": 0.0,
+          "end": 10.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "object",
+      "name": "young man",
+      "start": 0.0,
+      "end": 10.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 0.5,
+        "claim": {
+          "object": "young man",
+          "start": 0.0,
+          "end": 10.0
+        },
+        "tiebreak": {
+          "object": "person (young man, cap)",
+          "start": 0,
+          "end": 10
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "walking away from camera",
+      "start": 3.0,
+      "end": 10.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 0.75,
+        "similarity": 1.0,
+        "a": {
+          "action": "walking away from camera",
+          "start": 4.0,
+          "end": 10.0
+        },
+        "b": {
+          "action": "walking_away_from_camera",
+          "start": 2.0,
+          "end": 10.0
+        }
+      }
+    },
+    {
+      "take": "IMG_1814",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "walking away across plaza",
+      "start": 10.0,
+      "end": 20.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 0.4286,
+        "claim": {
+          "action": "walking away across plaza",
+          "start": 10.0,
+          "end": 20.0
+        },
+        "tiebreak": {
+          "action": "walking across courtyard away from camera",
+          "start": 10,
+          "end": 20
+        }
+      }
+    },
+    {
+      "take": "LC4931",
+      "split": "calibration",
+      "kind": "object",
+      "name": "round table",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "a": {
+          "object": "round table",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "object": "round_table",
+          "start": 60.0,
+          "end": 70.0
+        }
+      }
+    },
+    {
+      "take": "LC4931",
+      "split": "calibration",
+      "kind": "object",
+      "name": "woman with glasses",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 0.5,
+        "a": {
+          "object": "woman with glasses",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "object": "woman_with_glasses_seated_at_table",
+          "start": 60.0,
+          "end": 70.0
+        }
+      }
+    },
+    {
+      "take": "LC4931",
+      "split": "calibration",
+      "kind": "object",
+      "name": "potted_plant",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "tiebreak-confirmed: mean of labeller and tiebreaker boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-b",
+          "tiebreak-claude-sonnet-5-5"
+        ],
+        "iou": 1.0,
+        "similarity": 0.6667,
+        "claim": {
+          "object": "potted_plant",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "tiebreak": {
+          "object": "potted indoor plant",
+          "start": 60,
+          "end": 70
+        }
+      }
+    },
+    {
+      "take": "LCATL0012",
+      "split": "calibration",
+      "kind": "object",
+      "name": "round table",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "a": {
+          "object": "round table",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "object": "round_table",
+          "start": 60.0,
+          "end": 70.0
+        }
+      }
+    },
+    {
+      "take": "LCATL0012",
+      "split": "calibration",
+      "kind": "object",
+      "name": "open laptop",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 1.0,
+        "a": {
+          "object": "open laptop",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "object": "open_laptop",
+          "start": 60.0,
+          "end": 70.0
+        }
+      }
+    },
+    {
+      "take": "LCATL0012",
+      "split": "calibration",
+      "kind": "object",
+      "name": "man in green polo",
+      "start": 60.0,
+      "end": 70.0,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 1.0,
+        "similarity": 0.6667,
+        "a": {
+          "object": "man in green polo",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "object": "man_in_green_polo_behind_laptop",
+          "start": 60.0,
+          "end": 70.0
+        }
+      }
+    },
+    {
+      "take": "LCATL0012",
+      "split": "calibration",
+      "kind": "action",
+      "verb": "talking with hand gestures",
+      "start": 60.0,
+      "end": 68.5,
+      "consensus_method": "mean of two agent boundaries",
+      "agreement": {
+        "labellers": [
+          "labeller-a",
+          "labeller-b"
+        ],
+        "iou": 0.7,
+        "similarity": 0.6,
+        "a": {
+          "action": "talking with hand gestures",
+          "start": 60.0,
+          "end": 70.0
+        },
+        "b": {
+          "action": "speaking_with_hand_gestures",
+          "start": 60.0,
+          "end": 67.0
+        }
+      }
+    }
+  ],
+  "tiebreak": {
+    "labeller_id": "tiebreak-claude-sonnet-5-5",
+    "counts": {
+      "confirmed_a": 8,
+      "confirmed_b": 3,
+      "unresolved": 26,
+      "tiebreak_only": 29
+    },
+    "tiebreak_only_labels": [
+      "IMG_1808 object white clip/tag hanging above the device [2,10)",
+      "IMG_1808 action leaning toward camera and tilting head [5.5,7.5)",
+      "IMG_1808 action raising hands to back of head/neck [8,10)",
+      "IMG_1808 object car interior (seats, roof, sunroof) [10,20)",
+      "IMG_1808 object white clip/tag hanging above the device [10,20)",
+      "IMG_1808 action raising arms overhead toward car roof [13,16.5)",
+      "IMG_1808 action leaning forward and looking down [18,20)",
+      "IMG_1814 object baseball cap [0,3)",
+      "IMG_1814 object building with vertical sign and red-brown pergola [0,10)",
+      "IMG_1814 object dark SUV [0,10)",
+      "IMG_1814 object dark kiosk pillar at right edge [0,10)",
+      "IMG_1814 action holding phone selfie and talking to camera [0,2)",
+      "IMG_1814 action turning and stepping back from camera [1.5,3)",
+      "IMG_1814 action standing with hands together [3,4)",
+      "IMG_1814 object person walking, small in frame [10,20)",
+      "IMG_1814 object building with vertical sign and pergola [10,20)",
+      "IMG_1814 object dark SUV [10,20)",
+      "IMG_1814 object brick building [10,20)",
+      "IMG_1814 object kiosk pillar with lit green screen [11,20)",
+      "LC4931 object woman seated (long hair) [60,70)",
+      "LC4931 object eyeglasses [60,70)",
+      "LC4931 object black geometric wall panels [60,70)",
+      "LC4931 action looking off-camera left with hands clasped on table [60,64.5)",
+      "LC4931 action talking [65,70)",
+      "LC4931 action unclasping hands and placing them flat on the table [66,68)",
+      "LC4931 action moving hands/fingers on table while talking [68,70)",
+      "LCATL0012 object potted plant [60,70)",
+      "LCATL0012 object black geometric wall panels [60,70)",
+      "LCATL0012 object another person's hands at bottom-right edge of frame [66,70)"
+    ],
+    "policy": "a disputed claim joins the consensus iff a tiebreak row matches it under the same rule; tiebreak-only rows are recorded, never scored"
+  }
+}
