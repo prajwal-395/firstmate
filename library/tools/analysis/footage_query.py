@@ -2830,6 +2830,19 @@ class FootageIndex:
         min_face_presence: float | None = None,
         max_face_presence: float | None = None,
         max_motion: float | None = None,
+        min_brightness: float | None = None,
+        max_brightness: float | None = None,
+        min_sharpness: float | None = None,
+        max_temporal_noise: float | None = None,
+        max_blockiness: float | None = None,
+        max_underexposed_fraction: float | None = None,
+        max_overexposed_fraction: float | None = None,
+        max_camera_translation: float | None = None,
+        min_subject_energy: float | None = None,
+        max_subject_energy: float | None = None,
+        min_subject_center_x: float | None = None,
+        max_subject_center_x: float | None = None,
+        min_subject_width_fraction: float | None = None,
         min_motion: float | None = None,
         contains: str | None = None,
         person: str | None = None,
@@ -2861,6 +2874,35 @@ class FootageIndex:
                 unmeasured face is not an absent one.
             min_motion / max_motion: mean motion energy over the span,
                 reduced from step 1.04's 30 Hz curve.
+            min_brightness / max_brightness: mean 0..1 luma brightness
+                curve from step 1.04, reduced over the span.
+            min_sharpness: minimum mean Laplacian variance, in squared
+                8-bit luma levels, from VI-03's sampled 180px-short-side
+                frames. This is a texture-sensitive sharpness proxy.
+            max_temporal_noise: maximum mean global-luma-compensated
+                temporal residual, normalized to 0..1 (VI-03).
+            max_blockiness: maximum mean 8-pixel boundary contrast excess,
+                normalized to 0..1 (VI-03). All three require measured
+                coverage; missing measurements fail the bound closed.
+            max_underexposed_fraction / max_overexposed_fraction:
+                maximum mean fraction of decoded pixels at the black
+                (luma <=4) / white (luma >=251) rail, 0..1, from VI-03's
+                sampled frames. Shadow/highlight-loss proxies; missing
+                coverage fails the bound closed.
+            max_camera_translation: maximum mean per-sample global shift
+                read as camera motion, in normalized proxy-frame
+                displacements from the 1.04 flow decomposition. A low
+                value is how "stable shot" is asked for; missing
+                decomposition fails the bound closed.
+            min_subject_energy / max_subject_energy: mean residual flow
+                the camera model does not explain, in the same
+                normalized units - the subject-motion side of the same
+                decomposition. Missing decomposition fails closed.
+            min_subject_center_x / max_subject_center_x: horizontal center
+                of the largest detected face, normalized 0 at left and 1
+                at right. This does not claim identity or full-body framing.
+            min_subject_width_fraction: detected face width divided by
+                display-frame width (0..1).
             contains: plain substring match against the segment text.
             person: a person_id ("person_001") or declared name
                 ("Craig") from the entity store (M3b). Keeps segments
@@ -2910,6 +2952,16 @@ class FootageIndex:
         bounds = (
             ("face_presence", min_face_presence, max_face_presence),
             ("motion", min_motion, max_motion),
+            ("brightness", min_brightness, max_brightness),
+            ("sharpness_laplacian_variance", min_sharpness, None),
+            ("temporal_noise_residual", None, max_temporal_noise),
+            ("compression_blockiness_proxy", None, max_blockiness),
+            ("underexposed_fraction", None, max_underexposed_fraction),
+            ("overexposed_fraction", None, max_overexposed_fraction),
+            ("camera_translation_magnitude", None, max_camera_translation),
+            ("subject_energy", min_subject_energy, max_subject_energy),
+            ("subject_center_x", min_subject_center_x, max_subject_center_x),
+            ("subject_width_fraction", min_subject_width_fraction, None),
         )
 
         def _overlaps_person(segment: dict) -> bool:
@@ -3153,6 +3205,62 @@ class FootageIndex:
             "max_motion": {
                 "type": "number",
                 "description": "0..1 mean motion energy over the span. Use a low value to find steady footage.",
+            },
+            "min_motion": {
+                "type": "number",
+                "description": "Minimum 0..1 mean motion energy over the span.",
+            },
+            "min_brightness": {
+                "type": "number",
+                "description": "Minimum mean 0..1 brightness from the step 1.04 luma curve.",
+            },
+            "max_brightness": {
+                "type": "number",
+                "description": "Maximum mean 0..1 brightness from the step 1.04 luma curve.",
+            },
+            "min_sharpness": {
+                "type": "number",
+                "description": "Minimum mean VI-03 Laplacian variance (squared 8-bit luma levels); texture-sensitive proxy, missing coverage fails closed.",
+            },
+            "max_temporal_noise": {
+                "type": "number",
+                "description": "Maximum VI-03 global-luma-compensated temporal residual, normalized 0..1; proxy, missing coverage fails closed.",
+            },
+            "max_blockiness": {
+                "type": "number",
+                "description": "Maximum VI-03 8-pixel boundary contrast excess proxy, normalized 0..1; missing coverage fails closed.",
+            },
+            "max_underexposed_fraction": {
+                "type": "number",
+                "description": "Maximum mean fraction of decoded pixels at luma <=4 (shadow loss at the black rail), 0..1 from VI-03; missing coverage fails closed.",
+            },
+            "max_overexposed_fraction": {
+                "type": "number",
+                "description": "Maximum mean fraction of decoded pixels at luma >=251 (highlight loss at the white rail), 0..1 from VI-03; missing coverage fails closed.",
+            },
+            "max_camera_translation": {
+                "type": "number",
+                "description": "Maximum mean per-sample camera shift in normalized proxy-frame displacements (1.04 flow decomposition). Use a low value to find stable shots; missing decomposition fails closed.",
+            },
+            "min_subject_energy": {
+                "type": "number",
+                "description": "Minimum mean residual flow the camera model does not explain, same normalized units; the subject-motion side of the decomposition.",
+            },
+            "max_subject_energy": {
+                "type": "number",
+                "description": "Maximum mean residual flow the camera model does not explain, same normalized units.",
+            },
+            "min_subject_center_x": {
+                "type": "number",
+                "description": "Minimum detected largest-face horizontal center, normalized 0 left to 1 right.",
+            },
+            "max_subject_center_x": {
+                "type": "number",
+                "description": "Maximum detected largest-face horizontal center, normalized 0 left to 1 right.",
+            },
+            "min_subject_width_fraction": {
+                "type": "number",
+                "description": "Minimum detected face width divided by display-frame width, normalized 0..1.",
             },
             "person": {
                 "type": "string",
@@ -4428,6 +4536,28 @@ def main(argv=None):
     p_filter.add_argument("--min-face-presence", type=float)
     p_filter.add_argument("--max-face-presence", type=float)
     p_filter.add_argument("--max-motion", type=float)
+    p_filter.add_argument("--min-motion", type=float)
+    p_filter.add_argument("--min-brightness", type=float)
+    p_filter.add_argument("--max-brightness", type=float)
+    p_filter.add_argument("--min-sharpness", type=float,
+                          help="minimum VI-03 mean Laplacian variance")
+    p_filter.add_argument("--max-temporal-noise", type=float,
+                          help="maximum VI-03 temporal residual (0..1)")
+    p_filter.add_argument("--max-blockiness", type=float,
+                          help="maximum VI-03 8px blockiness proxy (0..1)")
+    p_filter.add_argument("--max-underexposed-fraction", type=float,
+                          help="maximum VI-03 mean fraction of pixels at luma <=4 (0..1)")
+    p_filter.add_argument("--max-overexposed-fraction", type=float,
+                          help="maximum VI-03 mean fraction of pixels at luma >=251 (0..1)")
+    p_filter.add_argument("--max-camera-translation", type=float,
+                          help="maximum mean camera shift in normalized proxy-frame displacements")
+    p_filter.add_argument("--min-subject-energy", type=float,
+                          help="minimum mean non-camera residual flow (same units)")
+    p_filter.add_argument("--max-subject-energy", type=float,
+                          help="maximum mean non-camera residual flow (same units)")
+    p_filter.add_argument("--min-subject-center-x", type=float)
+    p_filter.add_argument("--max-subject-center-x", type=float)
+    p_filter.add_argument("--min-subject-width-fraction", type=float)
     p_filter.add_argument("--contains")
     p_filter.add_argument("--person",
                           help="restrict to one person's measured face/voice "
@@ -4460,6 +4590,20 @@ def main(argv=None):
     p_hybrid.add_argument("--min-face-presence", type=float)
     p_hybrid.add_argument("--max-face-presence", type=float)
     p_hybrid.add_argument("--max-motion", type=float)
+    p_hybrid.add_argument("--min-motion", type=float)
+    p_hybrid.add_argument("--min-brightness", type=float)
+    p_hybrid.add_argument("--max-brightness", type=float)
+    p_hybrid.add_argument("--min-sharpness", type=float)
+    p_hybrid.add_argument("--max-temporal-noise", type=float)
+    p_hybrid.add_argument("--max-blockiness", type=float)
+    p_hybrid.add_argument("--max-underexposed-fraction", type=float)
+    p_hybrid.add_argument("--max-overexposed-fraction", type=float)
+    p_hybrid.add_argument("--max-camera-translation", type=float)
+    p_hybrid.add_argument("--min-subject-energy", type=float)
+    p_hybrid.add_argument("--max-subject-energy", type=float)
+    p_hybrid.add_argument("--min-subject-center-x", type=float)
+    p_hybrid.add_argument("--max-subject-center-x", type=float)
+    p_hybrid.add_argument("--min-subject-width-fraction", type=float)
     p_hybrid.add_argument("--person",
                           help="restrict to one person's measured face/voice "
                                "spans (person_id or declared name)")
@@ -4782,6 +4926,20 @@ def main(argv=None):
             max_duration=args.max_duration, min_face_presence=args.min_face_presence,
             max_face_presence=args.max_face_presence,
             max_motion=args.max_motion, contains=args.contains,
+            min_motion=args.min_motion,
+            min_brightness=args.min_brightness,
+            max_brightness=args.max_brightness,
+            min_sharpness=args.min_sharpness,
+            max_temporal_noise=args.max_temporal_noise,
+            max_blockiness=args.max_blockiness,
+            max_underexposed_fraction=args.max_underexposed_fraction,
+            max_overexposed_fraction=args.max_overexposed_fraction,
+            max_camera_translation=args.max_camera_translation,
+            min_subject_energy=args.min_subject_energy,
+            max_subject_energy=args.max_subject_energy,
+            min_subject_center_x=args.min_subject_center_x,
+            max_subject_center_x=args.max_subject_center_x,
+            min_subject_width_fraction=args.min_subject_width_fraction,
             person=args.person,
             min_speech_level=args.min_speech_level,
             max_speech_level=args.max_speech_level,
@@ -4805,6 +4963,20 @@ def main(argv=None):
                          "min_face_presence": args.min_face_presence,
                          "max_face_presence": args.max_face_presence,
                          "max_motion": args.max_motion,
+                         "min_motion": args.min_motion,
+                         "min_brightness": args.min_brightness,
+                         "max_brightness": args.max_brightness,
+                         "min_sharpness": args.min_sharpness,
+                         "max_temporal_noise": args.max_temporal_noise,
+                         "max_blockiness": args.max_blockiness,
+                         "max_underexposed_fraction": args.max_underexposed_fraction,
+                         "max_overexposed_fraction": args.max_overexposed_fraction,
+                         "max_camera_translation": args.max_camera_translation,
+                         "min_subject_energy": args.min_subject_energy,
+                         "max_subject_energy": args.max_subject_energy,
+                         "min_subject_center_x": args.min_subject_center_x,
+                         "max_subject_center_x": args.max_subject_center_x,
+                         "min_subject_width_fraction": args.min_subject_width_fraction,
                          "person": args.person},
                 external_hits=_load_external_hits(args.external_hits)
                 if args.external_hits else None)
@@ -4818,6 +4990,20 @@ def main(argv=None):
                      "min_face_presence": args.min_face_presence,
                      "max_face_presence": args.max_face_presence,
                      "max_motion": args.max_motion,
+                     "min_motion": args.min_motion,
+                     "min_brightness": args.min_brightness,
+                     "max_brightness": args.max_brightness,
+                     "min_sharpness": args.min_sharpness,
+                     "max_temporal_noise": args.max_temporal_noise,
+                     "max_blockiness": args.max_blockiness,
+                     "max_underexposed_fraction": args.max_underexposed_fraction,
+                     "max_overexposed_fraction": args.max_overexposed_fraction,
+                     "max_camera_translation": args.max_camera_translation,
+                     "min_subject_energy": args.min_subject_energy,
+                     "max_subject_energy": args.max_subject_energy,
+                     "min_subject_center_x": args.min_subject_center_x,
+                     "max_subject_center_x": args.max_subject_center_x,
+                     "min_subject_width_fraction": args.min_subject_width_fraction,
                      "person": args.person},
             external_hits=_load_external_hits(args.external_hits)
             if args.external_hits else None,

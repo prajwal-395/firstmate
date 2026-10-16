@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -81,9 +82,91 @@ _CURVE_FACETS = {
     "speech_ratio": ("speech_activity", "values"),
     "motion": ("motion_energy", "values"),
     "face_presence": ("face_presence", "values"),
+    "subject_center_x": ("face_presence", "face_center_x"),
+    "subject_width_fraction": ("face_presence", "face_width"),
     "brightness": ("color_curves", "brightness_values"),
     "saturation": ("color_curves", "saturation_values"),
 }
+
+
+def _quality_summary(doc: dict, start: float, end: float) -> dict:
+    """Reduce VI-03's measured image signals over one half-open span.
+
+    Values remain numeric and explicitly named as proxies. The reduction
+    preserves missing coverage: a segment with no VI-03 record receives no
+    quality facet, rather than being treated as clean. Records written
+    before a signal existed (e.g. clipping fractions) simply lack that
+    facet; absence is skipped, never read as zero.
+    """
+    if not isinstance(doc, dict):
+        return {}
+    sampling = doc.get("sampling") or {}
+    rate = sampling.get("rate_hz")
+    signals = doc.get("signals") or {}
+    if not isinstance(rate, (int, float)) or rate <= 0:
+        return {}
+    lo = max(0, math.ceil(start * rate - 1e-9))
+    hi = max(lo, math.ceil(end * rate - 1e-9))
+    facets = {}
+    for name, signal_name in (
+            ("sharpness_laplacian_variance", "sharpness_proxy_laplacian_variance"),
+            ("compression_blockiness_proxy", "compression_blockiness"),
+            ("temporal_noise_residual", "temporal_noise"),
+            ("underexposed_fraction", "clipping_underexposed_fraction"),
+            ("overexposed_fraction", "clipping_overexposed_fraction")):
+        block = signals.get(signal_name)
+        values = block.get("values") if isinstance(block, dict) else block
+        if not isinstance(values, list):
+            continue
+        measured = [float(value) for value in values[lo:hi]
+                    if isinstance(value, (int, float))]
+        if measured:
+            facets[name] = round(sum(measured) / len(measured), 6)
+    return facets
+
+
+def _camera_motion_summary(temporal_doc: dict, start: float,
+                           end: float) -> dict:
+    """Reduce the 1.04 camera/subject decomposition over one span.
+
+    ``camera_translation_magnitude`` is the mean per-sample global
+    shift read as camera motion, in normalized proxy-frame
+    displacements; ``subject_energy`` is the mean residual flow the
+    camera model does not explain, in the same normalized units.
+    Both come from ``decompose_camera_motion`` off the optical-flow
+    field - no additional decode - and the decomposition is a
+    separation hypothesis, not a labelled cause. A span with no
+    decomposition record receives neither facet.
+    """
+    if not isinstance(temporal_doc, dict):
+        return {}
+    block = temporal_doc.get("camera_motion_decomposition")
+    if not isinstance(block, dict):
+        return {}
+    values = block.get("values")
+    rate = block.get("sample_rate_hz")
+    if not isinstance(values, list) or not isinstance(rate, (int, float)) \
+            or rate <= 0:
+        return {}
+    lo = max(0, math.ceil(start * rate - 1e-9))
+    hi = max(lo, math.ceil(end * rate - 1e-9))
+    translations, subjects = [], []
+    for entry in values[lo:hi]:
+        if not isinstance(entry, dict):
+            continue
+        tx, ty = entry.get("translation_x"), entry.get("translation_y")
+        if isinstance(tx, (int, float)) and isinstance(ty, (int, float)):
+            translations.append(math.hypot(float(tx), float(ty)))
+        energy = entry.get("subject_energy")
+        if isinstance(energy, (int, float)):
+            subjects.append(float(energy))
+    facets = {}
+    if translations:
+        facets["camera_translation_magnitude"] = round(
+            sum(translations) / len(translations), 6)
+    if subjects:
+        facets["subject_energy"] = round(sum(subjects) / len(subjects), 6)
+    return facets
 
 
 @dataclass
@@ -844,6 +927,9 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         # a guessed id.
         digest, _basis = source_memory.digest_for_clip(
             project_folder, clip, recorded)
+        quality_doc = (source_memory.read_image_defects(digest)
+                       if digest else None)
+        first_segment = len(segments)
         cutters = {
             "speech": lambda c, v, t, b, digest=digest: _speech_segments(
                 c, t, b, digest),
@@ -872,6 +958,12 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
                 segments.extend(cutters[kind](clip, None, temporal_doc, base))
             else:
                 segments.extend(cutters[kind](clip, vision_doc, temporal_doc, base))
+        for segment in segments[first_segment:]:
+            segment.facets.update(
+                _quality_summary(quality_doc, segment.start, segment.end))
+            segment.facets.update(
+                _camera_motion_summary(
+                    temporal_doc, segment.start, segment.end))
     return segments
 
 

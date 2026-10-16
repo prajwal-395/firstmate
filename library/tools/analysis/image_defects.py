@@ -25,6 +25,12 @@ SAMPLE_RATE_HZ = 5.0
 SAMPLE_SHORT_SIDE_PX = 180
 BLACK_LUMA_MAX = 0.02
 BLACK_LUMA_P99_MAX = 0.05
+# Clipping rails on the decoded 8-bit grayscale image. The small
+# codec/rounding margin matches `picture_quality._sample_measurements`;
+# these are near-black/near-white pixel fractions after decode, not an
+# exposure-compensation recommendation.
+CLIP_BLACK_LUMA_MAX = 4
+CLIP_WHITE_LUMA_MIN = 251
 FROZEN_MAD_MAX = 0.001
 FLICKER_RELATIVE_STEP = 0.08
 BLOCK_SIZE = 8
@@ -32,6 +38,8 @@ METHOD = "image_defects_v1"
 METHOD_PARAMETERS = {
     "black_mean_luma_max": BLACK_LUMA_MAX,
     "black_p99_luma_max": BLACK_LUMA_P99_MAX,
+    "clipping_black_luma_max": CLIP_BLACK_LUMA_MAX,
+    "clipping_white_luma_min": CLIP_WHITE_LUMA_MIN,
     "frozen_mean_absolute_difference_max": FROZEN_MAD_MAX,
     "flicker_luma_step_min": FLICKER_RELATIVE_STEP,
     "flicker_alternating_steps": 3,
@@ -132,6 +140,22 @@ def _blockiness(frame: np.ndarray) -> float:
     return round(max(0.0, (xb - xn + yb - yn) / 2), 6)
 
 
+def _clipping_fractions(frame: np.ndarray) -> tuple[float, float]:
+    """Near-black and near-white pixel fractions of one sampled frame.
+
+    Returns ``(underexposed_fraction, overexposed_fraction)`` in 0..1.
+    A clipping proxy on decoded pixels: it records highlight/shadow
+    loss at the rails, not a diagnosis of exposure error or a
+    recommendation. Luma omits color-channel clipping.
+    """
+    pixels = frame.size
+    if pixels <= 0:
+        return 0.0, 0.0
+    under = round(float(np.mean(frame <= CLIP_BLACK_LUMA_MAX)), 6)
+    over = round(float(np.mean(frame >= CLIP_WHITE_LUMA_MIN)), 6)
+    return under, over
+
+
 def measure_track(track: dict, *, duration_s: float | None = None) -> dict:
     """Return per-sample metrics and sampled intervals for defect signals."""
     frames = track["frames"]
@@ -164,10 +188,14 @@ def measure_track(track: dict, *, duration_s: float | None = None) -> dict:
         residual = b - a - float((b-a).mean())
         noise.append(round(float(np.mean(np.abs(residual))), 6))
     sharpness = []
+    under_exposed, over_exposed = [], []
     for frame in frames:
         f = frame.astype(np.float32)
         lap = -4*f[1:-1,1:-1] + f[:-2,1:-1] + f[2:,1:-1] + f[1:-1,:-2] + f[1:-1,2:]
         sharpness.append(round(float(lap.var()), 3))
+        under, over = _clipping_fractions(frame)
+        under_exposed.append(under)
+        over_exposed.append(over)
     max_end = len(frames) / rate
     end = min(max_end, float(duration_s)) if duration_s is not None else max_end
     return {
@@ -180,8 +208,16 @@ def measure_track(track: dict, *, duration_s: float | None = None) -> dict:
             "temporal_noise": {"values": noise, "sample_rate_hz": rate,
                                "meaning": "global-luma-compensated temporal residual"},
             "compression_blockiness": {"values": [_blockiness(f) for f in frames],
-                                       "sample_rate_hz": rate,
-                                       "meaning": "8-pixel boundary contrast excess proxy"},
+                                        "sample_rate_hz": rate,
+                                        "meaning": "8-pixel boundary contrast excess proxy"},
+            "clipping_underexposed_fraction": {
+                "values": under_exposed, "sample_rate_hz": rate,
+                "meaning": "fraction of decoded pixels at luma <=4; "
+                           "shadow-loss proxy, not an exposure recommendation"},
+            "clipping_overexposed_fraction": {
+                "values": over_exposed, "sample_rate_hz": rate,
+                "meaning": "fraction of decoded pixels at luma >=251; "
+                           "highlight-loss proxy, not an exposure recommendation"},
             "frozen_frame_sample_indices": frozen,
             "black_frame_sample_indices": black,
             "flicker_sample_indices": flicker,
@@ -204,6 +240,7 @@ def measure_source(path: str, duration_s: float | None = None) -> dict:
 def _measure_source_locked(path: str, duration_s: float | None) -> dict:
     rate = SAMPLE_RATE_HZ
     noise, block, sharp = [], [], []
+    under_exposed, over_exposed = [], []
     black, frozen, flicker = [], [], []
     previous = None
     out_w = out_h = count = 0
@@ -219,6 +256,9 @@ def _measure_source_locked(path: str, duration_s: float | None) -> dict:
         f = frame.astype(np.float32)
         lap = -4*f[1:-1,1:-1] + f[:-2,1:-1] + f[2:,1:-1] + f[1:-1,:-2] + f[1:-1,2:]
         sharp.append(round(float(lap.var()), 3))
+        under, over = _clipping_fractions(frame)
+        under_exposed.append(under)
+        over_exposed.append(over)
         if previous is not None:
             a = previous.astype(np.float32) / 255.0
             b = f / 255.0
@@ -248,7 +288,15 @@ def _measure_source_locked(path: str, duration_s: float | None) -> dict:
             "temporal_noise": {"values": noise, "sample_rate_hz": rate,
                                "meaning": "global-luma-compensated temporal residual"},
             "compression_blockiness": {"values": block, "sample_rate_hz": rate,
-                                       "meaning": "8-pixel boundary contrast excess proxy"},
+                                        "meaning": "8-pixel boundary contrast excess proxy"},
+            "clipping_underexposed_fraction": {
+                "values": under_exposed, "sample_rate_hz": rate,
+                "meaning": "fraction of decoded pixels at luma <=4; "
+                           "shadow-loss proxy, not an exposure recommendation"},
+            "clipping_overexposed_fraction": {
+                "values": over_exposed, "sample_rate_hz": rate,
+                "meaning": "fraction of decoded pixels at luma >=251; "
+                           "highlight-loss proxy, not an exposure recommendation"},
             "frozen_frame_sample_indices": frozen,
             "black_frame_sample_indices": black,
             "flicker_sample_indices": flicker,

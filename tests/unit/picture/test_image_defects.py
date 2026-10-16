@@ -54,6 +54,20 @@ def test_compression_proxy_and_sharpness_proxy_are_separate_signals():
     assert result["sampling"]["coverage"] == "sampled"
 
 
+def test_clipping_fractions_record_highlight_and_shadow_loss():
+    black = np.zeros((32, 32), dtype=np.uint8)
+    white = np.full((32, 32), 255, dtype=np.uint8)
+    mid = np.full((32, 32), 128, dtype=np.uint8)
+    result = measure_track(_track([black, mid, white]))
+    signals = result["signals"]
+    assert signals["clipping_underexposed_fraction"]["values"] == [1.0, 0.0, 0.0]
+    assert signals["clipping_overexposed_fraction"]["values"] == [0.0, 0.0, 1.0]
+    assert "not an exposure recommendation" in signals[
+        "clipping_overexposed_fraction"]["meaning"]
+    assert "not an exposure recommendation" in signals[
+        "clipping_underexposed_fraction"]["meaning"]
+
+
 def test_sampler_profile_has_no_declared_memory_ceiling():
     assert profiles()["temporal.index:image_defects"] == {}
 

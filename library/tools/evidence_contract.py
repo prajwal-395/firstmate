@@ -181,6 +181,18 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "downscaled greyscale frame. Resolution-bound: the same frame "
         "at 180px and at 720p yields different methods.",
     },
+    "image.exposure.underexposed_fraction": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Fraction of decoded greyscale pixels at luma <=4; "
+        "a shadow-loss proxy, not an exposure recommendation.",
+    },
+    "image.exposure.overexposed_fraction": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": True,
+        "description": "Fraction of decoded greyscale pixels at luma >=251; "
+        "a highlight-loss proxy, not an exposure recommendation.",
+    },
     "image.luma.rec709_p50": {
         "unit": "0_255", "kind": EvidenceType.MEASUREMENT,
         "requires_resolution": True,

@@ -475,6 +475,44 @@ def test_vi03_migrates_sampled_defects_as_measurements(fixture_project):
     assert report["counts"]["observations"] >= len(observations)
 
 
+def test_vi03_clipping_fractions_migrate_as_exposure_measurements(
+        fixture_project):
+    from library.tools import source_memory
+
+    source_memory.write_image_defects(D1, {
+        "content_digest": D1, "method": "image_defects_v1",
+        "sampling": {"rate_hz": 2, "sample_count": 4,
+                     "sample_size": [180, 320], "coverage": "sampled",
+                     "interval_s": [0.0, 2.0]},
+        "signals": {
+            "temporal_noise": {"values": [0.01, 0.02, 0.01]},
+            "compression_blockiness": {"values": [0.1, 0.2, 0.1, 0.0]},
+            "sharpness_proxy_laplacian_variance": [120.0, 121.0, 118.0, 5.0],
+            "clipping_underexposed_fraction": {
+                "values": [0.0, 0.0, 0.5, 0.9]},
+            "clipping_overexposed_fraction": {
+                "values": [0.0, 0.01, 0.0, 0.0]},
+            "black_frame_sample_indices": [0],
+            "frozen_frame_sample_indices": [2],
+            "flicker_sample_indices": [3],
+        }}, root=fixture_project["memory"])
+
+    model, _ = _migrate(fixture_project)
+    observations = [row for row in model["observations"]
+                    if row["provenance_id"] == f"prov-{D1}-vi03"]
+    # The 23 pre-existing observations plus one per sample per
+    # clipping signal. A record written before clipping existed
+    # migrates unchanged (see the test above): absence is skipped,
+    # never read as zero.
+    assert len(observations) == 31
+    metrics = {row["payload"]["metric"] for row in observations}
+    assert "image.exposure.underexposed_fraction" in metrics
+    assert "image.exposure.overexposed_fraction" in metrics
+    clipped = [row for row in observations if row["payload"]["metric"]
+               == "image.exposure.underexposed_fraction"]
+    assert [row["payload"]["value"] for row in clipped] == [0.0, 0.0, 0.5, 0.9]
+
+
 def test_unmeasured_identity_stays_absent(fixture_project):
     # Cross-source voice identity only activates for tracks with the
     # measured minimum speech duration. These same-embedding tracks are

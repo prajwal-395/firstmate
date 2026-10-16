@@ -73,3 +73,30 @@ median low-gradient residual sigma was 0.000 luma levels, median frame
 difference was 0.006792, and median motion-blur proxy was 0.000000. This is a
 measurement report, not threshold calibration; no setting was changed from
 these held-out values.
+
+## Technical filters in footage retrieval
+
+Footage search reduces the existing VI-03 image-defect track over each
+retrieval interval. `filter_footage` and `search_and_filter_footage` accept
+`min_sharpness`, `max_temporal_noise`, `max_blockiness`,
+`min_subject_center_x`, `max_subject_center_x`, and
+`min_subject_width_fraction`. These are numeric constraints, not a ranking
+called "quality". Missing measurements fail the requested bound closed.
+Build or refresh the footage index after VI-03 measurements change so its
+interval facets reflect the recorded source-memory track.
+Sharpness is VI-03's Laplacian variance on the 180px-short-side image, temporal
+noise is its global-luma-compensated residual normalized to 0..1, blockiness
+is its 8-pixel boundary contrast excess normalized to 0..1, and face position
+and width are normalized display-frame coordinates from the existing 1.04
+face track. `brightness` remains available as its separate 1.04 curve facet.
+`min_brightness` and `max_brightness` filter its mean luma value in the
+curve's 0..1 scale; `min_motion` and `max_motion` filter the separate 1.04
+motion-energy curve.
+
+Temporal noise and blockiness are proxies, not sensor or codec diagnoses. A
+low sharpness reading does not say why the image is soft. Pairing it with
+measured image change and the independent camera-motion track can identify
+motion-associated softness as a candidate for inspection, but frame
+difference can also come from subject motion, lighting, or a cut, so there is
+no canonical defocus-versus-motion-blur verdict. No model, subjective label,
+editorial policy, or human-quality score was added.

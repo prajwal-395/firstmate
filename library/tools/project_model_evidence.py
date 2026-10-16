@@ -3481,16 +3481,22 @@ def _migrate_image_defects(builder: _Builder, digest: str, asset_id: str,
             ("black_frame_sample_indices", "image.frame.black"),
             ("frozen_frame_sample_indices", "image.frame.frozen"),
             ("flicker_sample_indices", "image.flicker.alternation")):
-        indices = set(signals[field])
+        indices = set(signals.get(field) or [])
         for index in range(count):
             add(index, measurement_type, index in indices)
     for field, measurement_type, span_samples in (
             ("temporal_noise", "image.temporal_noise.residual", 2),
             ("compression_blockiness", "image.compression.blockiness_proxy", 1),
             ("sharpness_proxy_laplacian_variance",
-             "image.sharpness.laplacian_variance", 1)):
-        values = signals[field]["values"] if isinstance(signals[field], dict) \
-            else signals[field]
+             "image.sharpness.laplacian_variance", 1),
+            ("clipping_underexposed_fraction",
+             "image.exposure.underexposed_fraction", 1),
+            ("clipping_overexposed_fraction",
+             "image.exposure.overexposed_fraction", 1)):
+        block = signals.get(field)
+        if block is None:
+            continue
+        values = block["values"] if isinstance(block, dict) else block
         for index, value in enumerate(values):
             add(index, measurement_type, value, span_samples=span_samples,
                 reference_index=index + 1 if span_samples == 2 else index)

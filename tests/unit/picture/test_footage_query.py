@@ -663,6 +663,99 @@ def test_person_filter_keeps_only_that_person_s_clip(offline_index_2, memory_roo
     assert [r["segment_id"] for r in results] == ["clip_001#chunk#001"]
 
 
+def test_technical_quality_filters_require_measured_numeric_facets(offline_index_2):
+    idx, _, _ = offline_index_2
+    measured = idx.segments[0]
+    measured["facets"].update({
+        "sharpness_laplacian_variance": 240.0,
+        "temporal_noise_residual": 0.015,
+        "compression_blockiness_proxy": 0.02,
+        "underexposed_fraction": 0.001,
+        "overexposed_fraction": 0.002,
+        "camera_translation_magnitude": 0.05,
+        "subject_energy": 0.3,
+        "brightness": 0.4,
+        "motion": 0.15,
+        "subject_center_x": 0.7,
+        "subject_width_fraction": 0.2,
+    })
+
+    assert [row["segment_id"] for row in idx.filter(
+        min_sharpness=200.0, max_temporal_noise=0.02,
+        max_blockiness=0.03, min_brightness=0.3, max_motion=0.2,
+        max_underexposed_fraction=0.01, max_overexposed_fraction=0.01,
+        max_camera_translation=0.1, min_subject_energy=0.1,
+        max_subject_energy=0.5,
+        min_subject_center_x=0.6, min_subject_width_fraction=0.15
+    )] == [measured["segment_id"]]
+    # No recorded value is not evidence that a segment passes a bound.
+    assert all(row["segment_id"] != idx.segments[1]["segment_id"]
+               for row in idx.filter(min_sharpness=1.0))
+    assert all(row["segment_id"] != idx.segments[1]["segment_id"]
+               for row in idx.filter(max_overexposed_fraction=0.5))
+    assert all(row["segment_id"] != idx.segments[1]["segment_id"]
+               for row in idx.filter(max_camera_translation=10.0))
+
+
+def test_interval_quality_facets_reduce_vi03_samples_with_units():
+    summary = footage_segments._quality_summary({
+        "sampling": {"rate_hz": 5},
+        "signals": {
+            "sharpness_proxy_laplacian_variance": [100.0, 200.0, 300.0],
+            "temporal_noise": {"values": [0.01, 0.03]},
+            "compression_blockiness": {"values": [0.02, 0.04, 0.06]},
+        },
+    }, 0.0, 0.4)
+    assert summary == {
+        "sharpness_laplacian_variance": 150.0,
+        "temporal_noise_residual": 0.02,
+        "compression_blockiness_proxy": 0.03,
+    }
+    # Samples are timestamped from zero. A sub-window between 0.2 and
+    # 0.4 seconds includes the 0.2 sample, not the preceding 0.0 sample.
+    assert footage_segments._quality_summary({
+        "sampling": {"rate_hz": 5},
+        "signals": {"sharpness_proxy_laplacian_variance": [100.0, 200.0, 300.0]},
+    }, 0.15, 0.35) == {"sharpness_laplacian_variance": 200.0}
+    assert footage_segments._quality_summary({}, 0.0, 0.4) == {}
+    # Clipping fractions reduce the same way, and a record written
+    # before clipping existed simply lacks those facets.
+    assert footage_segments._quality_summary({
+        "sampling": {"rate_hz": 5},
+        "signals": {
+            "clipping_underexposed_fraction": {"values": [0.0, 0.5]},
+            "clipping_overexposed_fraction": {"values": [0.01, 0.0]},
+        },
+    }, 0.0, 0.4) == {
+        "underexposed_fraction": 0.25,
+        "overexposed_fraction": 0.005,
+    }
+
+
+def test_interval_camera_motion_facets_separate_camera_from_subject():
+    doc = {
+        "sample_rate_hz": 5,
+        "values": [
+            {"translation_x": 0.3, "translation_y": 0.4,
+             "subject_energy": 0.1},
+            {"translation_x": 0.0, "translation_y": 0.0,
+             "subject_energy": 0.5},
+            {"translation_x": 0.0, "translation_y": 0.0,
+             "subject_energy": None},
+        ],
+    }
+    summary = footage_segments._camera_motion_summary(
+        {"camera_motion_decomposition": doc}, 0.0, 0.6)
+    # hypot(0.3, 0.4) is 0.5; the mean with two still samples is 0.5/3.
+    assert summary["camera_translation_magnitude"] == round(0.5 / 3, 6)
+    # The unmeasured subject sample is skipped, never read as zero.
+    assert summary["subject_energy"] == 0.3
+    assert footage_segments._camera_motion_summary({}, 0.0, 0.4) == {}
+    assert footage_segments._camera_motion_summary(
+        {"camera_motion_decomposition": {"values": [], "sample_rate_hz": 5}},
+        0.0, 0.4) == {}
+
+
 def test_person_filter_unknown_name_raises_rather_than_matching_nothing(
         offline_index_2, memory_root):
     idx, digest_1, digest_2 = offline_index_2
