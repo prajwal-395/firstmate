@@ -29,12 +29,14 @@ resolution. These payloads remain outside the repository and are not treated
 as human ground truth. Existing task proposals that still say
 `gold_frozen: false` remain proposals, not labels.
 
-The remaining label gap is stable cross-window person identity and
-visible-to-audible speaker association. The blind request for those fields is
-in the Firstmate task data at `vep-mu-harness/blind-packet.md`. It gives only
-source paths, windows, questions, and a return format. Calibration
-examples may select settings. Held-out predictions and labels stay sealed
-from tuning and are used in one final report after calibration is frozen.
+Stable-person and visible-to-audible speaker labels now have two independent
+blind agent submissions and third-agent adjudication for disputed calibration
+windows. The interim agreement and limitations are recorded in
+[`2026-10-16-multimodal-agent-label-agreement.md`](2026-10-16-multimodal-agent-label-agreement.md).
+The blind request remains in Firstmate task data at
+`vep-mu-harness/blind-packet.md`. Calibration examples may select settings.
+Held-out predictions and labels stay sealed from tuning and are used in one
+final report after calibration is frozen.
 
 The explicit qualification record and gate are described in
 [`model-adapter-contract.md`](model-adapter-contract.md). Heavy model passes
