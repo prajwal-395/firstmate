@@ -1,0 +1,43 @@
+{"measurement": "real_words_total", "value": 140, "basis": "001 speech_sequence body+hook word_timestamps"}
+{"measurement": "real_clips_with_words", "value": 3, "basis": "distinct clip_id in speech_sequence"}
+{"measurement": "before_word_edge_cuts_total", "value": 140, "basis": "one cut at every real word end"}
+{"measurement": "before_word_edge_cuts_in_pause", "value": 1, "basis": "within 80ms of a measured >=0.15s pause center"}
+{"measurement": "after_pause_center_cuts", "value": 25, "basis": "pause_center_cuts on the same real words"}
+{"measurement": "after_pause_gap_median_s", "value": 0.661, "basis": "median measured inter-word gap carrying a cut"}
+{"measurement": "incumbent_aroll_boundaries", "value": 8, "basis": "001 aroll.assign video_segments in/out"}
+{"measurement": "before_boundaries_mid_word", "value": 0, "basis": "incumbent edges strictly inside a real word span"}
+{"measurement": "after_refine_placed", "value": 16, "basis": "refine_cut on incumbent edges"}
+{"measurement": "after_refine_moved", "value": 0, "basis": "refine_cut on incumbent edges"}
+{"measurement": "after_refine_vetoed", "value": 0, "basis": "refine_cut on incumbent edges"}
+{"measurement": "after_phrases_detected", "value": 7, "basis": "phrase_spans over clip_011 (72 real words, time-ordered)"}
+{"measurement": "after_guard_full_span", "value": "ok", "basis": "guard over the whole real-word span"}
+{"measurement": "after_guard_isolated_word", "value": "refused", "basis": "guard over the first real word alone"}
+{"measurement": "after_guard_isolated_reason", "value": "isolated_word", "basis": "refusal reason for the isolated word"}
+{"measurement": "real_motion_samples", "value": 5656, "basis": "clip_011 motion_energy values at 30Hz"}
+{"measurement": "after_phase_action_status", "value": "phased", "basis": "phase_action over real motion around a high-motion peak"}
+{"measurement": "after_action_boundary_cuts", "value": 2, "basis": "action_boundary_cuts from the phased real motion"}
+{"measurement": "after_shot_reject_verdict", "value": "reject", "basis": "reject_intervals over the real IMG_1808 10-40s window"}
+{"measurement": "real_soft_picture_windows", "value": 1, "basis": "soft_picture_ranges over IMG_1808 10-40s at 5Hz"}
+{"measurement": "after_candidate_strength", "value": "strong", "basis": "build_candidate over 50 real words"}
+{"measurement": "after_alternative_policies", "value": ["earliest", "latest", "longest_verified"], "basis": "alternative_plans over two real-word candidates"}
+{"measurement": "after_event_fidelity_speech", "value": "verified", "basis": "word_phrase_boundary with word evidence present"}
+{"measurement": "after_event_fidelity_scene_unmeasured", "value": "uncertain", "basis": "scene_transition with one measured scene (no boundary tick)"}
+{"measurement": "after_mapping_valid", "value": true, "basis": "verify_source_timeline_map over 6 incumbent segments"}
+{"measurement": "after_av_sync", "value": true, "basis": "placed A/V spans identical"}
+{"measurement": "after_continuity_status", "value": "continuous", "basis": "single present-throughout person track at mid-timeline cut"}
+{"measurement": "render_mechanical_unmixed_loudness", "value": "fail", "basis": "mechanical_report over typical unmixed render numbers"}
+{"measurement": "render_story_uncovered", "value": false, "basis": "storytelling_report with the required moment uncovered"}
+{"measurement": "demo_task_defined", "value": "coherent_answer", "basis": "requires speech,diarization,semantic_retrieval,edit_planning"}
+{"measurement": "demo_task_defined", "value": "better_take", "basis": "requires speech_comparison,technical_measurements,editorial_preferences"}
+{"measurement": "demo_task_defined", "value": "visible_speaker", "basis": "requires diarization,active_speaker,identity"}
+{"measurement": "demo_brief_cut_ranges", "value": 1, "basis": "build_demo_brief coherent_answer over the real span"}
+{"measurement": "demo_split_editing_recall", "value": 0.5, "basis": "retrieval 1/2, edit 1/2 on the provisional slice"}
+{"measurement": "demo_product_pickup_attribution", "value": "perception", "basis": "corpus has no product footage; perception failure recorded"}
+{"measurement": "demo_product_pickup_prioritize", "value": 3, "basis": "causes feeding EDIT-033 prioritization"}
+{"measurement": "resolve_proof_timeline", "value": "vep-mu-edit-proof_20261016_002908_10s", "basis": "resolve_build_timeline.build_timeline success:true in Ren Scratch - vep-mu-edit"}
+{"measurement": "resolve_proof_render", "value": "/tmp/vep-mu-edit-resolve/render/vep-mu-edit-proof.mp4 (14681466 bytes, job Complete)", "basis": "resolve_render.render_timeline H264 mp4, IMG_1808 5-15s, program CH1 declared"}
+{"measurement": "resolve_render_geometry", "value": "1920x1080 24.0fps 10.069333s 1 audio stream", "basis": "ffprobe of the rendered proof file"}
+{"measurement": "resolve_render_lufs", "value": -23.52, "basis": "render_qa.measure_lufs loudnorm on the proof render (unmixed camera audio)"}
+{"measurement": "resolve_render_true_peak_dbtp", "value": -7.12, "basis": "render_qa.measure_lufs on the proof render"}
+{"measurement": "resolve_mechanical_correct", "value": false, "basis": "edit_render_check: loudness fail (-23.52 vs -14 target); geometry/streams/black/freeze pass"}
+{"measurement": "resolve_story_satisfied", "value": true, "basis": "edit_render_check: required calib-window 5-15s fully covered"}
