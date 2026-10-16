@@ -24,6 +24,14 @@ make_spawn_case() {  # <name> <harness> <id>
   proj="$case_dir/project"
   wt="$case_dir/wt"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" pi opencode claude codex gemini)
+  # Spawn defers under host memory pressure; pin a normal reading so these
+  # wiring cases never depend on the machine running them.
+  cat > "$fakebin/sysctl" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = -n ] && [ "${2:-}" = kern.memorystatus_vm_pressure_level ] || exit 1
+printf '1\n'
+SH
+  chmod +x "$fakebin/sysctl"
   fm_test_spawn_home "$home" "$harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
@@ -225,6 +233,63 @@ test_opencode_plugin_semantic_lifecycle() {
   out=$(classify opencode "$id" "$state")
   [ "$out" = "busy opencode-plugin" ] || fail "another session's idle must not clear the latched busy, got '$out'"
   pass "opencode plugin classifies from session.status, scoped to the latched worker session"
+}
+
+# drive_oc_plugin_unawaited <plugin-path> <events-json-lines...>: like
+# drive_oc_plugin, but dispatches every event without awaiting the previous
+# handler, which is how OpenCode itself calls plugin event hooks.
+drive_oc_plugin_unawaited() {
+  local plugin=$1
+  shift
+  PLUGIN_PATH="$plugin" node --input-type=module - "$@" 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+const mod = await import(pathToFileURL(process.env.PLUGIN_PATH).href);
+const hooks = await mod.FmBusyState({});
+await Promise.all(process.argv.slice(2).map((arg) => hooks.event({ event: JSON.parse(arg) })));
+EOF
+}
+
+test_opencode_plugin_unawaited_events_end_idle() {
+  local rec id=busy-oc-order out state plugin events=() n
+  rec=$(make_spawn_case oc-order opencode "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "opencode spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
+  # A turn's burst of busy statuses, then its close. Dispatched without
+  # awaiting, each write is its own process; the last word must be idle.
+  for n in $(seq 1 12); do events+=("$(oc_status ses_main busy)"); done
+  events+=("$(oc_status ses_main idle)" "$(oc_idle ses_main)")
+  out=$(drive_oc_plugin_unawaited "$plugin" "${events[@]}") || fail "unawaited drive failed: $out"
+  out=$(classify opencode "$id" "$state")
+  [ "$out" = "idle opencode-plugin" ] || fail "a finished turn must read idle whatever order its writes finish in, got '$out'"
+  [ -f "$state/$id.turn-ended" ] || fail "session.idle no longer touches the notification marker"
+  pass "opencode plugin applies busy writes in event order, so a finished turn reads idle"
+}
+
+test_opencode_attached_plugin_follows_a_rearmed_generation() {
+  local rec id=busy-oc-shared out status state plugin pid
+  rec=$(make_spawn_case oc-shared opencode "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  status=$?
+  pid=$(sed -n 's/^pid=//p' "$HOME_DIR/state/opencode-server-default" 2>/dev/null)
+  case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null || true ;; esac
+  expect_code 0 "$status" "attached opencode spawn should succeed: $out"
+  assert_grep 'opencode_server=default' "$HOME_DIR/state/$id.meta" "the worker did not attach to the shared server"
+  state="$HOME_DIR/state"
+  plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
+  # A shared server keeps the first incarnation's plugin module loaded across
+  # a relaunch, so the module must follow the generation armed after it.
+  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  out=$(drive_oc_plugin "$plugin" "$(oc_status ses_main busy)" "$(oc_status ses_main idle)") \
+    || fail "re-armed drive failed: $out"
+  out=$(classify opencode "$id" "$state")
+  [ "$out" = "idle opencode-plugin" ] || fail "an attached plugin must report for the re-armed generation, got '$out'"
+  pass "an attached worker's plugin reports for a relaunch's re-armed generation"
 }
 
 run_claude_hook() {  # <settings.json> <hook-event>
@@ -489,6 +554,8 @@ test_pi_extension_stale_incarnation_rejected
 test_kimi_and_grok_install_no_unverified_wiring
 test_agy_hook_source_trusted
 test_opencode_plugin_semantic_lifecycle
+test_opencode_plugin_unawaited_events_end_idle
+test_opencode_attached_plugin_follows_a_rearmed_generation
 test_claude_hooks_semantic_lifecycle
 test_claude_hooks_stale_incarnation_harmless
 test_claude_settings_local_keeps_hooks_without_permission_posture

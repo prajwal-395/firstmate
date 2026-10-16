@@ -1828,6 +1828,8 @@ RELAUNCH_PRIOR_HARNESS=
 # create a fresh one for the task rather than adopt its recorded address.
 RELAUNCH_REBIND=0
 RELAUNCH_PRIOR_WORKSPACE=main
+RELAUNCH_PRIOR_OPENCODE_SERVER=
+RELAUNCH_PRIOR_OPENCODE_SESSION=
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "${#POS[@]}" -eq 1 ] || {
     echo "error: --relaunch takes the task id only; its project or home comes from the task's own record" >&2
@@ -1947,6 +1949,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # which is also what every record written before markers existed carries.
   RELAUNCH_PRIOR_WORKSPACE=$(fm_meta_get "$RELAUNCH_META" opencode_workspace)
   [ "$RELAUNCH_PRIOR_WORKSPACE" = secondary ] || RELAUNCH_PRIOR_WORKSPACE=main
+  # A shared-server incarnation's session is retired once its replacement is
+  # set up (bin/fm-opencode-server.sh owns the lease and session lifecycle).
+  RELAUNCH_PRIOR_OPENCODE_SERVER=$(fm_meta_get "$RELAUNCH_META" opencode_server)
+  RELAUNCH_PRIOR_OPENCODE_SESSION=$(fm_meta_get "$RELAUNCH_META" opencode_server_session)
   if [ "$KIND" = secondmate ]; then
     FIRSTMATE_HOME=$(fm_meta_get "$RELAUNCH_META" home)
     [ -n "$FIRSTMATE_HOME" ] || FIRSTMATE_HOME=$RELAUNCH_WT
@@ -2850,6 +2856,28 @@ esac
 OPENCODE_WORKSPACE=main
 OPENCODE_SECOND_DB=
 OPENCODE_MAIN_DB=
+OPENCODE_SECOND_ORG=
+OPENCODE_MAIN_ORG=
+# The shared-server experiment (docs/configuration.md "Shared OpenCode
+# servers"): `on` in config/opencode-shared-server lets an OpenCode worker
+# attach to a firstmate-managed `opencode serve`; absent or `off` keeps the
+# standalone launch. Secondmates always launch standalone.
+OPENCODE_SHARED_SERVER=0
+OPENCODE_SERVER_PROFILE=
+OPENCODE_SERVER_URL=
+OPENCODE_SERVER_PASSWORD_FILE=
+OPENCODE_SERVER_SESSION=
+if [ -f "$CONFIG/opencode-shared-server" ] || [ -L "$CONFIG/opencode-shared-server" ]; then
+  OPENCODE_SHARED_SERVER_VALUE=
+  [ "$(awk 'END { print NR }' "$CONFIG/opencode-shared-server" 2>/dev/null)" = 1 ] \
+    && IFS= read -r OPENCODE_SHARED_SERVER_VALUE < "$CONFIG/opencode-shared-server"
+  case "$OPENCODE_SHARED_SERVER_VALUE" in
+    on) OPENCODE_SHARED_SERVER=1 ;;
+    off) ;;
+    *) echo "error: $CONFIG/opencode-shared-server must hold exactly one line, 'on' or 'off'" >&2; exit 1 ;;
+  esac
+fi
+[ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ] || OPENCODE_SHARED_SERVER=0
 if [ "$HARNESS" = opencode ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
     if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
@@ -2900,12 +2928,21 @@ fi
 # configured second workspace the main workspace runs exactly as today.
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
-  OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || exit 1
 elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
-  OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || exit 1
 fi
+# opencode_task_db: the standalone launch's private copy of its workspace pin.
+# An attached worker needs none: its server runs on that server's own proven
+# copy (bin/fm-opencode-server.sh).
+opencode_task_db() {
+  if [ -n "$OPENCODE_SECOND_ORG" ]; then
+    OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
+  elif [ -n "$OPENCODE_MAIN_ORG" ]; then
+    OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
+  fi
+}
+[ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -5280,6 +5317,35 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_REPLACEMENT_STATE=$STATE_REAL
   RELAUNCH_REPLACEMENT_WT=$WT
 fi
+# Shared OpenCode server: pick this launch's server profile from its resolved
+# workspace and start or reuse that server, recording this task's lease. The
+# server is chosen here, before the busy plugin is written, because an attached
+# worker's plugin runs inside the server; a server that cannot be started
+# leaves the standalone launch and its private database in place.
+if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
+  if [ -n "$OPENCODE_SECOND_ORG" ]; then
+    OPENCODE_SERVER_PROFILE=secondary
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" secondary "$ID" \
+      "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
+  elif [ -n "$OPENCODE_MAIN_ORG" ]; then
+    OPENCODE_SERVER_PROFILE=main
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" main "$ID" \
+      "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
+  else
+    OPENCODE_SERVER_PROFILE=default
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" default "$ID") \
+      || OPENCODE_SERVER_ENSURE=
+  fi
+  OPENCODE_SERVER_URL=${OPENCODE_SERVER_ENSURE%%$'\t'*}
+  OPENCODE_SERVER_PASSWORD_FILE=${OPENCODE_SERVER_ENSURE#*$'\t'}
+  if [ -z "$OPENCODE_SERVER_ENSURE" ] || [ -z "$OPENCODE_SERVER_URL" ] || [ ! -f "$OPENCODE_SERVER_PASSWORD_FILE" ]; then
+    echo "notice: the shared OpenCode server is unavailable; launching $ID standalone" >&2
+    OPENCODE_SHARED_SERVER=0
+    OPENCODE_SERVER_URL=
+    OPENCODE_SERVER_PASSWORD_FILE=
+    opencode_task_db || exit 1
+  fi
+fi
 if [ "$KIND" != secondmate ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a
@@ -5419,13 +5485,29 @@ EOF
 // there), so supervision can tell a quota-scale block from a transient
 // retry without reading rendered text. Cleared on idle.
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+// A shared server (bin/fm-opencode-server.sh) caches this module across a
+// relaunch's reload, so an attached worker reads its live generation from
+// the busy-gen sidecar at event time; a standalone worker keeps the baked one.
+const busyGen = () => {
+  if ("$OPENCODE_SHARED_SERVER" !== "1") return "$BUSY_GEN";
+  try { return readFileSync("$(fm_busy_gen_path "$STATE_REAL" "$ID")", "utf8").split("\n")[0]; }
+  catch { return ""; }
+};
+// OpenCode does not await plugin event handlers, so each record write joins
+// one queue at the moment its event arrives: a slow busy write can then never
+// land after the idle that followed it and leave a finished turn reading busy.
+let writes = Promise.resolve();
+const enqueue = (write) => (writes = writes.then(write, write));
 const busyEvent = (state, event) =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
+    const gen = busyGen();
+    if (!gen) { resolve(); return; }
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
       "apply", "$STATE_REAL", "$ID", state,
-      "--gen", "$BUSY_GEN", "--source", "opencode-plugin", "--event", event,
+      "--gen", gen, "--source", "opencode-plugin", "--event", event,
     ], () => resolve());
-  });
+  }));
 const HERDR_PANE = "${HERDR_PANE_ID:-}";
 let lastModel = "";
 const reportModel = (modelID) => {
@@ -5436,7 +5518,7 @@ const reportModel = (modelID) => {
     [HERDR_PANE, modelID], () => {});
 };
 const recordRetry = (status, sessionID) =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
     const attempt = status && status.attempt;
     const next = status && status.next;
     if (typeof attempt !== "number" || typeof next !== "number") { resolve(); return; }
@@ -5444,12 +5526,12 @@ const recordRetry = (status, sessionID) =>
       "record", "$STATE_REAL", "$ID",
       String(attempt), String(next), lastModel || "-", sessionID || "-",
     ], () => resolve());
-  });
+  }));
 const clearRetry = () =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
     execFile("$FM_ROOT/bin/fm-opencode-retry.sh",
       ["clear", "$STATE_REAL", "$ID"], () => resolve());
-  });
+  }));
 export const FmBusyState = async () => {
   let activeSession = null;
   return {
@@ -5469,27 +5551,29 @@ export const FmBusyState = async () => {
         if (statusType === "busy" || statusType === "retry") {
           if (activeSession === null) activeSession = sessionID;
           if (sessionID === activeSession) {
-            await busyEvent("busy", "session-" + statusType);
-            if (statusType === "retry") await recordRetry(status, sessionID);
+            busyEvent("busy", "session-" + statusType);
+            if (statusType === "retry") recordRetry(status, sessionID);
           }
+          await writes;
           return;
         }
         if (statusType === "idle" && sessionID === activeSession) {
           activeSession = null;
-          await busyEvent("idle", "session-status-idle");
-          await clearRetry();
+          busyEvent("idle", "session-status-idle");
+          clearRetry();
         }
+        await writes;
         return;
       }
       if (event.type === "session.idle") {
         if (event.properties.sessionID === activeSession) {
           activeSession = null;
-          await busyEvent("idle", "session-idle");
-          await clearRetry();
+          busyEvent("idle", "session-idle");
+          clearRetry();
         }
-        await new Promise((resolve) => {
+        await enqueue(() => new Promise((resolve) => {
           execFile("touch", ["$TURNEND"], () => resolve());
-        });
+        }));
       }
     },
   };
@@ -5972,6 +6056,35 @@ else
   fi
 fi
 
+# An attached worker gets a fresh session of its own, created after its
+# worktree plugin exists so the server's instance for that directory loads it.
+# A relaunch first drops the server's cached instance so the rewritten plugin
+# takes over, and retires the replaced incarnation's session (or its whole
+# lease, when it rode another server or none now) once the new one exists.
+if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
+  if [ "$RELAUNCH" -eq 1 ]; then
+    "$SCRIPT_DIR/fm-opencode-server.sh" dispose "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$WT" >/dev/null 2>&1 || true
+  fi
+  if ! OPENCODE_SERVER_SESSION=$("$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
+    "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID"); then
+    echo "notice: the shared OpenCode server could not open a session; launching $ID standalone" >&2
+    OPENCODE_SERVER_SESSION=
+    "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" >/dev/null || true
+    OPENCODE_SERVER_PROFILE=
+    OPENCODE_SHARED_SERVER=0
+    opencode_task_db || exit 1
+  fi
+fi
+if [ -n "$RELAUNCH_PRIOR_OPENCODE_SERVER" ] && [ -n "$RELAUNCH_PRIOR_OPENCODE_SESSION" ]; then
+  if [ "$RELAUNCH_PRIOR_OPENCODE_SERVER" = "$OPENCODE_SERVER_PROFILE" ]; then
+    "$SCRIPT_DIR/fm-opencode-server.sh" end-session "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
+      "$RELAUNCH_PRIOR_OPENCODE_SESSION" "$WT" >/dev/null || true
+  else
+    "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$RELAUNCH_PRIOR_OPENCODE_SERVER" "$ID" \
+      "$RELAUNCH_PRIOR_OPENCODE_SESSION" "$WT" >/dev/null || true
+  fi
+fi
+
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
@@ -6006,7 +6119,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason opencode_workspace", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason opencode_workspace opencode_server opencode_server_session", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -6035,6 +6148,12 @@ preserve_relaunch_meta() {
   # markers existed reads.
   if [ "$OPENCODE_WORKSPACE" = secondary ] && [ "$HARNESS" = opencode ]; then
     echo "opencode_workspace=secondary"
+  fi
+  # An attached worker's server profile and session; absent for a standalone
+  # launch, so its record stays byte-identical.
+  if [ -n "$OPENCODE_SERVER_SESSION" ]; then
+    echo "opencode_server=$OPENCODE_SERVER_PROFILE"
+    echo "opencode_server_session=$OPENCODE_SERVER_SESSION"
   fi
   [ -z "$DISPATCH_SOURCE" ] || echo "dispatch_source=$DISPATCH_SOURCE"
   [ -z "$DISPATCH_REASON" ] || echo "dispatch_reason=$DISPATCH_REASON"
@@ -6190,6 +6309,13 @@ sq_worktree=$(shell_quote "$WT")
 [ -z "$WORKER_ACCOUNT_PROVIDER" ] || MODELFLAG="--provider $(shell_quote "$WORKER_ACCOUNT_PROVIDER") $MODELFLAG"
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
+# An attached worker's pane runs only the interactive client on its own
+# session. The server password reaches it through the environment, read from
+# its mode-0600 file at launch, never through argv. The model, effort, and
+# brief ride the first prompt, submitted through the server after the launch.
+if [ -n "$OPENCODE_SERVER_SESSION" ]; then
+  LAUNCH="OPENCODE_SERVER_PASSWORD=\"\$(cat $(shell_quote "$OPENCODE_SERVER_PASSWORD_FILE"))\" opencode attach $(shell_quote "$OPENCODE_SERVER_URL") --dir $sq_worktree --session $(shell_quote "$OPENCODE_SERVER_SESSION")"
+fi
 # Relaunch session continuity. Computed here, where the adopted endpoint (T) is
 # known, and substituted only into the Pi-family template's `__PIRESUME__`
 # placeholder; an empty value leaves every other launch byte-identical.
@@ -6293,7 +6419,10 @@ fi
 # launch whose resolved workspace the pin cannot prove is refused rather than
 # launched unpinned, so a Go launch never runs on a workspace the ladder did
 # not choose. A non-Go launch carries no pin by construction.
-if [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
+if [ -n "$OPENCODE_SERVER_SESSION" ]; then
+  # The workspace pin rides the server's own proven database instead.
+  :
+elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
   [ -n "$OPENCODE_SECOND_DB" ] || {
     echo "error: task $ID is pinned to the second OpenCode workspace but its database is missing; refusing to launch unpinned" >&2
     exit 1
@@ -6533,6 +6662,17 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   spawn_herdr_presentation_order_lock_release
 fi
 spawn_send_key "$T" Enter
+if [ -n "$OPENCODE_SERVER_SESSION" ]; then
+  OPENCODE_SERVER_VARIANT=
+  [ -z "$EFFORTFLAG" ] || OPENCODE_SERVER_VARIANT=$EFFORT
+  OPENCODE_SERVER_MODEL=$MODEL
+  [ "$OPENCODE_SERVER_MODEL" != default ] || OPENCODE_SERVER_MODEL=
+  "$SCRIPT_DIR/fm-opencode-server.sh" prompt "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
+    "$OPENCODE_SERVER_SESSION" "$WT" "$OPENCODE_SERVER_MODEL" "$OPENCODE_SERVER_VARIANT" "$BRIEF_POINTER" || {
+    echo "error: the shared OpenCode server did not accept the brief for $ID" >&2
+    exit 1
+  }
+fi
 if [ "$HARNESS" = kimi ]; then
   if ! kimi_wait_for_ready; then
     kimi_spawn_fail "$KIMI_READY_FAILURE_DETAIL"

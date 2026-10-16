@@ -3900,6 +3900,16 @@ remove_agy_turnend_auth "$STATE" "$ID" || {
   echo "error: agy turn-end auth cleanup failed for $ID; retaining every durable task record" >&2
   exit 1
 }
+# A shared-server worker's session ends with its endpoint, and its lease goes
+# with it; the server itself stops only once no other worker holds a lease
+# (bin/fm-opencode-server.sh owns that rule). Not landed work, so a failure
+# here warns rather than retaining the task.
+TEARDOWN_OPENCODE_SERVER=$(meta_value "$META" opencode_server)
+if [ -n "$TEARDOWN_OPENCODE_SERVER" ]; then
+  "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE" "$TEARDOWN_OPENCODE_SERVER" "$ID" \
+    "$(meta_value "$META" opencode_server_session)" "$WT" >/dev/null \
+    || echo "warning: the shared OpenCode server lease for $ID could not be fully released" >&2
+fi
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.

@@ -939,6 +939,28 @@ An earlier `sleep 60` chained ahead of a status check was refused before executi
 The blocking foreground `until` loop is therefore the wait a Claude Code worker may use, and it is what the brief names, because the refusal's own `run_in_background` suggestion is the one shape a waiting worker must not take: a backgrounded call returns at once and so does not wait at all.
 The brief's portable regression is `tests/fm-brief.test.sh`; rerun these commands after upgrading any of the three harnesses and update the numbers in the brief when they move.
 
+## OpenCode shared server
+
+Attached-worker supervision was verified on 2026-10-16 with OpenCode 1.19.0 and tmux 3.6a on macOS, through a real `fm-spawn.sh` launch in a private tmux server, a throwaway HOME and FM_HOME, and the anonymous free model.
+
+```sh
+FM_OPENCODE_SHARED_SERVER_LIVE=1 tests/fm-opencode-shared-server-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - opencode 1.19.0: an attached worker runs its brief and reports busy, idle, and turn end from the server
+ok - opencode 1.19.0: a real fm-send doorbell reaches the attached client and is acknowledged
+ok - opencode 1.19.0: interrupt cancels the server-side turn through the attached client
+ok - opencode 1.19.0: exit closes the attached client and leaves the shared server running
+ok - opencode 1.19.0: relaunch reuses the server, retires the old session, and reports busy state for the new one
+ok - opencode 1.19.0: teardown releases the task and stops the shared server once no worker holds it
+```
+
+The same day, attached Go workers on a main-workspace server and a second-workspace server, both running at once, each moved only their own workspace's quota-axi five-hour spend, by exactly the cost their session recorded (0.00241070 on main, 0.00234585 on the second workspace).
+Past 120 columns OpenCode 1.19.0 draws its session sidebar on the composer rows, which the composer check reads as pending text for standalone and attached panes alike, so the guard runs a 120-column pane.
+
 ## Gemini
 
 The Gemini crewmate adapter was verified on 2026-09-04 with gemini-cli 0.58.0 on Linux, Node v24.20.0, tmux 3.4.

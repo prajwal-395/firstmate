@@ -1176,6 +1176,19 @@ By accepted design, a `clear` result does not enforce catalog/authentication, re
 
 The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
 
+## Shared OpenCode servers (config/opencode-shared-server)
+
+This experiment runs OpenCode workers as thin interactive clients (`opencode attach`) on a firstmate-managed `opencode serve`, instead of a full OpenCode runtime per worker.
+The optional local, gitignored `config/opencode-shared-server` file holds exactly one line, `on` or `off`; absent means off, and any other content refuses the spawn.
+It applies to crewmates and scouts only; a secondmate always launches standalone.
+When on, each OpenCode launch starts or reuses one loopback-only server per workspace database: the main Go workspace, the second Go workspace when one is configured, and a default server for every unpinned launch.
+Each pinned server runs on its own private copy of its workspace pin, proven against that workspace before every server start, so the server process is the only OpenCode writer of that copy and per-task copies are not needed.
+Each worker keeps the visible interactive client in its pane and a session of its own, a relaunch gets a fresh session, and the server health is checked before every attach and a dead server restarted.
+A server that cannot start or open the task's session leaves that launch on the standalone path with its per-task database.
+Cleanup ends the task's session, and a server stops only when no remaining worker holds it.
+Writing `off` returns new launches to the standalone path; workers already attached keep their server until they are cleaned up.
+`bin/fm-opencode-server.sh` owns the server lifecycle and its records, and `tests/fm-opencode-shared-server-live-e2e.test.sh` (opt in with `FM_OPENCODE_SHARED_SERVER_LIVE=1`) is the live check of an attached worker's supervision.
+
 ## Second OpenCode Go workspace (config/opencode-second-org, config/opencode-main-org)
 
 When one OpenCode account holds a second workspace with its own Go subscription, firstmate spends it as the Go tier's second member: the tier drains the plan whose overall (monthly) quota resets soonest first, and a plan under a shorter cap yields to the other until that limit resets. Order is exhaustion, never an even split.
@@ -1191,7 +1204,7 @@ Before a launch rides its pin, the pinned config must resolve the `opencode` pro
 Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no Go launch ever inherits the machine-wide active workspace; a Go launch whose pin cannot be proven is refused rather than run unpinned.
 The pin applies only to launches that actually bill a Go workspace: the free model and every other non-Go model launch exactly as before, pinned to nothing, so a host with no console login still launches them.
 A home with no second workspace runs the main workspace exactly as before.
-Each launch carries `OPENCODE_DB` at its pinned database, so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
+Each standalone launch carries `OPENCODE_DB` at a private task copy of its pin, and an attached launch rides its workspace server's own proven copy (see "Shared OpenCode servers" above), so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
 The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a secondary lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
 Each org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
 Each home builds its own pin databases from its own machine's live console login on the first launch that needs them; the databases themselves are never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.

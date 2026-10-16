@@ -52,9 +52,10 @@
 # its own from its own machine's live console login on the first launch that
 # needs it, then refreshes it on every later pinned launch. Builders for one
 # config directory serialize on an advisory lock. OpenCode processes never use
-# these shared pins directly: each task receives a private writable database
-# at `state/<task-id>.opencode.db`, seeded from the verified pin and retired
-# with the task by teardown.
+# these shared pins directly: each standalone task receives a private writable
+# database at `state/<task-id>.opencode.db`, seeded from the verified pin and
+# retired with the task by teardown, and each shared server
+# (bin/fm-opencode-server.sh) gets one the same way.
 #
 # FRESHNESS. The live login refreshes its token, so a pin copied once would
 # go stale: after a rotation the pinned copy diverges and a secondary

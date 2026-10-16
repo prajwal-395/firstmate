@@ -277,6 +277,64 @@ fm_test_spawn_home() {
   fi
 }
 
+# fm_test_fake_opencode_server <fakebin> <dir>: a fake `opencode serve` and the
+# curl its API calls go through, for bin/fm-opencode-server.sh. Each server is a
+# real long-lived process announcing its own port, so death and reuse are real;
+# <dir>/servers/<port>.db records the OPENCODE_DB it started with and
+# <dir>/api.log every API call as `<METHOD> <path> <directory>`; touching
+# <dir>/serve-fails or <dir>/session-fails makes that step fail. Every other
+# opencode subcommand still reaches an opencode the fakebin already held.
+fm_test_fake_opencode_server() {  # <fakebin> <dir>
+  local fakebin=$1 dir=$2
+  mkdir -p "$dir/servers"
+  [ ! -e "$fakebin/opencode" ] || mv "$fakebin/opencode" "$fakebin/.opencode-base"
+  cat > "$fakebin/opencode" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = serve ]; then
+  [ ! -e '$dir/serve-fails' ] || exit 1
+  port=\$(( 40000 + \$\$ % 20000 ))
+  printf '%s\n' "\${OPENCODE_DB:-}" > '$dir/servers/'"\$port.db"
+  printf '%s\n' "\$\$" > '$dir/servers/'"\$port.pid"
+  printf 'opencode server listening on http://127.0.0.1:%s\n' "\$port"
+  trap 'exit 0' TERM
+  while :; do sleep 1; done
+fi
+[ -x '$fakebin/.opencode-base' ] && exec '$fakebin/.opencode-base' "\$@"
+exit 0
+SH
+  cat > "$fakebin/curl" <<SH
+#!/usr/bin/env bash
+cat >/dev/null
+method=GET body= url=
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -X) method=\$2; shift ;;
+    --data) body=\$2; shift ;;
+    --max-time|-H|--config) shift ;;
+    http://*) url=\$1 ;;
+  esac
+  shift
+done
+rest=\${url#http://127.0.0.1:}
+port=\${rest%%/*}
+path=/\${rest#*/}
+directory=
+case "\$path" in *'?directory='*) directory=\$(printf '%b' "\${path#*?directory=}" | sed 's/%2F/\//g; s/%20/ /g'); path=\${path%%\?*} ;; esac
+pid=\$(cat '$dir/servers/'"\$port.pid" 2>/dev/null) || exit 7
+kill -0 "\$pid" 2>/dev/null || exit 7
+printf '%s %s %s\n' "\$method" "\$path" "\$directory" >> '$dir/api.log'
+case "\$method \$path" in
+  'GET /global/health') printf '{"healthy":true,"version":"fake"}\n' ;;
+  'POST /session')
+    [ ! -e '$dir/session-fails' ] || exit 22
+    printf '{"id":"ses_fake%s"}\n' "\$(wc -l < '$dir/api.log' | tr -d ' ')" ;;
+  'POST /session/'*/prompt_async) printf '%s\n' "\$body" > '$dir/prompt.json' ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/opencode" "$fakebin/curl"
+}
+
 # fm_test_spawn_brief <home> <id> [captain-intent]
 fm_test_spawn_brief() {
   local home=$1 id=$2 intent=${3:-brief for $2}

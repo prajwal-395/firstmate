@@ -426,6 +426,8 @@ fm-omp-primary-live-e2e.test.sh live-harness-optin
 fm-on.test.sh secondmate
 fm-opencode-primary-live-e2e.test.sh live-harness-optin
 fm-opencode-retry.test.sh pure-contract-unit
+fm-opencode-server.test.sh backend-dispatch
+fm-opencode-shared-server-live-e2e.test.sh live-harness-optin
 fm-operational-input.test.sh pure-contract-unit
 fm-peek-remote.test.sh standalone
 fm-pending-reply.test.sh standalone
@@ -915,6 +917,8 @@ tests/fm-opencode-descent.test.sh 1892
 tests/fm-opencode-ladder.test.sh 5044
 tests/fm-opencode-primary-live-e2e.test.sh 48
 tests/fm-opencode-retry.test.sh 393
+tests/fm-opencode-server.test.sh 5035
+tests/fm-opencode-shared-server-live-e2e.test.sh 48
 tests/fm-operational-input.test.sh 275
 tests/fm-parent-channel-gate.test.sh 105
 tests/fm-peek-remote.test.sh 1109
@@ -1876,7 +1880,7 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' live-harness-optin
       ;;
-    bin/fm-spawn.sh|bin/fm-send.sh|bin/fm-harness.sh|\
+    bin/fm-spawn.sh|bin/fm-send.sh|bin/fm-harness.sh|bin/fm-opencode-server.sh|\
     bin/fm-peek.sh|bin/fm-composer*)
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
