@@ -1,0 +1,50 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "777ed3ba0",
+  "version": {
+    "id": "pytorch-sam2.1-hiera-small",
+    "role": "baseline",
+    "models": {
+      "tracking": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03"
+    }
+  },
+  "modality": "object_tracking",
+  "split": "calibration",
+  "metrics": {
+    "laptop_box_coverage": {
+      "value": 1.0,
+      "unit": "fraction of 20 frames with >=50% box coverage",
+      "dimension": "quality"
+    },
+    "end_to_end_seconds": {
+      "value": 14.251383083988912,
+      "unit": "seconds per 10 second clip at 2 fps",
+      "dimension": "latency"
+    },
+    "throughput_ratio": {
+      "value": 0.701687832,
+      "unit": "clip seconds processed per wall second",
+      "dimension": "latency"
+    },
+    "process_peak_rss": {
+      "value": 1.146322944,
+      "unit": "GB (does not include all Metal memory)",
+      "dimension": "memory"
+    },
+    "measured_run_cost": {
+      "value": 14.251383083988912,
+      "unit": "wall seconds per 10 second clip",
+      "dimension": "cost"
+    }
+  },
+  "evidence": [
+    {
+      "id": "sam-laptop-calibration-2026-10-15",
+      "path": "2026-10-15-sam-lane-calibration.json",
+      "sha256": "1c6648389074d20b36cf24914eacaf37b1a6a91be33365aed5d3c230b2175b9c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

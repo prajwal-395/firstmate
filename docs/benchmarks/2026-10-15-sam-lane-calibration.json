@@ -1,0 +1,161 @@
+{
+  "date": "2026-10-15",
+  "fixture": {
+    "source": "LCATL0013.MXF",
+    "window_seconds": [
+      30,
+      40
+    ],
+    "sample_fps": 2.0,
+    "frames": 20,
+    "resolution": [
+      960,
+      540
+    ],
+    "seed": {
+      "label": "black laptop",
+      "category": "laptop",
+      "detector": "owlv2",
+      "box_normalized": [
+        0.15,
+        0.51,
+        0.36,
+        0.77
+      ]
+    },
+    "split": "calibration"
+  },
+  "incumbent": {
+    "backend": "pytorch-sam2.1-hiera-small",
+    "precision": "fp32 model weights; MPS propagation per Ren config",
+    "source_clip": "LCATL0013.MXF 30-40s podcast calibration",
+    "frames": 20,
+    "resolution": [
+      960,
+      540
+    ],
+    "wall_seconds": 14.251383083988912,
+    "frames_per_second": 1.4033725626581128,
+    "frames_with_mask": 20,
+    "missing_frames": [],
+    "mask_coverage_ratio_by_frame": [
+      0.5609507759286567,
+      0.5644968752194368,
+      0.564847974159118,
+      0.563654237764202,
+      0.5637946773400744,
+      0.5649533038410224,
+      0.5642862158556281,
+      0.5648830840530862,
+      0.5640755564918194,
+      0.5653746225686398,
+      0.5663225897057791,
+      0.5664630292816516,
+      0.566568358963556,
+      0.5661821501299066,
+      0.5664981391756196,
+      0.5659714907660979,
+      0.5658310511902254,
+      0.5666385787514922,
+      0.5660768204480022,
+      0.5661821501299066
+    ],
+    "box_coverage_pass_ge_0_5": 20,
+    "box_coverage_fraction": 1.0,
+    "peak_rss_platform_units": 1146322944,
+    "object_id": "obj_1",
+    "seed": "detector:owlv2",
+    "mask_file": "/tmp/vep-mu-sam/outputs/incumbent_masks.npy"
+  },
+  "sam21_mlx": {
+    "backend": "sam2.1-mlx",
+    "source_repo": "https://github.com/avbiswas/sam2-mlx",
+    "source_revision": "fbeafa7531be454b8f42d89c13d1e90024a63f6b",
+    "precision": "fp32 converted weights; MLX float32 runtime defaults",
+    "source_clip": "LCATL0013.MXF 30-40s podcast calibration",
+    "frames": 20,
+    "resolution": [
+      960,
+      540
+    ],
+    "latency_seconds": {
+      "cold_model_load": 0.05042095799581148,
+      "decode_and_first_feature": 0.39865212500444613,
+      "prompt": 0.1541468750074273,
+      "propagation": 16.755350291001378,
+      "serialize_and_compare": 1.1526256250072038,
+      "end_to_end": 18.511195874016266,
+      "warm_propagation_ms_per_frame_median": 715.8962909888942
+    },
+    "quality": {
+      "mask_iou_vs_same_seed_incumbent_mean": 5.255689283649551e-06,
+      "mask_iou_vs_same_seed_incumbent_min": 0.0,
+      "mask_iou_vs_same_seed_incumbent_by_frame": [
+        0.00010511378567299102,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "laptop_box_coverage_fraction": 0.0,
+      "missing_frames": [],
+      "tracked_objects": 1,
+      "identity_scope": "clip-local object_id=1"
+    },
+    "peak_rss_bytes": 984285184,
+    "mask_file": "/tmp/vep-mu-sam/outputs/mlx_masks.npy"
+  },
+  "sam21_mlx_feature_only": {
+    "backend": "sam2.1-mlx",
+    "precision": "fp32 converted weights / float32 activations",
+    "source_clip": "LCATL0013.MXF 30-40s podcast calibration, 20 samples at 2 fps",
+    "frames": 20,
+    "decode_preprocess_seconds": 0.5251486670022132,
+    "model_load_seconds": 0.04947070899652317,
+    "feature_extraction_seconds": 5.8757881239725975,
+    "feature_latency_ms_per_frame_median": 210.62641650496516,
+    "feature_latency_ms_per_frame_mean": 293.7894061986299,
+    "peak_rss_bytes": 1085112320,
+    "feature_only_excludes_prompt_memory_propagation_serialization": true
+  },
+  "sam21_mlx_precompute": {
+    "end_to_end_seconds": 23.828686666995054,
+    "features_and_decode_init_seconds": 5.074551458004862,
+    "propagation_seconds": 14.83224762500322,
+    "warm_propagation_ms_per_frame_median": 729.0397500037216,
+    "mask_iou_vs_incumbent_mean": 5.255689283649551e-06,
+    "laptop_box_coverage_fraction": 0.0,
+    "process_peak_rss_bytes": 1018068992
+  },
+  "sam31_mlx": {
+    "status": "partial_unqualified",
+    "repo": "mlx-community/sam3.1-bf16",
+    "revision": "1f6152bb3cb86a13913560e030c8dd34ed493fdc",
+    "published_checkpoint_size_bytes": 3490000000,
+    "precision": "F32 per published config",
+    "runtime": "mlx-vlm 0.4.3",
+    "outcome": "Checkpoint loaded; prompt detection returned a non-empty result and the first tracker propagation began. Interrupted before a complete frame-series result because system memory pressure was high. No complete latency or quality score recorded."
+  },
+  "artifact_lifecycle": {
+    "sam21_source_repo": "https://github.com/avbiswas/sam2-mlx@fbeafa7531be454b8f42d89c13d1e90024a63f6b",
+    "sam21_source_checkpoint": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03",
+    "sam21_checkpoint": "pre-existing HF cache; no fresh model download",
+    "sam21_conversion": "temporary 199.7 MiB fp32 safetensors, removed after benchmark",
+    "sam31_download": "/tmp/vep-mu-sam/models/sam3.1-mlx-f32, 3.49 GB, removed after partial attempt"
+  }
+}

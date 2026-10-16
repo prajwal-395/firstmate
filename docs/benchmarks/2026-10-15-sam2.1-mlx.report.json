@@ -1,0 +1,66 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "777ed3ba0",
+  "version": {
+    "id": "sam2.1-mlx-fp32-fbeafa7",
+    "role": "candidate",
+    "models": {
+      "tracking": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03",
+      "runtime": "avbiswas/sam2-mlx@fbeafa7531be454b8f42d89c13d1e90024a63f6b"
+    }
+  },
+  "modality": "object_tracking",
+  "split": "calibration",
+  "metrics": {
+    "laptop_box_coverage": {
+      "value": 0.0,
+      "unit": "fraction of 20 frames with >=50% box coverage",
+      "dimension": "quality"
+    },
+    "mask_iou_vs_incumbent": {
+      "value": 5.255689283649551e-06,
+      "unit": "mean binary-mask IoU across 20 frames",
+      "dimension": "quality"
+    },
+    "end_to_end_seconds": {
+      "value": 18.511195874016266,
+      "unit": "seconds per 10 second clip at 2 fps",
+      "dimension": "latency"
+    },
+    "end_to_end_with_feature_precompute_seconds": {
+      "value": 23.828686666995054,
+      "unit": "seconds per 10 second clip at 2 fps",
+      "dimension": "latency"
+    },
+    "feature_extraction_seconds": {
+      "value": 5.8757881239725975,
+      "unit": "20 frames, independent feature-only pass",
+      "dimension": "latency"
+    },
+    "mask_propagation_seconds": {
+      "value": 16.755350291001378,
+      "unit": "20 frames, lazy feature extraction",
+      "dimension": "latency"
+    },
+    "process_peak_rss": {
+      "value": 0.984285184,
+      "unit": "GB (does not include all Metal memory)",
+      "dimension": "memory"
+    },
+    "measured_run_cost": {
+      "value": 18.511195874016266,
+      "unit": "wall seconds per 10 second clip",
+      "dimension": "cost"
+    }
+  },
+  "evidence": [
+    {
+      "id": "sam-laptop-calibration-2026-10-15",
+      "path": "2026-10-15-sam-lane-calibration.json",
+      "sha256": "1c6648389074d20b36cf24914eacaf37b1a6a91be33365aed5d3c230b2175b9c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

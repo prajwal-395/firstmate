@@ -1,0 +1,137 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/32/video-editing-pilot/docs/benchmarks/2026-10-15-sam2.1-mlx.report.json",
+      "sha256": "39b56db99d46c794d104bb4fe46b308b9452fd2ebcbf156a5bd07a4ebaad21cb"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/32/video-editing-pilot/docs/benchmarks/2026-10-15-sam2.1-pytorch.report.json",
+      "sha256": "5462115a96bb595fe891f5ed41d1576f277f37b1bdf1a92dfcf18ba91d2c4272"
+    }
+  ],
+  "versions": {
+    "pytorch-sam2.1-hiera-small": {
+      "modalities": {
+        "object_tracking": {
+          "calibration": {
+            "evidence_checksums": {
+              "sam-laptop-calibration-2026-10-15": "1c6648389074d20b36cf24914eacaf37b1a6a91be33365aed5d3c230b2175b9c"
+            },
+            "metrics": {
+              "end_to_end_seconds": {
+                "dimension": "latency",
+                "unit": "seconds per 10 second clip at 2 fps",
+                "value": 14.251383083988912
+              },
+              "laptop_box_coverage": {
+                "dimension": "quality",
+                "unit": "fraction of 20 frames with >=50% box coverage",
+                "value": 1.0
+              },
+              "measured_run_cost": {
+                "dimension": "cost",
+                "unit": "wall seconds per 10 second clip",
+                "value": 14.251383083988912
+              },
+              "process_peak_rss": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 1.146322944
+              },
+              "throughput_ratio": {
+                "dimension": "latency",
+                "unit": "clip seconds processed per wall second",
+                "value": 0.701687832
+              }
+            },
+            "revision": "777ed3ba0",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "tracking": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "object_tracking": []
+      }
+    },
+    "sam2.1-mlx-fp32-fbeafa7": {
+      "modalities": {
+        "object_tracking": {
+          "calibration": {
+            "evidence_checksums": {
+              "sam-laptop-calibration-2026-10-15": "1c6648389074d20b36cf24914eacaf37b1a6a91be33365aed5d3c230b2175b9c"
+            },
+            "metrics": {
+              "end_to_end_seconds": {
+                "dimension": "latency",
+                "unit": "seconds per 10 second clip at 2 fps",
+                "value": 18.511195874016266
+              },
+              "end_to_end_with_feature_precompute_seconds": {
+                "dimension": "latency",
+                "unit": "seconds per 10 second clip at 2 fps",
+                "value": 23.828686666995054
+              },
+              "feature_extraction_seconds": {
+                "dimension": "latency",
+                "unit": "20 frames, independent feature-only pass",
+                "value": 5.8757881239725975
+              },
+              "laptop_box_coverage": {
+                "dimension": "quality",
+                "unit": "fraction of 20 frames with >=50% box coverage",
+                "value": 0.0
+              },
+              "mask_iou_vs_incumbent": {
+                "dimension": "quality",
+                "unit": "mean binary-mask IoU across 20 frames",
+                "value": 5.255689283649551e-06
+              },
+              "mask_propagation_seconds": {
+                "dimension": "latency",
+                "unit": "20 frames, lazy feature extraction",
+                "value": 16.755350291001378
+              },
+              "measured_run_cost": {
+                "dimension": "cost",
+                "unit": "wall seconds per 10 second clip",
+                "value": 18.511195874016266
+              },
+              "process_peak_rss": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 0.984285184
+              }
+            },
+            "revision": "777ed3ba0",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "runtime": "avbiswas/sam2-mlx@fbeafa7531be454b8f42d89c13d1e90024a63f6b",
+        "tracking": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "object_tracking": []
+      }
+    }
+  }
+}
