@@ -181,6 +181,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/concurrency_routing.py',
         'library/tools/conversation_clock.py',
         'library/tools/depth.py',
+        # The adopted DA3 backend depth.py selects behind the M3g protocol.
+        'library/tools/depth_da3.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
         'library/tools/analysis_state.py',
@@ -673,6 +675,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/concurrency_routing.py',
         'library/tools/conversation_clock.py',
         'library/tools/depth.py',
+        # The adopted DA3 backend depth.py selects behind the M3g protocol.
+        'library/tools/depth_da3.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
         'library/tools/analysis_state.py',
@@ -1182,6 +1186,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/analysis/footage_query.py',
         'library/tools/conversation_clock.py',
         'library/tools/depth.py',
+        # The adopted DA3 backend depth.py selects behind the M3g protocol.
+        'library/tools/depth_da3.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
         'library/tools/analysis_state.py',
@@ -1709,6 +1715,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/concurrency_routing.py',
         'library/tools/conversation_clock.py',
         'library/tools/depth.py',
+        # The adopted DA3 backend depth.py selects behind the M3g protocol.
+        'library/tools/depth_da3.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
         'library/tools/analysis_state.py',
@@ -2268,6 +2276,8 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/analysis/footage_query.py',
         'library/tools/conversation_clock.py',
         'library/tools/depth.py',
+        # The adopted DA3 backend depth.py selects behind the M3g protocol.
+        'library/tools/depth_da3.py',
         'library/tools/event_spans.py',
         'library/tools/footage_intelligence.py',
         'library/tools/analysis_state.py',

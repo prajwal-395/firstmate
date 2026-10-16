@@ -274,11 +274,84 @@ def test_a_lane_without_an_estimator_refuses_rather_than_zeros(
     source, digest, root = _source(tmp_path)
     monkeypatch.delenv("PIPELINE_DEPTH_CHECKPOINT", raising=False)
     monkeypatch.delenv("PIPELINE_DEPTH_REPO", raising=False)
+    # The default backend is DA3: point its probe at empty dirs too, so
+    # the select falls through to the patched V2 probe and refuses.
+    monkeypatch.setenv("PIPELINE_DA3_REPO", str(tmp_path / "no-repo"))
+    monkeypatch.setenv("PIPELINE_DA3_WEIGHTS", str(tmp_path / "no-weights"))
+    monkeypatch.delenv("PIPELINE_DEPTH_BACKEND", raising=False)
     monkeypatch.setattr(depth, "probe_estimator",
                         lambda: (None, "no_checkpoint"))
     with pytest.raises(depth.DepthUnavailable):
         depth.build_source_depth(source, digest, root)
     assert depth.read_m3g(digest, root) is None
+
+
+def _fake_da3_assets(root):
+    """A probe-visible DA3 installation with no runnable model: the api
+    file plus one variant's weights, enough for `probe_variant`."""
+    repo = root / "Depth-Anything-3"
+    api = repo / "src" / "depth_anything_3" / "api.py"
+    api.parent.mkdir(parents=True)
+    api.write_text("# test fixture", encoding="utf-8")
+    weights = root / "da3-small" / "model.safetensors"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"test weights")
+    return repo, root
+
+
+def test_select_backend_prefers_the_adopted_da3_when_present(
+        tmp_path, monkeypatch):
+    repo, weights_root = _fake_da3_assets(tmp_path / "da3")
+    monkeypatch.setenv("PIPELINE_DA3_REPO", str(repo))
+    monkeypatch.setenv("PIPELINE_DA3_WEIGHTS", str(weights_root))
+    monkeypatch.delenv("PIPELINE_DEPTH_BACKEND", raising=False)
+    assert depth.select_backend() == ("da3-small", None)
+
+
+def test_select_backend_falls_back_to_v2_without_da3(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_DA3_REPO", str(tmp_path / "no-repo"))
+    monkeypatch.setenv("PIPELINE_DA3_WEIGHTS", str(tmp_path / "no-weights"))
+    monkeypatch.delenv("PIPELINE_DEPTH_BACKEND", raising=False)
+    monkeypatch.setattr(depth, "probe_estimator",
+                        lambda: ("depth-anything-v2-small", None))
+    assert depth.select_backend() == ("depth-anything-v2-small", None)
+
+
+def test_select_backend_refuses_when_nothing_can_run(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_DA3_REPO", str(tmp_path / "no-repo"))
+    monkeypatch.setenv("PIPELINE_DA3_WEIGHTS", str(tmp_path / "no-weights"))
+    monkeypatch.delenv("PIPELINE_DEPTH_BACKEND", raising=False)
+    monkeypatch.setattr(depth, "probe_estimator",
+                        lambda: (None, "no_checkpoint"))
+    name, reason = depth.select_backend()
+    assert name is None
+    assert reason in depth.ESTIMATOR_REASONS
+
+
+def test_a_pinned_da3_that_is_missing_refuses_loudly(
+        tmp_path, monkeypatch):
+    """An explicit pin is a promise: no silent switch to V2 when the
+    pinned DA3 assets are absent."""
+    monkeypatch.setenv("PIPELINE_DA3_REPO", str(tmp_path / "no-repo"))
+    monkeypatch.setenv("PIPELINE_DA3_WEIGHTS", str(tmp_path / "no-weights"))
+    monkeypatch.setenv("PIPELINE_DEPTH_BACKEND", "da3-base")
+    monkeypatch.setattr(depth, "probe_estimator",
+                        lambda: ("depth-anything-v2-small", None))
+    assert depth.select_backend() == (None, "da3_missing")
+
+
+def test_an_unknown_backend_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_DEPTH_BACKEND", "da3metric-large")
+    assert depth.select_backend() == (None, "unknown_backend")
+
+
+def test_metric_depth_never_enters_m3g():
+    """A metric map through percentile normalisation would silently
+    become relative (GEO-008): refuse, and say where metric lives."""
+    with pytest.raises(depth.DepthUnavailable, match="never enters M3g"):
+        depth._backend_estimator("da3metric-large")
 
 
 def test_depth_becomes_project_model_observations(tmp_path):

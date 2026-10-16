@@ -19,9 +19,9 @@ by the medians and the mask), and a declared output has a reader
 (AGENTS.md 10.1). What M3g stores is the medians plus the
 normalisation that makes them comparable across samples of one source.
 
-**The estimator is probed, never assumed.** `probe_estimator` tries the
-backends in order and names the first that can run here; with none it
-says which one is missing. `build_source_depth` raises
+**The estimator is probed, never assumed.** `select_backend` names the
+adopted DA3-Small where its assets are present and falls back to the
+retained V2 probe elsewhere; with neither it says which one is missing. `build_source_depth` raises
 `DepthUnavailable` rather than writing zeros - an unmeasured sample
 carries `regions: null` with its reason, and a run with no estimator at
 all refuses the lane. There is no stand-in: a gradient or a centre
@@ -104,6 +104,18 @@ class DepthUnavailable(RenRefusal):
     CODE = "REN_DEPTH_UNAVAILABLE"
 
 
+DEPTH_BACKEND_ENV = "PIPELINE_DEPTH_BACKEND"
+DEPTH_BACKEND_DEFAULT = "da3-small"
+DEPTH_BACKENDS = ("da3-small", "da3-base", "depth-anything-v2-small",
+                  "depth-anything-v2-small-hf")
+"""Every estimator `select_backend` may hand out for M3g. DA3-Small is the
+adopted default (`docs/benchmarks/2026-10-16-da3-depth.md`); the V2 names
+are the retained fallback. DA3-Metric-Large is absent on purpose: M3g
+stores normalized relative medians, and a metric map through percentile
+normalisation would silently become relative (GEO-008) - reach metric
+depth through `library/tools/depth_da3.py` directly, never through M3g."""
+
+
 ESTIMATOR_REASONS = {
     "no_checkpoint": "the pinned checkpoint at "
                      f"{DEPTH_CHECKPOINT} and Depth-Anything-V2 checkout "
@@ -114,9 +126,18 @@ ESTIMATOR_REASONS = {
                   "no depth backend can run",
     "direction": "the backend reports larger values as farther, opposite "
                  "to the nearer-is-brighter convention this lane reads",
+    "unknown_backend": "not a backend M3g estimates with - set "
+                       f"{DEPTH_BACKEND_ENV} to one of "
+                       f"{', '.join(DEPTH_BACKENDS)}",
+    "da3_missing": "the configured DA3 backend's official code checkout "
+                   "or its pinned weights are absent - download only the "
+                   "lane's benchmarked variants at their pinned revisions "
+                   "beside the V2 assets, with the official code checkout "
+                   "alongside them (see library/tools/depth_da3.py)",
 }
 """Every reason a depth map is not estimated. Complete: `probe_estimator`
-returns one of these keys, and the build refuses with it."""
+returns one of the first three keys, `select_backend` any key, and the
+build refuses with it."""
 
 
 def probe_estimator() -> tuple[str | None, str | None]:
@@ -176,6 +197,34 @@ def probe_estimator() -> tuple[str | None, str | None]:
             return "depth-anything-v2-small-hf", None
     _ = torch_ok
     return None, "no_checkpoint"
+
+
+def select_backend() -> tuple[str | None, str | None]:
+    """Name the M3g estimator backend, or the reason none can run.
+
+    Returns `(name, None)` or `(None, reason_key)` with the key in
+    `ESTIMATOR_REASONS`. The adopted DA3-Small is preferred; an explicit
+    `PIPELINE_DEPTH_BACKEND` pin that cannot run REFUSES loudly (no
+    silent switch to another estimator), while the default falls back
+    to the retained V2 probe so machines without DA3 weights keep
+    building exactly as before. Pure probe: never downloads.
+    """
+    from library.tools import depth_da3
+
+    pinned = DEPTH_BACKEND_ENV in os.environ
+    backend = os.environ.get(DEPTH_BACKEND_ENV, DEPTH_BACKEND_DEFAULT)
+    if backend not in DEPTH_BACKENDS:
+        return None, "unknown_backend"
+    if backend in depth_da3.VARIANTS:
+        ok, _reason = depth_da3.probe_variant(backend)
+        if ok:
+            return backend, None
+        if pinned:
+            return None, "da3_missing"
+    name, reason = probe_estimator()
+    if name is None:
+        return None, reason
+    return name, None
 
 
 def normalize_depth(depths: np.ndarray) -> tuple[np.ndarray, float, float]:
@@ -333,7 +382,7 @@ def build_source_depth(source_file: str, content_digest: str,
             f"{os.path.basename(source_file)} has no M2 frame sample with "
             f"its thumbnails on disk")
     if estimator is None:
-        name, reason = probe_estimator()
+        name, reason = select_backend()
         if name is None:
             raise DepthUnavailable(
                 "no depth map can be estimated here",
@@ -343,8 +392,9 @@ def build_source_depth(source_file: str, content_digest: str,
                 f"{DEPTH_CACHE_DIR} (checkpoint {DEPTH_CHECKPOINT}, "
                 f"source {DEPTH_REPO} @ {DEPTH_REPO_REVISION}), or set "
                 "PIPELINE_DEPTH_CHECKPOINT and PIPELINE_DEPTH_REPO to "
-                "matching local assets, then rebuild this lane; see "
-                "`docs/benchmarks/2026-10-12-depth-on-demand.md`, or "
+                "matching local assets; or install a benchmarked DA3 "
+                "backend and set PIPELINE_DEPTH_BACKEND to it - see "
+                "`docs/benchmarks/2026-10-16-da3-depth.md`, or "
                 f"cache {HF_MODEL_ID} locally; then rebuild this lane.")
         estimator = _backend_estimator(name)
     else:
@@ -409,8 +459,21 @@ def _to_grid(depth: np.ndarray, grid: Sequence[int]) -> np.ndarray:
 
 
 def _backend_estimator(name: str) -> Callable[[list[str]], list[np.ndarray]]:
-    """Thumbnail paths -> raw depth maps from the probed backend (larger
-    is nearer, the convention the lane reads)."""
+    """Thumbnail paths -> raw depth maps from the selected backend (larger
+    is nearer, the convention the lane reads). DA3 variants arrive
+    already oriented by `depth_da3.estimator_for`; metric names never
+    reach here (`select_backend` admits only `DEPTH_BACKENDS`)."""
+    if name in ("da3-small", "da3-base"):
+        from library.tools import depth_da3
+
+        return depth_da3.estimator_for(name)
+    if name == "da3metric-large":
+        raise DepthUnavailable(
+            "metric depth never enters M3g",
+            "M3g stores normalized relative medians; a metric map would "
+            "silently become relative.",
+            "Reach metric depth through library/tools/depth_da3.py "
+            "directly (GEO-008).")
     if name == "depth-anything-v2-small":
         def _dav2(paths: list[str]) -> list[np.ndarray]:
             import cv2

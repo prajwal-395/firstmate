@@ -395,6 +395,21 @@ ENVIRONMENT_CONDITIONS = (
         capability="renderer.fframes",
         install_hint="scripts/build_fframes_runtime.sh",
     ),
+    # DA3 candidate weights are captain-approved downloads held beside
+    # the V2 assets in the machine's model cache, not repo contents: the
+    # checkout this lane benchmarks from may or may not hold them, and
+    # the live-inference test opts in explicitly so no default run pays
+    # for a model pass. The skip fires only where the opt-in or the
+    # assets are absent, so it is narrowing.
+    EnvironmentCondition(
+        pattern=r"live DA3 weights only under PIPELINE_DA3_SMOKE=1",
+        false_when="PIPELINE_DA3_SMOKE=1 is exported on a machine holding "
+                   "the pinned DA3 assets (~/.cache/vep/depth/da3-small "
+                   "plus the Depth-Anything-3 checkout) - so the live "
+                   "inference proof runs",
+        capability="da3_weights",
+        install_hint="benchmark the lane, then export PIPELINE_DA3_SMOKE=1",
+    ),
 )
 
 
