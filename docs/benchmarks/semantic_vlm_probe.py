@@ -1,4 +1,4 @@
-"""Run a small, calibration-only semantic VLM comparison on Apple 001.
+"""Run calibration comparisons and a held-out inference-only VLM report.
 
 The probe reads source clips and external blind labels only. It never writes
 to a project or media source. Candidate weights and generated scratch are
@@ -6,7 +6,7 @@ deleted when the run exits; pass --out outside the repository for its JSON.
 
 Run under Ren's model-memory lock:
   bin/vep -m library.tools.heavy_work_lock run --owner vep-mu-vlm \
-    --profile semantics.analyse:model_memory -- \
+    --ram-gb 8 -- \
     bin/vep docs/benchmarks/semantic_vlm_probe.py --out /tmp/vlm.json
 """
 
@@ -37,6 +37,21 @@ ROUND2_CONSENSUS = ROOT / "docs/benchmarks/2026-10-16-vlm-round2-consensus.json"
 # candidate without a local dir is downloaded on demand into run scratch
 # and removed afterwards.
 WEIGHTS_ROOT = Path(os.environ.get("VEP_MU_VLM_WEIGHTS", "/tmp/vep-mu-vlm-weights"))
+MAX_PEAK_MEMORY_BYTES = 8 * 1024**3
+
+
+class MemoryLimitExceeded(RuntimeError):
+    """Stop immediately if either measured peak exceeds 8 GiB."""
+
+
+def _enforce_memory_limit(mx: Any, model_id: str) -> tuple[int, int]:
+    mlx_peak = int(mx.get_peak_memory())
+    # macOS reports ru_maxrss in bytes; this probe only runs on the MLX host.
+    rss_peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    if max(mlx_peak, rss_peak) > MAX_PEAK_MEMORY_BYTES:
+        raise MemoryLimitExceeded(
+            f"{model_id} exceeded 8 GiB: MLX={mlx_peak} RSS={rss_peak}")
+    return mlx_peak, rss_peak
 
 
 def _local(slug: str) -> str | None:
@@ -95,6 +110,12 @@ MODEL_SPECS = [
 SAMPLES = [
     "IMG_1806", "IMG_1807", "IMG_1808", "IMG_1809", "IMG_1810",
     "IMG_1811", "IMG_1814", "IMG_1815", "IMG_1816",
+]
+# Held-out takes are listed by the corpus, but this probe reads no held-out
+# labels. Report once, never tune. --takes accepts them; defaults to calibration.
+HELDOUT_TAKES = [
+    "IMG_1812", "IMG_1813", "IMG_1817", "IMG_1818",
+    "IMG_1820", "IMG_1821", "IMG_1822",
 ]
 PROMPT = """You are describing sampled frames from a source video interval.
 The images are ordered and correspond to these source times in seconds:
@@ -246,29 +267,47 @@ def _parse(text: str, start: float, end: float) -> tuple[dict[str, Any] | None, 
 def _infer_sample(spec: dict[str, Any], model: Any, processor: Any,
                   sample: dict[str, Any], generate: Any,
                   apply_chat_template: Any) -> dict[str, Any]:
-    prompt = PROMPT.format(
-        times=", ".join(f"{t:.3f}" for t in sample["frame_times"]),
-        start=sample["start"], end=sample["end"])
+    times = ", ".join(f"{t:.3f}" for t in sample["frame_times"])
+    if spec.get("prompt_style") == "no-example":
+        prompt = (
+            "Describe only directly visible evidence in these ordered frames "
+            f"at source-clock seconds {times}. Do not infer emotions, causes, "
+            "or identity. Return one JSON object, with no surrounding prose. "
+            "It has scene_class (vehicle, indoor, outdoor, mixed, or unknown), "
+            "and objects, actions, camera_motion arrays. Each array item has "
+            "label, start_seconds, and end_seconds. Use empty arrays when "
+            "unsupported. Limit objects to five unique items, actions to "
+            "three unique items, and camera_motion to one item; never repeat "
+            "a claim. Every interval must have positive duration. Keep times "
+            f"inside [{sample['start']}, "
+            f"{sample['end']}); assert actions only when supported by the "
+            "sampled images."
+        )
+    else:
+        prompt = PROMPT.format(times=times, start=sample["start"],
+                               end=sample["end"])
     serialize_started = time.perf_counter()
     formatted = apply_chat_template(
         processor, model.config, prompt, num_images=len(sample["images"]))
     serialize_s = time.perf_counter() - serialize_started
     infer_started = time.perf_counter()
     result = generate(model, processor, formatted,
-                      image=sample["images"], max_tokens=384,
+                      image=sample["images"],
+                      max_tokens=int(spec.get("max_tokens", 384)),
                       temperature=0.0, verbose=False)
     infer_s = time.perf_counter() - infer_started
     raw = getattr(result, "text", str(result))
     parsed, checks = _parse(raw, sample["start"], sample["end"])
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed, dict) or not checks["schema"]:
         parsed = {"objects": [], "actions": [], "camera_motion": [],
                   "scene_class": "unknown"}
     pred_objects = [{**row, "kind": "object"} for row in parsed["objects"]]
     pred_actions = [{**row, "kind": "action"} for row in parsed["actions"]]
-    obj_score = _score_outputs(pred_objects, sample["objects"])
-    act_score = _score_outputs(pred_actions, sample["actions"])
+    heldout = sample["split"] == "heldout"
+    obj_score = None if heldout else _score_outputs(pred_objects, sample["objects"])
+    act_score = None if heldout else _score_outputs(pred_actions, sample["actions"])
     return {
-        "source_id": sample["take"], "split": "calibration",
+        "source_id": sample["take"], "split": sample["split"],
         "window": [sample["start"], sample["end"]],
         "prompt_serialization_s": serialize_s, "inference_s": infer_s,
         "input_frames": len(sample["images"]), "parse": checks,
@@ -282,7 +321,8 @@ def _infer_sample(spec: dict[str, Any], model: Any, processor: Any,
 
 def run_model(spec: dict[str, Any], samples: list[dict[str, Any]],
               scratch: Path, delete_after: bool,
-              decode_s: dict[str, float]) -> dict[str, Any]:
+              decode_s: dict[str, float], seed_rows: list[dict] | None = None,
+              on_sample: Any = None) -> dict[str, Any]:
     import mlx.core as mx
     from huggingface_hub import model_info, snapshot_download
     from mlx_vlm import generate, load
@@ -309,33 +349,49 @@ def run_model(spec: dict[str, Any], samples: list[dict[str, Any]],
     model, processor = load(model_path)
     cold_load_s = time.perf_counter() - load_started
     print(f"LOADED model={spec['id']} cold_load_s={cold_load_s:.1f}", flush=True)
-    rows = []
+    _enforce_memory_limit(mx, spec["id"])
+    rows = list(seed_rows or [])
+    scored = {row["source_id"] for row in rows}
+    if scored:
+        print(f"RESUMING model={spec['id']} seeded takes={sorted(scored)}",
+              flush=True)
     for sample in samples:
+        if sample["take"] in scored:
+            continue
         print(f"SAMPLE model={spec['id']} take={sample['take']}", flush=True)
         try:
             rows.append(_infer_sample(
                 spec, model, processor, sample, generate,
                 apply_chat_template))
+            _enforce_memory_limit(mx, spec["id"])
+        # Candidate/model failures are isolated to the current sample so the
+        # long matrix can persist results from every other sample.
         except Exception as exc:
+            if isinstance(exc, MemoryLimitExceeded):
+                raise
+            _enforce_memory_limit(mx, spec["id"])
             print(f"SAMPLE_ERROR model={spec['id']} take={sample['take']} "
                   f"error={type(exc).__name__}: {exc}", flush=True)
             rows.append({
-                "source_id": sample["take"], "split": "calibration",
+                "source_id": sample["take"], "split": sample["split"],
                 "window": [sample["start"], sample["end"]],
                 "error": f"{type(exc).__name__}: {exc}",
                 "parse": {"json": False, "schema": False, "timestamps": False,
                           "fenced": False},
                 "scene_class": None,
-                "object_metrics": {"precision": None, "recall": None,
-                                   "hallucinated_claims": 0,
-                                   "missed_observations": 0, "matches": []},
-                "action_metrics": {"precision": None, "recall": None,
-                                   "hallucinated_claims": 0,
-                                   "missed_observations": 0, "matches": []},
+                "object_metrics": None if sample["split"] == "heldout" else {
+                    "precision": None, "recall": None,
+                    "hallucinated_claims": 0,
+                    "missed_observations": 0, "matches": []},
+                "action_metrics": None if sample["split"] == "heldout" else {
+                    "precision": None, "recall": None,
+                    "hallucinated_claims": 0,
+                    "missed_observations": 0, "matches": []},
                 "raw_output": None, "tokens": {"input": None, "output": None},
             })
-    active_memory = int(mx.get_peak_memory())
-    max_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if on_sample is not None:
+            on_sample(list(rows))
+    active_memory, max_rss = _enforce_memory_limit(mx, spec["id"])
     del model, processor
     gc.collect()
     mx.clear_cache()
@@ -369,11 +425,15 @@ def build_samples(all_labels: list[dict[str, Any]], takes: list[str], scratch: P
         start, end = 0.0, min(10.0, duration)
         frames, times, elapsed = _extract_frames(path, duration, scratch / "frames")
         decode_s[take] = elapsed
+        split = "heldout" if take in HELDOUT_TAKES else "calibration"
+        # The held-out labels are deliberately never read by this probe.
+        references = ([], []) if split == "heldout" else (
+            _references(all_labels, take, "object", start, end),
+            _references(all_labels, take, "action", start, end))
         samples.append({
             "take": take, "start": start, "end": end,
             "images": frames, "frame_times": times,
-            "objects": _references(all_labels, take, "object", start, end),
-            "actions": _references(all_labels, take, "action", start, end),
+            "split": split, "objects": references[0], "actions": references[1],
         })
     return samples, decode_s
 
@@ -387,6 +447,9 @@ def aggregate(result: dict[str, Any]) -> None:
         result[field + "_valid_rate"] = result[field + "_valid_count"] / total
     for kind in ("object", "action"):
         key = kind + "_metrics"
+        if any(s.get(key) is None for s in samples):
+            result[key] = None
+            continue
         predictions = sum(s[key]["hallucinated_claims"] + len(s[key]["matches"]) for s in samples)
         references = sum(s[key]["missed_observations"] + len(s[key]["matches"]) for s in samples)
         hits = sum(len(s[key]["matches"]) for s in samples)
@@ -405,11 +468,14 @@ def aggregate(result: dict[str, Any]) -> None:
            if "prompt_serialization_s" in row]
     result["serialize_mean_s_per_sample"] = sum(ser) / len(ser) if ser else None
     result["end_to_end_cost_s_per_sample"] = (
+        None if result["cold_load_s"] is None else
         result["decode_mean_s_per_sample"] + result["cold_load_s"] / len(samples)
         + (result["warm_latency_mean_s"] or 0.0)
         + (result["serialize_mean_s_per_sample"] or 0.0))
+    held = any(row["source_id"] in HELDOUT_TAKES for row in samples)
     result["measurement_scope"] = (
-        f"calibration only; {len(samples)} Apple 001 takes "
+        f"{'held-out report-only' if held else 'calibration only'}; "
+        f"{len(samples)} Apple 001 takes "
         f"({','.join(row['source_id'] for row in samples)}); "
         "0-10s or clip duration")
 
@@ -418,11 +484,18 @@ def _write_output(args: argparse.Namespace, results: list[dict[str, Any]],
                   decode_s: dict[str, float], takes: list[str],
                   complete: bool) -> None:
     output = {
-        "schema": "semantic-vlm-probe-v1", "split": "calibration",
+        "schema": "semantic-vlm-probe-v1",
+        "split": ("heldout" if any(t in HELDOUT_TAKES for t in takes)
+                  else "calibration"),
         "takes": takes, "complete": complete,
-        "label_type": "blind agent consensus; not human/gold labels",
-        "label_sources": [str(LABELS), str(ROUND2_CONSENSUS)],
-        "label_revision": "evaluator-only consensus plus round-2 agreed pairs plus tiebreak-confirmed claims; unresolved disputes and tiebreak-only rows are not scored",
+        "label_type": ("not used; held-out inference-only report" if
+                       any(t in HELDOUT_TAKES for t in takes) else
+                       "blind agent consensus; not human/gold labels"),
+        "label_sources": ([] if any(t in HELDOUT_TAKES for t in takes)
+                          else [str(LABELS), str(ROUND2_CONSENSUS)]),
+        "label_revision": ("not used on held-out inference-only report" if
+                           any(t in HELDOUT_TAKES for t in takes) else
+                           "evaluator-only consensus plus round-2 agreed pairs plus tiebreak-confirmed claims; unresolved disputes and tiebreak-only rows are not scored"),
         "decode_seconds_by_source": decode_s,
         "environment": {
             "python": os.sys.version,
@@ -449,40 +522,128 @@ def main() -> None:
                         help="limit samples to these take stems (e.g. IMG_1808); "
                         "repeatable; recorded in output so a filtered run is "
                         "never mistaken for a full run")
+    parser.add_argument("--prompt-style", choices=("standard", "no-example"),
+                        default="standard")
+    parser.add_argument("--max-tokens", type=int, default=384)
     parser.add_argument("--keep-downloads", action="store_true")
     args = parser.parse_args()
+    if args.max_tokens <= 0:
+        raise SystemExit("--max-tokens must be positive")
     takes = args.takes or SAMPLES
-    unknown = [t for t in takes if t not in SAMPLES]
+    known = SAMPLES + HELDOUT_TAKES
+    unknown = [t for t in takes if t not in known]
     if unknown:
-        raise SystemExit(f"unknown takes: {unknown}; known: {SAMPLES}")
+        raise SystemExit(f"unknown takes: {unknown}; known: {known}")
+    if (any(t in HELDOUT_TAKES for t in takes)
+            and any(t in SAMPLES for t in takes)):
+        raise SystemExit("calibration and held-out takes must be separate runs")
+    if any(t in HELDOUT_TAKES for t in takes):
+        print("HELD-OUT run: report-only, no tuning on these takes", flush=True)
     with tempfile.TemporaryDirectory(prefix="vep-mu-vlm-") as scratch_raw:
         scratch = Path(scratch_raw)
         (scratch / "frames").mkdir()
-        all_labels = [
-            json.loads(LABELS.read_text(encoding="utf-8")),
-            json.loads(ROUND2_CONSENSUS.read_text(encoding="utf-8")),
-        ]
+        calibration_requested = any(t in SAMPLES for t in takes)
+        all_labels = []
+        if calibration_requested:
+            all_labels = [
+                json.loads(LABELS.read_text(encoding="utf-8")),
+                json.loads(ROUND2_CONSENSUS.read_text(encoding="utf-8")),
+            ]
         samples, decode_s = build_samples(all_labels, takes, scratch)
         specs = [s for s in MODEL_SPECS if not args.only or s["id"] in args.only]
         for raw_spec in args.spec_json:
             extra = json.loads(raw_spec)
             if not args.only or extra["id"] in args.only:
                 specs.append(extra)
+        for spec in specs:
+            spec["prompt_style"] = args.prompt_style
+            spec["max_tokens"] = args.max_tokens
+        # Resume: an earlier run killed mid-model leaves complete=false
+        # output with scored takes; those takes are reused, never re-run.
+        # A run that already completed every requested take is skipped.
+        prior: dict[str, dict[str, Any]] = {}
+        if args.out.exists():
+            try:
+                for cand in json.loads(args.out.read_text(
+                        encoding="utf-8")).get("candidates", []):
+                    prior[cand["id"]] = cand
+            except (json.JSONDecodeError, OSError, AttributeError) as exc:
+                print(f"RESUME ignored unreadable out file: {exc}", flush=True)
         results = []
+        slot: dict[str, dict] = {}
         try:
             for spec in specs:
+                prior_candidate = prior.get(spec["id"], {})
+                same_configuration = (
+                    prior_candidate.get("prompt_style", "standard") ==
+                    spec["prompt_style"] and
+                    prior_candidate.get("max_tokens", 384) == spec["max_tokens"])
+                seed = [row for row in prior_candidate.get("samples", [])
+                        if same_configuration
+                        if row.get("source_id") in set(takes)]
+                if any(row.get("source_id") in HELDOUT_TAKES for row in seed):
+                    # A prior temporary run may have used the old split label
+                    # or accidentally scored against a calibration table.
+                    # Retain only raw inference and parse results for held-out.
+                    seed = [{**row, "split": "heldout",
+                             "object_metrics": None,
+                             "action_metrics": None}
+                            for row in seed]
+                needed = [s for s in samples
+                          if s["take"] not in {r["source_id"] for r in seed}]
+
+                def _flush(rows, _results=results, _spec=spec, _slot=slot):
+                    partial = {"samples": rows,
+                               "warm_latency_s": [r["inference_s"] for r in rows
+                                                  if "inference_s" in r],
+                               "decode_seconds_by_source": decode_s,
+                               "cold_load_s": 0.0}
+                    aggregate(partial)
+                    _slot[_spec["id"]] = {"id": _spec["id"], **partial,
+                                          "partial": True}
+                    _write_output(args, _results + list(_slot.values()),
+                                  decode_s, takes, complete=False)
+
+                if not needed and seed:
+                    print(f"SKIPPING model={spec['id']}: all takes scored",
+                          flush=True)
+                    entry = {**prior_candidate, "id": spec["id"],
+                             "samples": seed, "warm_latency_s": [
+                                 r["inference_s"] for r in seed
+                                 if "inference_s" in r],
+                             "decode_seconds_by_source": decode_s,
+                             "cold_load_s": (None if prior_candidate.get("partial")
+                                             else prior_candidate.get("cold_load_s")),
+                             "resumed": True,
+                             "prior_run_provenance": (
+                                 "reused raw outputs; timing or memory fields "
+                                 "are unknown when absent from the prior run")}
+                    aggregate(entry)
+                    results.append({**{k: v for k, v in spec.items()
+                                       if k != "local"},
+                                    **entry})
+                    _write_output(args, results, decode_s, takes,
+                                  complete=False)
+                    continue
                 result = run_model(spec, samples, scratch,
                                    delete_after=not args.keep_downloads,
-                                   decode_s=decode_s)
+                                   decode_s=decode_s, seed_rows=seed,
+                                   on_sample=_flush)
+                slot.pop(spec["id"], None)
                 aggregate(result)
                 results.append(result)
                 warm = result["warm_latency_mean_s"]
+                object_metrics = result["object_metrics"]
+                object_precision = ("n/a" if object_metrics is None else
+                                    f"{object_metrics['precision']:.3f}")
+                object_recall = ("n/a" if object_metrics is None else
+                                 str(object_metrics["recall"]))
                 print(f"FINISHED model={spec['id']} cold={result['cold_load_s']:.2f}s "
                       f"warm_mean={'n/a' if warm is None else f'{warm:.2f}s'} "
                       f"errors={result['error_samples']} "
                       f"schema={result['schema_valid_rate']:.3f} "
-                      f"obj_pr={result['object_metrics']['precision']:.3f} "
-                      f"obj_rc={result['object_metrics']['recall']}", flush=True)
+                      f"obj_pr={object_precision} obj_rc={object_recall}",
+                      flush=True)
                 _write_output(args, results, decode_s, takes, complete=False)
         finally:
             for child in scratch.glob("weights-*"):

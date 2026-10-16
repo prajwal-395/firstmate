@@ -30,6 +30,12 @@ def test_escalation_triggers_are_observable_signals():
     assert policy.should_escalate(
         {"parse": {"json": True, "schema": False}})[0] is True
     assert policy.should_escalate(
+        {"parse": {"json": True, "schema": True,
+                   "timestamps": False},
+         "objects": [{"label": "car"}], "scene_class": "vehicle"})[0] is True
+    assert policy.should_escalate(
+        {"status": "failed", "parse": {"json": False}})[0] is True
+    assert policy.should_escalate(
         {"parse": {"json": True, "schema": True},
          "objects": [], "actions": []})[0] is True
     assert policy.should_escalate(

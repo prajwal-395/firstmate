@@ -57,15 +57,20 @@ def should_escalate(observation: dict) -> tuple[bool, str]:
     must be re-done by the strong tier.
 
     `observation` carries only what the caller measured about the
-    lightweight answer: parse flags (`json`, `schema`), whether the claim
-    lists came back empty, and whether the scene read `unknown`. Returns
+    lightweight answer: status, parse flags (`json`, `schema`, `timestamps`),
+    whether the claim lists came back empty, and whether the scene read
+    `unknown`. Returns
     (escalate, reason); reason is always a measured signal, never taste.
     """
+    if observation.get("status", "completed") != "completed":
+        return True, f"lightweight inference status is {observation['status']}"
     parse = observation.get("parse", {})
     if not parse.get("json", False):
         return True, "lightweight output is not JSON"
     if not parse.get("schema", False):
         return True, "lightweight output fails the response schema"
+    if not parse.get("timestamps", True):
+        return True, "lightweight output has invalid source-clock timestamps"
     if not observation.get("objects") and not observation.get("actions"):
         return True, "lightweight answer carries no claims"
     if observation.get("scene_class") == "unknown":
@@ -75,8 +80,8 @@ def should_escalate(observation: dict) -> tuple[bool, str]:
 
 def resolve_model_id(tier: str, escalation_enabled: bool = False) -> str:
     """Map a tier to a model id. The incumbent is returned unless the
-    caller explicitly opts into escalation; there is no path here that
-    changes the default behind anyone's back.
+    caller explicitly opts into the lightweight candidate; there is no path
+    here that changes the default.
     """
     if tier == "lightweight" and escalation_enabled:
         return FALLBACK_MODEL_ID

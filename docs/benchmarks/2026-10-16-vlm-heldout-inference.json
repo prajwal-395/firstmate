@@ -1,0 +1,490 @@
+{
+  "schema": "semantic-vlm-probe-v1",
+  "split": "heldout",
+  "takes": [
+    "IMG_1812",
+    "IMG_1813",
+    "IMG_1817",
+    "IMG_1818",
+    "IMG_1820",
+    "IMG_1821",
+    "IMG_1822"
+  ],
+  "complete": true,
+  "label_type": "not used; held-out inference-only report",
+  "label_sources": [],
+  "label_revision": "not used on held-out examples",
+  "decode_seconds_by_source": {
+    "IMG_1812": 0.9797006250009872,
+    "IMG_1813": 1.0980398329993477,
+    "IMG_1817": 0.6179222499995376,
+    "IMG_1818": 0.8972534159984207,
+    "IMG_1820": 0.6732856669987086,
+    "IMG_1821": 0.6607317919988418,
+    "IMG_1822": 0.8366285419979249
+  },
+  "environment": {
+    "python": "3.12.13 (main, Apr 14 2026, 14:33:40) [Clang 22.1.3 ]",
+    "mlx_version": "0.32.4",
+    "mlx_vlm_version": "0.7.2"
+  },
+  "candidates": [
+    {
+      "id": "mlx-community/gemma-4-12b-it-4bit",
+      "role": "baseline",
+      "precision": "MLX 4-bit",
+      "revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "license_class": "conditional Gemma Terms (registry record)",
+      "license_record": "library/model_registry/registry.json",
+      "prompt_style": "standard",
+      "max_tokens": 384,
+      "samples": [
+        {
+          "source_id": "IMG_1812",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.7645298749994254,
+          "inference_s": 139.67291837499943,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"outdoor\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.250,\"end_seconds\":9.750},{\"label\":\"hat\",\"start_seconds\":0.250,\"end_seconds\":9.750},{\"label\":\"building\",\"start_seconds\":0.250,\"end_seconds\":9.750},{\"label\":\"tree\",\"start_seconds\":0.250,\"end_seconds\":9.750}],\"actions\":[{\"label\":\"moving\",\"start_seconds\":0.250,\"end_seconds\":9.750}],\"camera_motion\":[{\"label\":\"panning\",\"start_seconds\":0.250,\"end_seconds\":9.750}]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 170
+          }
+        },
+        {
+          "source_id": "IMG_1813",
+          "split": "heldout",
+          "window": [
+            0.0,
+            9.068333
+          ],
+          "prompt_serialization_s": 0.04238695900130551,
+          "inference_s": 23.925225291997776,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": false
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "{\"scene_class\":\"outdoor\",\"objects\":[{\"label\":\"building\",\"start_seconds\":0.25,\"end_seconds\":8.818},{\"label\":\"bench\",\"start_seconds\":0.25,\"end_seconds\":8.818},{\"label\":\"firewood\",\"start_seconds\":0.25,\"end_seconds\":8.818},{\"label\":\"person\",\"start_seconds\":4.534,\"end_seconds\":8.818}],\"actions\":[],\"camera_motion\":[{\"label\":\"moving_forward\",\"start_seconds\":0.25,\"end_seconds\":8.818}]}",
+          "tokens": {
+            "input": 1576,
+            "output": 137
+          }
+        },
+        {
+          "source_id": "IMG_1817",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.009931625001627253,
+          "inference_s": 13.62978458300131,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"outdoor\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.0,\"end_seconds\":10.0}],\"actions\":[],\"camera_motion\":[{\"label\":\"panning\",\"start_seconds\":0.0,\"end_seconds\":10.0}]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 66
+          }
+        },
+        {
+          "source_id": "IMG_1818",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.004376500000944361,
+          "inference_s": 14.992243874999986,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"outdoor\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.0,\"end_seconds\":10.0}],\"actions\":[],\"camera_motion\":[{\"label\":\"panning\",\"start_seconds\":0.0,\"end_seconds\":10.0}]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 66
+          }
+        },
+        {
+          "source_id": "IMG_1820",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.029445416999806184,
+          "inference_s": 16.837291125000775,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"outdoor\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.0,\"end_seconds\":10.0}],\"actions\":[],\"camera_motion\":[{\"label\":\"handheld_shake\",\"start_seconds\":0.0,\"end_seconds\":10.0}]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 68
+          }
+        },
+        {
+          "source_id": "IMG_1821",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.02141449999908218,
+          "inference_s": 19.95911470899955,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "indoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"indoor\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.0,\"end_seconds\":10.0}],\"actions\":[],\"camera_motion\":[{\"label\":\"shaking\",\"start_seconds\":0.0,\"end_seconds\":10.0}]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 66
+          }
+        },
+        {
+          "source_id": "IMG_1822",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.17900495899812086,
+          "inference_s": 238.07312566700057,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "vehicle",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\"scene_class\":\"vehicle\",\"objects\":[{\"label\":\"person\",\"start_seconds\":0.25,\"end_seconds\":9.75},{\"label\":\"hat\",\"start_seconds\":0.25,\"end_seconds\":9.75},{\"label\":\"car_interior\",\"start_seconds\":0.25,\"end_seconds\":9.75}],\"actions\":[{\"label\":\"hand_gesture\",\"start_seconds\":7.375,\"end_seconds\":9.75}],\"camera_motion\":[]}\n```",
+          "tokens": {
+            "input": 1572,
+            "output": 117
+          }
+        }
+      ],
+      "warm_latency_s": [
+        139.67291837499943,
+        23.925225291997776,
+        13.62978458300131,
+        14.992243874999986,
+        16.837291125000775,
+        19.95911470899955,
+        238.07312566700057
+      ],
+      "decode_seconds_by_source": {
+        "IMG_1812": 0.9797006250009872,
+        "IMG_1813": 1.0980398329993477,
+        "IMG_1817": 0.6179222499995376,
+        "IMG_1818": 0.8972534159984207,
+        "IMG_1820": 0.6732856669987086,
+        "IMG_1821": 0.6607317919988418,
+        "IMG_1822": 0.8366285419979249
+      },
+      "cold_load_s": null,
+      "resumed": true,
+      "error_samples": 0,
+      "json_valid_count": 7,
+      "json_valid_rate": 1.0,
+      "schema_valid_count": 7,
+      "schema_valid_rate": 1.0,
+      "timestamps_valid_count": 7,
+      "timestamps_valid_rate": 1.0,
+      "fenced_valid_count": 6,
+      "fenced_valid_rate": 0.8571428571428571,
+      "object_metrics": null,
+      "action_metrics": null,
+      "warm_latency_mean_s": 66.72710051799992,
+      "decode_mean_s_per_sample": 0.8233660178562526,
+      "serialize_mean_s_per_sample": 0.15015569071433024,
+      "end_to_end_cost_s_per_sample": null,
+      "measurement_scope": "held-out report-only inference; no labels or quality scoring",
+      "peak_mlx_memory_bytes": null,
+      "peak_rss_bytes": null,
+      "prior_run_provenance": "Raw held-out inference was already present in the temporary output, mislabeled calibration by the prior probe; retained only parse checks and raw responses, removed all reference-derived metrics."
+    },
+    {
+      "id": "mlx-community/Qwen3.5-4B-4bit",
+      "role": "candidate",
+      "precision": "MLX 4-bit",
+      "revision": "0e7ffd5c629ef7719d4cbc04069232580bfa9d9c",
+      "license_class": "conditional Apache (conversion artifact needs review)",
+      "license_record": "vep-mu-license qwen35_4b.json",
+      "prompt_style": "standard",
+      "max_tokens": 384,
+      "weights_path": "/tmp/vep-mu-vlm-weights/Qwen3.5-4B-4bit",
+      "artifact_bytes": 3061130647,
+      "download_path": null,
+      "published_license": null,
+      "downloaded_bytes": 0,
+      "cold_load_s": 3.2444559580035275,
+      "warm_latency_s": [
+        41.64352683400648,
+        36.31952554199961,
+        39.53272379199916,
+        34.226377500002855,
+        33.13417104200198,
+        32.526051791996,
+        40.86905091600056
+      ],
+      "peak_mlx_memory_bytes": 5280918962,
+      "peak_rss_bytes": 1824735232,
+      "samples": [
+        {
+          "source_id": "IMG_1812",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.0667786249978235,
+          "inference_s": 41.64352683400648,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": false,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"outdoor\",\n  \"objects\": [\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 9.75\n    },\n    {\n      \"label\": \"car\",\n      \"start_seconds\": 2.625,\n      \"end_seconds\": 2.625\n    },\n    {\n      \"label\": \"building\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 9.75\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"looking up\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 5.0\n    },\n    {\n      \"label\": \"looking at camera\",\n      \"start_seconds\": 5.0,\n      \"end_seconds\": 9.75\n    },\n    {\n      \"label\": \"touching face\",\n      \"start_seconds\": 9.75,\n      \"end_seconds\": 9.75\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"shaky\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 9.75\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10445,
+            "output": 308
+          }
+        },
+        {
+          "source_id": "IMG_1813",
+          "split": "heldout",
+          "window": [
+            0.0,
+            9.068333
+          ],
+          "prompt_serialization_s": 0.0025863330010906793,
+          "inference_s": 36.31952554199961,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": false,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"outdoor\",\n  \"objects\": [\n    {\n      \"label\": \"building\",\n      \"start_seconds\": 0.25,\n      \"end_seconds\": 4.53\n    },\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 6.68,\n      \"end_seconds\": 8.82\n    },\n    {\n      \"label\": \"footwear\",\n      \"start_seconds\": 8.82,\n      \"end_seconds\": 8.82\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"walking\",\n      \"start_seconds\": 0.25,\n      \"end_seconds\": 8.82\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"panning\",\n      \"start_seconds\": 0.25,\n      \"end_seconds\": 4.53\n    },\n    {\n      \"label\": \"selfie\",\n      \"start_seconds\": 6.68,\n      \"end_seconds\": 8.82\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10449,
+            "output": 272
+          }
+        },
+        {
+          "source_id": "IMG_1817",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.0018753750046016648,
+          "inference_s": 39.53272379199916,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": false,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"outdoor\",\n  \"objects\": [\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"building\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"car\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"street sign\",\n      \"start_seconds\": 2.625,\n      \"end_seconds\": 9.750\n    },\n    {\n      \"label\": \"store\",\n      \"start_seconds\": 5.000,\n      \"end_seconds\": 5.000\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"walking\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"looking around\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"pointing\",\n      \"start_seconds\": 5.000,\n      \"end_seconds\": 5.000\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"handheld\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10445,
+            "output": 384
+          }
+        },
+        {
+          "source_id": "IMG_1818",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.0026749580065370537,
+          "inference_s": 34.226377500002855,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"outdoor\",\n  \"objects\": [\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"car\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"building\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"walking\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"handheld\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10445,
+            "output": 228
+          }
+        },
+        {
+          "source_id": "IMG_1820",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.0025016670042532496,
+          "inference_s": 33.13417104200198,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "outdoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"outdoor\",\n  \"objects\": [\n    {\n      \"label\": \"vehicle\",\n      \"start_seconds\": 2.625,\n      \"end_seconds\": 9.75\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"walking\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 9.75\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"handheld\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 9.75\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10445,
+            "output": 158
+          }
+        },
+        {
+          "source_id": "IMG_1821",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.002746375001152046,
+          "inference_s": 32.526051791996,
+          "input_frames": 5,
+          "parse": {
+            "json": true,
+            "schema": true,
+            "timestamps": true,
+            "fenced": true
+          },
+          "scene_class": "indoor",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"indoor\",\n  \"objects\": [\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"walking\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ],\n  \"camera_motion\": [\n    {\n      \"label\": \"moving\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    }\n  ]\n}\n```",
+          "tokens": {
+            "input": 10445,
+            "output": 155
+          }
+        },
+        {
+          "source_id": "IMG_1822",
+          "split": "heldout",
+          "window": [
+            0.0,
+            10.0
+          ],
+          "prompt_serialization_s": 0.0021424170045065694,
+          "inference_s": 40.86905091600056,
+          "input_frames": 5,
+          "parse": {
+            "json": false,
+            "schema": false,
+            "timestamps": false,
+            "fenced": false
+          },
+          "scene_class": "unknown",
+          "object_metrics": null,
+          "action_metrics": null,
+          "raw_output": "```json\n{\n  \"scene_class\": \"vehicle\",\n  \"objects\": [\n    {\n      \"label\": \"person\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"car\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"building\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"cap\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"shirt\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"bracelet\",\n      \"start_seconds\": 3.625,\n      \"end_seconds\": 9.750\n    },\n    {\n      \"label\": \"ring\",\n      \"start_seconds\": 3.625,\n      \"end_seconds\": 9.750\n    },\n    {\n      \"label\": \"keys\",\n      \"start_seconds\": 3.625,\n      \"end_seconds\": 9.750\n    }\n  ],\n  \"actions\": [\n    {\n      \"label\": \"sitting\",\n      \"start_seconds\": 0.0,\n      \"end_seconds\": 10.0\n    },\n    {\n      \"label\": \"looking at camera\",\n      \"start_seconds\": 0",
+          "tokens": {
+            "input": 10445,
+            "output": 384
+          }
+        }
+      ],
+      "decode_seconds_by_source": {
+        "IMG_1812": 0.9797006250009872,
+        "IMG_1813": 1.0980398329993477,
+        "IMG_1817": 0.6179222499995376,
+        "IMG_1818": 0.8972534159984207,
+        "IMG_1820": 0.6732856669987086,
+        "IMG_1821": 0.6607317919988418,
+        "IMG_1822": 0.8366285419979249
+      },
+      "download_removed": false,
+      "error_samples": 0,
+      "json_valid_count": 6,
+      "json_valid_rate": 0.8571428571428571,
+      "schema_valid_count": 6,
+      "schema_valid_rate": 0.8571428571428571,
+      "timestamps_valid_count": 3,
+      "timestamps_valid_rate": 0.42857142857142855,
+      "fenced_valid_count": 6,
+      "fenced_valid_rate": 0.8571428571428571,
+      "object_metrics": null,
+      "action_metrics": null,
+      "warm_latency_mean_s": 36.89306105971524,
+      "decode_mean_s_per_sample": 0.8233660178562526,
+      "serialize_mean_s_per_sample": 0.011615107145709251,
+      "end_to_end_cost_s_per_sample": 38.19153589300342,
+      "measurement_scope": "held-out report-only inference; no labels or quality scoring"
+    }
+  ],
+  "report_note": "One held-out report pass. No labels or reference metrics are included. Gemma raw outputs were reused from an existing temporary inference pass; its original cold-load and peak-memory metadata were unavailable. Qwen ran in this pass."
+}

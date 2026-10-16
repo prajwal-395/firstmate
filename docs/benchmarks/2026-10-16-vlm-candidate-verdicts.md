@@ -95,3 +95,35 @@ ship precision for the conditional fallback.
   profile for 5 GB+ models, record footprints, delete weights) was
   followed throughout: all runs were sequential under
   `semantics.analyse:model_memory`; footprints are in the scorecards.
+
+## Follow-up: narrow prompt and held-out inference
+
+The SEM-007 follow-up used the same nine calibration takes with a no-example
+prompt and a 768-token cap. SmolVLM2-2.2B 4-bit returned schema-valid
+output on 6/9 takes, valid timestamps on 4/9, and scored 0 object/action
+precision and recall against blind agent consensus. Peak MLX memory was
+3.97 GB, peak RSS 1.41 GB, warm latency 24.69 s, and end-to-end cost
+25.25 s per sample. It remains rejected for semantic annotation. The exact
+checkpoint was `smdesai/SmolVLM2-2.2B-Instruct-4bit` revision
+`0a4ab666f99095e6c6bd0e1e49aca8822fc46df2` (1,463,072,518 bytes); the
+run downloaded it to the temporary path recorded in the scorecard and
+removed it when finished.
+
+A single held-out inference report is in
+`2026-10-16-vlm-heldout-inference.json`. It contains no labels or reference
+metrics. Qwen was run once across the seven held-out Apple 001 takes: JSON
+and schema were valid on 6/7, but source-clock timestamps were valid on only
+3/7. Gemma raw outputs already existed in an earlier temporary pass and
+were reused; that pass mislabeled them as calibration and included
+reference-derived metrics. Those metric fields were removed before this
+report, leaving only its raw outputs and parse checks; its cold-load and
+peak-memory metadata were unavailable. Gemma parsed valid JSON, schema, and
+timestamps on 7/7. This is technical structured-output evidence only, not a
+claim about perceived content. The held-out result does not confirm Qwen as a
+reliable production fallback; it remains explicit opt-in only, and malformed,
+empty, abstaining, failed, or mistimed lightweight replies now retry through
+the lifecycle-supplied Gemma adapter.
+
+The Qwen weight directory was present from prior calibration work during the
+held-out run. It was removed afterwards from
+`/tmp/vep-mu-vlm-weights/Qwen3.5-4B-4bit`.

@@ -129,7 +129,45 @@
         "lane_record": "vep-mu-license smolvlm2.json"
       },
       "decision": "reject",
-      "decision_why": "Schema-perfect, content-vacuous: echoes the prompt schema placeholders. Research-only for a redesigned narrow prompt."
+      "decision_why": "Schema-perfect, content-vacuous: echoes the prompt schema placeholders. Research-only for a redesigned narrow prompt.",
+      "follow_up_no_example_prompt": {
+        "precision": "MLX 4-bit",
+        "revision": "0a4ab666f99095e6c6bd0e1e49aca8822fc46df2",
+        "prompt_style": "no-example",
+        "max_tokens": 768,
+        "quality": {
+          "json_valid_rate": 0.7777777777777778,
+          "schema_valid_rate": 0.6666666666666666,
+          "timestamps_valid_rate": 0.4444444444444444,
+          "object_precision": 0.0,
+          "object_recall": 0.0,
+          "object_hallucinated": 29,
+          "object_missed": 28,
+          "action_precision": 0.0,
+          "action_recall": 0.0,
+          "action_hallucinated": 20,
+          "action_missed": 11,
+          "error_samples": 0
+        },
+        "latency_s": {
+          "cold_load": 1.0825867500025197,
+          "warm_mean_per_sample": 24.692756754890272,
+          "decode_mean_per_sample": 0.4334121990015976,
+          "serialize_mean_per_sample": 0.0017606202228408721,
+          "end_to_end_per_sample": 25.248216990781657
+        },
+        "peak_memory_GB": {
+          "mlx": 3.968,
+          "rss": 1.414
+        },
+        "download": {
+          "size_bytes": 1463072518,
+          "path": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/vep-mu-vlm-jnefuln_/weights-smdesai-SmolVLM2-2-2B-Instruct-4bit",
+          "removed_after_benchmark": true
+        },
+        "decision": "reject",
+        "decision_why": "No-example prompt still scored zero object/action precision and recall; only 6/9 schema-valid and 4/9 timestamp-valid. The original 384-token pass also truncated outputs; the 768-token retest is the reported result."
+      }
     },
     {
       "model": "mlx-community/SmolVLM2-500M-Video-Instruct-mlx",
