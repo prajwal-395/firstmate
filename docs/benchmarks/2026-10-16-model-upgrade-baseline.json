@@ -1,0 +1,3951 @@
+{
+  "code": {
+    "branch_at_measurement": "fm/vep-mu-baseline",
+    "git_commit": "bbb0ec85f0b3cac4ff7b4e5bea9dc2b018bb8b95",
+    "git_commit_date": "2026-10-15",
+    "tree_clean_before_report_changes": true
+  },
+  "coverage_inventory": {
+    "apple001_per_source": {
+      "IMG_1806": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 7,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.08,
+          "valid_sample_frames": 7,
+          "wall_seconds": 36.1
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 3.5667
+      },
+      "IMG_1807": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 35.3,
+          "sampled_frames": 34,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.75,
+          "valid_sample_frames": 12,
+          "wall_seconds": 125.5
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 17.103333
+      },
+      "IMG_1808": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 56,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 1.58,
+          "valid_sample_frames": 56,
+          "wall_seconds": 206.5
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 27.7717
+      },
+      "IMG_1809": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 44.4,
+          "sampled_frames": 54,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.61,
+          "valid_sample_frames": 24,
+          "wall_seconds": 169.0
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 26.776667
+      },
+      "IMG_1810": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 43.8,
+          "sampled_frames": 16,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.18,
+          "valid_sample_frames": 7,
+          "wall_seconds": 73.8
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 7.903333
+      },
+      "IMG_1811": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 46,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.88,
+          "valid_sample_frames": 46,
+          "wall_seconds": 77.5
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 22.87
+      },
+      "IMG_1812": {
+        "M2_M3_sampled_evidence": {
+          "M2_frames": 144,
+          "M3_face_samples": 88,
+          "M3_hand_samples": 9,
+          "coverage_percent_of_source_time": null
+        },
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 278,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 4.69,
+          "valid_sample_frames": 278,
+          "wall_seconds": 250.0
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 139.1317
+      },
+      "IMG_1813": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 66.7,
+          "sampled_frames": 18,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.5,
+          "valid_sample_frames": 12,
+          "wall_seconds": 92.4
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 9.068333
+      },
+      "IMG_1814": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 92,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 3.92,
+          "valid_sample_frames": 92,
+          "wall_seconds": 316.9
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 45.943333
+      },
+      "IMG_1815": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 13,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.67,
+          "valid_sample_frames": 13,
+          "wall_seconds": 66.7
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 6.3
+      },
+      "IMG_1816": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 377,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 19.11,
+          "valid_sample_frames": 377,
+          "wall_seconds": 1347.9
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 188.578333
+      },
+      "IMG_1817": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 83,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 3.89,
+          "valid_sample_frames": 83,
+          "wall_seconds": 322.7
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 41.51
+      },
+      "IMG_1818": {
+        "M2_M3_sampled_evidence": {
+          "M2_frames": 89,
+          "M3_face_samples": 81,
+          "M3_hand_samples": 2,
+          "coverage_percent_of_source_time": null
+        },
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 171,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 6.7,
+          "valid_sample_frames": 171,
+          "wall_seconds": 650.6
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 85.518333
+      },
+      "IMG_1819": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 55.6,
+          "sampled_frames": 9,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 0.25,
+          "valid_sample_frames": 5,
+          "wall_seconds": 100.2
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 4.7
+      },
+      "IMG_1820": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 105,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 4.38,
+          "valid_sample_frames": 105,
+          "wall_seconds": 1934.8
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 52.545
+      },
+      "IMG_1821": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 84,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 4.14,
+          "valid_sample_frames": 84,
+          "wall_seconds": 204.0
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 41.9417
+      },
+      "IMG_1822": {
+        "M2_M3_sampled_evidence": null,
+        "SAM2_1_subject_track": {
+          "sampled_frame_coverage_percent": 100.0,
+          "sampled_frames": 172,
+          "scope": "selected largest-area seed track; not object detection recall or dense source-time coverage",
+          "serialized_mask_mb": 6.0,
+          "valid_sample_frames": 172,
+          "wall_seconds": 584.0
+        },
+        "current_project_object_segmentation_artifact": false,
+        "duration_seconds": 85.82
+      }
+    },
+    "apple001_sources": [
+      "IMG_1806",
+      "IMG_1807",
+      "IMG_1808",
+      "IMG_1809",
+      "IMG_1810",
+      "IMG_1811",
+      "IMG_1812",
+      "IMG_1813",
+      "IMG_1814",
+      "IMG_1815",
+      "IMG_1816",
+      "IMG_1817",
+      "IMG_1818",
+      "IMG_1819",
+      "IMG_1820",
+      "IMG_1821",
+      "IMG_1822"
+    ],
+    "asset_level_denominator": "one source is covered when a valid capability artifact exists for that source",
+    "definition_note": "Podcast percentages are source artifact presence (100% if that lane has a valid artifact for the source). Apple 001 SAM percentages are valid selected-subject track samples divided by requested samples for that clip. These do not imply dense evidence over every source second.",
+    "podcast_per_source_asset_coverage_percent": {
+      "LC4930": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      },
+      "LC4931": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      },
+      "LC4932": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      },
+      "LCATL0011": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 100.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 0.0,
+        "M9": 0.0
+      },
+      "LCATL0012": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      },
+      "LCATL0013": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      },
+      "LCATL0014": {
+        "M0": 100.0,
+        "M1": 100.0,
+        "M10": 0.0,
+        "M1b": 0.0,
+        "M2": 100.0,
+        "M3": 100.0,
+        "M3b": 100.0,
+        "M3c": 0.0,
+        "M3d": 0.0,
+        "M3e": 0.0,
+        "M3f": 0.0,
+        "M4": 0.0,
+        "M5": 0.0,
+        "M6": 100.0,
+        "M7": 100.0,
+        "M8": 100.0,
+        "M9": 0.0
+      }
+    },
+    "podcast_sources": [
+      "LCATL0013",
+      "LC4932",
+      "LCATL0014",
+      "LCATL0012",
+      "LC4931",
+      "LC4930",
+      "LCATL0011"
+    ],
+    "temporal_coverage_not_available_for_all_capability_source_pairs": true
+  },
+  "created_at_utc": "2026-10-16",
+  "environment": {
+    "architecture": "arm64",
+    "chip": "Apple M5",
+    "cpu_cores": {
+      "efficiency": 6,
+      "performance": 4,
+      "total": 10
+    },
+    "machine": "MacBook Pro Mac17,2",
+    "os": "macOS 26.3 (25D125)",
+    "pipeline_python": "3.12.13",
+    "python_lock": "requirements/lock/macos-arm64-py312.txt",
+    "python_lock_sha256": "e0be88d09b206656ccf13310c5d2d4ef2588b4421a92b707320097abcbde8e73",
+    "runtime_note": "System python3 is 3.14.4; measurements used bin/vep and its locked Python 3.12.13.",
+    "unified_memory_gb": 24
+  },
+  "fixtures_and_scripts": [
+    {
+      "path": "library/tools/visual_retrieval_heldout_set.json",
+      "sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b"
+    },
+    {
+      "path": "library/tools/retrieval_eval.py",
+      "sha256": "ccd109e7763be350bd2bd220aa892f1f54cbdb2c9d3e183843343035c738331a"
+    },
+    {
+      "path": "library/tools/speech_eval.py",
+      "sha256": "2b38108fc4c696c8efaadd9385fa91cbcceabdc337d3e4b4481ae58d99272a7b"
+    },
+    {
+      "path": "docs/benchmarks/eval05-reviewed-spans.json",
+      "sha256": "ee57144443fd26ff76c83cde5cefdb2f288c8bee3cedde6c0b5b1e875f9217e4"
+    },
+    {
+      "path": "docs/benchmarks/2026-10-12-fi01-corpus-manifest.json",
+      "sha256": "7c7b3de415309633ae951e10cf9cd8fd47df5fd8842d55ab267f62234907dfaa"
+    },
+    {
+      "path": "docs/benchmarks/2026-10-12-fi01-baseline-report.json",
+      "sha256": "fe931ea976c772a221486ff604a22677218422278704974e4f0534a627786eaf"
+    },
+    {
+      "path": "docs/benchmarks/2026-10-14-end-to-end-utility-baseline.json",
+      "sha256": "e4abddaa7a7076d31cc4de0a5a1892ac7832a3147eb15979de673b642d29ffc2"
+    },
+    {
+      "path": "docs/benchmarks/2026-10-14-object-continuity-benchmark.json",
+      "sha256": "145e25ff989432a7776aec9d975e966d788131f56fd8ec838769addd3883901a"
+    }
+  ],
+  "historical_reference_metrics": {
+    "embeddinggemma_full_001_index_wall_seconds": {
+      "source": "2026-10-09-unified-multimodal-index-round2.md",
+      "value_approx": 5100
+    },
+    "minilm_hybrid_001_index_wall_seconds": {
+      "source": "2026-10-09-unified-multimodal-index-round2.md",
+      "value": 5.2
+    },
+    "owly2_box_recall_iou_0_5": {
+      "display_name": "OWLv2 box recall at IoU >= 0.5",
+      "of": 148,
+      "source": "object-detector-bakeoff-2026-10-13.md",
+      "value": 132
+    },
+    "owly2_wall_seconds_40_frames": {
+      "display_name": "OWLv2 wall time",
+      "source": "2026-10-15-object-tracking-coverage.md",
+      "value": 145.55
+    },
+    "sam2_1_full_001_wall_seconds": {
+      "source": "SUBJECT_MASKING_MEASURED.md",
+      "value": 6558.7
+    },
+    "speech_macro_recall": {
+      "scope": "registered speech retrieval set",
+      "source": "2026-10-14-end-to-end-utility.md",
+      "value": 0.85
+    },
+    "visual_macro_recall": {
+      "scope": "registered visual retrieval set",
+      "source": "2026-10-14-end-to-end-utility.md",
+      "value": 0.15
+    }
+  },
+  "known_gaps": [
+    "Publisher immutable revisions are not pinned for CLIP, OWLv2, SAM 2.1, or Gemma; no model file hashes were computed.",
+    "Object detection still-frame extraction and SAM serialization wall time were not separately retained.",
+    "Semantic model input frame count, token counts, and independently scored useful evidence are absent from existing telemetry.",
+    "Analysis coverage is mostly source-artifact presence; full temporal coverage percentages for every source/capability pair are not available.",
+    "EVAL-04 renders confirm technical execution and verification, not editorial quality.",
+    "Blind agent-label agreement is measured across three model families, but material P2/P3 box/class and P4 condition/speaker disagreements remain; this is not gold truth and does not alone establish detector or speech-model accuracy."
+  ],
+  "labeling_request": "P1-P4 agent labels from OpenAI, OpenCode, and Anthropic Claude Sonnet 5.5 are recorded and pairwise agreement is in blind_agent_label_agreement; all are agent labels, not human/gold truth.",
+  "models": [
+    {
+      "capability": "visual retrieval",
+      "publisher_model_id": "openai/clip-vit-large-patch14",
+      "publisher_revision": null,
+      "revision_status": "not pinned in index metadata; local cache ref unavailable; no checkpoint fingerprint taken"
+    },
+    {
+      "capability": "object detection",
+      "publisher_model_id": "google/owlv2-base-patch16-ensemble",
+      "publisher_revision": null,
+      "revision_status": "benchmark records publisher model id, not immutable revision"
+    },
+    {
+      "capability": "mask propagation",
+      "publisher_model_id": "facebook/sam2.1-hiera-small",
+      "publisher_revision": null,
+      "revision_status": "benchmark records publisher model id, not immutable revision"
+    },
+    {
+      "capability": "semantic video analysis",
+      "publisher_model_id": "mlx-community/gemma-4-12b-it-4bit",
+      "publisher_revision": null,
+      "revision_status": "benchmark records publisher model id, not immutable revision"
+    },
+    {
+      "capability": "speech recognition",
+      "publisher_model_id": "da / Voz 0.1.1",
+      "publisher_revision": "0.1.1",
+      "revision_status": "package version recorded; checkpoint revision not separately pinned"
+    },
+    {
+      "capability": "word alignment",
+      "publisher_model_id": "Montreal Forced Aligner english_us_arpa",
+      "publisher_revision": "3.0.0",
+      "revision_status": "package/model version recorded"
+    }
+  ],
+  "policy": {
+    "captain_media": "read-only",
+    "held_out": "reported once; no settings tuned on held-out data",
+    "model_or_checkpoint_downloads": false,
+    "quality_language": "technical measurement only; no editorial quality claim",
+    "resolve_bundled_files_inspected": false,
+    "source_scope": "GEO podcast and Apple 001 only"
+  },
+  "reproductions": {
+    "BASE-010_visual_retrieval": {
+      "baseline_index": {
+        "bytes": 14364160,
+        "embeddings_sha256": "9402c4314399611a4e440208391de816d9af6f8d014644699108d841075ef585",
+        "frame_count": 1092,
+        "index_sha256": "ba056a21f4bb634b7c4ac79fe85ddacc555a58b926692d44b6f94fc3415bce5b",
+        "step_seconds": 10.0
+      },
+      "data": {
+        "assets_missing_from_project": [],
+        "code_revision": "bbb0ec85f0b3cac4ff7b4e5bea9dc2b018bb8b95",
+        "coverage": {
+          "asset_status": {
+            "partial": 7
+          },
+          "assets": 7,
+          "frame_sample_max_gap_seconds": {
+            "LC4930.MXF": 0.501,
+            "LC4931.MXF": 0.501,
+            "LC4932.MXF": 0.501,
+            "LCATL0011.MXF": 0.501,
+            "LCATL0012.MXF": 0.501,
+            "LCATL0013.MXF": 0.501,
+            "LCATL0014.MXF": 0.501
+          },
+          "frames_with_face_fraction": {
+            "LC4930.MXF": 0.9978,
+            "LC4931.MXF": 0.9965,
+            "LC4932.MXF": 0.9993,
+            "LCATL0011.MXF": 0.9837,
+            "LCATL0012.MXF": 1.0,
+            "LCATL0013.MXF": 0.9999,
+            "LCATL0014.MXF": 0.9964
+          },
+          "lanes_present": {
+            "clock": 7,
+            "events": 7,
+            "frames": 7,
+            "identity": 7,
+            "media": 7,
+            "persons": 7,
+            "transcript": 7,
+            "verdicts": 6
+          },
+          "per_asset_status": {
+            "LC4930.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LC4931.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LC4932.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LCATL0011.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LCATL0012.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LCATL0013.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            },
+            "LCATL0014.MXF": {
+              "failure_reason": null,
+              "missing": [
+                "expressions"
+              ],
+              "status": "partial"
+            }
+          },
+          "speech_fraction_of_footage": 0.7362,
+          "speech_seconds": 8020.7,
+          "video_minutes": 181.58
+        },
+        "eval_set": "visual-retrieval-held-out-2026-10-14",
+        "measurement": {
+          "code_revision": "bbb0ec85f0b3cac4ff7b4e5bea9dc2b018bb8b95",
+          "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 bin/vep -m library.tools.heavy_work_lock run --owner vep-mu-baseline --profile semantics.analyse:inference -- bin/vep -m library.tools.retrieval_eval \"$HOME/Documents/content_stuff/video_projects/lucie/geo-podcast\" --families visual --set library/tools/visual_retrieval_heldout_set.json --out-json /tmp/vep-mu-baseline-visual-current.json",
+          "current_index_reused": true,
+          "heavy_work_profile": "semantics.analyse:inference",
+          "measured_at_utc": "2026-10-16",
+          "model_downloads": false
+        },
+        "processing_time": [],
+        "project": "geo-podcast",
+        "ran_at": "2026-10-16T00:26:11+00:00",
+        "results": [
+          {
+            "candidate_frames": [
+              {
+                "asset": "LCATL0013",
+                "score": 0.2166,
+                "time": 2889.97
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2111,
+                "time": 209.793
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.1986,
+                "time": 30.113
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1976,
+                "time": 2189.771
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1923,
+                "time": 60.143
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.192,
+                "time": 3279.86
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1917,
+                "time": 160.243
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1911,
+                "time": 40.123
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1905,
+                "time": 80.163
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1905,
+                "time": 3289.87
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1903,
+                "time": 2309.891
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1901,
+                "time": 90.173
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1898,
+                "time": 1650.232
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1896,
+                "time": 199.783
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1896,
+                "time": 179.763
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1892,
+                "time": 560.143
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1887,
+                "time": 130.213
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1885,
+                "time": 2560.141
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1881,
+                "time": 2679.76
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1879,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1877,
+                "time": 1799.881
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1873,
+                "time": 239.823
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1865,
+                "time": 0.083
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1859,
+                "time": 610.193
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1846,
+                "time": 50.133
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1833,
+                "time": 249.833
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1831,
+                "time": 189.773
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1827,
+                "time": 1719.801
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1826,
+                "time": 1879.961
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1816,
+                "time": 2060.141
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1816,
+                "time": 2699.78
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1813,
+                "time": 30.113
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1812,
+                "time": 140.223
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.181,
+                "time": 1909.991
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1809,
+                "time": 389.973
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1805,
+                "time": 3689.769
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1804,
+                "time": 3259.84
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1801,
+                "time": 620.203
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.18,
+                "time": 600.183
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1799,
+                "time": 1930.011
+              }
+            ],
+            "categories": [
+              "object"
+            ],
+            "family": "visual",
+            "held_out": {
+              "kind": "present",
+              "positive_spans": 43,
+              "precision": 1.0,
+              "recall": 0.2558,
+              "returned": 2,
+              "spans_touched": 11
+            },
+            "id": "V02",
+            "kind": "present",
+            "positive_spans": 43,
+            "precision": 0.4,
+            "query": "an open laptop with its lid raised",
+            "recall": 0.2558,
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2889.97,
+                "best_score": 0.2166,
+                "end": 2889.97,
+                "hit": false,
+                "start": 2889.97
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 209.793,
+                "best_score": 0.2111,
+                "end": 209.793,
+                "hit": true,
+                "start": 179.763
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0012",
+                "best_frame": 30.113,
+                "best_score": 0.1986,
+                "end": 30.113,
+                "hit": false,
+                "start": 30.113
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2189.771,
+                "best_score": 0.1976,
+                "end": 2189.771,
+                "hit": false,
+                "start": 2189.771
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 60.143,
+                "best_score": 0.1923,
+                "end": 90.173,
+                "hit": true,
+                "start": 30.113
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 5.411,
+            "spans_touched": 11
+          },
+          {
+            "candidate_frames": [
+              {
+                "asset": "LCATL0011",
+                "score": 0.2264,
+                "time": 209.793
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2257,
+                "time": 2889.97
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.2233,
+                "time": 560.143
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.2226,
+                "time": 30.113
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2221,
+                "time": 2189.771
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2182,
+                "time": 60.143
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2179,
+                "time": 1879.961
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2171,
+                "time": 2309.891
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2171,
+                "time": 179.763
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.217,
+                "time": 610.193
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2165,
+                "time": 239.823
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2159,
+                "time": 2269.851
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.2154,
+                "time": 0.083
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2129,
+                "time": 2560.141
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2128,
+                "time": 1650.232
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2126,
+                "time": 80.163
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2125,
+                "time": 600.183
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2123,
+                "time": 0.083
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2121,
+                "time": 70.153
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2117,
+                "time": 2679.76
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2117,
+                "time": 849.932
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2113,
+                "time": 130.213
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.211,
+                "time": 199.783
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2109,
+                "time": 90.173
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2109,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2108,
+                "time": 50.133
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2108,
+                "time": 249.833
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2107,
+                "time": 40.123
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2105,
+                "time": 920.002
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2091,
+                "time": 2729.81
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2089,
+                "time": 2209.791
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2082,
+                "time": 1799.881
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2079,
+                "time": 189.773
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2075,
+                "time": 140.223
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2073,
+                "time": 2550.131
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2069,
+                "time": 80.163
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.2068,
+                "time": 269.853
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2068,
+                "time": 189.773
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2065,
+                "time": 620.203
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2062,
+                "time": 30.113
+              }
+            ],
+            "categories": [
+              "object_and_composition"
+            ],
+            "family": "visual",
+            "held_out": {
+              "kind": "present",
+              "positive_spans": 22,
+              "precision": 0.0,
+              "recall": 0.0,
+              "returned": 1,
+              "spans_touched": 0
+            },
+            "id": "V03",
+            "kind": "present",
+            "positive_spans": 22,
+            "precision": 0.0,
+            "query": "a blue laptop screen at the edge of the frame",
+            "recall": 0.0,
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 209.793,
+                "best_score": 0.2264,
+                "end": 209.793,
+                "hit": false,
+                "start": 179.763
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2889.97,
+                "best_score": 0.2257,
+                "end": 2889.97,
+                "hit": false,
+                "start": 2889.97
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0014",
+                "best_frame": 560.143,
+                "best_score": 0.2233,
+                "end": 560.143,
+                "hit": false,
+                "start": 560.143
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0012",
+                "best_frame": 30.113,
+                "best_score": 0.2226,
+                "end": 30.113,
+                "hit": false,
+                "start": 30.113
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2189.771,
+                "best_score": 0.2221,
+                "end": 2209.791,
+                "hit": false,
+                "start": 2189.771
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.035,
+            "spans_touched": 0
+          },
+          {
+            "abstained": true,
+            "categories": [
+              "action_refusal"
+            ],
+            "family": "visual",
+            "held_out": {
+              "kind": "refusal",
+              "refused": true
+            },
+            "id": "V05",
+            "kind": "refusal",
+            "query": "a person gesturing with both hands",
+            "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+            "refused": true,
+            "seconds": 0.016
+          },
+          {
+            "abstained": false,
+            "candidate_frames": [
+              {
+                "asset": "LCATL0013",
+                "score": 0.1298,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.126,
+                "time": 3279.86
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1258,
+                "time": 3689.769
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1248,
+                "time": 3829.909
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1231,
+                "time": 4940.018
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.123,
+                "time": 209.793
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1222,
+                "time": 3259.84
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1198,
+                "time": 4779.858
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1185,
+                "time": 319.903
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1182,
+                "time": 2669.75
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1178,
+                "time": 819.902
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1177,
+                "time": 4140.219
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.117,
+                "time": 3480.06
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1169,
+                "time": 4229.809
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1167,
+                "time": 3289.87
+              },
+              {
+                "asset": "LC4930",
+                "score": 0.1166,
+                "time": 219.803
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.116,
+                "time": 610.193
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1157,
+                "time": 3819.899
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1146,
+                "time": 3849.929
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1137,
+                "time": 3990.069
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1135,
+                "time": 669.752
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1128,
+                "time": 4899.978
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1128,
+                "time": 169.753
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1127,
+                "time": 789.872
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1126,
+                "time": 679.762
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1126,
+                "time": 4650.229
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1124,
+                "time": 2189.771
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1123,
+                "time": 3189.77
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.112,
+                "time": 4070.149
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1118,
+                "time": 1729.811
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1115,
+                "time": 389.973
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1115,
+                "time": 2160.241
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1112,
+                "time": 4660.239
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1112,
+                "time": 4389.969
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1111,
+                "time": 739.822
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.111,
+                "time": 10.093
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.1108,
+                "time": 30.113
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1104,
+                "time": 3060.14
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1103,
+                "time": 140.223
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1103,
+                "time": 3239.82
+              }
+            ],
+            "categories": [
+              "absent_object"
+            ],
+            "family": "visual",
+            "held_out": {
+              "abstained": true,
+              "kind": "absent",
+              "returned": 0
+            },
+            "id": "VX1",
+            "kind": "absent",
+            "query": "a dog lying on the floor",
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3980.059,
+                "best_score": 0.1298,
+                "end": 3990.069,
+                "hit": false,
+                "start": 3980.059
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3279.86,
+                "best_score": 0.126,
+                "end": 3289.87,
+                "hit": false,
+                "start": 3239.82
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3689.769,
+                "best_score": 0.1258,
+                "end": 3689.769,
+                "hit": false,
+                "start": 3689.769
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 3829.909,
+                "best_score": 0.1248,
+                "end": 3849.929,
+                "hit": false,
+                "start": 3819.899
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 4940.018,
+                "best_score": 0.1231,
+                "end": 4940.018,
+                "hit": false,
+                "start": 4940.018
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.045,
+            "top_score": 0.1298
+          },
+          {
+            "abstained": false,
+            "candidate_frames": [
+              {
+                "asset": "LCATL0013",
+                "score": 0.1357,
+                "time": 3279.86
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1341,
+                "time": 1909.991
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1333,
+                "time": 920.002
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1318,
+                "time": 1660.242
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1317,
+                "time": 60.143
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1305,
+                "time": 319.903
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1305,
+                "time": 3689.769
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1299,
+                "time": 2219.801
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1292,
+                "time": 90.173
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1288,
+                "time": 339.923
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1283,
+                "time": 2319.901
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1282,
+                "time": 2630.211
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1274,
+                "time": 1050.132
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1269,
+                "time": 1010.092
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1262,
+                "time": 249.833
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1261,
+                "time": 3259.84
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.126,
+                "time": 110.193
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1259,
+                "time": 0.083
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1259,
+                "time": 50.133
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1255,
+                "time": 520.103
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1252,
+                "time": 359.943
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1252,
+                "time": 550.133
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1251,
+                "time": 3990.069
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1249,
+                "time": 789.872
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1248,
+                "time": 189.773
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1248,
+                "time": 2289.871
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1246,
+                "time": 329.913
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1244,
+                "time": 1379.962
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1243,
+                "time": 1000.082
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1243,
+                "time": 1359.942
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1242,
+                "time": 1640.222
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1239,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1237,
+                "time": 1719.801
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1237,
+                "time": 1120.202
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1236,
+                "time": 430.013
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.1236,
+                "time": 10.093
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1234,
+                "time": 620.203
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1234,
+                "time": 1389.972
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1234,
+                "time": 990.072
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1232,
+                "time": 1249.832
+              }
+            ],
+            "categories": [
+              "absent_scene"
+            ],
+            "family": "visual",
+            "held_out": {
+              "abstained": false,
+              "kind": "absent",
+              "returned": 1
+            },
+            "id": "VX2",
+            "kind": "absent",
+            "query": "a busy city street full of cars",
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3279.86,
+                "best_score": 0.1357,
+                "end": 3279.86,
+                "hit": false,
+                "start": 3259.84
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 1909.991,
+                "best_score": 0.1341,
+                "end": 1909.991,
+                "hit": false,
+                "start": 1909.991
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 920.002,
+                "best_score": 0.1333,
+                "end": 920.002,
+                "hit": false,
+                "start": 920.002
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 1660.242,
+                "best_score": 0.1318,
+                "end": 1660.242,
+                "hit": false,
+                "start": 1640.222
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 60.143,
+                "best_score": 0.1317,
+                "end": 60.143,
+                "hit": false,
+                "start": 50.133
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.033,
+            "top_score": 0.1357
+          },
+          {
+            "abstained": false,
+            "candidate_frames": [
+              {
+                "asset": "LCATL0013",
+                "score": 0.1423,
+                "time": 3279.86
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1416,
+                "time": 3189.77
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1383,
+                "time": 560.143
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1348,
+                "time": 3689.769
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1345,
+                "time": 3259.84
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1338,
+                "time": 389.973
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.133,
+                "time": 2940.02
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1323,
+                "time": 3060.14
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.132,
+                "time": 3709.789
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1313,
+                "time": 3719.799
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1309,
+                "time": 3520.1
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1309,
+                "time": 3759.839
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1308,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1305,
+                "time": 3289.87
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1297,
+                "time": 769.852
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1293,
+                "time": 550.133
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1286,
+                "time": 819.902
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1277,
+                "time": 2930.01
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1275,
+                "time": 3709.789
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1271,
+                "time": 3990.069
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1269,
+                "time": 789.872
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1264,
+                "time": 399.983
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1263,
+                "time": 3749.829
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1262,
+                "time": 3829.909
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1261,
+                "time": 470.053
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1257,
+                "time": 3970.049
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1254,
+                "time": 420.003
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1252,
+                "time": 3490.07
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1246,
+                "time": 3940.019
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1245,
+                "time": 339.923
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1243,
+                "time": 249.833
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.1241,
+                "time": 4140.219
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1237,
+                "time": 3560.14
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1236,
+                "time": 809.892
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.1235,
+                "time": 179.763
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1233,
+                "time": 2889.97
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1232,
+                "time": 3510.09
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.1229,
+                "time": 650.233
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1229,
+                "time": 3080.16
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.1228,
+                "time": 3769.849
+              }
+            ],
+            "categories": [
+              "absent_object"
+            ],
+            "family": "visual",
+            "held_out": {
+              "abstained": true,
+              "kind": "absent",
+              "returned": 0
+            },
+            "id": "VX3",
+            "kind": "absent",
+            "query": "a whiteboard covered in handwriting",
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3279.86,
+                "best_score": 0.1423,
+                "end": 3289.87,
+                "hit": false,
+                "start": 3259.84
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3189.77,
+                "best_score": 0.1416,
+                "end": 3189.77,
+                "hit": false,
+                "start": 3189.77
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0014",
+                "best_frame": 560.143,
+                "best_score": 0.1383,
+                "end": 560.143,
+                "hit": false,
+                "start": 550.133
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3689.769,
+                "best_score": 0.1348,
+                "end": 3719.799,
+                "hit": false,
+                "start": 3689.769
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0014",
+                "best_frame": 389.973,
+                "best_score": 0.1338,
+                "end": 420.003,
+                "hit": false,
+                "start": 389.973
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.025,
+            "top_score": 0.1423
+          },
+          {
+            "candidate_frames": [
+              {
+                "asset": "LCATL0013",
+                "score": 0.2492,
+                "time": 2060.141
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2449,
+                "time": 80.163
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2426,
+                "time": 130.213
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.24,
+                "time": 3289.87
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2394,
+                "time": 2189.771
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2388,
+                "time": 1879.961
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2364,
+                "time": 0.083
+              },
+              {
+                "asset": "LCATL0012",
+                "score": 0.2341,
+                "time": 30.113
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2313,
+                "time": 2309.891
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2311,
+                "time": 610.193
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2295,
+                "time": 1650.232
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2289,
+                "time": 2560.141
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2278,
+                "time": 189.773
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2278,
+                "time": 70.153
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2269,
+                "time": 40.123
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2268,
+                "time": 600.183
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2266,
+                "time": 849.932
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2265,
+                "time": 2269.851
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2257,
+                "time": 140.223
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2256,
+                "time": 3259.84
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2247,
+                "time": 1930.011
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2236,
+                "time": 2679.76
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2235,
+                "time": 50.133
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2226,
+                "time": 3279.86
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.2221,
+                "time": 819.902
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.222,
+                "time": 3980.059
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.222,
+                "time": 2729.81
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2219,
+                "time": 3679.759
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2217,
+                "time": 2199.781
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2214,
+                "time": 3399.98
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2211,
+                "time": 2110.191
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.221,
+                "time": 2140.221
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2209,
+                "time": 60.143
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2206,
+                "time": 1940.021
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2202,
+                "time": 199.783
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.22,
+                "time": 2510.091
+              },
+              {
+                "asset": "LCATL0014",
+                "score": 0.2198,
+                "time": 669.752
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2197,
+                "time": 3970.049
+              },
+              {
+                "asset": "LCATL0013",
+                "score": 0.2195,
+                "time": 2080.161
+              },
+              {
+                "asset": "LCATL0011",
+                "score": 0.2192,
+                "time": 209.793
+              }
+            ],
+            "categories": [
+              "person_and_composition"
+            ],
+            "family": "visual",
+            "held_out": {
+              "kind": "present",
+              "positive_spans": 21,
+              "precision": 1.0,
+              "recall": 0.3333,
+              "returned": 2,
+              "spans_touched": 7
+            },
+            "id": "V06",
+            "kind": "present",
+            "positive_spans": 21,
+            "precision": 0.4,
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "recall": 0.3333,
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2060.141,
+                "best_score": 0.2492,
+                "end": 2080.161,
+                "hit": false,
+                "start": 2060.141
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 80.163,
+                "best_score": 0.2449,
+                "end": 80.163,
+                "hit": true,
+                "start": 40.123
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0011",
+                "best_frame": 130.213,
+                "best_score": 0.2426,
+                "end": 140.223,
+                "hit": true,
+                "start": 130.213
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 3289.87,
+                "best_score": 0.24,
+                "end": 3289.87,
+                "hit": false,
+                "start": 3259.84
+              },
+              {
+                "ambiguous": false,
+                "asset": "LCATL0013",
+                "best_frame": 2189.771,
+                "best_score": 0.2394,
+                "end": 2199.781,
+                "hit": false,
+                "start": 2189.771
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.021,
+            "spans_touched": 7
+          },
+          {
+            "candidate_frames": [
+              {
+                "asset": "LC4932",
+                "score": 0.2405,
+                "time": 1970.051
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2328,
+                "time": 1289.872
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2302,
+                "time": 4650.229
+              },
+              {
+                "asset": "LC4931",
+                "score": 0.2293,
+                "time": 10.093
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2249,
+                "time": 2000.081
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2222,
+                "time": 1140.222
+              },
+              {
+                "asset": "LC4930",
+                "score": 0.2221,
+                "time": 160.243
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2205,
+                "time": 2550.131
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2205,
+                "time": 1879.961
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2199,
+                "time": 1359.942
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2197,
+                "time": 1839.921
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2188,
+                "time": 1990.071
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2175,
+                "time": 2719.8
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2173,
+                "time": 2040.121
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2164,
+                "time": 4209.789
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2162,
+                "time": 4849.928
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2155,
+                "time": 1209.792
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2147,
+                "time": 3520.1
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2146,
+                "time": 1729.811
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2141,
+                "time": 1950.031
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2138,
+                "time": 1909.991
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2137,
+                "time": 1349.932
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2137,
+                "time": 2160.241
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2134,
+                "time": 2669.75
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2131,
+                "time": 4470.049
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2122,
+                "time": 1980.061
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2115,
+                "time": 2249.831
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2113,
+                "time": 2130.211
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2112,
+                "time": 4869.948
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2109,
+                "time": 2610.191
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2107,
+                "time": 2179.761
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2106,
+                "time": 1859.941
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2106,
+                "time": 1849.931
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2106,
+                "time": 2769.85
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2102,
+                "time": 1640.222
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2097,
+                "time": 2789.87
+              },
+              {
+                "asset": "LC4930",
+                "score": 0.2097,
+                "time": 10.093
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2097,
+                "time": 2229.811
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2095,
+                "time": 189.773
+              },
+              {
+                "asset": "LC4932",
+                "score": 0.2095,
+                "time": 2970.05
+              }
+            ],
+            "categories": [
+              "person_and_scene"
+            ],
+            "family": "visual",
+            "held_out": {
+              "kind": "present",
+              "positive_spans": 22,
+              "precision": null,
+              "recall": 0.0,
+              "returned": 0,
+              "spans_touched": 0
+            },
+            "id": "V07",
+            "kind": "present",
+            "positive_spans": 22,
+            "precision": 0.0,
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "recall": 0.0,
+            "refused": false,
+            "returned": 5,
+            "rows": [
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 1970.051,
+                "best_score": 0.2405,
+                "end": 2000.081,
+                "hit": false,
+                "start": 1950.031
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 1289.872,
+                "best_score": 0.2328,
+                "end": 1289.872,
+                "hit": false,
+                "start": 1289.872
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 4650.229,
+                "best_score": 0.2302,
+                "end": 4650.229,
+                "hit": false,
+                "start": 4650.229
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4931",
+                "best_frame": 10.093,
+                "best_score": 0.2293,
+                "end": 10.093,
+                "hit": false,
+                "start": 10.093
+              },
+              {
+                "ambiguous": false,
+                "asset": "LC4932",
+                "best_frame": 1140.222,
+                "best_score": 0.2222,
+                "end": 1140.222,
+                "hit": false,
+                "start": 1140.222
+              }
+            ],
+            "search_policy": {
+              "candidate_pool_size": 40,
+              "merge_gap_seconds": 30.0,
+              "top_interval_limit": 5
+            },
+            "seconds": 0.018,
+            "spans_touched": 0
+          }
+        ],
+        "summary": {
+          "latency_seconds": {
+            "visual": {
+              "max": 5.411,
+              "median": 0.033,
+              "n": 8
+            }
+          },
+          "visual": {
+            "absent_abstained": 0,
+            "absent_queries": 3,
+            "macro_precision": 0.2,
+            "macro_recall": 0.1473,
+            "queries_present": 4,
+            "refusal_queries": 1,
+            "refusals_correct": 1
+          },
+          "visual_benchmark": {
+            "baseline": {
+              "macro_precision": 0.0243,
+              "macro_recall": 0.0053,
+              "negative_return_rate": 1.0,
+              "refusal_correct": 0,
+              "refusal_queries": 500,
+              "samples": 500,
+              "seed": 20261016,
+              "unit": "frame-level uniform random ranking"
+            },
+            "category_failures": {
+              "absent_object": {
+                "failed_query_ids": [],
+                "mean_recall": null,
+                "queries": 2
+              },
+              "absent_scene": {
+                "failed_query_ids": [],
+                "mean_recall": null,
+                "queries": 1
+              },
+              "action_refusal": {
+                "failed_query_ids": [],
+                "mean_recall": null,
+                "queries": 1
+              },
+              "object": {
+                "failed_query_ids": [
+                  "V02"
+                ],
+                "mean_recall": 0.2558,
+                "queries": 1
+              },
+              "object_and_composition": {
+                "failed_query_ids": [
+                  "V03"
+                ],
+                "mean_recall": 0.0,
+                "queries": 1
+              },
+              "person_and_composition": {
+                "failed_query_ids": [
+                  "V06"
+                ],
+                "mean_recall": 0.3333,
+                "queries": 1
+              },
+              "person_and_scene": {
+                "failed_query_ids": [
+                  "V07"
+                ],
+                "mean_recall": 0.0,
+                "queries": 1
+              }
+            },
+            "held_out": {
+              "assets": [
+                "LC4930",
+                "LCATL0011"
+              ],
+              "macro_precision_ci95": {
+                "confidence": 0.95,
+                "estimate": 0.6667,
+                "lower": 0.0,
+                "method": "query bootstrap",
+                "n": 3,
+                "samples": 10000,
+                "seed": 20261018,
+                "upper": 1.0
+              },
+              "macro_recall_ci95": {
+                "confidence": 0.95,
+                "estimate": 0.1473,
+                "lower": 0.0,
+                "method": "query bootstrap",
+                "n": 4,
+                "samples": 10000,
+                "seed": 20261017,
+                "upper": 0.2945
+              },
+              "negative_abstained": 2,
+              "negative_queries": 3,
+              "per_query": {
+                "V02": {
+                  "kind": "present",
+                  "positive_spans": 43,
+                  "precision": 1.0,
+                  "recall": 0.2558,
+                  "returned": 2,
+                  "spans_touched": 11
+                },
+                "V03": {
+                  "kind": "present",
+                  "positive_spans": 22,
+                  "precision": 0.0,
+                  "recall": 0.0,
+                  "returned": 1,
+                  "spans_touched": 0
+                },
+                "V05": {
+                  "kind": "refusal",
+                  "refused": true
+                },
+                "V06": {
+                  "kind": "present",
+                  "positive_spans": 21,
+                  "precision": 1.0,
+                  "recall": 0.3333,
+                  "returned": 2,
+                  "spans_touched": 7
+                },
+                "V07": {
+                  "kind": "present",
+                  "positive_spans": 22,
+                  "precision": null,
+                  "recall": 0.0,
+                  "returned": 0,
+                  "spans_touched": 0
+                },
+                "VX1": {
+                  "abstained": true,
+                  "kind": "absent",
+                  "returned": 0
+                },
+                "VX2": {
+                  "abstained": false,
+                  "kind": "absent",
+                  "returned": 1
+                },
+                "VX3": {
+                  "abstained": true,
+                  "kind": "absent",
+                  "returned": 0
+                }
+              },
+              "present_queries": 4,
+              "queries": 8
+            },
+            "index_provenance": {
+              "build_cost_status": "unavailable: current index artifact does not retain decode or build wall time",
+              "built_at": 1791421333.497277,
+              "clip_model": "openai/clip-vit-large-patch14",
+              "embed_backend": "clip-vit-large-patch14",
+              "embeddings_sha256": "9402c4314399611a4e440208391de816d9af6f8d014644699108d841075ef585",
+              "frame_count": 1092,
+              "index_bytes": 14364160,
+              "index_sha256": "ba056a21f4bb634b7c4ac79fe85ddacc555a58b926692d44b6f94fc3415bce5b",
+              "sampling_step_seconds": 10.0
+            },
+            "latency_seconds": {
+              "mean": 0.7005,
+              "p95": 5.411,
+              "per_query": {
+                "V02": 5.411,
+                "V03": 0.035,
+                "V05": 0.016,
+                "V06": 0.021,
+                "V07": 0.018,
+                "VX1": 0.045,
+                "VX2": 0.033,
+                "VX3": 0.025
+              }
+            },
+            "macro_precision_ci95": {
+              "confidence": 0.95,
+              "estimate": 0.2,
+              "lower": 0.0,
+              "method": "query bootstrap",
+              "n": 4,
+              "samples": 10000,
+              "seed": 20261015,
+              "upper": 0.4
+            },
+            "macro_recall_ci95": {
+              "confidence": 0.95,
+              "estimate": 0.1473,
+              "lower": 0.0,
+              "method": "query bootstrap",
+              "n": 4,
+              "samples": 10000,
+              "seed": 20261014,
+              "upper": 0.2945
+            },
+            "negative_behavior": {
+              "abstained": 0,
+              "correctly_refused": 1,
+              "false_return_rate": 1.0,
+              "floor": null,
+              "floor_abstained": null,
+              "floor_metric_status": "unsupported: visual index has no score floor",
+              "queries": 3,
+              "refusal_queries": 1,
+              "returned_any": 3
+            },
+            "negative_query_count": 3,
+            "peak_process_rss_mb": 1054.2,
+            "present_query_count": 4,
+            "protocol": "held-out visual query evaluation; labels and queries are frozen; no tuning",
+            "query_count": 8,
+            "retrieval_diagnostics": {
+              "by_category": {
+                "appearance": {
+                  "misses_by_stage": {
+                    "frame_ranking_or_candidate_pool": 1,
+                    "interval_ranking_or_merging": 1
+                  },
+                  "queries": 3
+                },
+                "composition": {
+                  "misses_by_stage": {
+                    "frame_ranking_or_candidate_pool": 1,
+                    "interval_ranking_or_merging": 1
+                  },
+                  "queries": 3
+                },
+                "objects": {
+                  "misses_by_stage": {
+                    "frame_ranking_or_candidate_pool": 1
+                  },
+                  "queries": 3
+                },
+                "people": {
+                  "misses_by_stage": {
+                    "interval_ranking_or_merging": 1
+                  },
+                  "queries": 2
+                }
+              },
+              "cost_coverage": "Query latency, process peak RSS, sampling step, frame count, and index bytes are measured when available. Decode and index build wall time are not retained by the current index artifact and therefore remain unmeasured.",
+              "interpretation": "A miss after sampled coverage but before candidate coverage is a ranking/pool miss. A positive candidate absent from final intervals is an interval ranking/merging miss; this report does not claim a causal distinction between those two without alternate merge replay.",
+              "method": "frozen-index coverage -> recorded frame candidate pool -> scored merged intervals",
+              "per_query": {
+                "V02": {
+                  "candidate_pool_size": 40,
+                  "categories": [
+                    "objects"
+                  ],
+                  "indexed_frames_in_positive_spans": 45,
+                  "merge_gap_seconds": 30.0,
+                  "positive_frames_in_candidate_pool": 13,
+                  "positive_returned_intervals": 2,
+                  "positive_spans": 43,
+                  "returned_interval_count": 5,
+                  "stage": "retrieved",
+                  "top_interval_limit": 5
+                },
+                "V03": {
+                  "candidate_pool_size": 40,
+                  "categories": [
+                    "objects",
+                    "composition",
+                    "appearance"
+                  ],
+                  "indexed_frames_in_positive_spans": 23,
+                  "merge_gap_seconds": 30.0,
+                  "positive_frames_in_candidate_pool": 0,
+                  "positive_returned_intervals": 0,
+                  "positive_spans": 22,
+                  "returned_interval_count": 5,
+                  "stage": "frame_ranking_or_candidate_pool",
+                  "top_interval_limit": 5
+                },
+                "V06": {
+                  "candidate_pool_size": 40,
+                  "categories": [
+                    "objects",
+                    "people",
+                    "composition",
+                    "appearance"
+                  ],
+                  "indexed_frames_in_positive_spans": 22,
+                  "merge_gap_seconds": 30.0,
+                  "positive_frames_in_candidate_pool": 9,
+                  "positive_returned_intervals": 2,
+                  "positive_spans": 21,
+                  "returned_interval_count": 5,
+                  "stage": "retrieved",
+                  "top_interval_limit": 5
+                },
+                "V07": {
+                  "candidate_pool_size": 40,
+                  "categories": [
+                    "people",
+                    "composition",
+                    "appearance"
+                  ],
+                  "indexed_frames_in_positive_spans": 23,
+                  "merge_gap_seconds": 30.0,
+                  "positive_frames_in_candidate_pool": 2,
+                  "positive_returned_intervals": 0,
+                  "positive_spans": 22,
+                  "returned_interval_count": 5,
+                  "stage": "interval_ranking_or_merging",
+                  "top_interval_limit": 5
+                }
+              },
+              "unmeasured_experiments": [
+                "alternate temporal sampling densities and their decode/index cost",
+                "multiscale visual embeddings and their index/memory cost",
+                "hybrid lexical, semantic, and structured evidence",
+                "calibration-only candidate-pool-size comparison",
+                "object/person measurement reranking"
+              ]
+            },
+            "useful_interval_cost": {
+              "cost_basis": "local inference; hosted API charges only (local compute cost excluded)",
+              "hosted_api_cost_usd": 0.0,
+              "query_seconds": 5.604,
+              "seconds_per_useful_interval": 1.401,
+              "useful_intervals": 4
+            }
+          }
+        },
+        "visual_benchmark": {
+          "baseline": {
+            "macro_precision": 0.0243,
+            "macro_recall": 0.0053,
+            "negative_return_rate": 1.0,
+            "refusal_correct": 0,
+            "refusal_queries": 500,
+            "samples": 500,
+            "seed": 20261016,
+            "unit": "frame-level uniform random ranking"
+          },
+          "category_failures": {
+            "absent_object": {
+              "failed_query_ids": [],
+              "mean_recall": null,
+              "queries": 2
+            },
+            "absent_scene": {
+              "failed_query_ids": [],
+              "mean_recall": null,
+              "queries": 1
+            },
+            "action_refusal": {
+              "failed_query_ids": [],
+              "mean_recall": null,
+              "queries": 1
+            },
+            "object": {
+              "failed_query_ids": [
+                "V02"
+              ],
+              "mean_recall": 0.2558,
+              "queries": 1
+            },
+            "object_and_composition": {
+              "failed_query_ids": [
+                "V03"
+              ],
+              "mean_recall": 0.0,
+              "queries": 1
+            },
+            "person_and_composition": {
+              "failed_query_ids": [
+                "V06"
+              ],
+              "mean_recall": 0.3333,
+              "queries": 1
+            },
+            "person_and_scene": {
+              "failed_query_ids": [
+                "V07"
+              ],
+              "mean_recall": 0.0,
+              "queries": 1
+            }
+          },
+          "held_out": {
+            "assets": [
+              "LC4930",
+              "LCATL0011"
+            ],
+            "macro_precision_ci95": {
+              "confidence": 0.95,
+              "estimate": 0.6667,
+              "lower": 0.0,
+              "method": "query bootstrap",
+              "n": 3,
+              "samples": 10000,
+              "seed": 20261018,
+              "upper": 1.0
+            },
+            "macro_recall_ci95": {
+              "confidence": 0.95,
+              "estimate": 0.1473,
+              "lower": 0.0,
+              "method": "query bootstrap",
+              "n": 4,
+              "samples": 10000,
+              "seed": 20261017,
+              "upper": 0.2945
+            },
+            "negative_abstained": 2,
+            "negative_queries": 3,
+            "per_query": {
+              "V02": {
+                "kind": "present",
+                "positive_spans": 43,
+                "precision": 1.0,
+                "recall": 0.2558,
+                "returned": 2,
+                "spans_touched": 11
+              },
+              "V03": {
+                "kind": "present",
+                "positive_spans": 22,
+                "precision": 0.0,
+                "recall": 0.0,
+                "returned": 1,
+                "spans_touched": 0
+              },
+              "V05": {
+                "kind": "refusal",
+                "refused": true
+              },
+              "V06": {
+                "kind": "present",
+                "positive_spans": 21,
+                "precision": 1.0,
+                "recall": 0.3333,
+                "returned": 2,
+                "spans_touched": 7
+              },
+              "V07": {
+                "kind": "present",
+                "positive_spans": 22,
+                "precision": null,
+                "recall": 0.0,
+                "returned": 0,
+                "spans_touched": 0
+              },
+              "VX1": {
+                "abstained": true,
+                "kind": "absent",
+                "returned": 0
+              },
+              "VX2": {
+                "abstained": false,
+                "kind": "absent",
+                "returned": 1
+              },
+              "VX3": {
+                "abstained": true,
+                "kind": "absent",
+                "returned": 0
+              }
+            },
+            "present_queries": 4,
+            "queries": 8
+          },
+          "index_provenance": {
+            "build_cost_status": "unavailable: current index artifact does not retain decode or build wall time",
+            "built_at": 1791421333.497277,
+            "clip_model": "openai/clip-vit-large-patch14",
+            "embed_backend": "clip-vit-large-patch14",
+            "embeddings_sha256": "9402c4314399611a4e440208391de816d9af6f8d014644699108d841075ef585",
+            "frame_count": 1092,
+            "index_bytes": 14364160,
+            "index_sha256": "ba056a21f4bb634b7c4ac79fe85ddacc555a58b926692d44b6f94fc3415bce5b",
+            "sampling_step_seconds": 10.0
+          },
+          "latency_seconds": {
+            "mean": 0.7005,
+            "p95": 5.411,
+            "per_query": {
+              "V02": 5.411,
+              "V03": 0.035,
+              "V05": 0.016,
+              "V06": 0.021,
+              "V07": 0.018,
+              "VX1": 0.045,
+              "VX2": 0.033,
+              "VX3": 0.025
+            }
+          },
+          "macro_precision_ci95": {
+            "confidence": 0.95,
+            "estimate": 0.2,
+            "lower": 0.0,
+            "method": "query bootstrap",
+            "n": 4,
+            "samples": 10000,
+            "seed": 20261015,
+            "upper": 0.4
+          },
+          "macro_recall_ci95": {
+            "confidence": 0.95,
+            "estimate": 0.1473,
+            "lower": 0.0,
+            "method": "query bootstrap",
+            "n": 4,
+            "samples": 10000,
+            "seed": 20261014,
+            "upper": 0.2945
+          },
+          "negative_behavior": {
+            "abstained": 0,
+            "correctly_refused": 1,
+            "false_return_rate": 1.0,
+            "floor": null,
+            "floor_abstained": null,
+            "floor_metric_status": "unsupported: visual index has no score floor",
+            "queries": 3,
+            "refusal_queries": 1,
+            "returned_any": 3
+          },
+          "negative_query_count": 3,
+          "peak_process_rss_mb": 1054.2,
+          "present_query_count": 4,
+          "protocol": "held-out visual query evaluation; labels and queries are frozen; no tuning",
+          "query_count": 8,
+          "retrieval_diagnostics": {
+            "by_category": {
+              "appearance": {
+                "misses_by_stage": {
+                  "frame_ranking_or_candidate_pool": 1,
+                  "interval_ranking_or_merging": 1
+                },
+                "queries": 3
+              },
+              "composition": {
+                "misses_by_stage": {
+                  "frame_ranking_or_candidate_pool": 1,
+                  "interval_ranking_or_merging": 1
+                },
+                "queries": 3
+              },
+              "objects": {
+                "misses_by_stage": {
+                  "frame_ranking_or_candidate_pool": 1
+                },
+                "queries": 3
+              },
+              "people": {
+                "misses_by_stage": {
+                  "interval_ranking_or_merging": 1
+                },
+                "queries": 2
+              }
+            },
+            "cost_coverage": "Query latency, process peak RSS, sampling step, frame count, and index bytes are measured when available. Decode and index build wall time are not retained by the current index artifact and therefore remain unmeasured.",
+            "interpretation": "A miss after sampled coverage but before candidate coverage is a ranking/pool miss. A positive candidate absent from final intervals is an interval ranking/merging miss; this report does not claim a causal distinction between those two without alternate merge replay.",
+            "method": "frozen-index coverage -> recorded frame candidate pool -> scored merged intervals",
+            "per_query": {
+              "V02": {
+                "candidate_pool_size": 40,
+                "categories": [
+                  "objects"
+                ],
+                "indexed_frames_in_positive_spans": 45,
+                "merge_gap_seconds": 30.0,
+                "positive_frames_in_candidate_pool": 13,
+                "positive_returned_intervals": 2,
+                "positive_spans": 43,
+                "returned_interval_count": 5,
+                "stage": "retrieved",
+                "top_interval_limit": 5
+              },
+              "V03": {
+                "candidate_pool_size": 40,
+                "categories": [
+                  "objects",
+                  "composition",
+                  "appearance"
+                ],
+                "indexed_frames_in_positive_spans": 23,
+                "merge_gap_seconds": 30.0,
+                "positive_frames_in_candidate_pool": 0,
+                "positive_returned_intervals": 0,
+                "positive_spans": 22,
+                "returned_interval_count": 5,
+                "stage": "frame_ranking_or_candidate_pool",
+                "top_interval_limit": 5
+              },
+              "V06": {
+                "candidate_pool_size": 40,
+                "categories": [
+                  "objects",
+                  "people",
+                  "composition",
+                  "appearance"
+                ],
+                "indexed_frames_in_positive_spans": 22,
+                "merge_gap_seconds": 30.0,
+                "positive_frames_in_candidate_pool": 9,
+                "positive_returned_intervals": 2,
+                "positive_spans": 21,
+                "returned_interval_count": 5,
+                "stage": "retrieved",
+                "top_interval_limit": 5
+              },
+              "V07": {
+                "candidate_pool_size": 40,
+                "categories": [
+                  "people",
+                  "composition",
+                  "appearance"
+                ],
+                "indexed_frames_in_positive_spans": 23,
+                "merge_gap_seconds": 30.0,
+                "positive_frames_in_candidate_pool": 2,
+                "positive_returned_intervals": 0,
+                "positive_spans": 22,
+                "returned_interval_count": 5,
+                "stage": "interval_ranking_or_merging",
+                "top_interval_limit": 5
+              }
+            },
+            "unmeasured_experiments": [
+              "alternate temporal sampling densities and their decode/index cost",
+              "multiscale visual embeddings and their index/memory cost",
+              "hybrid lexical, semantic, and structured evidence",
+              "calibration-only candidate-pool-size comparison",
+              "object/person measurement reranking"
+            ]
+          },
+          "useful_interval_cost": {
+            "cost_basis": "local inference; hosted API charges only (local compute cost excluded)",
+            "hosted_api_cost_usd": 0.0,
+            "query_seconds": 5.604,
+            "seconds_per_useful_interval": 1.401,
+            "useful_intervals": 4
+          }
+        }
+      },
+      "failure_queries": {
+        "V03": "candidate pool miss; zero positive frames in top 40",
+        "V07": "interval ranking or merging miss after two positive frames entered candidate pool"
+      },
+      "label_provenance": "Three-family P1 agent-label panel covers 16 query/source pairs and 360 sampled points on LC4930 and LCATL0011. Status majority resolves two A-vs-B/C disputes; timestamp evidence is non-unanimous. This panel is agent consensus, not gold truth, and covers only these two sources.",
+      "status": "reproduced_on_current_commit",
+      "summary": {
+        "absent_queries": 3,
+        "correct_action_refusals": 1,
+        "expected_action_refusals": 1,
+        "false_return_rate_absent": 1.0,
+        "first_query_seconds": 5.411,
+        "macro_precision_all_queries": 0.2,
+        "macro_recall": 0.1473,
+        "peak_process_rss_mb": 1054.2,
+        "present_queries": 4,
+        "warm_query_seconds": [
+          0.035,
+          0.016,
+          0.045,
+          0.033,
+          0.021,
+          0.025,
+          0.018
+        ]
+      }
+    },
+    "BASE-011_object_tracking": {
+      "current_project_artifacts": {
+        "apple001_segmentation_files": 0,
+        "podcast_segmentation_files": 0
+      },
+      "detector": {
+        "apple_vision": {
+          "boxes_recalled": 36,
+          "boxes_scored": 148,
+          "frames": 40,
+          "peak_rss_mb": 26.73,
+          "wall_seconds": 6.53
+        },
+        "florence2": {
+          "reason": "forced_bos_token_id missing",
+          "status": "failed_to_load"
+        },
+        "grounding_dino_tiny": {
+          "boxes_recalled": 40,
+          "boxes_scored": 148,
+          "median_seconds_per_frame": 5.52
+        },
+        "owlv2": {
+          "boxes_recalled": 132,
+          "boxes_scored": 148,
+          "frames": 40,
+          "iou_threshold": 0.5,
+          "model_id": "google/owlv2-base-patch16-ensemble",
+          "peak_rss_mb": 1174.56,
+          "wall_seconds": 145.55
+        }
+      },
+      "label_provenance": "Third-family P2/P3 agent boxes are included in blind_agent_label_agreement. Pairwise box IoU agreement is reported there; no new OWLv2/SAM predictions were scored against these labels, so detector/tracker quality remains unmeasured on this panel.",
+      "podcast_seeded_track": {
+        "clip": "LCATL0013 30-40 s",
+        "frames": 20,
+        "owlv2_seed_coverage": "20/20",
+        "sam_mask_coverage": "20/20"
+      },
+      "preprocessing": {
+        "status": "not separately retained; 40 still extraction was prior to timed detector pass",
+        "wall_seconds": null
+      },
+      "sam2_1_001": {
+        "clips": 17,
+        "duration_seconds": 807.0,
+        "mask_archive_mb": 58.3,
+        "max_worker_rss_mb": 4600,
+        "peak_rss_limitation": "Metal allocations are not represented by process RSS; machine memory pressure documented",
+        "realtime_multiple": 8.1,
+        "sampled_frames": 1615,
+        "system_swap_used_gb_at_peak": 38.0,
+        "wall_seconds": 6558.7
+      },
+      "scope": "40-frame detector bakeoff; Apple 001 SAM 2.1 17-clip run; podcast 20-frame laptop sample",
+      "serialization": {
+        "separate_serialization_seconds": null,
+        "serialized_masks_mb": 58.3,
+        "status": "bytes reported; serialization wall-time not separately measured"
+      },
+      "short_clip_propagation": {
+        "clip": "Apple 001 clip_008 / IMG_1813",
+        "frames_at_2fps": 18,
+        "objects": 9,
+        "seconds_per_frame": 4.18,
+        "wall_seconds": 75.2
+      },
+      "status": "reproduced_from_committed_measurement_records; full model pass not repeated on this commit"
+    },
+    "BASE-012_speech_and_diarization": {
+      "cross_recording_speaker_identity": {
+        "note": "M6 aligns camera clocks, not speaker identity; no sealed held-out speaker identity scorer",
+        "status": "unmeasured"
+      },
+      "current_scorer_command": "bin/vep -m library.tools.speech_eval --batch docs/benchmarks/eval05-reviewed-spans.json",
+      "noisy_recordings": {
+        "speech_conditions": [
+          "unknown"
+        ],
+        "status": "unmeasured",
+        "synthetic_overlap_is_not_noisy_audio": true
+      },
+      "overlap": {
+        "calibration_precision": 0.8114,
+        "calibration_recall": 0.7934,
+        "held_out_precision": 0.8168,
+        "held_out_recall": 0.8315,
+        "method": "two-seed constructed overlap from podcast ISO tracks; per-ISO word timings as reference",
+        "natural_episode_overlap_seconds": 4.87,
+        "natural_overlap_precision": 0.0,
+        "natural_overlap_recall": 0.0
+      },
+      "reindex_cost": {
+        "audio_extraction_included": false,
+        "audio_seconds": 0.84,
+        "elapsed_seconds": 39.399,
+        "language_id_seconds": 0.156,
+        "mfa_seconds": 36.193,
+        "seconds_per_audio_minute": 2814.2,
+        "voz_seconds": 3.05
+      },
+      "reviewed_subset": {
+        "abstentions": 0,
+        "cer": 0.225,
+        "condition": "unknown",
+        "failures": 0,
+        "label_provenance": "Legacy human-reviewed correction fixture, diagnostic reproduction only; not accepted as the new gold reference.",
+        "reference_words": 8,
+        "samples": 4,
+        "speaker_accuracy": 1.0,
+        "split_note": "targeted reviewed correction spans, not a random sample",
+        "wer": 0.125,
+        "word_boundary_error": null
+      },
+      "status": "scorer_reproduced; three-family P4 agent word/timing/overlap/condition/speaker-relation agreement recorded; cross-recording identity accuracy and noisy-speech accuracy remain unmeasured"
+    },
+    "BASE-013_semantic_analysis_cost": {
+      "cold_warm_ingest": {
+        "cold_gemma_calls": 24,
+        "cold_peak_rss_mb": 3078.6,
+        "cold_seconds": 835.58,
+        "completion": "partial; not a successful full ingest",
+        "warm_gemma_calls": 0,
+        "warm_peak_rss_mb": 2296.5,
+        "warm_reuse_count": 12,
+        "warm_seconds": 10.09
+      },
+      "eval08": {
+        "calls": 3,
+        "extraction_seconds": 8.048,
+        "input_frames": null,
+        "input_tokens": null,
+        "model_call_seconds": [
+          24.105,
+          19.94,
+          24.527
+        ],
+        "output_tokens": null,
+        "parsed_section_count": 12,
+        "parsed_sections": [
+          "scene",
+          "camera",
+          "actions",
+          "assessment"
+        ],
+        "scheduler_execution_seconds": 106.05,
+        "source_window_seconds": [
+          10.0,
+          3.57,
+          10.0
+        ],
+        "source_windows": 3,
+        "total_model_call_seconds": 68.572,
+        "usefulness_quality": "not independently scored"
+      },
+      "model": "mlx-community/gemma-4-12b-it-4bit",
+      "status": "existing_real_footage_cost_reproduced_from_report; token/frame telemetry absent"
+    },
+    "BASE-014_editorial_workflow": {
+      "current_commit_runner_rerun": {
+        "briefs": [
+          "docs/benchmarks/eval04-brief-dialogue-multicam.json (calibration)",
+          "docs/benchmarks/eval04-brief-visual-action-object.json (held_out)"
+        ],
+        "command": "bin/vep -m library.tools.evidence_to_edit --brief <brief> --model <manifest-only skeleton, zero observations> --durations <corpus durations> --split <split> --run-name baseline-rerun --output-root /tmp/eval04-baseline-rerun --out <result>",
+        "media_model_resolve": "none touched; runner performs no media reads, model passes, or Resolve calls",
+        "result": "both tasks: evidence complete, plan complete, edit_graph incomplete, render incomplete, verify incomplete; acceptance valid=false with all unmeasured metrics null",
+        "status": "reproduced_on_current_commit"
+      },
+      "evidence_to_edit_visual_graphs": "two calibration/held-out evidence-to-edit runs reached edit_graph complete with zero constraint violations in earlier stage; subsequent evidence-gated reruns can emit zero cuts where required evidence is absent",
+      "interpretation": "confirms executable graph/render path and fail-closed refusal; does not claim editorial quality",
+      "resolve_renders": {
+        "dialogue_frame_rate": "1080p24 review grade",
+        "path": "Ren Qualification scratch projects via resolve-axi and Ren render entry points",
+        "renders": 4,
+        "technical_checks": "all pass except delivery loudness, which reflects unaltered source level",
+        "visual_frame_rate": "native 29.97"
+      },
+      "status": "existing real Resolve render evidence confirmed from committed report"
+    },
+    "BASE-015_analysis_coverage": {
+      "apple001": {
+        "clip_asset_coverage_percent": 100.0,
+        "current_project_object_segmentation_artifacts": 0,
+        "sam2_historical_run_processed_clips": 17,
+        "sampled_frames": 1615,
+        "selected_subject_track_sample_coverage": "1544/1615 (95.6%)",
+        "source_count": 17,
+        "source_duration_seconds": 807.0,
+        "temporal_full_source_percent_by_lane": null
+      },
+      "limitations": "Artifact presence is not whole-source temporal coverage. Current project object segmentation artifacts are absent; the percentages above report the named FI-01 lane artifacts / historical clip processing, not a claim of dense coverage.",
+      "podcast_per_capability_asset_coverage": {
+        "M0": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M1": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M1b_M5_M3c_M3d_M3e_M3f_M9_M10": {
+          "percent": 0.0,
+          "sources": 0
+        },
+        "M2": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M3": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M3b": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M4": {
+          "percent": 14.3,
+          "sources": 1
+        },
+        "M6": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M7": {
+          "percent": 100.0,
+          "sources": 7
+        },
+        "M8": {
+          "percent": 85.7,
+          "sources": 6
+        }
+      },
+      "podcast_source_count": 7,
+      "status": "asset-level coverage reproduced from FI-01; temporal coverage reported where existing records expose it"
+    },
+    "BASE-016_cold_warm": {
+      "indexing": {
+        "embeddinggemma_001_seconds_approx": 5100,
+        "minilm_001_seconds": 5.2,
+        "status": "prior benchmark, different index builders; not directly comparable inference calls"
+      },
+      "ingest": {
+        "cold_seconds": 835.58,
+        "same_input_caveat": "warm measurement was a partial ingest on same source but changed project stream config; not strict same-input comparison",
+        "warm_seconds": 10.09
+      },
+      "status": "separated where logs exist",
+      "visual_query": {
+        "cold_first_query_seconds": 5.411,
+        "same_process": true,
+        "warm_queries_seconds": [
+          0.035,
+          0.016,
+          0.045,
+          0.033,
+          0.021,
+          0.025,
+          0.018
+        ]
+      }
+    }
+  },
+  "schema": "ren-model-upgrade-baseline-v1",
+  "scope": [
+    "podcast",
+    "Apple 001"
+  ],
+  "label_assets_reused": {
+    "apple_001_action_object_intervals": {
+      "paths": [
+        "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-agent-actions-a/labels.json",
+        "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-agent-actions-b2/labels.json"
+      ],
+      "scope": "all 17 Apple 001 takes (IMG_1806-IMG_1822, same take ids in both sets); action/object intervals from two independent agent labellers; numeric cross-labeller agreement not scored",
+      "use": "reused as agent-labelled interval evidence; not detector-box or persistent-identity gold"
+    },
+    "podcast_cross_camera_transcripts": {
+      "paths": [
+        "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-mim-l2-label-a",
+        "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-mim-l2-label-b",
+        "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-mim-l2-label-c"
+      ],
+      "scope": "25 short excerpts; transcript text/presence only",
+      "use": "reused for transcript text; does not establish word edges, natural overlap/noise, or cross-recording speaker identity"
+    },
+    "search_labels": {
+      "path": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-agent-label-final-search.json",
+      "scope": "30 rows, agreement rate 0.9",
+      "use": "not applicable to frozen EVAL02 query strings; no exact query match"
+    }
+  },
+  "blind_agent_label_agreement": {
+    "status": "three_independent_agent_label_sets_scored_pairwise",
+    "label_sets": [
+      {
+        "path": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-labels-r1-a/round2/vep-mu-baseline/",
+        "annotator_id": "labeller-a",
+        "model_family": "openai"
+      },
+      {
+        "path": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-labels-r1-b/round2/vep-mu-baseline/",
+        "annotator_id": "labeller-b",
+        "model_family": "opencode muse-spark"
+      },
+      {
+        "path": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-tiebreak-harness-baseline/labels-baseline.jsonl",
+        "report_path": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-tiebreak-harness-baseline/report.md",
+        "annotator_id": "tiebreak-claude-sonnet-5-5",
+        "model_family": "anthropic-claude / Sonnet 5.5",
+        "review_status": "independent_tiebreak",
+        "records": 74
+      }
+    ],
+    "method": {
+      "p1": "Exact status agreement; exact positive sample-time-set agreement at 10-second sampling. A three-agent status majority is recorded as agent consensus only. For sample points, positive/negative votes are compared to the per-point majority; no majority is called gold truth.",
+      "p2_p3": "Presence sets use fixed aliases with person subclasses kept distinct (man, woman, generic person), plus table/round-table, plant/tree, laptop, and hands. For geometry only, man/woman/person are grouped as person. Within each sample and geometry class, force a maximum-total-IoU one-to-one pairing of min(class counts), including zero-IoU pairs; report IoU >= 0.5, visibility exact match, and confidence exact match.",
+      "p2_identity": "Original A/B shared-link comparison is retained. Third label rows have stable per-source entity IDs but no explicit identity_link records, so no three-way cross-source identity-link agreement is claimed.",
+      "p4": "Lowercase words and remove punctuation, then LCS-align normalized words pairwise. Timing agrees when both boundaries are within 0.1 seconds; overlap and condition compare exactly. Speaker IDs are not compared literally; compare same/different relations for adjacent aligned words."
+    },
+    "results": {
+      "p1": {
+        "status_agree": 14,
+        "status_total": 16,
+        "exact_match_time_sets": 12,
+        "time_set_total": 16,
+        "positive_match_intersection": 85,
+        "a_positive_matches": 96,
+        "b_positive_matches": 105,
+        "b_as_prediction_precision": 0.8095238095,
+        "b_as_prediction_recall": 0.8854166667,
+        "f1": 0.8457711443,
+        "disputed_prompt_source_pairs": [
+          "Q01/LC4930",
+          "Q02/LC4930",
+          "Q03/LC4930",
+          "Q03/LCATL0011"
+        ]
+      },
+      "p2": {
+        "class_presence_sets_exact": 0,
+        "samples": 12,
+        "entity_count_a": 67,
+        "entity_count_b": 90,
+        "common_class_instances": 55,
+        "box_iou_at_least_0_5": 12,
+        "visibility_agree": 54,
+        "confidence_agree": 42,
+        "identity_link_records_a": 21,
+        "identity_link_records_b": 144,
+        "shared_normalized_identity_link_keys": 11,
+        "shared_identity_link_status_agree": 11
+      },
+      "p3": {
+        "class_presence_sets_exact": 0,
+        "samples": 40,
+        "entity_count_a": 215,
+        "entity_count_b": 261,
+        "common_class_instances": 155,
+        "box_iou_at_least_0_5": 40,
+        "visibility_agree": 150,
+        "confidence_agree": 140
+      },
+      "p4": {
+        "aligned_normalized_words": 3788,
+        "total_words_across_a": 3789,
+        "timing_both_boundaries_within_0_1_seconds": 3787,
+        "overlap_agree": 3737,
+        "condition_agree": 2655,
+        "adjacent_speaker_relation_agree": 3480,
+        "adjacent_speaker_relation_total": 3782,
+        "a_speaker_count_per_source": 1,
+        "b_speaker_count_per_source": 2,
+        "boundary_disagreement": "LC4932 final partial word at 150 seconds"
+      }
+    },
+    "verdict_effect": "Third-agent agreement is now scored, but these remain agent labels, not human/gold truth. P1 status disputes Q01/LC4930 and Q03/LC4930 resolve to present by B+C majority; P1 sample-time sets remain non-unanimous. P2/P3 class-presence sets remain non-exact and box overlap is limited. P4 words/timing agree strongly, while condition and speaker-relation fields disagree. Do not call any agent majority gold truth or infer detector/speech model accuracy from label agreement alone.",
+    "tiebreak_request": null,
+    "provenance_note": "A report predates its P1-P4 JSON outputs and says none were emitted; the actual A JSON artifacts were scored. C report says 74 baseline records; labels-baseline.jsonl contains 74 records. All three sources are independent agent labels from different model families; no human labels were collected.",
+    "third_agent_comparisons": {
+      "A-B": {
+        "P1": {
+          "status_agree": 14,
+          "status_total": 16,
+          "exact_positive_sample_time_sets": 12,
+          "sample_time_set_total": 16
+        },
+        "P2": {
+          "class_presence_sets_exact": 0,
+          "samples": 12,
+          "common_class_instances": 55,
+          "box_iou_at_least_0_5": 12,
+          "visibility_agree": 54,
+          "confidence_agree": 42
+        },
+        "P3": {
+          "class_presence_sets_exact": 0,
+          "samples": 40,
+          "common_class_instances": 155,
+          "box_iou_at_least_0_5": 40,
+          "visibility_agree": 150,
+          "confidence_agree": 140
+        },
+        "P4": {
+          "aligned_normalized_words": 3788,
+          "timing_within_100ms_both_edges": 3787,
+          "overlap_agree": 3737,
+          "condition_agree": 2655,
+          "adjacent_speaker_relation_agree": 3480,
+          "adjacent_speaker_relation_total": 3782
+        }
+      },
+      "A-C": {
+        "P1": {
+          "status_agree": 14,
+          "status_total": 16,
+          "exact_positive_sample_time_sets": 13,
+          "sample_time_set_total": 16
+        },
+        "P2": {
+          "class_presence_sets_exact": 0,
+          "samples": 12,
+          "common_class_instances": 48,
+          "box_iou_at_least_0_5": 6,
+          "visibility_agree": 48,
+          "confidence_agree": 36
+        },
+        "P3": {
+          "class_presence_sets_exact": 0,
+          "samples": 40,
+          "common_class_instances": 154,
+          "box_iou_at_least_0_5": 21,
+          "visibility_agree": 140,
+          "confidence_agree": 101
+        },
+        "P4": {
+          "aligned_normalized_words": 3788,
+          "timing_within_100ms_both_edges": 3787,
+          "overlap_agree": 3788,
+          "condition_agree": 0,
+          "adjacent_speaker_relation_agree": 3532,
+          "adjacent_speaker_relation_total": 3782
+        }
+      },
+      "B-C": {
+        "P1": {
+          "status_agree": 16,
+          "status_total": 16,
+          "exact_positive_sample_time_sets": 12,
+          "sample_time_set_total": 16
+        },
+        "P2": {
+          "class_presence_sets_exact": 0,
+          "samples": 12,
+          "common_class_instances": 54,
+          "box_iou_at_least_0_5": 30,
+          "visibility_agree": 54,
+          "confidence_agree": 36
+        },
+        "P3": {
+          "class_presence_sets_exact": 0,
+          "samples": 40,
+          "common_class_instances": 198,
+          "box_iou_at_least_0_5": 82,
+          "visibility_agree": 160,
+          "confidence_agree": 137
+        },
+        "P4": {
+          "aligned_normalized_words": 3789,
+          "timing_within_100ms_both_edges": 3789,
+          "overlap_agree": 3738,
+          "condition_agree": 1082,
+          "adjacent_speaker_relation_agree": 3305,
+          "adjacent_speaker_relation_total": 3783
+        }
+      }
+    },
+    "three_agent_consensus": {
+      "P1": {
+        "query_source_pairs": 16,
+        "status_majority": [
+          {
+            "prompt_id": "Q01",
+            "source_id": "LC4930",
+            "status": "present",
+            "votes": {
+              "absent": 1,
+              "present": 2
+            }
+          },
+          {
+            "prompt_id": "Q01",
+            "source_id": "LCATL0011",
+            "status": "present",
+            "votes": {
+              "present": 3
+            }
+          },
+          {
+            "prompt_id": "Q02",
+            "source_id": "LC4930",
+            "status": "present",
+            "votes": {
+              "present": 3
+            }
+          },
+          {
+            "prompt_id": "Q02",
+            "source_id": "LCATL0011",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q03",
+            "source_id": "LC4930",
+            "status": "present",
+            "votes": {
+              "absent": 1,
+              "present": 2
+            }
+          },
+          {
+            "prompt_id": "Q03",
+            "source_id": "LCATL0011",
+            "status": "present",
+            "votes": {
+              "present": 3
+            }
+          },
+          {
+            "prompt_id": "Q04",
+            "source_id": "LC4930",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q04",
+            "source_id": "LCATL0011",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q05",
+            "source_id": "LC4930",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q05",
+            "source_id": "LCATL0011",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q06",
+            "source_id": "LC4930",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q06",
+            "source_id": "LCATL0011",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q07",
+            "source_id": "LC4930",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          },
+          {
+            "prompt_id": "Q07",
+            "source_id": "LCATL0011",
+            "status": "present",
+            "votes": {
+              "present": 3
+            }
+          },
+          {
+            "prompt_id": "Q08",
+            "source_id": "LC4930",
+            "status": "present",
+            "votes": {
+              "present": 3
+            }
+          },
+          {
+            "prompt_id": "Q08",
+            "source_id": "LCATL0011",
+            "status": "absent",
+            "votes": {
+              "absent": 3
+            }
+          }
+        ],
+        "disputed_statuses_resolved_by_B_and_C": [
+          {
+            "prompt_id": "Q01",
+            "source_id": "LC4930",
+            "votes": [
+              "absent",
+              "present",
+              "present"
+            ],
+            "majority": "present"
+          },
+          {
+            "prompt_id": "Q03",
+            "source_id": "LC4930",
+            "votes": [
+              "absent",
+              "present",
+              "present"
+            ],
+            "majority": "present"
+          }
+        ],
+        "sample_points": 360,
+        "unanimous_sample_votes": 323,
+        "majority_positive_sample_points": 112,
+        "annotator_sample_agreement_vs_majority": {
+          "A": {
+            "positive_samples": 94,
+            "consensus_positive_samples": 112,
+            "intersection_with_consensus": 93,
+            "precision_vs_agent_majority": 0.9894,
+            "recall_vs_agent_majority": 0.8304,
+            "sample_accuracy_vs_agent_majority": 0.9444
+          },
+          "B": {
+            "positive_samples": 105,
+            "consensus_positive_samples": 112,
+            "intersection_with_consensus": 104,
+            "precision_vs_agent_majority": 0.9905,
+            "recall_vs_agent_majority": 0.9286,
+            "sample_accuracy_vs_agent_majority": 0.975
+          },
+          "C": {
+            "positive_samples": 118,
+            "consensus_positive_samples": 112,
+            "intersection_with_consensus": 111,
+            "precision_vs_agent_majority": 0.9407,
+            "recall_vs_agent_majority": 0.9911,
+            "sample_accuracy_vs_agent_majority": 0.9778
+          }
+        }
+      }
+    }
+  }
+}
