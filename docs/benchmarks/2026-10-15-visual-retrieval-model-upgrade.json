@@ -1,0 +1,5664 @@
+{
+  "schema_version": 1,
+  "task": "vep-mu-retrieval RET-001..026",
+  "measured_at": "2026-10-16",
+  "machine": {
+    "chip": "Apple M5",
+    "memory_gb": 24,
+    "runtime": "PyTorch 2.8.0, Transformers 5.19.0, MPS",
+    "workload": "one model at a time under heavy_work_lock profile semantics.analyse:inference; parallel lanes ran full_suite_gate, pytest -n 6 and model jobs concurrently, so latencies carry contention and 3B+ fp32 forwards OOMed"
+  },
+  "datasets": {
+    "frozen_existing_clip_set": {
+      "path": "library/tools/visual_retrieval_heldout_set.json",
+      "sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b",
+      "present_queries": 4,
+      "negative_queries": 3,
+      "refusal_queries": 1,
+      "partition_assets": [
+        "LC4930",
+        "LCATL0011"
+      ]
+    },
+    "calibration_set": {
+      "path": "library/tools/visual_retrieval_calib_extra.json",
+      "sha256": "f691f59ff77d99dcd45a4bb0371d16275600ae6da7f2b5ce1a89d7c5ff63a95b",
+      "queries": 5,
+      "limitation": "present-only; no negative examples and no exact event boundaries"
+    }
+  },
+  "comparison_protocol": {
+    "index": "the same existing 1,092-frame CLIP/M2 index, read-only; candidate PE encoders re-embedded those cached JPEGs",
+    "settings": "candidate native checkpoint resolution; common 10-second sampling; frozen query text and frame labels; no score threshold; no model setting tuned on held-out",
+    "scoring": "query-macro sampled-frame Recall@1/5/10, Precision@1/5/10 and Hit@1/5/10; negatives counted for abstention; complete-event temporal recall not derivable from point/frame labels",
+    "statistical_limit": "only four held-out present queries from one synchronized-camera leakage group; treat as pilot evidence, not genre/session-wide confidence"
+  },
+  "decisions": {
+    "commercial_first_stage": "retain CLIP ViT-L/14: WeMM-2B ties it on the pilot set at higher cost, PE-S improves recall@10 marginally (0.2996 vs 0.2779) without clearing an adoption bar, rerank adds nothing, and 256d shows calibration loss",
+    "personal_options": "keep PE Core B/L as research-only measured options; no production integration or model default changed",
+    "thresholds": "none calibrated; gaps measured (CLIP 0.0794, PE 0.0322); calibration set has no negatives",
+    "wemm_4b": "not run because WeMM 2B did not beat CLIP",
+    "wemm_256d": "locally evaluated: 100% held-out retention but calibration recall@10 falls to ~45% of full dim; 87.5% storage saving measured (8.95 MB to 1.12 MB float32); not shippable as default without expanded labels",
+    "resolution": "PE-S at 224 px matches/exceeds native 384 px on pilot (recall@10 0.3214 vs 0.2996); native resolution buys nothing measurable",
+    "sampling": "10 s stride retained; 5 s stride worse on pilot",
+    "rerank": "no rerank adopted; first-stage ranking stands"
+  },
+  "scorecards": [
+    {
+      "candidate": "CLIP-ViT-L14",
+      "publisher_model": "openai/clip-vit-large-patch14",
+      "publisher_revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+      "parameter_precision": "float32 full precision",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS",
+      "license_class": "existing production index; no model download in this task",
+      "adoption_decision": "retain baseline",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.4,
+            "hit_at_5": 0.8,
+            "hit_at_10": 1.0,
+            "precision_at_1": 0.4,
+            "precision_at_5": 0.52,
+            "precision_at_10": 0.48
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0278,
+            "precision_at_1": 0.75,
+            "hit_at_1": 0.75,
+            "recall_at_5": 0.1389,
+            "precision_at_5": 0.75,
+            "hit_at_5": 0.75,
+            "recall_at_10": 0.2779,
+            "precision_at_10": 0.75,
+            "hit_at_10": 0.75
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Recall@k is the fraction of labeled sampled-positive frames retrieved in top k. Precision@k is the relevant-frame fraction among k returned frames. Means are over positive queries only. Hit@k reports query-level any-positive success."
+      },
+      "latency_seconds": {
+        "decode": 0.0,
+        "cold_model_load": 19.624,
+        "cold_image_encode_all_indexed_frames": 0.0,
+        "cold_index_build_excluding_decode": 19.624,
+        "warm_text_encode_batch": 1.02,
+        "warm_text_encode_mean_per_query": 0.12756,
+        "rank_and_score": null,
+        "serialize": null,
+        "p50_p95": "not measured; one execution per held-out candidate"
+      },
+      "resources": {
+        "peak_process_rss_mb": 781.17,
+        "embedding_dimension": 768,
+        "embedding_index_bytes_float32": 3354624,
+        "model_download_bytes": null,
+        "model_download_path": null
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": 224,
+        "held_out_assets_only_for_scoring": true,
+        "dataset_sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b",
+        "calibration_dataset_sha256": "f691f59ff77d99dcd45a4bb0371d16275600ae6da7f2b5ce1a89d7c5ff63a95b",
+        "frame_index_sha256": "ba056a21\u202615bce5b (pinned in 2026-10-14 visual retrieval report)",
+        "decode_and_project_writes": "none; JPEGs and project/index were read-only"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "official_perception_models_source_commit": "3e352cca660658d4b5c90f42a7808b11469e4c66",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.2111474573612213,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.1923074722290039,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.19109907746315002,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.19049635529518127,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.19006219506263733,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.18962383270263672,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.18957090377807617,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.18870675563812256,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.1865292191505432,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.18464070558547974,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.22637008130550385,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.21823477745056152,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.21705932915210724,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.2126201093196869,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.2122555375099182,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.21129867434501648,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.21097129583358765,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.21094442903995514,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.210776686668396,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.21072915196418762,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.0,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": 0.0,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": 0.0,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.18655230104923248,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.18596476316452026,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.1831972599029541,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.18207591772079468,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.17327436804771423,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.17323161661624908,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.17156022787094116,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.1710876226425171,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.1693621575832367,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.16893070936203003,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.12300309538841248,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.11655128002166748,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.10942260921001434,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.10885597765445709,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.1079334020614624,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.1049080491065979,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.10263451188802719,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.10212820768356323,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.10087652504444122,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.10073702037334442,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.13167943060398102,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.12924450635910034,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.12600082159042358,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.12594197690486908,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.1258978396654129,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.12298814952373505,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.12283031642436981,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.1227128803730011,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.12163364887237549,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.12121496349573135,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.12354806065559387,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.11958266794681549,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.11876839399337769,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.11710435152053833,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.11578048020601273,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 169.753,
+                "score": 0.11472847312688828,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.11432864516973495,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.112754687666893,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.11159935593605042,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.1080356165766716,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.2448783665895462,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.24260008335113525,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.23637348413467407,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.22779810428619385,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.22685684263706207,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.22572651505470276,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.22352929413318634,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.22090521454811096,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.21918191015720367,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.21834388375282288,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.045454545454545456,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.22727272727272727,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.45454545454545453,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.2220616340637207,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.20968660712242126,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.20811183750629425,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.20145586133003235,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.19954372942447662,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.19636327028274536,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.1954822838306427,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.19543108344078064,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.19511514902114868,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.1946878880262375,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "PE-Core-S16-384",
+      "publisher_model": "facebook/PE-Core-S16-384",
+      "publisher_revision": "aabf3b990573d8114ae6e501b4697106beac8f19",
+      "parameter_precision": "float32 full precision",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS",
+      "license_class": "Apache-2.0 per publisher model card",
+      "adoption_decision": "research-only",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.6,
+            "hit_at_5": 0.6,
+            "hit_at_10": 0.6,
+            "precision_at_1": 0.6,
+            "precision_at_5": 0.6,
+            "precision_at_10": 0.6
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0278,
+            "precision_at_1": 0.75,
+            "hit_at_1": 0.75,
+            "recall_at_5": 0.1498,
+            "precision_at_5": 0.8,
+            "hit_at_5": 1.0,
+            "recall_at_10": 0.2996,
+            "precision_at_10": 0.8,
+            "hit_at_10": 1.0
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Recall@k is the fraction of labeled sampled-positive frames retrieved in top k. Precision@k is the relevant-frame fraction among k returned frames. Means are over positive queries only. Hit@k reports query-level any-positive success."
+      },
+      "latency_seconds": {
+        "decode": 0.0,
+        "cold_model_load": 4.468,
+        "cold_image_encode_all_indexed_frames": 38.755,
+        "cold_index_build_excluding_decode": 43.223,
+        "warm_text_encode_batch": 0.363,
+        "warm_text_encode_mean_per_query": 0.04535,
+        "rank_and_score": null,
+        "serialize": null,
+        "p50_p95": "not measured; one execution per held-out candidate"
+      },
+      "resources": {
+        "peak_process_rss_mb": 970.77,
+        "embedding_dimension": 512,
+        "embedding_index_bytes_float32": 2236416,
+        "model_download_bytes": 348852712,
+        "model_download_path": "/tmp/vep-mu-hf-cache/hub/models--facebook--PE-Core-S16-384/snapshots/aabf3b990573d8114ae6e501b4697106beac8f19/model.safetensors"
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": 384,
+        "held_out_assets_only_for_scoring": true,
+        "dataset_sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b",
+        "calibration_dataset_sha256": "f691f59ff77d99dcd45a4bb0371d16275600ae6da7f2b5ce1a89d7c5ff63a95b",
+        "frame_index_sha256": "ba056a21\u202615bce5b (pinned in 2026-10-14 visual retrieval report)",
+        "decode_and_project_writes": "none; JPEGs and project/index were read-only"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "official_perception_models_source_commit": "3e352cca660658d4b5c90f42a7808b11469e4c66",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.23971563577651978,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.2354801893234253,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.2344563603401184,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.2337573766708374,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.23320743441581726,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.23147621750831604,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.2310728132724762,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.23074954748153687,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.2271903157234192,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.2259787619113922,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.234441339969635,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.23213332891464233,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.22845616936683655,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.2265365868806839,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.22598691284656525,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.22535498440265656,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.2234269678592682,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.22240743041038513,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.2220030426979065,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.22045579552650452,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.0,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": 0.043478260869565216,
+            "precision_at_5": 0.2,
+            "hit_at_5": true,
+            "recall_at_10": 0.08695652173913043,
+            "precision_at_10": 0.2,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.2742503583431244,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.266259104013443,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.26256898045539856,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.26209908723831177,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.260498583316803,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.2603079080581665,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 110.193,
+                "score": 0.25939545035362244,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.2593046724796295,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.2583766281604767,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.2582293152809143,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.20224015414714813,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.2012282907962799,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.20108741521835327,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 209.793,
+                "score": 0.20046690106391907,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.19929973781108856,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.1987437903881073,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.19632619619369507,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.19625404477119446,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.1960851550102234,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.19585877656936646,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.1776760369539261,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.17420071363449097,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.1738836169242859,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.1738070845603943,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.17272141575813293,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.17197535932064056,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.1715030074119568,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 110.193,
+                "score": 0.17084796726703644,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.16958151757717133,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.16921034455299377,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.18396317958831787,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.1772957742214203,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.17616666853427887,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.1759459674358368,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.1749512106180191,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.17262975871562958,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.17242370545864105,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.17236320674419403,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.17153045535087585,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.1714324802160263,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.3351292312145233,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.3289042115211487,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.3270344138145447,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.32619810104370117,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.3250403106212616,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.3249250054359436,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.3221047520637512,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.32189124822616577,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.3187692165374756,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.31873708963394165,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.045454545454545456,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.22727272727272727,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.45454545454545453,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.3290994167327881,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.3207830488681793,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.31949764490127563,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.3189604878425598,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.31858742237091064,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 110.193,
+                "score": 0.31843119859695435,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.31828799843788147,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.3177913427352905,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.3167525827884674,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.31556862592697144,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "PE-Core-B16-224",
+      "publisher_model": "facebook/PE-Core-B16-224",
+      "publisher_revision": "a16450b46fef32363459920c2685a1b4ef13dcd9",
+      "parameter_precision": "float32 full precision",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS",
+      "license_class": "Apache-2.0 per publisher model card",
+      "adoption_decision": "research-only",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.6,
+            "hit_at_5": 0.6,
+            "hit_at_10": 0.6,
+            "precision_at_1": 0.6,
+            "precision_at_5": 0.6,
+            "precision_at_10": 0.6
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0387,
+            "precision_at_1": 1.0,
+            "hit_at_1": 1.0,
+            "recall_at_5": 0.1933,
+            "precision_at_5": 1.0,
+            "hit_at_5": 1.0,
+            "recall_at_10": 0.3648,
+            "precision_at_10": 0.95,
+            "hit_at_10": 1.0
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Recall@k is the fraction of labeled sampled-positive frames retrieved in top k. Precision@k is the relevant-frame fraction among k returned frames. Means are over positive queries only. Hit@k reports query-level any-positive success."
+      },
+      "latency_seconds": {
+        "decode": 0.0,
+        "cold_model_load": 16.775,
+        "cold_image_encode_all_indexed_frames": 33.233,
+        "cold_index_build_excluding_decode": 50.008,
+        "warm_text_encode_batch": 0.758,
+        "warm_text_encode_mean_per_query": 0.09473,
+        "rank_and_score": null,
+        "serialize": null,
+        "p50_p95": "not measured; one execution per held-out candidate"
+      },
+      "resources": {
+        "peak_process_rss_mb": 2547.09,
+        "embedding_dimension": 1024,
+        "embedding_index_bytes_float32": 4472832,
+        "model_download_bytes": 1790786632,
+        "model_download_path": "/tmp/vep-mu-hf-cache/hub/models--facebook--PE-Core-B16-224/snapshots/a16450b46fef32363459920c2685a1b4ef13dcd9/model.safetensors"
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": 224,
+        "held_out_assets_only_for_scoring": true,
+        "dataset_sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b",
+        "calibration_dataset_sha256": "f691f59ff77d99dcd45a4bb0371d16275600ae6da7f2b5ce1a89d7c5ff63a95b",
+        "frame_index_sha256": "ba056a21\u202615bce5b (pinned in 2026-10-14 visual retrieval report)",
+        "decode_and_project_writes": "none; JPEGs and project/index were read-only"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "official_perception_models_source_commit": "3e352cca660658d4b5c90f42a7808b11469e4c66",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.18857638537883759,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.18502140045166016,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.1818317174911499,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.1816626489162445,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.18106317520141602,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.17742249369621277,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.1759009212255478,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.17459338903427124,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.17406421899795532,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.17329683899879456,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.17382876574993134,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.15829312801361084,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.15743465721607208,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.15255728363990784,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.15249386429786682,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.15153339505195618,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.1511247456073761,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.15054094791412354,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.1501891016960144,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.14626461267471313,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.34782608695652173,
+            "precision_at_10": 0.8,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.18775515258312225,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.18585030734539032,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.17957285046577454,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.17299309372901917,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.1696048378944397,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.1694014072418213,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.16666334867477417,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.16510224342346191,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.15692397952079773,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.15565750002861023,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.11872217804193497,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.11210097372531891,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.10859180986881256,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.10760311782360077,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.1075667291879654,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.10607412457466125,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.10591135174036026,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.10515611618757248,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.10488560050725937,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.10357040166854858,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.08160795271396637,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.08090310543775558,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.0804077684879303,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.08027967810630798,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.07921609282493591,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.07872962206602097,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.07812166213989258,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.07808291912078857,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.07774874567985535,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.07680496573448181,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.13611726462841034,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.1106528490781784,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.10985280573368073,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.10885357856750488,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.10704105347394943,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.10395386070013046,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.10395007580518723,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.10334944725036621,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.1026279404759407,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.1019488051533699,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.25724464654922485,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.25274115800857544,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.25026434659957886,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.24998779594898224,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.2470659762620926,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.24455231428146362,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.24143949151039124,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.2411951720714569,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.23851005733013153,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.23008644580841064,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.045454545454545456,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.22727272727272727,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.45454545454545453,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.2579044699668884,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.2568029761314392,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.2541472315788269,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.24867010116577148,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.2481701374053955,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.24599002301692963,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.23997220396995544,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.23848268389701843,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.23584765195846558,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.2341495156288147,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "PE-Core-L14-336",
+      "publisher_model": "facebook/PE-Core-L14-336",
+      "publisher_revision": "bafb0f76541d399057e980a25947f67acec76575",
+      "parameter_precision": "float32 full precision",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS",
+      "license_class": "Apache-2.0 per publisher model card",
+      "adoption_decision": "research-only",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.6,
+            "hit_at_5": 0.6,
+            "hit_at_10": 1.0,
+            "precision_at_1": 0.6,
+            "precision_at_5": 0.6,
+            "precision_at_10": 0.68
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0387,
+            "precision_at_1": 1.0,
+            "hit_at_1": 1.0,
+            "recall_at_5": 0.1933,
+            "precision_at_5": 1.0,
+            "hit_at_5": 1.0,
+            "recall_at_10": 0.3866,
+            "precision_at_10": 1.0,
+            "hit_at_10": 1.0
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Recall@k is the fraction of labeled sampled-positive frames retrieved in top k. Precision@k is the relevant-frame fraction among k returned frames. Means are over positive queries only. Hit@k reports query-level any-positive success."
+      },
+      "latency_seconds": {
+        "decode": 0.0,
+        "cold_model_load": 29.423,
+        "cold_image_encode_all_indexed_frames": 243.149,
+        "cold_index_build_excluding_decode": 272.572,
+        "warm_text_encode_batch": 0.332,
+        "warm_text_encode_mean_per_query": 0.04147,
+        "rank_and_score": null,
+        "serialize": null,
+        "p50_p95": "not measured; one execution per held-out candidate"
+      },
+      "resources": {
+        "peak_process_rss_mb": 1745.45,
+        "embedding_dimension": 1024,
+        "embedding_index_bytes_float32": 4472832,
+        "model_download_bytes": 2684747432,
+        "model_download_path": "/tmp/vep-mu-hf-cache/hub/models--facebook--PE-Core-L14-336/snapshots/bafb0f76541d399057e980a25947f67acec76575/model.safetensors"
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": 336,
+        "held_out_assets_only_for_scoring": true,
+        "dataset_sha256": "8912be57cd72383e2b1bafea13152fe795b97fa4d3f3873b903e5959406f188b",
+        "calibration_dataset_sha256": "f691f59ff77d99dcd45a4bb0371d16275600ae6da7f2b5ce1a89d7c5ff63a95b",
+        "frame_index_sha256": "ba056a21\u202615bce5b (pinned in 2026-10-14 visual retrieval report)",
+        "decode_and_project_writes": "none; JPEGs and project/index were read-only"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "official_perception_models_source_commit": "3e352cca660658d4b5c90f42a7808b11469e4c66",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.1639544516801834,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.1545509248971939,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.15345938503742218,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.15241692960262299,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.15218770503997803,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.15063954889774323,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.14359141886234283,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.14246411621570587,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.14246253669261932,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.14025738835334778,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.15933546423912048,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.15646763145923615,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 209.793,
+                "score": 0.1547965109348297,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 110.193,
+                "score": 0.15426619350910187,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.1517229974269867,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.15158355236053467,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.15122686326503754,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.1499136984348297,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.1496395617723465,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.14918315410614014,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.14825066924095154,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.13645729422569275,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.1279432326555252,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.1245935931801796,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.12230964750051498,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.12219678610563278,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.12049075961112976,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.11970540881156921,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.11938905715942383,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.1134658008813858,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.10238572210073471,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.102124884724617,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.10203827172517776,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.0992005467414856,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.09592896699905396,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.09236335009336472,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.09165115654468536,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.09029926359653473,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.08976736664772034,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.08774960786104202,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.06828270852565765,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.06624747067689896,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.06604234874248505,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.06394270807504654,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.06386205554008484,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.06337215006351471,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.06232919543981552,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.06163661181926727,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.05943354219198227,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.05881018191576004,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.07830311357975006,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.07597482949495316,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.07178682088851929,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.06692389398813248,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.06153382360935211,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.06086907163262367,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.05960516259074211,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.05893402546644211,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.05878167971968651,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 60.143,
+                "score": 0.05867224931716919,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.25483277440071106,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.25344613194465637,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.25016945600509644,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 199.783,
+                "score": 0.2447788119316101,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.24307255446910858,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 169.753,
+                "score": 0.2399737536907196,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.2370339334011078,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.23617032170295715,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 179.763,
+                "score": 0.2328912317752838,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.2324572205543518,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.045454545454545456,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.22727272727272727,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.45454545454545453,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.22970789670944214,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.22890159487724304,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.22658701241016388,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.22579027712345123,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.22176147997379303,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.22064782679080963,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.22000806033611298,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.21526145935058594,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.21258039772510529,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.21196359395980835,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "WeMM-2B-2048d",
+      "publisher_model": "tencent/WeMM-Embedding-2B",
+      "publisher_revision": "bbd6cd4bf52cfc6716f752a2df80b2706720bd95",
+      "parameter_precision": "bf16 / full precision (MPS)",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS (sentence-transformers)",
+      "license_class": "Apache-2.0 per repo LICENSE; Hub metadata tag is license:other (see vep-mu-license wemm_embedding2b, conditional)",
+      "adoption_decision": "research-only",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.6,
+            "hit_at_5": 0.6,
+            "hit_at_10": 0.8,
+            "precision_at_1": 0.6,
+            "precision_at_5": 0.48,
+            "precision_at_10": 0.4
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0273,
+            "precision_at_1": 0.75,
+            "hit_at_1": 0.75,
+            "recall_at_5": 0.1365,
+            "precision_at_5": 0.75,
+            "hit_at_5": 0.75,
+            "recall_at_10": 0.2729,
+            "precision_at_10": 0.75,
+            "hit_at_10": 0.75
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Same frozen sets, protocol and pilot limits as the PE/CLIP scorecards. 256d variant truncates to the first 256 MRL dims and renormalizes, per the publisher card."
+      },
+      "latency_seconds": {
+        "cold_model_load": 36.947,
+        "cold_image_encode_all_indexed_frames": 0.0,
+        "warm_text_encode_batch": 23.996,
+        "warm_text_encode_mean_per_query": 2.99954,
+        "rank_and_score": 0.006,
+        "note": "Full-2048d image encode ran ~50 min wall for 1,092 frames under parallel-lane contention; the exact split was lost when the first run's summary timed out, so held-out image_encode_seconds is 0.0 (reused matrix). Text towers re-encoded per run."
+      },
+      "resources": {
+        "peak_process_rss_mb": 490.53,
+        "embedding_dimension": 2048,
+        "embedding_index_bytes_float32": 8945664,
+        "model_download_bytes": 5441695216,
+        "model_download_path": "/Users/prajwal/.cache/vep-mu-retrieval/models--tencent--WeMM-Embedding-2B/snapshots/bbd6cd4bf52cfc6716f752a2df80b2706720bd95/model.safetensors"
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": "variable (VLM native)"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.19379664957523346,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.19236314296722412,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.19194157421588898,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.19159522652626038,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.19150936603546143,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.19068138301372528,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.19048377871513367,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.1901937872171402,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.19008390605449677,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.18970423936843872,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.1958501636981964,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.19554591178894043,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.1951599419116974,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.19489306211471558,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.19466644525527954,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.19426429271697998,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.1935693770647049,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.19351878762245178,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.1929059624671936,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.1928083300590515,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.39115482568740845,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.3902297019958496,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.37976592779159546,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.3552319407463074,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.3533828854560852,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.35246506333351135,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.3502389192581177,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.3460487723350525,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.33764389157295227,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.33744215965270996,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.2453668713569641,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.23610082268714905,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.23457662761211395,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.23352980613708496,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.232751727104187,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.23212343454360962,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.2319033443927765,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.23151499032974243,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 209.793,
+                "score": 0.23121638596057892,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.22858324646949768,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.16563475131988525,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.16330260038375854,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.16146939992904663,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.15817701816558838,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.1580914855003357,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.1566908061504364,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.15613237023353577,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.1560729444026947,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.15523257851600647,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.1539420783519745,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.16494551301002502,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.16465547680854797,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.1644856482744217,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.16277658939361572,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.16249239444732666,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.1622447967529297,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.1622312217950821,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.16213303804397583,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.16069480776786804,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.16054266691207886,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.1839657574892044,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.17583203315734863,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.17562563717365265,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.17402414977550507,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.1734119951725006,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.1725364476442337,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.17228272557258606,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.17196479439735413,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.17176175117492676,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.17168214917182922,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.0,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": 0.0,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": 0.0,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.15081815421581268,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.14912950992584229,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.1483849585056305,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.14828231930732727,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.14665797352790833,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.14637845754623413,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.1458113193511963,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.14520713686943054,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.1450863778591156,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.14489221572875977,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "WeMM-2B-256d",
+      "publisher_model": "tencent/WeMM-Embedding-2B",
+      "publisher_revision": "bbd6cd4bf52cfc6716f752a2df80b2706720bd95",
+      "parameter_precision": "bf16 / full precision (MPS); MRL truncation to 256d with renormalize",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS (sentence-transformers)",
+      "license_class": "Apache-2.0 per repo LICENSE; Hub metadata tag is license:other (see vep-mu-license wemm_embedding2b, conditional)",
+      "adoption_decision": "research-only",
+      "quality": {
+        "calibration": {
+          "set": "visual_retrieval_calib_extra.json",
+          "query_count": 5,
+          "metrics": {
+            "hit_at_1": 0.4,
+            "hit_at_5": 0.4,
+            "hit_at_10": 0.4,
+            "precision_at_1": 0.4,
+            "precision_at_5": 0.4,
+            "precision_at_10": 0.4
+          }
+        },
+        "held_out": {
+          "set": "visual_retrieval_heldout_set.json",
+          "present_query_count": 4,
+          "negative_query_count": 3,
+          "metrics": {
+            "recall_at_1": 0.0273,
+            "precision_at_1": 0.75,
+            "hit_at_1": 0.75,
+            "recall_at_5": 0.1365,
+            "precision_at_5": 0.75,
+            "hit_at_5": 0.75,
+            "recall_at_10": 0.2729,
+            "precision_at_10": 0.75,
+            "hit_at_10": 0.75
+          },
+          "abstained_negative_queries": 0
+        },
+        "complete_event_temporal_recall": null,
+        "notes": "Same frozen sets, protocol and pilot limits as the PE/CLIP scorecards. 256d variant truncates to the first 256 MRL dims and renormalizes, per the publisher card."
+      },
+      "latency_seconds": {
+        "cold_model_load": 29.693,
+        "cold_image_encode_all_indexed_frames": 0.0,
+        "warm_text_encode_batch": 26.945,
+        "warm_text_encode_mean_per_query": 3.36818,
+        "rank_and_score": 0.2,
+        "note": "Full-2048d image encode ran ~50 min wall for 1,092 frames under parallel-lane contention; the exact split was lost when the first run's summary timed out, so held-out image_encode_seconds is 0.0 (reused matrix). Text towers re-encoded per run."
+      },
+      "resources": {
+        "peak_process_rss_mb": 608.09,
+        "embedding_dimension": 256,
+        "embedding_index_bytes_float32": 1118208,
+        "model_download_bytes": 5441695216,
+        "model_download_path": "/Users/prajwal/.cache/vep-mu-retrieval/models--tencent--WeMM-Embedding-2B/snapshots/bbd6cd4bf52cfc6716f752a2df80b2706720bd95/model.safetensors"
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": "variable (VLM native)"
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.2650965750217438,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.2638907730579376,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.2595263123512268,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.25887227058410645,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.2583198547363281,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.25769346952438354,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.2544158697128296,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.25235438346862793,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.2521594166755676,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.2513658404350281,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.32598739862442017,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.32321393489837646,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.3210752010345459,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.3205914795398712,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.3168935775756836,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.3162817358970642,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.3140696585178375,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.31336769461631775,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.31260061264038086,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.3108000159263611,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.46346378326416016,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.4545583724975586,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.4466855525970459,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.44287219643592834,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.43129169940948486,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.42137420177459717,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.4211980104446411,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.4205472469329834,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.4169709086418152,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.4162670075893402,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.29368478059768677,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.28535985946655273,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.2805752754211426,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.2778417766094208,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.27630484104156494,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.27610933780670166,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.2748644948005676,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.27302151918411255,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 140.223,
+                "score": 0.2718254327774048,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.2699146270751953,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.23189404606819153,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.22258742153644562,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.2224343717098236,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.22180655598640442,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.2201767861843109,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.22012892365455627,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.21698790788650513,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.21696823835372925,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.2133883535861969,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.21292360126972198,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.29247263073921204,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.2884850800037384,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.2868785262107849,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.2805146276950836,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.27915799617767334,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.2789120674133301,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.2762649655342102,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.2760944366455078,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.2758331894874573,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.27577540278434753,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.25882720947265625,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.2517026662826538,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.25080034136772156,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.24754422903060913,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.2452889084815979,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.24300746619701385,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.24273663759231567,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 140.223,
+                "score": 0.2423585057258606,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.2416737824678421,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 70.153,
+                "score": 0.24151907861232758,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.0,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": 0.0,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": 0.0,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.2385440617799759,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.2380773276090622,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.230668306350708,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 160.243,
+                "score": 0.23053905367851257,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.22814741730690002,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.2261553406715393,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.22446081042289734,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.223749041557312,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.22273242473602295,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.22210708260536194,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "PE-Core-S16-384@224px",
+      "publisher_model": "facebook/PE-Core-S16-384",
+      "publisher_revision": "aabf3b990573d8114ae6e501b4697106beac8f19",
+      "parameter_precision": "float32 full precision",
+      "device": "Apple M5, 24 GB unified memory, PyTorch MPS",
+      "license_class": "Apache-2.0 per publisher model card",
+      "adoption_decision": "research-only",
+      "quality": {
+        "held_out": {
+          "recall_at_1": 0.0278,
+          "precision_at_1": 0.75,
+          "hit_at_1": 0.75,
+          "recall_at_5": 0.1498,
+          "precision_at_5": 0.8,
+          "hit_at_5": 1.0,
+          "recall_at_10": 0.3214,
+          "precision_at_10": 0.85,
+          "hit_at_10": 1.0
+        }
+      },
+      "latency_seconds": {
+        "cold_model_load": 8.623,
+        "cold_image_encode_all_indexed_frames": 106.392,
+        "warm_text_encode_batch": 2.563,
+        "note": "Encode ran under parallel-lane contention; slower than the prior 38.8 s measurement of the same workload."
+      },
+      "resources": {
+        "peak_process_rss_mb": 405.83,
+        "embedding_dimension": 512,
+        "embedding_index_bytes_float32": 2236416
+      },
+      "input": {
+        "frame_count": 1092,
+        "sampling": "existing M2 JPEGs, one frame each 10 seconds",
+        "input_resolution_px": 224
+      },
+      "provenance": {
+        "benchmark_tool": "library/tools/visual_retrieval_candidate_benchmark.py",
+        "scorecard_rows": [
+          {
+            "id": "V02",
+            "query": "an open laptop with its lid raised",
+            "positive_frame_count": 45,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.24313557147979736,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.23927824199199677,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.23903797566890717,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.23878179490566254,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.23784244060516357,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.2368898093700409,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.2323782593011856,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.23168306052684784,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 189.773,
+                "score": 0.2312651127576828,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.2309628576040268,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.022222222222222223,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.1111111111111111,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.2222222222222222,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V03",
+            "query": "a blue laptop screen at the edge of the frame",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.22482545673847198,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.2238221913576126,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.22370518743991852,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.2235100418329239,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.2222089320421219,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.22123727202415466,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.21995702385902405,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.2199254184961319,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.2198980152606964,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.2186126857995987,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.0,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": 0.043478260869565216,
+            "precision_at_5": 0.2,
+            "hit_at_5": true,
+            "recall_at_10": 0.17391304347826086,
+            "precision_at_10": 0.4,
+            "hit_at_10": true
+          },
+          {
+            "id": "V05",
+            "query": "a person gesturing with both hands",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.27393436431884766,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.2636673152446747,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.26306506991386414,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.26015913486480713,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.2588561475276947,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 110.193,
+                "score": 0.2574698328971863,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.2561432719230652,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.2554163932800293,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 40.123,
+                "score": 0.2538428008556366,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 209.793,
+                "score": 0.2533661127090454,
+                "relevant": false
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX1",
+            "query": "a dog lying on the floor",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.22770148515701294,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 110.193,
+                "score": 0.20666015148162842,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 100.183,
+                "score": 0.1954006552696228,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.19445575773715973,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.18954022228717804,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 209.793,
+                "score": 0.18585887551307678,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.185278058052063,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 50.133,
+                "score": 0.18330086767673492,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.1817629337310791,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.17994394898414612,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX2",
+            "query": "a busy city street full of cars",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 10.093,
+                "score": 0.16267411410808563,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.15667331218719482,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 10.093,
+                "score": 0.15032948553562164,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.14999082684516907,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.1492578238248825,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.1492110788822174,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 0.083,
+                "score": 0.14915624260902405,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 120.203,
+                "score": 0.14848417043685913,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 40.123,
+                "score": 0.14843928813934326,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 20.103,
+                "score": 0.14629095792770386,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "VX3",
+            "query": "a whiteboard covered in handwriting",
+            "positive_frame_count": 0,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 179.763,
+                "score": 0.1795518398284912,
+                "relevant": false
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.177636057138443,
+                "relevant": false
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 130.213,
+                "score": 0.17724938690662384,
+                "relevant": false
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 169.753,
+                "score": 0.1748933494091034,
+                "relevant": false
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 199.783,
+                "score": 0.17235532402992249,
+                "relevant": false
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 219.803,
+                "score": 0.17111614346504211,
+                "relevant": false
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.17108118534088135,
+                "relevant": false
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.17074474692344666,
+                "relevant": false
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.16961456835269928,
+                "relevant": false
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.16957688331604004,
+                "relevant": false
+              }
+            ],
+            "negative": true,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": null,
+            "precision_at_1": 0.0,
+            "hit_at_1": false,
+            "recall_at_5": null,
+            "precision_at_5": 0.0,
+            "hit_at_5": false,
+            "recall_at_10": null,
+            "precision_at_10": 0.0,
+            "hit_at_10": false
+          },
+          {
+            "id": "V06",
+            "query": "a man seated behind a laptop in a dark geometric studio",
+            "positive_frame_count": 22,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LCATL0011",
+                "time": 80.163,
+                "score": 0.3336484730243683,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LCATL0011",
+                "time": 0.083,
+                "score": 0.3296750783920288,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LCATL0011",
+                "time": 169.753,
+                "score": 0.3200916051864624,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LCATL0011",
+                "time": 70.153,
+                "score": 0.3172147274017334,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LCATL0011",
+                "time": 30.113,
+                "score": 0.31662365794181824,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LCATL0011",
+                "time": 160.243,
+                "score": 0.314203679561615,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LCATL0011",
+                "time": 20.103,
+                "score": 0.31419461965560913,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LCATL0011",
+                "time": 50.133,
+                "score": 0.3123762607574463,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LCATL0011",
+                "time": 150.233,
+                "score": 0.31161919236183167,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LCATL0011",
+                "time": 90.173,
+                "score": 0.3115943372249603,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.045454545454545456,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.22727272727272727,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.45454545454545453,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          },
+          {
+            "id": "V07",
+            "query": "a woman wearing glasses at a table with a leafy plant behind her",
+            "positive_frame_count": 23,
+            "top10": [
+              {
+                "rank": 1,
+                "asset": "LC4930",
+                "time": 209.793,
+                "score": 0.340676486492157,
+                "relevant": true
+              },
+              {
+                "rank": 2,
+                "asset": "LC4930",
+                "time": 120.203,
+                "score": 0.33699777722358704,
+                "relevant": true
+              },
+              {
+                "rank": 3,
+                "asset": "LC4930",
+                "time": 189.773,
+                "score": 0.33551666140556335,
+                "relevant": true
+              },
+              {
+                "rank": 4,
+                "asset": "LC4930",
+                "time": 90.173,
+                "score": 0.33339911699295044,
+                "relevant": true
+              },
+              {
+                "rank": 5,
+                "asset": "LC4930",
+                "time": 130.213,
+                "score": 0.3328886032104492,
+                "relevant": true
+              },
+              {
+                "rank": 6,
+                "asset": "LC4930",
+                "time": 150.233,
+                "score": 0.3311551511287689,
+                "relevant": true
+              },
+              {
+                "rank": 7,
+                "asset": "LC4930",
+                "time": 100.183,
+                "score": 0.32984834909439087,
+                "relevant": true
+              },
+              {
+                "rank": 8,
+                "asset": "LC4930",
+                "time": 60.143,
+                "score": 0.32679980993270874,
+                "relevant": true
+              },
+              {
+                "rank": 9,
+                "asset": "LC4930",
+                "time": 30.113,
+                "score": 0.32665061950683594,
+                "relevant": true
+              },
+              {
+                "rank": 10,
+                "asset": "LC4930",
+                "time": 80.163,
+                "score": 0.3239684998989105,
+                "relevant": true
+              }
+            ],
+            "negative": false,
+            "temporal_recall_complete_event": null,
+            "recall_at_1": 0.043478260869565216,
+            "precision_at_1": 1.0,
+            "hit_at_1": true,
+            "recall_at_5": 0.21739130434782608,
+            "precision_at_5": 1.0,
+            "hit_at_5": true,
+            "recall_at_10": 0.43478260869565216,
+            "precision_at_10": 1.0,
+            "hit_at_10": true
+          }
+        ]
+      }
+    }
+  ],
+  "existing_comparisons": [
+    {
+      "candidate": "EmbeddingGemma 2",
+      "decision": "retain as measured comparison",
+      "source": "docs/benchmarks/2026-10-09-unified-multimodal-index.md",
+      "results": "EG2 text-hybrid Recall@5/Precision 0.786/0.161 on Apple 001 and 0.667/0.327 on geo-podcast; EG2 dense 0.768/0.154 and 0.762/0.337. These are text-index/span metrics on a different query set, not comparable with frame-level held-out PE/CLIP numbers."
+    }
+  ],
+  "research_references": [
+    {
+      "candidate": "Cosmos Embed1",
+      "decision": "research-only reference",
+      "notes": "NVIDIA describes a joint video/text embedder using 8-frame inputs at 224/336/448 resolutions; its general/action benchmark is not this footage benchmark. No model weights were downloaded."
+    },
+    {
+      "candidate": "TARA",
+      "decision": "research-only reference",
+      "notes": "The approach builds temporal-antonym and negation hard negatives and uses text-only contrastive adaptation; do not claim local performance. No weights were downloaded."
+    },
+    {
+      "candidate": "PE-AV",
+      "decision": "mechanics probed 2026-10-16; quality pending",
+      "notes": "Pinned download + native load verified; upstream embed getters broken, forward path unmeasured under contention; needs audio-grounded cross-modal labels."
+    },
+    {
+      "candidate": "WeMM-Embedding 2B",
+      "decision": "measured 2026-10-16; research-only",
+      "notes": "BF16 MPS: held-out recall 0.0273/0.1365/0.2729 ties CLIP (0.0278/0.1389/0.2779) at 2.7x storage and ~3 s/query text latency; 256d retains 100% on held-out but ~45% recall@10 on calibration vs full dim. No measured improvement over CLIP."
+    },
+    {
+      "candidate": "WeMM-Embedding 4B",
+      "decision": "not run; 2B did not beat the incumbent"
+    }
+  ],
+  "punchlist_status": {
+    "complete": [
+      "RET-001 frozen CLIP set reused",
+      "RET-005 PE-Core S/B/L against CLIP",
+      "RET-009 existing EmbeddingGemma 2 measured comparison retained",
+      "RET-010 Cosmos Embed1 research reference investigated",
+      "RET-011 TARA hard-negative and temporal method investigated",
+      "RET-017 Recall/Precision@1/5/10 measured on sampled frames",
+      "RET-019 current negative return/abstention measured",
+      "RET-021 no CLIP/MiniLM floors transferred",
+      "RET-024 index encoding, query-text latency, peak process RSS, and vector storage measured",
+      "RET-025 Commercial retains CLIP by qualification decision",
+      "RET-026 PE Core options retained as Personal research candidates",
+      "RET-006 WeMM 2B benchmarked (BF16 MPS, stills)",
+      "RET-007 local WeMM 256d retention/storage measured",
+      "RET-008 WeMM 4B declined (2B did not beat incumbent)",
+      "RET-013 temporal-context half measured (pooled stills); video-encoder half pending",
+      "RET-015 resolution compared (PE-S 224 vs 384; CLIP 224; WeMM variable)",
+      "RET-016 frame sampling compared (10 s vs 5 s, CLIP)",
+      "RET-020 separation gaps measured, no threshold shipped",
+      "RET-023 rerank tested both directions, no gain"
+    ],
+    "waiting_for_agent_labels": [
+      "RET-002 expanded dataset",
+      "RET-003 negatives",
+      "RET-004 temporal opposites",
+      "RET-018 complete-event temporal recall",
+      "RET-014 event-aligned intervals (needs event boundaries)",
+      "RET-020 calibrated thresholds (needs negatives in calibration)",
+      "RET-022 hybrid text/visual/audio/metadata (needs speech-anchored queries)"
+    ],
+    "not_yet_measured": [
+      "RET-006 WeMM 2B",
+      "RET-007 local WeMM 256d retention/storage",
+      "RET-008 WeMM 4B conditional",
+      "RET-012 PE-AV cross-modal",
+      "RET-013 still vs short clip",
+      "RET-014 fixed vs event-aligned",
+      "RET-015 resolution sweep beyond native checkpoints",
+      "RET-016 alternate frame sampling",
+      "RET-020 model-specific thresholds",
+      "RET-022 text/visual/audio/metadata hybrid",
+      "RET-023 reranking"
+    ],
+    "partial": [
+      "RET-024 decode cost excluded because the candidate experiment reuses existing M2 JPEGs; runtime latency includes only model init/image indexing and text query encoding; ranking/serialization timing not separately captured",
+      "RET-012 PE-AV mechanics probed (pinned download, native load, processor); forward-path numbers and quality eval pending labels and calmer machine"
+    ]
+  },
+  "rerank_experiment": {
+    "result": "no measured rerank gain on the pilot held-out set",
+    "detail": "CLIP-first reranked by PE-S converges to the stronger single model at each depth (depth20: CLIP-level 0.2779; depth50: PE-level 0.2996); PE-first reranked by CLIP likewise. Rerank adds a second model load for zero pilot gain.",
+    "numbers": {
+      "clip50_pe_depth20": {
+        "recall_at_1": 0.0278,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.1389,
+        "precision_at_5": 0.75,
+        "hit_at_5": 0.75,
+        "recall_at_10": 0.2779,
+        "precision_at_10": 0.75,
+        "hit_at_10": 0.75
+      },
+      "pe50_clip_depth20": {
+        "recall_at_1": 0.0278,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.1389,
+        "precision_at_5": 0.75,
+        "hit_at_5": 0.75,
+        "recall_at_10": 0.2779,
+        "precision_at_10": 0.75,
+        "hit_at_10": 0.75
+      },
+      "clip50_pe_depth50": {
+        "recall_at_1": 0.0278,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.1498,
+        "precision_at_5": 0.8,
+        "hit_at_5": 1.0,
+        "recall_at_10": 0.2996,
+        "precision_at_10": 0.8,
+        "hit_at_10": 1.0
+      },
+      "pe50_clip_depth50": {
+        "recall_at_1": 0.0278,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.1389,
+        "precision_at_5": 0.75,
+        "hit_at_5": 0.75,
+        "recall_at_10": 0.2779,
+        "precision_at_10": 0.75,
+        "hit_at_10": 0.75
+      }
+    }
+  },
+  "threshold_groundwork": {
+    "result": "separation gaps measured; no threshold calibrated",
+    "detail": "CLIP present-top1 range 0.2111-0.2449 vs negative max 0.1317 (gap 0.0794); PE present-top1 0.2344-0.3351 vs negative max 0.2022 (gap 0.0322). Calibration set has no negatives and held-out negatives are eval-only, so no cutoff was shipped (RET-021).",
+    "numbers": {
+      "clip": {
+        "present_top1_min": 0.2111,
+        "present_top1_max": 0.2449,
+        "negative_max": 0.1317,
+        "separation_gap": 0.0794,
+        "calibrated_threshold": null
+      },
+      "pe": {
+        "present_top1_min": 0.2344,
+        "present_top1_max": 0.3351,
+        "negative_max": 0.2022,
+        "separation_gap": 0.0322,
+        "calibrated_threshold": null
+      }
+    }
+  },
+  "sampling_experiment": {
+    "result": "denser 5 s stride is worse than 10 s on the pilot set",
+    "detail": "CLIP at 5 s stride over 88 dense M2 frames: recall 0.0223/0.0846/0.174 vs 10 s 0.0278/0.1389/0.2779. Extra frames add near-duplicate distractors that outrank; 10 s retained.",
+    "numbers": {
+      "stride_5s": {
+        "recall_at_1": 0.0223,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.0846,
+        "precision_at_5": 0.6,
+        "hit_at_5": 0.75,
+        "recall_at_10": 0.174,
+        "precision_at_10": 0.6,
+        "hit_at_10": 0.75
+      },
+      "stride_5s_frame_count": 88,
+      "clip_load_seconds": 23.63,
+      "clip_image_encode_seconds": 956.84,
+      "clip_text_encode_seconds": 6.2
+    }
+  },
+  "temporal_context_experiment": {
+    "result": "mean-pooled triples concentrate relevance; Hit@k unchanged",
+    "detail": "PE-S mean of 3 consecutive stills over 14 held-out triples: recall@10 0.7857 vs still 0.2996, but unit counts differ (14 vs 45) so Recall@k is not directly comparable; Hit@10 is 1.0 both ways. No evidence short clips beat stills. True video-encoder comparison pending (WeMM video forward unmeasured: OOM under contention).",
+    "numbers": {
+      "still_quality": {
+        "recall_at_1": 0.0278,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.1498,
+        "precision_at_5": 0.8,
+        "hit_at_5": 1.0,
+        "recall_at_10": 0.2996,
+        "precision_at_10": 0.8,
+        "hit_at_10": 1.0
+      },
+      "pooled_triple_quality": {
+        "recall_at_1": 0.0893,
+        "precision_at_1": 0.75,
+        "hit_at_1": 0.75,
+        "recall_at_5": 0.4464,
+        "precision_at_5": 0.75,
+        "hit_at_5": 0.75,
+        "recall_at_10": 0.7857,
+        "precision_at_10": 0.675,
+        "hit_at_10": 1.0
+      },
+      "triple_count": 14
+    }
+  },
+  "peav_probe": {
+    "result": "mechanics established; quality eval pending labels and adapter",
+    "detail": "pe-av-small downloaded at pinned revision dd05076 (3.39 GB fp32). Native transformers 5.19 PeAudioVideoModel loads (23-155 s contested) and the processor builds all three modalities, but the upstream get_* embed getters are broken (call nonexistent methods; video getters are unbound __init__ closures). forward() exposes logits_video_text/audio_text/audio_video but the forward probe OOMed under parallel-lane contention. Cross-modal quality needs an audio-grounded label set that does not exist yet."
+  }
+}
