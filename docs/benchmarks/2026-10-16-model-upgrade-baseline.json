@@ -493,7 +493,7 @@
     }
   },
   "known_gaps": [
-    "Publisher immutable revisions are not pinned for CLIP, OWLv2, SAM 2.1, or Gemma; no model file hashes were computed.",
+    "Historical metric records do not prove that the currently cached publisher revisions were the revisions used.",
     "Object detection still-frame extraction and SAM serialization wall time were not separately retained.",
     "Semantic model input frame count, token counts, and independently scored useful evidence are absent from existing telemetry.",
     "Analysis coverage is mostly source-artifact presence; full temporal coverage percentages for every source/capability pair are not available.",
@@ -505,26 +505,30 @@
     {
       "capability": "visual retrieval",
       "publisher_model_id": "openai/clip-vit-large-patch14",
-      "publisher_revision": null,
-      "revision_status": "not pinned in index metadata; local cache ref unavailable; no checkpoint fingerprint taken"
+      "publisher_revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+      "revision_status": "local cache refs/main snapshot; revision prefix matched publisher page on 2026-10-16; historical metric provenance to this snapshot is unverified",
+      "publisher_revision_url": "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
     },
     {
       "capability": "object detection",
       "publisher_model_id": "google/owlv2-base-patch16-ensemble",
-      "publisher_revision": null,
-      "revision_status": "benchmark records publisher model id, not immutable revision"
+      "publisher_revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "revision_status": "local cache refs/main snapshot; revision prefix matched publisher page on 2026-10-16; historical metric provenance to this snapshot is unverified",
+      "publisher_revision_url": "https://huggingface.co/google/owlv2-base-patch16-ensemble/tree/cfd3195ba4ea9592eec887ded089f4c08eff231d"
     },
     {
       "capability": "mask propagation",
       "publisher_model_id": "facebook/sam2.1-hiera-small",
-      "publisher_revision": null,
-      "revision_status": "benchmark records publisher model id, not immutable revision"
+      "publisher_revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+      "revision_status": "local cache refs/main snapshot; revision prefix matched publisher page on 2026-10-16; historical metric provenance to this snapshot is unverified",
+      "publisher_revision_url": "https://huggingface.co/facebook/sam2.1-hiera-small/tree/ee5bba1d82bb8749febdf90f45e84b687142ba03"
     },
     {
       "capability": "semantic video analysis",
       "publisher_model_id": "mlx-community/gemma-4-12b-it-4bit",
-      "publisher_revision": null,
-      "revision_status": "benchmark records publisher model id, not immutable revision"
+      "publisher_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "revision_status": "local cache refs/main snapshot; revision prefix matched publisher page on 2026-10-16; historical metric provenance to this snapshot is unverified",
+      "publisher_revision_url": "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit/tree/73bcf09092aa277861d5a191b989b666f7f32e8f"
     },
     {
       "capability": "speech recognition",
@@ -3947,5 +3951,16 @@
         }
       }
     }
+  },
+  "model_run_safety_followup": {
+    "scheduler_history_window": "one day before 2026-10-16 follow-up",
+    "scheduler_profile": "semantics.analyse:model_memory",
+    "declared_ram_gb": 15,
+    "maximum_rss_gb": 11.15,
+    "maximum_physical_footprint_gb": 14.43,
+    "scope_note": "Aggregate profile history, not attributable to a specific saved Gemma probe.",
+    "current_run_ceiling_gb": 8,
+    "followup_gemma_run_started": false,
+    "reason": "Observed physical footprint exceeds the current 8 GB ceiling."
   }
 }
