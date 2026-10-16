@@ -815,6 +815,28 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
     hold_intervals = [(float(s.get("started_at") or 0.0),
                        float(s.get("started_at") or 0.0)
                        + float(s.get("held_s") or 0.0)) for s in holds]
+    by_purpose: dict[str, Any] = {}
+    for s in waits:
+        purpose = str(s.get("purpose") or "unrecorded")
+        bucket = by_purpose.setdefault(
+            purpose, {"waits": [], "holds": []})
+        bucket["waits"].append(float(s.get("wall_s") or 0.0))
+    for s in holds:
+        purpose = str(s.get("purpose") or "unrecorded")
+        bucket = by_purpose.setdefault(
+            purpose, {"waits": [], "holds": []})
+        bucket["holds"].append(float(s.get("held_s") or 0.0))
+    by_purpose = {
+        purpose: {
+            "acquisitions": len(bucket["waits"]),
+            "holds": len(bucket["holds"]),
+            "wait_p50_s": quantile(bucket["waits"], 0.5),
+            "wait_p95_s": quantile(bucket["waits"], 0.95),
+            "hold_p50_s": quantile(bucket["holds"], 0.5),
+            "hold_p95_s": quantile(bucket["holds"], 0.95),
+        }
+        for purpose, bucket in by_purpose.items()
+    }
     return {
         "leases": len(holds),
         "refused": sum(1 for s in waits if s.get("outcome") == "refused"),
@@ -826,6 +848,7 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
         "wait_p95_s": quantile(wait_values, 0.95),
         "hold_p50_s": quantile(hold_values, 0.5),
         "hold_p95_s": quantile(hold_values, 0.95),
+        "by_purpose": by_purpose,
         "utilization": (round(union_s(hold_intervals) / run_window, 4)
                         if run_window else None),
         "held_s": round(sum(float(s.get("held_s") or 0.0)

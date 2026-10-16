@@ -1050,6 +1050,8 @@ def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
     job("patch", "done", kind="timeline.apply_patch", mode="exclusive",
         timeline="Reel09", started=now - 7, finished=now - 5,
         params={"patch": {"operations": [{"op": "a"}, {"op": "b"}]}})
+    job("lease", "done", kind="lease", started=now - 4,
+        finished=now - 3, params={"purpose": "timeline snapshot"})
     job("live", "running", started=now - 1)
     job("queued-snap", "queued")
     job("future", "done", submitted=now + 5, started=now + 6,
@@ -1065,6 +1067,10 @@ def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
     assert report["exclusive_hold_s"] == pytest.approx(2.0, abs=0.01)
     assert report["hold_p50_s"] == pytest.approx(1.0, abs=0.01)
     assert report["hold_p95_s"] == pytest.approx(2.0, abs=0.01)
+    assert report["by_kind"]["timeline.snapshot"]["wait_p50_s"] == 1.0
+    assert report["by_kind"]["timeline.snapshot"]["hold_p95_s"] == 1.0
+    assert report["by_kind"]["timeline.apply_patch"]["hold_p50_s"] == 2.0
+    assert report["by_kind"]["timeline snapshot"]["wait_p50_s"] == 6.0
     assert report["shadow_read_requests"] == 6
     assert report["shadow_hit_rate"] == 0.5
     assert store.get("live")["state"] == "running"

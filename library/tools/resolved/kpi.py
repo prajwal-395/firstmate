@@ -87,6 +87,27 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
         states[job["state"]] = states.get(job["state"], 0) + 1
     waits = [j["wait_seconds"] for j in started]
     hold_values = [j["hold_seconds"] for j in held]
+    by_kind_rows: dict = {}
+    for job in jobs:
+        operation_kind = (job["params"].get("purpose") or job["kind"])
+        bucket = by_kind_rows.setdefault(operation_kind, {
+            "jobs": 0, "started": 0, "waits": [], "holds": []})
+        bucket["jobs"] += 1
+        if job["started"] is not None:
+            bucket["started"] += 1
+            bucket["waits"].append(job["wait_seconds"])
+        if job["hold_seconds"] is not None:
+            bucket["holds"].append(job["hold_seconds"])
+    by_kind = {
+        kind: {
+            "jobs": bucket["jobs"], "started": bucket["started"],
+            "wait_p50_s": quantile(bucket["waits"], 0.5),
+            "wait_p95_s": quantile(bucket["waits"], 0.95),
+            "hold_p50_s": quantile(bucket["holds"], 0.5),
+            "hold_p95_s": quantile(bucket["holds"], 0.95),
+        }
+        for kind, bucket in by_kind_rows.items()
+    }
     shadow_reads = shadow_reads or {}
     shadow_hits = shadow_reads.get("shadow_hits")
     live_refreshes = shadow_reads.get("live_refreshes")
@@ -95,7 +116,7 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
                      shadow_hits + live_refreshes + misses)
     return {
         "since": round(since, 3), "until": round(until, 3),
-        "jobs": len(jobs), "states": states,
+        "jobs": len(jobs), "states": states, "by_kind": by_kind,
         "utilization": round(busy / window, 4) if window else None,
         "hold_s": round(sum(j["hold_seconds"] for j in held), 3),
         "exclusive_hold_s": round(sum(j["hold_seconds"] for j in held
@@ -155,6 +176,12 @@ def render(report: dict) -> str:
            else str(report["live_reads_avoided"])),
         shadow_rate,
     ]
+    lines.append("Operation kind | jobs | wait p50/p95 | hold p50/p95")
+    for kind, bucket in sorted(report["by_kind"].items()):
+        lines.append(
+            f"{kind} | {bucket['jobs']} | "
+            f"{s(bucket['wait_p50_s'])} / {s(bucket['wait_p95_s'])} | "
+            f"{s(bucket['hold_p50_s'])} / {s(bucket['hold_p95_s'])}")
     return "\n".join(lines)
 
 

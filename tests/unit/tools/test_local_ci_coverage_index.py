@@ -211,6 +211,14 @@ def test_collection_argv_matches_gate_markers(checkout):
     assert not any(owned in argv for owned in config.TIER1_TIER2_ONLY)
 
 
+def test_collection_argv_worker_override_is_not_capped(
+        checkout, monkeypatch):
+    monkeypatch.setenv("REN_CI_PYTEST_WORKERS", "6")
+    argv = coverage_index.collection_argv(
+        "python3", ["tests/unit"], str(checkout), workers=2)
+    assert argv[argv.index("-n") + 1] == "6"
+
+
 def test_index_path_follows_timing_convention(tmp_path, monkeypatch):
     monkeypatch.setenv("VEP_COVERAGE_INDEX_FILE", str(tmp_path / "x.json"))
     assert coverage_index.index_path() == tmp_path / "x.json"

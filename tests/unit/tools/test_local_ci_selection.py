@@ -7,6 +7,8 @@ mandatory half ran and why); and a report line that cannot be pasted
 to reproduce the run.
 """
 
+import pytest
+
 from library.tools.local_ci import config, hygiene, runner, selection, state
 
 
@@ -157,6 +159,19 @@ def test_pytest_argv_excludes_markers_and_drive_live_resolve():
     assert "-n" in argv and "2" in argv
     for driven in config.RESOLVE_DRIVING:
         assert driven in argv
+
+
+def test_pytest_argv_worker_override_is_not_capped(monkeypatch):
+    monkeypatch.setenv("REN_CI_PYTEST_WORKERS", "6")
+    argv = runner.pytest_argv(["tests/contracts"], workers=2)
+    assert argv[argv.index("-n") + 1] == "6"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "many"])
+def test_pytest_argv_refuses_invalid_worker_override(monkeypatch, value):
+    monkeypatch.setenv("REN_CI_PYTEST_WORKERS", value)
+    with pytest.raises(ValueError, match="positive integer"):
+        runner.pytest_argv(["tests/contracts"])
 
 
 def test_report_line_is_the_brief_contract():

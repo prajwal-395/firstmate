@@ -133,6 +133,42 @@ def test_source_identity_is_part_of_each_planning_key(tmp_path):
     assert second["key"] != first["key"]
 
 
+def test_backfilled_transcript_evidence_envelope_does_not_break_reuse(
+        tmp_path):
+    project = _project(tmp_path)
+    step_dir = tmp_path / "step"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('step')\n")
+    dag = _dag()
+    base_inputs = {
+        "timeline_transcript": {
+            "segments": [{"text": "same words"}],
+        },
+    }
+    args = (
+        "left", dag, base_inputs,
+        {"full_auto": "agent", "auto_mode": False}, step_dir,
+        str(project), Path(__file__).resolve().parents[3],
+    )
+
+    before = planning_reuse.cache_identity(*args)
+    with_envelope = {
+        "timeline_transcript": {
+            **base_inputs["timeline_transcript"],
+            "evidence_envelope": {"coverage_status": "sampled"},
+        },
+    }
+    after = planning_reuse.cache_identity(
+        "left", dag, with_envelope, args[3], step_dir, str(project), args[6])
+    changed_content = planning_reuse.cache_identity(
+        "left", dag,
+        {"timeline_transcript": {"segments": [{"text": "changed words"}]}},
+        args[3], step_dir, str(project), args[6])
+
+    assert after["key"] == before["key"]
+    assert changed_content["key"] != before["key"]
+
+
 def test_hidden_context_files_are_part_of_external_input_identity(tmp_path):
     project = _project(tmp_path)
     dag = _dag()

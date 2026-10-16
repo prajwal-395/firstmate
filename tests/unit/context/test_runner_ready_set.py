@@ -125,6 +125,44 @@ def test_worker_span_rows_wait_for_the_coordinator_to_commit(tmp_path):
     ]
 
 
+def test_step_retry_policy_does_not_retry_permanent_errors(tmp_path, monkeypatch):
+    calls, sleeps = [], []
+    monkeypatch.setattr(runner, "_execute_step_once",
+                        lambda *args: calls.append(1) or
+                        (_ for _ in ()).throw(ValueError("bad manifest")))
+    monkeypatch.setattr(runner, "_sleep", sleeps.append)
+    result = runner._run_step_work(
+        str(tmp_path / "project"), "node",
+        {"type": "deterministic", "entry": "unused",
+         "node": {"error_policy": {"policy": "retry", "max_retries": 2}}},
+        {}, False, None, 30, "run-1")
+    assert result["success"] is False
+    assert len(calls) == 1
+    assert sleeps == []
+
+
+def test_step_retry_rechecks_transient_condition_before_backoff(
+        tmp_path, monkeypatch):
+    calls, sleeps, classifications = [], [], iter((True, False))
+
+    def fail_once(*args):
+        calls.append(1)
+        raise TimeoutError("temporary failure")
+
+    monkeypatch.setattr(runner, "_execute_step_once", fail_once)
+    monkeypatch.setattr(runner, "_is_transient_error",
+                        lambda _error: next(classifications))
+    monkeypatch.setattr(runner, "_sleep", sleeps.append)
+    result = runner._run_step_work(
+        str(tmp_path / "project"), "node",
+        {"type": "deterministic", "entry": "unused",
+         "node": {"error_policy": {"policy": "retry", "max_retries": 2}}},
+        {}, False, None, 30, "run-1")
+    assert result["success"] is False
+    assert calls == [1]
+    assert sleeps == []
+
+
 def _finished(value=None, error=None):
     future = Future()
     if error is not None:

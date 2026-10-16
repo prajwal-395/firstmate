@@ -343,17 +343,24 @@ def collection_argv(python: str, selection: list[str], checkout: str,
     Markers and Resolve-driver ignores match the gate's main phase
     (`runner.pytest_argv` minus the Tier-1-only ignores: collection
     covers the whole unit/scenario selection, the way the gate runs
-    it). Workers mirror the gate bound (never above 2); pytest-cov
+    it). Workers default to the measured count and
+    REN_CI_PYTEST_WORKERS overrides them; pytest-cov
     combines the workers' data files itself.
     """
     from library.tools.local_ci import config
+    try:
+        workers = int(os.environ.get("REN_CI_PYTEST_WORKERS", workers))
+    except (TypeError, ValueError):
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
+    if workers < 1:
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
     argv = [python, "-m", "pytest", *selection,
             "-m", config.PYTEST_MARKERS, "--tb=short",
             "-o", "faulthandler_timeout=300",
             "-p", "no:cacheprovider",
             "--cov=library", "--cov=tests", "--cov=ren",
             "--cov-context=test", "--cov-report=",
-            "-n", str(max(1, min(2, workers)))]
+            "-n", str(workers)]
     for driven in config.RESOLVE_DRIVING:
         if os.path.exists(os.path.join(checkout, driven)):
             argv.extend(["--ignore", driven])

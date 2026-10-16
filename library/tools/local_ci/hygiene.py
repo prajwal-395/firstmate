@@ -12,8 +12,9 @@
    is left alone; a NEW one the tests spawned is the leak.
 
 Heavy-work deference: a run starts only when no full-suite gate holds
-the machine grant (`heavy_work_lock jobs`), because two gates never run
-at once and a PR check that fights the batch gate slows both.
+the relevant resource grant (`heavy_work_lock jobs`). The
+`full_suite_gate` profile declares no machine-wide CPU or memory lock;
+the scheduler admits work according to declared resource demands.
 """
 
 from __future__ import annotations

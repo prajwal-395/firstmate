@@ -419,6 +419,25 @@ def _incoming_digest(dag: dict, node_id: str) -> str:
     return _hash_json({"node": node, "incoming": incoming})
 
 
+def _cache_inputs(inputs: dict) -> dict:
+    """Remove envelope metadata added while reading the same transcript.
+
+    Source-memory backfills its evidence envelope on read for legacy records.
+    The envelope describes provenance and coverage, while the gathered
+    transcript fields carry the actual planning evidence. Hashing a newly
+    backfilled envelope made an interrupted run invalidate otherwise
+    unchanged reel selection on resume. Source content remains covered by the
+    input digest and the independently recorded source identity.
+    """
+    value = dict(inputs or {})
+    transcript = value.get("timeline_transcript")
+    if isinstance(transcript, dict) and "evidence_envelope" in transcript:
+        transcript = dict(transcript)
+        transcript.pop("evidence_envelope")
+        value["timeline_transcript"] = transcript
+    return value
+
+
 def cache_identity(node_id: str, dag: dict, inputs: dict,
                    execution: dict, step_dir: str | Path,
                    project_dir: str, repo_root: str | Path,
@@ -426,7 +445,7 @@ def cache_identity(node_id: str, dag: dict, inputs: dict,
     """Return the versioned per-step key and its auditable components."""
     root = Path(repo_root).resolve()
     step_path = Path(step_dir).resolve()
-    input_digest = _hash_json(inputs or {})
+    input_digest = _hash_json(_cache_inputs(inputs))
     external_digest = _external_digest(inputs or {}, project_dir, node_id)
     code_digest = _code_digest(step_path, root)
     incoming_digest = _incoming_digest(dag, node_id)

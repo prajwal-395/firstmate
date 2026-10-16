@@ -77,9 +77,9 @@ GATE_STARTED_SECONDS="${GATE_STARTED_SECONDS:-$(python3 -c 'import time; print(t
 export GATE_STARTED_SECONDS
 
 # The gate is admitted by the machine's resource scheduler
-# (library/tools/resource_scheduler.py) as `full_suite_gate`: more than
-# half the cpu, so two gates never run at once, while a seconds-long
-# Resolve placement still may. The wrapper holds the grant for the gate's
+# (library/tools/resource_scheduler.py) as `full_suite_gate`, whose profile
+# declares no CPU or memory demand and no machine-wide exclusivity. The
+# wrapper holds the grant for the gate's
 # full lifetime and forwards termination signals to its child. When a lane
 # already holds a covering grant, the inherited owner token makes this
 # check succeed and the gate runs reentrantly under it.
@@ -139,10 +139,10 @@ RESOLVE_DRIVING=(
 RUN_REAL_MODEL=1
 REAL_MODEL_EXCLUDED_BY_POLICY=0
 PARALLEL=1
-# Six workers: the 2026-10-13 worker-count benchmark on the captain's
+# Six workers is the measured default: the 2026-10-13 worker-count benchmark on the captain's
 # 10-core Mac measured 306.4 s at -n 6 versus 571.5 s at -n 2 (46%
 # less), with a 6.69 GiB process-tree RSS peak. Override with -n.
-WORKERS="6"
+WORKERS="${FULL_SUITE_GATE_WORKERS:-6}"
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --skip-real-model|--skip-heavy-ml) RUN_REAL_MODEL=0; shift ;;
@@ -161,6 +161,11 @@ while [ $# -gt 0 ]; do
       exit 64 ;;
   esac
 done
+
+if ! [[ "${WORKERS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "worker count must be a positive integer, got: ${WORKERS}" >&2
+  exit 64
+fi
 
 if [ "${FULL_SUITE_GATE_SKIP_NATIVE_PREP:-0}" = "1" ]; then
   echo "=== full-suite gate: native test tool preparation skipped by test switch ==="
@@ -352,19 +357,9 @@ run_sharded_phase() {
       "${RESOLVE_DRIVING[@]/#/--ignore=}" \
       "${PARALLEL_IGNORES[@]:-}" \
       -n "${WORKERS}" --dist loadfile \
-      --junitxml="${parallel_xml}" 2>"${parallel_err}"
-    parallel_exit=$?
+      --junitxml="${parallel_xml}" 2>"${parallel_err}" &
+    local parallel_pid=$!
     parallel_ran=1
-    # No upfront xdist probe: the gate interpreter can be a shim speaking
-    # only the pytest argv protocol.  Detect lazily - exit 4 with
-    # unrecognized-arguments and no lane report refuses as DID NOT RUN,
-    # naming xdist.
-    local xdist_missing=0
-    if [ "${parallel_exit}" -eq 4 ] && [ ! -f "${parallel_xml}" ] \
-        && grep -qi "unrecognized arguments" "${parallel_err}" 2>/dev/null; then
-      xdist_missing=1
-      echo "[$tag] parallel lane refused: $(grep -i "unrecognized arguments" "${parallel_err}" | head -1)"
-    fi
     serial_exit=0
     serial_ran=0
     if [ "${#SERIAL_FILES[@]}" -gt 0 ]; then
@@ -378,14 +373,25 @@ run_sharded_phase() {
       serial_ran=1
       # Exit 5 means nothing was collected: the serial files are all
       # deselected by this selection (the real_model file under the main
-      # selection). A lane
-      # with nothing to run is empty, not failed - but only when its own
-      # report says zero tests; exit 5 with no report stays a failure.
+      # selection). A lane with nothing to run is empty, not failed - but
+      # only when its own report says zero tests; exit 5 with no report stays a failure.
       if [ "${serial_exit}" -eq 5 ] \
           && [ "$("${HELPER_PYTHON}" -m library.tools.junit_lanes counts "${serial_xml}" 2>/dev/null || true)" = "0 executed, 0 skipped" ]; then
         echo "[$tag] serial lane collected 0 tests under -m '${marker}' (deselected) - counting it empty"
         serial_exit=0
       fi
+    fi
+    wait "${parallel_pid}"
+    parallel_exit=$?
+    # No upfront xdist probe: the gate interpreter can be a shim speaking
+    # only the pytest argv protocol.  Detect lazily - exit 4 with
+    # unrecognized-arguments and no lane report refuses as DID NOT RUN,
+    # naming xdist.
+    local xdist_missing=0
+    if [ "${parallel_exit}" -eq 4 ] && [ ! -f "${parallel_xml}" ] \
+        && grep -qi "unrecognized arguments" "${parallel_err}" 2>/dev/null; then
+      xdist_missing=1
+      echo "[$tag] parallel lane refused: $(grep -i "unrecognized arguments" "${parallel_err}" | head -1)"
     fi
     # The merge refuses duplicate nodeids across lanes rather than
     # double-counting a test that ran in both.

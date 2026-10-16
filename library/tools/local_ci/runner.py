@@ -62,8 +62,8 @@ def pytest_argv(paths: list, workers: int = 2, checkout: str = "") -> list:
     """The pytest invocation for a selection, markers and ignores fixed.
 
     workers follows the machine (load.targets): one job may fan out to
-    -n 2, three jobs run -n 1 each. Never above 2 (spec 3's per-run
-    bound stands - the parallelism the refinement adds is ACROSS PRs).
+    the measured worker count. REN_CI_PYTEST_WORKERS can override the
+    dispatch default for a machine or run; there is no hard worker cap.
     The Tier-2-only files ride as `--ignore` so the conditional
     `tests/contracts` mandatory entry cannot re-admit the audit through
     directory expansion; `checkout` (the tree under test) filters the
@@ -71,9 +71,15 @@ def pytest_argv(paths: list, workers: int = 2, checkout: str = "") -> list:
     fails the run for somebody else's deletion. Without a checkout
     every ignore is passed, as before.
     """
+    try:
+        workers = int(os.environ.get("REN_CI_PYTEST_WORKERS", workers))
+    except (TypeError, ValueError):
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
+    if workers < 1:
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
     argv = ["-m", "pytest", *paths, "-m", config.PYTEST_MARKERS,
             "-v", "--tb=short", "-o", "faulthandler_timeout=300",
-            "-n", str(max(1, min(2, workers)))]
+            "-n", str(workers)]
     for driven in config.RESOLVE_DRIVING:
         argv.extend(["--ignore", driven])
     for owned in config.TIER1_TIER2_ONLY:
@@ -612,9 +618,16 @@ def run_gate(checkout: str, log_path: str,
                      "REN_CI_SHADOW_AUDIT": "queue"}
     elif junit_out:
         child_env = {**os.environ, TIER2_JUNIT_OUT_ENV: junit_out}
+    try:
+        tier2_workers = int(os.environ.get("REN_CI_PYTEST_WORKERS", "2"))
+    except (TypeError, ValueError):
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
+    if tier2_workers < 1:
+        raise ValueError("REN_CI_PYTEST_WORKERS must be a positive integer")
     result = _run_logged(
         ["bash", "scripts/full_suite_gate.sh", "--exclude-real-model",
-         "-n", "2"], checkout, log_path, timeout, env=child_env)
+         "-n", str(tier2_workers)], checkout, log_path, timeout,
+        env=child_env)
     timed_out = result["timed_out"]
     verdict = _read_verdict(log_path)
     outcomes = result_cache.parse_junit(junit_path) if hook is not None else {}

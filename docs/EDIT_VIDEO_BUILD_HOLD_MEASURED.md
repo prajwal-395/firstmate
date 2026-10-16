@@ -58,9 +58,11 @@ leave Resolve, and every rebuild pays it again on the same source ranges.
 `render_timeline` (`library/tools/execution/resolve_render.py`) takes `@under_lease` first
 and `@heavy_work_locked("…", "render.build:render")` second. That order is the documented
 rule in `library/tools/heavy_work_lock.py`. The render profile demands
-`cpu 4, gpu 1, ram_gb 4, disk 2`. Concurrent `full_suite_gate` runs (`cpu 8`) left no room,
-so the scheduler queued the render for 249 s. Its own history records `waited max 249s`
-for `render.build:render`. For all of that time the Resolve instance was held and idle.
+`cpu 4, gpu 1, ram_gb 4, disk 2`. The original interpretation blamed concurrent
+`full_suite_gate` runs for the 249 s queue wait, but the current scheduler declares no
+CPU, memory, or exclusivity demand for that profile. The old gate comment overstated its
+admission rule, so this measurement does not establish that the gate caused the wait.
+For all of the measured interval the Resolve instance was held and idle.
 The calls that come before rendering (`OpenPage("deliver")`, format and codec, render
 settings, `AddRenderJob`), measured one at a time on a fresh timeline, take 0.73 s together.
 
@@ -80,11 +82,9 @@ The broker's KPIs for the window: hold p50 1.74 s, **p95 274.56 s**.
 
 ## What would pay
 
-- **The render's grant wait (249 s of a 315 s Resolve total).** The scheduler already
-  carries `resolve_cursor`. Two fixes would stop the lease idling behind a test gate:
-  acquire the machine grant before the Resolve lease for this profile, or stop declaring CPU
-  and GPU for a render whose Python side measured 0.01 peak cores (Resolve's own process does
-  the work). Either one changes the rule in `heavy_work_lock.py`.
+- **The render's grant wait (249 s of a 315 s Resolve total).** Its cause remains
+  unmeasured. The scheduler already carries `resolve_cursor`; diagnose the actual holder
+  before changing grant order or declared resources in `heavy_work_lock.py`.
 - **Stabilization (20-26 s per build).** Stabilizing the same source ranges again on every
   rebuild is the largest Resolve cost left in placement.
 - Not the decomposition of `build_timeline`.

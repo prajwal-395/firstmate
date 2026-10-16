@@ -19,8 +19,9 @@ that saved on the fixed 17-clip set.
   trees, since they are identical in both.
 - Everything on the picture side ran for real: the shared decode, scene, motion,
   flow, Haar faces and hue.
-- The run took the whole machine through `heavy_work_lock`, so no other heavy
-  job ran at the same time.
+- The run used the `machine` profile through `heavy_work_lock`. That profile
+  declares no machine-wide CPU or memory demand; the measurement does not imply
+  that other heavy work was excluded.
 
 ## Result
 

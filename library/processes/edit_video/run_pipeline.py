@@ -88,6 +88,7 @@ from library.tools import breakpoints as run_breakpoints
 from library.tools import run_profile
 
 logger = logging.getLogger(__name__)
+_sleep = time.sleep
 
 MAX_PARALLEL_STEPS = 4
 
@@ -2300,7 +2301,6 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
             project_dir, node_id, run_id, node=node_id,
             ledger_path_override=worker_ledger)
         node = impl.get("node", {})
-        error_policy = node.get("error_policy", {}).get("policy", "fail")
         max_retries = node.get("error_policy", {}).get("max_retries", 3)
         result = {
             "success": False, "output": None, "awaiting": False,
@@ -2316,15 +2316,16 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
                 transient = _is_transient_error(step_error)
                 result["error"] = str(step_error)
                 result["error_type"] = step_error.__class__.__name__
-                if attempt <= max_retries and (
-                        error_policy == "retry" or transient):
-                    print(f"     ✗ FAILED ({result['error_type']}): "
-                          f"{step_error}", file=sys.stderr, flush=True)
-                    print(f"     [Retry {attempt}/{max_retries} due to "
-                          "transient error/policy]", file=sys.stderr,
-                          flush=True)
-                    time.sleep(2 ** attempt)
-                    continue
+                if attempt <= max_retries and transient:
+                    if _is_transient_error(step_error):
+                        print(f"     ✗ FAILED ({result['error_type']}): "
+                              f"{step_error}", file=sys.stderr, flush=True)
+                        print(f"     [Retry {attempt}/{max_retries} due to "
+                              "transient error]", file=sys.stderr,
+                              flush=True)
+                        _sleep(2 ** attempt)
+                        continue
+                    break
                 print(f"     ✗ FAILED ({result['error_type']}): "
                       f"{step_error}", file=sys.stderr, flush=True)
                 break
@@ -3892,8 +3893,6 @@ def run_pipeline(
                 _perf = perf_ledger.begin(
                     project_dir, node_id, _run_id, node=node_id)
                 artifacts_before = _provenance.snapshot()
-                error_policy = node.get("error_policy", {}).get(
-                    "policy", "fail")
                 max_retries = node.get("error_policy", {}).get(
                     "max_retries", 3)
                 step_error = None
@@ -3905,15 +3904,16 @@ def run_pipeline(
                     except Exception as exc:
                         step_error = exc
                         transient = _is_transient_error(exc)
-                        if attempt <= max_retries and (
-                                error_policy == "retry" or transient):
-                            print(f"     ✗ FAILED ({exc.__class__.__name__}): "
-                                  f"{exc}", file=sys.stderr)
-                            print(f"     [Retry {attempt}/{max_retries} due "
-                                  "to transient error/policy]",
-                                  file=sys.stderr)
-                            time.sleep(2 ** attempt)
-                            continue
+                        if attempt <= max_retries and transient:
+                            if _is_transient_error(exc):
+                                print(f"     ✗ FAILED ({exc.__class__.__name__}): "
+                                      f"{exc}", file=sys.stderr)
+                                print(f"     [Retry {attempt}/{max_retries} due "
+                                      "to transient error]",
+                                      file=sys.stderr)
+                                _sleep(2 ** attempt)
+                                continue
+                            break
                         break
                 elapsed = time.time() - start_time
                 if not success:
