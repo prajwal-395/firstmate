@@ -64,7 +64,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 die() { echo "error: $*" >&2; exit 1; }
 
 FM_OPENCODE_SERVER_USER=opencode
-START_ATTEMPTS=${FM_OPENCODE_SERVER_START_POLLS:-120}
+START_ATTEMPTS=${FM_OPENCODE_SERVER_START_POLLS:-240}
 
 valid_profile() {
   case "${1:-}" in main|secondary|default) return 0 ;; esac

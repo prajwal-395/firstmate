@@ -27,7 +27,13 @@ server_pid() { sed -n 's/^pid=//p' "$H/state/opencode-server-default" 2>/dev/nul
 cleanup() {
   local pid
   pid=$(server_pid)
-  case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null || true ;; esac
+  case "$pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+      ;;
+  esac
   "$REAL_TMUX" -S "$SOCKET" kill-server >/dev/null 2>&1 || true
   # The spawn leaves its commit-msg hook directory read-only.
   chmod -R u+w "$LAB" 2>/dev/null || true
@@ -55,7 +61,7 @@ fakebin=$(make_spawn_fakebin "$LAB/fake")
 FM_FAKE_LAUNCH_LOG="$LAB/launch.sh" fm_test_run_spawn "$H" "$WT" "$fakebin" "$ID" "$PROJ" \
   --scout --harness opencode --model "$MODEL" > "$LAB/spawn.log" 2>&1 \
   || fail "fm-spawn failed: $(cat "$LAB/spawn.log")"
-grep -q 'opencode attach' "$LAB/launch.sh" || fail "the launch did not attach: $(cat "$LAB/launch.sh")"
+grep -q 'opencode attach' "$LAB/launch.sh" || fail "the launch did not attach: $(cat "$LAB/spawn.log")"
 SESSION1=$(fm_meta_get "$H/state/$ID.meta" opencode_server_session)
 [ -n "$SESSION1" ] || fail 'no server session was recorded'
 # Route every later backend read and write to this guard's own socket.
@@ -129,7 +135,15 @@ pass "$VERSION: relaunch reuses the server, retires the old session, and reports
 
 "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit before cleanup failed: $(cat "$LAB/exit.log")"
 printf 'Live guard report.\n' > "$H/data/$ID/report.md"
-"$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 || fail "teardown failed: $(cat "$LAB/teardown.log")"
+"$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none > "$LAB/inventory.log" 2>&1 \
+  || fail "the scout's empty captain-call inventory could not be recorded: $(cat "$LAB/inventory.log")"
+# Cleanup reaps processes whose working directory is inside the worktree; the
+# shared server runs from the state directory, so it is never one of them.
+server_cwd=$(lsof -a -d cwd -p "$SERVER_PID" -Fn 2>/dev/null | sed -n 's/^n//p')
+[ "$server_cwd" = "$(cd "$H/state" && pwd -P)" ] || fail "the shared server runs from '$server_cwd', not the state directory"
+# Worktree allocation is a fixture here, so its return is too.
+PATH="$LAB/bin:$fakebin:$PATH" "$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 \
+  || fail "teardown failed: $(cat "$LAB/teardown.log")"
 for _ in $(seq 1 40); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.25; done
 ! kill -0 "$SERVER_PID" 2>/dev/null || fail 'the server outlived its last worker'
 [ ! -e "$H/state/opencode-server-default.leases/$ID" ] || fail 'teardown left the task lease behind'
