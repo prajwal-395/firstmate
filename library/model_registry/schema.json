@@ -32,7 +32,8 @@
         "license": {"type": ["string", "null"]},
         "obligations": {"type": "array", "items": {"type": "string"}},
         "approval_status": {"enum": ["approved", "conditional", "unresolved", "rejected"]},
-        "evidence_source": {"type": ["string", "null"]}
+        "evidence_source": {"type": ["string", "null"]},
+        "primary_evidence": {"type": ["object", "null"]}
       }
     },
     "implementation": {
@@ -51,6 +52,9 @@
         "purposes": {"type": "array", "items": {"enum": ["commercial_client", "personal_noncommercial", "permitted_research"]}, "uniqueItems": true},
         "editions": {"type": "array", "items": {"enum": ["commercial", "personal"]}, "uniqueItems": true},
         "qualification": {"enum": ["qualified", "unqualified", "unknown"]},
+        "qualification_metrics": {"type": "object", "properties": {"quality": {"type": ["number", "null"], "minimum": 0, "maximum": 1}, "latency_cold_seconds": {"type": ["number", "null"], "minimum": 0}, "latency_warm_seconds": {"type": ["number", "null"], "minimum": 0}, "peak_memory_gb": {"type": ["number", "null"], "minimum": 0}}, "additionalProperties": false},
+        "resources": {"type": "object", "properties": {"runtime_seconds": {"type": ["number", "null"], "minimum": 0}, "memory_gb": {"type": ["number", "null"], "minimum": 0}, "resident_memory_gb": {"type": ["number", "null"], "minimum": 0}}, "additionalProperties": false},
+        "hardware": {"type": "object", "properties": {"accelerators": {"type": "array", "items": {"enum": ["ane", "gpu", "cpu"]}}}, "additionalProperties": false},
         "optional_download": {"type": "boolean"}
       }
     }

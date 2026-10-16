@@ -89,6 +89,10 @@ if [ "$CHECK_ONLY" = 1 ]; then
     exit 1
 fi
 
+( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.deepfilternet --action fetch )
+
+( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.deepfilternet --action fetch )
+
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) ;;
     *) echo "DEEPFILTERNET BINARY: FAIL - no prebuilt binary for $(uname -s)-$(uname -m)" >&2

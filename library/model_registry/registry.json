@@ -1,25 +1,861 @@
 {
   "schema_version": 1,
   "capabilities": [
-    {"id":"audio.diarize","description":"Identify speaker activity in audio."},
-    {"id":"audio.detect_event","description":"Classify audio events or soundscape labels."},
-    {"id":"speech.align","description":"Align words or utterances to source audio time."},
-    {"id":"speech.transcribe","description":"Transcribe speech with source time provenance."},
-    {"id":"visual.describe","description":"Generate evidence-grounded visual descriptions."},
-    {"id":"visual.embed","description":"Generate visual embeddings for retrieval."},
-    {"id":"visual.identify_person","description":"Identify or match visible people."},
-    {"id":"visual.segment","description":"Produce pixel-level object masks."}
+    {
+      "id": "audio.diarize",
+      "description": "Identify speaker activity in audio."
+    },
+    {
+      "id": "audio.detect_event",
+      "description": "Classify audio events or soundscape labels."
+    },
+    {
+      "id": "speech.align",
+      "description": "Align words or utterances to source audio time."
+    },
+    {
+      "id": "speech.transcribe",
+      "description": "Transcribe speech with source time provenance."
+    },
+    {
+      "id": "visual.describe",
+      "description": "Generate evidence-grounded visual descriptions."
+    },
+    {
+      "id": "visual.embed",
+      "description": "Generate visual embeddings for retrieval."
+    },
+    {
+      "id": "visual.identify_person",
+      "description": "Identify or match visible people."
+    },
+    {
+      "id": "visual.segment",
+      "description": "Produce pixel-level object masks."
+    }
   ],
   "implementations": [
-    {"id":"ecapa.speechbrain_voxceleb","component_id":"model.ecapa","label":"SpeechBrain ECAPA speaker encoder","capabilities":["audio.diarize"],"checkpoint":{"version":"0f99f2d0ebe89ac095bcc5903c4dd8f72b367286","weights_hash":null,"provider":"Hugging Face: speechbrain/spkrec-ecapa-voxceleb","conversion":null,"runtime":"SpeechBrain/PyTorch"},"license_evidence":{"upstream_url":"https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb","exact_version":"0f99f2d0ebe89ac095bcc5903c4dd8f72b367286","retrieved_at":null,"license":"Apache-2.0 recipe; CC-BY-4.0 VoxCeleb training data","obligations":["Attribute VoxCeleb dataset; verify rights for intended use."],"approval_status":"conditional","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"panns.cnn14_decision_max","component_id":"model.panns","label":"PANNs Cnn14 DecisionLevelMax","capabilities":["audio.detect_event"],"checkpoint":{"version":"Zenodo record 3987831","weights_hash":"md5:70539c43c18b6a289b3199c503a82c5a","provider":"Zenodo","conversion":null,"runtime":"PyTorch"},"license_evidence":{"upstream_url":"https://zenodo.org/records/3987831","exact_version":"3987831","retrieved_at":null,"license":"CC-BY-4.0","obligations":["Provide attribution."],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"mfa.english_us_arpa","component_id":"model.mfa","label":"Montreal Forced Aligner English US ARPA models","capabilities":["speech.align"],"checkpoint":{"version":"v3.0.0 acoustic/dictionary; v2.0.0a G2P","weights_hash":null,"provider":"MontrealCorpusTools/mfa-models","conversion":null,"runtime":"Montreal Forced Aligner"},"license_evidence":{"upstream_url":"https://github.com/MontrealCorpusTools/mfa-models","exact_version":"acoustic/dictionary v3.0.0; G2P v2.0.0a","retrieved_at":null,"license":"CC-BY-4.0 models; MIT aligner","obligations":["Provide attribution for model artifacts."],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"gemma.vision_4_12b_it_4bit","component_id":"model.gemma_vision","label":"Gemma 4 12B IT 4-bit MLX conversion","capabilities":["visual.describe"],"checkpoint":{"version":"mlx-community/gemma-4-12b-it-4bit","weights_hash":null,"provider":"mlx-community / Google Gemma","conversion":"MLX 4-bit community conversion","runtime":"MLX"},"license_evidence":{"upstream_url":"https://huggingface.co/mlx-community/gemma-4-12b-it-4bit","exact_version":"mlx-community/gemma-4-12b-it-4bit","retrieved_at":null,"license":"Gemma Terms of Use","obligations":["Carry Gemma notice and comply with terms and prohibited-use policy."],"approval_status":"conditional","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"clip.openai_vit_large_patch14","component_id":"model.clip_search","label":"OpenAI CLIP ViT-L/14","capabilities":["visual.embed"],"checkpoint":{"version":"openai/clip-vit-large-patch14","weights_hash":null,"provider":"OpenAI","conversion":null,"runtime":"Transformers/PyTorch"},"license_evidence":{"upstream_url":"https://huggingface.co/openai/clip-vit-large-patch14","exact_version":"openai/clip-vit-large-patch14","retrieved_at":null,"license":"MIT","obligations":[],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"minilm.all_minilm_l6_v2","component_id":"model.clip_search","label":"Sentence Transformers MiniLM L6 v2","capabilities":["visual.embed"],"checkpoint":{"version":"sentence-transformers/all-MiniLM-L6-v2","weights_hash":null,"provider":"Sentence Transformers","conversion":null,"runtime":"Sentence Transformers/PyTorch"},"license_evidence":{"upstream_url":"https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2","exact_version":"sentence-transformers/all-MiniLM-L6-v2","retrieved_at":null,"license":"Apache-2.0","obligations":[],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"laion.clap_htsat_unfused","component_id":"model.laion_clap","label":"LAION-CLAP HTSAT unfused","capabilities":["audio.detect_event"],"checkpoint":{"version":"8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a","weights_hash":"sha256:1cd3c601bc4afe0fa87be3de4c13dd2cfadd249fac1e29acf74a9b296c3219bb","provider":"LAION","conversion":null,"runtime":"PyTorch"},"license_evidence":{"upstream_url":"https://huggingface.co/laion/clap-htsat-unfused","exact_version":"8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a","retrieved_at":null,"license":"Apache-2.0","obligations":[],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true},
-    {"id":"audio_flamingo.nvidia_next","component_id":"model.audio_flamingo_next","label":"NVIDIA Audio Flamingo Next","capabilities":["audio.detect_event"],"checkpoint":{"version":"nvidia/audio-flamingo-next-captioner-hf","weights_hash":null,"provider":"NVIDIA","conversion":null,"runtime":"Transformers/PyTorch"},"license_evidence":{"upstream_url":"https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf","exact_version":"nvidia/audio-flamingo-next-captioner-hf","retrieved_at":null,"license":"NVIDIA OneWay Noncommercial","obligations":["Noncommercial research use only.","Requires gated Hugging Face access token."],"approval_status":"rejected","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["personal_noncommercial","permitted_research"],"editions":["personal"],"qualification":"unknown","optional_download":true},
-    {"id":"insightface.buffalo_l","component_id":"model.insightface_buffalo_l","label":"InsightFace Buffalo-L pack","capabilities":["visual.identify_person"],"checkpoint":{"version":"buffalo_l (floating upstream pack)","weights_hash":null,"provider":"InsightFace","conversion":null,"runtime":"ONNX Runtime"},"license_evidence":{"upstream_url":"https://github.com/deepinsight/insightface","exact_version":"buffalo_l (no immutable revision recorded)","retrieved_at":null,"license":"Non-commercial research only","obligations":["Obtain separate authorization for commercial use.","Gated by upstream usage terms."],"approval_status":"rejected","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["personal_noncommercial","permitted_research"],"editions":["personal"],"qualification":"unknown","optional_download":true},
-    {"id":"deepfilternet.v0_5_6","component_id":"model.deepfilternet","label":"DeepFilterNet 0.5.6","capabilities":["audio.detect_event"],"checkpoint":{"version":"0.5.6","weights_hash":null,"provider":"DeepFilterNet","conversion":null,"runtime":"native aarch64-apple-darwin binary"},"license_evidence":{"upstream_url":"https://github.com/Rikorose/DeepFilterNet","exact_version":"v0.5.6","retrieved_at":null,"license":"MIT OR Apache-2.0","obligations":[],"approval_status":"approved","evidence_source":"THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"},"purposes":["commercial_client","personal_noncommercial","permitted_research"],"editions":["commercial","personal"],"qualification":"unknown","optional_download":true}
+    {
+      "id": "ecapa.speechbrain_voxceleb",
+      "component_id": "model.ecapa",
+      "label": "SpeechBrain ECAPA speaker encoder",
+      "capabilities": [
+        "audio.diarize"
+      ],
+      "checkpoint": {
+        "version": "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
+        "weights_hash": null,
+        "provider": "Hugging Face: speechbrain/spkrec-ecapa-voxceleb",
+        "conversion": null,
+        "runtime": "SpeechBrain/PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb",
+        "exact_version": "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
+        "retrieved_at": null,
+        "license": "Apache-2.0 recipe; CC-BY-4.0 VoxCeleb training data",
+        "obligations": [
+          "Attribute VoxCeleb dataset; verify rights for intended use."
+        ],
+        "approval_status": "conditional",
+        "evidence_source": "THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "panns.cnn14_decision_max",
+      "component_id": "model.panns",
+      "label": "PANNs Cnn14 DecisionLevelMax",
+      "capabilities": [
+        "audio.detect_event"
+      ],
+      "checkpoint": {
+        "version": "Zenodo record 3987831; MD5 70539c43c18b6a289b3199c503a82c5a",
+        "weights_hash": "md5:70539c43c18b6a289b3199c503a82c5a",
+        "provider": "Zenodo",
+        "conversion": null,
+        "runtime": "PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://zenodo.org/records/3987831",
+        "exact_version": "Zenodo record 3987831; MD5 70539c43c18b6a289b3199c503a82c5a",
+        "retrieved_at": "2026-10-16",
+        "license": "CC BY 4.0",
+        "obligations": [
+          "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "Exact Zenodo record and file checksum are identified. CC BY 4.0 attribution and change-marking are required for redistributed adapted material."
+        ],
+        "approval_status": "conditional",
+        "evidence_source": "https://zenodo.org/records/3987831, https://zenodo.org/records/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth/content",
+        "primary_evidence": {
+          "artifact_id": "panns_weights",
+          "artifact": "PANNs Cnn14 checkpoint",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://zenodo.org/records/3987831",
+          "exact_revision": "Zenodo record 3987831; MD5 70539c43c18b6a289b3199c503a82c5a",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "CC BY 4.0",
+          "commercial_use": "CC BY 4.0 permits commercial use with attribution; package only with license/credit/change notices.",
+          "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Exact Zenodo record and file checksum are identified. CC BY 4.0 attribution and change-marking are required for redistributed adapted material.",
+          "status": "conditional",
+          "evidence_quotes": [
+            "Zenodo record 3987831 identifies the deposited Cnn14_DecisionLevelMax_mAP=0.385.pth artifact and declares CC BY 4.0.",
+            "Ren inventory records MD5 70539c43c18b6a289b3199c503a82c5a; the Zenodo checksum is for integrity, not license clearance."
+          ],
+          "evidence_sources": [
+            "https://zenodo.org/records/3987831",
+            "https://zenodo.org/records/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth/content"
+          ],
+          "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "mfa.english_us_arpa",
+      "component_id": "model.mfa",
+      "label": "Montreal Forced Aligner English US ARPA models",
+      "capabilities": [
+        "speech.align"
+      ],
+      "checkpoint": {
+        "version": "v3.0.0 acoustic/dictionary; v2.0.0a G2P",
+        "weights_hash": null,
+        "provider": "MontrealCorpusTools/mfa-models",
+        "conversion": null,
+        "runtime": "Montreal Forced Aligner"
+      },
+      "license_evidence": {
+        "upstream_url": "https://github.com/MontrealCorpusTools/mfa-models",
+        "exact_version": "acoustic/dictionary v3.0.0; G2P v2.0.0a",
+        "retrieved_at": null,
+        "license": "CC-BY-4.0 models; MIT aligner",
+        "obligations": [
+          "Provide attribution for model artifacts."
+        ],
+        "approval_status": "approved",
+        "evidence_source": "THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "gemma.vision_4_12b_it_4bit",
+      "component_id": "model.gemma_vision",
+      "label": "Gemma 4 12B IT 4-bit MLX conversion",
+      "capabilities": [
+        "visual.describe"
+      ],
+      "checkpoint": {
+        "version": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+        "weights_hash": null,
+        "provider": "mlx-community / Google Gemma",
+        "conversion": "MLX 4-bit community conversion",
+        "runtime": "MLX"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit",
+        "exact_version": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+        "retrieved_at": "2026-10-16",
+        "license": "Apache-2.0 on Google HF",
+        "obligations": [
+          "Apache notice obligations apply if the underlying Google work is redistributed; verify all conversion notices.",
+          "Unresolved for this converted checkpoint; base license alone does not verify conversion provenance or packaged files.",
+          "Base: google/gemma-4-12B-it at publisher revision 707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7. Conversion: mlx-community revision in exact_revision, no README/license metadata found. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/vision_model.py:23."
+        ],
+        "approval_status": "unresolved",
+        "evidence_source": "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit/tree/73bcf09092aa277861d5a191b989b666f7f32e8f",
+        "primary_evidence": {
+          "artifact_id": "gemma4",
+          "artifact": "Gemma 4 weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit",
+          "exact_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "Apache-2.0 on Google HF",
+          "commercial_use": "Google base Gemma 4 model is Apache-2.0; this exact mlx-community conversion exposes no license metadata in Hub API and its README is empty. Conversion terms and provenance remain unverified.",
+          "redistribution": "Unresolved for this converted checkpoint; base license alone does not verify conversion provenance or packaged files.",
+          "attribution": "Apache notice obligations apply if the underlying Google work is redistributed; verify all conversion notices.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Base: google/gemma-4-12B-it at publisher revision 707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7. Conversion: mlx-community revision in exact_revision, no README/license metadata found. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/vision_model.py:23.",
+          "status": "unresolved",
+          "evidence_quotes": [
+            "Publisher model card/metadata at this revision contains no license declaration."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit/tree/73bcf09092aa277861d5a191b989b666f7f32e8f"
+          ],
+          "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+          "publisher_api_files": [
+            ".gitattributes",
+            "README.md",
+            "chat_template.jinja",
+            "config.json",
+            "generation_config.json",
+            "model-00001-of-00002.safetensors",
+            "model-00002-of-00002.safetensors",
+            "model.safetensors.index.json",
+            "processor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json"
+          ],
+          "runtime_loader_map": {
+            "code_location": "library/tools/vision_model.py:23",
+            "model_id_or_path": "mlx-community/gemma-4-12b-it-4bit",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "clip.openai_vit_large_patch14",
+      "component_id": "model.clip_search",
+      "label": "OpenAI CLIP ViT-L/14",
+      "capabilities": [
+        "visual.embed"
+      ],
+      "checkpoint": {
+        "version": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+        "weights_hash": null,
+        "provider": "OpenAI",
+        "conversion": null,
+        "runtime": "Transformers/PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/openai/clip-vit-large-patch14",
+        "exact_version": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+        "retrieved_at": "2026-10-16",
+        "license": "MIT per OpenAI repository",
+        "obligations": [
+          "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "Unresolved for this checkpoint.",
+          "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165."
+        ],
+        "approval_status": "unresolved",
+        "evidence_source": "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41",
+        "primary_evidence": {
+          "artifact_id": "clip",
+          "artifact": "CLIP weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://huggingface.co/openai/clip-vit-large-patch14",
+          "exact_revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "MIT per OpenAI repository",
+          "commercial_use": "Publisher model card identifies AI researchers as primary intended users and does not declare a weight license in model metadata. The separate OpenAI/CLIP code repository is MIT; weight commercial permission is not established here.",
+          "redistribution": "Unresolved for this checkpoint.",
+          "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165.",
+          "status": "unresolved",
+          "evidence_quotes": [
+            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they\u2019re being deployed within.",
+            "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, arbitrary image classification. We also hope it can be used for interdisciplinary studies of the potential impact of such models - the CLIP paper includes a discussion of potential downstream impacts to provide an example for this sort of analysis.",
+            "The primary intended users of these models are AI researchers.",
+            "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models.",
+            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP\u2019s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
+          ],
+          "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+          "publisher_api_files": [
+            ".gitattributes",
+            "README.md",
+            "config.json",
+            "flax_model.msgpack",
+            "merges.txt",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "pytorch_model.bin",
+            "special_tokens_map.json",
+            "tf_model.h5",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "vocab.json"
+          ],
+          "runtime_loader_map": {
+            "code_location": "library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165",
+            "model_id_or_path": "openai/clip-vit-large-patch14",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "minilm.all_minilm_l6_v2",
+      "component_id": "model.clip_search",
+      "label": "Sentence Transformers MiniLM L6 v2",
+      "capabilities": [
+        "visual.embed"
+      ],
+      "checkpoint": {
+        "version": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "weights_hash": null,
+        "provider": "Sentence Transformers",
+        "conversion": null,
+        "runtime": "Sentence Transformers/PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+        "exact_version": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "retrieved_at": "2026-10-16",
+        "license": "apache-2.0",
+        "obligations": [
+          "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+          "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+          "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/footage_query.py:97,352-381."
+        ],
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/tree/1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "primary_evidence": {
+          "artifact_id": "minilm",
+          "artifact": "MiniLM weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+          "exact_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "apache-2.0",
+          "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+          "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+          "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/footage_query.py:97,352-381.",
+          "status": "conditional",
+          "evidence_quotes": [
+            "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+            "license: apache-2.0",
+            "| [PAQ](https://github.com/facebookresearch/PAQ) (Question, Answer) pairs | [paper](https://arxiv.org/abs/2102.07033) | 64,371,441 |",
+            "| [Sentence Compression](https://github.com/google-research-datasets/sentence-compression) | [paper](https://www.aclweb.org/anthology/D13-1155/) | 180,000 |",
+            "| [Natural Questions (NQ)](https://ai.google.com/research/NaturalQuestions) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/1455) | 100,231 |"
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/tree/1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+          ],
+          "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+          "publisher_api_files": [
+            ".gitattributes",
+            "1_Pooling/config.json",
+            "README.md",
+            "config.json",
+            "config_sentence_transformers.json",
+            "data_config.json",
+            "model.safetensors",
+            "modules.json",
+            "onnx/model.onnx",
+            "onnx/model_O1.onnx",
+            "onnx/model_O2.onnx",
+            "onnx/model_O3.onnx",
+            "onnx/model_O4.onnx",
+            "onnx/model_qint8_arm64.onnx",
+            "onnx/model_qint8_avx512.onnx",
+            "onnx/model_qint8_avx512_vnni.onnx",
+            "onnx/model_quint8_avx2.onnx",
+            "openvino/openvino_model.bin",
+            "openvino/openvino_model.xml",
+            "openvino/openvino_model_qint8_quantized.bin",
+            "openvino/openvino_model_qint8_quantized.xml",
+            "pytorch_model.bin",
+            "rust_model.ot",
+            "sentence_bert_config.json",
+            "special_tokens_map.json",
+            "tf_model.h5",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "train_script.py",
+            "vocab.txt"
+          ],
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/footage_query.py:97,352-381",
+            "model_id_or_path": "sentence-transformers/all-MiniLM-L6-v2",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "laion.clap_htsat_unfused",
+      "component_id": "model.laion_clap",
+      "label": "LAION-CLAP HTSAT unfused",
+      "capabilities": [
+        "audio.detect_event"
+      ],
+      "checkpoint": {
+        "version": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+        "weights_hash": "sha256:1cd3c601bc4afe0fa87be3de4c13dd2cfadd249fac1e29acf74a9b296c3219bb",
+        "provider": "LAION",
+        "conversion": null,
+        "runtime": "PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/laion/clap-htsat-unfused",
+        "exact_version": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+        "retrieved_at": null,
+        "license": "Apache-2.0",
+        "obligations": [],
+        "approval_status": "approved",
+        "evidence_source": "THIRD_PARTY_NOTICES and docs/DOWNLOAD_INVENTORY.md"
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "audio_flamingo.nvidia_next",
+      "component_id": "model.audio_flamingo_next",
+      "label": "NVIDIA Audio Flamingo Next",
+      "capabilities": [
+        "audio.detect_event"
+      ],
+      "checkpoint": {
+        "version": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+        "weights_hash": null,
+        "provider": "NVIDIA",
+        "conversion": null,
+        "runtime": "Transformers/PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf",
+        "exact_version": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+        "retrieved_at": "2026-10-16",
+        "license": "other",
+        "obligations": [
+          "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "Only as allowed by NVIDIA noncommercial license; not for Commercial distribution.",
+          "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging."
+        ],
+        "approval_status": "rejected",
+        "evidence_source": "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf/tree/62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+        "primary_evidence": {
+          "artifact_id": "audio_flamingo_next",
+          "artifact": "Audio Flamingo Next captioner weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf",
+          "exact_revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "other",
+          "commercial_use": "NVIDIA OneWay Noncommercial License; card expressly restricts model to non-commercial research. It also identifies third-party Qwen Research License and OpenAI Terms in dataset generation.",
+          "redistribution": "Only as allowed by NVIDIA noncommercial license; not for Commercial distribution.",
+          "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+          "status": "research-only",
+          "evidence_quotes": [
+            "Hugging Face publisher metadata at this revision declares license `other`.",
+            "license: other",
+            "**This model is for non-commercial research purposes only.**",
+            "License / Terms of Use",
+            "The model is released under the [NVIDIA OneWay Noncommercial License](static/NVIDIA-OneWay-Noncommercial-License_22Mar2022-academic.docx). Portions of the dataset generation are also subject to the [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-3B/blob/main/LICENSE) and OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use)."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf/tree/62aa63a66927f04f8308620f8e4b65696d3ea0a6"
+          ],
+          "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+          "publisher_api_files": [
+            ".gitattributes",
+            "README.md",
+            "chat_template.jinja",
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "processor_config.json",
+            "static/NVIDIA OneWay Noncommercial License_22Mar2022 (academic).docx",
+            "static/NVIDIA-OneWay-Noncommercial-License_22Mar2022-academic.docx",
+            "static/afnext_logo.webp",
+            "tokenizer.json",
+            "tokenizer_config.json"
+          ],
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/sfx_pipeline.py:168,172,175",
+            "model_id_or_path": "nvidia/audio-flamingo-next-captioner-hf; model path AF_NEXT_MODEL_PATH/default local dir",
+            "revision_behavior": "no model revision enforced"
+          },
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "insightface.buffalo_l",
+      "component_id": "model.insightface_buffalo_l",
+      "label": "InsightFace Buffalo-L pack",
+      "capabilities": [
+        "visual.identify_person"
+      ],
+      "checkpoint": {
+        "version": "pack name buffalo_l; floating and no version/hash",
+        "weights_hash": null,
+        "provider": "InsightFace",
+        "conversion": null,
+        "runtime": "ONNX Runtime"
+      },
+      "license_evidence": {
+        "upstream_url": "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md",
+        "exact_version": "pack name buffalo_l; floating and no version/hash",
+        "retrieved_at": "2026-10-16",
+        "license": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+        "obligations": [
+          "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "The buffalo_l pack name is floating and has no publisher version/hash in the Ren installer. Vendor authorization is required for commercial use; do not include these weights in Commercial."
+        ],
+        "approval_status": "rejected",
+        "evidence_source": "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md, https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md",
+        "primary_evidence": {
+          "artifact_id": "insightface_buffalo_l",
+          "artifact": "InsightFace buffalo_l detector and recognizer weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md",
+          "exact_revision": "pack name buffalo_l; floating and no version/hash",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+          "commercial_use": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+          "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "The buffalo_l pack name is floating and has no publisher version/hash in the Ren installer. Vendor authorization is required for commercial use; do not include these weights in Commercial.",
+          "status": "research-only",
+          "evidence_quotes": [
+            "InsightFace model-zoo documentation: \"ALL models are available for non-commercial research purposes only.\"",
+            "InsightFace documentation states code MIT does not grant the pretrained model rights; public pretrained models follow the non-commercial research policy."
+          ],
+          "evidence_sources": [
+            "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md",
+            "https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md"
+          ],
+          "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    },
+    {
+      "id": "deepfilternet.v0_5_6",
+      "component_id": "model.deepfilternet",
+      "label": "DeepFilterNet 0.5.6",
+      "capabilities": [
+        "audio.detect_event"
+      ],
+      "checkpoint": {
+        "version": "binary v0.5.6 pinned; weights fetched by binary without independent revision/hash",
+        "weights_hash": null,
+        "provider": "DeepFilterNet",
+        "conversion": null,
+        "runtime": "native aarch64-apple-darwin binary"
+      },
+      "license_evidence": {
+        "upstream_url": "https://github.com/Rikorose/DeepFilterNet",
+        "exact_version": "binary v0.5.6 pinned; weights fetched by binary without independent revision/hash",
+        "retrieved_at": "2026-10-16",
+        "license": "MIT OR Apache-2.0 per upstream",
+        "obligations": [
+          "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "Binary release is pinned, but model files fetched by it are not independently pinned or hash-verified; weight redistribution and exact associated license need verification."
+        ],
+        "approval_status": "unresolved",
+        "evidence_source": "https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT, https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE",
+        "primary_evidence": {
+          "artifact_id": "deepfilternet",
+          "artifact": "DeepFilterNet code, binary and weights",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "upstream_url": "https://github.com/Rikorose/DeepFilterNet",
+          "exact_revision": "binary v0.5.6 pinned; weights fetched by binary without independent revision/hash",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "license": "MIT OR Apache-2.0 per upstream",
+          "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+          "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+          "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "conditions": "Binary release is pinned, but model files fetched by it are not independently pinned or hash-verified; weight redistribution and exact associated license need verification.",
+          "status": "unresolved",
+          "evidence_quotes": [
+            "Official repository provides LICENSE-MIT and LICENSE-APACHE and declares the software dual-licensed MIT OR Apache-2.0.",
+            "The pinned v0.5.6 binary fetches weights on first use; Ren inventory states the weights have no independent revision/hash."
+          ],
+          "evidence_sources": [
+            "https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT",
+            "https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE"
+          ],
+          "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+        }
+      },
+      "purposes": [
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true
+    }
   ]
 }

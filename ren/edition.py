@@ -216,6 +216,21 @@ def require_component(component_id: str, *, action: str = "load",
         raise ComponentRefused(
             f"the public edition cannot {action} personal-only component "
             f"{component_id} ({entry.label}); select its public provider instead")
+    if component_id.startswith("model."):
+        from library.tools.model_registry import ModelRegistryError, authorize_component
+        previous_root = os.environ.get("REN_MODEL_REGISTRY_ROOT")
+        try:
+            if root is not None:
+                os.environ["REN_MODEL_REGISTRY_ROOT"] = str(engine_root(root))
+            purpose = os.environ.get("REN_WORKLOAD_PURPOSE", "commercial_client")
+            authorize_component(component_id, action=action, purpose=purpose)
+        except ModelRegistryError as exc:
+            raise ComponentRefused(str(exc)) from exc
+        finally:
+            if previous_root is None:
+                os.environ.pop("REN_MODEL_REGISTRY_ROOT", None)
+            else:
+                os.environ["REN_MODEL_REGISTRY_ROOT"] = previous_root
     return entry
 
 

@@ -47,6 +47,7 @@ import argparse
 import ast
 import datetime
 import functools
+import json
 import os
 import shutil
 import subprocess
@@ -315,6 +316,30 @@ def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
 
     selected_edition = (_normalise_edition(edition) if edition is not None
                         else current_edition(src))
+    from library.tools import model_registry
+
+    registry = model_registry.load_registry(
+        src / "library" / "model_registry" / "registry.json")
+    if selected_edition == "public":
+        commercial = model_registry.manifest(
+            "commercial", "commercial_client", registry)
+        if any(row["license_evidence"]["approval_status"] not in
+               {"approved", "conditional"} for row in commercial["implementations"]):
+            raise RuntimeError(
+                "commercial model manifest contains an unapproved implementation")
+        prohibited_components = {
+            row["component_id"] for row in registry["implementations"]
+            if "commercial" not in row["editions"]
+            or row["license_evidence"]["approval_status"] in {"unresolved", "rejected"}
+        }
+        for component_id in prohibited_components:
+            component = model_registry.edition.component(component_id, src)
+            for relative in component.package_paths:
+                artifact = src / relative
+                if artifact.exists():
+                    raise RuntimeError(
+                        f"refusing commercial package: restricted model artifact "
+                        f"{relative} ({component_id}) is present")
     blocked_paths, blocked_installers, requirement_filters, package_copies = (
         _edition_policy(src, selected_edition))
     from ren.version import format_version
@@ -357,6 +382,14 @@ def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
             raise RuntimeError(f"refusing to package {src}: {entry} is absent")
         if relative not in blocked_paths and relative not in blocked_installers:
             shutil.copy2(target, dest / entry)
+    (dest / "MODEL_NOTICES.md").write_text(
+        model_registry.notices(registry), encoding="utf-8")
+    manifests = model_registry.edition_manifests(registry)
+    selected_manifest = (manifests["commercial"] if selected_edition == "public"
+                         else manifests["personal"])
+    (dest / "library" / "model_registry" / "installed.manifest.json").write_text(
+        json.dumps(selected_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
     for requirement_file, names in requirement_filters.items():
         destination = dest / requirement_file
         if not destination.is_file():
@@ -432,7 +465,10 @@ def switch_previous(home: Path, version: str) -> Path:
 
 def _switch_pointer(home: Path, name: str, version: str) -> Path:
     from ren.engine_root import (
-        current_link, is_engine_root, previous_link, versions_root,
+        current_link,
+        is_engine_root,
+        previous_link,
+        versions_root,
     )
     home = home.expanduser()
     if (not isinstance(version, str) or not version
@@ -474,8 +510,8 @@ def stage_versioned(home: Path, src: Path, channel: str | None = None,
     home = home.expanduser()
     src = Path(src).expanduser().resolve()
     source_info = _src_build_info(src)
-    from ren.version import format_version
     from ren.edition import _normalise_edition, current_edition
+    from ren.version import format_version
 
     selected_edition = (_normalise_edition(edition) if edition is not None
                         else current_edition(src))

@@ -53,6 +53,8 @@ for arg in "$@"; do
     esac
 done
 
+( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.panns --action fetch )
+
 # Every path below comes from shared_environment. This script decides none
 # of them.
 ask() {

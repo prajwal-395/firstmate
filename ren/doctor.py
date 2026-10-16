@@ -956,18 +956,30 @@ def macos_check() -> Check:
 
 
 def edition_check() -> Check:
-    """Report the immutable product edition and restricted-component count."""
+    """Report product edition and model implementation availability."""
+    from library.tools.model_registry import installed_capability_report
     from ren.edition import current_edition, read_components
 
     edition = current_edition()
+    model_edition = "commercial" if edition == "public" else "personal"
+    report = installed_capability_report(
+        set(), purpose=os.environ.get("REN_WORKLOAD_PURPOSE", "commercial_client"),
+        edition_name=model_edition)
+    counts = {status: sum(row["status"] == status
+                          for row in report["implementations"])
+              for status in ("available", "missing", "blocked", "unqualified")}
     restricted = [entry for entry in read_components().values()
                   if entry.edition == "personal-only"]
     if edition == "public":
         detail = (f"public; {len(restricted)} personal-only components are "
-                  "blocked from packaging, fetching, and loading")
+                  "blocked from packaging, fetching, and loading; model "
+                  f"routes available={counts['available']}, missing={counts['missing']}, "
+                  f"blocked={counts['blocked']}, unqualified={counts['unqualified']}")
     else:
         detail = (f"personal; personal-only components remain available "
-                  f"({len(restricted)} inventoried)")
+                  f"({len(restricted)} inventoried); model routes "
+                  f"available={counts['available']}, missing={counts['missing']}, "
+                  f"blocked={counts['blocked']}, unqualified={counts['unqualified']}")
     return Check("Ren edition", True, detail)
 
 

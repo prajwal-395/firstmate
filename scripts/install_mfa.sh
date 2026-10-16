@@ -50,6 +50,8 @@ for arg in "$@"; do
     esac
 done
 
+( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.mfa --action fetch )
+
 # Every path below comes from shared_environment. This script decides none
 # of them.
 ask() {
@@ -82,7 +84,9 @@ echo "  g2p             : $G2P_MODEL $G2P_VERSION (pinned)"
 echo "  conda package   : $PACKAGE_SPEC (pinned)"
 
 if [ "$CHECK_ONLY" = 1 ]; then
-    if [ -x "$MFA_BINARY" ] && [ -d "$MFA_MODELS" ]; then
+    ( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.mfa --action fetch )
+
+if [ -x "$MFA_BINARY" ] && [ -d "$MFA_MODELS" ]; then
         echo "MFA ENV: PRESENT"
         exit 0
     fi

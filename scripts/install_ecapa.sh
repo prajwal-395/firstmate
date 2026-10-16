@@ -52,6 +52,8 @@ for arg in "$@"; do
     esac
 done
 
+( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.ecapa --action fetch )
+
 # Every path below comes from shared_environment. This script decides none
 # of them.
 ask() {
@@ -93,7 +95,9 @@ from huggingface_hub import snapshot_download
 snapshot_download(repo_id='$ECAPA_REPO', revision='$ECAPA_REVISION',
                   local_dir='$ECAPA_DIR')
 "
-    if ! present; then
+    ( cd "$REPO_ROOT" && REN_EDITION="${REN_EDITION:-personal}" REN_WORKLOAD_PURPOSE="${REN_WORKLOAD_PURPOSE:-commercial_client}" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m ren.edition check model.ecapa --action fetch )
+
+if ! present; then
         echo "ECAPA CHECKOUT: FAIL - required files missing after fetch" >&2
         exit 1
     fi

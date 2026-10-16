@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -16,7 +17,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ren import edition
-
 
 RESTRICTED = {
     "model.audio_flamingo_next",
@@ -157,6 +157,45 @@ def test_public_build_excludes_personal_only_components(
         "model.audio_flamingo_next", root=built)
 
 
+def test_public_build_refuses_restricted_model_artifact_in_package_path(
+        tmp_path, monkeypatch):
+    from ren.package_engine import build_engine_tree
+
+    source = tmp_path / "source"
+    shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns(
+        ".git", "__pycache__", "target", ".pytest_cache", "node_modules"))
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    with (source / "THIRD_PARTY_NOTICES").open("a", encoding="utf-8") as handle:
+        handle.write("\npackage-path : restricted-checkpoint.bin\n")
+    # Add the path to the restricted component's existing inventory record.
+    text = (source / "THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
+    text = text.replace("component-id : model.audio_flamingo_next\n",
+                        "component-id : model.audio_flamingo_next\n"
+                        "package-path : restricted-checkpoint.bin\n")
+    (source / "THIRD_PARTY_NOTICES").write_text(text, encoding="utf-8")
+    (source / "restricted-checkpoint.bin").write_bytes(b"restricted")
+    with pytest.raises(RuntimeError, match="restricted model artifact"):
+        build_engine_tree(
+            source, tmp_path / "public-restricted", channel="test", sha="abc123",
+            built_at="2026-10-16", edition=edition.PUBLIC)
+
+
+def test_build_emits_derived_model_manifest_and_notices(
+        tmp_path, monkeypatch, packageable_native_runtime):
+    from ren.package_engine import build_engine_tree
+
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    built = build_engine_tree(
+        ROOT, tmp_path / "personal-model-policy", channel="test", sha="abc123",
+        built_at="2026-10-16", edition=edition.PERSONAL)
+    manifest = json.loads((built / "library/model_registry/installed.manifest.json").read_text())
+    notices = (built / "MODEL_NOTICES.md").read_text(encoding="utf-8")
+    assert manifest["edition"] == "personal"
+    assert manifest["purpose"] == "commercial_client"
+    assert "PANNs Cnn14 DecisionLevelMax" in notices
+    assert "Audio Flamingo Next" not in notices
+
+
 def test_versioned_staging_carries_the_requested_edition(tmp_path, monkeypatch):
     from ren import package_engine
 
@@ -215,7 +254,7 @@ def test_personal_component_installers_refuse_in_public_mode(
 
 def test_runtime_loaders_refuse_personal_models_in_public(monkeypatch):
     monkeypatch.setenv(edition.EDITION_ENV, edition.PUBLIC)
-    from library.tools.analysis import speech_advanced_pipeline, sfx_pipeline
+    from library.tools.analysis import sfx_pipeline, speech_advanced_pipeline
     from library.tools.person_entity import FaceIdentityUnavailable, _face_app
 
     with pytest.raises(FaceIdentityUnavailable, match="public edition"):
@@ -253,6 +292,8 @@ def test_doctor_reports_the_product_edition(monkeypatch):
     check = doctor.edition_check()
     assert check.ok
     assert check.detail.startswith("public;")
+    assert "model routes" in check.detail
+    assert "unqualified=" in check.detail
 
 
 def _driver_pin(crate_dir: str, constant: str) -> str:
@@ -378,7 +419,9 @@ def test_public_build_ships_engines_without_ui_or_personal_assets(
 def test_edition_delta_is_exactly_the_inventory(
         tmp_path, monkeypatch, packageable_native_runtime):
     from ren.package_engine import (
-        _edition_policy, build_engine_tree, COPY_DIRS,
+        COPY_DIRS,
+        _edition_policy,
+        build_engine_tree,
     )
 
     blocked_paths, blocked_installers, _, _ = _edition_policy(ROOT, "public")
