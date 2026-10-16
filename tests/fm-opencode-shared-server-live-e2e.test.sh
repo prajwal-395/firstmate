@@ -77,7 +77,8 @@ wait_file() {
 }
 wait_classify() {
   local want=$1 i
-  for i in $(seq 1 240); do [ "$(classify)" = "$want" ] && return 0; sleep 0.5; done
+  # A relaunched worker may redo earlier inbox work, so allow a long turn.
+  for i in $(seq 1 600); do [ "$(classify)" = "$want" ] && return 0; sleep 0.5; done
   fail "busy state never read '$want' (last: $(classify))"
 }
 wait_file "$WT/answer.txt"

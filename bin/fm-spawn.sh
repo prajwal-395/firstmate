@@ -5494,15 +5494,20 @@ const busyGen = () => {
   try { return readFileSync("$(fm_busy_gen_path "$STATE_REAL" "$ID")", "utf8").split("\n")[0]; }
   catch { return ""; }
 };
+// OpenCode does not await plugin event handlers, so each record write joins
+// one queue at the moment its event arrives: a slow busy write can then never
+// land after the idle that followed it and leave a finished turn reading busy.
+let writes = Promise.resolve();
+const enqueue = (write) => (writes = writes.then(write, write));
 const busyEvent = (state, event) =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
     const gen = busyGen();
     if (!gen) { resolve(); return; }
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
       "apply", "$STATE_REAL", "$ID", state,
       "--gen", gen, "--source", "opencode-plugin", "--event", event,
     ], () => resolve());
-  });
+  }));
 const HERDR_PANE = "${HERDR_PANE_ID:-}";
 let lastModel = "";
 const reportModel = (modelID) => {
@@ -5513,7 +5518,7 @@ const reportModel = (modelID) => {
     [HERDR_PANE, modelID], () => {});
 };
 const recordRetry = (status, sessionID) =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
     const attempt = status && status.attempt;
     const next = status && status.next;
     if (typeof attempt !== "number" || typeof next !== "number") { resolve(); return; }
@@ -5521,12 +5526,12 @@ const recordRetry = (status, sessionID) =>
       "record", "$STATE_REAL", "$ID",
       String(attempt), String(next), lastModel || "-", sessionID || "-",
     ], () => resolve());
-  });
+  }));
 const clearRetry = () =>
-  new Promise((resolve) => {
+  enqueue(() => new Promise((resolve) => {
     execFile("$FM_ROOT/bin/fm-opencode-retry.sh",
       ["clear", "$STATE_REAL", "$ID"], () => resolve());
-  });
+  }));
 export const FmBusyState = async () => {
   let activeSession = null;
   return {
@@ -5546,27 +5551,29 @@ export const FmBusyState = async () => {
         if (statusType === "busy" || statusType === "retry") {
           if (activeSession === null) activeSession = sessionID;
           if (sessionID === activeSession) {
-            await busyEvent("busy", "session-" + statusType);
-            if (statusType === "retry") await recordRetry(status, sessionID);
+            busyEvent("busy", "session-" + statusType);
+            if (statusType === "retry") recordRetry(status, sessionID);
           }
+          await writes;
           return;
         }
         if (statusType === "idle" && sessionID === activeSession) {
           activeSession = null;
-          await busyEvent("idle", "session-status-idle");
-          await clearRetry();
+          busyEvent("idle", "session-status-idle");
+          clearRetry();
         }
+        await writes;
         return;
       }
       if (event.type === "session.idle") {
         if (event.properties.sessionID === activeSession) {
           activeSession = null;
-          await busyEvent("idle", "session-idle");
-          await clearRetry();
+          busyEvent("idle", "session-idle");
+          clearRetry();
         }
-        await new Promise((resolve) => {
+        await enqueue(() => new Promise((resolve) => {
           execFile("touch", ["$TURNEND"], () => resolve());
-        });
+        }));
       }
     },
   };
