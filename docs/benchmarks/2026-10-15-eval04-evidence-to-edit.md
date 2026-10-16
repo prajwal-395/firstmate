@@ -331,3 +331,53 @@ passed on this render. The render is therefore not approved for delivery.
 The held-out edit was not rendered: the complete-exchange gate correctly
 produced no supported cut. The task still lacks a held-out exchange, a visible
 speaker-to-camera mapping, and frozen human references/gold ranges.
+
+## Independent agent reference score (2026-10-15)
+
+Two blind editors supplied independent references in `vep-agent-refedit-a` and
+`vep-agent-refedit-b`. The evaluator-only record is
+[`evaluator-only/2026-10-15-eval04-agent-references.json`](evaluator-only/2026-10-15-eval04-agent-references.json).
+It is explicitly excluded from training and calibration inputs. The source
+reports do not identify either editor's model name, so the record preserves
+that as unreported rather than guessing. These are agent references, not human
+ground truth.
+
+Agreement is measured as per-source interval intersection-over-union (IoU),
+with positive-overlap ranges also checked for relative order. Dialogue had
+48.14 shared seconds across 343.05 seconds of union (IoU 0.14033); visual had
+16.77 shared seconds across 100.00 seconds (IoU 0.16770). Shared ranges were
+in the same order for both briefs. Only those shared ranges are frozen. The
+camera choice for dialogue answers and the identity/action interpretation for
+the IMG_1812 object remain listed for a third blind editor; no disagreement
+was adjudicated here.
+
+The scorer reads OTIO source ranges against the frozen intersections:
+
+```sh
+bin/vep -m library.tools.editorial_task_benchmark \
+  /path/to/result.json --output-root /path/to/run-output \
+  --agent-references docs/benchmarks/evaluator-only/2026-10-15-eval04-agent-references.json
+```
+
+Cut accuracy is mean temporal IoU over run cuts (unmatched run cuts count as
+zero); coverage is the proportion of reference seconds covered; revision
+distance counts inserted/deleted cuts plus each changed in/out boundary
+(within 0.04 seconds is treated as the same edge), in
+`edit_graph_operations`. Split-specific references are applied. The following
+scores use the latest retained dialogue OTIO outputs (two isolated-word cuts
+per run), not the earlier baseline skeleton:
+
+| Current repeat | Cut accuracy | Coverage | Revision distance |
+|---|---:|---:|---:|
+| Dialogue calibration, LCATL0012 | 0.0000 | 0.0000 | 3 |
+| Dialogue held out, LCATL0011 | 0.0171 | 0.0341 | 3 |
+| Visual calibration | unmeasured | unmeasured | unmeasured |
+| Visual held out | unmeasured | unmeasured | unmeasured |
+
+No current visual calibration run exists in the corpus split: both visual
+reference sources are held out. The retained current-run artifacts contain no
+visual calibration or held-out OTIO output to score, so visual metrics remain
+absent. For all four repeats, the following benchmark fields also remain
+unmeasured and absent: task success, evidence grounding, continuity errors,
+human preference, wall time, interventions, model calls, model time, and
+compute cost. In particular, absent values are not recorded as zero.

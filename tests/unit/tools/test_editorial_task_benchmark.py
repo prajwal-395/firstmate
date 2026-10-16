@@ -179,3 +179,32 @@ def test_aggregate_does_not_score_malformed_values_as_numbers():
     scores = benchmark.aggregate_scores(report)
 
     assert scores["cut_accuracy"] is None
+
+
+def test_agent_reference_score_uses_ordered_temporal_overlap_and_recall():
+    result = benchmark.score_agent_reference(
+        [
+            {"source_id": "a", "start": 0.0, "end": 10.0},
+            {"source_id": "b", "start": 20.0, "end": 30.0},
+        ],
+        [
+            {"source_id": "a", "start": 0.0, "end": 10.0},
+            {"source_id": "b", "start": 25.0, "end": 35.0},
+        ],
+    )
+
+    assert result["cut_accuracy"] == 2 / 3
+    assert result["coverage"] == 0.75
+    assert result["human_revision_distance"] == 2
+    assert result["boundary_edit_count"] == 2
+    assert result["human_revision_distance_unit"] == "edit_graph_operations"
+
+
+def test_agent_reference_score_empty_edit_is_measured_zero_with_insertions():
+    result = benchmark.score_agent_reference(
+        [], [{"source_id": "a", "start": 0.0, "end": 2.0}]
+    )
+
+    assert result["cut_accuracy"] == 0.0
+    assert result["coverage"] == 0.0
+    assert result["human_revision_distance"] == 1

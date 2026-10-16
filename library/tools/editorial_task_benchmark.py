@@ -419,6 +419,118 @@ def aggregate_scores(report: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _reference_cuts(document: dict[str, Any], brief_id: str) -> list[dict[str, Any]]:
+    """Return only frozen consensus ranges from an evaluator-only reference file."""
+    if document.get("schema") != "ren-agent-editorial-references-v1" or document.get("evaluator_only") is not True:
+        raise ValueError("not an evaluator-only agent-reference record")
+    brief = document["briefs"][brief_id]
+    if brief.get("status") != "consensus_frozen":
+        raise ValueError(f"{brief_id}: consensus is not frozen")
+    return brief["consensus_cuts"]
+
+
+def _cuts_from_otio(path: Path) -> list[dict[str, Any]]:
+    """Read source ranges from the runner's reviewable OTIO JSON."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    cuts = []
+    for track in data["tracks"]:
+        for clip in track["clips"]:
+            start, end = clip["source_range"]
+            cuts.append({"source_id": clip["source"], "start": start, "end": end})
+    return cuts
+
+
+def score_agent_reference(cuts: list[dict[str, Any]], reference: list[dict[str, Any]]) -> dict[str, Any]:
+    """Score ordered interval matches and edit-graph operations against a reference."""
+    # Dynamic programming preserves source order and prevents one wide cut from
+    # matching multiple reference cuts. Match value is temporal IoU.
+    rows, cols = len(cuts), len(reference)
+    dp = [[(0.0, 0, []) for _ in range(cols + 1)] for _ in range(rows + 1)]
+    for i in range(1, rows + 1):
+        dp[i][0] = (0.0, 0, dp[i - 1][0][2])
+    for j in range(1, cols + 1):
+        dp[0][j] = (0.0, 0, dp[0][j - 1][2])
+    for i, cut in enumerate(cuts, 1):
+        for j, ref in enumerate(reference, 1):
+            best = max(dp[i - 1][j], dp[i][j - 1], key=lambda x: (x[0], x[1]))
+            if cut["source_id"] == ref["source_id"]:
+                intersection = max(0.0, min(cut["end"], ref["end"]) - max(cut["start"], ref["start"]))
+                union = max(cut["end"], ref["end"]) - min(cut["start"], ref["start"])
+                iou = intersection / union if union else 0.0
+                if iou > 0:
+                    prior = dp[i - 1][j - 1]
+                    matched = (prior[0] + iou, prior[1] + 1, prior[2] + [(i - 1, j - 1, iou)])
+                    best = max(best, matched, key=lambda x: (x[0], x[1]))
+            dp[i][j] = best
+    _, matched_count, matches = dp[rows][cols]
+    accuracy = sum(match[2] for match in matches) / rows if rows else 0.0
+    boundary_edits = sum(
+        int(not math.isclose(cuts[i]["start"], reference[j]["start"], abs_tol=0.04))
+        + int(not math.isclose(cuts[i]["end"], reference[j]["end"], abs_tol=0.04))
+        for i, j, _ in matches
+    )
+    reference_seconds = sum(row["end"] - row["start"] for row in reference)
+    covered_seconds = 0.0
+    for ref in reference:
+        intervals = sorted(
+            (max(cut["start"], ref["start"]), min(cut["end"], ref["end"]))
+            for cut in cuts
+            if cut["source_id"] == ref["source_id"]
+            and min(cut["end"], ref["end"]) > max(cut["start"], ref["start"])
+        )
+        cursor = None
+        for start, end in intervals:
+            if cursor is None:
+                covered_seconds += end - start
+                cursor = end
+            elif end > cursor:
+                covered_seconds += end - max(start, cursor)
+                cursor = end
+    coverage = covered_seconds / reference_seconds if reference_seconds else 0.0
+    return {
+        "cut_accuracy": accuracy,
+        "coverage": coverage,
+        "human_revision_distance": rows + cols - 2 * matched_count + boundary_edits,
+        "boundary_edit_count": boundary_edits,
+        "human_revision_distance_unit": "edit_graph_operations",
+        "matched_cut_count": matched_count,
+        "reference_cut_count": cols,
+        "run_cut_count": rows,
+        "matching": [{"run_index": i, "reference_index": j, "temporal_iou": iou} for i, j, iou in matches],
+    }
+
+
+def score_report_agent_references(report: dict[str, Any], document: dict[str, Any], *, base: Path) -> dict[str, Any]:
+    """Attach reference scores where a run output and frozen reference both exist."""
+    scored = 0
+    for task in report.get("tasks", []):
+        try:
+            reference = _reference_cuts(document, task["id"])
+        except (KeyError, ValueError):
+            continue
+        for run in task.get("runs", []):
+            run_reference = [row for row in reference if row.get("split") == run.get("split")]
+            if not run_reference:
+                continue
+            output = run.get("reviewable_output")
+            if not isinstance(output, str):
+                continue
+            path = (base / output).resolve()
+            if not path.is_file():
+                continue
+            run.setdefault("metrics", {}).update(score_agent_reference(_cuts_from_otio(path), run_reference))
+            scored += 1
+    return {
+        "scored_run_count": scored,
+        "reference_type": "independent_agent_consensus",
+        "editors": document["editors"],
+        "agreement_by_brief": {
+            brief_id: brief["agreement"]
+            for brief_id, brief in document["briefs"].items()
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path, help="benchmark result JSON")
@@ -430,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="evaluator-only human proposal judgments from blind_label_pilot ingest",
     )
+    parser.add_argument("--agent-references", type=Path, help="evaluator-only frozen agent consensus ranges")
     args = parser.parse_args(argv)
     report = json.loads(args.report.read_text(encoding="utf-8"))
     result = validate_report(report, output_root=args.output_root)
@@ -441,6 +554,12 @@ def main(argv: list[str] | None = None) -> int:
             "F02": label_summary(args.pilot_labels, kind="edit"),
             "F03": label_summary(args.pilot_labels, kind="edit"),
         }
+    if args.agent_references is not None:
+        result["agent_reference_scores"] = score_report_agent_references(
+            report, json.loads(args.agent_references.read_text(encoding="utf-8")),
+            base=args.output_root or args.report.parent,
+        )
+        result["scores"] = aggregate_scores(report)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["valid"] else 1
 

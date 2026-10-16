@@ -1,0 +1,75 @@
+{
+  "schema": "ren-agent-editorial-references-v1",
+  "evaluator_only": true,
+  "training_data": false,
+  "calibration_inputs": false,
+  "produced": "2026-10-15",
+  "editors": [
+    {
+      "id": "vep-agent-refedit-a",
+      "model_name": null,
+      "model_name_status": "not reported in reference or report"
+    },
+    {
+      "id": "vep-agent-refedit-b",
+      "model_name": null,
+      "model_name_status": "not reported in reference or report"
+    }
+  ],
+  "agreement_method": {
+    "temporal": "per-source union intersection-over-union of selected half-open source ranges",
+    "order": "relative order of positive-overlap source ranges, preserving each editor's cut order",
+    "consensus": "freeze only the positive temporal intersections; retain all other choices as unresolved disagreements"
+  },
+  "briefs": {
+    "dialogue-multicam-cut": {
+      "agreement": {
+        "agent_a_selected_seconds": 300.0,
+        "agent_b_selected_seconds": 91.19,
+        "shared_seconds": 48.14,
+        "union_seconds": 343.05,
+        "temporal_iou": 0.14033,
+        "shared_overlap_order": "agree",
+        "shared_ranges": [
+          {"source_id": "LCATL0012", "start": 40.24, "end": 60.0},
+          {"source_id": "LCATL0012", "start": 60.0, "end": 64.94},
+          {"source_id": "LCATL0011", "start": 96.09, "end": 119.53}
+        ]
+      },
+      "status": "consensus_frozen",
+      "consensus_cuts": [
+        {"source_id": "LCATL0012", "split": "calibration", "start": 40.24, "end": 64.94, "consensus_basis": "shared question window; adjacent intersections merged"},
+        {"source_id": "LCATL0011", "split": "held_out", "start": 96.09, "end": 119.53, "consensus_basis": "shared question window"}
+      ],
+      "disagreements_for_third_editor": [
+        "Agent a retains broad opening and exchange windows; agent b selects tight question and answer takes.",
+        "Agent b cuts to LC4931 and LC4930 answer cameras; agent a did not include these sources, so camera selection is unverified by agreement.",
+        "Agent a reports only one visible angle in the inspected source windows; agent b reports synchronized partner-camera close-ups and speaker matching.",
+        "The shared LCATL0012 window straddles agent a's 60-second boundary, so its merged consensus interval is a temporal intersection, not agreement on a single cut boundary."
+      ]
+    },
+    "visual-action-object-cut": {
+      "agreement": {
+        "agent_a_selected_seconds": 100.0,
+        "agent_b_selected_seconds": 16.77,
+        "shared_seconds": 16.77,
+        "union_seconds": 100.0,
+        "temporal_iou": 0.1677,
+        "shared_overlap_order": "agree",
+        "shared_ranges": [
+          {"source_id": "IMG_1818", "start": 0.48, "end": 11.81},
+          {"source_id": "IMG_1812", "start": 29.34, "end": 34.78}
+        ]
+      },
+      "status": "consensus_frozen",
+      "consensus_cuts": [
+        {"source_id": "IMG_1818", "split": "held_out", "start": 0.48, "end": 11.81, "consensus_basis": "shared hook interval; both say no handling action is present"},
+        {"source_id": "IMG_1812", "split": "held_out", "start": 29.34, "end": 34.78, "consensus_basis": "shared notice-to-point interval on the identified poster sign"}
+      ],
+      "disagreements_for_third_editor": [
+        "Agent a treats IMG_1818 as fallback coverage and not qualifying action gold; agent b selects a tight opening thought and also says the handling-action rubric cannot be satisfied.",
+        "Agent a describes a backpack strap at IMG_1812; agent b identifies the object as the LIVE in Bloom poster sign and the action as noticing, pointing, and turning the camera."
+      ]
+    }
+  }
+}
