@@ -1,0 +1,214 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-apple-vision-ocr-real-calibration.json",
+      "sha256": "31563623290bf9dcb68298569f09ce5f7b2e78fb74645bd1ad6b89b05ed6ca49"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-easyocr-1.7.2-en-real-calibration.json",
+      "sha256": "0a4b5669701dcea0ab2b5fbca13f9a4ae3bffa70cf2e9e25bdd427323bbd566c"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-paddleocr-vl-1.6-mlx-bf16-real-calibration.json",
+      "sha256": "af5bd7c08d0e0cb7aee15cc203f12aa0ed8484ac254fe7d0da7551e705d6c861"
+    }
+  ],
+  "versions": {
+    "apple-vision-ocr": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "corpus-real-calibration": "e275ab91e89669e6015a388578d9fce978f6789977797133d7027cf2c779ee24"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.21
+              },
+              "detection_f1_iou50": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.372093023255814
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.22578125
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.765625
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.011111111111111112
+              },
+              "mean_box_iou_matched": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.7045247682122724
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.044
+              }
+            },
+            "revision": "a0613f9c6beb0fc818c6b1732f1f02c2b7956d17",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "apple_vision": "macOS-VNRecognizeText-accurate"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "ocr": [
+          "memory",
+          "cost"
+        ]
+      }
+    },
+    "easyocr-1.7.2-en": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "corpus-real-calibration": "e275ab91e89669e6015a388578d9fce978f6789977797133d7027cf2c779ee24"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 1.96
+              },
+              "detection_f1_iou50": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.4444444444444445
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.25167410714285715
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.734375
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.019230769230769232
+              },
+              "mean_box_iou_matched": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.6077531689312188
+              },
+              "memory_peak_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 1060000000
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.515
+              }
+            },
+            "revision": "a0613f9c6beb0fc818c6b1732f1f02c2b7956d17",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "detection_weights": "craft_mlt_25k.pth",
+        "easyocr_reader": "1.7.2",
+        "recognition_weights": "english_g2.pth"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "ocr": [
+          "cost"
+        ]
+      }
+    },
+    "paddleocr-vl-1.6-mlx-bf16": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "corpus-real-calibration": "e275ab91e89669e6015a388578d9fce978f6789977797133d7027cf2c779ee24"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.9
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.19311755952380952
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.78125
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0
+              },
+              "memory_peak_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 2690000000
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 1.99
+              }
+            },
+            "revision": "a0613f9c6beb0fc818c6b1732f1f02c2b7956d17",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "base_checkpoint": "PaddlePaddle/PaddleOCR-VL-1.6@676e2aad67375fec9c7dcc9740babec7a0d0d110",
+        "mlx_conversion": "mlx-vlm 0.7.2 convert --dtype bfloat16"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "ocr": [
+          "cost"
+        ]
+      }
+    }
+  }
+}

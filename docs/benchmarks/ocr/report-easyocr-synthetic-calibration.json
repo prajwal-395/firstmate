@@ -1,0 +1,72 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "6a164bfea9d1717e154c0b90ca25297ede4a9fc8",
+  "version": {
+    "id": "easyocr-1.7.2-en",
+    "role": "baseline",
+    "models": {
+      "easyocr_reader": "1.7.2",
+      "detection_weights": "craft_mlt_25k.pth",
+      "recognition_weights": "english_g2.pth"
+    }
+  },
+  "modality": "ocr",
+  "split": "calibration",
+  "metrics": {
+    "frame_exact_text_accuracy": {
+      "value": 0.8333333333333334,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "frame_character_error_rate": {
+      "value": 0.005376344086021505,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "detection_f1_iou50": {
+      "value": 1.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "mean_box_iou_matched": {
+      "value": 0.7277924802022644,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "numeric_exact_match_in_document": {
+      "value": 1.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "layout_mean_f1": {
+      "value": 0.6666666666666666,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "cold_seconds": {
+      "value": 15.231559707997803,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "warm_seconds": {
+      "value": 2.499053300000378,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "memory_peak_bytes": {
+      "value": 476938240,
+      "unit": "bytes",
+      "dimension": "memory"
+    }
+  },
+  "evidence": [
+    {
+      "id": "synthetic-corpus",
+      "path": "synthetic-corpus.json",
+      "sha256": "21c1aecfdb53beaa37be574b4d7c738c3428b7c844c528332b81e7f969340353"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

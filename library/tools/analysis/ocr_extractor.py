@@ -23,6 +23,10 @@ class TextDetection:
     polygon_normalized: Tuple[Tuple[float, float], ...] = ()
     language: Optional[str] = None
     alternatives: List[Dict[str, Any]] = field(default_factory=list)
+    # False when the recognizer names text without locating it (the MLX
+    # VLM text pass): the whole frame was examined, so the stored box is
+    # the full frame as the region examined, never a located box.
+    spatially_grounded: bool = True
 
 @dataclass
 class TrackedText:
@@ -37,6 +41,7 @@ class TrackedText:
     language: Optional[str] = None
     samples: List[Dict[str, Any]] = field(default_factory=list)
     appearance_intervals: List[Dict[str, Any]] = field(default_factory=list)
+    spatially_grounded: bool = True
 
 @dataclass
 class OCRResult:
@@ -48,6 +53,12 @@ class OCRResult:
     raw_frame_detections: Dict[int, List[TextDetection]]
     graphics: List[Dict[str, Any]] = field(default_factory=list)
     raw_frame_graphics: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
+    # Which recognizer wrote this artifact (GEO-025 provenance). The
+    # incumbent default is EasyOCR; the MLX VLM pass records its own
+    # precision and revision so a reader knows what measured the text.
+    method: str = "EasyOCR"
+    precision: Optional[str] = None
+    model_revision: Optional[str] = None
 
     def save(self, output_dir: str):
         os.makedirs(output_dir, exist_ok=True)
@@ -58,6 +69,9 @@ class OCRResult:
             "frame_count": self.frame_count,
             "resolution": self.resolution,
             "sample_fps": self.sample_fps,
+            "method": self.method,
+            "precision": self.precision,
+            "model_revision": self.model_revision,
             "detections": [asdict(d) for d in self.detections],
             "raw_frame_detections": {k: [asdict(d) for d in v] for k, v in self.raw_frame_detections.items()},
             "graphics": self.graphics,
@@ -83,6 +97,7 @@ class OCRResult:
             "track_id": d.get("track_id", ""),
             "language": d.get("language"),
             "appearance_intervals": d.get("appearance_intervals", []),
+            "spatially_grounded": d.get("spatially_grounded", True),
         }) for d in data["detections"]]
         raw_frame_detections = {
             int(k): [TextDetection(**{
@@ -90,6 +105,7 @@ class OCRResult:
                 "polygon_normalized": tuple(tuple(p) for p in d.get("polygon_normalized", ())),
                 "language": d.get("language"),
                 "alternatives": d.get("alternatives", []),
+                "spatially_grounded": d.get("spatially_grounded", True),
             }) for d in v]
             for k, v in data["raw_frame_detections"].items()
         }
@@ -102,6 +118,9 @@ class OCRResult:
             raw_frame_detections=raw_frame_detections,
             graphics=data.get("graphics", []),
             raw_frame_graphics={int(k): v for k, v in data.get("raw_frame_graphics", {}).items()},
+            method=data.get("method", "EasyOCR"),
+            precision=data.get("precision"),
+            model_revision=data.get("model_revision"),
         )
 
 def bbox_iou(bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float, float, float]) -> float:
@@ -125,8 +144,10 @@ def bbox_iou(bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float
 
 class Track:
     def __init__(self, detection: TextDetection, timestamp: float,
-                 frame_index: Optional[int] = None):
+                 frame_index: Optional[int] = None,
+                 grounded: bool = True):
         self.text = detection.text
+        self.grounded = grounded and detection.spatially_grounded
         self.confidences = []
         self.bboxes_norm = []
         self.bboxes_pixel = []
@@ -164,7 +185,6 @@ class Track:
         
     def to_tracked_text(self) -> TrackedText:
         avg_conf = sum(self.confidences) / len(self.confidences)
-        
         x = sum(b[0] for b in self.bboxes_pixel) / len(self.bboxes_pixel)
         y = sum(b[1] for b in self.bboxes_pixel) / len(self.bboxes_pixel)
         w = sum(b[2] for b in self.bboxes_pixel) / len(self.bboxes_pixel)
@@ -199,6 +219,7 @@ class Track:
             }.values()),
             language=_language_hint(self.text),
             samples=self.samples,
+            spatially_grounded=self.grounded,
         )
 
 
@@ -303,13 +324,32 @@ def _graphic_candidates(frame, text_boxes: List[TextDetection]) -> List[Dict[str
         selected.append(candidate)
     return selected
 
+# Backend ids for the 1.07 text pass. The incumbent default never moves;
+# a caller opts into the MLX VLM explicitly and the artifact says which
+# ran (GEO-015 vs GEO-016/017, GEO-025 provenance).
+OCR_BACKEND_EASYOCR = "easyocr"
+OCR_BACKEND_PADDLE_MLX = "paddleocr_vlm_mlx"
+OCR_BACKENDS = (OCR_BACKEND_EASYOCR, OCR_BACKEND_PADDLE_MLX)
+
+# The measured MLX build (GEO-017): same weights as the publisher
+# checkpoint, converted locally. Overridable per run; the artifact
+# records the effective precision and revision, never this default.
+MLX_MODEL_PATH_ENV = "OCR_MLX_MODEL_PATH"
+MLX_MODEL_PATH_DEFAULT = "/tmp/ocr-mlx-paddleocr-vl-1.6-bf16"
+MLX_PRECISION = "bfloat16 (MLX, unquantized)"
+MLX_MODEL_REVISION = (
+    "PaddlePaddle/PaddleOCR-VL-1.6@676e2aad67375fec9c7dcc9740babec7a0d0d110"
+    " + mlx-vlm 0.7.2 convert --dtype bfloat16")
+
+
 class OCRExtractor:
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(OCRExtractor, cls).__new__(cls)
             cls._instance.reader = None
+            cls._instance.mlx_model = None
         return cls._instance
         
     def _get_reader(self):
@@ -327,8 +367,75 @@ class OCRExtractor:
             # pipeline run must never download weights implicitly.
             self.reader = easyocr.Reader(['en'], download_enabled=False)
         return self.reader
-        
-    def extract_text_from_frame(self, frame: np.ndarray) -> List[TextDetection]:
+
+    def _get_mlx(self):
+        if self.mlx_model is None:
+            try:
+                from mlx_vlm import load
+            except ImportError as exc:
+                raise ImportError(
+                    "mlx_vlm is not installed, so the MLX OCR backend "
+                    "cannot run. Install the ML environment "
+                    "(docs/ML_ENVIRONMENT.md)."
+                ) from exc
+            model_path = os.environ.get(MLX_MODEL_PATH_ENV,
+                                        MLX_MODEL_PATH_DEFAULT)
+            self.mlx_model, self.mlx_processor = load(
+                model_path, trust_remote_code=True)
+            self.mlx_model_path = model_path
+        return self.mlx_model, self.mlx_processor
+
+    def extract_text_from_frame_mlx(self, frame: np.ndarray) -> List[TextDetection]:
+        """One frame through the MLX VLM text pass (GEO-016/017).
+
+        The VLM names text without locating it: each returned string
+        becomes an ungrounded detection over the examined frame, never
+        a located box. Empty/blank output is no detection, not an
+        empty string detection.
+        """
+        from mlx_vlm import generate
+        from mlx_vlm.prompt_utils import apply_chat_template
+
+        model, processor = self._get_mlx()
+        h, w = frame.shape[:2]
+        template = apply_chat_template(
+            processor, model.config, prompt="OCR:", num_images=1)
+        import tempfile
+        try:
+            from PIL import Image as _Image
+        except ImportError as exc:
+            raise ImportError(
+                "PIL is not installed, so frames cannot reach the MLX "
+                "OCR backend. pip install pillow."
+            ) from exc
+        pil_frame = _Image.fromarray(frame[:, :, ::-1])
+        with tempfile.NamedTemporaryFile(suffix=".png",
+                                         delete=True) as tmp:
+            pil_frame.save(tmp.name)
+            result = generate(model, processor, template, image=tmp.name,
+                              max_tokens=1024)
+        detections = []
+        for line in (result.text or "").splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            detections.append(TextDetection(
+                text=text,
+                confidence=1.0,
+                bbox=(0, 0, int(w), int(h)),
+                bbox_normalized=(0.0, 0.0, 1.0, 1.0),
+                polygon_normalized=(),
+                language=_language_hint(text),
+                alternatives=[],
+                spatially_grounded=False,
+            ))
+        return detections
+
+    def extract_text_from_frame(self, frame: np.ndarray,
+                                backend: str = OCR_BACKEND_EASYOCR,
+                                ) -> List[TextDetection]:
+        if backend == OCR_BACKEND_PADDLE_MLX:
+            return self.extract_text_from_frame_mlx(frame)
         reader = self._get_reader()
         results = reader.readtext(frame)
         
@@ -373,7 +480,12 @@ class OCRExtractor:
             
         return detections
 
-    def extract_text_from_clip(self, video_path: str, sample_fps: float = 1.0, scene_boundaries: Optional[List[float]] = None) -> OCRResult:
+    def extract_text_from_clip(self, video_path: str, sample_fps: float = 1.0, scene_boundaries: Optional[List[float]] = None, backend: str = OCR_BACKEND_EASYOCR) -> OCRResult:
+        if backend not in OCR_BACKENDS:
+            raise ValueError(
+                f"unknown OCR backend {backend!r}; expected one of "
+                f"{OCR_BACKENDS}")
+        grounded = backend == OCR_BACKEND_EASYOCR
         try:
             import cv2
         except ImportError as exc:
@@ -418,11 +530,15 @@ class OCRExtractor:
                 
             timestamp = frame_idx / fps if fps > 0 else 0
             
-            frame_dets = self.extract_text_from_frame(frame)
+            frame_dets = self.extract_text_from_frame(
+                frame, backend=backend)
             raw_detections[frame_idx] = frame_dets
-            graphic_dets = _graphic_candidates(frame, frame_dets)
+            # Ungrounded text has no location, so it must not suppress
+            # graphic candidates the way located boxes do.
+            graphic_dets = _graphic_candidates(
+                frame, frame_dets if grounded else [])
             raw_graphics[frame_idx] = graphic_dets
-            
+
             for det in frame_dets:
                 matched = False
                 for track in tracks:
@@ -432,9 +548,10 @@ class OCRExtractor:
                             track.add(det, timestamp, frame_idx)
                             matched = True
                             break
-                
+
                 if not matched:
-                    tracks.append(Track(det, timestamp, frame_idx))
+                    tracks.append(Track(det, timestamp, frame_idx,
+                                        grounded=grounded))
 
             for graphic in graphic_dets:
                 candidates = [track for track in graphic_tracks
@@ -498,6 +615,14 @@ class OCRExtractor:
                 "samples": track["samples"],
             })
         
+        if backend == OCR_BACKEND_PADDLE_MLX:
+            method = "PaddleOCR-VL-1.6-MLX"
+            precision: Optional[str] = MLX_PRECISION
+            model_revision: Optional[str] = MLX_MODEL_REVISION
+        else:
+            method = "EasyOCR"
+            precision = None
+            model_revision = None
         return OCRResult(
             video_path=video_path,
             frame_count=total_frames,
@@ -507,4 +632,7 @@ class OCRExtractor:
             raw_frame_detections=raw_detections,
             graphics=final_graphics,
             raw_frame_graphics=raw_graphics,
+            method=method,
+            precision=precision,
+            model_revision=model_revision,
         )

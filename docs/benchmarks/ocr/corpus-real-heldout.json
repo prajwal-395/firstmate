@@ -1,0 +1,375 @@
+{
+ "schema": "ren_ocr_corpus/1",
+ "seed": "ren-ocr-ge013-v1",
+ "sources": {
+  "podcast": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media",
+  "apple_001": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw"
+ },
+ "splits": {
+  "calibration": 64,
+  "held_out": 32
+ },
+ "categories": [
+  "lower_third",
+  "caption",
+  "slide",
+  "chart",
+  "label",
+  "computer_interface",
+  "scene_text"
+ ],
+ "frames": [
+  {
+   "id": "apple_001-IMG_1808-00-eab86add4b40",
+   "source": "apple_001",
+   "clip": "IMG_1808",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+   "at_seconds": 3.472,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1808-01-3f38f719f8eb",
+   "source": "apple_001",
+   "clip": "IMG_1808",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+   "at_seconds": 10.415,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1808-02-f66d5e096a05",
+   "source": "apple_001",
+   "clip": "IMG_1808",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+   "at_seconds": 17.358,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1808-03-20f1fc813a20",
+   "source": "apple_001",
+   "clip": "IMG_1808",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+   "at_seconds": 24.302,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1811-00-50a844879826",
+   "source": "apple_001",
+   "clip": "IMG_1811",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+   "at_seconds": 2.859,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1811-01-c53e10583f67",
+   "source": "apple_001",
+   "clip": "IMG_1811",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+   "at_seconds": 8.577,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1811-02-5643e4851d2c",
+   "source": "apple_001",
+   "clip": "IMG_1811",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+   "at_seconds": 14.295,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1811-03-6d13e580f389",
+   "source": "apple_001",
+   "clip": "IMG_1811",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+   "at_seconds": 20.013,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1814-00-28e4269e4b30",
+   "source": "apple_001",
+   "clip": "IMG_1814",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+   "at_seconds": 5.743,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1814-01-523b189f1565",
+   "source": "apple_001",
+   "clip": "IMG_1814",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+   "at_seconds": 17.229,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1814-02-4c421aecf956",
+   "source": "apple_001",
+   "clip": "IMG_1814",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+   "at_seconds": 28.716,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1814-03-50dfe8ae9a7e",
+   "source": "apple_001",
+   "clip": "IMG_1814",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+   "at_seconds": 40.202,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1817-00-e7173dd55ba9",
+   "source": "apple_001",
+   "clip": "IMG_1817",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+   "at_seconds": 5.189,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1817-01-6305e276fff1",
+   "source": "apple_001",
+   "clip": "IMG_1817",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+   "at_seconds": 15.566,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1817-02-0dbeec62e7ac",
+   "source": "apple_001",
+   "clip": "IMG_1817",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+   "at_seconds": 25.944,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1817-03-bf32975f45f7",
+   "source": "apple_001",
+   "clip": "IMG_1817",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+   "at_seconds": 36.321,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1820-00-d73f0fa2e215",
+   "source": "apple_001",
+   "clip": "IMG_1820",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+   "at_seconds": 6.568,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1820-01-5dc6be3c8a2e",
+   "source": "apple_001",
+   "clip": "IMG_1820",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+   "at_seconds": 19.704,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1820-02-352653befc4d",
+   "source": "apple_001",
+   "clip": "IMG_1820",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+   "at_seconds": 32.841,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "apple_001-IMG_1820-03-e3f4fe5e9c8d",
+   "source": "apple_001",
+   "clip": "IMG_1820",
+   "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+   "at_seconds": 45.977,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LC4930-00-8ae19555cc2c",
+   "source": "podcast",
+   "clip": "LC4930",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "at_seconds": 28.153,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LC4930-01-a451fef84fc6",
+   "source": "podcast",
+   "clip": "LC4930",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "at_seconds": 84.459,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LC4930-02-399342daac2c",
+   "source": "podcast",
+   "clip": "LC4930",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "at_seconds": 140.766,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LC4930-03-62f1fc1e6bea",
+   "source": "podcast",
+   "clip": "LC4930",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+   "at_seconds": 197.072,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0011-00-774486191506",
+   "source": "podcast",
+   "clip": "LCATL0011",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "at_seconds": 26.818,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0011-01-0fca94e20996",
+   "source": "podcast",
+   "clip": "LCATL0011",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "at_seconds": 80.455,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0011-02-57cf0c4daeef",
+   "source": "podcast",
+   "clip": "LCATL0011",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "at_seconds": 134.092,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0011-03-2258b2c47b85",
+   "source": "podcast",
+   "clip": "LCATL0011",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+   "at_seconds": 187.729,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0014-00-39eaf18172f0",
+   "source": "podcast",
+   "clip": "LCATL0014",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "at_seconds": 104.75,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0014-01-261f08366c8a",
+   "source": "podcast",
+   "clip": "LCATL0014",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "at_seconds": 314.251,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0014-02-bb6a9d82b25a",
+   "source": "podcast",
+   "clip": "LCATL0014",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "at_seconds": 523.752,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  },
+  {
+   "id": "podcast-LCATL0014-03-fec7752653da",
+   "source": "podcast",
+   "clip": "LCATL0014",
+   "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0014.MXF",
+   "at_seconds": 733.253,
+   "split": "held_out",
+   "category_hints": [],
+   "labels": [],
+   "predictions": []
+  }
+ ]
+}

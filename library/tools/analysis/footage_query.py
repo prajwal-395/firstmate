@@ -2792,6 +2792,89 @@ class FootageIndex:
         report["abstained"] = not hits
         return report
 
+    def combined_search(self, said: str, shown: str, top_k: int = 5) -> dict:
+        """Join dialogue against on-screen text (GEO-027).
+
+        Answers "when does he say X while Y is on screen" from the same
+        two lanes `search` already reads: speech segments (what was SAID,
+        with source intervals) and step 1.07's tracked text (what was
+        SHOWN, with appearance intervals and normalized boxes). The join
+        is overlap on the source clock and cites both provenances; it
+        never invents a paraphrase. Delegates to
+        `library.tools.analysis.ocr_combined_query.combined_query` so the
+        benchmark and the product agree on what "same moment" means.
+        """
+        from library.tools.analysis import ocr_combined_query as ocq
+
+        report: dict = {
+            "query": {"said": said, "shown": shown},
+            "mode": "combined",
+            "hits": [],
+            "considered": 0,
+            "matched": 0,
+            "abstained": False,
+            "error": None,
+        }
+        texts_by_clip = self.payload.get("ocr_texts") or {}
+        speech_rows = [
+            {"segment_id": f"{s.get('clip_id')}#speech",
+             "clip_id": s.get("clip_id"),
+             "text": s.get("text", ""),
+             "start_seconds": s.get("start"), "end_seconds": s.get("end")}
+            for s in self.segments
+            if s.get("kind") == "speech" and s.get("text")
+        ]
+        ocr_tracks = []
+        for clip_id in sorted(texts_by_clip):
+            for detection in texts_by_clip[clip_id]:
+                ocr_tracks.append({
+                    "track_id": detection.get("track_id"),
+                    "clip_id": clip_id,
+                    "text": detection.get("text", ""),
+                    "appearances": detection.get("appearances") or [],
+                    "bbox_normalized": detection.get("bbox_normalized"),
+                    "artifact_ref": {
+                        "step": "1_07_ocr_extraction", "clip_id": clip_id,
+                        "method": (self.payload.get("ocr_methods") or {}
+                                   ).get(clip_id),
+                    },
+                })
+        if not speech_rows or not ocr_tracks:
+            report["abstained"] = True
+            report["error"] = (
+                "combined search needs both lanes: "
+                f"speech segments ({len(speech_rows)}) and tracked on-screen "
+                f"text ({len(ocr_tracks)})")
+            return report
+        report["considered"] = len(speech_rows) * len(ocr_tracks)
+        joined = ocq.combined_query(speech_rows, ocr_tracks,
+                                    said=said, shown=shown)
+        hits = []
+        for row in joined:
+            speech_span = row.get("speech_span") or [None, None]
+            text_span = row.get("text_span") or [None, None]
+            hits.append({
+                "clip_id": row.get("clip_id"),
+                "said": row.get("said"),
+                "shown": row.get("shown"),
+                "speech_span": speech_span,
+                "text_span": text_span,
+                "overlap_seconds": row.get("overlap_seconds"),
+                "timecode": (
+                    f"{self._timecode(speech_span[0])}-"
+                    f"{self._timecode(text_span[1])}"
+                    if speech_span[0] is not None
+                    and text_span[1] is not None else None),
+                "speech_provenance": row.get("speech_provenance"),
+                "text_provenance": row.get("text_provenance"),
+            })
+        hits.sort(key=lambda h: (-(h["overlap_seconds"] or 0.0),
+                                 h["clip_id"] or ""))
+        report["hits"] = hits[:max(0, top_k)]
+        report["matched"] = len(hits)
+        report["abstained"] = not hits
+        return report
+
     def _person_windows(self, person: str) -> list:
         """`[(clip_id, start, end)]` the entity store measured for one
         person - face spans (seen) union voice spans (heard), from

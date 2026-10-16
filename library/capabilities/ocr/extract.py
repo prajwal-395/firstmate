@@ -11,18 +11,40 @@ import sys
 import os
 import glob
 from pathlib import Path
-from library.tools.analysis.ocr_extractor import OCRExtractor, OCR_SCHEMA_VERSION
+from library.tools.analysis.ocr_extractor import (
+    OCR_BACKEND_EASYOCR,
+    OCR_BACKEND_PADDLE_MLX,
+    OCR_BACKENDS,
+    OCRExtractor,
+    OCR_SCHEMA_VERSION,
+)
 from library.tools.concurrency_routing import run_lanes
 from library.tools.project_layout import Area, ProjectLayout
 
 def extract_ocr(raw_footage_files: list, project_folder: str = "",
-                temporal_index=None) -> dict:
+                temporal_index=None, backend: str = OCR_BACKEND_EASYOCR,
+                ) -> dict:
     """Extract on-screen text for each clip, reusing anything already on disk.
 
     Returns `{"ocr_extraction": {clip_id: result}}`.  A clip whose
     extraction raises is reported on stderr and left out of the result
     rather than failing the others.
+
+    `backend` selects the recognizer behind this same interface: the
+    EasyOCR incumbent by default, or the PaddleOCR-VL MLX text pass
+    (`paddleocr_vlm_mlx`), which names text without locating it. The
+    artifact records which ran (GEO-025 provenance).
     """
+    if backend not in OCR_BACKENDS:
+        raise ValueError(
+            f"unknown OCR backend {backend!r}; expected one of "
+            f"{OCR_BACKENDS}")
+    if os.environ.get("OCR_BACKEND", ""):
+        backend = os.environ["OCR_BACKEND"]
+        if backend not in OCR_BACKENDS:
+            raise ValueError(
+                f"unknown OCR_BACKEND {backend!r}; expected one of "
+                f"{OCR_BACKENDS}")
     # OCR results are output, so they land in the output tree rather than
     # in raw/analysis/ocr/ inside the captain's footage directory.
     # See library/tools/project_layout.py.
@@ -69,18 +91,28 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
         return clip_id, out_subdir, os.path.join(out_subdir,
                                                  "ocr_result.json")
 
+    # A cache hit must also be from the requested backend: an EasyOCR
+    # artifact must not satisfy an MLX request or vice versa.
+    _BACKEND_METHODS = {
+        OCR_BACKEND_EASYOCR: "EasyOCR",
+        OCR_BACKEND_PADDLE_MLX: "PaddleOCR-VL-1.6-MLX",
+    }
+
     # Warm the shared reader only when a clip actually needs measuring:
     # a fully-cached run must stay a file-existence check, not a model
     # load.
     def _cache_is_current(path):
         try:
             with open(path, encoding="utf-8") as stream:
-                version = json.load(stream).get("schema_version", 0)
+                doc = json.load(stream)
+                version = doc.get("schema_version", 0)
                 if version > OCR_SCHEMA_VERSION:
                     raise ValueError(
                         f"OCR artifact schema {version} is newer than "
                         f"supported schema {OCR_SCHEMA_VERSION}: {path}")
-                return version == OCR_SCHEMA_VERSION
+                return (version == OCR_SCHEMA_VERSION
+                        and doc.get("method", "EasyOCR")
+                        == _BACKEND_METHODS[backend])
         except ValueError as exc:
             if str(exc).startswith("OCR artifact schema"):
                 raise
@@ -89,7 +121,10 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
             return False
 
     if any(not _cache_is_current(_paths(p)[2]) for p in all_clips):
-        extractor._get_reader()
+        if backend == OCR_BACKEND_EASYOCR:
+            extractor._get_reader()
+        else:
+            extractor._get_mlx()
 
     def _one(clip_path):
         clip_id, out_subdir, out_file = _paths(clip_path)
@@ -120,7 +155,7 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
         try:
             result = extractor.extract_text_from_clip(
                 clip_path, sample_fps=1.0,
-                scene_boundaries=scene_boundaries)
+                scene_boundaries=scene_boundaries, backend=backend)
             result.save(out_subdir)
 
             with open(out_file, encoding="utf-8") as fp:
@@ -145,6 +180,7 @@ def main():
         raw_footage_files=data.get('raw_footage_files', []),
         project_folder=data.get('project_folder', ''),
         temporal_index=data.get('temporal_index', {}),
+        backend=data.get('ocr_backend', OCR_BACKEND_EASYOCR),
     )
     json.dump(result, sys.stdout, indent=2)
 

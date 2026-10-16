@@ -1,0 +1,169 @@
+{
+  "schema": "ren_ocr_corpus/1",
+  "seed": "syn-v1",
+  "frames": [
+    {
+      "id": "syn-currency-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-currency-01.png",
+      "labels": [
+        {
+          "text": "$1,250.00",
+          "bbox": [
+            0.125,
+            0.16805555555555557,
+            0.225,
+            0.08194444444444444
+          ],
+          "kind": "label",
+          "number_kind": "currency"
+        }
+      ],
+      "predictions": []
+    },
+    {
+      "id": "syn-units-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-units-01.png",
+      "labels": [
+        {
+          "text": "1080p 60fps 24mm",
+          "bbox": [
+            0.125,
+            0.17222222222222222,
+            0.43125,
+            0.08194444444444444
+          ],
+          "kind": "label",
+          "number_kind": "unit"
+        }
+      ],
+      "predictions": []
+    },
+    {
+      "id": "syn-date-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-date-01.png",
+      "labels": [
+        {
+          "text": "Oct 15, 2026",
+          "bbox": [
+            0.125,
+            0.17083333333333334,
+            0.2890625,
+            0.07916666666666666
+          ],
+          "kind": "caption",
+          "number_kind": "date"
+        }
+      ],
+      "predictions": []
+    },
+    {
+      "id": "syn-lower-third-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-lower-third-01.png",
+      "labels": [
+        {
+          "text": "AKSHITA SHARMA",
+          "bbox": [
+            0.125,
+            0.17083333333333334,
+            0.44296875,
+            0.06666666666666667
+          ],
+          "kind": "lower_third"
+        },
+        {
+          "text": "Founder, Lucie",
+          "bbox": [
+            0.125,
+            0.2847222222222222,
+            0.3359375,
+            0.07777777777777778
+          ],
+          "kind": "lower_third"
+        }
+      ],
+      "predictions": []
+    },
+    {
+      "id": "syn-table-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-table-01.png",
+      "labels": [
+        {
+          "text": "Q1 12 18",
+          "bbox": [
+            0.125,
+            0.17083333333333334,
+            0.2078125,
+            0.07083333333333333
+          ],
+          "kind": "chart"
+        },
+        {
+          "text": "Q2 09 22",
+          "bbox": [
+            0.125,
+            0.2875,
+            0.2078125,
+            0.07083333333333333
+          ],
+          "kind": "chart"
+        }
+      ],
+      "predictions": [],
+      "layout_rows": [
+        {
+          "layout_id": "row-q1",
+          "text": "Q1 12 18",
+          "bbox": [
+            0.125,
+            0.17083333333333334,
+            0.2078125,
+            0.07083333333333333
+          ]
+        },
+        {
+          "layout_id": "row-q2",
+          "text": "Q2 09 22",
+          "bbox": [
+            0.125,
+            0.2875,
+            0.2078125,
+            0.07083333333333333
+          ]
+        }
+      ]
+    },
+    {
+      "id": "syn-slide-01",
+      "split": "calibration",
+      "image": "/tmp/ocr-syn-images/syn-slide-01.png",
+      "labels": [
+        {
+          "text": "REN PIPELINE",
+          "bbox": [
+            0.125,
+            0.17083333333333334,
+            0.34609375,
+            0.06527777777777778
+          ],
+          "kind": "slide"
+        },
+        {
+          "text": "recall 0.85 latency 2.5ms",
+          "bbox": [
+            0.125,
+            0.28055555555555556,
+            0.27890625,
+            0.041666666666666664
+          ],
+          "kind": "slide"
+        }
+      ],
+      "predictions": []
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "d42d3905a6924956cee69e5dde63df150e4908c6",
+  "version": {
+    "id": "paddleocr-vl-1.6-mlx-bf16",
+    "role": "candidate",
+    "models": {
+      "base_checkpoint": "PaddlePaddle/PaddleOCR-VL-1.6@676e2aad67375fec9c7dcc9740babec7a0d0d110",
+      "mlx_conversion": "mlx-vlm 0.7.2 convert --dtype bfloat16"
+    }
+  },
+  "modality": "ocr",
+  "split": "calibration",
+  "metrics": {
+    "frame_exact_text_accuracy": {
+      "value": 1.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "frame_character_error_rate": {
+      "value": 0.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "numeric_exact_match_in_document": {
+      "value": 1.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "layout_mean_f1": {
+      "value": 0.0,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "memory_peak_bytes": {
+      "value": 421969920,
+      "unit": "bytes",
+      "dimension": "memory"
+    },
+    "cold_seconds": {
+      "value": 24.489035417002015,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "warm_seconds": {
+      "value": 6.98985184139965,
+      "unit": "seconds",
+      "dimension": "latency"
+    }
+  },
+  "evidence": [
+    {
+      "id": "synthetic-corpus",
+      "path": "synthetic-corpus.json",
+      "sha256": "21c1aecfdb53beaa37be574b4d7c738c3428b7c844c528332b81e7f969340353"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

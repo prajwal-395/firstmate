@@ -1,0 +1,60 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "a0613f9c6beb0fc818c6b1732f1f02c2b7956d17",
+  "version": {
+    "id": "apple-vision-ocr",
+    "role": "candidate",
+    "models": {
+      "apple_vision": "macOS-VNRecognizeText-accurate"
+    }
+  },
+  "modality": "ocr",
+  "split": "calibration",
+  "metrics": {
+    "frame_exact_text_accuracy": {
+      "value": 0.765625,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "frame_character_error_rate": {
+      "value": 0.22578125,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "detection_f1_iou50": {
+      "value": 0.372093023255814,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "mean_box_iou_matched": {
+      "value": 0.7045247682122724,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "layout_mean_f1": {
+      "value": 0.011111111111111112,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "cold_seconds": {
+      "value": 0.21,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "warm_seconds": {
+      "value": 0.044,
+      "unit": "seconds",
+      "dimension": "latency"
+    }
+  },
+  "evidence": [
+    {
+      "id": "corpus-real-calibration",
+      "path": "corpus-real-calibration.json",
+      "sha256": "e275ab91e89669e6015a388578d9fce978f6789977797133d7027cf2c779ee24"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

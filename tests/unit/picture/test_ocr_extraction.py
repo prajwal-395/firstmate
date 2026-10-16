@@ -39,7 +39,8 @@ class TestOcrLanes:
                     warmed.append(True)
 
             def extract_text_from_clip(self, path, sample_fps=1.0,
-                                       scene_boundaries=None):
+                                       scene_boundaries=None,
+                                       backend="easyocr"):
                 if path in fail_paths:
                     raise RuntimeError("unreadable frames")
                 if calls is not None:

@@ -49,7 +49,14 @@ def _intervals(row: dict[str, Any], sample_times: list[float], sample_fps: float
 def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
                clip_id: str, artifact_path: str, artifact_sha256: str,
                track: dict[str, Any], category: str, index: int,
-               sample_fps: float, sample_resolution: list[int]) -> bool:
+               sample_fps: float,                 sample_resolution: list[int]) -> bool:
+    # A text-only (spatially ungrounded) VLM track names strings without
+    # locating them: it stays searchable in the artifact and in
+    # footage_query, but no geometry track is migrated for it - a
+    # full-frame box would claim a spatial provenance that was never
+    # measured.
+    if track.get("spatially_grounded", True) is False:
+        return False
     samples = track.get("samples")
     if not isinstance(samples, list) or not samples:
         return False
@@ -247,8 +254,12 @@ def migrate_ocr_artifact(builder, project_folder: str | Path, clip_id: str,
     artifact_path = artifact.relative_to(Path(project_folder)).as_posix()
     artifact_sha256 = hashlib.sha256(raw).hexdigest()
     added = 0
+    ungrounded = 0
     for index, row in enumerate(doc.get("detections") or [], 1):
         if isinstance(row, dict):
+            if row.get("spatially_grounded", True) is False:
+                ungrounded += 1
+                continue
             added += _add_track(
                 builder, digest=digest, asset_id=assets[0]["id"],
                 clock_id=clocks[0]["id"], clip_id=clip_id,
@@ -267,4 +278,9 @@ def migrate_ocr_artifact(builder, project_folder: str | Path, clip_id: str,
                 sample_fps=sample_fps,
                 sample_resolution=resolution,
             )
+    if ungrounded:
+        builder.notes.append(
+            f"{clip_id}: {ungrounded} text-only (spatially ungrounded) "
+            f"track(s) left searchable in the artifact, not migrated to "
+            f"geometry")
     return added

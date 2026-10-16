@@ -1,0 +1,229 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-apple-synthetic-calibration.json",
+      "sha256": "41089c43fe9239f65b8481e9f7be73df25f967c21ae8a064c0aa05f8c368b6f5"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-easyocr-synthetic-calibration.json",
+      "sha256": "4ee54535adba54b485e4defb649085cbe5853d1f3427451e035f508eca3cd52f"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/65/video-editing-pilot/docs/benchmarks/ocr/report-paddle-mlx-synthetic-calibration.json",
+      "sha256": "ca7cbfd6cb6565163ddf9b5960048bab69a36a497273d5a9626ee5f94e09998e"
+    }
+  ],
+  "versions": {
+    "apple-vision-ocr": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "synthetic-corpus": "21c1aecfdb53beaa37be574b4d7c738c3428b7c844c528332b81e7f969340353"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 3.2306638956069946
+              },
+              "detection_f1_iou50": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.8333333333333334
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.6666666666666666
+              },
+              "mean_box_iou_matched": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.8577515884926374
+              },
+              "numeric_exact_match_in_document": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.9979647636413574
+              }
+            },
+            "revision": "6a164bfea9d1717e154c0b90ca25297ede4a9fc8",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "apple_vision": "macOS-VNRecognizeText-accurate"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "ocr": [
+          "memory",
+          "cost"
+        ]
+      }
+    },
+    "easyocr-1.7.2-en": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "synthetic-corpus": "21c1aecfdb53beaa37be574b4d7c738c3428b7c844c528332b81e7f969340353"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 15.231559707997803
+              },
+              "detection_f1_iou50": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.005376344086021505
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.8333333333333334
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.6666666666666666
+              },
+              "mean_box_iou_matched": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.7277924802022644
+              },
+              "memory_peak_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 476938240
+              },
+              "numeric_exact_match_in_document": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 2.499053300000378
+              }
+            },
+            "revision": "6a164bfea9d1717e154c0b90ca25297ede4a9fc8",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "detection_weights": "craft_mlt_25k.pth",
+        "easyocr_reader": "1.7.2",
+        "recognition_weights": "english_g2.pth"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "ocr": [
+          "cost"
+        ]
+      }
+    },
+    "paddleocr-vl-1.6-mlx-bf16": {
+      "modalities": {
+        "ocr": {
+          "calibration": {
+            "evidence_checksums": {
+              "synthetic-corpus": "21c1aecfdb53beaa37be574b4d7c738c3428b7c844c528332b81e7f969340353"
+            },
+            "metrics": {
+              "cold_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 24.489035417002015
+              },
+              "frame_character_error_rate": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0
+              },
+              "frame_exact_text_accuracy": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "layout_mean_f1": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0
+              },
+              "memory_peak_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 421969920
+              },
+              "numeric_exact_match_in_document": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 1.0
+              },
+              "warm_seconds": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 6.98985184139965
+              }
+            },
+            "revision": "d42d3905a6924956cee69e5dde63df150e4908c6",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "base_checkpoint": "PaddlePaddle/PaddleOCR-VL-1.6@676e2aad67375fec9c7dcc9740babec7a0d0d110",
+        "mlx_conversion": "mlx-vlm 0.7.2 convert --dtype bfloat16"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "ocr": [
+          "cost"
+        ]
+      }
+    }
+  }
+}

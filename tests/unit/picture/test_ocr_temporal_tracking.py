@@ -75,7 +75,7 @@ def test_synthetic_screen_recording_tracks_text_graphics_and_cursor(monkeypatch,
     monkeypatch.setattr(cv2, "VideoCapture", FakeCapture)
     extractor = OCRExtractor()
 
-    def read_text(_self, frame):
+    def read_text(_self, frame, backend="easyocr"):
         i = int(frame[0, 0, 0])
         text = labels[i]["text"]
         return [TextDetection(
@@ -211,3 +211,44 @@ def test_ocr_tracks_and_masks_migrate_with_content_checked_artifact_refs(tmp_pat
     artifact.write_text("{}", encoding="utf-8")
     with pytest.raises(UnresolvableMask, match="hash changed"):
         ocr_polygon_track_frames(reference, project_folder=project)
+
+
+def test_ungrounded_vlm_text_stays_searchable_without_geometry_tracks(tmp_path):
+    """A text-only VLM track migrates no geometry (GEO-025 honesty).
+
+    The artifact remains the searchable authority (footage_query reads
+    it directly); the migration records one note instead of placing a
+    full-frame box nobody measured.
+    """
+    project = tmp_path / "project"
+    layout = ProjectLayout(str(project))
+    artifact = layout.step_dir("ocr_extraction", create=True) / "clip_vlm" / "ocr_result.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps({
+        "schema_version": 2, "resolution": [160, 100], "sample_fps": 1.0,
+        "method": "PaddleOCR-VL-1.6-MLX", "precision": "bfloat16 (MLX, unquantized)",
+        "model_revision": "test-revision",
+        "detections": [{
+            "track_id": "text-0001", "text": "Save", "language": None,
+            "alternatives": [], "appearances": [[0.0, 1.0]],
+            "spatially_grounded": False,
+            "samples": [{"timestamp": 0.0, "frame_index": 0,
+                         "bbox_normalized": [0.0, 0.0, 1.0, 1.0],
+                         "polygon_normalized": [],
+                         "confidence": 1.0}],
+        }],
+        "graphics": [],
+    }), encoding="utf-8")
+
+    builder = _Builder("project-proxy")
+    builder.model["assets"].append({
+        "id": f"asset-{DIGEST}", "kind": "video", "uri": "synthetic-proxy.mov",
+        "content_digest": DIGEST, "metadata": {}, "provenance": [],
+    })
+    builder.model["clocks"].append({
+        "id": f"clock-{DIGEST}", "domain": {"kind": "source", "asset_id": f"asset-{DIGEST}"},
+        "ticks_per_second": 1000, "frame_rate": None,
+    })
+    assert migrate_ocr_artifact(builder, project, "clip_vlm", DIGEST) == 0
+    assert builder.model["tracks"] == []
+    assert any("spatially ungrounded" in note for note in builder.notes)

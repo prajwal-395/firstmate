@@ -1,0 +1,67 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "a0613f9c6beb0fc818c6b1732f1f02c2b7956d17",
+  "version": {
+    "id": "easyocr-1.7.2-en",
+    "role": "baseline",
+    "models": {
+      "easyocr_reader": "1.7.2",
+      "detection_weights": "craft_mlt_25k.pth",
+      "recognition_weights": "english_g2.pth"
+    }
+  },
+  "modality": "ocr",
+  "split": "calibration",
+  "metrics": {
+    "frame_exact_text_accuracy": {
+      "value": 0.734375,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "frame_character_error_rate": {
+      "value": 0.25167410714285715,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "detection_f1_iou50": {
+      "value": 0.4444444444444445,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "mean_box_iou_matched": {
+      "value": 0.6077531689312188,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "layout_mean_f1": {
+      "value": 0.019230769230769232,
+      "unit": "ratio",
+      "dimension": "quality"
+    },
+    "cold_seconds": {
+      "value": 1.96,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "warm_seconds": {
+      "value": 0.515,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "memory_peak_bytes": {
+      "value": 1060000000,
+      "unit": "bytes",
+      "dimension": "memory"
+    }
+  },
+  "evidence": [
+    {
+      "id": "corpus-real-calibration",
+      "path": "corpus-real-calibration.json",
+      "sha256": "e275ab91e89669e6015a388578d9fce978f6789977797133d7027cf2c779ee24"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

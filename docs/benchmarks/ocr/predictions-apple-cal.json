@@ -1,0 +1,939 @@
+{
+ "candidate": "Apple Vision OCR",
+ "model_revision": "macOS-Vision",
+ "precision": "Apple Vision framework default",
+ "license_class": "OS-provided framework (no redistribution concern)",
+ "timing": {
+  "cold_seconds": null,
+  "warm_seconds": null,
+  "decode_seconds": null,
+  "infer_seconds": null,
+  "serialize_seconds": null
+ },
+ "memory_peak_bytes": null,
+ "frames": [
+  {
+   "id": "apple_001-IMG_1806-00-bdc4fc3d3c88",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.2616410255432129
+  },
+  {
+   "id": "apple_001-IMG_1806-01-248cf21c0ee9",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.06034505367279053
+  },
+  {
+   "id": "apple_001-IMG_1806-02-040b069ae72d",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02255094051361084
+  },
+  {
+   "id": "apple_001-IMG_1806-03-c9994fc6452e",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02640998363494873
+  },
+  {
+   "id": "apple_001-IMG_1807-00-fefb4734e84f",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.022018074989318848
+  },
+  {
+   "id": "apple_001-IMG_1807-01-71f6f203b98f",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.022701025009155273
+  },
+  {
+   "id": "apple_001-IMG_1807-02-399c2bcf3f28",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.023674964904785156
+  },
+  {
+   "id": "apple_001-IMG_1807-03-0947fb74104c",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.023691892623901367
+  },
+  {
+   "id": "apple_001-IMG_1809-00-71bf5fbe7205",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.16483008861541748
+  },
+  {
+   "id": "apple_001-IMG_1809-01-f92351d27a19",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "EABOARD",
+     "bbox": [
+      0.268,
+      0.38,
+      0.145,
+      0.028
+     ],
+     "kind": "scene_text",
+     "reading_order": 0
+    },
+    {
+     "text": "PARK",
+     "bbox": [
+      0.347,
+      0.409,
+      0.059,
+      0.008
+     ],
+     "kind": "scene_text",
+     "reading_order": 1
+    },
+    {
+     "text": "D",
+     "bbox": [
+      0.316,
+      0.787,
+      0.018,
+      0.014
+     ],
+     "kind": "label",
+     "reading_order": 2
+    }
+   ],
+   "predictions": [
+    {
+     "text": "TUU",
+     "confidence": 0.3,
+     "bbox": [
+      -1.2032185470189915e-09,
+      0.49854651093546964,
+      0.09043927788734436,
+      0.03343023357156716
+     ]
+    },
+    {
+     "text": "-20",
+     "confidence": 1,
+     "bbox": [
+      0.4237726102636364,
+      0.7412790696702697,
+      0.041343668103218045,
+      0.011627907074189148
+     ]
+    },
+    {
+     "text": "D",
+     "confidence": 1,
+     "bbox": [
+      0.3100775196664924,
+      0.7877906977824266,
+      0.023255813121795643,
+      0.014534883214216476
+     ]
+    },
+    {
+     "text": "I0 M",
+     "confidence": 0.3,
+     "bbox": [
+      0.42118863106508925,
+      0.8036028121562439,
+      0.03617570996284486,
+      0.008897187630195869
+     ]
+    },
+    {
+     "text": "160",
+     "confidence": 1,
+     "bbox": [
+      0.5762273904675259,
+      0.7674418603333374,
+      0.0232558131217957,
+      0.011627907074189148
+     ]
+    },
+    {
+     "text": "\u00abhii.",
+     "confidence": 0.3,
+     "bbox": [
+      0.6764483433285264,
+      0.7886107603577907,
+      0.09908855557441709,
+      0.03223690039663196
+     ]
+    }
+   ],
+   "inference_seconds": 0.11598503589630127
+  },
+  {
+   "id": "apple_001-IMG_1809-02-8f8cc0e0b45c",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.0494610071182251
+  },
+  {
+   "id": "apple_001-IMG_1809-03-8c90593e629f",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.0776970386505127
+  },
+  {
+   "id": "apple_001-IMG_1810-00-325e94a73944",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SW",
+     "bbox": [
+      0.118,
+      0.586,
+      0.035,
+      0.014
+     ],
+     "kind": "computer_interface",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.03322494029998779
+  },
+  {
+   "id": "apple_001-IMG_1810-01-a3a0bc1c2af3",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.023249030113220215
+  },
+  {
+   "id": "apple_001-IMG_1810-02-5404981cf572",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "Chattahoochee Ave NW",
+     "bbox": [
+      0.058,
+      0.005,
+      0.485,
+      0.145
+     ],
+     "kind": "scene_text",
+     "reading_order": 0
+    },
+    {
+     "text": "SW",
+     "bbox": [
+      0.796,
+      0.855,
+      0.04,
+      0.018
+     ],
+     "kind": "label",
+     "reading_order": 1
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.07009398937225342
+  },
+  {
+   "id": "apple_001-IMG_1810-03-76937ec8b8da",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [
+    {
+     "text": "60",
+     "confidence": 1,
+     "bbox": [
+      0.4444444446021024,
+      0.6642441860420487,
+      0.02067183405160905,
+      0.008720930096135171
+     ]
+    },
+    {
+     "text": "80",
+     "confidence": 1,
+     "bbox": [
+      0.4909560723800898,
+      0.6584302327346319,
+      0.018087854981422458,
+      0.0116279062361625
+     ]
+    },
+    {
+     "text": "0 L\u00f3-",
+     "confidence": 0.3,
+     "bbox": [
+      0.4806201547541569,
+      0.6700351494772077,
+      0.04392764866352078,
+      0.010197408588992651
+     ]
+    },
+    {
+     "text": "100",
+     "confidence": 1,
+     "bbox": [
+      0.5297157625605492,
+      0.6715116278440468,
+      0.0232558131217957,
+      0.010174418585162104
+     ]
+    }
+   ],
+   "inference_seconds": 0.07262003421783447
+  },
+  {
+   "id": "apple_001-IMG_1812-00-638a8a8e3f15",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.3076890707015991
+  },
+  {
+   "id": "apple_001-IMG_1812-01-d7d304677f85",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.028056979179382324
+  },
+  {
+   "id": "apple_001-IMG_1812-02-07374816dbc1",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02324998378753662
+  },
+  {
+   "id": "apple_001-IMG_1812-03-889f681724ef",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.022140979766845703
+  },
+  {
+   "id": "apple_001-IMG_1813-00-289fe9e80740",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "MERICAN",
+     "bbox": [
+      0.0,
+      0.1335,
+      0.1445,
+      0.015
+     ],
+     "kind": "label",
+     "reading_order": 0
+    },
+    {
+     "text": "AXES",
+     "bbox": [
+      0.0,
+      0.149,
+      0.1,
+      0.012
+     ],
+     "kind": "label",
+     "reading_order": 1
+    },
+    {
+     "text": "HROW AXES,",
+     "bbox": [
+      0.0,
+      0.1747,
+      0.119,
+      0.01
+     ],
+     "kind": "scene_text",
+     "reading_order": 2
+    },
+    {
+     "text": "VES, SHOVELS,",
+     "bbox": [
+      0.0,
+      0.187,
+      0.135,
+      0.0086
+     ],
+     "kind": "scene_text",
+     "reading_order": 3
+    },
+    {
+     "text": "ARS AND MORE!",
+     "bbox": [
+      0.0,
+      0.1978,
+      0.135,
+      0.0104
+     ],
+     "kind": "scene_text",
+     "reading_order": 4
+    },
+    {
+     "text": "VALIDATE PARKING",
+     "bbox": [
+      0.0,
+      0.2153,
+      0.138,
+      0.0121
+     ],
+     "kind": "scene_text",
+     "reading_order": 5
+    },
+    {
+     "text": "w.american-axes.com",
+     "bbox": [
+      0.0,
+      0.2428,
+      0.125,
+      0.0066
+     ],
+     "kind": "scene_text",
+     "reading_order": 6
+    }
+   ],
+   "predictions": [
+    {
+     "text": "1ERICAN",
+     "confidence": 1,
+     "bbox": [
+      2.066845450343635e-09,
+      0.13226744193228857,
+      0.1447028398513794,
+      0.017441860192270453
+     ]
+    },
+    {
+     "text": "\u2022AXES\u2192",
+     "confidence": 1,
+     "bbox": [
+      3.6578688411559312e-09,
+      0.146802325739948,
+      0.13953487873077394,
+      0.01598837170324341
+     ]
+    },
+    {
+     "text": "HROW AXES,",
+     "confidence": 1,
+     "bbox": [
+      -6.786378699371597e-05,
+      0.17278366449386862,
+      0.12158275842666627,
+      0.014897786460568052
+     ]
+    },
+    {
+     "text": "Mi6 SHOVELS,",
+     "confidence": 1,
+     "bbox": [
+      -0.00038093788772294304,
+      0.18532241194892352,
+      0.13762950897216797,
+      0.013074594977031895
+     ]
+    },
+    {
+     "text": "ARS ANDMOREL",
+     "confidence": 1,
+     "bbox": [
+      3.890426969466176e-09,
+      0.19622093047170752,
+      0.13953487873077391,
+      0.013081394725189543
+     ]
+    },
+    {
+     "text": "VALIDATE PARKING",
+     "confidence": 1,
+     "bbox": [
+      2.7099691823906367e-09,
+      0.21353251294747888,
+      0.14470283985137938,
+      0.014665161159629347
+     ]
+    },
+    {
+     "text": "\u041b\u041d P\u0418I",
+     "confidence": 0.3,
+     "bbox": [
+      0.06976744240425295,
+      0.23401162802363784,
+      0.03875968754291534,
+      0.008720930096135171
+     ]
+    },
+    {
+     "text": "w.ameFCAn-aX8A.cOm",
+     "confidence": 0.3,
+     "bbox": [
+      -2.495292639181912e-09,
+      0.24127906993255255,
+      0.1266149878501892,
+      0.008720930096135171
+     ]
+    }
+   ],
+   "inference_seconds": 0.08415496349334717
+  },
+  {
+   "id": "apple_001-IMG_1813-01-a21962e120d4",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "AMERICAN",
+     "bbox": [
+      0.321,
+      0.378,
+      0.1,
+      0.01
+     ],
+     "kind": "label",
+     "reading_order": 0
+    },
+    {
+     "text": "AXES",
+     "bbox": [
+      0.335,
+      0.389,
+      0.06,
+      0.01
+     ],
+     "kind": "label",
+     "reading_order": 1
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.04571402072906494
+  },
+  {
+   "id": "apple_001-IMG_1813-02-870bbdeacd09",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02087700366973877
+  },
+  {
+   "id": "apple_001-IMG_1813-03-ffeb57eb8b2a",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.025424957275390625
+  },
+  {
+   "id": "apple_001-IMG_1815-00-652b14c1d13e",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.17643797397613525
+  },
+  {
+   "id": "apple_001-IMG_1815-01-a387f08668d7",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.031436920166015625
+  },
+  {
+   "id": "apple_001-IMG_1815-02-703014cf15e8",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.06336700916290283
+  },
+  {
+   "id": "apple_001-IMG_1815-03-0b99d9284de9",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "THE WORKS",
+     "bbox": [
+      0.833,
+      0.345,
+      0.03,
+      0.325
+     ],
+     "kind": "scene_text",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.056192994117736816
+  },
+  {
+   "id": "apple_001-IMG_1816-00-a1203c74ce6d",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.017356038093566895
+  },
+  {
+   "id": "apple_001-IMG_1816-01-9f0ab753a443",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.047387003898620605
+  },
+  {
+   "id": "apple_001-IMG_1816-02-36566fc9dbf3",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.11346888542175293
+  },
+  {
+   "id": "apple_001-IMG_1816-03-6f99b8d003aa",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02247905731201172
+  },
+  {
+   "id": "apple_001-IMG_1818-00-6c42a3e1a1c9",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.12648403644561768
+  },
+  {
+   "id": "apple_001-IMG_1818-01-46eabb47c53f",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [
+    {
+     "text": "....",
+     "confidence": 0.3,
+     "bbox": [
+      0.8333178766072831,
+      0.8211986973741309,
+      0.1657650113105773,
+      0.05469724337259929
+     ]
+    }
+   ],
+   "inference_seconds": 0.06917405128479004
+  },
+  {
+   "id": "apple_001-IMG_1818-02-fb4b19c73836",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02432990074157715
+  },
+  {
+   "id": "apple_001-IMG_1818-03-e499bcc5c7ce",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.025746941566467285
+  },
+  {
+   "id": "apple_001-IMG_1819-00-82db1bee3471",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.035830020904541016
+  },
+  {
+   "id": "apple_001-IMG_1819-01-a68b6bc384ab",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.02366793155670166
+  },
+  {
+   "id": "apple_001-IMG_1819-02-d6b933bc82ad",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.057440996170043945
+  },
+  {
+   "id": "apple_001-IMG_1819-03-41de0d92aa4c",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.07827198505401611
+  },
+  {
+   "id": "apple_001-IMG_1821-00-33789534f642",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.27873408794403076
+  },
+  {
+   "id": "apple_001-IMG_1821-01-c66f450f9124",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.0242079496383667
+  },
+  {
+   "id": "apple_001-IMG_1821-02-9aa55f9d47f0",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "TIX",
+     "bbox": [
+      0.963,
+      0.47,
+      0.037,
+      0.035
+     ],
+     "kind": "scene_text",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.03242003917694092
+  },
+  {
+   "id": "apple_001-IMG_1821-03-2eb2a2bca405",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.051779985427856445
+  },
+  {
+   "id": "apple_001-IMG_1822-00-c2241c35b78f",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.06116902828216553
+  },
+  {
+   "id": "apple_001-IMG_1822-01-b0833fb12704",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.05871999263763428
+  },
+  {
+   "id": "apple_001-IMG_1822-02-1f9978dc64aa",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.04235696792602539
+  },
+  {
+   "id": "apple_001-IMG_1822-03-36eb8c0a3dcf",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.05374503135681152
+  },
+  {
+   "id": "podcast-LC4931-00-b86ec9c9e51a",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SON",
+     "bbox": [
+      0.988,
+      0.12,
+      0.012,
+      0.006
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.1647740602493286
+  },
+  {
+   "id": "podcast-LC4931-01-dd4a083faf4f",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.975,
+      0.136,
+      0.015,
+      0.006
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.01844203472137451
+  },
+  {
+   "id": "podcast-LC4931-02-fdfe4e495f47",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.9745,
+      0.1357,
+      0.0154,
+      0.0064
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.04647505283355713
+  },
+  {
+   "id": "podcast-LC4931-03-cdf2b8fe85dd",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.9745,
+      0.1357,
+      0.0154,
+      0.007
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.04801499843597412
+  },
+  {
+   "id": "podcast-LC4932-00-26f53f6882d5",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.9667,
+      0.1368,
+      0.0144,
+      0.0054
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.04765892028808594
+  },
+  {
+   "id": "podcast-LC4932-01-25bf630adcf1",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.04427194595336914
+  },
+  {
+   "id": "podcast-LC4932-02-f86c00374c71",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.9356,
+      0.1187,
+      0.013,
+      0.0067
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.036738038063049316
+  },
+  {
+   "id": "podcast-LC4932-03-fa0984045558",
+   "split": "calibration",
+   "labels": [
+    {
+     "text": "SONY",
+     "bbox": [
+      0.9626,
+      0.1167,
+      0.0143,
+      0.0065
+     ],
+     "kind": "label",
+     "reading_order": 0
+    }
+   ],
+   "predictions": [],
+   "inference_seconds": 0.03981494903564453
+  },
+  {
+   "id": "podcast-LCATL0012-00-1d5e3af854a4",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.16885995864868164
+  },
+  {
+   "id": "podcast-LCATL0012-01-d4b10a9c4313",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.05497097969055176
+  },
+  {
+   "id": "podcast-LCATL0012-02-279f38aa0c87",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.020305991172790527
+  },
+  {
+   "id": "podcast-LCATL0012-03-b73cf064cc8b",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.016556978225708008
+  },
+  {
+   "id": "podcast-LCATL0013-00-832b82f61d78",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.016862034797668457
+  },
+  {
+   "id": "podcast-LCATL0013-01-df2acbe1c378",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.04092395305633545
+  },
+  {
+   "id": "podcast-LCATL0013-02-867122bcf3b9",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.09349501132965088
+  },
+  {
+   "id": "podcast-LCATL0013-03-e0216619d6c6",
+   "split": "calibration",
+   "labels": [],
+   "predictions": [],
+   "inference_seconds": 0.06945300102233887
+  }
+ ],
+ "provenance": {
+  "runner": "docs/benchmarks/apple_vision_ocr.swift, 8 scheduler batches"
+ }
+}
