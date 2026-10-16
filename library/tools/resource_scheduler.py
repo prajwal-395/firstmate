@@ -4,13 +4,16 @@ The resources
 -------------
 Only `native_*` resources are scheduler exclusives: a native build
 directory has one writer. Resolve's lease and Resolve itself arbitrate
-Resolve work. CPU, GPU, disk, and RAM are not statically budgeted here;
-the scheduler checks live OS memory for jobs declaring a RAM reservation.
+Resolve work. CPU, GPU, and disk are not statically budgeted here;
+only the measured edge-pushing kinds (`MEASURED_MEMORY_RESERVATIONS_GB`)
+carry a RAM reservation, and the scheduler checks live OS memory only
+for jobs declaring one.
 
 Profiles are retained for call-site identity and reporting, but their
-CPU, GPU, RAM, and disk declarations do not throttle work. `machine` is
+CPU, GPU, and disk declarations do not throttle work. `machine` is
 an empty profile. Capability phases contribute only native build-directory
-exclusives. RAM-reserving jobs use live available memory from
+exclusives; the measured RAM reservations above are the only memory
+demands any profile carries. RAM-reserving jobs use live available memory from
 `/proc/meminfo` or `vm_stat`; failure to measure refuses their admission.
 Jobs without a RAM reservation do not contend for memory and are not held
 by its guard.
@@ -60,6 +63,7 @@ import os
 import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -67,13 +71,31 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-RESOURCES = tuple("native_" + name.replace("-", "_") for name in (
+RESOURCES = ("ram_gb",) + tuple(
+    "native_" + name.replace("-", "_") for name in (
     "ren-graphics-fframes", "resolve-control", "ren-resolved",
     "resolve-activity-overlay", "ren_native"))
+# `ram_gb` is a declared demand enforced against live OS memory at
+# admission, not a static capacity: `NATIVE_PARTS` (and `capacity()`)
+# derive from the `native_*` members only.
 NATIVE_PARTS = tuple(resource.removeprefix("native_")
                      for resource in RESOURCES if resource.startswith("native_"))
 MEMORY_HEADROOM_FRACTION = 0.10
 MINIMUM_MEMORY_FLOOR_GB = 2.0
+#: RAM reservations (GB) held only by the job kinds measured pushing the
+#: machine to the edge beside Resolve. Every other profile admits
+#: regardless of free memory. Basis is peak phys_footprint, not RSS:
+#: docs/benchmarks/2026-10-15-memory-admission.md. A reservation sizes
+#: the live-headroom check; nothing here is a static budget that
+#: serializes by accounting.
+MEASURED_MEMORY_RESERVATIONS_GB: Dict[str, int] = {
+    # One Gemma 4 12B load plus a single inference: 14.43 GB peak
+    # footprint against 1.69 GB peak RSS (2026-10-15).
+    "semantics.analyse:model_memory": 15,
+    # SAM 2 over a 3 s clip: 7.41 GB peak footprint (2026-10-15).
+    # Longer clips track more frames; re-measure past this shape.
+    "objects.segment:model_memory": 8,
+}
 # Resolve's own process, by executable name (`TreeSampler`).
 RESOLVE_PROCESS = "Resolve"
 DB_FILENAME = "resource-scheduler.sqlite3"
@@ -177,14 +199,31 @@ def _maximum_memory_demand_gb() -> float:
 
 
 def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
-    """Materialize only this phase's exclusive build-directory demand."""
-    return {resource: min(amount, cap[resource])
-            for resource, amount in phase.resources
-            if resource.startswith("native_") and amount}
+    """Materialize build-directory exclusives plus RAM reservations.
+
+    `ram_gb` passes through unclamped: it is enforced against live OS
+    memory at admission (`_try_admit`), not against a static capacity,
+    so a measured reservation serializes model sessions without a
+    machine-wide gigabyte budget.
+    """
+    result = {resource: min(amount, cap[resource])
+              for resource, amount in phase.resources
+              if resource.startswith("native_") and amount}
+    for resource, amount in phase.resources:
+        if resource == "ram_gb" and amount:
+            result[resource] = amount
+    return result
 
 
 def profiles() -> Dict[str, Dict[str, int]]:
-    """Derived scheduler profiles, keyed by capability id and phase."""
+    """Derived scheduler profiles, keyed by capability id and phase.
+
+    Capability phases contribute only native build-directory exclusives;
+    the measured RAM reservations (`MEASURED_MEMORY_RESERVATIONS_GB`)
+    are overlaid afterwards, so only the edge-pushing kinds wait on
+    memory. A reservation naming a profile no capability declares
+    raises here rather than silently covering nothing.
+    """
     from library.tools import capabilities
 
     cap = capacity()
@@ -197,6 +236,12 @@ def profiles() -> Dict[str, Dict[str, int]]:
         for phase in execution.phases:
             demand = _capability_demand(phase, cap)
             declared[f"{capability_id}:{phase.name}"] = demand
+    for profile, ram_gb in MEASURED_MEMORY_RESERVATIONS_GB.items():
+        if profile not in declared:
+            raise ValueError(
+                f"resource scheduler: measured memory reservation for "
+                f"undeclared profile {profile!r}")
+        declared[profile] = {**declared[profile], "ram_gb": ram_gb}
     return declared
 
 
@@ -502,10 +547,13 @@ class Scheduler:
             " samples INTEGER,"
             " resolve_peak_cores REAL,"
             " resolve_peak_rss_gb REAL,"
+            " peak_footprint_gb REAL,"
+            " resolve_peak_footprint_gb REAL,"
             " queue_wait_s REAL, execution_s REAL)")
         have = {row[1] for row in conn.execute("PRAGMA table_info(grants)")}
         for column in ("resolve_peak_cores", "resolve_peak_rss_gb",
-                       "queue_wait_s", "execution_s"):
+                       "queue_wait_s", "execution_s",
+                       "peak_footprint_gb", "resolve_peak_footprint_gb"):
             if column not in have:     # a table from before the column
                 conn.execute(f"ALTER TABLE grants ADD COLUMN {column} REAL")
         return conn
@@ -906,6 +954,8 @@ class TreeSampler:
         self._last_at = 0.0
         self.peak_cores = 0.0
         self.peak_rss_gb = 0.0
+        self.peak_footprint_gb: float | None = None
+        self.resolve_peak_footprint_gb: float | None = None
         self.samples = 0
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="heavy-work-sampler")
@@ -975,6 +1025,16 @@ class TreeSampler:
                 self.resolve_peak_rss_gb,
                 sum(stats[pid][0] for pid in theirs) / 2 ** 20)
         self.samples += 1
+        footprint = _tree_footprint_gb(os.getpid())
+        if footprint is not None:
+            self.peak_footprint_gb = max(
+                self.peak_footprint_gb or 0.0, footprint)
+        if self.watch_resolve and resolve:
+            resolve_footprint = _tree_footprint_gb(*sorted(resolve))
+            if resolve_footprint is not None:
+                self.resolve_peak_footprint_gb = max(
+                    self.resolve_peak_footprint_gb or 0.0,
+                    resolve_footprint)
 
     def stop(self) -> Dict[str, float]:
         """The peaks so far. A release never waits on a measurement: a
@@ -984,10 +1044,17 @@ class TreeSampler:
         return {"cpu_s": round(self._cpu() - self._cpu0, 1),
                 "peak_cores": round(self.peak_cores, 2),
                 "peak_rss_gb": round(self.peak_rss_gb, 2),
+                "peak_footprint_gb": (
+                    round(self.peak_footprint_gb, 3)
+                    if self.peak_footprint_gb is not None else None),
                 "samples": self.samples,
                 **({"resolve_peak_cores": round(self.resolve_peak_cores, 2),
                     "resolve_peak_rss_gb": round(self.resolve_peak_rss_gb,
-                                                 2)}
+                                                 2),
+                    "resolve_peak_footprint_gb": (
+                        round(self.resolve_peak_footprint_gb, 3)
+                        if self.resolve_peak_footprint_gb is not None
+                        else None)}
                    if self.watch_resolve else {})}
 
 
@@ -995,6 +1062,32 @@ def _grown(before: Dict[int, float], after: Dict[int, float]) -> float:
     """CPU seconds a set of processes gained between two samples."""
     return sum(max(0.0, value - before.get(pid, 0.0))
                for pid, value in after.items())
+
+
+def _tree_footprint_gb(*pids: int) -> float | None:
+    """Read the summed physical footprint for process roots and children.
+
+    macOS `footprint` exposes phys_footprint, which RSS misses for pages
+    charged to compressed memory and other VM categories. Other platforms
+    retain the existing RSS measurement and store no footprint value.
+    """
+    if sys.platform != "darwin" or not pids:
+        return None
+    command = ["footprint", "-t", "-f", "bytes", "--noCategories"]
+    for pid in pids:
+        command.extend(("-p", str(pid)))
+    try:
+        out = subprocess.run(command, capture_output=True, encoding="utf-8",
+                             timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        if line.startswith("Summary Footprint:"):
+            try:
+                return int(line.split(":", 1)[1].split()[0]) / 2**30
+            except (ValueError, IndexError):
+                return None
+    return None
 
 
 def _cpu_seconds(text: str) -> float:
@@ -1013,12 +1106,16 @@ def _record_grant(conn, row, profile: str, used: Dict[str, float]) -> None:
         "INSERT INTO grants (owner, profile, demand, enqueued_at,"
         " started_at, finished_at, cpu_s, peak_cores, peak_rss_gb,"
         " samples, resolve_peak_cores, resolve_peak_rss_gb,"
+        " peak_footprint_gb, resolve_peak_footprint_gb,"
         " queue_wait_s, execution_s)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (row[0], profile, row[1], row[2], row[3], finished,
          used.get("cpu_s"), used.get("peak_cores"), used.get("peak_rss_gb"),
          used.get("samples"), used.get("resolve_peak_cores"),
-         used.get("resolve_peak_rss_gb"), max(0.0, row[3] - row[2]),
+         used.get("resolve_peak_rss_gb"),
+         used.get("peak_footprint_gb"),
+         used.get("resolve_peak_footprint_gb"),
+         max(0.0, row[3] - row[2]),
          max(0.0, finished - row[3])))
 
 

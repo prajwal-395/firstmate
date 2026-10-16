@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from types import SimpleNamespace
 from library.tools.gemma_shim import GemmaShim, ShimConfig, server_scope
-from library.tools import heavy_work_lock, resource_scheduler
+from library.tools import resource_scheduler
 
 
 # Mock heavy mlx_vlm dependency before importing vision_pipeline_v3
@@ -2475,40 +2475,63 @@ def test_shim_exits_only_after_backend_stopped(ports, fake_backend_script):
 
 def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
         tmp_path, monkeypatch):
-    """Use fakes to check the lease lifecycle without Gemma or a host."""
-    lock_dir = tmp_path / "heavy-work.lock"
-    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
-    monkeypatch.setattr(resource_scheduler, "capacity", lambda: {
-        "resolve_cursor": 1, "resolve_render": 1, "cpu": 10, "gpu": 1,
-        "ram_gb": 16, "disk": 4,
-        **{"native_" + part: 1
-           for part in resource_scheduler.NATIVE_PARTS}})
-    scheduler = resource_scheduler.Scheduler(lock_dir)
+    """Use fakes to check the lease lifecycle without Gemma or a host.
+
+    Scheduler-free: the model-memory reservation and the inference
+    admission are fakes tracking held profiles, so this never waits on
+    machine memory (2026-10-16 pool-186 gate hang). The measured demands
+    are still pinned through `demand_for`, without acquiring them.
+    """
+    memory_profile = "semantics.analyse:model_memory"
+    inference_profile = "semantics.analyse:inference"
+    assert resource_scheduler.demand_for(memory_profile) == {"ram_gb": 15}
+    assert resource_scheduler.demand_for(inference_profile) == {}
+    guard = threading.Lock()
+    held = []
+
+    def snapshot():
+        with guard:
+            return list(held)
+
+    @contextmanager
+    def fake_reservation(_owner, profile, *, nested_profiles):
+        assert profile == memory_profile
+        assert nested_profiles == (inference_profile,)
+        with guard:
+            held.append(profile)
+        try:
+            yield
+        finally:
+            with guard:
+                held.remove(profile)
+
+    @contextmanager
+    def fake_admission(_owner, profile="machine"):
+        with guard:
+            held.append(profile)
+        try:
+            yield
+        finally:
+            with guard:
+                held.remove(profile)
+
+    monkeypatch.setattr(vp, "heavy_work_reservation", fake_reservation)
+    monkeypatch.setattr(vp, "heavy_work_lock", fake_admission)
     model = SimpleNamespace(config=SimpleNamespace(revision="fake"))
-    memory_demand = {}
-    inference_demand = {}
     host_waiting = threading.Event()
     release_host = threading.Event()
     failures = []
 
     @contextmanager
     def fake_managed_model(_name, _loader):
-        assert {tuple(sorted(job["demand"].items()))
-                for job in scheduler.jobs()} == {
-                    tuple(sorted(memory_demand.items())),
-                    tuple(sorted(inference_demand.items())),
-                }
+        # Entered under the inference admission and exited the same
+        # way; the RAM reservation spans both.
+        assert snapshot() == [memory_profile, inference_profile]
         yield model, object()
-        # _LazyAnalyzer unloads under inference admission, then drops RAM.
-        assert {tuple(sorted(job["demand"].items()))
-                for job in scheduler.jobs()} == {
-                    tuple(sorted(memory_demand.items())),
-                    tuple(sorted(inference_demand.items())),
-                }
+        assert snapshot() == [memory_profile, inference_profile]
 
     def fake_generate(*_args, **_kwargs):
-        assert inference_demand in [job["demand"]
-                                    for job in scheduler.jobs()]
+        assert inference_profile in snapshot()
         return SimpleNamespace(text="local answer", prompt_tokens=1,
                                generation_tokens=1)
 
@@ -2529,7 +2552,7 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
     with vp._LazyAnalyzer("agent", str(tmp_path)) as analyzer:
         local_text, _elapsed = analyzer.analyze("local", video="clip.mov")
         assert local_text == "local answer"
-        assert [job["demand"] for job in scheduler.jobs()] == [memory_demand]
+        assert snapshot() == [memory_profile]
 
         def ask_host():
             try:
@@ -2542,15 +2565,15 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
         host_thread = threading.Thread(target=ask_host)
         host_thread.start()
         assert host_waiting.wait(2), "host request did not start"
-        # The local inference job was released before the external wait.
-        assert [job["demand"] for job in scheduler.jobs()] == [memory_demand]
+        # The local inference admission was released before the external wait.
+        assert snapshot() == [memory_profile]
         release_host.set()
         host_thread.join(timeout=3)
         assert not host_thread.is_alive()
         assert failures == []
         assert results[0][0] == "host answer"
 
-    assert scheduler.jobs() == []
+    assert snapshot() == []
 
 
 def test_semantic_model_load_is_explicitly_huggingface_offline(
@@ -2580,6 +2603,21 @@ def test_semantic_model_load_is_explicitly_huggingface_offline(
         assert analyzer.model is model
     assert seen == {"model_id": vp.MODEL_ID, "hub": "1",
                     "transformers": "1"}
+
+
+def test_semantic_model_load_resolves_lazy_module_binding(monkeypatch):
+    previous = vp.__dict__.pop("load", None)
+    calls = []
+    sentinel = object()
+    monkeypatch.setattr(
+        vp, "__getattr__",
+        lambda name: calls.append(name) or (lambda model_id: sentinel))
+    try:
+        assert vp._load_mlx_model(vp.MODEL_ID) is sentinel
+        assert calls == ["load"]
+    finally:
+        if previous is not None:
+            vp.__dict__["load"] = previous
 
 
 def test_write_scene_memory_serializes_the_vlm_scene_pass_and_boundaries(

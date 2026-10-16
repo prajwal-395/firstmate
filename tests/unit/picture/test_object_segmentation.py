@@ -9,15 +9,16 @@ empty trigger without loading the segmenter.
 import json
 import os
 import sys
-import pytest
 from types import SimpleNamespace
+
 import numpy as np
+import pytest
+
 from prototypes.depth_blur.build_depth_blur import (
     even,
     foreground_alpha,
     normalize_depth,
 )
-
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if PROJECT_ROOT not in sys.path:
@@ -141,7 +142,7 @@ def test_an_untriggered_run_segments_nothing_and_loads_no_model(tmp_path):
 
 
 def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
-    import library.tools.model_lifecycle as model_lifecycle
+    from library.tools import model_lifecycle
 
     model_lifecycle.unload_all()
     loads = []
@@ -151,6 +152,9 @@ def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
         return marker
 
     with model_lifecycle.resident_model("test-sam2", loader):
+        assert getattr(model_lifecycle, "load_model")(
+            "test-sam2", loader
+        ) is marker
         with model_lifecycle.managed_model("test-sam2", loader) as first:
             assert first is marker
         with model_lifecycle.managed_model("test-sam2", loader) as second:
@@ -161,8 +165,68 @@ def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
     assert "test-sam2" not in model_lifecycle._loaded_models
 
 
+def test_model_lifecycle_requires_explicit_residency_for_direct_load():
+    from library.tools import model_lifecycle
+
+    model_lifecycle.unload_all()
+    with pytest.raises(RuntimeError, match="active resident_model scope"):
+        getattr(model_lifecycle, "load_model")("unscoped-test", object)
+
+
+def test_model_lifecycle_serializes_loads_and_defers_eviction_for_users():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from library.tools import model_lifecycle
+
+    model_lifecycle.unload_all()
+    model = object()
+    loads = []
+    ready = threading.Event()
+    release = threading.Event()
+    entered = 0
+    entered_lock = threading.Lock()
+
+    def loader():
+        loads.append(model)
+        return model
+
+    def use_model():
+        nonlocal entered
+        with model_lifecycle.managed_model("concurrent-test", loader) as loaded:
+            with entered_lock:
+                entered += 1
+                if entered == 2:
+                    ready.set()
+            assert release.wait(timeout=5)
+            return loaded
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(use_model)
+        second = pool.submit(use_model)
+        assert ready.wait(timeout=5)
+        assert loads == [model]
+        stats = model_lifecycle.resource_accounting()["concurrent-test"]
+        assert stats["active_users"] == 2
+        assert stats["loads"] == 1
+        assert stats["cache_hits"] == 1
+
+        assert not model_lifecycle.unload_model("concurrent-test")
+        assert model_lifecycle.resource_accounting()[
+            "concurrent-test"]["eviction_pending"]
+        assert "concurrent-test" in model_lifecycle._loaded_models
+        release.set()
+        assert first.result(timeout=5) is model
+        assert second.result(timeout=5) is model
+
+    stats = model_lifecycle.resource_accounting()["concurrent-test"]
+    assert stats["active_users"] == 0
+    assert stats["evictions"] == 1
+    assert "concurrent-test" not in model_lifecycle._loaded_models
+
+
 def test_model_lifecycle_explicit_eviction_clears_batch_residency():
-    import library.tools.model_lifecycle as model_lifecycle
+    from library.tools import model_lifecycle
 
     model_lifecycle.unload_all()
     loads = []
@@ -349,6 +413,7 @@ def test_run_step_serves_a_cached_matte_without_loading_the_model(
 def test_scheduled_sam_session_spans_clips_and_yields_for_ram_waiters(
         tmp_path, monkeypatch, pressure_after_first_clip, expected_sessions):
     from contextlib import nullcontext
+
     from library.steps.step_1_06_object_segmentation import step as mod
     from library.tools.analysis.object_segmentation import SegmentationResult
 
@@ -358,10 +423,11 @@ def test_scheduled_sam_session_spans_clips_and_yields_for_ram_waiters(
     face_box = [0.1, 0.1, 0.8, 0.8]
 
     class FakeSegmenter:
-        run_active = False
-        begins = 0
-        ends = 0
-        calls = []
+        def __init__(self):
+            self.run_active = False
+            self.begins = 0
+            self.ends = 0
+            self.calls = []
 
         def begin_run(self):
             self.begins += 1

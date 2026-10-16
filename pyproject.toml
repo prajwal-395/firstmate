@@ -17,6 +17,7 @@ markers = [
     "performance: marks timing benchmarks; run with `pytest -m performance` outside correctness gates",
     "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
     "nested: marks an expensive subprocess suite replay retained in full-suite runs and selected on safeguard changes",
+    "real_scheduler_admission: marks the scheduler's own admission tests that take real RAM reservations; every other unit/scenario test fails fast on one (tests/conftest.py)",
 ]
 
 # ─── Ren, the installed front door (README "Quickstart") ─────────────

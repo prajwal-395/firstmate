@@ -96,7 +96,7 @@ EXTERNAL_LAYERS = {
     "gemma_inference": "model_inference", "mfa_align": "model_inference",
     "host_model": "model_inference",
     "semantic_inference_attempt": "model_inference",
-    "model_load": "model_runtime",
+    "model_load": "model_runtime", "model_cache": "model_runtime",
     "demux": "ffmpeg", "media_decode": "ffmpeg",
     "resolve_render": "resolve_api", "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
@@ -264,7 +264,7 @@ def begin(project_folder, capability_id: str, run_id: str,
     try:
         return OpenCapability(project_folder, capability_id, run_id, node,
                               ledger_path_override, required)
-    except Exception:  # noqa: BLE001 - the ledger never takes down a run
+    except Exception:
         if required:
             raise
         return None
@@ -1062,8 +1062,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         sys.exit(main())
     except RenRefusal as refused:

@@ -1381,8 +1381,10 @@ _REGISTRY: tuple[Operation, ...] = (
                     "_semantic_model_memory_reservation",),
                 why="Track the loaded Gemma weights as a resident model "
                     "session while the local inference lane yields to host "
-                    "work; admission is by live OS memory headroom, not a "
-                    "static gigabyte reservation."),
+                    "work; admission waits on live OS memory for its "
+                    "measured 15 GB reservation "
+                    "(resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB), "
+                    "not a static CPU/GPU budget."),
             ExecutionPhase(
                 name="inference",
                 lock_sites=(
@@ -2247,8 +2249,11 @@ _REGISTRY: tuple[Operation, ...] = (
                     "library.capabilities.objects.segment:"
                     "_sam_model_memory_session",),
                 why="Track resident SAM 2 weights as a model session while "
-                    "this batch waits between selected clips; admission is "
-                    "by live OS memory headroom, not a static reservation."),
+                    "this batch waits between selected clips; admission "
+                    "waits on live OS memory for its measured 8 GB "
+                    "reservation "
+                    "(resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB), "
+                    "not a static CPU/GPU budget."),
             ExecutionPhase(
                 name="inference",
                 lock_sites=(

@@ -1,8 +1,8 @@
 import json
+from contextlib import contextmanager
 
-from library.tools import footage_analysis, heavy_work_lock
+from library.tools import footage_analysis, heavy_work_lock, resource_scheduler
 from library.tools.project_layout import ProjectLayout
-from library.tools.resource_scheduler import Scheduler
 
 
 def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
@@ -10,25 +10,45 @@ def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
     project = tmp_path / "project"
     project.mkdir()
     ProjectLayout(project).ensure()
-    lock_dir = tmp_path / "heavy-work.lock"
-    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
-    scheduler = Scheduler(lock_dir)
+    assert resource_scheduler.demand_for(
+        "semantics.analyse:model_memory") == {"ram_gb": 15}
+    assert resource_scheduler.demand_for(
+        "semantics.analyse:inference") == {}
+    active_profiles = []
+
+    @contextmanager
+    def fake_reservation(_owner, profile, *, nested_profiles):
+        assert profile == "semantics.analyse:model_memory"
+        assert nested_profiles == ("semantics.analyse:inference",)
+        active_profiles.append(profile)
+        try:
+            yield
+        finally:
+            active_profiles.remove(profile)
+
+    @contextmanager
+    def fake_lock(_owner, profile=heavy_work_lock.MACHINE):
+        if profile == "semantics.analyse:inference":
+            assert active_profiles == ["semantics.analyse:model_memory"]
+        active_profiles.append(profile)
+        try:
+            yield
+        finally:
+            active_profiles.remove(profile)
+
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_reservation",
+                        fake_reservation)
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_lock", fake_lock)
 
     def run_steps(*_args):
-        with heavy_work_lock.heavy_work_reservation(
+        with (heavy_work_lock.heavy_work_reservation(
                 "semantic model", "semantics.analyse:model_memory",
-                nested_profiles=("semantics.analyse:inference",)):
-            # The model session is tracked first; its memory is governed
-            # by live OS headroom, not a static gigabyte reservation, so
-            # both demands are empty and the ordering is what is pinned.
-            outer_demand = scheduler.jobs()[0]["demand"]
-            assert outer_demand == {}
-            with heavy_work_lock.heavy_work_lock(
-                    "semantic inference", "semantics.analyse:inference"):
-                jobs = scheduler.jobs()
-                assert len(jobs) == 2
-                demands = [job["demand"] for job in jobs]
-                assert demands == [{}, {}]
+                nested_profiles=("semantics.analyse:inference",)),
+              heavy_work_lock.heavy_work_lock(
+                  "semantic inference", "semantics.analyse:inference")):
+            assert active_profiles == [
+                "semantics.analyse:model_memory",
+                "semantics.analyse:inference"]
         return {"status": "complete"}
 
     monkeypatch.setattr(footage_analysis, "run_steps", run_steps)
@@ -39,8 +59,7 @@ def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
                            "duration_seconds": 1.0}])
 
     def run_lane(_lane, _project, _sources, _root):
-        assert any(job["owner"] == footage_analysis.LOCK_OWNER
-                   for job in scheduler.jobs())
+        assert active_profiles == [heavy_work_lock.MACHINE]
         return {"lane": "frames", "sources": {"clip_001": {
             "status": footage_analysis.BUILT}}}
 
@@ -50,17 +69,30 @@ def test_analysis_capabilities_reserve_model_memory_before_lane_grant(
 
     assert result["steps"] == {"status": "complete"}
     assert result["status"] == "complete"
-    assert scheduler.jobs() == []
+    assert active_profiles == []
 
 
-def test_analysis_step_failure_still_releases_scheduler_grants(
+def test_analysis_step_failure_still_releases_model_reservation(
         tmp_path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()
     ProjectLayout(project).ensure()
-    lock_dir = tmp_path / "heavy-work.lock"
-    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
-    scheduler = Scheduler(lock_dir)
+    assert resource_scheduler.demand_for(
+        "semantics.analyse:model_memory") == {"ram_gb": 15}
+    active_profiles = []
+
+    @contextmanager
+    def fake_reservation(_owner, profile, *, nested_profiles):
+        assert profile == "semantics.analyse:model_memory"
+        assert nested_profiles == ("semantics.analyse:inference",)
+        active_profiles.append(profile)
+        try:
+            yield
+        finally:
+            active_profiles.remove(profile)
+
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_reservation",
+                        fake_reservation)
 
     def fail_steps(*_args):
         with heavy_work_lock.heavy_work_reservation(
@@ -77,7 +109,7 @@ def test_analysis_step_failure_still_releases_scheduler_grants(
     else:
         raise AssertionError("analysis step failure should propagate")
 
-    assert scheduler.jobs() == []
+    assert active_profiles == []
 
 
 def test_json_mode_sends_progress_to_stderr(tmp_path, monkeypatch, capsys):

@@ -100,6 +100,11 @@ def _mlx_function(name):
     return function
 
 
+def _load_mlx_model(model_id):
+    """Resolve the lazy MLX loader for a function's global namespace."""
+    return _mlx_function("load")(model_id)
+
+
 if TYPE_CHECKING:
     # Static binding for the lazily imported names above: never
     # executed at runtime (so it loads no mlx), but lets linters and
@@ -3631,19 +3636,22 @@ class _LazyAnalyzer:
     gemma. Its RAM reservation spans that lifetime. The CPU/GPU lease is
     taken only for the load, unload and individual local inference calls.
 
-    Memory attribution (measured 2026-10-15 for the 14 GB hang with no
-    output): before the first profile lands, the only large resident is
-    the Gemma 4 12B 4-bit weights mapped by `load()` below. Frames are
-    JPEG files on disk (`extract_frames` returns path lists),
-    windows are MP4 files on disk (`extract_video_clips`), and the
-    worker pool is one local thread plus a bounded cloud lane holding
-    no decoded frames - nothing decodes all frames up front and no pool
-    buffers them. The weights are not avoidable at equal quality, so
-    the fix is fail-fast: the load below is cache-only (a missing
-    cache raises at once instead of hanging on hub metadata), and a
-    pass that then stalls is killed by the parent's stall bound
-    (`analyse._run_clip_vision`), which reclaims the weights with the
-    child process.
+    Memory attribution (measured 2026-10-15 on qualification source
+    LCATL0011): the child reached an 11.27 GB peak physical footprint,
+    then Metal timed out before a profile landed. Frames are JPEG files
+    on disk (`extract_frames` returns path lists), windows are MP4 files
+    on disk (`extract_video_clips`), and the worker pool is one local
+    thread plus a bounded cloud lane holding no decoded frames. Per-call
+    images are bounded (`LOCAL_COARSE_BATCH_SIZE`, 4) and the weights
+    are one shared instance (`managed_model` cache), so the resident is
+    the Gemma 4 12B 4-bit weights plus one call's inference buffers.
+    The initial 11.27 GB sample was superseded by a 14.43 GB
+    process-tree footprint measurement; `model_memory` declares a 15 GB
+    `ram_gb` demand. Admission holds it against live OS
+    memory plus headroom, so a second session waits once the first
+    session's weights land. The load remains cache-only, and the
+    parent's stall bound (`analyse._run_clip_vision`) still reclaims a
+    wedged child.
     """
 
     def __init__(self, harness, project_folder):
@@ -3662,9 +3670,9 @@ class _LazyAnalyzer:
             memory_context.__enter__()
             def load_cached_model():
                 with _huggingface_offline():
-                    return _mlx_function("load")(MODEL_ID)
+                    return _load_mlx_model(MODEL_ID)
 
-            context = managed_model("gemma-4", load_cached_model)
+            context = managed_model(MODEL_ID, load_cached_model)
             entered = False
             try:
                 with _semantic_inference_admission():

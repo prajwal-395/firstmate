@@ -2,9 +2,10 @@
 
 A heavy section names the PROFILE of work it is (`resource_scheduler.
 profiles()`). The scheduler permits concurrent work, protects one writer
-per native build directory, and checks live OS memory headroom. CPU, GPU,
-and disk declarations do not serialize jobs; Resolve's own lease and
-locks arbitrate Resolve work. `machine` is an empty profile.
+per native build directory, reserves declared `ram_gb`, and checks live OS
+memory headroom. CPU, GPU, and disk declarations do not serialize jobs;
+Resolve's own lease and locks arbitrate Resolve work. `machine` is an empty
+profile.
 
 The job's token is carried in ``VEP_HEAVY_WORK_OWNER``. Child processes
 inherit it and re-enter without waiting on their own parent, as does a
@@ -183,9 +184,9 @@ def take_heavy_memory_reservation(
         cancelled: Callable[[], bool] | None = None) -> None:
     """Track a resident model session and permit named nested profiles.
 
-    Model memory is governed by live OS headroom, not a profile
-    reservation. The empty scheduler grant records the session lifetime;
-    nested profile limits remain process-local.
+    Model memory is reserved by the profile's `ram_gb` demand and live OS
+    headroom. The scheduler grant records the session lifetime; nested
+    profile limits remain process-local.
     """
     global _memory_reservation
     demand = resource_scheduler.demand_for(profile)
@@ -481,6 +482,12 @@ def _history(days: float) -> str:
                 f"{max(r['peak_cores'] for r in sampled):.2f}, mean cores "
                 f"max {mean_cores:.2f}, peak rss max "
                 f"{max(r['peak_rss_gb'] for r in sampled):.2f} GB")
+            footprints = [r["peak_footprint_gb"] for r in sampled
+                          if r["peak_footprint_gb"] is not None]
+            if footprints:
+                lines.append(
+                    f"            peak phys_footprint max "
+                    f"{max(footprints):.2f} GB")
             watched = [r for r in sampled
                        if r["resolve_peak_cores"] is not None]
             if watched:
@@ -490,6 +497,13 @@ def _history(days: float) -> str:
                     f"peak rss max "
                     f"{max(r['resolve_peak_rss_gb'] for r in watched):.2f}"
                     f" GB (includes the captain's own use)")
+                resolve_footprints = [
+                    r["resolve_peak_footprint_gb"] for r in watched
+                    if r["resolve_peak_footprint_gb"] is not None]
+                if resolve_footprints:
+                    lines.append(
+                        f"            Resolve peak phys_footprint max "
+                        f"{max(resolve_footprints):.2f} GB")
     return "\n".join(lines)
 
 

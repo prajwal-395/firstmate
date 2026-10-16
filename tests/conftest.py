@@ -252,6 +252,55 @@ def _scheduler_memory_is_plentiful():
     finally:
         _resource_scheduler._memory_available_gb = real
 
+
+# ── No unit or scenario test waits on real machine memory ──────────
+#
+# A scheduler job declaring `ram_gb` is admitted against LIVE OS
+# memory, so a test that takes one through the real `Scheduler.acquire`
+# waits exactly as production does - and on a busy gate machine that
+# wait never ends. On 2026-10-16 the pooled full suite (pool 186) hung
+# past the 15-minute faulthandler dump in
+# `test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait`:
+# a real 15 GB reservation taken through `heavy_work_reservation`
+# waited on machine memory that never freed. Stubbing the probe to
+# plentiful values (above) is not enough - the demand can still exceed
+# the stub - so the wait itself is refused here: any unit or scenario
+# test that reaches a real RAM-declaring admission fails fast with a
+# clear message instead of queueing.
+#
+# Tests exercise admission through fakes instead (a `heavy_work_lock`
+# / `heavy_work_reservation` stand-in tracking held profiles, as PR
+# 2614 established for the footage-analysis tests). The scheduler's
+# OWN admission tests are the exception: they prove the gate they
+# stand behind, so each one opts out explicitly with
+# `@pytest.mark.real_scheduler_admission` (registered in
+# pyproject.toml). Uses `monkeypatch` (per-test undo): unlike the
+# plentiful-memory stub above, this must not leak past the test.
+@pytest.fixture(autouse=True)
+def _no_real_scheduler_memory_reservation(request, monkeypatch):
+    from library.tools import resource_scheduler as _resource_scheduler
+
+    if request.node.get_closest_marker("real_scheduler_admission"):
+        yield
+        return
+    real_acquire = _resource_scheduler.Scheduler.acquire
+
+    def _guarded_acquire(self, owner, demand, *args, **kwargs):
+        if demand.get("ram_gb"):
+            pytest.fail(
+                f"{request.node.nodeid} takes a real scheduler memory "
+                f"reservation ({owner!r} demands {demand}): unit and "
+                "scenario tests must use a fake admission and never wait "
+                "on machine memory (2026-10-16 pool-186 gate hang). "
+                "Genuine scheduler-admission tests opt out with "
+                "@pytest.mark.real_scheduler_admission.",
+                pytrace=False)
+        return real_acquire(self, owner, demand, *args, **kwargs)
+
+    monkeypatch.setattr(
+        _resource_scheduler.Scheduler, "acquire", _guarded_acquire)
+    yield
+
 # ── The Resolve broker is never a test's ────────────────────────────
 #
 # `library.tools.resolved.client.ensure` starts a DETACHED broker on

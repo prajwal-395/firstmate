@@ -430,7 +430,7 @@ class ObjectSegmenter:
     def begin_run(self):
         """Start a SAM 2 model session inside its scheduler reservation."""
         if getattr(self, "_run_model_scope", None) is None:
-            scope = resident_model("sam2", self._load_sam2)
+            scope = resident_model(SAM2_MODEL_ID, self._load_sam2)
             scope.__enter__()
             self._run_model_scope = scope
 
@@ -553,10 +553,10 @@ class ObjectSegmenter:
             resolution = (height, width)
             
             if self.run_active:
-                models = load_model("sam2", self._load_sam2)
+                models = load_model(SAM2_MODEL_ID, self._load_sam2)
                 model_scope = contextlib.nullcontext(models)
             else:
-                model_scope = managed_model("sam2", self._load_sam2)
+                model_scope = managed_model(SAM2_MODEL_ID, self._load_sam2)
             with model_scope as (predictor, generator):
                 # The frame the seeds are read from. Both paths prompt frame
                 # 0; only what the prompt IS differs.

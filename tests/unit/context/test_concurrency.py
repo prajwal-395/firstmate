@@ -381,12 +381,54 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
 
 def test_capability_resource_profiles_are_derived_from_execution_policy():
     profiles = resource_scheduler.profiles()
-    assert profiles["semantics.analyse:model_memory"] == {}
     assert profiles["semantics.analyse:inference"] == {}
     assert profiles["render.build:render"] == {}
+
+
+def test_only_measured_edge_pushers_carry_a_ram_reservation():
+    """Only the kinds measured at the edge wait on memory; the rest
+    admit regardless of free memory (docs/benchmarks/2026-10-15-*
+    memory-admission)."""
+    profiles = resource_scheduler.profiles()
+    assert resource_scheduler.demand_for(
+        "semantics.analyse:model_memory") == {"ram_gb": 15}
+    assert resource_scheduler.demand_for(
+        "objects.segment:model_memory") == {"ram_gb": 8}
+    rest = {name: demand for name, demand in profiles.items()
+            if name not in
+            resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB}
+    assert rest
     assert all(not set(demand).intersection(
         {"cpu", "gpu", "ram_gb", "disk", "resolve_cursor",
-         "resolve_render"}) for demand in profiles.values())
+         "resolve_render"}) for demand in rest.values())
+
+
+def test_measured_reservations_are_ram_only_and_resolve():
+    """Each reservation is RAM-only (so a memory session may hold it)
+    over a profile the pipeline declares (so it gates real work)."""
+    for profile, ram_gb in (
+            resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB.items()):
+        assert resource_scheduler.demand_for(profile) == {"ram_gb": ram_gb}
+
+
+@pytest.mark.real_scheduler_admission
+def test_measured_gemma_reservation_waits_while_plain_work_admits(
+        scheduler, monkeypatch):
+    """The measured reservation holds back Gemma under pressure while
+    an empty-demand job still admits."""
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (0.0, 24.0))
+    with pytest.raises(resource_scheduler.Cancelled):
+        scheduler.acquire(
+            "gemma", resource_scheduler.demand_for(
+                "semantics.analyse:model_memory"),
+            announce=lambda line: None, timeout=0.2)
+    token = scheduler.acquire("plain work", {},
+                              announce=lambda line: None)
+    try:
+        assert scheduler.running_demand(token) == {}
+    finally:
+        scheduler.release(token)
 
 
 def test_admission_guard_uses_live_available_memory(monkeypatch):
@@ -442,6 +484,7 @@ def test_empty_demand_backfills_past_unsatisfiable_memory_waiter(
         scheduler.release(token)
 
 
+@pytest.mark.real_scheduler_admission
 def test_impossible_memory_reservation_is_refused_immediately(
         scheduler, monkeypatch):
     monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
@@ -694,6 +737,25 @@ def test_grant_receipt_separates_queue_wait_and_execution(scheduler):
         receipt["finished_at"] - admitted)
 
 
+def test_grant_schema_and_receipt_include_physical_footprint(scheduler):
+    token = scheduler.acquire("footprint grant", {"cpu": 1},
+                              announce=lambda line: None)
+    scheduler.release(token, measured={"peak_footprint_gb": 2.75,
+                                       "resolve_peak_footprint_gb": 1.25})
+    receipt = scheduler.history()[-1]
+    assert receipt["peak_footprint_gb"] == 2.75
+    assert receipt["resolve_peak_footprint_gb"] == 1.25
+
+
+def test_tree_footprint_reads_the_macos_summary(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        resource_scheduler.subprocess, "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, "Summary Footprint: 268435456 B\\n", ""))
+    assert resource_scheduler._tree_footprint_gb(123) == pytest.approx(0.25)
+
+
 def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
         scheduler, monkeypatch):
     import sqlite3
@@ -741,6 +803,7 @@ def test_placement_and_gates_are_not_cpu_throttled(scheduler):
     assert not scheduler.legacy_dir.exists()
 
 
+@pytest.mark.real_scheduler_admission
 def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
     """An unrelated empty demand backfills past an exclusive waiter.
 
@@ -1096,18 +1159,24 @@ def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
             "other writer", "native_refresh:resolve-control")
 
 
+@pytest.mark.real_scheduler_admission
 def test_model_memory_reservation_admits_only_bounded_nested_inference(
         scheduler, monkeypatch):
     """Model sessions constrain nested call sites without GPU budgeting."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
+    # The 15 GB Gemma reservation needs a 24 GB-class machine reading;
+    # the shared fixture's 16 GB host cannot prove it satisfiable.
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (24.0, 24.0))
     memory_profile = "semantics.analyse:model_memory"
     inference_profile = "semantics.analyse:inference"
 
     with heavy_work_lock.heavy_work_reservation(
             "semantic weights", memory_profile,
             nested_profiles=(inference_profile,)):
-        assert [job["demand"] for job in scheduler.jobs()] == [{}]
+        assert [job["demand"] for job in scheduler.jobs()] == [
+            {"ram_gb": 15}]
         with (pytest.raises(heavy_work_lock.GrantTooSmall),
               heavy_work_lock.heavy_work_lock(
                   "unlisted nested work", "full_suite_gate")):
@@ -1116,7 +1185,8 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
         with heavy_work_lock.heavy_work_lock(
                 "semantic inference", inference_profile):
             demands = [job["demand"] for job in scheduler.jobs()]
-            assert demands.count({}) == 2
+            assert demands.count({"ram_gb": 15}) == 1
+            assert demands.count({}) == 1
             assert len(demands) == 2
 
             competing, box = _acquire_in_thread(
@@ -1124,15 +1194,16 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
             assert competing.wait(30), "model passes are not GPU serialized"
 
         scheduler.release(box[0])
-        assert [job["demand"] for job in scheduler.jobs()] == [{}]
+        assert [job["demand"] for job in scheduler.jobs()] == [
+            {"ram_gb": 15}]
 
     assert scheduler.jobs() == []
 
 
-def test_sam_memory_session_is_scheduler_owned_and_has_a_ram_free_admission():
+def test_sam_memory_session_carries_its_measured_reservation():
     memory = resource_scheduler.demand_for("objects.segment:model_memory")
     inference = resource_scheduler.demand_for("objects.segment:inference")
-    assert memory == {}
+    assert memory == {"ram_gb": 8}
     assert inference == {}
 
 
@@ -1163,12 +1234,16 @@ def test_folded_model_reservation_cannot_be_yielded_independently(monkeypatch):
         monkeypatch.setattr(lock, "_memory_reservation", None)
 
 
+@pytest.mark.real_scheduler_admission
 def test_memory_session_folds_and_rejects_exclusive_build_profiles(
         scheduler, monkeypatch):
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
+    # The 15 GB Gemma reservation needs a 24 GB-class machine reading.
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (24.0, 24.0))
     with (heavy_work_lock.heavy_work_lock(
-            "ordinary grant", "semantics.analyse:inference"),
+            "covering model grant", "semantics.analyse:model_memory"),
           heavy_work_lock.heavy_work_reservation(
               "late memory", "semantics.analyse:model_memory",
               nested_profiles=("semantics.analyse:inference",))):
@@ -1181,16 +1256,21 @@ def test_memory_session_folds_and_rejects_exclusive_build_profiles(
         pass
 
 
+@pytest.mark.real_scheduler_admission
 def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
         scheduler, monkeypatch):
     """A process-local model session folds into an enclosing heavy section."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         scheduler.legacy_dir)
+    # The enclosing grant must cover the 15 GB reservation, which the
+    # shared fixture's 16 GB host cannot admit: read a 24 GB-class host.
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (24.0, 24.0))
     memory_profile = "semantics.analyse:model_memory"
     inference_profile = "semantics.analyse:inference"
 
     # Process-local outer grant: the reservation folds into it.
-    with heavy_work_lock.heavy_work_lock("outer wrapper", "machine"):
+    with heavy_work_lock.heavy_work_lock("outer wrapper", memory_profile):
         with heavy_work_lock.heavy_work_reservation(
                 "Gemma semantic model memory", memory_profile,
                 nested_profiles=(inference_profile,)):
@@ -1205,7 +1285,7 @@ def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
     # hands a vision child. Same folding, same single job.
     token = scheduler.acquire(
         "outer wrapper",
-        resource_scheduler.demand_for("machine"),
+        resource_scheduler.demand_for(memory_profile),
         announce=lambda line: None)
     monkeypatch.setenv(heavy_work_lock.OWNER_ENV, token)
     try:
@@ -1219,7 +1299,7 @@ def test_model_memory_reservation_folds_into_a_covering_enclosing_grant(
         assert len(scheduler.jobs()) == 1
     finally:
         monkeypatch.delenv(heavy_work_lock.OWNER_ENV, raising=False)
-        scheduler.release(token, "machine", {})
+        scheduler.release(token, memory_profile, {})
     assert scheduler.jobs() == []
 
     assert scheduler.jobs() == []
