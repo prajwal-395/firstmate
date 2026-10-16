@@ -1,6 +1,7 @@
 import pytest
 
 from library.graphics_ir.evaluator import evaluate
+from library.graphics_ir.layout import measure_text
 from library.graphics_ir.lowering import (
     lower_brand_motion,
     lower_full_frame_card,
@@ -106,22 +107,37 @@ def _mg_props():
 
 
 class TestSubtitleOverlayLowering:
-    def test_word_entry_scale_at_start(self):
+    def test_word_scale_pulses_only_while_highlighted_and_resets_at_handoff(self):
         scene = lower_subtitle_overlay(_subtitle_props())
-        state = evaluate(scene, 30)
-        scale = state["subtitle_0_word_0"]["transform.scale"]
-        assert scale[0] == pytest.approx(0.95, abs=0.01)
+        before = evaluate(scene, 29)["subtitle_0_word_0"]["transform.scale"]
+        during = evaluate(scene, 34)["subtitle_0_word_0"]["transform.scale"]
+        after = evaluate(scene, 45)["subtitle_0_word_0"]["transform.scale"]
+        next_word_start = evaluate(scene, 45)["subtitle_0_word_1"]["transform.scale"]
+
+        assert before == pytest.approx([0.95, 0.95])
+        assert during == pytest.approx([1.0, 1.0])
+        assert after == pytest.approx([0.95, 0.95])
+        assert next_word_start == pytest.approx([0.95, 0.95])
+        for frame in (29, 30, 34, 41, 45):
+            scale = evaluate(scene, frame)["subtitle_0_word_0"]["transform.scale"]
+            assert all(0.95 <= axis <= 1.0 for axis in scale)
+        # The pulse is a transform over the fixed, font-measured boxes.
+        word = next(n for n in scene.nodes if n.id == "subtitle_0_word_0")
+        assert word.bounds.width == pytest.approx(measure_text(
+            word.text.text, word.text.font_size, word.text.font_file,
+            word.text.font_weight))
 
     def test_word_accent_sweep_steps_at_word_start(self):
         scene = lower_subtitle_overlay(_subtitle_props())
         state = evaluate(scene, 31)
         assert state["subtitle_0_word_0"]["color"] == "#FBF0B8"
 
-    def test_word_scale_reaches_one_after_four_frames(self):
-        scene = lower_subtitle_overlay(_subtitle_props())
-        state = evaluate(scene, 34)
-        scale = state["subtitle_0_word_0"]["transform.scale"]
-        assert scale[0] == pytest.approx(1.0, abs=0.01)
+    def test_zero_width_word_window_has_no_scale_animation(self):
+        props = _subtitle_props()
+        props["subtitles"][0]["words"][0]["endFrame"] = 30
+        scene = lower_subtitle_overlay(props)
+        word = next(n for n in scene.nodes if n.id == "subtitle_0_word_0")
+        assert not [a for a in word.animations if a.property == "transform.scale"]
 
 
 class TestTimedTextOverlayLowering:

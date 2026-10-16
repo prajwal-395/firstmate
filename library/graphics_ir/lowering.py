@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .layout import (
     block_width,
@@ -96,6 +96,12 @@ CAPTION_PAD_Y = 24
 """SubtitleOverlay's ``.box`` vertical padding."""
 CAPTION_EMPHASIS_EM = 1.14
 """SubtitleOverlay's emphasis-word size."""
+CAPTION_KARAOKE_SCALE = 1.0
+"""SubtitleOverlay's maximum scale, at the word's measured layout size."""
+CAPTION_KARAOKE_REST_SCALE = 0.95
+"""SubtitleOverlay's resting scale outside the word's highlight window."""
+CAPTION_KARAOKE_RAMP_FRAMES = 4
+"""Frames used to ease the karaoke scale up and back to its base size."""
 CAPTION_DROP_SHADOW = "0 10px 20px rgba(0,0,0,0.8)"
 """The drop shadow SubtitleOverlay appends after its eight outline shadows."""
 
@@ -365,7 +371,7 @@ def _num(value: float) -> str:
     return f"{value:g}"
 
 
-def _greedy_rows(widths: list[float], limit: Optional[float]) -> list[list[int]]:
+def _greedy_rows(widths: list[float], limit: float | None) -> list[list[int]]:
     """Flex-wrap: items fill a row until the next would overflow *limit*."""
     rows: list[list[int]] = []
     current: list[int] = []
@@ -386,8 +392,9 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
 
     Each subtitle block becomes a Group windowed to its span. Each word
     with timing becomes a Text node carrying the accent sweep (two
-    stepped colour tweens) and the entry scale (0.95 to 1 over 4 frames,
-    the template's `Easing.out(Easing.ease)` as `cubic-bezier(0,0,0.58,1)`).
+    stepped colour tweens) and a 0.95 to 1.0 to 0.95 scale pulse during
+    the word's highlight window. The transform never exceeds the
+    font-measured layout size and does not change layout width or line breaks.
     Words flow the way the template's flex-wrap box flows
     them: each word an inline-block with a 0.24em trailing margin, rows
     centred on the card, the box's bottom on the safe area.
@@ -481,26 +488,23 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
                         from_value=accent_color, to_value=font_color,
                         start=max(0.0, we - EPS), duration=EPS, easing=LinearEasing(),
                     ))
+                    ramp = min(CAPTION_KARAOKE_RAMP_FRAMES / fps,
+                               (we - ws) / 2.0)
+                    pulse_ease = CubicBezierEasing(
+                        x1=0.42, y1=0.0, x2=0.58, y2=1.0)
                     animations.append(Animation(
                         target=word_id, property="transform.scale",
-                        from_value=[0.95, 0.95], to_value=[1.0, 1.0],
-                        start=ws, duration=4.0 / fps,
-                        # The template's entry ramp: Remotion
-                        # `Easing.out(Easing.ease)` where `ease` is
-                        # `bezier(0.42, 0, 1, 1)`. Reversing a cubic
-                        # bezier (1-x2, 1-y2, 1-x1, 1-y1) is its
-                        # `out()` form, so `cubic-bezier(0, 0, 0.58, 1)`
-                        # draws the template's curve to float precision
-                        # (max deviation ~6e-17, measured 2026-10-10).
-                        # A power ease-out (power=2) reads close but sits
-                        # ~0.06 low at mid-ramp - visibly smaller ink.
-                        easing=CubicBezierEasing(x1=0.0, y1=0.0, x2=0.58, y2=1.0),
+                        from_value=[CAPTION_KARAOKE_REST_SCALE,
+                                    CAPTION_KARAOKE_REST_SCALE],
+                        to_value=[CAPTION_KARAOKE_SCALE, CAPTION_KARAOKE_SCALE],
+                        start=ws, duration=ramp, easing=pulse_ease,
                     ))
-                else:
                     animations.append(Animation(
                         target=word_id, property="transform.scale",
-                        from_value=[0.95, 0.95], to_value=[1.0, 1.0],
-                        start=max(0.0, we - EPS), duration=EPS, easing=LinearEasing(),
+                        from_value=[CAPTION_KARAOKE_SCALE, CAPTION_KARAOKE_SCALE],
+                        to_value=[CAPTION_KARAOKE_REST_SCALE,
+                                  CAPTION_KARAOKE_REST_SCALE],
+                        start=we - ramp, duration=ramp, easing=pulse_ease,
                     ))
                 nodes.append(Node(
                     id=word_id, type=NodeType.TEXT,
@@ -585,7 +589,7 @@ def lower_timed_text_overlay(props: dict[str, Any]) -> Scene:
         text = str(moment.get("text", ""))
         limit = max(0.0, 2 * min(cx - safe_area.get("left", 0),
                                  width - safe_area.get("right", 0) - cx))
-        measure = dict(font_size=size, font_file=font_file, font_weight=weight)
+        measure = {"font_size": size, "font_file": font_file, "font_weight": weight}
         lines = wrap_text(text, limit, **measure)
         natural = block_width(text.split("\n"), **measure)
         box_width = min(natural, limit)
@@ -873,7 +877,7 @@ def _word_boxes_in_runs(texts, full_lines, runs, run_tops, column_x, column_widt
     boxes: list[Bounds] = []
     for ri, (lines, run) in enumerate(zip(full_lines, runs)):
         size = _run_size(run)
-        measure = dict(font_size=size, font_file=font_file, font_weight=_run_weight(run))
+        measure = {"font_size": size, "font_file": font_file, "font_weight": _run_weight(run)}
         line_height = CARD_LINE_HEIGHT * size
         for li, line in enumerate(lines):
             line_x = column_x + (column_width - measure_text(line, **measure)) / 2.0
@@ -1348,13 +1352,13 @@ def _mg_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[st
     """The template's ``runStyle``, as measurement arguments."""
     role = run.get("type_role", "supporting")
     display = role == "display"
-    return dict(
-        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale,
-        font_file=ctx.font_file,
-        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
-        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
-        text_transform="uppercase" if display else None,
-    )
+    return {
+        "font_size": TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale,
+        "font_file": ctx.font_file,
+        "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        "letter_spacing": MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        "text_transform": "uppercase" if display else None,
+    }
 
 
 def _mg_inset(el: dict[str, Any]) -> float:
@@ -1389,13 +1393,13 @@ def _mg_emblem_label_style(run: dict[str, Any], scale: float,
                            ctx: _MGContext) -> dict[str, Any]:
     """The shared run style at the emblem label's 0.8 scale."""
     role = run.get("type_role", "supporting")
-    return dict(
-        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_EMBLEM_LABEL_SCALE,
-        font_file=ctx.font_file,
-        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
-        letter_spacing=MG_DISPLAY_LETTER_SPACING if role == "display" else 0.0,
-        text_transform="uppercase" if run.get("uppercase") else None,
-    )
+    return {
+        "font_size": TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_EMBLEM_LABEL_SCALE,
+        "font_file": ctx.font_file,
+        "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        "letter_spacing": MG_DISPLAY_LETTER_SPACING if role == "display" else 0.0,
+        "text_transform": "uppercase" if run.get("uppercase") else None,
+    }
 
 
 def _mg_emblem_label_lines(el: dict[str, Any], box_width: float,
@@ -1415,8 +1419,8 @@ def _mg_emblem_mark_width(el: dict[str, Any], ctx: _MGContext) -> float:
     if mark is None:
         return 0.0
     scale = _mg_scale(el)
-    style = dict(font_size=MG_EMBLEM_MARK_SIZE * scale, font_file=ctx.font_file,
-                 font_weight=MG_EMBLEM_MARK_WEIGHT)
+    style = {"font_size": MG_EMBLEM_MARK_SIZE * scale, "font_file": ctx.font_file,
+                 "font_weight": MG_EMBLEM_MARK_WEIGHT}
     return block_width(str(mark.get("text", "")).split("\n"), **style)
 
 
@@ -1566,7 +1570,7 @@ def _mg_px(value: float, scale: float) -> int:
     a .5 up. Python's `round` is banker's (half to even) and would round
     those same .5s down.
     """
-    return int(math.floor(float(value) * scale + 0.5))
+    return math.floor(float(value) * scale + 0.5)
 
 
 def _mg_number(value: Any) -> float:
@@ -1612,7 +1616,7 @@ def _mg_counter_figure(el: dict[str, Any], ctx: _MGContext) -> tuple[float, floa
     if places > 0:
         value = f"{end:.{places}f}"
     else:
-        value = f"{int(math.floor(end + 0.5)):,}"
+        value = f"{math.floor(end + 0.5):,}"
     font_size = TYPE_SIZE["display"] * _mg_scale(el) * MG_COUNTER_SCALE
     return font_size, font_size * MG_COUNTER_LINE_HEIGHT, value
 
@@ -1663,13 +1667,13 @@ def _mg_counter_label_style(run: dict[str, Any], scale: float, ctx: _MGContext) 
     """
     role = run.get("type_role", "supporting")
     display = role == "display"
-    return dict(
-        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_COUNTER_LABEL_SCALE,
-        font_file=ctx.font_file,
-        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
-        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
-        text_transform="uppercase" if run.get("uppercase") else None,
-    )
+    return {
+        "font_size": TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_COUNTER_LABEL_SCALE,
+        "font_file": ctx.font_file,
+        "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        "letter_spacing": MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        "text_transform": "uppercase" if run.get("uppercase") else None,
+    }
 
 
 def _mg_counter_label_lines(el: dict[str, Any], box_width: float,
@@ -1727,13 +1731,13 @@ def _mg_stat_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> di
     """
     role = run.get("type_role", "supporting")
     display = role == "display"
-    return dict(
-        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_STAT_SCALE,
-        font_file=ctx.font_file,
-        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
-        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
-        text_transform="uppercase" if run.get("uppercase") else None,
-    )
+    return {
+        "font_size": TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale * MG_STAT_SCALE,
+        "font_file": ctx.font_file,
+        "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        "letter_spacing": MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        "text_transform": "uppercase" if run.get("uppercase") else None,
+    }
 
 
 def _mg_stat_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
@@ -1788,9 +1792,9 @@ def _mg_list_item_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -
     out = []
     for run in el.get("runs", []):
         # Items draw as written: no uppercase, no tracking, whatever the role.
-        style = dict(font_size=size, font_file=ctx.font_file,
-                     font_weight=TYPE_WEIGHT.get(run.get("type_role", "supporting"),
-                                                 TYPE_WEIGHT["supporting"]))
+        style = {"font_size": size, "font_file": ctx.font_file,
+                     "font_weight": TYPE_WEIGHT.get(run.get("type_role", "supporting"),
+                                                 TYPE_WEIGHT["supporting"])}
         lines = wrap_text(run.get("text", ""), text_width, **style)
         out.append((run, size, style["font_weight"], lines,
                     len(lines) * MG_LIST_LINE_HEIGHT * size))
@@ -1911,11 +1915,11 @@ def _mg_bars_label_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> 
     both browser sides otherwise resolve differently.
     """
     role = run.get("type_role", "micro")
-    return dict(
-        font_size=TYPE_SIZE.get(role, TYPE_SIZE["micro"]) * scale,
-        font_file=ctx.font_file,
-        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["micro"]),
-    )
+    return {
+        "font_size": TYPE_SIZE.get(role, TYPE_SIZE["micro"]) * scale,
+        "font_file": ctx.font_file,
+        "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["micro"]),
+    }
 
 
 def _mg_bars_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
@@ -2011,12 +2015,12 @@ def _mg_counter_states(el: dict[str, Any]) -> list[tuple[int, int, str]]:
 
 
 def _mg_counter_figure_style(scale: float, ctx: _MGContext) -> dict[str, Any]:
-    return dict(
-        font_size=TYPE_SIZE["display"] * scale * MG_COUNTER_FIGURE_SCALE,
-        font_file=ctx.font_file,
-        font_weight=900.0,
-        letter_spacing=MG_COUNTER_LETTER_SPACING,
-    )
+    return {
+        "font_size": TYPE_SIZE["display"] * scale * MG_COUNTER_FIGURE_SCALE,
+        "font_file": ctx.font_file,
+        "font_weight": 900.0,
+        "letter_spacing": MG_COUNTER_LETTER_SPACING,
+    }
 
 
 def _mg_roll_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
@@ -2105,7 +2109,7 @@ def _mg_image_size(src: str) -> tuple[float, float] | None:
         from PIL import Image
         with Image.open(src) as im:
             return float(im.width), float(im.height)
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 
@@ -2807,7 +2811,7 @@ def _build_mg_digit(
             cell_id = f"{element_id}_cell_{index}"
             rail_id = f"{element_id}_rail_{index}"
             reverse = total - 1 - value_pos
-            stagger = int(math.floor(reverse * fps * MG_DIGIT_STAGGER + 0.5))
+            stagger = math.floor(reverse * fps * MG_DIGIT_STAGGER + 0.5)
             span = max(1, duration_frames - stagger)
             rail_anims = [
                 Animation(
@@ -3295,7 +3299,6 @@ def _build_mg_beat(
 
     vertical, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
     right = float(ctx.safe_area.get("right", 0))
-    bottom = float(ctx.safe_area.get("bottom", 0))
 
     def corner(size: float) -> tuple[float, float]:
         if horizontal == "right":
@@ -3357,7 +3360,7 @@ def _build_mg_beat(
 def _build_mg_element(
     el: dict[str, Any],
     ctx: _MGContext,
-    box: Optional[Bounds],
+    box: Bounds | None,
 ) -> tuple[Node, list[Node]] | None:
     """Build one MotionGraphics element as an IR node tree.
 
@@ -3901,7 +3904,6 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
         if run.get("newLine") and lines[-1]:
             lines.append([])
         lines[-1].append(run)
-    from .layout import measure_text
     from . import fonts as fonts_mod
     font_path = font_file
     if font_path is None:
@@ -3936,7 +3938,7 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
             widths.append(adv + ls * len(run["text"]))
         line_w = sum(widths)
         x = 0.0 if align == "left" else (box_w - line_w) if align == "right" else (box_w - line_w) / 2
-        baseline = top + above
+        top + above
         for ri, run in enumerate(line):
             size = run["size"] * unit
             runs_out.append(TextRun(
@@ -3971,7 +3973,7 @@ def _lower_staged_light(layer: dict, layer_id: str, width: int, height: int) -> 
     length_keys = layer.get("length")
     spread_keys = layer.get("spreadDeg")
     opacity_keys = layer.get("opacity")
-    angle0 = angle_keys[0]["value"] if angle_keys else 0.0
+    angle_keys[0]["value"] if angle_keys else 0.0
     length0 = length_keys[0]["value"] if length_keys else 0.1
     spread0 = spread_keys[0]["value"] if spread_keys else 45.0
     half_spread = math.radians(spread0 / 2)
