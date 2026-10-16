@@ -33,6 +33,40 @@ def activity_map_from_temporal_index(duration_seconds: float,
     motion = index.get("motion_evidence")
     if not isinstance(motion, Mapping):
         motion = None
+    if motion is None:
+        # The current temporal-index producer exposes its measured local
+        # change as motion_energy, and its coarse optical-flow magnitude as
+        # a second visual-change signal. Adapt those published fields into
+        # the activity-map contract rather than treating them as gaps.
+        energy = index.get("motion_energy") or {}
+        flow = index.get("optical_flow_direction") or {}
+        energy_values = energy.get("values", []) if isinstance(energy, Mapping) else []
+        flow_values = flow.get("values", []) if isinstance(flow, Mapping) else []
+        energy_rate = energy.get("sample_rate_hz") if isinstance(energy, Mapping) else None
+        flow_rate = flow.get("sample_rate_hz") if isinstance(flow, Mapping) else None
+        rows = []
+        for values, rate, key in ((energy_values, energy_rate, "change"),
+                                  (flow_values, flow_rate, "novelty")):
+            if isinstance(rate, (int, float)) and rate > 0 and isinstance(values, list):
+                for i, value in enumerate(values):
+                    number = (value if isinstance(value, (int, float)) else
+                              value.get("magnitude") if isinstance(value, Mapping) else None)
+                    if isinstance(number, (int, float)) and math.isfinite(float(number)):
+                        rows.append({"start": i / rate, "end": (i + 1) / rate,
+                                     key: float(number), "status": "measured"})
+        if rows:
+            # Pair by sample index on a common source-time grid. Each lane's
+            # own values are retained while absent partners remain missing.
+            merged = {}
+            for row in rows:
+                key = (row["start"], row["end"])
+                merged.setdefault(key, {"start": row["start"], "end": row["end"],
+                                         "status": "measured"})
+                if "change" in row:
+                    merged[key]["change"] = row["change"]
+                if "novelty" in row:
+                    merged[key]["novelty"] = row["novelty"]
+            motion = {"pairs": list(merged.values())}
     speech_rows = []
     for row in index.get("speech_regions", []):
         if isinstance(row, Mapping):

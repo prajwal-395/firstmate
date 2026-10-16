@@ -817,7 +817,7 @@ def test_failed_host_object_branch_writes_no_partial_profile(
         "resolution": [1920, 1080]})
     monkeypatch.setattr(vp, "load_temporal_index", lambda *_args: None)
     monkeypatch.setattr(vp, "load_transcript_text", lambda *_args: "")
-    monkeypatch.setattr(vp, "extract_frames", lambda *_args: [
+    monkeypatch.setattr(vp, "extract_frames", lambda *_args, **_kwargs: [
         {"path": str(tmp_path / "still.jpg"), "timestamp": 0.0}])
     monkeypatch.setattr(vp, "extract_video_clips",
                         lambda *_args, **_kwargs: window_clips)
@@ -1864,6 +1864,29 @@ def test_coarse_frame_cache_reuses_same_source_and_invalidates_mutation(
         row["path"] for row in first)
 
 
+def test_adaptive_frame_decode_uses_exact_policy_times_and_separate_cache(
+        tmp_path, monkeypatch):
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"source")
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        Path(command[-1]).write_bytes(b"frame")
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(vp.subprocess, "run", fake_run)
+    selected = [0.0, 2.1, 4.8]
+    frames = vp.extract_frames(
+        source, 10.0, tmp_path / "cache", sample_times=selected,
+        policy_version="test-policy-v1")
+
+    assert [row["timestamp"] for row in frames] == selected
+    assert [float(command[command.index("-ss") + 1]) for command in calls] == selected
+    assert all("adaptive_" in row["path"] for row in frames)
+    assert len(calls) == len(selected)
+
+
 def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
     source = tmp_path / "source.mov"
     source.write_bytes(b"source")
@@ -1888,7 +1911,11 @@ def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
     monkeypatch.setattr(vp, "load_transcript_text", lambda *_args: "")
     monkeypatch.setattr(vp.measurement_layers.LayerCache, "for_source",
                         lambda *_args, **_kwargs: Cache())
-    monkeypatch.setattr(vp, "extract_frames", lambda *_args: [])
+    def extract_stills(_path, _duration, _cache, **kwargs):
+        extracted["frame_times"] = kwargs["sample_times"]
+        return []
+
+    monkeypatch.setattr(vp, "extract_frames", extract_stills)
 
     def extract(_path, _duration, _cache, *, prefetch, window_starts_s):
         extracted["starts"] = window_starts_s
@@ -1902,11 +1929,69 @@ def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
     monkeypatch.setattr(vp.perf_ledger, "record", lambda *_args, **_kwargs: None)
 
     _, contexts, _ = vp._prepare_host_semantic_contexts(
-        [source], tmp_path / "cache", tmp_path / "output", {}, False, "gemma")
+        [source], tmp_path / "cache", tmp_path / "output", {}, False, "gemma",
+        "adaptive")
 
     assert contexts[0]["window_plan"]["window_starts_s"] == extracted["starts"]
+    assert contexts[0]["frame_sampling_plan"]["selected_source_times"] == \
+        extracted["frame_times"]
+    assert len(extracted["frame_times"]) <= \
+        contexts[0]["frame_sampling_plan"]["budget_frames"]
+    assert any(45 <= t <= 50 for t in extracted["frame_times"])
     assert contexts[0]["window_plan"]["expected_cost"]["model_calls"] < \
         contexts[0]["window_plan"]["exhaustive_control"]["model_calls"]
+
+
+def test_host_pipeline_dense_default_keeps_incumbent_grid(tmp_path, monkeypatch):
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"source")
+    seen = {}
+
+    class Cache:
+        def get(self, _layer):
+            return None
+
+        def get_window(self, *_args):
+            return None
+
+    monkeypatch.setattr(vp, "probe_clip", lambda _path: {
+        "clip_id": "source", "duration_s": 12.0, "fps": 30.0,
+        "resolution": [1920, 1080], "file_path": str(source)})
+    monkeypatch.setattr(vp, "load_temporal_index", lambda _path: {
+        "speech_regions": [{"start": 1.0, "end": 2.0}],
+        "scene_boundaries": [{"timestamp": 6.0}]})
+    monkeypatch.setattr(vp, "load_transcript_text", lambda *_args: "")
+    monkeypatch.setattr(vp.measurement_layers.LayerCache, "for_source",
+                        lambda *_args, **_kwargs: Cache())
+
+    def extract_stills(*args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return []
+
+    monkeypatch.setattr(vp, "extract_frames", extract_stills)
+    monkeypatch.setattr(vp, "extract_video_clips",
+                        lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(vp, "reset_ffprobe_spawn_count", lambda: None)
+    monkeypatch.setattr(vp.perf_ledger, "media_decode",
+                        lambda *_args, **_kwargs: nullcontext({}))
+
+    _, contexts, _ = vp._prepare_host_semantic_contexts(
+        [source], tmp_path / "cache", tmp_path / "output", {}, False, "gemma")
+
+    assert contexts[0]["frame_sampling_plan"] is None
+    # Incumbent call shape: fixed-interval grid, no policy keywords.
+    assert seen["kwargs"] == {}
+    assert len(seen["args"]) == 3
+
+
+def test_host_pipeline_refuses_unknown_frame_sampling(tmp_path):
+    with pytest.raises(ValueError, match="unknown frame_sampling"):
+        vp._prepare_host_semantic_contexts(
+            [], tmp_path / "cache", tmp_path / "output", {}, False, "gemma",
+            "eager")
+    with pytest.raises(ValueError, match="unknown frame_sampling"):
+        vp.run_pipeline([], frame_sampling="eager")
 
 
 def test_extract_keeps_audio_and_recuts_legacy_silent_cache(tmp_path):

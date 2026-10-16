@@ -132,6 +132,10 @@ from library.tools.semantic_window_planner import (
     activity_map_from_temporal_index,
     plan_semantic_windows,
 )
+from library.tools.adaptive_frame_sampling import (
+    POLICY_VERSION as FRAME_SAMPLING_POLICY_VERSION,
+    plan_adaptive_frames,
+)
 from library.tools.camera_stability import read_camera_stability
 from library.tools.segment_coverage import (
     coverage_summary,
@@ -256,6 +260,42 @@ MIN_WINDOW_S = 0.5
 # memory, is the binding cost.
 NATIVE_VIDEO_FRAMES_PER_CALL = 32
 NATIVE_VIDEO_DECODE_FPS = 2.0
+
+# Coarse object analysis is scheduled against a fixed-interval reference of
+# 1 frame per 5 seconds. Adaptive scheduling keeps four-fifths of that
+# frame budget; temporal boundaries and measured change receive the
+# remaining priority.
+ADAPTIVE_COARSE_FRAME_BUDGET_FRACTION = 0.8
+
+# Coarse-still schedule selection. The incumbent fixed-interval grid stays
+# the default: adaptive scheduling is opt-in until a measured scorecard
+# against the incumbent justifies a default change (ARCH-005). Calibration
+# 2026-10-16 (docs/benchmarks/2026-10-16-adaptive-sampling-live-decode.md)
+# showed ~20% fewer decoded frames at higher per-frame motion but lower
+# event recall on the scheduling proxy, so the default does not move here.
+FRAME_SAMPLING_MODES = ("dense", "adaptive")
+
+
+def _resolve_frame_sampling(mode):
+    """Accept only a declared coarse-still schedule; refuse anything else."""
+    if mode not in FRAME_SAMPLING_MODES:
+        raise ValueError(
+            f"unknown frame_sampling {mode!r}: expected one of "
+            f"{', '.join(FRAME_SAMPLING_MODES)}")
+    return mode
+
+
+def plan_coarse_frame_sampling(duration, fps, temporal_index, *, query=None,
+                               retrieval_candidates=()):
+    """Plan the live coarse still-frame pass under a bounded source budget."""
+    baseline_count = max(1, int(math.ceil(duration / COARSE_FRAME_INTERVAL_S)) + 1)
+    budget = max(1, int(math.ceil(
+        baseline_count * ADAPTIVE_COARSE_FRAME_BUDGET_FRACTION)))
+    return plan_adaptive_frames(
+        duration, fps or 30.0, temporal_index,
+        activity_map=activity_map_from_temporal_index(duration, temporal_index),
+        query=query, retrieval_candidates=retrieval_candidates,
+        budget_frames=budget)
 
 # Window clips are cut at 720p height (aspect kept, never upscaled), not
 # at source resolution. Measured 2026-09-24 on the captain's M5/25.8 GB
@@ -1099,8 +1139,13 @@ def _source_cache_dir(cache_dir, clip_path):
         return Path(cache_dir).resolve() / clip_path.stem
     return Path(cache_dir).resolve() / digest / clip_path.stem
 
-def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S):
-    """Extract frames at a fixed interval. Returns list of {timestamp, path}.
+def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S,
+                   *, sample_times=None, policy_version=None):
+    """Extract fixed-interval or policy-selected frames.
+
+    Returns list of {timestamp, path}. ``sample_times`` is an explicit list
+    of source seconds selected by an adaptive sampling policy; it uses a
+    policy-keyed cache namespace and never implies continuous coverage.
 
     Only non-empty files are returned: a failed extraction (ffmpeg error
     or a zero-byte file, which ffmpeg can leave behind with a zero exit)
@@ -1118,8 +1163,20 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     """
     clip_path = Path(clip_path)
     cache_dir = Path(cache_dir).resolve()
+    if sample_times is not None and not policy_version:
+        raise ValueError("policy_version is required with sample_times")
+    # Dedupe once so the cache census below counts the frames the
+    # extractor will actually write, in the order it will write them.
+    ordered_times = (sorted({float(t) for t in sample_times})
+                     if sample_times is not None else None)
+    n_frames = (len(ordered_times) if ordered_times is not None else
+                max(1, int(math.ceil(duration / interval_s))) + 1)
+    cache_subdir = ("adaptive_" + hashlib.sha256(
+        (policy_version + ":" + ",".join(f"{t:.6f}" for t in ordered_times))
+        .encode("utf-8")).hexdigest()[:16] if ordered_times is not None else None)
     frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
-    n_frames = max(1, int(math.ceil(duration / interval_s))) + 1
+    if cache_subdir:
+        frame_dir /= cache_subdir
     pending = sum(
         not _usable_frame(frame_dir / f"frame_{i:04d}.jpg")
         for i in range(n_frames))
@@ -1128,7 +1185,9 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
                 clip_path, purpose="semantic.coarse_frames",
                 media_kind="video", access_pattern="random_seek",
                 calls=pending, cache_hits=n_frames - pending) as measurement:
-            frames = _extract_frames(clip_path, duration, cache_dir, interval_s)
+            frames = _extract_frames(clip_path, duration, cache_dir, interval_s,
+                                     sample_times=ordered_times,
+                                     cache_subdir=cache_subdir)
             measurement["bytes_written"] = sum(
                 Path(row["path"]).stat().st_size for row in frames)
         return frames
@@ -1136,19 +1195,26 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
             clip_path, purpose="semantic.coarse_frames",
             media_kind="video", access_pattern="random_seek",
             calls=0, cache_hits=n_frames):
-        return _extract_frames(clip_path, duration, cache_dir, interval_s)
+        return _extract_frames(clip_path, duration, cache_dir, interval_s,
+                               sample_times=ordered_times,
+                               cache_subdir=cache_subdir)
 
 
-def _extract_frames(clip_path, duration, cache_dir, interval_s):
+def _extract_frames(clip_path, duration, cache_dir, interval_s, *,
+                    sample_times=None, cache_subdir=None):
     cache_dir = Path(cache_dir).resolve()
     frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
+    if cache_subdir:
+        frame_dir /= cache_subdir
     frame_dir.mkdir(parents=True, exist_ok=True)
 
-    n_frames = max(1, int(math.ceil(duration / interval_s))) + 1
+    timestamps = (sorted({min(max(0.0, float(t)), duration - 0.1)
+                          for t in sample_times}) if sample_times is not None else
+                  [min(i * interval_s, duration - 0.1)
+                   for i in range(max(1, int(math.ceil(duration / interval_s))) + 1)])
     frames = []
 
-    for i in range(n_frames):
-        timestamp = min(i * interval_s, duration - 0.1)
+    for i, timestamp in enumerate(timestamps):
         out_path = frame_dir / f"frame_{i:04d}.jpg"
 
         if not _usable_frame(out_path):
@@ -3264,7 +3330,8 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
                  temporal_index, cache_dir, layer_cache=None, clock=None,
-                 precomputed_layers=None, still_executor=None):
+                 precomputed_layers=None, still_executor=None,
+                 frame_sampling_plan=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
@@ -3295,6 +3362,10 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     video_path = clip_meta["file_path"]
     clip_path = Path(clip_meta["file_path"])
     fps = clip_meta.get("fps") or 30.0
+    if frame_sampling_plan is not None:
+        frame_sampling_plan["frames_actually_extracted"] = (
+            cached.get("objects", {}).get("frames_extracted")
+            if cached.get("objects") is not None else len(frames or []))
 
     n_window_calls = (len(cached["windows"]["windows"])
                       if cached.get("windows") else len(video_clips))
@@ -3575,6 +3646,12 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             # is not a wall (retries and gaps hide in it); this is.
             "window_inference_wall_s": window_inference_wall_s,
             "frames_extracted": n_frames,
+            "frame_sampling": ({
+                "policy": frame_sampling_plan,
+                "frames_actually_extracted": frame_sampling_plan[
+                    "frames_actually_extracted"],
+                "coverage_basis": "sampled source timestamps",
+            } if frame_sampling_plan is not None else None),
             "video_clips_extracted": n_video_clips,
             # What each native-video (`video=`) call actually saw.
             # Every such call is capped at 32 frames (mlx-vlm 0.7.2
@@ -4035,8 +4112,10 @@ def _run_host_semantic_schedule(contexts, analyzer, *,
 
 
 def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
-                                   layer_methods, force, still_viewer):
+                                    layer_methods, force, still_viewer,
+                                    frame_sampling="dense"):
     """Prepare inputs for the host scheduler without invoking a model."""
+    frame_sampling = _resolve_frame_sampling(frame_sampling)
     entries = []
     contexts = []
     skipped = 0
@@ -4083,6 +4162,10 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
         window_plan = plan_semantic_windows(
             duration, activity_map_from_temporal_index(duration, temporal_index),
             window_seconds=ACTION_WINDOW_S)
+        frame_sampling_plan = None
+        if frame_sampling == "adaptive":
+            frame_sampling_plan = plan_coarse_frame_sampling(
+                duration, meta.get("fps"), temporal_index)
         print(f"  Semantic window plan: {window_plan['expected_cost']['model_calls']} "
               f"calls (exhaustive {window_plan['exhaustive_control']['model_calls']}); "
               f"{window_plan['coverage']['fraction']:.0%} temporal coverage")
@@ -4093,6 +4176,13 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
         else:
             print("  Transcript: (none)")
 
+        # The adaptive plan joins the objects-layer inputs only in
+        # adaptive mode: in dense mode the inputs stay exactly the
+        # incumbent's, so existing layer digests (and caches) are untouched.
+        objects_inputs = {"duration_s": duration,
+                          "still_viewer": still_viewer}
+        if frame_sampling_plan is not None:
+            objects_inputs["frame_sampling_plan"] = frame_sampling_plan
         layer_cache = measurement_layers.LayerCache.for_source(
             clip_path, layer_methods, {
                 "windows": {
@@ -4102,8 +4192,7 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                     "transcript": transcript or "",
                     "schedule_plan": window_plan,
                 },
-                "objects": {"duration_s": duration,
-                            "still_viewer": still_viewer},
+                "objects": objects_inputs,
                 "picture": {"duration_s": duration},
             }, force=force)
         cached = {
@@ -4118,9 +4207,18 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
 
         frames = None
         if cached.get("objects") is None:
-            frames = extract_frames(clip_path, duration, cache_dir)
-            print(f"  Frames extracted: {len(frames)} "
-                  f"(every {COARSE_FRAME_INTERVAL_S}s)")
+            if frame_sampling_plan is not None:
+                frames = extract_frames(
+                    clip_path, duration, cache_dir,
+                    sample_times=frame_sampling_plan["selected_source_times"],
+                    policy_version=FRAME_SAMPLING_POLICY_VERSION)
+                frame_sampling_plan["frames_actually_extracted"] = len(frames)
+                print(f"  Frames extracted: {len(frames)} "
+                      f"(adaptive budget {frame_sampling_plan['budget_frames']})")
+            else:
+                frames = extract_frames(clip_path, duration, cache_dir)
+                print(f"  Frames extracted: {len(frames)} "
+                      f"(every {COARSE_FRAME_INTERVAL_S}s)")
         reset_ffprobe_spawn_count()
         extraction_started = time.perf_counter()
         video_clips = []
@@ -4184,6 +4282,7 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
             "transcript": transcript or "",
             "temporal_index": temporal_index, "frames": frames or [],
             "window_plan": window_plan,
+            "frame_sampling_plan": frame_sampling_plan,
             "video_clips": video_clips, "layer_cache": layer_cache,
             "windows_cached": cached.get("windows"),
             "objects_cached": cached.get("objects"),
@@ -4204,10 +4303,12 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
 
 
 def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
-                                layer_methods, force, still_viewer):
+                                 layer_methods, force, still_viewer,
+                                 frame_sampling="dense"):
     """Analyze every host-driven clip through the global two-lane schedule."""
     entries, contexts, skipped = _prepare_host_semantic_contexts(
-        clips, cache_dir, output_dir, layer_methods, force, still_viewer)
+        clips, cache_dir, output_dir, layer_methods, force, still_viewer,
+        frame_sampling)
     if contexts:
         has_model_work = any(
             (context["windows_cached"] is None
@@ -4238,7 +4339,8 @@ def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
                 resolved_analyzer, context["meta"], None, [],
                 context["transcript"], context["temporal_index"],
                 context["cache_dir"], layer_cache=context["layer_cache"],
-                precomputed_layers=cached_layers)
+                precomputed_layers=cached_layers,
+                frame_sampling_plan=context["frame_sampling_plan"])
             profile.setdefault("analysis_metadata", {}).update({
                 "semantic_window_plan": context["window_plan"],
                 "window_extraction_wall_s": (
@@ -4310,7 +4412,7 @@ def write_scene_memory(clip_path, profile, temporal_index, root=None):
 
 
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
-                 harness=None, project_folder=None):
+                 harness=None, project_folder=None, frame_sampling="dense"):
     """Run the v3 vision pipeline on a list of clip paths.
 
     Args:
@@ -4326,6 +4428,10 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
         project_folder: Project folder retained for the analyzer's other
             project-scoped context; still-image calls no longer file a
             handshake.
+        frame_sampling: Coarse-still schedule - "dense" keeps the
+            incumbent fixed-interval grid, "adaptive" decodes the
+            policy-selected source timestamps instead. Unknown values
+            are refused.
     """
     # Absolute before anything joins them: the direct still call carries
     # frame paths to Codex, and it refuses a relative one. The default
@@ -4337,6 +4443,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    frame_sampling = _resolve_frame_sampling(frame_sampling)
 
     all_profiles = []
     total_start = time.time()
@@ -4355,7 +4462,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
         with _LazyAnalyzer(harness, project_folder) as analyzer:
             all_profiles, skipped = _run_host_semantic_pipeline(
                 analyzer, clips, cache_dir, output_dir, layer_methods,
-                force, still_viewer)
+                force, still_viewer, frame_sampling)
         return _write_vision_index(
             all_profiles, skipped, total_start, output_dir)
 
@@ -4406,6 +4513,10 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             window_plan = plan_semantic_windows(
                 duration, activity_map_from_temporal_index(duration, temporal_idx),
                 window_seconds=ACTION_WINDOW_S)
+            frame_sampling_plan = None
+            if frame_sampling == "adaptive":
+                frame_sampling_plan = plan_coarse_frame_sampling(
+                    duration, meta.get("fps"), temporal_idx)
     
             # Load transcript
             transcript = load_transcript_text(clip_path, output_dir)
@@ -4424,8 +4535,14 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                         "transcript": transcript or "",
                         "schedule_plan": window_plan,
                     },
-                    "objects": {"duration_s": duration,
-                                "still_viewer": still_viewer},
+                    "objects": ({
+                        "duration_s": duration,
+                        "still_viewer": still_viewer,
+                        "frame_sampling_plan": frame_sampling_plan,
+                    } if frame_sampling_plan is not None else {
+                        "duration_s": duration,
+                        "still_viewer": still_viewer,
+                    }),
                     "picture": {"duration_s": duration},
                 }, force=force)
             cached_layers = {
@@ -4435,11 +4552,22 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                 print(f"  Measurement layers cached: "
                       f"{', '.join(sorted(cached_layers))}")
 
-            # Extract frames (for objects — 1 per 5s)
+            # Coarse stills for the objects pass: the incumbent
+            # fixed-interval grid unless adaptive is explicitly selected.
             frames = None
             if "objects" not in cached_layers:
-                frames = extract_frames(clip_path, duration, cache_dir)
-                print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
+                if frame_sampling_plan is not None:
+                    frames = extract_frames(
+                        clip_path, duration, cache_dir,
+                        sample_times=frame_sampling_plan["selected_source_times"],
+                        policy_version=FRAME_SAMPLING_POLICY_VERSION)
+                    frame_sampling_plan["frames_actually_extracted"] = len(frames)
+                    print(f"  Frames extracted: {len(frames)} "
+                          f"(adaptive budget {frame_sampling_plan['budget_frames']})")
+                else:
+                    frames = extract_frames(clip_path, duration, cache_dir)
+                    print(f"  Frames extracted: {len(frames)} "
+                          f"(every {COARSE_FRAME_INTERVAL_S}s)")
 
             # Start the bounded window producer before inference. It
             # keeps one cut ahead while `analyze_windows` consumes clips
@@ -4460,6 +4588,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                     analyzer, meta, frames, video_clips, transcript,
                     temporal_idx, cache_dir, layer_cache=layer_cache,
                     still_executor="local",
+                    frame_sampling_plan=frame_sampling_plan,
                 )
             finally:
                 if isinstance(video_clips, _WindowClipPrefetch):
@@ -4534,8 +4663,13 @@ def main():
                              "PIPELINE_HOST_HARNESS, and with no host "
                              "the still passes stay on gemma")
     parser.add_argument("--project-folder", type=str, default=None,
-                        help="Project folder passed through to still-vision "
-                             "callers")
+                         help="Project folder passed through to still-vision "
+                              "callers")
+    parser.add_argument("--frame-sampling", type=str, default="dense",
+                         choices=list(FRAME_SAMPLING_MODES),
+                         help="Coarse-still schedule: dense keeps the "
+                              "incumbent fixed-interval grid; adaptive "
+                              "decodes policy-selected source timestamps")
     args = parser.parse_args()
 
     if args.clip:
@@ -4558,6 +4692,7 @@ def main():
         force=args.force,
         harness=args.harness,
         project_folder=args.project_folder,
+        frame_sampling=args.frame_sampling,
     )
 
 

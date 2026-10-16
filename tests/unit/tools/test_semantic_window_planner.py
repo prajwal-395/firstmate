@@ -68,6 +68,20 @@ def test_temporal_energy_curve_is_a_normalized_audio_activity_proxy():
     assert "not absolute loudness" in activity["audio_activity_source"]
 
 
+def test_temporal_motion_and_optical_flow_are_accepted_from_published_fields():
+    activity = activity_map_from_temporal_index(2.0, {
+        "motion_energy": {"sample_rate_hz": 1, "values": [0.1, 0.9]},
+        "optical_flow_direction": {"sample_rate_hz": 1,
+                                    "values": [{"magnitude": .2},
+                                               {"magnitude": .8}]},
+    })
+
+    assert activity["bins"][0]["signals"]["motion"]["coverage_status"] == "measured"
+    assert activity["bins"][1]["signals"]["motion"]["coverage_status"] == "measured"
+    assert activity["bins"][1]["signals"]["novelty"]["coverage_status"] == "measured"
+    assert activity["bins"][0]["signals"]["motion"]["value"] == .1
+
+
 def test_task_profile_changes_window_priority_deterministically():
     activity = _activity(100, [15, 45])
     activity["bins"][15]["signals"]["motion"]["normalized"] = 0.0

@@ -1584,6 +1584,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # change which source windows reach the cached VLM analysis.
         "library/tools/semantic_window_planner.py",
         "library/tools/content_activity.py",
+        # Imported by vision_pipeline_v3: the opt-in source-frame sampling
+        # policy behind --frame-sampling adaptive, so a fix here changes
+        # which stills the cached objects[] were seen by in that mode.
+        "library/tools/adaptive_frame_sampling.py",
         # The model run is serialized against other local heavy work.
         "library/tools/heavy_work_lock.py",
         # Imported by heavy_work_lock: admits it by resource demand.
