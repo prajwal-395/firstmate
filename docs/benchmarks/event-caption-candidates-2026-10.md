@@ -1,10 +1,11 @@
 # Event-caption candidates: license findings and adoption decisions (SEM-018..020, SEM-025)
 
 Status 2026-10-16: harness, adapter, and comparison tooling are landed and
-tested; agent labels are pending from firstmate (`label-request.md` in this
-lane's data dir); no candidate has measured quality numbers yet. Nothing
-below invents a measurement. This record covers technical comparison scope
-and evidence grounding only. It does not assess editorial quality.
+tested. Calibration agent labels and initial incumbent/one-pass measurements
+are recorded in [`event-caption-benchmark-2026-10.md`](event-caption-benchmark-2026-10.md).
+Exact lexical matching produced no matches and cannot establish semantic
+caption quality. This record covers technical comparison scope and evidence
+grounding only. It does not assess editorial quality.
 
 ## Incumbent baseline (retain)
 
@@ -15,11 +16,26 @@ and evidence grounding only. It does not assess editorial quality.
   (`gemma_windows_to_events`, revision `event_caption_adapter/1`) emits one
   event per action with window + reconstructed-plan frame evidence
   (SEM-023/024). Scene/camera/assessment prose is never converted to events.
-- Decision: **retain baseline**. No challenger has a measured scorecard, so
-  per ARCH-004/005 nothing replaces it. No default or schema changed.
-- Pending (needs labels, then a model pass): SEM-017 incumbent recall on
-  calibration; SEM-021 sequential vs parallel with equivalent sampling/input
-  via `compare_modes`; SEM-022 one-pass replacement. Execution protocol:
+- Decision: **retain baseline**. The first exact-action comparison gives
+  0 matches for both the incumbent and events-only prompt under raw A, raw B,
+  and adjudicated references. This is a limitation of the exact lexical
+  matcher, not evidence of zero semantic accuracy. No default or schema
+  changed.
+- Measured: SEM-017 ran on 30 calibration windows, 30/30 parsed, 1336.8 s,
+  cold load 40.7 s, 1.0 GB process RSS (but the process's unified-memory
+  footprint measured 7.54 GB during a later failed rerun). SEM-022's
+  events-only pass parsed 25/30 in 1859.2 s, cold load 48.9 s, 0.92 GB RSS.
+  It is slower with five parse failures, so it is not adopted. Reproducible
+  details and the failed rerun are in the benchmark report.
+- SEM-021 parallel comparison was not completed: two concurrent shards
+  previously drove system swap to 32.2/32.8 GB and were killed. Do not retry
+  concurrent same-model shards; require a measured admission reservation
+  before considering a parallel run.
+- Remaining candidate work: SEM-018 PadCaptioner is not fetched until its
+  checkpoint and base permissions are verified; SEM-019 CapRL is
+  research-only and was not downloaded; no candidate precision comparison
+  or candidate adoption is claimed. Execution protocol for any later
+  comparable run:
   same windows, same sampling plan, wall-clock both, freeze one
   `ren_evaluation_report/1` per mode/split with
   `build_evaluation_report`, aggregate with
