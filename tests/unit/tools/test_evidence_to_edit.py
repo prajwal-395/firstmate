@@ -235,6 +235,43 @@ def test_speaker_camera_requires_face_backed_speaking_spans():
                                   "evidence_ids": ["speak-b", "face-b"]}}}}
 
 
+def test_speaker_camera_exposes_lrasd_as_read_only_candidate():
+    relation = {
+        "subject_id": "entity-speaker-1",
+        "predicate": "speaking_person_candidate",
+        "object_id": "entity-visible-1",
+        "interval": {"clock_id": "camera-clock", "start": 12000,
+                     "end": 15000},
+        "confidence": 0.73,
+        "evidence_ids": ["obs-lrasd-1"],
+        "status": "candidate",
+    }
+    answer = {
+        "present_intervals": [],
+        "speaker_camera_candidates": [relation],
+        "clocks": [{"id": "camera-clock",
+                    "domain": {"asset_id": "asset-camera"}}],
+        "assets": [{"id": "asset-camera", "uri": "/camera-b.mxf"}],
+    }
+
+    result = runner._speaker_camera_mapping(answer, ["voice_001"])
+
+    assert result["status"] == "candidate"
+    assert result["speaker_to_camera_candidates"] == [{
+        "speaker_entity_id": "entity-speaker-1",
+        "speaker_track_id": None,
+        "visible_person_entity_id": "entity-visible-1",
+        "camera_asset_id": "asset-camera",
+        "camera_uri": "/camera-b.mxf",
+        "source_clock_id": "camera-clock",
+        "source_start": 12000,
+        "source_end": 15000,
+        "candidate_status": "candidate",
+        "raw_lr_asd_score": 0.73,
+        "evidence_ids": ["obs-lrasd-1"],
+    }]
+
+
 def test_object_evidence_cannot_be_assumed_to_prove_an_action(tmp_path):
     task = _brief(task_id="visual-action-object-cut",
                   task_types=("visual_action", "visual_object"),
@@ -636,3 +673,357 @@ def test_inflight_scorers_report_pending_without_guessed_values(tmp_path):
 
     assert status["EVAL-02"]["state"] == "pending"
     assert status["EVAL-03"]["state"] == "pending"
+
+
+def _face_row(evidence_id, asset_id, start_ms, end_ms, box):
+    face = None if box is None else {"box": list(box)}
+    return {"evidence_id": evidence_id,
+            "measurement_type": "person.face_frame",
+            "value": {"face_index": 0, "face": face, "hands": []},
+            "asset_id": asset_id,
+            "interval": {"clock_id": asset_id, "start": start_ms,
+                         "end": end_ms}}
+
+
+def _span_row(evidence_id, asset_id, start_ms, end_ms, voice, face):
+    return {"evidence_id": evidence_id,
+            "measurement_type": "event.speaking_span",
+            "value": {"voice_track": voice, "face_track": face},
+            "asset_id": asset_id,
+            "interval": {"clock_id": asset_id, "start": start_ms,
+                         "end": end_ms}}
+
+
+def _word_row(evidence_id, start_ms, end_ms, text="hello"):
+    return {"evidence_id": evidence_id, "measurement_type": "speech.word",
+            "value": {"text": text}, "asset_id": "cam-a",
+            "interval": {"start": start_ms, "end": end_ms}}
+
+
+def _turn_row(evidence_id, start_ms, end_ms, voice, clock_id=None):
+    interval = {"start": start_ms, "end": end_ms}
+    if clock_id is not None:
+        interval["clock_id"] = clock_id
+    return {"evidence_id": evidence_id,
+            "measurement_type": "person.voice_turn",
+            "value": {"voice_track": voice}, "asset_id": "cam-a",
+            "interval": interval}
+
+
+def _sync_row(evidence_id, clock_id, offset):
+    return {"evidence_id": evidence_id,
+            "measurement_type": "sync.multicam_offset",
+            "value": {"offset_to_reference_seconds": offset},
+            "asset_id": "cam-b",
+            "interval": {"clock_id": clock_id, "start": 0, "end": 20000}}
+
+
+def test_face_geometry_rejects_anything_that_is_not_a_measurement():
+    assert runner._face_geometry({"face": None}) is None
+    assert runner._face_geometry({"face": {"box": [0.5, 0.2, 0.4, 0.5]}}) is None
+    assert runner._face_geometry({"face": {"box": [-0.1, 0.2, 0.5, 0.5]}}) is None
+    assert runner._face_geometry({"face": {"box": "wide"}}) is None
+    assert runner._face_geometry("close-up") is None
+
+    width, centre = runner._face_geometry(
+        {"face": {"box": [0.5, 0.2, 0.65, 0.5]}})
+    assert (round(width, 3), round(centre, 3)) == (0.15, 0.575)
+
+
+def test_face_scale_boundaries_are_pinned():
+    assert runner._face_scale(0.12) == "close"
+    assert runner._face_scale(0.119) == "medium"
+    assert runner._face_scale(0.04) == "medium"
+    assert runner._face_scale(0.039) == "wide"
+
+
+def test_framing_with_too_few_samples_stays_unknown():
+    answer = {"present_intervals": [{
+        "plan": "speaker_camera", "measurements": [
+            _face_row("f1", "cam-a", 12100, 12200,
+                      [0.5, 0.2, 0.65, 0.5]),
+            _face_row("f2", "cam-a", 12500, 12600,
+                      [0.5, 0.2, 0.65, 0.5]),
+        ]}]}
+
+    framing = runner.measure_camera_framing(answer, 12.0, 18.0)
+
+    assert framing["cameras"]["cam-a"]["status"] == "unknown"
+    assert "face_scale" not in framing["cameras"]["cam-a"]
+
+
+def test_framing_measures_absence_instead_of_inferring_presence():
+    answer = {"present_intervals": [{
+        "plan": "speaker_camera", "measurements": [
+            _face_row(f"f{i}", "cam-a", 12100 + i * 400, 12200 + i * 400,
+                      None) for i in range(4)]}]}
+
+    framing = runner.measure_camera_framing(answer, 12.0, 18.0)
+
+    camera = framing["cameras"]["cam-a"]
+    assert camera["status"] == "measured"
+    assert camera["face_scale"] == "no_face"
+    assert camera["face_fraction"] == 0.0
+
+
+def test_framing_reports_median_scale_side_and_provenance():
+    faces = [_face_row(f"a{i}", "cam-a", 12100 + i * 400, 12200 + i * 400,
+                       [0.5, 0.2, 0.65, 0.5]) for i in range(4)]
+    faces += [_face_row(f"b{i}", "cam-b", 15000 + i * 400, 15100 + i * 400,
+                        [0.3, 0.2, 0.36, 0.5]) for i in range(4)]
+    faces.append(_face_row("orphan", None, 13000, 13100,
+                           [0.5, 0.2, 0.65, 0.5]))
+    answer = {"present_intervals": [
+        {"plan": "speaker_camera", "measurements": faces}]}
+
+    framing = runner.measure_camera_framing(answer, 12.0, 18.0)
+
+    assert framing["cameras"]["cam-a"]["face_scale"] == "close"
+    assert framing["cameras"]["cam-a"]["subject_position"] == "right"
+    assert framing["cameras"]["cam-b"]["face_scale"] == "medium"
+    assert framing["cameras"]["cam-b"]["subject_position"] == "left"
+    assert "None" not in framing["cameras"]
+    assert len(framing["measurements"]) == 8
+    assert "orphan" not in framing["evidence_ids"]
+
+
+def test_framing_compatibility_grades_every_pair_shape():
+    def measured(scale, side):
+        return {"status": "measured", "face_scale": scale,
+                "subject_position": side, "evidence_ids": ["f1"]}
+
+    framing = {"cameras": {
+        "cam-a": measured("close", "right"),
+        "cam-b": measured("medium", "left"),
+        "cam-c": measured("close", "right"),
+        "cam-d": measured("no_face", "unclear"),
+        "cam-e": {"status": "unknown", "evidence_ids": []},
+    }, "evidence_ids": ["f1"]}
+
+    verdicts = {(row["camera_a"], row["camera_b"]): row["verdict"]
+                for row in runner.framing_compatibility(framing)["pairs"]}
+
+    assert verdicts[("cam-a", "cam-b")] == "compatible"
+    assert verdicts[("cam-a", "cam-c")] == "same_framing"
+    assert verdicts[("cam-a", "cam-d")] == "incompatible"
+    assert verdicts[("cam-a", "cam-e")] == "unknown"
+
+
+def test_camera_preferences_are_validated_not_half_read():
+    assert runner.normalize_camera_preferences(None) == {
+        "status": "no_preference"}
+    assert runner.normalize_camera_preferences({}) == {
+        "status": "no_preference"}
+    assert runner.normalize_camera_preferences(
+        {"preferred_camera": "cam-b"}) == {
+            "status": "prefer", "preferred_camera": "cam-b",
+            "avoid_cameras": []}
+
+    with pytest.raises(TypeError, match="must be an object"):
+        runner.normalize_camera_preferences("cam-b")
+    with pytest.raises(ValueError, match="mode"):
+        runner.normalize_camera_preferences({"mode": "always"})
+    with pytest.raises(ValueError, match="avoid_cameras"):
+        runner.normalize_camera_preferences({"avoid_cameras": "cam-b"})
+
+
+def _switch_fixture():
+    words = [_word_row("w1", 12000, 12400), _word_row("w2", 13000, 13400),
+             _word_row("w3", 14600, 15000), _word_row("w4", 16000, 16400)]
+    exchange = {
+        "speakers": ["voice_001", "voice_002"],
+        "evidence": [{"evidence_id": "w1"}, "w2"],
+        "turns": [{"speaker": "voice_001", "start": 12.0, "end": 14.0},
+                  {"speaker": "voice_002", "start": 14.6, "end": 17.0,
+                   "clock_id": "cam-b"}],
+    }
+    answer = {"present_intervals": [
+        {"plan": "speech_attributed", "measurements": words},
+        {"plan": "multicam_sync",
+         "measurements": [_sync_row("sync-b", "cam-b", -0.3)]}],
+        "assets": [{"id": "cam-b", "uri": "/media/cam-b.mxf"}]}
+    framing = {"cameras": {
+        "cam-a": {"status": "measured", "face_scale": "close",
+                  "subject_position": "right", "evidence_ids": ["fa"]},
+        "cam-b": {"status": "measured", "face_scale": "medium",
+                  "subject_position": "left", "evidence_ids": ["fb"]},
+    }, "evidence_ids": ["fa", "fb"]}
+    mapped = {"status": "mapped", "speaker_to_camera": {
+        "voice_001": {"cam-a": {"face_track": "face_1",
+                                "evidence_ids": ["s1"]}},
+        "voice_002": {"cam-b": {"face_track": "face_2",
+                                "evidence_ids": ["s2"]}}}}
+    return exchange, answer, framing, mapped
+
+
+def test_switch_plan_names_the_mapped_camera_inside_the_word_gap():
+    exchange, answer, framing, mapped = _switch_fixture()
+
+    switches = runner.plan_camera_switches(
+        exchange, answer, mapped, framing,
+        {"status": "no_preference"}, 12.0, 18.0)
+
+    assert len(switches) == 1
+    switch = switches[0]
+    assert switch["recommended_camera"] == "/media/cam-b.mxf"
+    assert switch["recommended_camera_asset_id"] == "cam-b"
+    assert (switch["safe_switch_start_seconds"],
+            switch["safe_switch_end_seconds"]) == (13.4, 14.6)
+    assert switch["reference_change_seconds"] == 14.3
+    assert switch["reference_window"] == [13.1, 14.3]
+    assert switch["framing_verdict"] == "compatible"
+    assert switch["confidence"] == "high"
+    assert {"w1", "w2", "fb"} <= set(switch["evidence_ids"])
+    continuity = switch["continuity"]
+    assert continuity["subject_correct"] is True
+    assert continuity["dialogue_continuous"] is True
+    assert continuity["eyeline_continuous"] is None
+    assert continuity["axis_continuous"] is None
+    assert continuity["framing_compatible"] is True
+
+
+def test_switch_plan_never_spends_an_unverified_candidate():
+    exchange, answer, framing, _ = _switch_fixture()
+    candidate = {"status": "candidate", "speaker_to_camera_candidates": []}
+
+    switches = runner.plan_camera_switches(
+        exchange, answer, candidate, framing,
+        {"status": "no_preference"}, 12.0, 18.0)
+
+    assert switches[0]["recommended_camera"] == "no_switch"
+    assert "candidate" in switches[0]["no_switch_reason"]
+    assert switches[0]["continuity"]["subject_correct"] is None
+
+
+def test_switch_plan_refuses_a_gap_that_would_clip_a_word():
+    exchange, answer, framing, mapped = _switch_fixture()
+    answer["present_intervals"][0]["measurements"] = [
+        _word_row("w1", 12000, 14500), _word_row("w3", 14600, 15000)]
+
+    switches = runner.plan_camera_switches(
+        exchange, answer, mapped, framing,
+        {"status": "no_preference"}, 12.0, 18.0)
+
+    assert switches[0]["recommended_camera"] == "no_switch"
+    assert "clipped word" in switches[0]["no_switch_reason"]
+
+
+def test_switch_plan_honours_a_required_camera_avoidance():
+    exchange, answer, framing, mapped = _switch_fixture()
+    required = {"status": "require", "preferred_camera": None,
+                "avoid_cameras": ["cam-b"]}
+
+    switches = runner.plan_camera_switches(
+        exchange, answer, mapped, framing, required, 12.0, 18.0)
+
+    assert switches[0]["recommended_camera"] == "no_switch"
+    assert "avoided" in switches[0]["no_switch_reason"]
+
+
+def test_switch_plan_refuses_a_target_angle_with_no_face():
+    exchange, answer, framing, mapped = _switch_fixture()
+    framing["cameras"]["cam-b"] = {
+        "status": "measured", "face_scale": "no_face",
+        "subject_position": "unclear", "evidence_ids": ["fb"]}
+
+    switches = runner.plan_camera_switches(
+        exchange, answer, mapped, framing,
+        {"status": "no_preference"}, 12.0, 18.0)
+
+    assert switches[0]["recommended_camera"] == "no_switch"
+    assert "no face" in switches[0]["no_switch_reason"]
+
+
+def test_switch_score_reports_timing_and_subject_hits():
+    predicted = [
+        {"speaker_change_seconds": 14.6, "recommended_camera": "/cam-b.mxf"},
+        {"speaker_change_seconds": 30.0, "recommended_camera": "/cam-a.mxf"},
+    ]
+    reference = {"switches": [
+        {"speaker_change_seconds": 14.7,
+         "safe_switch_start_seconds": 13.4,
+         "safe_switch_end_seconds": 14.8,
+         "recommended_camera": "/cam-b.mxf"},
+        {"speaker_change_seconds": 40.0,
+         "safe_switch_start_seconds": 39.5,
+         "safe_switch_end_seconds": 40.5,
+         "recommended_camera": "/cam-b.mxf"},
+    ]}
+
+    score = runner.score_multicam_switches(predicted, reference)
+
+    assert score["status"] == "scored"
+    assert score["timing_hits"] == 1
+    assert score["timing_accuracy"] == 0.5
+    assert score["subject_correct_count"] == 1
+    assert score["mean_abs_timing_error_s"] == 5.05
+    assert score["unmatched_reference_count"] == 0
+
+
+def test_switch_score_says_unscorable_on_window_style_edits():
+    assert runner.score_multicam_switches([], None)["status"] == "unscorable"
+    assert runner.score_multicam_switches(
+        [], {"cuts": [{"source_id": "LCATL0012"}]})["status"] == "unscorable"
+    assert runner.score_multicam_switches([], [])["reason"].endswith(
+        "switch list is empty")
+
+
+def test_ground_cuts_carries_framing_switches_and_preferences():
+    words = [_word_row("w1", 12000, 12400, "hello"),
+             _word_row("w2", 13000, 13400, "there"),
+             _word_row("w3", 14600, 15000, "yes"),
+             _word_row("w4", 16000, 16400, "indeed")]
+    turns = [_turn_row("t1", 12000, 14000, "voice_001"),
+             _turn_row("t2", 14600, 17000, "voice_002")]
+    faces = [_face_row(f"a{i}", "cam-a", 12100 + i * 400, 12200 + i * 400,
+                       [0.5, 0.2, 0.65, 0.5]) for i in range(4)]
+    faces += [_face_row(f"b{i}", "cam-b", 15000 + i * 400, 15100 + i * 400,
+                        [0.3, 0.2, 0.36, 0.5]) for i in range(4)]
+    spans = [_span_row("s1", "cam-a", 12000, 14000, "voice_001", "face_1"),
+             _span_row("s2", "cam-b", 14600, 17000, "voice_002", "face_2")]
+    answer = {
+        "present_intervals": [
+            {"plan": "speech_attributed", "clock_id": "cam-a",
+             "start_seconds": 10.0,
+             "end_seconds": 20.0,
+             "evidence_ids": [row["evidence_id"] for row in words + turns],
+             "measurements": words + turns},
+            {"plan": "speaker_camera", "clock_id": "cam-a",
+             "start_seconds": 10.0,
+             "end_seconds": 20.0,
+             "evidence_ids": [row["evidence_id"] for row in faces + spans],
+             "measurements": faces + spans},
+        ],
+        "assets": [{"id": "cam-a", "uri": "/media/cam-a.mxf"},
+                   {"id": "cam-b", "uri": "/media/cam-b.mxf"}],
+    }
+    task = _brief()
+    task["brief"]["camera_preferences"] = {"preferred_camera": "cam-b"}
+
+    cuts, abstentions = runner.ground_cuts(
+        task, task["task_types"], {"m1": answer}, [])
+
+    assert abstentions == []
+    assert len(cuts) == 1
+    reason = cuts[0]["reason"]
+    assert reason["camera_selection"]["status"] == "mapped"
+    assert reason["framing"]["cameras"]["cam-a"]["face_scale"] == "close"
+    assert reason["framing"]["cameras"]["cam-b"]["face_scale"] == "medium"
+    assert len(reason["switch_plan"]) == 1
+    assert reason["switch_plan"][0][
+        "recommended_camera_asset_id"] == "cam-b"
+    assert reason["camera_preferences"] == {
+        "status": "prefer", "preferred_camera": "cam-b",
+        "avoid_cameras": []}
+    assert {row["measurement_type"] for row in
+            reason["technical_measurements"]} == {"person.face_frame",
+                                                 "event.speaking_span"}
+
+
+def test_ground_cuts_refuses_a_malformed_camera_preference():
+    task = _brief()
+    task["brief"]["camera_preferences"] = {"mode": "always"}
+    answer = {"present_intervals": []}
+
+    with pytest.raises(ValueError, match="mode"):
+        runner.ground_cuts(task, task["task_types"], {"m1": answer}, [])

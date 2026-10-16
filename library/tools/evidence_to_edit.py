@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -306,7 +307,42 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
             [f"acquisition:{plan_name}:{acquisition['action']}",
              f"project_model:{model.get('id', 'unidentified')}"],
             "bounded_acquisition"))
-    return rows, {"statuses": statuses, "present_intervals": present_intervals}
+    # M10 owns these relation candidates. Carry them through as read-only
+    # hypotheses so the editor can suggest an angle without treating LR-ASD
+    # output as a verified speaker-to-camera mapping.
+    voice_observation_ids = {
+        row["evidence_id"]
+        for item in present_intervals if item["plan"] == "speech_attributed"
+        for row in item["measurements"]
+        if row["measurement_type"] == "person.voice_turn"
+    }
+    voice_entities = {
+        link["entity_id"] for link in model.get("identity_links", [])
+        if link.get("observation_id") in voice_observation_ids
+        and isinstance(link.get("entity_id"), str)
+    }
+    voice_track_by_entity = {
+        link["entity_id"]: measurement["value"]["voice_track"]
+        for item in present_intervals if item["plan"] == "speech_attributed"
+        for measurement in item["measurements"]
+        if measurement["measurement_type"] == "person.voice_turn"
+        and isinstance(measurement.get("value"), dict)
+        and isinstance(measurement["value"].get("voice_track"), str)
+        for link in model.get("identity_links", [])
+        if link.get("observation_id") == measurement["evidence_id"]
+        and isinstance(link.get("entity_id"), str)
+    }
+    speaker_camera_candidates = [
+        relation for relation in model.get("relations", [])
+        if relation.get("predicate") == "speaking_person_candidate"
+        and relation.get("status") == "candidate"
+        and relation.get("subject_id") in voice_entities
+    ]
+    return rows, {"statuses": statuses, "present_intervals": present_intervals,
+                  "speaker_camera_candidates": speaker_camera_candidates,
+                  "speaker_track_by_entity": voice_track_by_entity,
+                  "clocks": model.get("clocks", []),
+                  "assets": model.get("assets", [])}
 
 
 def consult_edit_points(model: dict[str, Any]) -> tuple[list[dict[str, Any]],
@@ -384,11 +420,12 @@ def _dialogue_exchange(answer: dict[str, Any], start: float, end: float
             continue
         turns.append({"id": evidence_id, "speaker": value["voice_track"],
                       "start": max(start, turn_start),
-                      "end": min(end, turn_end)})
+                      "end": min(end, turn_end),
+                      "clock_id": interval.get("clock_id")})
     turns.sort(key=lambda row: (row["start"], row["end"], row["speaker"]))
 
     exchanges = []
-    for question, response in zip(turns, turns[1:]):
+    for question, response in pairwise(turns):
         gap = response["start"] - question["end"]
         if (question["speaker"] == response["speaker"] or gap < 0
                 or gap > 12.0):
@@ -412,7 +449,8 @@ def _dialogue_exchange(answer: dict[str, Any], start: float, end: float
                           "end_seconds": response["end"],
                           "evidence": evidence,
                           "speakers": [question["speaker"],
-                                       response["speaker"]]})
+                                       response["speaker"]],
+                          "turns": [question, response]})
     if not exchanges:
         return None
     exchanges.sort(key=lambda row: (
@@ -458,12 +496,635 @@ def _speaker_camera_mapping(answer: dict[str, Any],
                         "face_track": value["face_track"],
                         "evidence_ids": [row["evidence_id"], *[
                             face["evidence_id"] for face in face_evidence]]}
-    if any(speaker not in evidence for speaker in speakers):
-        return {"status": "abstained",
-                "reason": "no measured voice-to-visible-face mapping for "
-                          "every exchange speaker"}
-    return {"status": "mapped", "speaker_to_camera": {
-        speaker: evidence[speaker] for speaker in speakers}}
+    if all(speaker in evidence for speaker in speakers):
+        return {"status": "mapped", "speaker_to_camera": {
+            speaker: evidence[speaker] for speaker in speakers}}
+
+    candidates = answer.get("speaker_camera_candidates", [])
+    candidate_rows = []
+    for relation in candidates:
+        interval = relation["interval"]
+        clock = next((row for row in answer.get("clocks", [])
+                      if row["id"] == interval["clock_id"]), None)
+        asset_id = (clock or {}).get("domain", {}).get("asset_id")
+        asset = next((row for row in answer.get("assets", [])
+                      if row["id"] == asset_id), None)
+        candidate_rows.append({
+            "speaker_entity_id": relation["subject_id"],
+            "speaker_track_id": answer.get("speaker_track_by_entity", {}).get(
+                relation["subject_id"]),
+            "visible_person_entity_id": relation["object_id"],
+            "camera_asset_id": asset_id,
+            "camera_uri": (asset or {}).get("uri"),
+            "source_clock_id": interval["clock_id"],
+            "source_start": interval["start"],
+            "source_end": interval["end"],
+            "candidate_status": relation["status"],
+            "raw_lr_asd_score": relation["confidence"],
+            "evidence_ids": relation["evidence_ids"],
+        })
+    if candidate_rows:
+        return {"status": "candidate", "speaker_to_camera_candidates":
+                candidate_rows,
+                "reason": "M10 LR-ASD candidates are suggestions, not "
+                          "verified speaker-to-camera mappings"}
+    return {"status": "abstained",
+            "reason": "no measured voice-to-visible-face mapping or "
+                      "speaker-to-camera candidate for every exchange speaker"}
+
+
+# ── Multicamera framing, switch planning, continuity, scoring (F06) ────
+#
+# The shared source-time reference arrives through clock-pinned query
+# scopes and M6 offsets (PR 2610); speaker-to-angle mapping arrives
+# through the face-backed check above or read-only M10 LR-ASD
+# candidates. What remains is everything a switch decision needs:
+# what each camera shows, when a switch is word-safe, whether the
+# cut preserves continuity, and how the plan scores against labels.
+
+MIN_FRAMING_SAMPLES = 4
+"""Face samples per camera in the span before composition is measured."""
+
+FACE_CLOSE_WIDTH = 0.12
+FACE_MEDIUM_WIDTH = 0.04
+"""Provisional shot-scale boundaries on median face width as a fraction
+of the image width (close >= 0.12, medium >= 0.04, else wide). Set from
+detector geometry, not from footage: the blind camera-identity
+packet (blind-packet.md) carries the wide/medium/close labels these
+calibrate against when they land."""
+
+MIN_SWITCH_GAP_S = 0.12
+"""A switch window narrower than this cannot hold a cut without
+risking a clipped word edge, so the planner emits no_switch."""
+
+SWITCH_SCORE_TOLERANCE_S = 0.5
+"""A predicted speaker change within this of the reference change
+counts as a timing hit; the absolute error is still reported."""
+
+
+def _face_geometry(value: Any) -> tuple[float, float] | None:
+    """Median-ready (width, centre-x) from one face_frame value.
+
+    The value is ``{"face_index", "face", "hands"}``; ``face`` is None
+    for a measured absence and otherwise carries a normalized
+    ``box`` [x1, y1, x2, y2]. Anything else is not a measurement.
+    """
+    if not isinstance(value, dict):
+        return None
+    face = value.get("face")
+    if not isinstance(face, dict):
+        return None
+    box = face.get("box")
+    if (not isinstance(box, (list, tuple)) or len(box) != 4
+            or not all(isinstance(edge, (int, float))
+                       and not isinstance(edge, bool) for edge in box)):
+        return None
+    x1, _, x2, _ = (float(edge) for edge in box)
+    if not 0.0 <= x1 < x2 <= 1.0:
+        return None
+    return (x2 - x1, (x1 + x2) / 2.0)
+
+
+def _face_scale(width: float) -> str:
+    if width >= FACE_CLOSE_WIDTH:
+        return "close"
+    if width >= FACE_MEDIUM_WIDTH:
+        return "medium"
+    return "wide"
+
+
+def _frame_side(position: float) -> str:
+    from library.tools.subject_framing import CENTRE_DEADBAND
+
+    if position < 0.5 - CENTRE_DEADBAND:
+        return "left"
+    if position > 0.5 + CENTRE_DEADBAND:
+        return "right"
+    return "centre"
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def measure_camera_framing(answer: dict[str, Any], start_s: float,
+                           end_s: float) -> dict[str, Any]:
+    """Measure shot composition per camera over one grounded span.
+
+    Reads only queried ``person.face_frame`` measurements overlapping
+    the span. A camera with too few samples is ``unknown``, never
+    assigned a scale; zero faces on enough samples is a measured
+    ``no_face`` scale (an empty chair or an off-screen speaker), not
+    an inference about what is there.
+    """
+    samples: dict[str, list[dict[str, Any]]] = {}
+    for present in answer.get("present_intervals", []):
+        if present.get("plan") != "speaker_camera":
+            continue
+        for row in present.get("measurements", []):
+            if row.get("measurement_type") != "person.face_frame":
+                continue
+            if row.get("asset_id") is None:
+                continue
+            interval = row.get("interval") or {}
+            item_start = interval.get("start")
+            item_end = interval.get("end")
+            if not isinstance(item_start, (int, float)) or not isinstance(
+                    item_end, (int, float)):
+                continue
+            item_start /= evidence_query.TICKS_PER_SECOND
+            item_end /= evidence_query.TICKS_PER_SECOND
+            if item_end <= start_s or item_start >= end_s:
+                continue
+            samples.setdefault(str(row.get("asset_id")), []).append(row)
+    cameras: dict[str, Any] = {}
+    evidence_ids: list[str] = []
+    face_rows: list[dict[str, Any]] = []
+    for asset_id, rows in sorted(samples.items()):
+        row_ids = [str(row.get("evidence_id")) for row in rows]
+        evidence_ids.extend(row_ids)
+        face_rows.extend(rows)
+        if len(rows) < MIN_FRAMING_SAMPLES:
+            cameras[asset_id] = {
+                "status": "unknown",
+                "reason": f"only {len(rows)} face sample(s) in the span, "
+                          f"need {MIN_FRAMING_SAMPLES}",
+                "sample_count": len(rows),
+                "evidence_ids": row_ids}
+            continue
+        geometries = [_face_geometry(row.get("value")) for row in rows]
+        present = [geometry for geometry in geometries
+                   if geometry is not None]
+        fraction = len(present) / len(rows)
+        if not present:
+            cameras[asset_id] = {
+                "status": "measured", "face_scale": "no_face",
+                "subject_position": "unclear",
+                "sample_count": len(rows), "face_fraction": 0.0,
+                "median_face_width": None, "median_center_x": None,
+                "evidence_ids": row_ids}
+            continue
+        widths = [geometry[0] for geometry in present]
+        centres = [geometry[1] for geometry in present]
+        median_width = _median(widths)
+        median_centre = _median(centres)
+        cameras[asset_id] = {
+            "status": "measured", "face_scale": _face_scale(median_width),
+            "subject_position": _frame_side(median_centre),
+            "sample_count": len(rows),
+            "face_fraction": round(fraction, 4),
+            "median_face_width": round(median_width, 4),
+            "median_center_x": round(median_centre, 4),
+            "evidence_ids": row_ids}
+    return {"cameras": cameras,
+            "evidence_ids": sorted(set(evidence_ids)),
+            "measurements": face_rows}
+
+
+def framing_compatibility(
+        framing: dict[str, Any]) -> dict[str, Any]:
+    """Pairwise framing verdicts over measured cameras.
+
+    ``compatible`` needs two measured single views that differ in
+    scale or side - the shot/reverse-shot a dialogue switch wants.
+    ``same_framing`` is compatible but unmotivated: the switch shows
+    the speaker without changing the picture. ``incompatible``
+    refuses: the target angle shows no face in the span. Anything
+    unmeasured is ``unknown``.
+    """
+    cameras = framing.get("cameras", {})
+    measured = {asset: row for asset, row in cameras.items()
+                if row.get("status") == "measured"}
+    pairs = []
+    assets = sorted(cameras)
+    for index, asset_a in enumerate(assets):
+        for asset_b in assets[index + 1:]:
+            row_a = cameras[asset_a]
+            row_b = cameras[asset_b]
+            if asset_a not in measured or asset_b not in measured:
+                missing = [asset for asset in (asset_a, asset_b)
+                           if asset not in measured]
+                pairs.append({
+                    "camera_a": asset_a, "camera_b": asset_b,
+                    "verdict": "unknown",
+                    "reason": f"unmeasured framing on {', '.join(missing)}",
+                    "evidence_ids": []})
+                continue
+            if row_a.get("face_scale") == "no_face" or row_b.get(
+                    "face_scale") == "no_face":
+                empty = [asset for asset, row in
+                         ((asset_a, row_a), (asset_b, row_b))
+                         if row.get("face_scale") == "no_face"]
+                pairs.append({
+                    "camera_a": asset_a, "camera_b": asset_b,
+                    "verdict": "incompatible",
+                    "reason": f"{', '.join(empty)} shows no face in "
+                              f"the span: nothing to cut to",
+                    "evidence_ids": sorted(set(
+                        row_a.get("evidence_ids", [])
+                        + row_b.get("evidence_ids", [])))})
+                continue
+            if (row_a.get("face_scale") == row_b.get("face_scale")
+                    and row_a.get("subject_position") == row_b.get(
+                        "subject_position")):
+                verdict = "same_framing"
+                reason = ("both angles show a "
+                          f"{row_a.get('face_scale')} "
+                          f"{row_a.get('subject_position')} subject: "
+                          f"a switch changes nothing in the picture")
+            else:
+                verdict = "compatible"
+                reason = (f"{asset_a} {row_a.get('face_scale')}/"
+                          f"{row_a.get('subject_position')} against "
+                          f"{asset_b} {row_b.get('face_scale')}/"
+                          f"{row_b.get('subject_position')}")
+            pairs.append({
+                "camera_a": asset_a, "camera_b": asset_b,
+                "verdict": verdict, "reason": reason,
+                "evidence_ids": sorted(set(row_a.get("evidence_ids", [])
+                                           + row_b.get("evidence_ids", [])))})
+    if len(assets) < 2:
+        note = ("single measured angle" if assets
+                else "no camera samples in the span")
+        return {"pairs": pairs, "note": f"{note}: nothing to switch between",
+                "evidence_ids": framing.get("evidence_ids", [])}
+    return {"pairs": pairs, "evidence_ids": framing.get("evidence_ids", [])}
+
+
+def normalize_camera_preferences(
+        value: Any) -> dict[str, Any]:
+    """Validate an optional brief ``camera_preferences`` declaration.
+
+    Accepted shape: ``{"preferred_camera": str, "avoid_cameras": [str],
+    "mode": "prefer"|"require"}``, every field optional. Absence means
+    no preference. Anything else is a tasking error and refuses: a
+    silently half-read preference would steer switches unasked.
+    """
+    if value is None:
+        return {"status": "no_preference"}
+    if not isinstance(value, dict):
+        raise TypeError("camera_preferences must be an object")
+    preferred = value.get("preferred_camera")
+    avoided = value.get("avoid_cameras", [])
+    mode = value.get("mode", "prefer")
+    if preferred is not None and not isinstance(preferred, str):
+        raise ValueError("camera_preferences.preferred_camera must be "
+                         "an asset id string")
+    if (not isinstance(avoided, list) or not all(
+            isinstance(entry, str) for entry in avoided)):
+        raise ValueError("camera_preferences.avoid_cameras must be a "
+                         "list of asset id strings")
+    if mode not in ("prefer", "require"):
+        raise ValueError("camera_preferences.mode must be 'prefer' or "
+                         "'require'")
+    if preferred is None and not avoided:
+        return {"status": "no_preference"}
+    return {"status": mode, "preferred_camera": preferred,
+            "avoid_cameras": list(avoided)}
+
+
+def _reference_offsets(answer: dict[str, Any]) -> dict[str, float]:
+    """M6 offsets by clock id from queried sync measurements."""
+    offsets: dict[str, float] = {}
+    for present in answer.get("present_intervals", []):
+        if present.get("plan") != "multicam_sync":
+            continue
+        for row in present.get("measurements", []):
+            if row.get("measurement_type") != "sync.multicam_offset":
+                continue
+            value = row.get("value")
+            interval = row.get("interval") or {}
+            if not isinstance(value, dict):
+                continue
+            offset = value.get("offset_to_reference_seconds")
+            clock_id = interval.get("clock_id")
+            if isinstance(offset, (int, float)) and isinstance(
+                    clock_id, str):
+                offsets[clock_id] = float(offset)
+    return offsets
+
+
+def _word_spans(answer: dict[str, Any], start_s: float,
+                end_s: float) -> list[tuple[float, float]]:
+    spans = []
+    for present in answer.get("present_intervals", []):
+        if present.get("plan") != "speech_attributed":
+            continue
+        for row in present.get("measurements", []):
+            if row.get("measurement_type") != "speech.word":
+                continue
+            interval = row.get("interval") or {}
+            item_start = interval.get("start")
+            item_end = interval.get("end")
+            if not isinstance(item_start, (int, float)) or not isinstance(
+                    item_end, (int, float)):
+                continue
+            item_start /= evidence_query.TICKS_PER_SECOND
+            item_end /= evidence_query.TICKS_PER_SECOND
+            if item_end > start_s and item_start < end_s:
+                spans.append((item_start, item_end))
+    spans.sort()
+    return spans
+
+
+def _camera_uri(answer: dict[str, Any], asset_id: str | None) -> str | None:
+    if asset_id is None:
+        return None
+    for asset in answer.get("assets", []):
+        if isinstance(asset, dict) and asset.get("id") == asset_id:
+            uri = asset.get("uri")
+            return str(uri) if uri else None
+    return None
+
+
+def _refuse_switch(base: dict[str, Any],
+                   words: list[tuple[float, float]], reason: str,
+                   confidence: str = "high") -> dict[str, Any]:
+    """A ``no_switch`` entry sharing the turn-change base row."""
+    refused = {**base, "recommended_camera": "no_switch",
+               "recommended_camera_asset_id": None,
+               "no_switch_reason": reason,
+               "confidence": confidence}
+    refused["continuity"] = continuity_for_switch(
+        refused, words, None)
+    return refused
+
+
+def plan_camera_switches(
+        exchange: dict[str, Any], answer: dict[str, Any],
+        camera_selection: dict[str, Any], framing: dict[str, Any],
+        preferences: dict[str, Any],
+        start_s: float, end_s: float) -> list[dict[str, Any]]:
+    """Propose one switch entry per speaker change in the exchange.
+
+    The safe window is the word gap around the change: from the last
+    word end at or before the boundary to the first word start at or
+    after it. A recommendation names a mapped camera only; candidates
+    and abstentions, tight gaps, avoided cameras, and faceless target
+    angles all yield ``no_switch`` with the reason. Consecutive turns
+    by one speaker need no entry: no change, no switch.
+    """
+    turns = exchange.get("turns", [])
+    if len(turns) < 2:
+        return []
+    words = _word_spans(answer, start_s, end_s)
+    offsets = _reference_offsets(answer)
+    verdict_by_pair = {}
+    for pair in framing_compatibility(framing).get("pairs", []):
+        verdict_by_pair[(pair["camera_a"], pair["camera_b"])] = pair
+        verdict_by_pair[(pair["camera_b"], pair["camera_a"])] = pair
+    mapped = camera_selection.get(
+        "speaker_to_camera", {}) if camera_selection.get(
+            "status") == "mapped" else {}
+    switches = []
+    for outgoing, incoming in pairwise(turns):
+        if outgoing.get("speaker") == incoming.get("speaker"):
+            continue
+        change = float(incoming.get("start", start_s))
+        clock_id = incoming.get("clock_id")
+        earlier = [word_end for _, word_end in words if word_end <= change]
+        later = [word_start for word_start, _ in words if word_start >= change]
+        window_start = max(earlier) if earlier else float(
+            outgoing.get("start", start_s))
+        window_end = min(later) if later else float(
+            incoming.get("end", end_s))
+        window_start = max(window_start, start_s)
+        window_end = min(window_end, end_s)
+        evidence_ids = list(exchange.get("evidence", []))
+        evidence_ids = [row.get("evidence_id")
+                        if isinstance(row, dict) else row
+                        for row in evidence_ids]
+        hold_end = end_s
+        offset = offsets.get(clock_id) if isinstance(clock_id, str) else None
+        base: dict[str, Any] = {
+            "speaker_change_seconds": round(change, 3),
+            "source_clock_id": clock_id,
+            "safe_switch_start_seconds": round(window_start, 3),
+            "safe_switch_end_seconds": round(window_end, 3),
+            "reference_change_seconds": (
+                round(change + offset, 3) if offset is not None else None),
+            "reference_window": (
+                [round(window_start + offset, 3),
+                 round(window_end + offset, 3)]
+                if offset is not None else None),
+            "outgoing_speaker": outgoing.get("speaker"),
+            "incoming_speaker": incoming.get("speaker"),
+            "acceptable_hold_end_seconds": round(hold_end, 3),
+            "evidence_ids": sorted({str(item) for item in evidence_ids
+                                    if item})}
+
+        if window_end - window_start < MIN_SWITCH_GAP_S:
+            switches.append(_refuse_switch(
+                base, words,
+                f"switch gap {window_end - window_start:.3f}s under "
+                f"{MIN_SWITCH_GAP_S}s: cutting here risks a clipped word"))
+            continue
+        options = mapped.get(incoming.get("speaker"), {})
+        if not options:
+            if camera_selection.get("status") == "candidate":
+                reason = ("incoming speaker has a candidate suggestion, "
+                          "not a verified mapping: LR-ASD output cannot "
+                          "justify an angle change")
+            else:
+                reason = ("incoming speaker has no mapped camera: "
+                          "an angle change would be a guess")
+            switches.append(_refuse_switch(base, words, reason))
+            continue
+        choice = None
+        avoided = preferences.get("avoid_cameras", [])
+        preferred = preferences.get("preferred_camera")
+        for asset_id in sorted(options):
+            if asset_id in avoided and preferences.get(
+                    "status") == "require":
+                continue
+            choice = asset_id
+            if asset_id == preferred:
+                break
+        if choice is None:
+            switches.append(_refuse_switch(base, words, 
+                "every mapped camera for the incoming speaker is "
+                "avoided by a required camera preference"))
+            continue
+        if preferred is not None and choice != preferred and (
+                preferred in options
+                and preferred not in avoided):
+            choice = preferred
+        target_framing = (framing.get("cameras", {}) or {}).get(choice, {})
+        if target_framing.get("face_scale") == "no_face":
+            switches.append(_refuse_switch(base, words, 
+                f"{choice} shows no face in the span: nothing to cut to"))
+            continue
+        outgoing_options = mapped.get(outgoing.get("speaker"), {})
+        outgoing_cam = next(iter(sorted(outgoing_options)), None)
+        pair = verdict_by_pair.get((outgoing_cam, choice)) if (
+            outgoing_cam) else None
+        verdict = (pair or {}).get("verdict")
+        if verdict == "incompatible":
+            switches.append(_refuse_switch(base, words, 
+                f"framing refuses the switch: {pair.get('reason')}"))
+            continue
+        uri = _camera_uri(answer, choice)
+        switch = {
+            **base, "recommended_camera": uri or choice,
+            "recommended_camera_asset_id": choice,
+            "no_switch_reason": None,
+            "framing_verdict": verdict,
+            "confidence": ("high" if verdict == "compatible"
+                           and target_framing.get("status") == "measured"
+                           else "medium"),
+            "evidence_ids": sorted(set(base["evidence_ids"])
+                                   | set(target_framing.get(
+                                       "evidence_ids", [])))}
+        switch["continuity"] = continuity_for_switch(
+            switch, words, verdict)
+        switches.append(switch)
+    return switches
+
+
+def continuity_for_switch(
+        switch: dict[str, Any], words: list[tuple[float, float]],
+        framing_verdict: str | None) -> dict[str, Any]:
+    """The five continuity flags for one proposed switch.
+
+    Each flag is True, False, or None (unmeasured). Eyeline and the
+    dialogue axis have no measurement behind a candidate switch, so
+    they report None with the reason rather than a convenient True.
+    """
+    breaks: list[str] = []
+    if switch.get("recommended_camera") == "no_switch":
+        return {"subject_correct": None,
+                "dialogue_continuous": None,
+                "eyeline_continuous": None,
+                "axis_continuous": None,
+                "framing_compatible": None,
+                "continuity_breaks": [("no switch proposed: continuity "
+                                       "is vacuous")],
+                "evidence": switch.get("no_switch_reason", "")}
+    window = (switch.get("safe_switch_start_seconds"),
+              switch.get("safe_switch_end_seconds"))
+    clipped = any(start < window[1] and end > window[0]
+                  and (start < window[0] < end
+                       or start < window[1] < end)
+                  for start, end in words
+                  if isinstance(start, (int, float))
+                  and isinstance(end, (int, float)))
+    dialogue_continuous: bool | None = not clipped
+    if clipped:
+        breaks.append("switch window clips a measured word edge")
+    if framing_verdict == "compatible" or framing_verdict == "same_framing":
+        framing_compatible: bool | None = True
+    elif framing_verdict == "incompatible":
+        framing_compatible = False
+        breaks.append("target angle framing is incompatible")
+    else:
+        framing_compatible = None
+    return {"subject_correct": True,
+            "subject_correct_basis": "recommended camera is the mapped "
+                                     "camera of the incoming speaker",
+            "dialogue_continuous": dialogue_continuous,
+            "eyeline_continuous": None,
+            "eyeline_basis": "no eyeline measurement behind a "
+                             "candidate switch",
+            "axis_continuous": None,
+            "axis_basis": "no camera-geometry measurement behind a "
+                          "candidate switch",
+            "framing_compatible": framing_compatible,
+            "continuity_breaks": breaks,
+            "evidence": f"word-safe window {window[0]}-{window[1]}s; "
+                        f"framing verdict {framing_verdict}"}
+
+
+def score_multicam_switches(
+        predicted: list[dict[str, Any]] | None,
+        reference: dict[str, Any] | list[dict[str, Any]] | None,
+        tolerance_s: float = SWITCH_SCORE_TOLERANCE_S) -> dict[str, Any]:
+    """Score switch timing and subject correctness against labels.
+
+    Both sides are switch lists in the blind-packet shape
+    (``speaker_change_seconds``, ``safe_switch_start_seconds``,
+    ``safe_switch_end_seconds``, ``recommended_camera``). Timing is a
+    hit when the predicted change falls inside the reference safe
+    window or within ``tolerance_s`` of the reference change.
+    Subject correctness compares recommended cameras, with
+    ``no_switch`` agreement counting. References without switch
+    labels (window-style agent edits) are unscorable, said plainly.
+    """
+    if reference is None:
+        return {"status": "unscorable",
+                "reason": "no reference labels supplied"}
+    if isinstance(reference, dict):
+        ref_switches = reference.get("switches")
+        if ref_switches is None:
+            return {"status": "unscorable",
+                    "reason": "reference carries no switch labels "
+                              "(window-style edit, not switch labels)"}
+    else:
+        ref_switches = reference
+    if not isinstance(ref_switches, list) or not ref_switches:
+        return {"status": "unscorable",
+                "reason": "reference switch list is empty"}
+    predicted = predicted or []
+    rows = []
+    matched_refs: set[int] = set()
+    for pred in predicted:
+        change = pred.get("speaker_change_seconds")
+        best_index = None
+        best_error = None
+        for index, ref in enumerate(ref_switches):
+            if index in matched_refs:
+                continue
+            ref_change = ref.get("speaker_change_seconds")
+            if not isinstance(change, (int, float)) or not isinstance(
+                    ref_change, (int, float)):
+                continue
+            error = abs(float(change) - float(ref_change))
+            if best_error is None or error < best_error:
+                best_error = error
+                best_index = index
+        if best_index is None:
+            rows.append({"predicted_index": len(rows), "reference_index": None,
+                         "timing_hit": False, "timing_error_s": None,
+                         "subject_correct": False})
+            continue
+        matched_refs.add(best_index)
+        ref = ref_switches[best_index]
+        inside = (isinstance(ref.get("safe_switch_start_seconds"),
+                             (int, float))
+                  and isinstance(ref.get("safe_switch_end_seconds"),
+                                 (int, float))
+                  and ref["safe_switch_start_seconds"] <= change
+                  <= ref["safe_switch_end_seconds"])
+        hit = bool(inside or (best_error is not None
+                              and best_error <= tolerance_s))
+        pred_cam = pred.get("recommended_camera")
+        ref_cam = ref.get("recommended_camera")
+        rows.append({"predicted_index": len(rows),
+                     "reference_index": best_index,
+                     "timing_hit": hit, "timing_error_s": round(
+                         best_error, 3) if best_error is not None else None,
+                     "subject_correct": pred_cam == ref_cam,
+                     "predicted_camera": pred_cam,
+                     "reference_camera": ref_cam})
+    timing_hits = sum(1 for row in rows if row["timing_hit"])
+    subject_hits = sum(1 for row in rows if row["subject_correct"])
+    errors = [row["timing_error_s"] for row in rows
+              if row["timing_error_s"] is not None]
+    return {"status": "scored",
+            "predicted_switch_count": len(predicted),
+            "reference_switch_count": len(ref_switches),
+            "timing_hits": timing_hits,
+            "timing_accuracy": (timing_hits / len(ref_switches)
+                                if ref_switches else 0.0),
+            "subject_correct_count": subject_hits,
+            "subject_accuracy": (subject_hits / len(rows) if rows else 0.0),
+            "mean_abs_timing_error_s": (
+                round(sum(errors) / len(errors), 3) if errors else None),
+            "unmatched_reference_count": len(ref_switches) - len(matched_refs),
+            "rows": rows}
 
 
 def _word_rows_from_answers(
@@ -526,6 +1187,8 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
     """
     cuts: list[dict[str, Any]] = []
     abstentions: list[dict[str, Any]] = []
+    preferences = normalize_camera_preferences(
+        (brief.get("brief") or {}).get("camera_preferences"))
     for cut_range in (brief.get("brief") or {}).get("cut_ranges", []):
         moment_id = cut_range.get("moment_id")
         answer = answers_by_moment.get(moment_id, {})
@@ -611,8 +1274,18 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                     if row["evidence_id"] in camera_evidence_ids]
                 selected[0]["evidence_ids"].extend(camera_evidence_ids)
                 selected[0]["measurements"].extend(camera_measurements)
+            framing = measure_camera_framing(answer, start, end)
+            selected[0]["evidence_ids"].extend(framing.get(
+                "evidence_ids", []))
+            selected[0]["measurements"].extend(framing.get(
+                "measurements", []))
+            switch_plan = plan_camera_switches(
+                dialogue_exchange, answer, camera_selection, framing,
+                preferences, start, end)
         else:
             camera_selection = None
+            framing = {"cameras": {}, "evidence_ids": []}
+            switch_plan = []
         if any(not item["evidence_ids"] or not item["measurements"]
                for item in selected):
             abstentions.append({"moment_id": moment_id,
@@ -649,6 +1322,9 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                                     "complete_turn_count": 2}
                                     if dialogue_exchange else None),
                                 "camera_selection": camera_selection,
+                                "framing": framing if dialogue_exchange else None,
+                                "switch_plan": switch_plan if dialogue_exchange else [],
+                                "camera_preferences": preferences,
                                 "technical_measurements": [
                                     item for item in measurements
                                     if item["measurement_type"] not in {
