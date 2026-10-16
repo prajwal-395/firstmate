@@ -62,6 +62,29 @@ PRESENT = "present"
 CONFIDENTLY_ABSENT = "confidently_absent"
 NOT_YET_ANALYSED = "not_yet_analysed"
 INCONCLUSIVE = "inconclusive"
+
+
+def classify_absence(status: str, *, has_explicit_negative: bool,
+                     coverage_complete: bool) -> dict[str, str]:
+    """Expand the four query outcomes into the DATA-036 answer vocabulary."""
+    if status == PRESENT:
+        return {"state": "present",
+                "basis": "the lane returned evidence intervals"}
+    if status == NOT_YET_ANALYSED:
+        return {"state": "not_analyzed",
+                "basis": "a required lane never produced evidence"}
+    if status == INCONCLUSIVE or not coverage_complete:
+        return {"state": "inconclusive",
+                "basis": "coverage is partial, stale or missing"}
+    if status == CONFIDENTLY_ABSENT and has_explicit_negative:
+        return {"state": "absent",
+                "basis": "an explicit negative assertion covers the scope"}
+    if status == CONFIDENTLY_ABSENT:
+        return {"state": "not_observed",
+                "basis": "fresh complete coverage with no assertion either way"}
+    raise ValueError(f"unknown evidence answer status {status!r}")
+
+
 QUERY_STATES = (PRESENT, CONFIDENTLY_ABSENT, NOT_YET_ANALYSED, INCONCLUSIVE)
 """The four query outcomes. Complete: an answer carries exactly one."""
 

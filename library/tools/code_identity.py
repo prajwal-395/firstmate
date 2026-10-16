@@ -132,6 +132,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Imported by Project Model migration for derivation and typed scores.
+        "library/tools/evidence_lifecycle.py",
         # Deterministic hand/object action candidates are materialized by
         # Project Model migration and must invalidate segmentation rows.
         "library/tools/temporal_action_candidates.py",
@@ -627,6 +629,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Imported by Project Model migration for derivation and typed scores.
+        "library/tools/evidence_lifecycle.py",
         # Temporal action candidates are part of the scan's Project Model
         # migration and invalidate scan rows when their rules change.
         "library/tools/temporal_action_candidates.py",
@@ -1142,6 +1146,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Imported by Project Model migration for derivation and typed scores.
+        "library/tools/evidence_lifecycle.py",
         # The catalog's Project Model migration materializes these events.
         "library/tools/temporal_action_candidates.py",
         # Lane 3: migration materializes track re-identification and
@@ -1651,6 +1657,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Imported by Project Model migration for derivation and typed scores.
+        "library/tools/evidence_lifecycle.py",
         "library/tools/temporal_action_candidates.py",
         # Lane 3 migration adds identity and physical relation records.
         "library/tools/identity_reassociation.py",
@@ -2156,6 +2164,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # against, so a fix here changes what cached rows validate.
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
+        # Imported by Project Model migration for derivation and typed scores.
+        "library/tools/evidence_lifecycle.py",
         "library/tools/temporal_action_candidates.py",
         # Lane 3 migration adds identity and physical relation records.
         "library/tools/identity_reassociation.py",

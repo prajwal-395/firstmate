@@ -110,6 +110,9 @@ try:
         speech_take,
     )
     from library.tools.project_model import SCHEMA_VERSION, validate_project_model
+    from library.tools.evidence_lifecycle import (
+        normalize_envelope_preprocessing, typed_confidence,
+    )
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import (
         conversation_clock,
@@ -128,6 +131,9 @@ except ImportError:  # imported as `tools.*` from inside library/
         speech_take,
     )
     from tools.project_model import SCHEMA_VERSION, validate_project_model
+    from tools.evidence_lifecycle import (
+        normalize_envelope_preprocessing, typed_confidence,
+    )
 
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks: lanes measure float seconds, so integer
@@ -398,6 +404,32 @@ class _Builder:
                 "producer": envelope["producer"],
                 "producer_version": envelope["producer_version"],
             })
+            # Preserve the recorded analysis basis without inventing
+            # preprocessing parameters absent from a legacy envelope.
+            derivation_basis = dict(envelope)
+            derivation_basis.update({
+                "producer": (derivation_basis.get("producer")
+                             or native.get("producer") or producer),
+                "producer_version": (derivation_basis.get("producer_version")
+                                     or native.get("producer_version")
+                                     or (evidence.producer_version
+                                         if evidence is not None else None)
+                                     or "unknown"),
+                "sampling_method": (derivation_basis.get("sampling_method")
+                                    or native.get("sampling_method")
+                                    or native.get("method")),
+                "sample_resolution": (derivation_basis.get("sample_resolution")
+                                      or native.get("sample_resolution")),
+                "coverage_intervals": (derivation_basis.get("coverage_intervals")
+                                       or native.get("temporal_coverage") or []),
+                "coverage_status": (derivation_basis.get("coverage_status")
+                                    or native.get("coverage_status", "unknown")),
+                "source_digest": digest,
+            })
+            if (derivation_basis["producer"]
+                    and derivation_basis["producer_version"]):
+                native["derivation"] = normalize_envelope_preprocessing(
+                    derivation_basis)
             payload = {**payload, "evidence_contract": native}
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
@@ -410,6 +442,9 @@ class _Builder:
             "modality": modality,
             "payload": payload,
             "confidence": _confidence(confidence),
+            "confidence_detail": (typed_confidence(
+                _confidence(confidence), "raw_score", producer)
+                if _confidence(confidence) is not None else None),
             "provenance_id": self.provenance(digest, lane, producer),
         }
         self.model["observations"].append(observation)
@@ -434,6 +469,9 @@ class _Builder:
             "entity_id": entity_id,
             "observation_id": observation_id,
             "confidence": _confidence(confidence),
+            "confidence_detail": (typed_confidence(
+                _confidence(confidence), "raw_score", producer)
+                if _confidence(confidence) is not None else None),
             "method": method,
             "status": status,
             "provenance_id": self.provenance(digest, lane, producer),

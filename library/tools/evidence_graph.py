@@ -21,8 +21,8 @@ evidence into a reusable graph:
   (DATA-038) with routing to targeted verification shaped for
   ``query_directed_acquisition.plan_query_acquisition`` (DATA-039),
 - decomposed answer uncertainty with a documented summary rank, never
-  a calibrated probability (DATA-041/042).
-
+  a calibrated probability (DATA-042), plus a loss audit naming scored
+  rows whose type migration dropped (DATA-041).
 Thresholds below were set on synthetic calibration fixtures and are
 reported once in docs/benchmarks/vep-mu-graph-scorecard-2026-10-16.md;
 they are named constants so a held-out run can move them with the
@@ -36,9 +36,17 @@ from collections import defaultdict
 from typing import Any
 
 try:
-    from library.tools.evidence_query import MODALITY_TO_LANE, TICKS_PER_SECOND
+    from library.tools.evidence_query import (
+        MODALITY_TO_LANE,
+        TICKS_PER_SECOND,
+        classify_absence as _classify_absence,
+    )
 except ImportError:  # imported as `tools.*` from inside library/
-    from tools.evidence_query import MODALITY_TO_LANE, TICKS_PER_SECOND
+    from tools.evidence_query import (
+        MODALITY_TO_LANE,
+        TICKS_PER_SECOND,
+        classify_absence as _classify_absence,
+    )
 
 SPEECH_MODALITIES = frozenset({
     "speech", "speech_word", "voice_turn", "event_span",
@@ -885,30 +893,10 @@ def verification_request(contradiction: dict[str, Any]) -> dict[str, Any]:
 
 def classify_absence(status: str, *, has_explicit_negative: bool,
                      coverage_complete: bool) -> dict[str, Any]:
-    """Apply the DATA-036 vocabulary to an evidence answer state.
-
-    ``evidence_query`` answers four states; this layer keeps those and
-    splits measured silence in two: an explicit negative assertion row
-    is ``absent``, silence under fresh complete coverage with no such
-    row is ``not_observed``. Anything partial or stale stays
-    ``inconclusive``, and a lane that never ran stays ``not_analyzed``.
-    """
-    if status == "present":
-        return {"state": PRESENT,
-                "basis": "the lane returned evidence intervals"}
-    if status == "not_yet_analysed":
-        return {"state": NOT_ANALYZED,
-                "basis": "a required lane never produced evidence"}
-    if status == "inconclusive" or not coverage_complete:
-        return {"state": INCONCLUSIVE,
-                "basis": "coverage is partial, stale or missing"}
-    if status == "confidently_absent" and has_explicit_negative:
-        return {"state": ABSENT,
-                "basis": "an explicit negative assertion covers the scope"}
-    if status == "confidently_absent":
-        return {"state": NOT_OBSERVED,
-                "basis": "fresh complete coverage with no assertion either way"}
-    raise ValueError(f"unknown evidence answer status {status!r}")
+    """Compatibility export for the query layer's DATA-036 vocabulary."""
+    return _classify_absence(
+        status, has_explicit_negative=has_explicit_negative,
+        coverage_complete=coverage_complete)
 
 
 def answer_uncertainty(results: list[dict[str, Any]],
@@ -953,3 +941,57 @@ def answer_uncertainty(results: list[dict[str, Any]],
             "contradictions": contradictions, "summary": summary,
             "reading": ("share of results on fresh complete coverage, "
                         "discounted by clock error and open contradictions")}
+
+
+def _confidence_rows(model: dict[str, Any]) -> list[tuple[str, dict]]:
+    """Every row carrying a confidence: observations, identity links,
+    events and track samples, each tagged with where it was found."""
+    rows = []
+    for collection in ("observations", "identity_links", "events"):
+        for row in model.get(collection, []) or []:
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                rows.append((collection, row))
+    for track in model.get("tracks", []) or []:
+        if not isinstance(track, dict):
+            continue
+        for pos, sample in enumerate(track.get("samples", []) or []):
+            if isinstance(sample, dict):
+                rows.append((f"tracks[{track.get('id')}].samples[{pos}]", sample))
+    return rows
+
+
+def audit_confidence_loss(model: dict[str, Any]) -> dict[str, Any]:
+    """Report where raw scores lost their typed meaning (DATA-041).
+
+    A row with a ``confidence`` float but no ``confidence_detail`` was
+    collapsed in migration: its kind (rank, logit, cosine, raw_score)
+    and producer are gone, so no reader can tell a ranking score from
+    a probability. Rows WITH detail split into ``calibrated`` (a
+    probability with a calibration version, the only kind that reads
+    as one) and ``raw`` (every other honest kind). The report names
+    ids per bucket so the migration fix can be verified row by row:
+    this audit reads empty exactly when every scored row carries its
+    type. It never recalibrates anything itself.
+    """
+    if not isinstance(model, dict):
+        raise ValueError("confidence audit reads a Project Model dict")
+    untyped: list[str] = []
+    calibrated: list[str] = []
+    raw: dict[str, list[str]] = {}
+    for where, row in _confidence_rows(model):
+        if row.get("confidence") is None:
+            continue
+        label = row.get("id", where) if isinstance(row.get("id"), str) else where
+        detail = row.get("confidence_detail")
+        if not isinstance(detail, dict):
+            untyped.append(str(label))
+            continue
+        kind = detail.get("kind")
+        if kind == "calibrated_probability":
+            calibrated.append(str(label))
+        else:
+            raw.setdefault(str(kind), []).append(str(label))
+    return {"untyped": sorted(untyped), "calibrated": sorted(calibrated),
+            "raw": {kind: sorted(ids) for kind, ids in sorted(raw.items())},
+            "reading": ("rows with a score but no type cannot be read "
+                        "as probabilities")}

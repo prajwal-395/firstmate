@@ -397,6 +397,26 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
     assert before == after
 
 
+def test_migration_preserves_typed_raw_confidence_and_derivation(fixture_project):
+    from library.tools.evidence_graph import audit_confidence_loss
+
+    model, _report = _migrate(fixture_project)
+    scored = [row for row in model["observations"]
+              if row.get("confidence") is not None]
+    assert scored
+    assert all(row["confidence_detail"]["value"] == row["confidence"]
+               and row["confidence_detail"]["kind"] == "raw_score"
+               and row["confidence_detail"]["producer"]
+               for row in scored)
+    assert audit_confidence_loss(model)["untyped"] == []
+    word = next(row for row in model["observations"]
+                if row["modality"] == "speech_word")
+    derivation = word["payload"]["evidence_contract"]["derivation"]
+    assert derivation["producer_version"]
+    assert derivation["source_revision"] == D1
+    assert derivation["preprocessing"]["method"]
+
+
 def test_migration_registers_each_m0_stream_and_technical_tables(
         fixture_project):
     """M0 stream identity and bounded source tables reach the Project Model."""

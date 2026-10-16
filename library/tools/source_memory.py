@@ -963,6 +963,8 @@ def _with_evidence_envelope(path: Path, payload: dict) -> dict:
         "coverage_intervals": intervals,
         "coverage_status": coverage_status,
         "confidence_semantics": payload.get("confidence_semantics", "producer_defined"),
+        "preprocessing": payload.get("preprocessing", {}),
+        "sampling_policy": payload.get("sampling_policy", {}),
         "verified_status": verified_status,
         "inputs": payload.get("inputs", []),
     }
@@ -984,6 +986,9 @@ def validate_evidence_envelope(envelope: dict) -> None:
         raise ValueError("Source Memory evidence envelope string fields must be non-empty")
     if not isinstance(envelope["coverage_intervals"], list) or not isinstance(envelope["inputs"], list):
         raise ValueError("Source Memory coverage_intervals and inputs must be lists")
+    for key in ("preprocessing", "sampling_policy"):
+        if key in envelope and not isinstance(envelope[key], dict):
+            raise ValueError(f"Source Memory {key} must be an object")
     if envelope["record_version"] != 1:
         raise ValueError("unsupported Source Memory evidence envelope version")
     resolution = envelope["sample_resolution"]

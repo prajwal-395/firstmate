@@ -26,13 +26,19 @@ import json
 import os
 import tempfile
 import time
+from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     from library.tools import project_model_store
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import project_model_store
+
+try:
+    from library.tools.project_model_contract import validate_typed_confidence
+except ImportError:  # imported as `tools.*` from inside library/
+    from tools.project_model_contract import validate_typed_confidence
 
 DERIVED_FILE = "derived_artifacts.json"
 
@@ -214,6 +220,79 @@ def check_artifacts(project: Path, model: dict[str, Any], *,
     return report
 
 
+def _row_digest(row: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(
+        row, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _scan_collection(lines: list[str], collection: str,
+                     row_id: str) -> list[dict[str, Any]]:
+    """Replay event-log lines for one row id in one collection."""
+    chain = []
+    last_hash: str | None = None
+    gone = False
+    for line in lines:
+        event = json.loads(line)
+        payload = event.get("payload") or {}
+        row = None
+        for candidate in payload.get(collection, []) or []:
+            if isinstance(candidate, dict) and candidate.get("id") == row_id:
+                row = candidate
+        if event.get("kind") == "replace" and row is None:
+            model = payload if isinstance(payload, dict) else {}
+            for candidate in model.get(collection, []) or []:
+                if isinstance(candidate, dict) and candidate.get("id") == row_id:
+                    row = candidate
+        if row is None:
+            if (last_hash is not None and not gone
+                    and event.get("kind") == "merge_patch"
+                    and collection in payload):
+                chain.append({"revision": event.get("revision"),
+                              "event_hash": event.get("event_hash"),
+                              "author": event.get("author"),
+                              "reason": event.get("reason"),
+                              "change": "removed"})
+                last_hash = None
+                gone = True
+            continue
+        digest = _row_digest(row)
+        change = "added" if last_hash is None else (
+            "modified" if digest != last_hash else "carried")
+        last_hash = digest
+        gone = False
+        chain.append({"revision": event.get("revision"),
+                      "event_hash": event.get("event_hash"),
+                      "author": event.get("author"),
+                      "reason": event.get("reason"),
+                      "change": change, "row": row})
+    return chain
+
+
+def collection_history(project: Path, collection: str,
+                       row_id: str) -> list[dict[str, Any]]:
+    """Replay the event log for one stable id in one collection.
+
+    Same chain semantics as :func:`observation_history` (added,
+    modified, carried, removed), generalized past the observation,
+    event and provenance collections so clock transforms, policies and
+    any other revisioned row keep their history too. Each entry
+    carries the row as written at that revision.
+    """
+    if not collection or not isinstance(collection, str):
+        raise ValueError("collection history needs a collection name")
+    if not row_id or not isinstance(row_id, str):
+        raise ValueError("collection history needs a row id")
+    events_path = Path(project) / project_model_store.STORE_DIR / project_model_store.EVENTS_FILE
+    if not events_path.is_file():
+        raise FileNotFoundError(f"no project model event log in {events_path}")
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    return [{"revision": entry["revision"], "event_hash": entry["event_hash"],
+             "author": entry["author"], "reason": entry["reason"],
+             "change": entry["change"], "row": entry.get("row")}
+            for entry in _scan_collection(lines, collection, row_id)]
+
+
 def observation_history(project: Path, obs_id: str) -> list[dict[str, Any]]:
     """Replay the event log for one observation id (DATA-040).
 
@@ -304,3 +383,189 @@ def record_derivation(*, producer: str, producer_version: str,
             "source_revision": source_revision,
             "derivation_digest": "sha256:" + hashlib.sha256(
                 frozen.encode("utf-8")).hexdigest()}
+
+
+def normalize_envelope_preprocessing(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Lift a Source Memory envelope into a structured derivation (DATA-013).
+
+    Envelopes record the sampling method as free text and the source
+    revision as a digest; this normalizer carries both into the
+    ``record_derivation`` shape without parsing taste out of the method
+    string. What the envelope never recorded stays explicit: an absent
+    method reads ``"unknown"`` with the reason named, never a guessed
+    default. New writers should stamp ``record_derivation`` directly;
+    this is the bridge for the legacy rows already on disk.
+    """
+    if not isinstance(envelope, dict):
+        raise ValueError("envelope normalization needs the envelope object")
+    producer = envelope.get("producer")
+    producer_version = envelope.get("producer_version")
+    if not producer or not producer_version:
+        raise ValueError("envelope names no producer to preserve")
+    method = envelope.get("sampling_method") or "unknown"
+    intervals = envelope.get("coverage_intervals") or []
+    preprocessing = dict(envelope.get("preprocessing") or {})
+    preprocessing.setdefault("method", method)
+    if envelope.get("sample_resolution") is not None:
+        preprocessing.setdefault("sample_resolution", envelope["sample_resolution"])
+    preprocessing.setdefault("confidence_semantics", envelope.get(
+        "confidence_semantics", "producer_defined"))
+    preprocessing.setdefault("method_breakdown", (
+        "absent: the envelope records the method as one string"))
+    preprocessing = {key: value for key, value in preprocessing.items()
+                     if value is not None}
+    sampling_policy = dict(envelope.get("sampling_policy") or {})
+    sampling_policy.setdefault(
+        "coverage_status", envelope.get("coverage_status", "unknown"))
+    sampling_policy.setdefault("coverage_intervals",
+                               len(intervals) if isinstance(intervals, list) else 0)
+    sampling_policy.setdefault(
+        "verified_status", envelope.get("verified_status", "unverified"))
+    sampling_policy.setdefault("source_stream_id", envelope.get("source_stream_id"))
+    return record_derivation(
+        producer=str(producer), producer_version=str(producer_version),
+        preprocessing=preprocessing, sampling_policy=sampling_policy,
+        source_revision=envelope.get("source_digest"))
+
+
+def typed_confidence(value: float, kind: str, producer: str,
+                     calibration_version: str | None = None) -> dict[str, Any]:
+    """Build a schema-valid typed confidence detail (DATA-041).
+
+    Raw model scores keep their kind (rank, logit, cosine, raw_score);
+    only a ``calibrated_probability`` with a calibration version may be
+    read as a probability. Validation is the contract's own, so writers
+    cannot stamp a kind the boundary refuses.
+    """
+    validate_typed_confidence(value, kind, producer, calibration_version)
+    detail: dict[str, Any] = {"value": value, "kind": kind,
+                              "producer": producer}
+    if calibration_version is not None:
+        detail["calibration_version"] = calibration_version
+    return detail
+
+
+def _default_m6_reader(project: Path, from_clock: str,
+                       _to_clock: str) -> dict[str, Any] | None:
+    """Resolve a transform's source digest through clocks and assets,
+    then read its M6 direct measurement. Returns None when any link is
+    missing: absent drift evidence stays absent, never zero."""
+    try:
+        from library.tools import conversation_clock
+    except ImportError:  # imported as `tools.*` from inside library/
+        from tools import conversation_clock
+    try:
+        _revision, model = project_model_store.load_project_model(Path(project))
+    except (FileNotFoundError, ValueError):
+        return None
+    asset_id = None
+    for clock in model.get("clocks", []):
+        if isinstance(clock, dict) and clock.get("id") == from_clock:
+            domain = clock.get("domain") or {}
+            asset_id = domain.get("asset_id")
+    digest = None
+    for asset in model.get("assets", []):
+        if isinstance(asset, dict) and asset.get("id") == asset_id:
+            digest = asset.get("content_digest")
+    if not isinstance(digest, str) or not digest:
+        return None
+    record = conversation_clock.read_clock(digest, Path(project))
+    return record if isinstance(record, dict) else None
+
+
+def _uncertainty_from_spread(p5_seconds: float, p95_seconds: float,
+                             drift_seconds: float, ticks_per_second: int = 1000
+                             ) -> int:
+    """The migration's own ceiling formula, kept in one place so the
+    history check recomputes rather than restates the bound."""
+    return int(((Decimal(str(p95_seconds)) - Decimal(str(p5_seconds))
+                 + Decimal(str(drift_seconds)))
+                 * Decimal(ticks_per_second) / 2).to_integral_value(
+                     rounding=ROUND_CEILING))
+
+
+def transform_drift_history(
+        project: Path, transform_id: str, *,
+        m6_reader: Callable[..., dict[str, Any] | None] | None = None
+) -> dict[str, Any]:
+    """Preserve a clock transform's uncertainty and drift record (DATA-007).
+
+    The model row carries the folded ``uncertainty_ticks`` bound; the
+    M6 slot behind its provenance carries the measured spread and drift
+    the bound was folded from. This assembles both plus the row's
+    revision chain: every revision's bound, the measured components
+    behind the live row, whether the recomputed bound matches the
+    stored one, and a stability reading (stable, narrowed, growing,
+    appeared, removed). Refusals (drift over tolerance, transitive or
+    spread-less offsets) never become transforms, so they never appear
+    here: absence from this history is the record of their absence.
+    """
+    if not transform_id or not isinstance(transform_id, str):
+        raise ValueError("drift history needs a transform id")
+    chain = collection_history(project, "time_transforms", transform_id)
+    if not chain:
+        return {"transform_id": transform_id, "found": False, "revisions": [],
+                "measurement": None, "decomposition": None, "stability": "absent"}
+    live = next((entry["row"] for entry in reversed(chain)
+                 if entry.get("row") is not None), None)
+    if live is None:
+        return {"transform_id": transform_id, "found": False, "revisions": [],
+                "measurement": None, "decomposition": None,
+                "stability": "absent"}
+    reader = m6_reader or _default_m6_reader
+    measurement = reader(Path(project), live.get("from_clock"),
+                         live.get("to_clock"))
+    direct = measurement.get("direct_measurement") if isinstance(
+        measurement, dict) else None
+    decomposition = None
+    if isinstance(direct, dict):
+        try:
+            p5 = float(direct["p5_seconds"])
+            p95 = float(direct["p95_seconds"])
+            drift = abs(float(direct.get("drift_seconds") or 0.0))
+            recomputed = _uncertainty_from_spread(p5, p95, drift)
+            stored = [(segment.get("uncertainty_ticks"), segment.get("offset_ticks"))
+                      for segment in live.get("segments", [])]
+            decomposition = {
+                "spread_seconds": round(p95 - p5, 6),
+                "drift_seconds": drift,
+                "drift_exceeds_tolerance": direct.get("drift_exceeds_tolerance"),
+                "recomputed_uncertainty_ticks": recomputed,
+                "stored_segments": [
+                    {"uncertainty_ticks": uncertainty, "offset_ticks": offset}
+                    for uncertainty, offset in stored],
+                "bound_matches_migration": all(
+                    uncertainty == recomputed for uncertainty, _ in stored),
+            }
+        except (KeyError, TypeError, ValueError):
+            decomposition = None
+    bounds = [entry["row"].get("segments", [{}])[0].get("uncertainty_ticks")
+              if entry["change"] != "removed" else None
+              for entry in chain]
+    if chain[-1]["change"] == "removed":
+        stability = "removed"
+    elif len(chain) == 1:
+        stability = "appeared"
+    elif any(bound is None for bound in bounds):
+        stability = "unknown"
+    elif all(bound == bounds[0] for bound in bounds):
+        stability = "stable"
+    elif bounds[-1] < bounds[0]:
+        stability = "narrowed"
+    else:
+        stability = "growing"
+    return {"transform_id": transform_id, "found": True,
+            "from_clock": live.get("from_clock"),
+            "to_clock": live.get("to_clock"),
+            "provenance_id": live.get("provenance_id"),
+            "revisions": [{key: entry[key] for key in
+                           ("revision", "event_hash", "author", "reason", "change")}
+                          for entry in chain],
+            "uncertainty_ticks_by_revision": bounds,
+            "measurement": ({"p5_seconds": direct.get("p5_seconds"),
+                             "p95_seconds": direct.get("p95_seconds"),
+                             "drift_seconds": direct.get("drift_seconds"),
+                             "drift_exceeds_tolerance": direct.get(
+                                 "drift_exceeds_tolerance")}
+                            if isinstance(direct, dict) else None),
+            "decomposition": decomposition, "stability": stability}

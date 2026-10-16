@@ -282,6 +282,15 @@ def test_absence_vocabulary_splits_silence_from_assertion():
             "maybe", has_explicit_negative=False, coverage_complete=True)
 
 
+def test_query_and_graph_share_absence_vocabulary():
+    from library.tools import evidence_query
+
+    args = {"has_explicit_negative": False, "coverage_complete": True}
+    graph = evidence_graph.classify_absence("confidently_absent", **args)
+    query = evidence_query.classify_absence("confidently_absent", **args)
+    assert graph == query
+
+
 def test_answer_uncertainty_decomposes_instead_of_modelling():
     rows = [{"coverage": ["complete"], "freshness": ["fresh"],
              "clock_error_ticks": 0, "confidence_kind": "rank"},
@@ -295,3 +304,31 @@ def test_answer_uncertainty_decomposes_instead_of_modelling():
     assert report["summary"] == 0.3333
     empty = evidence_graph.answer_uncertainty([])
     assert empty["summary"] == 0.0
+
+
+def test_confidence_audit_names_rows_that_lost_their_type():
+    model = _model()
+    model["observations"] = [
+        _obs("c1", "scene", "c1", 0, 1000, {}),
+        {**_obs("c2", "scene", "c1", 0, 1000, {}), "confidence": 0.7},
+        {**_obs("c3", "scene", "c1", 0, 1000, {}), "confidence": 0.7,
+         "confidence_detail": {"value": 0.7, "kind": "rank",
+                               "producer": "rf-detr"}},
+        {**_obs("c4", "scene", "c1", 0, 1000, {}), "confidence": 0.9,
+         "confidence_detail": {"value": 0.9,
+                               "kind": "calibrated_probability",
+                               "producer": "mfa",
+                               "calibration_version": "heldout"}},
+    ]
+    model["tracks"] = [{"id": "t1", "clock_id": "c1", "samples": [
+        {"tick": 0, "confidence": 0.4},
+        {"tick": 10, "confidence": 0.4,
+         "confidence_detail": {"value": 0.4, "kind": "cosine",
+                               "producer": "clip"}}]}]
+    report = evidence_graph.audit_confidence_loss(model)
+    assert report["untyped"] == ["c2", "tracks[t1].samples[0]"]
+    assert report["calibrated"] == ["c4"]
+    assert report["raw"] == {"cosine": ["tracks[t1].samples[1]"],
+                             "rank": ["c3"]}
+    with pytest.raises(ValueError):
+        evidence_graph.audit_confidence_loss([])

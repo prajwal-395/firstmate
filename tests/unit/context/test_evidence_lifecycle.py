@@ -12,11 +12,15 @@ from library.tools import evidence_lifecycle, project_model_store
 from library.tools.evidence_lifecycle import (
     KNOWN_DERIVED,
     check_artifacts,
+    collection_history,
     invalidate_artifact,
+    normalize_envelope_preprocessing,
     observation_history,
     record_derivation,
     register_artifact,
     registered_artifacts,
+    transform_drift_history,
+    typed_confidence,
 )
 
 FIXTURE = json.loads(
@@ -155,3 +159,149 @@ def test_record_derivation_is_deterministic_and_json_safe():
     with pytest.raises(ValueError):
         record_derivation(producer="p", producer_version="v",
                           preprocessing={"bad": object()})
+
+
+def _transform_row(uncertainty=11):
+    return {"id": "transform-sha256:abc-to-sha256:def",
+            "from_clock": "clock-source", "to_clock": "clock-timeline",
+            "segments": [{"from": {"clock_id": "clock-source",
+                                   "start": 0, "end": 24},
+                          "to": {"clock_id": "clock-timeline",
+                                 "start": 2, "end": 26},
+                          "slope": {"numerator": 1, "denominator": 1},
+                          "offset_ticks": 2,
+                          "uncertainty_ticks": uncertainty,
+                          "invertible": True}],
+            "provenance_id": "prov-sha256:abc-m6"}
+
+
+def _m6_direct():
+    return {"content_digest": "sha256:abc",
+            "direct_measurement": {"p5_seconds": -0.01,
+                                   "p95_seconds": 0.01,
+                                   "drift_seconds": 0.002,
+                                   "drift_exceeds_tolerance": False}}
+
+
+def _project_with_transform(tmp_path, uncertainty=11):
+    project = _project(tmp_path)
+    model = dict(project_model_store.load_project_model(project)[1])
+    model["time_transforms"] = [_transform_row(uncertainty)]
+    project_model_store.append_model_patch(
+        project, {"time_transforms": model["time_transforms"]},
+        expected_revision=1, reason="add measured transform")
+    return project
+
+
+def test_collection_history_carries_rows_per_revision(tmp_path):
+    project = _project_with_transform(tmp_path)
+    chain = collection_history(project, "time_transforms",
+                               "transform-sha256:abc-to-sha256:def")
+    assert [(entry["change"], entry["revision"]) for entry in chain] == [
+        ("added", 2)]
+    assert chain[0]["row"]["segments"][0]["uncertainty_ticks"] == 11
+    assert collection_history(project, "time_transforms", "missing") == []
+    with pytest.raises(ValueError):
+        collection_history(project, "", "x")
+    with pytest.raises(ValueError):
+        collection_history(project, "time_transforms", "")
+    with pytest.raises(FileNotFoundError):
+        collection_history(tmp_path / "empty", "time_transforms", "x")
+
+
+def test_drift_history_decomposes_and_matches_migration(tmp_path):
+    project = _project_with_transform(tmp_path)
+    report = transform_drift_history(
+        project, "transform-sha256:abc-to-sha256:def",
+        m6_reader=lambda *args: _m6_direct())
+    assert report["found"] is True
+    assert report["stability"] == "appeared"
+    assert report["measurement"]["drift_seconds"] == 0.002
+    decomposition = report["decomposition"]
+    assert decomposition["spread_seconds"] == pytest.approx(0.02)
+    assert decomposition["drift_seconds"] == 0.002
+    assert decomposition["recomputed_uncertainty_ticks"] == 11
+    assert decomposition["bound_matches_migration"] is True
+    assert report["uncertainty_ticks_by_revision"] == [11]
+
+
+def test_drift_history_tracks_growth_and_removal(tmp_path):
+    project = _project_with_transform(tmp_path)
+    grown = _transform_row(uncertainty=15)
+    evidence_lifecycle.project_model_store.merge_evidence_model(
+        project, {**project_model_store.load_project_model(project)[1],
+                  "time_transforms": [grown]},
+        expected_revision=2, author="ren", reason="re-measured")
+    report = transform_drift_history(
+        project, "transform-sha256:abc-to-sha256:def",
+        m6_reader=lambda *args: _m6_direct())
+    assert report["stability"] == "growing"
+    assert report["uncertainty_ticks_by_revision"] == [11, 15]
+    assert report["decomposition"]["bound_matches_migration"] is False
+    model = project_model_store.load_project_model(project)[1]
+    project_model_store.append_model_patch(
+        project, {"time_transforms": []}, expected_revision=3,
+        reason="source re-cut")
+    report = transform_drift_history(
+        project, "transform-sha256:abc-to-sha256:def",
+        m6_reader=lambda *args: _m6_direct())
+    assert report["stability"] == "removed"
+
+
+def test_drift_history_absent_without_guessing(tmp_path):
+    project = _project(tmp_path / "a")
+    report = transform_drift_history(project, "transform-missing")
+    assert report == {"transform_id": "transform-missing", "found": False,
+                      "revisions": [], "measurement": None,
+                      "decomposition": None, "stability": "absent"}
+    project = _project_with_transform(tmp_path / "b")
+    report = transform_drift_history(
+        project, "transform-sha256:abc-to-sha256:def",
+        m6_reader=lambda *args: None)
+    assert report["measurement"] is None
+    assert report["decomposition"] is None
+    assert report["stability"] == "appeared"
+    with pytest.raises(ValueError):
+        transform_drift_history(project, "")
+
+
+def test_normalize_envelope_preserves_legacy_basis():
+    envelope = {"record_version": 1, "source_digest": "sha256:abc",
+                "producer": "mfa", "producer_version": "english_us_arpa",
+                "source_stream_id": "stream-sha256:abc",
+                "sampling_method": "whole-source-audio-transcription",
+                "sample_resolution": None, "coverage_intervals": [],
+                "coverage_status": "complete",
+                "confidence_semantics": "producer_defined",
+                "verified_status": "unverified", "inputs": []}
+    record = normalize_envelope_preprocessing(envelope)
+    assert record["producer"] == "mfa"
+    assert record["source_revision"] == "sha256:abc"
+    assert record["preprocessing"]["method"] == (
+        "whole-source-audio-transcription")
+    assert record["sampling_policy"]["coverage_status"] == "complete"
+    assert record["derivation_digest"].startswith("sha256:")
+    legacy = {"producer": "old", "producer_version": "1",
+              "source_digest": "sha256:old"}
+    record = normalize_envelope_preprocessing(legacy)
+    assert record["preprocessing"]["method"] == "unknown"
+    with pytest.raises(ValueError):
+        normalize_envelope_preprocessing({"producer": "", "producer_version": "1"})
+    with pytest.raises(ValueError):
+        normalize_envelope_preprocessing("not-an-envelope")
+
+
+def test_typed_confidence_uses_the_contract():
+    detail = typed_confidence(0.7, "rank", "rf-detr")
+    assert detail == {"value": 0.7, "kind": "rank", "producer": "rf-detr"}
+    calibrated = typed_confidence(0.9, "calibrated_probability", "mfa",
+                                   calibration_version="heldout-2026-10")
+    assert calibrated["calibration_version"] == "heldout-2026-10"
+    with pytest.raises(ValueError):
+        typed_confidence(0.9, "calibrated_probability", "mfa")
+    with pytest.raises(ValueError):
+        typed_confidence(0.5, "probability", "mfa")
+    with pytest.raises(ValueError):
+        typed_confidence(float("nan"), "rank", "mfa")
+    with pytest.raises(ValueError):
+        typed_confidence(0.5, "rank", "")

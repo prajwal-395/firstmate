@@ -2086,3 +2086,19 @@ def test_every_source_memory_json_write_carries_valid_envelope(tmp_path):
     assert envelope["coverage_intervals"] == [
         {"start_s": 1.0, "end_s": 2.0}]
     assert envelope["coverage_status"] == "sampled"
+
+
+def test_evidence_envelope_preserves_structured_derivation_inputs(tmp_path):
+    digest = "b" * 64
+    path = tmp_path / "memory" / digest / source_memory.SLOT_SCENES
+    preprocessing = {"resize": [640, 360], "color_space": "rgb"}
+    sampling_policy = {"fps": 2, "keyframes": "include"}
+    source_memory.write_json(path, {
+        "content_digest": digest, "status": "measured",
+        "scenes": [{"start": 1.0, "end": 2.0}],
+        "preprocessing": preprocessing, "sampling_policy": sampling_policy,
+    })
+    envelope = json.loads(path.read_text(encoding="utf-8"))["evidence_envelope"]
+    source_memory.validate_evidence_envelope(envelope)
+    assert envelope["preprocessing"] == preprocessing
+    assert envelope["sampling_policy"] == sampling_policy

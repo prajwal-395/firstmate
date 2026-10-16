@@ -69,16 +69,13 @@ exactly this); millisecond ticks cannot resolve 48 kHz samples, so
 sub-tick samples share a tick by construction (stated in
 `source_clocks`, sample numbers travel beside ticks in provenance).
 
-## Left undone (with owners)
+## Remaining boundaries
 
-- DATA-007 drift history beyond a scalar bound, DATA-013 structured
-  preprocessing on legacy envelopes, DATA-041 typed confidence through
-  migration: PARTIAL, owned by the evidence-migration path both open
-  PRs (#2611, #2632) already touch; converging there avoids a third
-  writer on those files.
-- DATA-036 at the query layer: `evidence_query` keeps its four states
-  (owned by #2611); the five-way split lives in the graph layer until
-  that PR lands, then converges.
-- DATA-010/011 native multi-span rows and hierarchy: open #2632.
+- DATA-007 drift history, DATA-013 migration-time derivation records,
+  DATA-036 shared absence classification and DATA-041 typed raw scores
+  were completed in the follow-up scorecard at
+  [`vep-mu-graph-followup-2026-10-16.md`](vep-mu-graph-followup-2026-10-16.md).
+- DATA-010/011 native multi-span rows and hierarchy remain owned by
+  vep-mu-multires (PR #2632); they are not duplicated here.
 - No footage-calibrated numbers: this lane's claims are structural
   (parity, refusal, fail-closure), all pinned by unit tests.
