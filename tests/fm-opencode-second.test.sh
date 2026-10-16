@@ -966,6 +966,86 @@ test_verify_reads_the_console_provider_not_the_first() {
   pass "workspace verification reads the console provider, not the first provider listed"
 }
 
+test_concurrent_pin_builders_and_task_databases_are_isolated() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "concurrent pin safety needs sqlite3 (absent here)"
+    return 0
+  }
+  local cfg state live pin i path1 path2 rc
+  local -a pids=()
+  install_mapping_fixture_opencode concurrent-builds
+  live_token='live-access-CONCURRENT13'
+  fixture_login_db "$FIXTURE_DATADIR" "$live_token" 'wrk_01FIXTUREMAIN'
+  cfg=$(second_config concurrent-builds)
+  state="$TMP_ROOT/state-concurrent-builds"
+  mkdir -p "$state"
+  for i in 1 2 3 4 5 6; do
+    bash -c '. "$1"; FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_second_db "$2" > "$3"' \
+      _ "$ROOT/bin/fm-opencode-second-lib.sh" "$cfg" "$TMP_ROOT/build-$i.out" &
+    pids+=("$!")
+  done
+  rc=0
+  for i in "${pids[@]}"; do wait "$i" || rc=1; done
+  [ "$rc" -eq 0 ] || { restore_fixture_opencode; fail "concurrent pin builders did not all succeed"; }
+  pin="$cfg/opencode-second.db"
+  for i in 1 2 3 4 5 6; do
+    [ "$(cat "$TMP_ROOT/build-$i.out")" = "$pin" ] \
+      || { restore_fixture_opencode; fail "a concurrent builder returned a different pin path"; }
+  done
+  [ "$(sqlite3 "$pin" 'PRAGMA integrity_check;')" = ok ] \
+    || { restore_fixture_opencode; fail "concurrent builders left an invalid shared pin"; }
+  path1=$(fm_opencode_workspace_db_for_task secondary "$ORG_ID" "$cfg" task-one "$state") \
+    || { restore_fixture_opencode; fail "the first task-private pin could not be seeded"; }
+  path2=$(fm_opencode_workspace_db_for_task secondary "$ORG_ID" "$cfg" task-two "$state") \
+    || { restore_fixture_opencode; fail "the second task-private pin could not be seeded"; }
+  [ "$path1" != "$path2" ] || { restore_fixture_opencode; fail "two tasks received the same writable database"; }
+  sqlite3 "$path1" 'PRAGMA journal_mode=WAL; CREATE TABLE task_session (id INTEGER PRIMARY KEY); BEGIN IMMEDIATE; INSERT INTO task_session VALUES(1); COMMIT;' >/dev/null &
+  pids+=("$!")
+  sqlite3 "$path2" 'PRAGMA journal_mode=WAL; CREATE TABLE task_session (id INTEGER PRIMARY KEY); BEGIN IMMEDIATE; INSERT INTO task_session VALUES(2); COMMIT;' >/dev/null &
+  pids+=("$!")
+  rc=0
+  for i in "${pids[@]:6}"; do wait "$i" || rc=1; done
+  [ "$rc" -eq 0 ] || { restore_fixture_opencode; fail "a task could not write its private WAL database"; }
+  [ "$(sqlite3 "$pin" 'SELECT count(*) FROM sqlite_master WHERE name="task_session";')" = 0 ] \
+    || { restore_fixture_opencode; fail "task session writes leaked into the shared pin"; }
+  [ "$(sqlite3 "$path1" 'PRAGMA integrity_check;')" = ok ] \
+    && [ "$(sqlite3 "$path2" 'PRAGMA integrity_check;')" = ok ] \
+    || { restore_fixture_opencode; fail "a task-private database failed integrity_check"; }
+  sqlite3 "$FIXTURE_DATADIR/opencode.db" \
+    "UPDATE account SET access_token='live-access-ROTATED14';" \
+    || { restore_fixture_opencode; fail "the fixture login could not be rotated"; }
+  path1=$(fm_opencode_workspace_db_for_task secondary "$ORG_ID" "$cfg" task-one "$state") \
+    || { restore_fixture_opencode; fail "the existing task database could not be refreshed"; }
+  [ "$(sqlite3 "$path1" 'SELECT access_token FROM account LIMIT 1;')" = 'live-access-ROTATED14' ] \
+    || { restore_fixture_opencode; fail "the task database did not receive the refreshed login"; }
+  [ "$(sqlite3 "$path1" 'SELECT count(*) FROM task_session;')" = 1 ] \
+    || { restore_fixture_opencode; fail "refreshing a task login discarded its session data"; }
+  restore_fixture_opencode
+  pass "concurrent pin builders serialize and each task writes an isolated verified database"
+}
+
+test_corrupt_pin_is_quarantined_and_rebuilt() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "pin quarantine needs sqlite3 (absent here)"
+    return 0
+  }
+  local cfg db got
+  install_fixture_opencode quarantine 'secondary / OpenCode'
+  fixture_login_db "$FIXTURE_DATADIR" 'live-access-QUARANTINE15' 'wrk_01FIXTUREMAIN'
+  cfg=$(second_config quarantine)
+  db="$cfg/opencode-second.db"
+  printf 'not a sqlite database' > "$db"
+  got=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_second_db "$cfg") \
+    || { restore_fixture_opencode; fail "a corrupt pin was not rebuilt automatically"; }
+  [ "$got" = "$db" ] || { restore_fixture_opencode; fail "the rebuilt pin path changed"; }
+  [ "$(sqlite3 "$db" 'PRAGMA integrity_check;')" = ok ] \
+    || { restore_fixture_opencode; fail "the automatically rebuilt pin is not integral"; }
+  compgen -G "$db.corrupt.*" >/dev/null \
+    || { restore_fixture_opencode; fail "the corrupt database was not quarantined"; }
+  restore_fixture_opencode
+  pass "a corrupt shared pin is quarantined and rebuilt before launch"
+}
+
 test_absent_config_is_unconfigured
 test_org_id_round_trips
 test_malformed_org_is_refused
@@ -994,3 +1074,5 @@ test_verify_retries_a_transient_fetch
 test_unreadable_pin_reports_could_not_read
 test_proved_wrong_verify_returns_one
 test_verify_reads_the_console_provider_not_the_first
+test_concurrent_pin_builders_and_task_databases_are_isolated
+test_corrupt_pin_is_quarantined_and_rebuilt

@@ -2510,8 +2510,10 @@ test_opencode_second_workspace_pins_launch() {
   expect_code 0 "$status" "a capped Go rung with a live fourth rung should spawn: $out"  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
   assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the workspace pin was not recorded"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/config/opencode-second.db'" \
-    "the launch did not carry the pinned database"
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
+    "the launch did not carry its task-private workspace database"
+  [ -f "$HOME_DIR/state/$id.opencode.db" ] \
+    || fail "the task-private workspace database was not seeded"
   assert_contains "$launch" "--model 'opencode-go/muse-spark-1.3-contributor'" \
     "the launch did not carry the Go model id"
   pass "a capped Go rung pins the launch to the second workspace"
@@ -2561,8 +2563,8 @@ test_opencode_main_workspace_pins_launch_when_second_configured() {
   assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
   assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/config/opencode-main.db'" \
-    "the main launch did not carry its pinned database"
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
+    "the main launch did not carry its task-private workspace database"
   [ "$(cat "$HOME_DIR/config/opencode-main-org")" = "$DUAL_MAIN_ORG_ID" ] \
     || fail "the main launch did not record the discovered workspace id"
   pass "a two-workspace main launch rides its own pin, never the machine-wide active workspace"
