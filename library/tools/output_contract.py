@@ -497,7 +497,17 @@ def survey() -> list[OutputRow]:
 
             bridge_path = _LIBRARY_ROOT / "steps" / step_dir / "bridge.py"
             bridge_keys = (_string_constants(bridge_path)
-                           if bridge_path.is_file() else {})
+                           if bridge_path.is_file() else set())
+            # A capability-owned bridge is the step's own implementation
+            # under a new path: its emitted keys credit the step's prompt
+            # the same way the legacy bridge.py did.
+            for _op in _operations.all():
+                if (_op.owning_dir == step_dir
+                        and _op.body == "bridge.py"
+                        and getattr(_op, "executor_path", None)):
+                    _exec = _REPO_ROOT / _op.executor_path
+                    if _exec.is_file():
+                        bridge_keys |= _string_constants(_exec)
             declared_fields = {field_path.split(".")[0].lstrip("-")
                                for field_path in
                                (manifest.get("context_fields") or ())}

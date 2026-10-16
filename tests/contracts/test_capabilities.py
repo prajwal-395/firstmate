@@ -218,6 +218,36 @@ def test_aroll_executors_are_capability_owned_and_step_is_adapter():
         "library/steps/")
 
 
+def test_spine_executors_are_capability_owned_and_step_is_adapter():
+    from library.capabilities.spine.mesh import enrich_spine, resolve_spine
+    from library.capabilities.spine.zone import build_duration_zone
+    from library.steps.step_2_05_mesh_spine.bridge import (
+        build_duration_zone as step_zone,
+    )
+    from library.steps.step_2_05_mesh_spine.post_bridge import (
+        enrich_spine as step_enrich,
+        resolve_spine as step_resolve,
+    )
+
+    zone = operations.get("duration_zone.build")
+    mesh = operations.get("spine.mesh")
+    assert capabilities.spec_of(zone).executor.path == (
+        "library/capabilities/spine/zone.py")
+    assert capabilities.spec_of(mesh).executor.path == (
+        "library/capabilities/spine/mesh.py")
+    assert zone.run is build_duration_zone is step_zone
+    assert mesh.run is resolve_spine is step_resolve
+    assert step_enrich is enrich_spine
+    assert zone.produces == ("duration_zone",)
+    assert mesh.produces == ("audio_spine", "timed_spine")
+    assert capabilities.spec_of(zone).scopes == ("project",)
+    assert capabilities.spec_of(mesh).scopes == ("project",)
+    assert not capabilities.spec_of(zone).executor.path.startswith(
+        "library/steps/")
+    assert not capabilities.spec_of(mesh).executor.path.startswith(
+        "library/steps/")
+
+
 def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
     """Gathering and its refusal agree with the capability's declared reads."""
     for capability in (

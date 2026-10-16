@@ -506,6 +506,28 @@ def _module_path(dotted: str) -> Optional[Path]:
     return path if path.is_file() else None
 
 
+def _capability_executor_files(step_dirname: str) -> List[Path]:
+    """The capability-owned files implementing this step, if any.
+
+    The A01 migration moves a step's implementation into
+    `library/capabilities/` while the step directory keeps a legacy
+    adapter. The executor IS the step's code, so its reads and refusals
+    - and the one import hop out of it - count exactly as when the
+    file lived under the step directory.
+    """
+    from library.tools import operations as _operations
+
+    out: List[Path] = []
+    for op in _operations.all():
+        executor = getattr(op, "executor_path", None)
+        if (op.owning_dir == step_dirname and executor
+                and not op.body.endswith(".md")):
+            path = _LIBRARY_ROOT.parent / executor
+            if path.is_file() and path not in out:
+                out.append(path)
+    return out
+
+
 def read_step_code(step_dir: Path) -> Tuple[Dict[str, str], Set[str]]:
     """Every refusal and every key read, for one step.
 
@@ -516,9 +538,10 @@ def read_step_code(step_dir: Path) -> Tuple[Dict[str, str], Set[str]]:
     refusals: Dict[str, str] = {}
     reads: Set[str] = set()
     imported: Set[str] = set()
-    for path in sorted(step_dir.glob("*.py")):
-        if path.name.startswith("test_"):
-            continue
+    own_files = sorted(
+        p for p in step_dir.glob("*.py")
+        if not p.name.startswith("test_"))
+    for path in own_files + _capability_executor_files(step_dir.name):
         try:
             tree = parse_file(path)
         except (OSError, SyntaxError):

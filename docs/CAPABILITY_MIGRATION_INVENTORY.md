@@ -14,7 +14,7 @@ This inventory covers every Python executable remaining under `library/steps/` o
 | `step_1_07_ocr_extraction/step.py` | legacy-adapted | Adapter for `ocr.extract` in `library/capabilities/ocr/extract.py`. |
 | `step_2_02_speech_sequence/bridge.py`, `post_bridge.py` | legacy-adapted | Prompt bridge and resolver still execute in the numbered step. |
 | `step_2_04_music_selection/bridge.py`, `download_track.py`, `post_bridge.py` | legacy-adapted | Music selection and acquisition still execute in the numbered step. |
-| `step_2_05_mesh_spine/bridge.py`, `post_bridge.py` | legacy-adapted | Spine planning still executes in the numbered step. |
+| `step_2_05_mesh_spine/bridge.py`, `post_bridge.py` | legacy-adapted | Compatibility adapters for `duration_zone.build` in `library/capabilities/spine/zone.py` and `spine.mesh` in `library/capabilities/spine/mesh.py`. |
 | `step_2_06_music_analysis/step.py` | legacy-adapted | Adapter for `music.analyse` in `library/capabilities/music/analyse.py`. |
 | `step_3_00_plan_picture/step.py` | legacy-adapted | Adapter for `picture.plan` in `library/capabilities/picture/plan.py`. |
 | `step_3_01_assign_aroll/step.py` | legacy-adapted | Compatibility adapter for `aroll.assign` and `aroll.splice` in `library/capabilities/aroll/assign.py`. |
@@ -39,7 +39,11 @@ This inventory covers every Python executable remaining under `library/steps/` o
 
 No remaining Python executable was identified as obsolete. A-roll assignment and splice moved in this batch; remaining candidates are listed below. Resolve, manifest assembly, and reel timeline operations retain genuine pipeline context until their execution contracts can express those requirements directly.
 
-## This batch: `aroll.assign` and `aroll.splice`
+## This batch: `duration_zone.build` and `spine.mesh`
+
+Both implementations now live at stable capability paths independent of step numbering: `library/capabilities/spine/zone.py` (`build_duration_zone`) and `library/capabilities/spine/mesh.py` (`resolve_spine`, `enrich_spine` and its helpers). `library/tools/operations.py` declares their executor paths; the capability IDs, scopes, consumed and produced state keys, DAG dependencies, and execution effects remain in the operation registry and project layout. The module bodies were moved without behavioral edits, including the `sys.path` shim `mesh.py` carries for `tools.frame_utils` - both files sit two levels below `library/`, so the shim resolves identically. Their numbered step entry points remain compatibility adapters that re-export every name the test suite reads (`enrich_spine`, `_resolve_pacing`, `resolve_spine`, `build_duration_zone`, `main`) and stay executable as subprocess CLIs, the way the runner and the spine tests invoke them. The operation registry uses each explicit executor path; legacy DAG positions remain compatibility metadata.
+
+## Previous batch: `aroll.assign` and `aroll.splice`
 
 Both implementations now live at `library/capabilities/aroll/assign.py`; their stable IDs, required consumed and produced keys, scope, and project execution inputs are declared in `library/tools/operations.py`. `aroll.assign` is project-scoped and consumes the timed spine, clip catalog, and project frame rate. Its optional `audio_catalog` and `picture_plan` inputs are declared by the step manifest, DAG edges, and `requirements.OPTIONALS`; the legacy runner passes them through when present. The capability returns A-roll, voiceover, and hook assignments without writing project artifacts. `aroll.splice` is region-scoped and caller-supplied because its stored assignments and refreshed inputs are explicit arguments; it returns the same assignment keys plus a splice report. The numbered step remains a compatibility adapter and the legacy DAG node remains attribution metadata.
 
@@ -47,7 +51,7 @@ Both implementations now live at `library/capabilities/aroll/assign.py`; their s
 
 Both implementations now live at stable capability paths independent of step numbering. `library/tools/operations.py` declares their executor paths; the capability IDs, scopes, consumed and produced state keys, DAG dependencies, and execution effects remain in the operation registry and project layout. Music analysis retains its declared model-memory resource phase and persists analysis/evidence exactly as before. Picture planning retains the catalog fallback and optional footage-search hints. Their numbered step entry points remain compatibility adapters. The operation registry uses each explicit executor path; legacy DAG positions remain compatibility metadata.
 
-Remaining coherent candidates: music selection and spine bridge pairs; the remaining A-roll-independent planning bridges; and the reel selection/judging bridges. Keep `broll.resolve` with its separately owned lane. Manifest assembly, edit graph construction, Resolve rendering, and reel timeline operations retain pipeline context until their execution contracts can express those requirements directly.
+Remaining coherent candidates: the music selection bridge pair (`music.resolve` plus its catalogue/download helpers); the remaining A-roll-independent planning bridges (`speech.enrich`, subtitle/transition/VFX/SFX planning, subtitle and motion-graphics artifact generation, grade/mix planning, cohesion review, output validation); and the reel selection/judging bridges. Keep `broll.resolve` with its separately owned lane. Manifest assembly, edit graph construction, Resolve rendering, and reel timeline operations retain pipeline context until their execution contracts can express those requirements directly.
 
 ## Batch 1: `objects.segment` and `ocr.extract`
 

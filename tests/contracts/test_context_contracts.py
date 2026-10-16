@@ -654,9 +654,21 @@ def test_the_handoff_asks_for_a_table_the_bridge_really_builds():
     Independent of the projection: a handoff naming a table no bridge
     emits is the same key-name mismatch one step earlier.
     """
+    from library.tools import operations as _operations
+
+    def bridge_source(node_id: str) -> str:
+        # A capability-owned bridge is the step's own implementation
+        # under a new path: read the executor, not the legacy adapter.
+        dirname = LLM_STEPS[node_id]
+        for op in _operations.all():
+            if (op.owning_dir == dirname and op.body == "bridge.py"
+                    and op.executor_path):
+                return (REPO / op.executor_path).read_text(encoding="utf-8")
+        return (STEPS / dirname / "bridge.py").read_text(encoding="utf-8")
+
     for node_id in sorted(BRIDGE_TABLES):
         step_dir = STEPS / LLM_STEPS[node_id]
-        bridge = (step_dir / "bridge.py").read_text(encoding="utf-8")
+        bridge = bridge_source(node_id)
         handoff = (step_dir / "handoff.md").read_text(encoding="utf-8")
         for table in BRIDGE_TABLES[node_id]:
             assert f'"{table}"' in bridge, (

@@ -1501,6 +1501,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Resolve the project's target duration into the band the model is shown",
         owning_dir="step_2_05_mesh_spine", body="bridge.py",
         attr="build_duration_zone",
+        executor_path="library/capabilities/spine/zone.py",
         produces=("duration_zone",),
         consumes=(
             "speech_sequence",
@@ -1516,6 +1517,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Mesh the model's spine against the speech and the music into the timed spine",
         owning_dir="step_2_05_mesh_spine", body="post_bridge.py",
         attr="resolve_spine",
+        executor_path="library/capabilities/spine/mesh.py",
         produces=("audio_spine", "timed_spine"),
         consumes=(
             "speech_sequence",
