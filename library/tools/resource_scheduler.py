@@ -743,8 +743,10 @@ class Scheduler:
         requested_memory = float(demand.get("ram_gb", 0))
         if requested_memory:
             reading = _memory_available_gb()
+            already_reserved = sum(float(item.get("ram_gb", 0))
+                                   for item in running_demands)
             if (reading is None or reading[1] <= 0
-                    or reading[0] - requested_memory
+                    or reading[0] - already_reserved - requested_memory
                     < _memory_floor_gb(reading[1])):
                 return ["live OS memory pressure"]
         # Backfill around an older waiter only when it cannot run beside

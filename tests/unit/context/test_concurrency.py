@@ -450,6 +450,38 @@ def test_impossible_memory_reservation_is_refused_immediately(
         scheduler.acquire("impossible model", {"ram_gb": 22})
 
 
+def test_memory_reservations_wait_when_their_sum_exceeds_headroom(
+        scheduler, monkeypatch):
+    """Two private scheduler grants cannot overbook measured headroom."""
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (12.0, 24.0))
+    first = scheduler.acquire("first benchmark", {"ram_gb": 6})
+    try:
+        # Insert a waiting job into this test's private scheduler and ask the
+        # actual admission transaction to evaluate it. No OS memory is reserved.
+        token = "second-benchmark-waiter"
+        now = time.time()
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute(
+                "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+                " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
+                " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)",
+                (token, "second benchmark", os.getpid(), "test-host",
+                 resource_scheduler._machine_id(),
+                 json.dumps({"ram_gb": 6}), now,
+                 resource_scheduler._pid_start(os.getpid()), now,
+                 resource_scheduler.SCHEDULER_POLICY_VERSION))
+        blockers = scheduler._transaction(lambda conn: scheduler._try_admit(
+            conn, token, {"ram_gb": 6}, resource_scheduler.capacity()))
+        assert blockers == ["live OS memory pressure"]
+        assert [(job["owner"], job["state"]) for job in scheduler.jobs()
+                if job["owner"].endswith("benchmark")] == [
+                    ("first benchmark", "running"),
+                    ("second benchmark", "waiting")]
+    finally:
+        scheduler.release(first)
+
+
 def test_memory_reading_is_taken_from_the_running_os(monkeypatch):
     # conftest fakes plenty of memory for every test, so this one calls
     # the saved real implementation: the reference below is bound at
@@ -529,6 +561,17 @@ def test_heavy_work_run_preserves_child_exit_code_with_absent_legacy_dir(
         capture_output=True, encoding="utf-8", timeout=30, check=False)
     assert result.returncode == 23, result.stderr
     assert not lock_dir.exists()
+
+
+def test_heavy_work_run_passes_explicit_ram_reservation(monkeypatch):
+    calls = []
+    monkeypatch.setattr(heavy_work_lock, "_run_locked",
+                        lambda *args: calls.append(args) or 0)
+    assert heavy_work_lock.main([
+        "run", "--owner", "caption-benchmark", "--profile", "machine",
+        "--ram-gb", "7.25", "--", "benchmark-command"]) == 0
+    assert calls == [("caption-benchmark", "machine",
+                      ["benchmark-command"], 7.25)]
 
 
 def test_dead_legacy_owner_is_reclaimed_before_admission(scheduler):
@@ -699,45 +742,35 @@ def test_placement_and_gates_are_not_cpu_throttled(scheduler):
 
 
 def test_small_waiter_backfills_past_large_waiter_that_does_not_fit(scheduler):
-    """Live admission ignores stale declared CPU/RAM weights.
+    """An unrelated empty demand backfills past an exclusive waiter.
 
-    Before the policy change, an 8/8 holder plus an earlier queued 8/8 job
-    prevented a later 2/2 job from running on a 10/10 machine. Those values
-    no longer claim scheduler resources, so the small work runs immediately.
+    A waiter for the held native resource does not block work that needs no
+    scheduler resource.
     """
-    holder = scheduler.acquire("holder", {"cpu": 8, "ram_gb": 8})
-    other_process = subprocess.Popen([
-        sys.executable, "-c", "import time; time.sleep(30)"])
+    native = "native_ren_native"
+    holder = scheduler.acquire("holder", {native: 1})
+    waiter_token = "large-waiter"
+    now = time.time()
     try:
         with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
-            conn.execute("UPDATE jobs SET pid = ?, pid_start = ?,"
-                         " heartbeat_at = ? WHERE token = ?",
-                         (other_process.pid,
-                          resource_scheduler._pid_start(other_process.pid),
-                          time.time(), holder))
-        waiters = [_acquire_in_thread(
-            scheduler, "large waiter", {"cpu": 8, "ram_gb": 8})]
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if any(job["owner"] == "large waiter"
-                   for job in scheduler.jobs()):
-                break
-            time.sleep(0.01)
-        for index in range(4):
-            waiters.append(_acquire_in_thread(
-                scheduler, f"small waiter {index}", {"cpu": 2, "ram_gb": 2}))
-        assert all(event.wait(30) for event, _ in waiters), (
-            "all five waiters fit once static CPU/RAM declarations are removed")
-        running = [job for job in scheduler.jobs()
-                   if job["state"] == "running"]
-        assert len(running) == 6  # holder and all five waiting jobs
-        for _, box in waiters:
-            scheduler.release(box[0])
-        scheduler.release(holder)
+            conn.execute(
+                "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+                " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
+                " VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)",
+                (waiter_token, "large waiter", os.getpid(), "test-host",
+                 resource_scheduler._machine_id(), json.dumps({native: 1}),
+                 now, resource_scheduler._pid_start(os.getpid()), now,
+                 resource_scheduler.SCHEDULER_POLICY_VERSION))
+        small = scheduler.acquire("small waiter", {})
+        relevant = [(job["owner"], job["state"]) for job in scheduler.jobs()
+                    if job["owner"] in {"holder", "large waiter", "small waiter"}]
+        assert relevant == [("holder", "running"), ("large waiter", "waiting"),
+                            ("small waiter", "running")]
+        scheduler.release(small)
     finally:
-        if other_process.poll() is None:
-            other_process.terminate()
-            other_process.wait(timeout=30)
+        with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
+            conn.execute("DELETE FROM jobs WHERE token = ?", (waiter_token,))
+        scheduler.release(holder)
 
 
 def test_aged_waiter_only_blocks_backfill_on_its_resource(scheduler):

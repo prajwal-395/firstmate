@@ -18,6 +18,7 @@ Resolve's instance lease remains the authority over its cursor.
 from __future__ import annotations
 
 import functools
+import math
 import os
 import signal
 import subprocess
@@ -29,7 +30,6 @@ from pathlib import Path
 from typing import Callable, Iterator, TypeVar
 
 from library.tools import resource_scheduler
-
 
 LOCK_DIR_ENV = "VEP_HEAVY_WORK_LOCK_DIR"
 """Overrides where the scheduler lives: its store sits beside this old
@@ -112,12 +112,17 @@ def owns(profile: str = MACHINE) -> bool:
 
 def take_heavy_lock(owner: str, profile: str = MACHINE,
                     cancelled: Callable[[], bool] | None = None,
-                    timeout: float | None = None) -> None:
+                    timeout: float | None = None,
+                    ram_gb: float | None = None) -> None:
     """Acquire `profile`'s resources, re-entering a grant that covers them.
 
     `cancelled` ends a wait early (`resource_scheduler.Cancelled`)."""
     global _held_state
     demand = resource_scheduler.demand_for(profile)
+    if ram_gb is not None:
+        if not math.isfinite(ram_gb) or ram_gb <= 0:
+            raise ValueError("heavy-work: --ram-gb must be a finite number > 0")
+        demand["ram_gb"] = ram_gb
     with _state_guard:
         if _held_state is not None:
             if not resource_scheduler.covers(_held_state["demand"], demand):
@@ -339,10 +344,11 @@ def release_heavy_lock() -> None:
 @contextmanager
 def heavy_work_lock(owner: str, profile: str = MACHINE,
                     cancelled: Callable[[], bool] | None = None,
-                    timeout: float | None = None
+                    timeout: float | None = None,
+                    ram_gb: float | None = None
                     ) -> Iterator[None]:
     """Context manager for one heavy-work section."""
-    take_heavy_lock(owner, profile, cancelled, timeout)
+    take_heavy_lock(owner, profile, cancelled, timeout, ram_gb)
     try:
         yield
     finally:
@@ -375,7 +381,8 @@ def heavy_work_locked(owner: str, profile: str = MACHINE
     return decorate
 
 
-def _run_locked(owner: str, profile: str, command: list[str]) -> int:
+def _run_locked(owner: str, profile: str, command: list[str],
+                ram_gb: float | None = None) -> int:
     """Run a child under the grant and forward termination signals to it.
 
     The handler only RECORDS a signal (and forwards it to a running
@@ -409,7 +416,8 @@ def _run_locked(owner: str, profile: str, command: list[str]) -> int:
         signal.signal(sig, forward)
     try:
         with heavy_work_lock(owner, profile,
-                             cancelled=lambda: bool(received)):
+                             cancelled=lambda: bool(received),
+                             ram_gb=ram_gb):
             if not received:
                 token = os.environ.get(OWNER_ENV)
                 timing = _scheduler().timing(token) if token else None
@@ -487,7 +495,7 @@ def _history(days: float) -> str:
 
 USAGE = ("usage: python -m library.tools.heavy_work_lock "
          "owns [--profile NAME] | jobs | history [--days N] | "
-         "run --owner NAME [--profile NAME] -- COMMAND [ARG ...]")
+         "run --owner NAME [--profile NAME] [--ram-gb N] -- COMMAND [ARG ...]")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -509,10 +517,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             owner = _option(head, "--owner", None)
             profile = _option(head, "--profile", MACHINE)
-        except IndexError:
+            ram_raw = _option(head, "--ram-gb", None)
+            ram_gb = float(ram_raw) if ram_raw is not None else None
+        except (IndexError, ValueError):
             raise SystemExit(USAGE)
         if owner:
-            return _run_locked(owner, profile, args[separator + 1:])
+            if ram_gb is not None and (not math.isfinite(ram_gb)
+                                       or ram_gb <= 0):
+                raise SystemExit("heavy-work: --ram-gb must be a finite number > 0")
+            return _run_locked(owner, profile, args[separator + 1:], ram_gb)
     raise SystemExit(USAGE)
 
 if __name__ == "__main__":
