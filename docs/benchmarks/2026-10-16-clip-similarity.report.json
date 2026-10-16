@@ -1,0 +1,35 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "clip-vit-large-patch14",
+    "role": "baseline",
+    "models": {
+      "visual_embed": "openai/clip-vit-large-patch14@cached"
+    }
+  },
+  "modality": "visual_similarity",
+  "split": "calibration",
+  "metrics": {
+    "within_minus_across_cosine": {
+      "value": 0.3294683688341914,
+      "unit": "cosine gap",
+      "dimension": "quality"
+    },
+    "pair_separation_auc": {
+      "value": 0.9987872487872488,
+      "unit": "rank AUC",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

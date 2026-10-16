@@ -1,0 +1,40 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "vjepa2.1-vitb-384",
+    "role": "candidate",
+    "models": {
+      "video_features": "vjepa2_1_vitb_dist_vitG_384@dl.fbaipublicfiles.com"
+    }
+  },
+  "modality": "action_candidate_ranking",
+  "split": "calibration",
+  "metrics": {
+    "average_precision": {
+      "value": 0.6282407407407408,
+      "unit": "9 motion positives over 20 labeled windows",
+      "dimension": "quality"
+    },
+    "precision_at_5": {
+      "value": 0.6,
+      "unit": "fraction",
+      "dimension": "quality"
+    },
+    "precision_at_10": {
+      "value": 0.7,
+      "unit": "fraction",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

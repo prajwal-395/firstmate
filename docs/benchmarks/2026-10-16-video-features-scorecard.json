@@ -1,0 +1,605 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-clip-cost.report.json",
+      "sha256": "a1e9f946ce19714404e12ef06e9a5191d666970d6a4f7ba15ff8b171a1ba9f96"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-clip-similarity.report.json",
+      "sha256": "44eaf9d4935b0caab2d050b1da4b7f19b69ee86fb80620c1be81aa81a870cd9e"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-farneback-action-ranking.report.json",
+      "sha256": "851ca8c2d019940f0540b2196d234c019ef64c55c7b44d08a639dd06e4fbf87c"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-farneback-cost.report.json",
+      "sha256": "3fcb4c0e3c6116f7cc49c33c70827f550cb6a683024a1c4f5a49638069972608"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-farneback-motion-sensitivity.report.json",
+      "sha256": "14db0215c6f9a862a056206cae69d9a3d9c811052a468c4a5bdaf9bb88a57920"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-pe-correspondence-l7.report.json",
+      "sha256": "f92837737f5e6f876b766b68811da9e89f158ce3159698a5d2471cd96880fb43"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-pe-correspondence-lfinal.report.json",
+      "sha256": "d1f50aca4c0cc822a484d3358a504efd2b3414537cb348c62ba5783c010b2108"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-pe-cost.report.json",
+      "sha256": "7e74ec9d959eee675f20c4e406d180ef2920d26a2c11d28fc51274cb9ed34475"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-pe-similarity.report.json",
+      "sha256": "7c95c82d2f2ac6b5ca0c0dd69f8b75f54ab2a30503b1771ae8f56e0fee1f15e9"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-vjepa-action-ranking.report.json",
+      "sha256": "9217886a3727d4bd228726f51e99cdce1337e952c67c33f63d4f1b56db30c7d3"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-vjepa-correspondence.report.json",
+      "sha256": "e7988fe8acae2d07c09f3d6d46af5ae9f66240215546bd34fc72bdb0e2ffc815"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-vjepa-cost.report.json",
+      "sha256": "36aa1713b268fde65baf736dc33062a8a2b1831cd50f1ff38e298f199c241f5c"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-vjepa-motion-agreement.report.json",
+      "sha256": "18a152e7693f7e18517a86d556d3193da84c2f99a2e7b334c57794f6c0eb86a9"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/52/video-editing-pilot/docs/benchmarks/2026-10-16-vjepa-motion-sensitivity.report.json",
+      "sha256": "59d4265c331bae0e8b773273332dd758ddcca9452fda99a38da96cc624c865a3"
+    }
+  ],
+  "versions": {
+    "clip-vit-large-patch14": {
+      "modalities": {
+        "feature_extraction_cost": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "cold_load_s": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 8.98
+              },
+              "process_peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 0.41662109375
+              },
+              "wall_s_per_frame": {
+                "dimension": "cost",
+                "unit": "seconds per frame",
+                "value": 3.76903125
+              },
+              "warm_infer_s_per_frame": {
+                "dimension": "latency",
+                "unit": "seconds per frame",
+                "value": 0.42658064516129035
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "visual_similarity": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "pair_separation_auc": {
+                "dimension": "quality",
+                "unit": "rank AUC",
+                "value": 0.9987872487872488
+              },
+              "within_minus_across_cosine": {
+                "dimension": "quality",
+                "unit": "cosine gap",
+                "value": 0.3294683688341914
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "visual_embed": "openai/clip-vit-large-patch14@cached"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "feature_extraction_cost": [
+          "quality"
+        ],
+        "visual_similarity": [
+          "latency",
+          "memory",
+          "cost"
+        ]
+      }
+    },
+    "farneback-regional-motion": {
+      "modalities": {
+        "action_candidate_ranking": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "average_precision": {
+                "dimension": "quality",
+                "unit": "9 motion positives over 20 labeled windows",
+                "value": 0.6811179017061371
+              },
+              "precision_at_10": {
+                "dimension": "quality",
+                "unit": "fraction",
+                "value": 0.6
+              },
+              "precision_at_5": {
+                "dimension": "quality",
+                "unit": "fraction",
+                "value": 0.6
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "feature_extraction_cost": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "mean_decode_s_per_window": {
+                "dimension": "latency",
+                "unit": "seconds per window",
+                "value": 8.50553125
+              },
+              "mean_infer_s_per_window": {
+                "dimension": "latency",
+                "unit": "seconds per window (10Hz 640x360 Farneback)",
+                "value": 23.3241875
+              },
+              "process_peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 0.10791015625
+              },
+              "wall_s_per_window": {
+                "dimension": "cost",
+                "unit": "seconds per window",
+                "value": 31.82971875
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "motion_sensitivity": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "motion_static_auc": {
+                "dimension": "quality",
+                "unit": "rank AUC over 9 motion + 11 static agent-labeled windows",
+                "value": 0.7070707070707071
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "motion": "library.tools.regional_motion@repo"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "action_candidate_ranking": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "feature_extraction_cost": [
+          "quality"
+        ],
+        "motion_sensitivity": [
+          "latency",
+          "memory",
+          "cost"
+        ]
+      }
+    },
+    "pe-core-s16-384": {
+      "modalities": {
+        "feature_extraction_cost": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "cold_load_s": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 4.688
+              },
+              "process_peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 0.952392578125
+              },
+              "wall_s_per_frame": {
+                "dimension": "cost",
+                "unit": "seconds per frame",
+                "value": 3.74425
+              },
+              "warm_infer_s_per_frame": {
+                "dimension": "latency",
+                "unit": "seconds per 384px frame",
+                "value": 0.07064516129032258
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "spatial_correspondence_l7": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "mean_far_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.9380264545454545
+              },
+              "mean_near_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.9518746363636363
+              },
+              "near_minus_far_margin": {
+                "dimension": "quality",
+                "unit": "mean top-1 patch cosine, 0.5s-apart vs span-apart frames",
+                "value": 0.013848181818181836
+              },
+              "trace_far_minus_trace_shuffled_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine vs spatial-shuffle control",
+                "value": 0.199128
+              },
+              "trace_near_minus_trace_far_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine margin",
+                "value": 0.0777150909090909
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "spatial_correspondence_lfinal": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "mean_far_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.9371574545454545
+              },
+              "mean_near_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.9516427272727274
+              },
+              "near_minus_far_margin": {
+                "dimension": "quality",
+                "unit": "mean top-1 patch cosine, 0.5s-apart vs span-apart frames",
+                "value": 0.014485272727272746
+              },
+              "trace_far_minus_trace_shuffled_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine vs spatial-shuffle control",
+                "value": 0.12591963636363634
+              },
+              "trace_near_minus_trace_far_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine margin",
+                "value": 0.04464081818181818
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "visual_similarity": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "pair_separation_auc": {
+                "dimension": "quality",
+                "unit": "rank AUC",
+                "value": 0.9023302148302148
+              },
+              "within_minus_across_cosine": {
+                "dimension": "quality",
+                "unit": "cosine gap",
+                "value": 0.1421658787051071
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "visual_embed": "facebook/PE-Core-S16-384@aabf3b990573d8114ae6e501b4697106beac8f19"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "feature_extraction_cost": [
+          "quality"
+        ],
+        "spatial_correspondence_l7": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "spatial_correspondence_lfinal": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "visual_similarity": [
+          "latency",
+          "memory",
+          "cost"
+        ]
+      }
+    },
+    "vjepa2.1-vitb-384": {
+      "modalities": {
+        "action_candidate_ranking": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "average_precision": {
+                "dimension": "quality",
+                "unit": "9 motion positives over 20 labeled windows",
+                "value": 0.6282407407407408
+              },
+              "precision_at_10": {
+                "dimension": "quality",
+                "unit": "fraction",
+                "value": 0.7
+              },
+              "precision_at_5": {
+                "dimension": "quality",
+                "unit": "fraction",
+                "value": 0.6
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "feature_extraction_cost": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "cold_load_s": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 12.021
+              },
+              "decode_s_per_window": {
+                "dimension": "latency",
+                "unit": "seconds per window",
+                "value": 10.21703125
+              },
+              "process_peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB (does not include all Metal memory)",
+                "value": 0.98125
+              },
+              "wall_s_per_window": {
+                "dimension": "cost",
+                "unit": "seconds per window",
+                "value": 12.99528125
+              },
+              "warm_infer_s_per_window": {
+                "dimension": "latency",
+                "unit": "seconds per <=8s window (16 frames at 384px)",
+                "value": 2.7567741935483867
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "motion_agreement": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "spearman_d_half_vs_farneback_peak": {
+                "dimension": "quality",
+                "unit": "rank correlation, global-mean control",
+                "value": 0.655791788856305
+              },
+              "spearman_energy_p90_vs_farneback_peak": {
+                "dimension": "quality",
+                "unit": "rank correlation over all 32 calibration windows",
+                "value": 0.7980205278592375
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "motion_sensitivity": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "mean_energy_p90_motion": {
+                "dimension": "quality",
+                "unit": "mean per-patch p90 temporal change",
+                "value": 0.41756566666666667
+              },
+              "mean_energy_p90_static": {
+                "dimension": "quality",
+                "unit": "mean per-patch p90 temporal change",
+                "value": 0.33364581818181815
+              },
+              "motion_static_auc_d_half": {
+                "dimension": "quality",
+                "unit": "rank AUC, global-mean control",
+                "value": 0.8181818181818182
+              },
+              "motion_static_auc_energy_p90": {
+                "dimension": "quality",
+                "unit": "rank AUC over 9 motion + 11 static agent-labeled windows",
+                "value": 0.7373737373737373
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        },
+        "temporal_correspondence": {
+          "calibration": {
+            "evidence_checksums": {
+              "mu33-calibration-windows": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+            },
+            "metrics": {
+              "mean_far_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.8253782727272726
+              },
+              "mean_near_score": {
+                "dimension": "quality",
+                "unit": "cosine",
+                "value": 0.8733293636363636
+              },
+              "near_minus_far_margin": {
+                "dimension": "quality",
+                "unit": "mean top-1 patch cosine, adjacent vs first-last slices",
+                "value": 0.047951090909090895
+              },
+              "subset_windows": {
+                "dimension": "quality",
+                "unit": "windows",
+                "value": 11.0
+              },
+              "trace_far_minus_trace_shuffled_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine vs spatial-shuffle control",
+                "value": 0.08127909090909093
+              },
+              "trace_near_minus_trace_far_margin": {
+                "dimension": "quality",
+                "unit": "same-position cosine margin",
+                "value": 0.07441809090909089
+              }
+            },
+            "revision": "2440600c2",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "video_features": "vjepa2_1_vitb_dist_vitG_384@dl.fbaipublicfiles.com"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "action_candidate_ranking": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "feature_extraction_cost": [
+          "quality"
+        ],
+        "motion_agreement": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "motion_sensitivity": [
+          "latency",
+          "memory",
+          "cost"
+        ],
+        "temporal_correspondence": [
+          "latency",
+          "memory",
+          "cost"
+        ]
+      }
+    }
+  }
+}

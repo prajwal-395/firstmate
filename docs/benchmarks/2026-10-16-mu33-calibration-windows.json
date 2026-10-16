@@ -1,0 +1,302 @@
+{
+  "fixture_version": "mu-features-windows-v1",
+  "corpus_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+  "action_consensus": "docs/benchmarks/evaluator-only/2026-10-15-agent-action-consensus.json",
+  "label_type": "agent",
+  "split": "calibration",
+  "counts": {
+    "motion": 9,
+    "static": 11,
+    "unlabeled-cost-only": 12
+  },
+  "windows": [
+    {
+      "window_id": "static-IMG_1806-0.00-3.57",
+      "take": "IMG_1806",
+      "start": 0.0,
+      "end": 3.567,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1807-0.00-5.25",
+      "take": "IMG_1807",
+      "start": 0.0,
+      "end": 5.25,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration open_car_door",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1807-5.25-9.25",
+      "take": "IMG_1807",
+      "start": 5.25,
+      "end": 9.25,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration enter_car",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1807-10.25-14.25",
+      "take": "IMG_1807",
+      "start": 10.25,
+      "end": 14.25,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1808-0.00-5.25",
+      "take": "IMG_1808",
+      "start": 0.0,
+      "end": 5.25,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration put_on_cap",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1808-7.50-13.50",
+      "take": "IMG_1808",
+      "start": 7.5,
+      "end": 13.5,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration stretch_arms_behind_head",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1808-14.50-18.50",
+      "take": "IMG_1808",
+      "start": 14.5,
+      "end": 18.5,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1808-18.50-22.50",
+      "take": "IMG_1808",
+      "start": 18.5,
+      "end": 22.5,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1808-22.50-26.50",
+      "take": "IMG_1808",
+      "start": 22.5,
+      "end": 26.5,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1809-0.00-8.00",
+      "take": "IMG_1809",
+      "start": 0.0,
+      "end": 8.0,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration drive; truncated_to_8.0s",
+      "truncated": true
+    },
+    {
+      "window_id": "motion-IMG_1810-0.00-7.90",
+      "take": "IMG_1810",
+      "start": 0.0,
+      "end": 7.9,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration drive",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1811-0.00-8.00",
+      "take": "IMG_1811",
+      "start": 0.0,
+      "end": 8.0,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration drive; truncated_to_8.0s",
+      "truncated": true
+    },
+    {
+      "window_id": "motion-IMG_1814-2.00-10.00",
+      "take": "IMG_1814",
+      "start": 2.0,
+      "end": 10.0,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration walk_away_from_camera; truncated_to_8.0s",
+      "truncated": true
+    },
+    {
+      "window_id": "static-IMG_1814-16.00-20.00",
+      "take": "IMG_1814",
+      "start": 16.0,
+      "end": 20.0,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1814-20.00-24.00",
+      "take": "IMG_1814",
+      "start": 20.0,
+      "end": 24.0,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1814-24.00-28.00",
+      "take": "IMG_1814",
+      "start": 24.0,
+      "end": 28.0,
+      "label": "static",
+      "label_basis": "no agent-labeled action in interval; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "motion-IMG_1815-0.00-6.30",
+      "take": "IMG_1815",
+      "start": 0.0,
+      "end": 6.3,
+      "label": "motion",
+      "label_basis": "agent-action-consensus calibration speak_to_camera",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1816-0.00-4.00",
+      "take": "IMG_1816",
+      "start": 0.0,
+      "end": 4.0,
+      "label": "static",
+      "label_basis": "no agent-labeled action in take; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1816-62.86-66.86",
+      "take": "IMG_1816",
+      "start": 62.859,
+      "end": 66.859,
+      "label": "static",
+      "label_basis": "no agent-labeled action in take; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "static-IMG_1816-125.72-129.72",
+      "take": "IMG_1816",
+      "start": 125.719,
+      "end": 129.719,
+      "label": "static",
+      "label_basis": "no agent-labeled action in take; not certified motion-free",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-0.00-4.00",
+      "take": "LC4931",
+      "start": 0.0,
+      "end": 4.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-4.00-8.00",
+      "take": "LC4931",
+      "start": 4.0,
+      "end": 8.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-8.00-12.00",
+      "take": "LC4931",
+      "start": 8.0,
+      "end": 12.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-12.00-16.00",
+      "take": "LC4931",
+      "start": 12.0,
+      "end": 16.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-16.00-20.00",
+      "take": "LC4931",
+      "start": 16.0,
+      "end": 20.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LC4931-20.00-24.00",
+      "take": "LC4931",
+      "start": 20.0,
+      "end": 24.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-0.00-4.00",
+      "take": "LCATL0012",
+      "start": 0.0,
+      "end": 4.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-4.00-8.00",
+      "take": "LCATL0012",
+      "start": 4.0,
+      "end": 8.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-8.00-12.00",
+      "take": "LCATL0012",
+      "start": 8.0,
+      "end": 12.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-12.00-16.00",
+      "take": "LCATL0012",
+      "start": 12.0,
+      "end": 16.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-16.00-20.00",
+      "take": "LCATL0012",
+      "start": 16.0,
+      "end": 20.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    },
+    {
+      "window_id": "unlabeled-cost-only-LCATL0012-20.00-24.00",
+      "take": "LCATL0012",
+      "start": 20.0,
+      "end": 24.0,
+      "label": "unlabeled-cost-only",
+      "label_basis": "no action labels on podcast take; cost and correlation only",
+      "truncated": false
+    }
+  ]
+}

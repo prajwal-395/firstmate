@@ -1,0 +1,45 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "clip-vit-large-patch14",
+    "role": "baseline",
+    "models": {
+      "visual_embed": "openai/clip-vit-large-patch14@cached"
+    }
+  },
+  "modality": "feature_extraction_cost",
+  "split": "calibration",
+  "metrics": {
+    "cold_load_s": {
+      "value": 8.98,
+      "unit": "seconds",
+      "dimension": "latency"
+    },
+    "warm_infer_s_per_frame": {
+      "value": 0.42658064516129035,
+      "unit": "seconds per frame",
+      "dimension": "latency"
+    },
+    "process_peak_rss_gb": {
+      "value": 0.41662109375,
+      "unit": "GB (does not include all Metal memory)",
+      "dimension": "memory"
+    },
+    "wall_s_per_frame": {
+      "value": 3.76903125,
+      "unit": "seconds per frame",
+      "dimension": "cost"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

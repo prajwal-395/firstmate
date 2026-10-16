@@ -1,0 +1,30 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "farneback-regional-motion",
+    "role": "baseline",
+    "models": {
+      "motion": "library.tools.regional_motion@repo"
+    }
+  },
+  "modality": "motion_sensitivity",
+  "split": "calibration",
+  "metrics": {
+    "motion_static_auc": {
+      "value": 0.7070707070707071,
+      "unit": "rank AUC over 9 motion + 11 static agent-labeled windows",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

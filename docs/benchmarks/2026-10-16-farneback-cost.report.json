@@ -1,0 +1,45 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "farneback-regional-motion",
+    "role": "baseline",
+    "models": {
+      "motion": "library.tools.regional_motion@repo"
+    }
+  },
+  "modality": "feature_extraction_cost",
+  "split": "calibration",
+  "metrics": {
+    "mean_infer_s_per_window": {
+      "value": 23.3241875,
+      "unit": "seconds per window (10Hz 640x360 Farneback)",
+      "dimension": "latency"
+    },
+    "mean_decode_s_per_window": {
+      "value": 8.50553125,
+      "unit": "seconds per window",
+      "dimension": "latency"
+    },
+    "process_peak_rss_gb": {
+      "value": 0.10791015625,
+      "unit": "GB (does not include all Metal memory)",
+      "dimension": "memory"
+    },
+    "wall_s_per_window": {
+      "value": 31.82971875,
+      "unit": "seconds per window",
+      "dimension": "cost"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

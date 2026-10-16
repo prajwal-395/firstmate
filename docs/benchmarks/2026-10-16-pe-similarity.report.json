@@ -1,0 +1,35 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "pe-core-s16-384",
+    "role": "candidate",
+    "models": {
+      "visual_embed": "facebook/PE-Core-S16-384@aabf3b990573d8114ae6e501b4697106beac8f19"
+    }
+  },
+  "modality": "visual_similarity",
+  "split": "calibration",
+  "metrics": {
+    "within_minus_across_cosine": {
+      "value": 0.1421658787051071,
+      "unit": "cosine gap",
+      "dimension": "quality"
+    },
+    "pair_separation_auc": {
+      "value": 0.9023302148302148,
+      "unit": "rank AUC",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

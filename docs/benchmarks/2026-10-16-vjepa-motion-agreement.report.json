@@ -1,0 +1,35 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "vjepa2.1-vitb-384",
+    "role": "candidate",
+    "models": {
+      "video_features": "vjepa2_1_vitb_dist_vitG_384@dl.fbaipublicfiles.com"
+    }
+  },
+  "modality": "motion_agreement",
+  "split": "calibration",
+  "metrics": {
+    "spearman_energy_p90_vs_farneback_peak": {
+      "value": 0.7980205278592375,
+      "unit": "rank correlation over all 32 calibration windows",
+      "dimension": "quality"
+    },
+    "spearman_d_half_vs_farneback_peak": {
+      "value": 0.655791788856305,
+      "unit": "rank correlation, global-mean control",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

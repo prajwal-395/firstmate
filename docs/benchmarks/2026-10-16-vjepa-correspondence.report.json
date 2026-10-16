@@ -1,0 +1,55 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "vjepa2.1-vitb-384",
+    "role": "candidate",
+    "models": {
+      "video_features": "vjepa2_1_vitb_dist_vitG_384@dl.fbaipublicfiles.com"
+    }
+  },
+  "modality": "temporal_correspondence",
+  "split": "calibration",
+  "metrics": {
+    "near_minus_far_margin": {
+      "value": 0.047951090909090895,
+      "unit": "mean top-1 patch cosine, adjacent vs first-last slices",
+      "dimension": "quality"
+    },
+    "trace_near_minus_trace_far_margin": {
+      "value": 0.07441809090909089,
+      "unit": "same-position cosine margin",
+      "dimension": "quality"
+    },
+    "trace_far_minus_trace_shuffled_margin": {
+      "value": 0.08127909090909093,
+      "unit": "same-position cosine vs spatial-shuffle control",
+      "dimension": "quality"
+    },
+    "mean_near_score": {
+      "value": 0.8733293636363636,
+      "unit": "cosine",
+      "dimension": "quality"
+    },
+    "mean_far_score": {
+      "value": 0.8253782727272726,
+      "unit": "cosine",
+      "dimension": "quality"
+    },
+    "subset_windows": {
+      "value": 11.0,
+      "unit": "windows",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

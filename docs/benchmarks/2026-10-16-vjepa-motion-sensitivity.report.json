@@ -1,0 +1,45 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "2440600c2",
+  "version": {
+    "id": "vjepa2.1-vitb-384",
+    "role": "candidate",
+    "models": {
+      "video_features": "vjepa2_1_vitb_dist_vitG_384@dl.fbaipublicfiles.com"
+    }
+  },
+  "modality": "motion_sensitivity",
+  "split": "calibration",
+  "metrics": {
+    "motion_static_auc_energy_p90": {
+      "value": 0.7373737373737373,
+      "unit": "rank AUC over 9 motion + 11 static agent-labeled windows",
+      "dimension": "quality"
+    },
+    "motion_static_auc_d_half": {
+      "value": 0.8181818181818182,
+      "unit": "rank AUC, global-mean control",
+      "dimension": "quality"
+    },
+    "mean_energy_p90_motion": {
+      "value": 0.41756566666666667,
+      "unit": "mean per-patch p90 temporal change",
+      "dimension": "quality"
+    },
+    "mean_energy_p90_static": {
+      "value": 0.33364581818181815,
+      "unit": "mean per-patch p90 temporal change",
+      "dimension": "quality"
+    }
+  },
+  "evidence": [
+    {
+      "id": "mu33-calibration-windows",
+      "path": "2026-10-16-mu33-calibration-windows.json",
+      "sha256": "3abe04c08e92126a9ad5097a0ac866aa0a749929d42a6af2a6609f01dfe6e06c"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}
