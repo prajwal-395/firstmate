@@ -932,20 +932,20 @@ JSON
   pass "the secondary workspace monthly reset comes from its fresh quota-axi row"
 }
 
-test_screenshot_quota_prefers_soonest_reset_over_more_remaining() {
+test_go_workspace_reset_priority_overrides_spend_priority() {
   local state cfg fixture pick out note
   state=$(fresh_state screenshotreset)
   cfg=$(second_config screenshotreset)
   cap_free_plus "$state"
-  fixture="$TMP_ROOT/screenshot-reset-priority.json"
+  fixture="$TMP_ROOT/go-reset-spend-priority.json"
   cat > "$fixture" <<'JSON'
-{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-08T02:02:34.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":33}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-06T15:22:44.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50}]}}]}
+{"providers":[{"provider":"opencode-go","accountKey":"main","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-08T02:02:34.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":64,"selection":{"spendPriority":-0.28}}]}},{"provider":"opencode-go","accountKey":"second","state":{"status":"fresh"},"windows":[{"id":"monthly","resetsAt":"2026-11-06T15:22:44.000Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":40,"selection":{"spendPriority":-0.90}}]}}]}
 JSON
   pick=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
     fm_opencode_ladder_pick_go_workspace "$state" 2>/dev/null) \
     || fail "the workspace pick must accept fresh quota rows with fractional resets"
   [ "$pick" = secondary ] \
-    || fail "the screenshot's earlier-resetting secondary plan must win despite more remaining quota, got '$pick'"
+    || fail "the second plan resetting Nov 6 must beat main resetting Nov 8 despite spendPriority favoring main, got '$pick'"
   out=$(FM_CONFIG_OVERRIDE="$cfg" QUOTA_AXI_SNAPSHOT="$fixture" PATH="$QUOTA_BIN:$PATH" \
     fm_opencode_ladder_model "$FREE" "$state" 2>"$TMP_ROOT/screenshot-reset-notice") \
     || fail "dispatch must route to the remaining Go plan"
@@ -953,7 +953,7 @@ JSON
   note=$(cat "$TMP_ROOT/screenshot-reset-notice")
   case "$note" in *'priority Go plan resets soonest on the second workspace'*) : ;; *)
     fail "dispatch notice must explain the soonest reset choice: $note" ;; esac
-  pass "the screenshot's sooner reset selects secondary and the notice explains why"
+  pass "the Nov 6 Go reset selects secondary despite the opposite spendPriority rank"
 }
 
 test_unlabelled_go_quota_row_keeps_main_meaning() {
@@ -1551,7 +1551,7 @@ test_go_capped_routes_to_second_workspace
 test_workspace_quota_rows_split_caps
 test_fractional_monthly_reset_timestamp_is_parsed
 test_secondary_quota_axi_monthly_row_is_read
-test_screenshot_quota_prefers_soonest_reset_over_more_remaining
+test_go_workspace_reset_priority_overrides_spend_priority
 test_unlabelled_go_quota_row_keeps_main_meaning
 test_fourth_rung_exhaustion_refuses
 test_second_rung_cap_never_marks_main_go
