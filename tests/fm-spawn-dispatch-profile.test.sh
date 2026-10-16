@@ -2730,6 +2730,28 @@ test_opencode_shared_server_falls_back_to_standalone() {
   pass "an OpenCode server that cannot start falls back to the standalone launch"
 }
 
+test_opencode_shared_server_session_failure_falls_back_to_standalone() {
+  local rec id out status launch
+  id=profile-opencode-shared-session-z44
+  rec=$(make_spawn_case profile-opencode-shared-session opencode "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+  touch "$CASE_DIR/fake-server/session-fails"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness opencode --model anthropic/claude-sonnet-4-5)
+  status=$?
+  stop_case_servers "$HOME_DIR"
+  expect_code 0 "$status" "a server that cannot open a session must leave the standalone launch: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
+  assert_not_contains "$launch" "opencode attach" "a failed session must not leave an attached client"
+  assert_no_grep 'opencode_server' "$HOME_DIR/state/$id.meta" "a standalone fallback must record no server"
+  [ ! -e "$HOME_DIR/state/opencode-server-default.leases/$id" ] || fail "the fallback left its lease holding the server"
+  pass "a shared server that cannot open a session falls back to the standalone launch and drops its lease"
+}
+
 test_opencode_shared_servers_keep_each_workspace_on_its_own_database() {
   local rec id_second id_main out status datadir
   command -v sqlite3 >/dev/null 2>&1 || {
@@ -2819,6 +2841,7 @@ test_opencode_main_workspace_pins_launch_when_second_configured
 test_opencode_main_launch_refuses_when_pin_unprovable
 test_opencode_shared_server_attaches_worker_to_its_own_session
 test_opencode_shared_server_falls_back_to_standalone
+test_opencode_shared_server_session_failure_falls_back_to_standalone
 test_opencode_shared_servers_keep_each_workspace_on_its_own_database
 test_opencode_free_launch_ignores_an_inherited_second_workspace
 test_opencode_free_launch_ignores_an_inherited_main_org

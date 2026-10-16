@@ -1184,7 +1184,7 @@ It applies to crewmates and scouts only; a secondmate always launches standalone
 When on, each OpenCode launch starts or reuses one loopback-only server per workspace database: the main Go workspace, the second Go workspace when one is configured, and a default server for every unpinned launch.
 Each pinned server runs on its own private copy of its workspace pin, proven against that workspace before every server start, so the server process is the only OpenCode writer of that copy and per-task copies are not needed.
 Each worker keeps the visible interactive client in its pane and a session of its own, a relaunch gets a fresh session, and the server health is checked before every attach and a dead server restarted.
-A server that cannot start leaves that launch on the standalone path with its per-task database.
+A server that cannot start or open the task's session leaves that launch on the standalone path with its per-task database.
 Cleanup ends the task's session, and a server stops only when no remaining worker holds it.
 Writing `off` returns new launches to the standalone path; workers already attached keep their server until they are cleaned up.
 `bin/fm-opencode-server.sh` owns the server lifecycle and its records, and `tests/fm-opencode-shared-server-live-e2e.test.sh` (opt in with `FM_OPENCODE_SHARED_SERVER_LIVE=1`) is the live check of an attached worker's supervision.

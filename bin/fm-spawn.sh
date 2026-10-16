@@ -6065,11 +6065,15 @@ if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
     "$SCRIPT_DIR/fm-opencode-server.sh" dispose "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$WT" >/dev/null 2>&1 || true
   fi
-  OPENCODE_SERVER_SESSION=$("$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
-    "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID") || {
-    echo "error: the shared OpenCode server could not create a session for $ID" >&2
-    exit 1
-  }
+  if ! OPENCODE_SERVER_SESSION=$("$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
+    "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID"); then
+    echo "notice: the shared OpenCode server could not open a session; launching $ID standalone" >&2
+    OPENCODE_SERVER_SESSION=
+    "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" >/dev/null || true
+    OPENCODE_SERVER_PROFILE=
+    OPENCODE_SHARED_SERVER=0
+    opencode_task_db || exit 1
+  fi
 fi
 if [ -n "$RELAUNCH_PRIOR_OPENCODE_SERVER" ] && [ -n "$RELAUNCH_PRIOR_OPENCODE_SESSION" ]; then
   if [ "$RELAUNCH_PRIOR_OPENCODE_SERVER" = "$OPENCODE_SERVER_PROFILE" ]; then

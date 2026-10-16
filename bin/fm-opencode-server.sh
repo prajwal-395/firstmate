@@ -233,15 +233,17 @@ encode_directory() {
   jq -rn --arg value "$1" '$value|@uri'
 }
 
-session_call() {  # <method> <path> <directory> [json-body]
-  local method=$1 path=$2 directory=$3 body=${4:-} url encoded
+# The first call for a directory boots the server's instance for it (config
+# and plugins), which can take tens of seconds on a loaded machine.
+session_call() {  # <max-seconds> <method> <path> <directory> [json-body]
+  local max=$1 method=$2 path=$3 directory=$4 body=${5:-} url encoded
   url=$(server_url) || return 1
   encoded=$(encode_directory "$directory") || return 1
   if [ -n "$body" ]; then
-    server_curl --max-time 15 -X "$method" -H 'Content-Type: application/json' \
+    server_curl --max-time "$max" -X "$method" -H 'Content-Type: application/json' \
       --data "$body" "$url$path?directory=$encoded"
   else
-    server_curl --max-time 15 -X "$method" "$url$path?directory=$encoded"
+    server_curl --max-time "$max" -X "$method" "$url$path?directory=$encoded"
   fi
 }
 
@@ -249,8 +251,8 @@ session_call() {  # <method> <path> <directory> [json-body]
 # a stopped server is already running nothing.
 end_session() {  # <profile> <session-id> <directory>
   server_alive || return 0
-  session_call POST "/session/$2/abort" "$3" >/dev/null 2>&1 || true
-  session_call DELETE "/session/$2" "$3" >/dev/null 2>&1 && return 0
+  session_call 30 POST "/session/$2/abort" "$3" >/dev/null 2>&1 || true
+  session_call 30 DELETE "/session/$2" "$3" >/dev/null 2>&1 && return 0
   echo "warning: the $1 OpenCode server did not delete session $2" >&2
   return 1
 }
@@ -309,7 +311,7 @@ case "$op" in
     need_tools
     profile_paths "$1" "$2"
     body=$(jq -nc --arg title "$4" '{title:$title}') || die "could not encode the session title"
-    out=$(session_call POST /session "$3" "$body") || die "the $2 OpenCode server could not create a session"
+    out=$(session_call 120 POST /session "$3" "$body") || die "the $2 OpenCode server could not create a session"
     id=$(printf '%s' "$out" | jq -er '.id') || die "the $2 OpenCode server returned no session id"
     valid_id "$id" || die "the $2 OpenCode server returned an unusable session id"
     printf '%s\n' "$id"
@@ -327,7 +329,7 @@ case "$op" in
          else {} end)
       + (if ($variant|length) > 0 then {variant:$variant} else {} end)') \
       || die "could not encode the task prompt"
-    session_call POST "/session/$3/prompt_async" "$4" "$body" >/dev/null \
+    session_call 120 POST "/session/$3/prompt_async" "$4" "$body" >/dev/null \
       || die "the $2 OpenCode server did not accept the task prompt"
     ;;
   end-session)
@@ -343,7 +345,7 @@ case "$op" in
     valid_profile "$2" || die "unknown OpenCode server profile '$2'"
     need_tools
     profile_paths "$1" "$2"
-    session_call POST /instance/dispose "$3" >/dev/null || die "the $2 OpenCode server could not reload $3"
+    session_call 60 POST /instance/dispose "$3" >/dev/null || die "the $2 OpenCode server could not reload $3"
     ;;
   *)
     die "usage: fm-opencode-server.sh ensure|session|prompt|dispose|end-session|release ..."

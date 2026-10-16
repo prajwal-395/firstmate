@@ -281,7 +281,8 @@ fm_test_spawn_home() {
 # curl its API calls go through, for bin/fm-opencode-server.sh. Each server is a
 # real long-lived process announcing its own port, so death and reuse are real;
 # <dir>/servers/<port>.db records the OPENCODE_DB it started with and
-# <dir>/api.log every API call as `<METHOD> <path> <directory>`. Every other
+# <dir>/api.log every API call as `<METHOD> <path> <directory>`; touching
+# <dir>/serve-fails or <dir>/session-fails makes that step fail. Every other
 # opencode subcommand still reaches an opencode the fakebin already held.
 fm_test_fake_opencode_server() {  # <fakebin> <dir>
   local fakebin=$1 dir=$2
@@ -324,7 +325,9 @@ kill -0 "\$pid" 2>/dev/null || exit 7
 printf '%s %s %s\n' "\$method" "\$path" "\$directory" >> '$dir/api.log'
 case "\$method \$path" in
   'GET /global/health') printf '{"healthy":true,"version":"fake"}\n' ;;
-  'POST /session') printf '{"id":"ses_fake%s"}\n' "\$(wc -l < '$dir/api.log' | tr -d ' ')" ;;
+  'POST /session')
+    [ ! -e '$dir/session-fails' ] || exit 22
+    printf '{"id":"ses_fake%s"}\n' "\$(wc -l < '$dir/api.log' | tr -d ' ')" ;;
   'POST /session/'*/prompt_async) printf '%s\n' "\$body" > '$dir/prompt.json' ;;
 esac
 exit 0
