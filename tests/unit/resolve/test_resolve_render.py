@@ -2,35 +2,32 @@
 
 History: docs/evidence/resolve_test_history.md#test_render_borrow_restore.
 """
+import datetime
+import json
+import os
+import select
+import shutil
+import subprocess
+import sys
+import textwrap
+import threading
 from contextlib import contextmanager
-import pytest
+from pathlib import Path
 from unittest.mock import patch
-from library.tools.segment_renderer import (
-    render_segment,
-)
-from library.tools import resolve_lock
+
+import pytest
+
+from library.tools import resolve_axi, resolve_lock, segment_renderer, visual_qa_router
 from library.tools.execution.resolve_render import (
     RenderError,
     _find_timeline,
     _select_timeline,
 )
-from tests.resolve_double import FakeTimeline, make_project
-from library.tools import segment_renderer
-from tests.resolve_double import FakeProject, FakeResolve
-import datetime
-import json
-import os
-import sys
-import select
-import subprocess
-import textwrap
-import threading
-from pathlib import Path
-from library.tools import resolve_axi
-import shutil
-from library.tools import visual_qa_router
-from library.tools.qa_fidelity import (
-    GENERATED_ASSET, RESOLVE_COMPOSITE, SOURCE_PIXEL)
+from library.tools.qa_fidelity import GENERATED_ASSET, RESOLVE_COMPOSITE, SOURCE_PIXEL
+from library.tools.segment_renderer import (
+    render_segment,
+)
+from tests.resolve_double import FakeProject, FakeResolve, FakeTimeline, make_project
 
 
 def test_normal_neural_directives_never_call_resolve_stabilize():
@@ -45,11 +42,11 @@ def test_normal_neural_directives_never_call_resolve_stabilize():
     manifest = {"neural_engine_directives": {
         "speech_1": {"super_scale": 2},
     }}
-    with patch.object(resolve_build_timeline, "apply_stabilization") as apply:
-        with patch.object(resolve_build_timeline, "apply_super_scale",
-                           return_value=True):
-            resolve_build_timeline._apply_neural_engine_directives(
-                manifest, Timeline(), ["speech_1"], [], {"warnings": []})
+    with (patch.object(resolve_build_timeline, "apply_stabilization") as apply,
+          patch.object(resolve_build_timeline, "apply_super_scale",
+                       return_value=True)):
+        resolve_build_timeline._apply_neural_engine_directives(
+            manifest, Timeline(), ["speech_1"], [], {"warnings": []})
     apply.assert_not_called()
 
 
@@ -63,10 +60,10 @@ def test_resolve_stabilize_refuses_a_directive_without_user_provenance():
     manifest = {"neural_engine_directives": {
         "speech_1": {"stabilize": True},
     }}
-    with patch.object(resolve_build_timeline, "apply_stabilization") as apply:
-        with pytest.raises(ValueError, match="no valid user authorization"):
-            resolve_build_timeline._apply_neural_engine_directives(
-                manifest, Timeline(), ["speech_1"], [], {"warnings": []})
+    with (patch.object(resolve_build_timeline, "apply_stabilization") as apply,
+          pytest.raises(ValueError, match="no valid user authorization")):
+        resolve_build_timeline._apply_neural_engine_directives(
+            manifest, Timeline(), ["speech_1"], [], {"warnings": []})
     apply.assert_not_called()
 
 
@@ -557,7 +554,7 @@ def test_a_job_that_never_reached_the_queue_refuses(tmp_path):
     """AddRenderJob returning an id is not evidence of a queued job."""
     tl = FakeTimeline("T", end_frame=1665)
     project = FakeProject([tl], current=tl)
-    project.GetRenderJobList = lambda: []
+    project.GetRenderJobList = list
     result = segment_renderer.render_segment(
         FakeResolve(project), project, tl, mark_in=300, mark_out=300,
         output_dir=str(tmp_path), resolution="full", custom_name="f")
@@ -609,7 +606,8 @@ from library.steps.step_6_01_render import step as render_step
 
 def _timestamped_timeline_name(base_name, duration_seconds):
     """The same expression resolve_build_timeline uses for the timeline."""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now().astimezone().strftime(
+        "%Y%m%d_%H%M%S")
     duration_str = f"_{int(duration_seconds)}s" if duration_seconds else ""
     return f"{base_name}_{timestamp}{duration_str}"
 
@@ -639,7 +637,10 @@ def _capture_export_name(monkeypatch, tmp_path):
 
     def fake_master(report, output_path, **kwargs):
         captured["delivered"] = output_path
-        return dict(report, output_path=output_path)
+        captured["master_args"] = kwargs
+        captured["raw_input"] = report["output_path"]
+        return dict(report, raw_output_path=report["output_path"],
+                    output_path=output_path)
 
     monkeypatch.setattr(render_step.subprocess, "run", fake_run)
     monkeypatch.setattr(master_loudness, "master_render_report", fake_master)
@@ -687,6 +688,29 @@ def test_export_falls_back_to_manifest_when_no_timeline(monkeypatch, tmp_path):
         f"{DEFAULT_TIMELINE_NAME}_pre_master"
     assert os.path.basename(captured2["delivered"]) == \
         f"{DEFAULT_TIMELINE_NAME}.mp4"
+
+
+def test_export_passes_delivery_loudness_and_true_peak_to_master(
+        monkeypatch, tmp_path):
+    """The delivered file is mastered against the manifest's peak ceiling."""
+    manifest = {
+        "project": {"name": "EVAL04 calibration"},
+        "audio_mix": {
+            "delivery_lufs_target": -14.0,
+            "delivery_true_peak_ceiling_dbtp": -1.0,
+        },
+    }
+    captured = _capture_export_name(monkeypatch, tmp_path)
+
+    report = render_step._export_timeline(
+        "EVAL04 calibration", {"project_folder": str(tmp_path)}, manifest)
+
+    assert captured["master_args"] == {
+        "target_lufs": -14.0,
+        "true_peak_ceiling": -1.0,
+    }
+    assert report["output_path"] == captured["delivered"]
+    assert report["raw_output_path"] == captured["raw_input"]
 
 
 # --------------------------------------------------------------------------
