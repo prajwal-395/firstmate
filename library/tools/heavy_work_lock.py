@@ -91,6 +91,21 @@ def _announce(line: str) -> None:
     print(line, file=sys.stderr, flush=True)
 
 
+def _stop_over_reservation(owner: str, profile: str,
+                          footprint_gb: float,
+                          reservation_gb: float) -> None:
+    """Stop this exact scheduler owner when its process tree exceeds RAM."""
+    pid = os.getpid()
+    _announce(
+        f"heavy-work: stopping {owner!r} (pid {pid}): process-tree "
+        f"physical footprint {footprint_gb:.2f} GB exceeds declared "
+        f"reservation {reservation_gb:.2f} GB for {profile}")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
 def _scheduler() -> resource_scheduler.Scheduler:
     return resource_scheduler.Scheduler(HEAVY_LOCK_DIR)
 
@@ -158,7 +173,10 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
         # acquire and `_held_state`, or a signal there (SIGTERM to a
         # gate) leaves the grant held with nobody to release it.
         sampler = resource_scheduler.TreeSampler(
-            watch_resolve=bool(demand.get("resolve_cursor")))
+            watch_resolve=bool(demand.get("resolve_cursor")),
+            reservation_gb=demand.get("ram_gb"),
+            over_reservation=lambda footprint, reservation:
+            _stop_over_reservation(owner, profile, footprint, reservation))
         try:
             token = _scheduler().acquire(
                 owner, demand, announce=_announce,
@@ -176,6 +194,7 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
                            max(0.0, timing[1] - timing[0]) if timing else None),
                        "schedule_execution_started": time.perf_counter()}
         os.environ[OWNER_ENV] = token
+        sampler.enforce_reservation()
         _ensure_exit_hook()
 
 
@@ -247,7 +266,10 @@ def take_heavy_memory_reservation(
                 f"an inherited grant of {inherited}; take a profile "
                 "covering the model memory in the parent instead")
 
-        sampler = resource_scheduler.TreeSampler()
+        sampler = resource_scheduler.TreeSampler(
+            reservation_gb=demand.get("ram_gb"),
+            over_reservation=lambda footprint, reservation:
+            _stop_over_reservation(owner, profile, footprint, reservation))
         try:
             token = _scheduler().acquire(
                 owner, demand, announce=_announce,
@@ -260,6 +282,7 @@ def take_heavy_memory_reservation(
             "sampler": sampler, "nested_profiles": frozenset(admissions),
             "folded_into": None,
         }
+        sampler.enforce_reservation()
         _ensure_exit_hook()
 
 

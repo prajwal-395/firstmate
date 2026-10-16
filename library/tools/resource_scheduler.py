@@ -923,8 +923,11 @@ class TreeSampler:
     """What one grant's process tree really uses, sampled while it runs.
 
     Every `SAMPLE_SECONDS` one `ps` over the machine: the tree is this
-    process and every descendant. Resident memory is SUMMED across the
-    tree - a gate's pytest workers each hold their own - and cores are
+    process and every descendant. Resident RSS is summed across the
+    tree - a gate's pytest workers each hold their own - while macOS
+    physical footprint is sampled for every tree PID, including GPU and
+    compressed-memory charges. Declared RAM reservations are enforced
+    against that physical peak. Cores are
     the tree's CPU-time growth over the interval, so a burst between
     samples is averaged into its interval, never missed. A process that
     is not a descendant (a model server the work talks to over a socket)
@@ -941,7 +944,10 @@ class TreeSampler:
 
     SAMPLE_SECONDS = 2.0
 
-    def __init__(self, watch_resolve: bool = False) -> None:
+    def __init__(self, watch_resolve: bool = False,
+                 reservation_gb: float | None = None,
+                 over_reservation: Callable[[float, float], None]
+                 | None = None) -> None:
         import resource
         self.watch_resolve = watch_resolve
         self._resolve_last: Dict[int, float] = {}
@@ -956,6 +962,10 @@ class TreeSampler:
         self.peak_rss_gb = 0.0
         self.peak_footprint_gb: float | None = None
         self.resolve_peak_footprint_gb: float | None = None
+        self.reservation_gb = reservation_gb
+        self.over_reservation = over_reservation
+        self._over_reservation_reported = False
+        self._enforcement_enabled = threading.Event()
         self.samples = 0
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="heavy-work-sampler")
@@ -968,6 +978,10 @@ class TreeSampler:
             usage = self._resource.getrusage(who)
             total += usage.ru_utime + usage.ru_stime
         return total
+
+    def enforce_reservation(self) -> None:
+        """Start applying the ceiling after admission has completed."""
+        self._enforcement_enabled.set()
 
     def _loop(self) -> None:
         while True:
@@ -1025,10 +1039,20 @@ class TreeSampler:
                 self.resolve_peak_rss_gb,
                 sum(stats[pid][0] for pid in theirs) / 2 ** 20)
         self.samples += 1
-        footprint = _tree_footprint_gb(os.getpid())
+        # `footprint -p` accepts several PIDs and reports their combined
+        # phys_footprint. Pass every descendant found by this same process
+        # tree walk; the scheduler wrapper's PID alone excludes its worker.
+        footprint = _tree_footprint_gb(*sorted(tree))
         if footprint is not None:
             self.peak_footprint_gb = max(
                 self.peak_footprint_gb or 0.0, footprint)
+            if (self.reservation_gb is not None
+                    and self._enforcement_enabled.is_set()
+                    and footprint > self.reservation_gb
+                    and not self._over_reservation_reported):
+                self._over_reservation_reported = True
+                if self.over_reservation is not None:
+                    self.over_reservation(footprint, self.reservation_gb)
         if self.watch_resolve and resolve:
             resolve_footprint = _tree_footprint_gb(*sorted(resolve))
             if resolve_footprint is not None:
@@ -1065,11 +1089,12 @@ def _grown(before: Dict[int, float], after: Dict[int, float]) -> float:
 
 
 def _tree_footprint_gb(*pids: int) -> float | None:
-    """Read the summed physical footprint for process roots and children.
+    """Read combined physical footprint for the supplied process IDs.
 
     macOS `footprint` exposes phys_footprint, which RSS misses for pages
     charged to compressed memory and other VM categories. Other platforms
     retain the existing RSS measurement and store no footprint value.
+    Callers supply the complete process tree when measuring a job.
     """
     if sys.platform != "darwin" or not pids:
         return None

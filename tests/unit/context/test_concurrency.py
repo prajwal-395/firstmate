@@ -757,6 +757,74 @@ def test_tree_footprint_reads_the_macos_summary(monkeypatch):
     assert resource_scheduler._tree_footprint_gb(123) == pytest.approx(0.25)
 
 
+def test_tree_sampler_measures_descendants_and_stops_over_reservation(
+        monkeypatch):
+    from threading import Event
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    root = os.getpid()
+    child = 765432
+    footprint_calls = []
+    stopped = []
+
+    def fake_run(command, **kwargs):
+        if command[0] == "ps":
+            return subprocess.CompletedProcess(
+                command, 0,
+                f"{root} 1 100 00:00:01 python\n"
+                f"{child} {root} 200 00:00:01 worker\n", "")
+        footprint_calls.append(command)
+        return subprocess.CompletedProcess(
+            command, 0, "Summary Footprint: 3221225472 B\n", "")
+
+    monkeypatch.setattr(resource_scheduler.subprocess, "run", fake_run)
+    sampler = object.__new__(resource_scheduler.TreeSampler)
+    sampler.watch_resolve = False
+    sampler._resolve_last = {}
+    sampler.resolve_peak_cores = 0.0
+    sampler.resolve_peak_rss_gb = 0.0
+    sampler._resource = None
+    sampler._last = {}
+    sampler._last_at = 0.0
+    sampler.peak_cores = 0.0
+    sampler.peak_rss_gb = 0.0
+    sampler.peak_footprint_gb = None
+    sampler.resolve_peak_footprint_gb = None
+    sampler.reservation_gb = 2.0
+    sampler.over_reservation = lambda used, reserved: stopped.append(
+        (used, reserved))
+    sampler._over_reservation_reported = False
+    sampler._enforcement_enabled = Event()
+    sampler._enforcement_enabled.set()
+    sampler.samples = 0
+
+    sampler._sample()
+    sampler._sample()
+
+    assert any(command[-4:] == ["-p", str(root), "-p", str(child)]
+               for command in footprint_calls)
+    assert sampler.peak_footprint_gb == pytest.approx(3.0)
+    assert stopped == [(3.0, 2.0)]
+
+
+def test_over_reservation_stops_the_exact_owner_pid(monkeypatch):
+    signals = []
+    messages = []
+    monkeypatch.setattr(heavy_work_lock.os, "getpid", lambda: 4312)
+    monkeypatch.setattr(heavy_work_lock.os, "kill",
+                        lambda pid, sig: signals.append((pid, sig)))
+    monkeypatch.setattr(heavy_work_lock, "_announce", messages.append)
+
+    heavy_work_lock._stop_over_reservation("measured job", "profile-x",
+                                           3.25, 2.0)
+
+    assert signals == [(4312, heavy_work_lock.signal.SIGTERM)]
+    assert messages == [
+        "heavy-work: stopping 'measured job' (pid 4312): process-tree "
+        "physical footprint 3.25 GB exceeds declared reservation 2.00 GB "
+        "for profile-x"]
+
+
 def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
         scheduler, monkeypatch):
     import sqlite3
