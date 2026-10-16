@@ -1,0 +1,187 @@
+{
+  "format": "ren_multimodal_eval_dataset/1",
+  "dataset_id": "ren-multimodal-eval-2026-10",
+  "frozen_inputs": true,
+  "source_manifest": {
+    "path": "2026-10-15-editorial-eval-corpus.json",
+    "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8",
+    "policy": "inherited source hashes, rights, split and leakage groups are authoritative"
+  },
+  "source_scopes": [
+    "geo-podcast",
+    "apple-001"
+  ],
+  "splits": {
+    "training": "source inventory only; no fixture may cross leakage groups",
+    "calibration": "may select prompts, thresholds and compute settings",
+    "held_out": "sealed from tuning; evaluate and report once after calibration is frozen"
+  },
+  "annotation_protocol": {
+    "status": "pending_agent_labels",
+    "label_type": "agent",
+    "independent_blind_labellers": 2,
+    "labeller_model_families_must_differ": true,
+    "third_tie_breaker_for_disagreements": true,
+    "agreement_is_recorded": true,
+    "prediction_blinding": true,
+    "dimensions": [
+      "stable_person_identity",
+      "visible_audible_speaker_association"
+    ],
+    "held_out_labels_tuning_access": false
+  },
+  "unresolved_challenge_coverage": [
+    "visually similar objects",
+    "temporal opposites",
+    "absent objects",
+    "ambiguous identities"
+  ],
+  "cases": [
+    {
+      "case_id": "apple001-calibration-1808",
+      "split": "calibration",
+      "fixture": {
+        "path": "eval04-brief-visual-action-object-calibration.json",
+        "sha256": "fe7fdc65c5062bd149de42c437b6661beb27b9751eeff14369f45532a380ebe9",
+        "role": "task_definition"
+      },
+      "source_intervals": [
+        {
+          "source_id": "IMG_1808",
+          "start_seconds": 3.5,
+          "end_seconds": 5.5
+        }
+      ],
+      "capabilities": [
+        "visual.detect",
+        "visual.track",
+        "video.locate_event"
+      ],
+      "annotation_state": "agent_labels_pending"
+    },
+    {
+      "case_id": "apple001-heldout-1818-handling",
+      "split": "held_out",
+      "fixture": {
+        "path": "eval04-brief-visual-action-object.json",
+        "sha256": "6f9df75221bc723ae1a9a019fc0a59330edbc6d5281f3d710cd083946c006e70",
+        "role": "task_definition"
+      },
+      "source_intervals": [
+        {
+          "source_id": "IMG_1818",
+          "start_seconds": 0.0,
+          "end_seconds": 40.0
+        }
+      ],
+      "capabilities": [
+        "visual.detect",
+        "visual.track",
+        "video.locate_event"
+      ],
+      "annotation_state": "agent_labels_pending",
+      "held_out_access": "sealed_until_one_final_report"
+    },
+    {
+      "case_id": "apple001-heldout-1812-object",
+      "split": "held_out",
+      "fixture": {
+        "path": "eval04-brief-visual-action-object.json",
+        "sha256": "6f9df75221bc723ae1a9a019fc0a59330edbc6d5281f3d710cd083946c006e70",
+        "role": "task_definition"
+      },
+      "source_intervals": [
+        {
+          "source_id": "IMG_1812",
+          "start_seconds": 10.0,
+          "end_seconds": 70.0
+        }
+      ],
+      "capabilities": [
+        "visual.detect",
+        "visual.track",
+        "video.locate_event"
+      ],
+      "annotation_state": "agent_labels_pending",
+      "held_out_access": "sealed_until_one_final_report"
+    },
+    {
+      "case_id": "geo-podcast-calibration-speaker-association",
+      "split": "calibration",
+      "fixture": {
+        "path": "geo-podcast-calibration-speaker-input.json",
+        "sha256": "e6e005d115babd09243949e30ecad920faee35c14ee048f0cb1fa62730cea79d",
+        "role": "frozen_input"
+      },
+      "source_intervals": [
+        {
+          "source_id": "LCATL0012",
+          "start_seconds": 40.24,
+          "end_seconds": 60.0
+        },
+        {
+          "source_id": "LC4931",
+          "start_seconds": 79.21,
+          "end_seconds": 99.21
+        }
+      ],
+      "capabilities": [
+        "audio.active_speaker"
+      ],
+      "annotation_state": "agent_labels_pending"
+    },
+    {
+      "case_id": "geo-podcast-heldout-speaker-association",
+      "split": "held_out",
+      "fixture": {
+        "path": "geo-podcast-heldout-speaker-input.json",
+        "sha256": "619a03da74fa515cef5fe803640d2450a2e2ecd635476e62738243aa73ded156",
+        "role": "frozen_input"
+      },
+      "source_intervals": [
+        {
+          "source_id": "LCATL0011",
+          "start_seconds": 96.09,
+          "end_seconds": 119.53
+        },
+        {
+          "source_id": "LC4930",
+          "start_seconds": 131.77,
+          "end_seconds": 151.4
+        }
+      ],
+      "capabilities": [
+        "audio.active_speaker"
+      ],
+      "annotation_state": "agent_labels_pending",
+      "held_out_access": "sealed_until_one_final_report"
+    },
+    {
+      "case_id": "geo-podcast-heldout-cross-modal",
+      "split": "held_out",
+      "fixture": {
+        "path": "eval09-cross-modal-held-out-input.json",
+        "sha256": "26b6d7b84ef1c59be474e8a5d9e321f80f919fcc68df16fdaf0076c26ebacd01",
+        "role": "frozen_executor_input"
+      },
+      "source_intervals": [
+        {
+          "source_id": "LC4930",
+          "start_seconds": 0.0,
+          "end_seconds": 225.225
+        },
+        {
+          "source_id": "LCATL0011",
+          "start_seconds": 0.0,
+          "end_seconds": 214.547667
+        }
+      ],
+      "capabilities": [
+        "audio.active_speaker",
+        "video.locate_event"
+      ],
+      "annotation_state": "agent_labels_pending",
+      "held_out_access": "sealed_until_one_final_report"
+    }
+  ]
+}

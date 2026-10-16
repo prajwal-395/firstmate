@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ren.local/schemas/ren-model-qualification-v1.schema.json",
+  "title": "Ren model qualification record",
+  "description": "A reproducible comparison and explicit adoption decision around frozen ren_evaluation_report/1 measurements. Held-out data is report-only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "revision", "capability", "hardware", "dataset", "baseline",
+    "candidate", "comparison", "adoption", "regression_risks", "unsupported_cases"
+  ],
+  "properties": {
+    "format": { "const": "ren_model_qualification/1" },
+    "revision": { "type": "string", "minLength": 1 },
+    "capability": { "type": "string", "minLength": 1 },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine", "unified_memory_gb", "os_revision", "resolve_revision"],
+      "properties": {
+        "machine": { "type": "string", "pattern": "(?i)M5 Pro" },
+        "unified_memory_gb": { "const": 24 },
+        "os_revision": { "type": "string", "minLength": 1 },
+        "resolve_revision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_id", "manifest_path", "manifest_sha256", "inputs_deterministic", "splits"],
+      "properties": {
+        "manifest_id": { "type": "string", "minLength": 1 },
+        "manifest_path": { "type": "string", "minLength": 1 },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "inputs_deterministic": { "type": "boolean", "const": true },
+        "splits": {
+          "type": "array",
+          "items": { "enum": ["training", "calibration", "held_out"] },
+          "uniqueItems": true,
+          "contains": { "const": "calibration" },
+          "allOf": [{ "contains": { "const": "held_out" } }],
+          "minItems": 2
+        },
+        "source_claim_scope": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "baseline": { "$ref": "#/$defs/implementation" },
+    "candidate": { "$ref": "#/$defs/implementation" },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quality", "resources", "equal_compute", "equal_quality"],
+      "properties": {
+        "quality": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/qualityComparison" },
+          "minItems": 1
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseline", "candidate"],
+          "properties": {
+            "baseline": { "$ref": "#/$defs/resourceSet" },
+            "candidate": { "$ref": "#/$defs/resourceSet" }
+          }
+        },
+        "equal_compute": { "$ref": "#/$defs/metricComparison" },
+        "equal_quality": { "$ref": "#/$defs/metricComparison" },
+        "resource_regressions": { "type": "array", "items": { "$ref": "#/$defs/regression" } }
+      }
+    },
+    "adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "mode", "execution_policy", "rationale", "selection_splits"],
+      "properties": {
+        "decision": { "enum": ["adopt", "retain_baseline", "research_only", "conditional_fallback", "reject"] },
+        "mode": { "enum": ["speed_only", "accuracy_oriented", "utility_gain", "research"] },
+        "execution_policy": { "enum": ["always_on", "on_demand"] },
+        "rationale": { "type": "string", "minLength": 1 },
+        "conditions": { "type": "array", "items": { "type": "string" } },
+        "selection_splits": {
+          "type": "array",
+          "items": { "enum": ["training", "calibration"] },
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      }
+    },
+    "regression_risks": { "type": "array", "items": { "type": "string" } },
+    "unsupported_cases": { "type": "array", "items": { "type": "string" } },
+    "reports": {
+      "description": "Checksummed paths to frozen ren_evaluation_report/1 inputs. The reports must carry separate calibration and held_out rows when held-out evaluation is available.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "split"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "split": { "enum": ["training", "calibration", "held_out"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "nullableNonnegative": { "type": ["number", "null"], "minimum": 0 },
+    "nullablePercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter_id", "model_revision", "publisher_revision", "report_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "adapter_id": { "type": "string", "minLength": 1 },
+        "model_revision": { "type": "string", "minLength": 1 },
+        "publisher_revision": { "type": "string", "minLength": 1 },
+        "report_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+      }
+    },
+    "resourceSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cold_start_ms", "steady_state_ms", "decode_preprocess_ms", "inference_ms", "postprocess_serialize_ms", "end_to_end_ms", "peak_rss_mb", "memory_pressure", "cpu_utilization_pct", "gpu_utilization_pct", "ane_utilization_pct", "throughput_source_hours_per_wall_hour", "useful_evidence_per_compute_second", "resolve_open_concurrency"],
+      "properties": {
+        "cold_start_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "steady_state_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "decode_preprocess_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "inference_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "postprocess_serialize_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "end_to_end_ms": { "$ref": "#/$defs/nullableNonnegative" },
+        "peak_rss_mb": { "$ref": "#/$defs/nullableNonnegative" },
+        "memory_pressure": { "enum": ["normal", "warn", "critical", "unknown"] },
+        "cpu_utilization_pct": { "$ref": "#/$defs/nullablePercent" },
+        "gpu_utilization_pct": { "$ref": "#/$defs/nullablePercent" },
+        "ane_utilization_pct": { "$ref": "#/$defs/nullablePercent" },
+        "throughput_source_hours_per_wall_hour": { "$ref": "#/$defs/nullableNonnegative" },
+        "useful_evidence_per_compute_second": { "$ref": "#/$defs/nullableNonnegative" },
+        "resolve_open_concurrency": { "enum": ["passed", "failed", "not_run", "not_supported"] }
+      }
+    },
+    "qualityComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "split", "baseline", "candidate", "unit", "direction", "max_regression"],
+      "properties": {
+        "metric": { "type": "string", "minLength": 1 },
+        "split": { "enum": ["training", "calibration", "held_out"] },
+        "baseline": { "type": "number" },
+        "candidate": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["higher_is_better", "lower_is_better"] },
+        "max_regression": { "type": "number", "minimum": 0 }
+      }
+    },
+    "metricComparison": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "split", "baseline", "candidate", "unit", "budget", "direction", "max_regression"],
+        "properties": {
+          "metric": { "type": "string", "minLength": 1 },
+          "split": { "enum": ["training", "calibration", "held_out"] },
+          "baseline": { "type": "number" },
+          "candidate": { "type": "number" },
+          "unit": { "type": "string", "minLength": 1 },
+          "budget": { "type": "string", "minLength": 1 },
+          "direction": { "enum": ["higher_is_better", "lower_is_better"] },
+          "max_regression": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "regression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource", "baseline", "candidate", "unit"],
+      "properties": {
+        "resource": { "type": "string", "minLength": 1 },
+        "baseline": { "type": ["number", "null"] },
+        "candidate": { "type": ["number", "null"] },
+        "unit": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

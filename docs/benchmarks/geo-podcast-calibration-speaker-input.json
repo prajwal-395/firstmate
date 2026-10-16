@@ -1,0 +1,11 @@
+{
+  "case_id": "geo-podcast-calibration-speaker-association",
+  "format": "ren_multimodal_eval_input/1",
+  "split": "calibration",
+  "capabilities": ["audio.active_speaker"],
+  "source_windows": [
+    {"source_id": "LCATL0012", "start_seconds": 40.24, "end_seconds": 60.0},
+    {"source_id": "LC4931", "start_seconds": 79.21, "end_seconds": 99.21}
+  ],
+  "labels": "pending_agent_labels"
+}

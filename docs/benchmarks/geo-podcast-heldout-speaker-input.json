@@ -1,0 +1,12 @@
+{
+  "case_id": "geo-podcast-heldout-speaker-association",
+  "format": "ren_multimodal_eval_input/1",
+  "split": "held_out",
+  "capabilities": ["audio.active_speaker"],
+  "source_windows": [
+    {"source_id": "LCATL0011", "start_seconds": 96.09, "end_seconds": 119.53},
+    {"source_id": "LC4930", "start_seconds": 131.77, "end_seconds": 151.4}
+  ],
+  "labels": "pending_agent_labels",
+  "tuning_access": false
+}
