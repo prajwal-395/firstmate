@@ -1823,10 +1823,21 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
     digest = content_digest or fp["content_digest"]
     size = fp["size_bytes"]
     target = source_dir(digest, root)
+    m0 = read_m0(digest, root)
+    streams = (m0 or {}).get("video_streams") or [{}]
+    duration = (m0 or {}).get("duration_seconds")
 
     existing = read_m2(digest, root)
     if (is_fresh(existing, source_file)
             and m2_frames_present(digest, existing, root)):
+        from library.tools import perf_ledger
+        with perf_ledger.media_decode(
+                source_file, purpose="source_memory.m2_iframe_sample",
+                media_kind="video", access_pattern="sequential",
+                calls=0, cache_hits=1, decoded_source_s=duration,
+                backend="source_memory_cache",
+                frame_count=existing["frame_count"]):
+            pass
         return {"source_file": os.path.abspath(source_file),
                 "content_digest": digest, "reused": True,
                 "frame_count": existing.get("frame_count", 0),
@@ -1837,14 +1848,24 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
         shutil.rmtree(frames_dir)
     frames_dir.mkdir(parents=True, exist_ok=True)
 
-    t0 = time.perf_counter()
-    pairs, hwaccel_used = extract_iframes(source_file, str(frames_dir),
-                                          width, use_hwaccel)
+    from library.tools import perf_ledger
+    with perf_ledger.media_decode(
+            source_file, purpose="source_memory.m2_iframe_sample",
+            media_kind="video", access_pattern="sequential",
+            decoded_source_s=duration, subprocesses=1, backend="ffmpeg",
+            requested_hwaccel=("videotoolbox" if use_hwaccel else None),
+            target_width=width) as measurement:
+        t0 = time.perf_counter()
+        pairs, hwaccel_used = extract_iframes(source_file, str(frames_dir),
+                                              width, use_hwaccel)
+        measurement["bytes_written"] = sum(
+            path.stat().st_size for path in frames_dir.glob("frame_*.jpg"))
+        measurement["hwaccel_used"] = hwaccel_used
+        measurement["frame_count"] = len(pairs)
     decode_seconds = round(time.perf_counter() - t0, 1)
 
-    m0 = read_m0(digest, root)
     fps = _parse_frame_rate(
-        ((m0 or {}).get("video_streams") or [{}])[0].get("avg_frame_rate"))
+        streams[0].get("avg_frame_rate"))
     gop_frames = None
     if fps and len(pairs) >= 2:
         diffs = sorted(b[1] - a[1] for a, b in zip(pairs, pairs[1:]))

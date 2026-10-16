@@ -1,7 +1,8 @@
 from pathlib import Path
+import json
 
 from library.capabilities.temporal import index as step
-from library.tools import source_memory
+from library.tools import perf_ledger, source_memory
 
 
 def test_audio_preparation_batches_identical_source_by_digest(monkeypatch, tmp_path):
@@ -72,13 +73,25 @@ def test_frame_decode_reuses_digest_across_source_paths(
     monkeypatch.setattr(source_memory, "extract_iframes", fake_extract)
     digest = source_memory.footage_identity.fingerprint(str(first))[
         "content_digest"]
-    baseline = source_memory.build_frames(str(first), digest, root=tmp_path / "m2")
-    baseline_doc = source_memory.read_m2(digest, tmp_path / "m2")
-    reused = source_memory.build_frames(str(second), digest, root=tmp_path / "m2")
-    reused_doc = source_memory.read_m2(digest, tmp_path / "m2")
+    ledger = tmp_path / "perf.jsonl"
+    with perf_ledger.recording(ledger, "test-run", "source-memory"):
+        baseline = source_memory.build_frames(
+            str(first), digest, root=tmp_path / "m2")
+        baseline_doc = source_memory.read_m2(digest, tmp_path / "m2")
+        reused = source_memory.build_frames(
+            str(second), digest, root=tmp_path / "m2")
+        reused_doc = source_memory.read_m2(digest, tmp_path / "m2")
 
     assert baseline["reused"] is False
     assert reused["reused"] is True
     assert len(decode_calls) == 1
     assert reused_doc["frames"] == baseline_doc["frames"]
     assert reused_doc["instrument"] == baseline_doc["instrument"]
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    decodes = [row for row in rows if row.get("layer") == "media_decode"]
+    assert len(decodes) == 2
+    assert decodes[0]["decode_purpose"] == "source_memory.m2_iframe_sample"
+    assert decodes[0]["calls"] == 1
+    assert decodes[0]["frame_count"] == 1
+    assert decodes[1]["cache_hits"] == 1
+    assert decodes[1]["calls"] == 0
