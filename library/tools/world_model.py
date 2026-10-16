@@ -1,9 +1,10 @@
-"""The canonical temporal world model: M9 (`world_model.json`) of the
-per-source footage memory.
+"""A derived one-second compatibility view: M9 (`world_model.json`) of
+the per-source footage memory.
 
-The canonical temporal world model that closes gap 1 of the footage
-world model gap map (the captain's top-priority gap): Ren's per-lane
-measurement (M0-M8) is joined here into a unified understanding.
+The Project Model and source-memory lanes retain authoritative source
+intervals and sample timestamps. M9 joins those measurements into a
+convenient per-second lookup view; its bins are never event boundaries or
+the source of timing truth.
 A query like "where does Craig gesture while speaking" is answered
 off the join: M7 has speaking spans, M3 has hand geometry, and this
 module joins them into "gesture while speaking."
@@ -13,7 +14,7 @@ timeline. No new measurement: every observation in the world model
 comes from a lane that already measured it. The join is pure data
 manipulation over the source memory.
 
-**The structure.** One entry per second of the source duration. Each
+**The derived structure.** One entry per second of the source duration. Each
 entry carries every observation that falls within that second, so a
 query at time T is one array index:
 
@@ -400,7 +401,7 @@ def build_project_world_model(project_folder: str,
 
 
 def query_at_time(world_model: dict, t: float) -> Optional[dict]:
-    """What is happening at time T: the timeline entry for second floor(t)."""
+    """Return the derived bin containing T; event timing lives on source intervals."""
     timeline = world_model.get("timeline") or []
     idx = int(t)
     if 0 <= idx < len(timeline):
@@ -411,7 +412,7 @@ def query_at_time(world_model: dict, t: float) -> Optional[dict]:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="world_model",
-        description="M9: the canonical temporal world model - a joined "
+        description="M9: a derived per-second lookup view over source evidence - a joined "
                     "per-second timeline of every lane (M0-M8) in the "
                     "source memory. Light: no decode, no model.")
     sub = parser.add_subparsers(dest="command")

@@ -102,6 +102,39 @@ fn typed_events_queries_and_transforms_round_trip_without_implied_sync() {
 }
 
 #[test]
+fn event_hierarchy_and_partial_boundaries_are_validated_on_source_clocks() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    model["events"] = serde_json::json!([
+        {"id":"scene", "interval":{"clock_id":"clock-source","start":0,"end":24},
+         "kind":"scene", "participant_ids":[], "status":"candidate",
+         "certainty":"measured", "evidence_ids":[], "confidence":null,
+         "start_boundary":{"status":"exact","uncertainty_ticks":0},
+         "end_boundary":{"status":"estimated","uncertainty_ticks":2}},
+        {"id":"action", "interval":{"clock_id":"clock-source","start":4,"end":12},
+         "kind":"action", "parent_event_ids":["scene"], "participant_ids":[],
+         "status":"candidate", "certainty":"inferred", "evidence_ids":[],
+         "confidence":null,
+         "end_boundary":{"status":"open","uncertainty_ticks":null}}
+    ]);
+    let decoded = decode_project_model(&model.to_string()).expect("valid event hierarchy");
+    assert_eq!(decoded.events[1].parent_event_ids, ["scene"]);
+    assert_eq!(decoded.events[0].end_boundary.as_ref().unwrap().uncertainty_ticks, Some(2));
+
+    model["events"][0]["parent_event_ids"] = serde_json::json!(["action"]);
+    assert!(matches!(
+        decode_project_model(&model.to_string()),
+        Err(ProjectModelDecodeError::InvalidModel(_))
+    ));
+    model["events"][0].as_object_mut().unwrap().remove("parent_event_ids");
+    model["events"][1]["interval"]["start"] = serde_json::json!(25);
+    assert!(matches!(
+        decode_project_model(&model.to_string()),
+        Err(ProjectModelDecodeError::InvalidModel(_))
+    ));
+}
+
+#[test]
 fn legacy_fi03_certainty_adapter_keeps_policy_evaluation_separate() {
     use ren_protocol::project_model::{CertaintyState, EvidenceType};
     assert_eq!(

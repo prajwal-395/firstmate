@@ -268,6 +268,14 @@
         "other"
       ]
     },
+    "BoundaryStatus": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "estimated",
+        "open"
+      ]
+    },
     "CertaintyState": {
       "description": "Canonical epistemic category. These values are orthogonal to confidence.",
       "type": "string",
@@ -696,6 +704,16 @@
             }
           ]
         },
+        "end_boundary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporalBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "evidence_ids": {
           "type": "array",
           "items": {
@@ -711,11 +729,29 @@
         "kind": {
           "type": "string"
         },
+        "parent_event_ids": {
+          "description": "Canonical parent events for multiresolution retrieval. Several\nparents are allowed because a fine event can belong to both a scene\nand a longer sequence.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "participant_ids": {
           "type": "array",
           "items": {
             "type": "string"
           }
+        },
+        "start_boundary": {
+          "description": "Boundary quality is independent for the two ends. The interval stays\na non-empty half-open envelope on its source clock; `open` means the\nsemantic boundary was outside observed coverage.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporalBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "state_changes": {
           "type": "array",
@@ -2107,6 +2143,27 @@
         "to_space",
         "matrix",
         "provenance_id"
+      ]
+    },
+    "TemporalBoundary": {
+      "description": "Uncertainty radius around an interval edge, expressed in that clock's ticks.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/BoundaryStatus"
+        },
+        "uncertainty_ticks": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
       ]
     },
     "TimeDomain": {

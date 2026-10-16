@@ -63,7 +63,7 @@ M5       `sound.json`                 environmental sound events   `library/step
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
 M7       `events.json`                DERIVED per-person spans      `library/tools/
                                        (speaking, on_screen)         event_spans.py`
-M9       `world_model.json`           joined per-second timeline   `library/tools/
+M9       `world_model.json`           derived per-second lookup    `library/tools/
                                        (M0-M8 in, one model out)     world_model.py`
 M10      `relationships.json`         relationship CANDIDATES       `library/tools/
                                        (holding, pointing,           relationships.py`
@@ -1446,11 +1446,12 @@ def read_image_defects(content_digest: str,
 
 def write_world_model(content_digest: str, record: dict,
                       root: Optional[Path] = None) -> None:
-    """M9 `world_model.json`: the joined per-second timeline.
+    """M9 `world_model.json`: a derived per-second compatibility view.
 
-    `record` is the full world model document `world_model.py` builds
-    from M0-M8 - the timeline, the entities and the multicam context.
-    Written atomically like every other slot.
+    Source intervals and samples remain authoritative in their own slots
+    and in the Project Model. `record` is the lookup view `world_model.py`
+    joins from M0-M8 - bins do not define semantic boundaries. Written
+    atomically like every other slot.
     """
     write_json(source_dir(content_digest, root) / SLOT_WORLD_MODEL, record)
 

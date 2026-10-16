@@ -914,6 +914,24 @@ def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
         "scene", "shot", "subshot", "sequence"}
     assert {obs["payload"]["record"]["certainty"] for obs in vi09} == {
         "measured", "inferred", "interpreted"}
+    cinematic = {event["kind"]: event for event in model["events"]
+                 if event["kind"].startswith("cinematography_")}
+    assert set(cinematic) == {
+        "cinematography_scene", "cinematography_shot",
+        "cinematography_subshot", "cinematography_sequence"}
+    assert cinematic["cinematography_scene"]["parent_event_ids"] == [
+        cinematic["cinematography_sequence"]["id"]]
+    assert cinematic["cinematography_shot"]["parent_event_ids"] == [
+        cinematic["cinematography_scene"]["id"]]
+    assert cinematic["cinematography_subshot"]["parent_event_ids"] == [
+        cinematic["cinematography_shot"]["id"]]
+    assert cinematic["cinematography_scene"]["start_boundary"] == {
+        "status": "exact", "uncertainty_ticks": None}
+    assert cinematic["cinematography_shot"]["start_boundary"]["status"] == "exact"
+    for event in cinematic.values():
+        assert event["evidence_ids"]
+        assert event["interval"]["clock_id"] == cinematic[
+            "cinematography_scene"]["interval"]["clock_id"]
     assert {record["kind"] for record in model["interpretations"]} == {
         "cinematography_profile", "same_scene_context_sequence_hypothesis"}
     for record in model["interpretations"]:

@@ -222,6 +222,39 @@ def validate_project_model(model: dict[str, Any]) -> None:
             if not set(change["evidence_ids"]) <= observation_ids:
                 raise ValueError("event state change references unknown observation")
     event_ids = {event["id"] for event in model.get("events", [])}
+    events_by_id = {event["id"]: event for event in model.get("events", [])}
+    for event in model.get("events", []):
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if boundary is None:
+                continue
+            status = boundary["status"]
+            uncertainty = boundary.get("uncertainty_ticks")
+            if status == "exact" and uncertainty not in (None, 0):
+                raise ValueError("exact event boundaries cannot have non-zero uncertainty")
+            if status == "open" and uncertainty is not None:
+                raise ValueError("open event boundaries cannot claim bounded uncertainty")
+        for parent_id in event.get("parent_event_ids", []):
+            if parent_id == event["id"]:
+                raise ValueError("event cannot parent itself")
+            parent = events_by_id.get(parent_id)
+            if parent is None:
+                raise ValueError("event references unknown parent event")
+            if (parent["interval"]["clock_id"] != event["interval"]["clock_id"]
+                    or parent["interval"]["start"] > event["interval"]["start"]
+                    or parent["interval"]["end"] < event["interval"]["end"]):
+                raise ValueError("parent event must contain child on the same clock")
+    for event in model.get("events", []):
+        pending = list(event.get("parent_event_ids", []))
+        seen: set[str] = set()
+        while pending:
+            parent_id = pending.pop()
+            if parent_id in seen:
+                raise ValueError("event hierarchy must be acyclic")
+            seen.add(parent_id)
+            parent = events_by_id.get(parent_id)
+            if parent is not None:
+                pending.extend(parent.get("parent_event_ids", []))
     for interpretation in model.get("interpretations", []):
         if interpretation["certainty"] != "interpreted":
             raise ValueError("interpretation certainty must be interpreted")

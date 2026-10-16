@@ -253,13 +253,41 @@ pub struct Event {
     pub id: String,
     pub interval: Interval,
     pub kind: String,
+    /// Canonical parent events for multiresolution retrieval. Several
+    /// parents are allowed because a fine event can belong to both a scene
+    /// and a longer sequence.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parent_event_ids: Vec<String>,
     pub participant_ids: Vec<EntityId>,
     pub status: VerificationStatus,
     pub certainty: CertaintyState,
     pub evidence_ids: Vec<ObservationId>,
     pub confidence: Option<TypedConfidence>,
+    /// Boundary quality is independent for the two ends. The interval stays
+    /// a non-empty half-open envelope on its source clock; `open` means the
+    /// semantic boundary was outside observed coverage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_boundary: Option<TemporalBoundary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_boundary: Option<TemporalBoundary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_changes: Vec<EventStateChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryStatus {
+    Exact,
+    Estimated,
+    Open,
+}
+
+/// Uncertainty radius around an interval edge, expressed in that clock's ticks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TemporalBoundary {
+    pub status: BoundaryStatus,
+    pub uncertainty_ticks: Option<u64>,
 }
 
 /// A measured or inferred property transition belonging to an event.
@@ -1122,6 +1150,43 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
         }
         if let Some(score) = &event.confidence {
             validate_typed_confidence(score)?;
+        }
+        for boundary in [&event.start_boundary, &event.end_boundary].into_iter().flatten() {
+            if boundary.status == BoundaryStatus::Exact
+                && boundary.uncertainty_ticks.is_some_and(|ticks| ticks != 0)
+            {
+                return Err("exact event boundaries cannot have non-zero uncertainty".into());
+            }
+            if boundary.status == BoundaryStatus::Open && boundary.uncertainty_ticks.is_some() {
+                return Err("open event boundaries cannot claim bounded uncertainty".into());
+            }
+        }
+    }
+    let events_by_id: BTreeMap<_, _> = model.events.iter().map(|event| (&event.id, event)).collect();
+    for event in &model.events {
+        for parent_id in &event.parent_event_ids {
+            if parent_id == &event.id {
+                return Err("event cannot parent itself".into());
+            }
+            let parent = events_by_id.get(parent_id).ok_or("event references unknown parent event")?;
+            if parent.interval.clock_id != event.interval.clock_id
+                || parent.interval.start > event.interval.start
+                || parent.interval.end < event.interval.end
+            {
+                return Err("parent event must contain child on the same clock".into());
+            }
+        }
+    }
+    for event in &model.events {
+        let mut pending = event.parent_event_ids.clone();
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(parent_id) = pending.pop() {
+            if !seen.insert(parent_id.clone()) {
+                return Err("event hierarchy must be acyclic".into());
+            }
+            if let Some(parent) = events_by_id.get(&parent_id) {
+                pending.extend(parent.parent_event_ids.iter().cloned());
+            }
         }
     }
     for signal in &model.signals {

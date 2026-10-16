@@ -1513,8 +1513,41 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
             and isinstance(hierarchy, dict)
             and hierarchy.get("status") == "measured"
             and hierarchy.get("method") == "scene-cinematography-measurements-v1"):
-        for collection in ("scenes", "shots", "subshots", "sequences"):
-            for item in hierarchy[collection]:
+        hierarchy_items = {
+            collection: hierarchy[collection]
+            for collection in ("scenes", "shots", "subshots", "sequences")
+        }
+        event_ids = {
+            (collection, item["id"]):
+                f"event-cinema-{digest}-{collection}-{item['id']}"
+            for collection, items in hierarchy_items.items()
+            for item in items
+        }
+        scene_by_id = {item["id"]: item for item in hierarchy_items["scenes"]}
+        shot_by_id = {item["id"]: item for item in hierarchy_items["shots"]}
+        duration = float(hierarchy.get("duration", 0.0))
+
+        def hierarchy_parents(collection: str, item: dict) -> list[str]:
+            if collection == "scenes":
+                return [event_ids[("sequences", sequence["id"])]
+                        for sequence in hierarchy_items["sequences"]
+                        if item["id"] in sequence.get("scene_ids", [])]
+            if collection == "shots":
+                return [event_ids[("scenes", scene_id)]
+                        for scene_id, scene in scene_by_id.items()
+                        if scene["start"] <= item["start"]
+                        and scene["end"] >= item["end"]]
+            if collection == "subshots":
+                shot_id = item.get("parent_shot_id")
+                return ([event_ids[("shots", shot_id)]]
+                        if shot_id in shot_by_id else [])
+            return []
+
+        def boundary_record(status: str) -> dict:
+            return {"status": status, "uncertainty_ticks": None}
+
+        for collection in ("sequences", "scenes", "shots", "subshots"):
+            for item in hierarchy_items[collection]:
                 cited_ids = set(item.get("boundary_basis_ids", []))
                 cited_ids.update(item.get("basis_measurement_ids", []))
                 for attribute in item.get("attributes", {}).values():
@@ -1531,6 +1564,36 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     None, "library.tools.scene_cinematography")
                 if observation_id is not None:
                     builder.model["observations"][-1]["certainty"] = item["certainty"]
+                    interval_ticks = sec_to_ticks(item["start"], item["end"])
+                    if interval_ticks is not None:
+                        measured_starts = {
+                            round(float(candidate["start"]), 6)
+                            for candidate in hierarchy_items[collection]
+                            if candidate.get("boundary_basis_ids")
+                        }
+                        start_status = (
+                            "exact" if float(item["start"]) == 0.0 else
+                            "estimated" if round(float(item["start"]), 6) in measured_starts
+                            else "open")
+                        end_status = (
+                            "exact" if float(item["end"]) == duration else
+                            "estimated" if round(float(item["end"]), 6) in measured_starts
+                            else "open")
+                        builder.model["events"].append({
+                            "id": event_ids[(collection, item["id"])],
+                            "interval": {"clock_id": clock_id,
+                                         "start": interval_ticks[0],
+                                         "end": interval_ticks[1]},
+                            "kind": f"cinematography_{collection[:-1]}",
+                            "parent_event_ids": hierarchy_parents(collection, item),
+                            "participant_ids": [],
+                            "status": "verified",
+                            "certainty": item["certainty"],
+                            "evidence_ids": [observation_id],
+                            "confidence": None,
+                            "start_boundary": boundary_record(start_status),
+                            "end_boundary": boundary_record(end_status),
+                        })
                 if observation_id is not None and collection in ("shots", "sequences"):
                     kind = ("cinematography_profile" if collection == "shots"
                             else "same_scene_context_sequence_hypothesis")

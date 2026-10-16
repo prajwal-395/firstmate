@@ -204,6 +204,72 @@ def test_verified_claims_require_supporting_evidence():
         validate_project_model(model)
 
 
+def test_multires_events_keep_hierarchy_and_independent_boundary_quality():
+    model = _model()
+    clock = model["clocks"][0]["id"]
+    evidence = model["observations"][0]["id"]
+    model["events"] = [
+        {"id": "scene", "interval": {"clock_id": clock, "start": 0, "end": 100},
+         "kind": "scene", "participant_ids": [], "status": "verified",
+         "certainty": "measured", "evidence_ids": [evidence], "confidence": None,
+         "start_boundary": {"status": "exact", "uncertainty_ticks": 0},
+         "end_boundary": {"status": "estimated", "uncertainty_ticks": 12}},
+        {"id": "action", "interval": {"clock_id": clock, "start": 20, "end": 40},
+         "kind": "action", "parent_event_ids": ["scene"], "participant_ids": [],
+         "status": "candidate", "certainty": "inferred", "evidence_ids": [],
+         "confidence": None,
+         "start_boundary": {"status": "open", "uncertainty_ticks": None}},
+    ]
+    validate_project_model(model)
+    model["events"][0]["start_boundary"]["uncertainty_ticks"] = 1
+    with pytest.raises(ValueError, match="exact event boundaries"):
+        validate_project_model(model)
+    model["events"][0]["start_boundary"]["uncertainty_ticks"] = 0
+    model["events"][0]["parent_event_ids"] = ["action"]
+    with pytest.raises(ValueError, match="contain child"):
+        validate_project_model(model)
+    model["events"][0].pop("parent_event_ids")
+    model["events"][1]["interval"] = {"clock_id": clock, "start": 90, "end": 110}
+    with pytest.raises(ValueError, match="contain child"):
+        validate_project_model(model)
+    model["events"][1]["interval"] = {"clock_id": clock, "start": 0, "end": 100}
+    model["events"][0]["parent_event_ids"] = ["action"]
+    with pytest.raises(ValueError, match="acyclic"):
+        validate_project_model(model)
+
+
+def test_temporal_retrieval_returns_exact_overlapping_hierarchy_and_evidence():
+    from library.tools.project_model_temporal import retrieve_events
+
+    model = _model()
+    clock = model["clocks"][0]["id"]
+    evidence_id = model["observations"][0]["id"]
+    model["events"] = [
+        {"id": "scene", "interval": {"clock_id": clock, "start": 0, "end": 1000},
+         "kind": "scene", "parent_event_ids": [], "participant_ids": [],
+         "status": "candidate", "certainty": "measured", "evidence_ids": [evidence_id],
+         "confidence": None},
+        {"id": "action", "interval": {"clock_id": clock, "start": 125, "end": 275},
+         "kind": "action", "parent_event_ids": ["scene"], "participant_ids": [],
+         "status": "candidate", "certainty": "inferred", "evidence_ids": [evidence_id],
+         "confidence": None,
+         "start_boundary": {"status": "estimated", "uncertainty_ticks": 20},
+         "end_boundary": {"status": "open", "uncertainty_ticks": None}},
+        {"id": "speech", "interval": {"clock_id": clock, "start": 200, "end": 350},
+         "kind": "speech", "parent_event_ids": ["scene"], "participant_ids": [],
+         "status": "candidate", "certainty": "measured", "evidence_ids": [evidence_id],
+         "confidence": None},
+    ]
+    rows = retrieve_events(model, {"clock_id": clock, "start": 240, "end": 260})
+    assert {row["event"]["id"] for row in rows} == {"scene", "action", "speech"}
+    action = next(row for row in rows if row["event"]["id"] == "action")
+    assert [event["id"] for event in action["lineage"]] == ["scene", "action"]
+    assert action["event"]["interval"] == {
+        "clock_id": clock, "start": 125, "end": 275}
+    assert action["event"]["start_boundary"]["uncertainty_ticks"] == 20
+    assert action["source_evidence"][0]["id"] == evidence_id
+
+
 def test_query_outcomes_refuse_silent_absence():
     """Acceptance: confidently_absent needs fresh complete versioned
     coverage, and not_yet_analysed names its missing lanes - an empty
