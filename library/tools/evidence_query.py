@@ -90,6 +90,11 @@ MODALITY_TO_LANE = {
     "depth": "m3g",
     "scene": "m4",
     "sound_event": "m5",
+    # OCR/UI tracks migrate under the ocr_extraction lane
+    # (`ocr_project_model.py`): without this, an OCR measurement plan
+    # names no required lane and absence is claimed with no coverage.
+    "visual_text_track": "ocr_extraction",
+    "visual_graphic_candidate": "ocr_extraction",
     "multicam": "m6",
     "event_span": "m7",
     "event_candidate": "m7",
@@ -116,6 +121,10 @@ MEASUREMENT_TO_LANE.update({
     # segmentations, whose provenance lane is named `segmentation`.
     "object.detection": "segmentation",
     "object.visibility": "segmentation",
+    # OCR text and graphic tracks migrate under `ocr_extraction`
+    # (see MODALITY_TO_LANE above): same coverage argument.
+    "image.ocr_text_track": "ocr_extraction",
+    "image.graphic_region_track": "ocr_extraction",
 })
 """Registry measurement type to the lane that produces it."""
 
