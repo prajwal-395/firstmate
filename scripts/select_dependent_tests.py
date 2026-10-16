@@ -78,6 +78,7 @@ CONTRACT_SETS = {
         "tests/unit/picture/test_picture_qa.py",
         "tests/unit/resolve/test_resolve_render.py",
         "tests/scenarios/test_golden_conversation.py",
+        "tests/qualification/test_golden_conversation_live.py",
     ],
     "motion_graphics_plan": [
         "tests/unit/audio/test_speaker_identity.py",
@@ -88,6 +89,24 @@ CONTRACT_SETS = {
         "tests/unit/reels/test_reel_conformance_verifier.py",
     ],
 }
+
+# These editorial-output owners must select the existing live Resolve edit,
+# delivery, and render scenario. Keep ownership explicit so unit-only
+# selection cannot stand in for an actual rendered result.
+EDITORIAL_OUTPUT_PATHS = (
+    "library/tools/composed_edit.py",
+    "library/tools/edit_backend.py",
+    "library/tools/edit_graph.py",
+    "library/tools/edit_operations.py",
+    "library/tools/edit_patch.py",
+    "library/tools/edit_spec.py",
+    "library/tools/evidence_to_edit.py",
+    "library/tools/project_model_editorial.py",
+    "library/tools/timeline_decisions.py",
+    "library/tools/execution/resolve_render.py",
+    "library/steps/",
+)
+EDITORIAL_RENDER_TEST = "tests/qualification/test_golden_conversation_live.py"
 
 # These shared scenario helpers generate the cached source media and define
 # the deterministic seams used by the golden end-to-end checks. They are
@@ -714,6 +733,10 @@ def _select_with_distances(changed, use_coverage=True):
         stem = os.path.splitext(os.path.basename(abs_path))[0]
         rel_path = os.path.relpath(os.path.abspath(abs_path), REPO_ROOT)
         rel_posix = rel_path.replace(os.sep, "/")
+
+        if any(rel_posix == owner or rel_posix.startswith(owner)
+               for owner in EDITORIAL_OUTPUT_PATHS):
+            keep(EDITORIAL_RENDER_TEST, 2)
 
         # Recipe helpers and answer data are read by the scenario at runtime,
         # not imported as Python modules. Keep those media checks selected.

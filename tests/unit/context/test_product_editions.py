@@ -18,6 +18,15 @@ if str(ROOT) not in sys.path:
 
 from ren import edition
 
+
+@pytest.fixture(autouse=True)
+def _edition_policy_tests_use_packaged_python_front_door(monkeypatch):
+    """Keep policy tests separate from the native front-door build gate."""
+    from ren import package_engine
+
+    monkeypatch.setattr(package_engine, "_install_native_front_door",
+                        lambda _dest: None)
+
 RESTRICTED = {
     "model.audio_flamingo_next",
     "model.insightface_buffalo_l",
@@ -196,6 +205,81 @@ def test_build_emits_derived_model_manifest_and_notices(
     assert "Audio Flamingo Next" not in notices
 
 
+@pytest.mark.parametrize("edition_name", [edition.PUBLIC, edition.PERSONAL])
+def test_installed_edition_smoke_reports_its_baked_model_policy(
+        tmp_path, monkeypatch, packageable_native_runtime, edition_name):
+    """Catch an edition package that builds but cannot start independently."""
+    from ren import package_engine
+
+    build_engine_tree = package_engine.build_engine_tree
+
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    tree = build_engine_tree(
+        ROOT, tmp_path / f"installed-{edition_name}", channel="test",
+        sha="abc123def456", built_at="2026-10-16", edition=edition_name)
+    box = tmp_path / f"box-{edition_name}"
+    box.mkdir()
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(tree)
+    env["REN_ENGINE_ROOT"] = str(tree)
+    env["REN_CONFIG"] = str(box / "config.env")
+    env["PIPELINE_PROJECTS_ROOT"] = str(box / "projects")
+    env["PIPELINE_VEP_HOME"] = str(box / "vep")
+    env["PIPELINE_PYTHON"] = sys.executable
+    env["PATH"] = os.pathsep.join([str(tree / "bin"), env.get("PATH", "")])
+
+    done = subprocess.run(
+        ["ren", "doctor", "--json"], cwd=box, env=env,
+        capture_output=True, encoding="utf-8", timeout=300, check=False)
+
+    assert done.returncode in (0, 1), done.stderr
+    report = json.loads(done.stdout)
+    assert report["ren"]["engine_root"] == str(tree)
+    assert report["ren"]["channel"] == "test"
+    edition_check = next(check for check in report["checks"]
+                         if check["name"] == "Ren edition")
+    assert edition_check["ok"]
+    assert edition_check["detail"].startswith(
+        "public;" if edition_name == edition.PUBLIC else "personal;")
+    manifest = json.loads(
+        (tree / "library/model_registry/installed.manifest.json")
+        .read_text(encoding="utf-8"))
+    assert manifest["edition"] == (
+        "commercial" if edition_name == edition.PUBLIC else "personal")
+    assert manifest["purpose"] == "commercial_client"
+    if edition_name == edition.PUBLIC:
+        assert all("commercial" in row["editions"]
+                   and row["license_evidence"]["approval_status"]
+                   in {"approved", "conditional"}
+                   for row in manifest["implementations"])
+        assert not {"audio_flamingo.nvidia_next", "insightface.buffalo_l"} & {
+            row["id"] for row in manifest["implementations"]}
+
+
+def test_packaged_personal_policy_retains_every_commercial_route(
+        tmp_path, monkeypatch, packageable_native_runtime):
+    """Catch a Personal package that silently drops a Commercial route."""
+    from ren import package_engine
+
+    build_engine_tree = package_engine.build_engine_tree
+
+    monkeypatch.delenv(edition.EDITION_ENV, raising=False)
+    manifests = {}
+    for edition_name in (edition.PUBLIC, edition.PERSONAL):
+        tree = build_engine_tree(
+            ROOT, tmp_path / f"superset-{edition_name}", channel="test",
+            sha="abc123def456", built_at="2026-10-16", edition=edition_name)
+        manifests[edition_name] = json.loads(
+            (tree / "library/model_registry/installed.manifest.json")
+            .read_text(encoding="utf-8"))
+
+    commercial = manifests[edition.PUBLIC]
+    personal = manifests[edition.PERSONAL]
+    assert set(commercial["capabilities"]) <= set(personal["capabilities"])
+    assert {row["id"] for row in commercial["implementations"]} <= {
+        row["id"] for row in personal["implementations"]}
+
+
 def test_versioned_staging_carries_the_requested_edition(tmp_path, monkeypatch):
     from ren import package_engine
 
@@ -254,7 +338,6 @@ def test_personal_component_installers_refuse_in_public_mode(
 
 def test_runtime_loaders_refuse_personal_models_in_public(monkeypatch):
     monkeypatch.setenv(edition.EDITION_ENV, edition.PUBLIC)
-    from library.tools.analysis import sfx_pipeline, speech_advanced_pipeline
     from library.tools.person_entity import FaceIdentityUnavailable, _face_app
 
     with pytest.raises(FaceIdentityUnavailable, match="public edition"):

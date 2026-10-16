@@ -49,6 +49,16 @@ def test_workflow_qualification_selects_the_october_failure_classes():
         assert contract in selected, contract
 
 
+def test_editorial_output_changes_select_the_live_resolve_render():
+    """Catch edit-output changes whose selection stops at unit assertions."""
+    live_render = "tests/qualification/test_golden_conversation_live.py"
+    owners = _selector.EDITORIAL_OUTPUT_PATHS
+    for owner in owners:
+        changed = (owner.rstrip("/") + "/step.py"
+                   if owner.endswith("/") else owner)
+        assert live_render in select([changed]), changed
+
+
 def test_library_source_changes_select_the_contract_source_surveys():
     survey = "tests/contracts/test_contract_audit_surveys.py"
     for changed in ("library/tools/input_contract.py",

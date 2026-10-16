@@ -52,6 +52,21 @@ def test_research_only_implementations_are_not_client_eligible():
                 implementation, "personal", "permitted_research")
 
 
+@pytest.mark.parametrize("purpose", [
+    "commercial_client", "personal_noncommercial",
+])
+def test_restricted_model_cannot_be_routed_outside_research(purpose):
+    """Catch a research-only implementation routed into user work."""
+    registry = model_registry.load_registry()
+    restricted = next(row for row in registry["implementations"]
+                      if row["id"] == "audio_flamingo.nvidia_next")
+    with pytest.raises(model_registry.ModelRegistryError,
+                       match="not authorized|license status is rejected"):
+        model_registry.route(
+            restricted["capabilities"][0], purpose=purpose,
+            mode="balanced", override=restricted["id"], registry=registry)
+
+
 def test_unknown_license_status_fails_closed():
     registry = model_registry.load_registry()
     target = copy.deepcopy(registry["implementations"][0])
