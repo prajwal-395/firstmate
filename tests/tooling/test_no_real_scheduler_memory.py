@@ -64,6 +64,7 @@ def test_genuine_admission_tests_opt_out_explicitly():
     assert marked == {
         "test_measured_gemma_reservation_waits_while_plain_work_admits",
         "test_impossible_memory_reservation_is_refused_immediately",
+        "test_memory_reservations_wait_when_their_sum_exceeds_headroom",
         "test_small_waiter_backfills_past_large_waiter_that_does_not_fit",
         "test_model_memory_reservation_admits_only_bounded_nested_inference",
         "test_memory_session_folds_and_rejects_exclusive_build_profiles",

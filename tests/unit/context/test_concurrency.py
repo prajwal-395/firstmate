@@ -493,6 +493,7 @@ def test_impossible_memory_reservation_is_refused_immediately(
         scheduler.acquire("impossible model", {"ram_gb": 22})
 
 
+@pytest.mark.real_scheduler_admission
 def test_memory_reservations_wait_when_their_sum_exceeds_headroom(
         scheduler, monkeypatch):
     """Two private scheduler grants cannot overbook measured headroom."""
