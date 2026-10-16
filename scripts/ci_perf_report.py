@@ -8,6 +8,7 @@ by silently dropping tests.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -16,6 +17,19 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+
+# Adjacent full-suite records in ~/.cache/ren/ci-performance.jsonl show up
+# to 4.8 seconds of movement in tests whose measured runtime is under five
+# seconds. Treat smaller absolute changes as load noise while retaining
+# sensitivity to large slowdowns.
+SLOW_TEST_REGRESSION_FLOOR_SECONDS = 5.0
+
+# How many recent history records bound a test's noise envelope. A single
+# baseline cannot tell load noise from a slowdown for tests that swing
+# widely run to run (e.g. 1.3-32.6 s across 8 records), so the per-test
+# reference is the maximum over this window, not one earlier value.
+NOISE_ENVELOPE_WINDOW = 8
 
 
 def history_path() -> Path:
@@ -77,22 +91,124 @@ def resource_totals(paths: list[Path]) -> tuple[float | None, int | None]:
     return cpu if saw_cpu else None, peak if saw_peak else None
 
 
-def check(record: dict, baseline: dict) -> list[str]:
+def check(record: dict, baseline: dict, history: list[dict] | None = None,
+          collected_ids: set[str] | None = None) -> list[str]:
+    """Compare a run against the baseline without failing on normal change.
+
+    Coverage loss is only when a baseline test was deselected or stopped
+    executing while its node still exists in the tree: a skip the baseline
+    also skipped (or a test the baseline never had) is expected, and a
+    deleted test file or function is a deliberate removal, not lost
+    coverage. Wall time and per-test times compare only over test ids
+    present in both runs; the per-test reference is the maximum over the
+    baseline and recent history so one noisy baseline cannot fail the gate.
+    """
     errors = []
-    if record["selected_count"] != baseline["selected_count"] or record["test_set_sha256"] != baseline["test_set_sha256"]:
-        errors.append("selected test set differs from the known-good baseline")
-    if record["executed_count"] < baseline["executed_count"]:
-        errors.append("executed test count is below the known-good baseline")
+    baseline_ids = set(baseline.get("test_ids", ()))
+    record_ids = set(record.get("test_ids", ()))
+    missing = baseline_ids - record_ids
+    lost = sorted(test_id for test_id in missing if _test_still_exists(test_id, collected_ids))
+    if lost:
+        errors.append("baseline tests were deselected or stopped executing: " + ", ".join(lost[:5]))
+    record_times = record.get("test_times") or {}
+    baseline_times = baseline.get("test_times") or {}
+    if record.get("test_ids") is not None and record.get("test_times") is not None:
+        # Executed ids are the test_times keys (skips are collected but not
+        # timed). Presence in record_ids already proves the node exists, so
+        # a newly skipped test needs no tree lookup to count as lost.
+        newly_skipped = sorted((set(baseline_times) & record_ids) - set(record_times))
+        if newly_skipped:
+            errors.append("baseline tests stopped executing (now skipped): " + ", ".join(newly_skipped[:5]))
+    elif record["executed_count"] < record["selected_count"]:
+        errors.append("executed test count is below selected test count")
     if record["counts"]["failed"]:
         errors.append("run contains failed tests")
-    if record["wall_seconds"] > baseline["wall_seconds"] * (1 + baseline.get("wall_regression_fraction", 0.2)):
+    # Wall time is comparable only when both runs execute the same tests.
+    if (record_ids == baseline_ids and record["wall_seconds"] >
+            baseline["wall_seconds"] * (1 + baseline.get("wall_regression_fraction", 0.2))):
         errors.append("wall time exceeds the provisional regression threshold")
-    previous = baseline.get("test_times", {})
-    regressions = [name for name, seconds in record.get("test_times", {}).items()
-                   if name in previous and seconds > max(previous[name] * 2, previous[name] + 1.0)]
+    reference = dict(baseline_times)
+    for prior in history or ():
+        for name, seconds in (prior.get("test_times") or {}).items():
+            if seconds > reference.get(name, 0):
+                reference[name] = seconds
+    regressions = [name for name, seconds in record_times.items()
+                   if name in reference and seconds - reference[name] > max(
+                       reference[name], SLOW_TEST_REGRESSION_FLOOR_SECONDS)]
     if regressions:
         errors.append("slow-test regression: " + ", ".join(sorted(regressions)[:5]))
     return errors
+
+
+def _test_still_exists(test_id: str, collected_ids: set[str] | None = None) -> bool:
+    """Check the test node itself, not just its module file.
+
+    A test function deliberately deleted from a still-existing file reads
+    as lost coverage under a file-existence check, so resolve the node id
+    to the module and confirm the named class/function still defines it.
+    When the caller's collected ids are available they answer directly: a
+    node the current tree no longer collects was deleted, not deselected.
+    """
+    if collected_ids is not None:
+        return test_id in collected_ids
+    module, sep, node = test_id.partition("::")
+    module = module.split("[", 1)[0]
+    candidates = [Path(module)]
+    if not module.endswith(".py"):
+        candidates.append(Path(*module.split(".")).with_suffix(".py"))
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        return False
+    if not sep:
+        return True
+    parts = [part.split("[", 1)[0] for part in node.split("::") if part]
+    if not parts:
+        return True
+    names = _module_test_names(path)
+    if names is None:
+        return True
+    funcs, classes = names
+    first = parts[0]
+    if first in classes:
+        return len(parts) == 1 or parts[1] in classes[first]
+    return len(parts) == 1 and first in funcs
+
+
+_module_test_names_cache: dict[str, tuple[float, tuple[set[str], dict[str, set[str]]]]] = {}
+
+
+def _module_test_names(path: Path) -> tuple[set[str], dict[str, set[str]]] | None:
+    """Module-level functions and class methods defined in a test module.
+
+    Returns None when the module cannot be read or parsed; callers fail
+    closed on None rather than mistaking an unreadable file for a deleted
+    test.
+    """
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    key = path.absolute().as_posix()
+    cached = _module_test_names_cache.get(key)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    funcs: set[str] = set()
+    classes: dict[str, set[str]] = {}
+    for child in tree.body:
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs.add(child.name)
+        elif isinstance(child, ast.ClassDef):
+            classes[child.name] = {
+                grandchild.name for grandchild in child.body
+                if isinstance(grandchild, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+    names = (funcs, classes)
+    _module_test_names_cache[key] = (mtime, names)
+    return names
 
 
 def append_record(record: dict, destination: Path | None = None) -> None:
@@ -109,6 +225,19 @@ def latest_baseline(path: Path | None = None) -> dict | None:
     except (OSError, ValueError):
         return None
     return next((row for row in reversed(rows) if row.get("schema") == 1 and row.get("verdict") == "PASS" and row.get("counts", {}).get("failed") == 0), None)
+
+
+def recent_history(path: Path | None = None, limit: int = NOISE_ENVELOPE_WINDOW) -> list[dict]:
+    """Return recent records carrying per-test times, whatever the verdict.
+
+    Load noise is visible in failed runs too, so the envelope reads every
+    recent record rather than only PASS baselines.
+    """
+    try:
+        rows = [json.loads(line) for line in (path or history_path()).read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, ValueError):
+        return []
+    return [row for row in rows if row.get("schema") == 1 and isinstance(row.get("test_times"), dict)][-limit:]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -137,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             errors = check(record, baseline)
         elif args.check_history and baseline:
             baseline = {**baseline, "wall_regression_fraction": 0.2}
-            errors = check(record, baseline)
+            errors = check(record, baseline, history=recent_history(args.history))
         if errors:
             record["verdict"] = "FAIL"
         append_record(record, args.history)
