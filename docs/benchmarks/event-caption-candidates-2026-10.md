@@ -33,9 +33,10 @@ grounding only. It does not assess editorial quality.
   before considering a parallel run.
 - Remaining candidate work: SEM-018 PadCaptioner is not fetched until its
   checkpoint and base permissions are verified; SEM-019 CapRL is
-  research-only and was not downloaded; no candidate precision comparison
-  or candidate adoption is claimed. Execution protocol for any later
-  comparable run:
+  research-only and its personal-benchmark weights were downloaded, but
+  model runs are paused by the 2026-10-16 captain hold. No candidate
+  precision comparison or candidate adoption is claimed. Execution protocol
+  for any later comparable run:
   same windows, same sampling plan, wall-clock both, freeze one
   `ren_evaluation_report/1` per mode/split with
   `build_evaluation_report`, aggregate with
@@ -59,7 +60,7 @@ checkpoint license and the Qwen2.5-VL / Whisper-Large-v3 base permissions
 are verified with vep-mu-license. A source paper does not establish
 weight, base-checkpoint, dataset, or conversion rights.
 
-## CapRL-Video-4B (SEM-019) - research-only, not downloaded
+## CapRL-Video-4B (SEM-019) - research-only; benchmark paused
 
 Findings 2026-10-16 from the publisher's card (`internlm/CapRL-Video-4B`):
 
@@ -72,8 +73,31 @@ Findings 2026-10-16 from the publisher's card (`internlm/CapRL-Video-4B`):
 
 Decision: **research-only**. Personal-benchmark-only, never shipped, never
 represented as Commercial-eligible, independent of the front-matter tag.
-No download until agent labels exist to score it against, and then only
-for a personal research run.
+
+Approved personal-benchmark download (not committed):
+
+- `mradermacher/CapRL-Video-4B-GGUF@87bfd741f670dbbbe5bd94a50e3c93728f01c210`
+- Q4_K_M weights: 2,716,070,016 bytes; Q8_0 projector: 453,974,336 bytes.
+- Local cache: `/tmp/vep-mu-captions/caprl-cache`.
+- Upstream model revision: `internlm/CapRL-Video-4B@d932a039f2a7f580abf9d9e07dabe60a18eb1960`.
+
+An operational one-window pilot returned one valid event JSON at the 2 fps,
+512 image-token setting. A later run sampled a 5.35 GB process footprint and
+returned one valid window in 11.3 s, but the next process was killed before
+producing an output. A separate interactive-session attempt exited before
+the expected generation footer. The successful pilot was not scored against
+the labels, does not establish event recall, precision, hallucination rate,
+timestamp quality, or evidence coverage, and is not a candidate quality
+result. No cold/warm split or decode/inference/serialization split was
+measured. The model weights remain in the task cache pending the model-run
+hold; delete them after a completed personal benchmark unless adopted.
+The raw partial transcripts are preserved outside the repository in the
+task data `measurements/` directory.
+
+The captain's 2026-10-16 model-run hold stops further model loading until
+Firstmate lifts it. CapRL quality comparison and any 8-bit precision check
+are paused. Do not interpret the failed full-run attempt or the one-window
+pilot as evidence for adoption or rejection.
 
 ## Useful evidence per unit of compute (SEM-025)
 
@@ -84,7 +108,7 @@ without material regression in recall, precision, unsupported-claim rate,
 timestamp quality, or memory/latency on the 24 GB Mac. Held-out rows are
 report-only and never select a version.
 
-No scorecard JSON is emitted in this change: every quality cell is still
-unmeasured (labels pending), and a JSON of empty metrics would read as a
-result. The first measured rows land with the calibration run, reusing
-`library/tools/evaluation_scorecard.py` (already on main).
+No CapRL quality scorecard is emitted: its pilot was not scored and every
+quality cell remains unmeasured. A scorecard of empty metrics would read as
+a result. The first complete rows require a permitted model run and will
+reuse `library/tools/evaluation_scorecard.py` (already on main).
