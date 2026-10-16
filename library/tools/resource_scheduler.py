@@ -14,7 +14,8 @@ CPU, GPU, and disk declarations do not throttle work. `machine` is
 an empty profile. Capability phases contribute only native build-directory
 exclusives; the measured RAM reservations above are the only memory
 demands any profile carries. RAM-reserving jobs use live available memory from
-`/proc/meminfo` or `vm_stat`; failure to measure refuses their admission.
+`/proc/meminfo` on Linux or the kernel's `kern.memorystatus_level` estimate
+on macOS; failure to measure refuses their admission.
 Jobs without a RAM reservation do not contend for memory and are not held
 by its guard.
 
@@ -149,6 +150,15 @@ def _memory_available_gb() -> tuple[float, float] | None:
         except ValueError:
             pass
     try:
+        if sys.platform == "darwin":
+            out = subprocess.run(["sysctl", "-n", "kern.memorystatus_level"],
+                                 capture_output=True, encoding="utf-8",
+                                 timeout=3, check=True).stdout
+            available_percent = int(out.strip())
+            if not 0 <= available_percent <= 100:
+                return None
+            total = float(_physical_ram_gb())
+            return total * available_percent / 100, total
         meminfo = Path("/proc/meminfo")
         if meminfo.is_file():
             values = {}

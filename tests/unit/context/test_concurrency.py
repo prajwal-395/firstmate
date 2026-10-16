@@ -543,6 +543,31 @@ def test_memory_reading_is_taken_from_the_running_os(monkeypatch):
     assert not resource_scheduler._memory_allows_admission()
 
 
+def test_macos_memory_reading_uses_kernel_available_percent(monkeypatch):
+    monkeypatch.delenv(resource_scheduler.MEMORY_OVERRIDE_ENV,
+                       raising=False)
+    monkeypatch.setattr(resource_scheduler.sys, "platform", "darwin")
+    monkeypatch.setattr(resource_scheduler, "_physical_ram_gb", lambda: 24)
+    monkeypatch.setattr(
+        resource_scheduler.subprocess, "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout="51\n", stderr=""))
+
+    assert _REAL_MEMORY_READING() == (12.24, 24.0)
+
+
+@pytest.mark.real_scheduler_admission
+def test_six_gb_reservation_admits_with_kernel_available_memory(
+        scheduler, monkeypatch):
+    monkeypatch.setattr(resource_scheduler, "_memory_available_gb",
+                        lambda: (12.24, 24.0))
+    token = scheduler.acquire("kernel-memory-6gb", {"ram_gb": 6})
+    try:
+        assert scheduler.running_demand(token) == {"ram_gb": 6}
+    finally:
+        scheduler.release(token)
+
+
 @pytest.fixture
 def scheduler(tmp_path, monkeypatch):
     """A private scheduler on a fixed 10-core, 16 GB-usable machine."""
