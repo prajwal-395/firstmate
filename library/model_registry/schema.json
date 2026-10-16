@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ren.video/schemas/model-registry.schema.json",
+  "title": "Ren model implementation registry",
+  "type": "object",
+  "required": ["schema_version", "capabilities", "implementations"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "capabilities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/capability"},
+      "uniqueItems": true
+    },
+    "implementations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/implementation"},
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object", "required": ["id", "description"], "additionalProperties": false,
+      "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"}, "description": {"type": "string", "minLength": 1}}
+    },
+    "license_evidence": {
+      "type": "object", "required": ["upstream_url", "exact_version", "retrieved_at", "license", "obligations", "approval_status"], "additionalProperties": false,
+      "properties": {
+        "upstream_url": {"type": ["string", "null"], "format": "uri"},
+        "exact_version": {"type": ["string", "null"]},
+        "retrieved_at": {"type": ["string", "null"], "format": "date"},
+        "license": {"type": ["string", "null"]},
+        "obligations": {"type": "array", "items": {"type": "string"}},
+        "approval_status": {"enum": ["approved", "conditional", "unresolved", "rejected"]},
+        "evidence_source": {"type": ["string", "null"]}
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "required": ["id", "component_id", "label", "capabilities", "checkpoint", "license_evidence", "purposes", "editions", "qualification"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"},
+        "component_id": {"type": "string"}, "label": {"type": "string"},
+        "capabilities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "checkpoint": {
+          "type": "object", "required": ["version", "weights_hash", "provider", "conversion", "runtime"], "additionalProperties": false,
+          "properties": {"version": {"type": ["string", "null"]}, "weights_hash": {"type": ["string", "null"]}, "provider": {"type": ["string", "null"]}, "conversion": {"type": ["string", "null"]}, "runtime": {"type": ["string", "null"]}}
+        },
+        "license_evidence": {"$ref": "#/$defs/license_evidence"},
+        "purposes": {"type": "array", "items": {"enum": ["commercial_client", "personal_noncommercial", "permitted_research"]}, "uniqueItems": true},
+        "editions": {"type": "array", "items": {"enum": ["commercial", "personal"]}, "uniqueItems": true},
+        "qualification": {"enum": ["qualified", "unqualified", "unknown"]},
+        "optional_download": {"type": "boolean"}
+      }
+    }
+  }
+}
