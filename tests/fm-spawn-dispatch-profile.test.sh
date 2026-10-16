@@ -37,6 +37,12 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  cat > "$fakebin/sysctl" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = -n ] && [ "${2:-}" = kern.memorystatus_vm_pressure_level ] || exit 1
+printf '%s\n' "${FM_FAKE_MEMORY_PRESSURE_LEVEL:-1}"
+SH
+  chmod +x "$fakebin/sysctl"
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 shift
@@ -114,21 +120,54 @@ ai_trailer_hooks_prefix() {  # <home> <id>
   printf "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='%s'; " "$state/$2.git-hooks"
 }
 
+normalize_launch_log() {
+  local launchlog=$1
+  if [ -s "$launchlog" ] && grep -q '^nice -n 10 /bin/sh -c ' "$launchlog"; then
+    cp "$launchlog" "$launchlog.raw"
+    python3 - "$launchlog" <<'PY'
+import shlex
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = []
+for line in path.read_text().splitlines():
+    tokens = shlex.split(line)
+    if tokens[:5] == ["nice", "-n", "10", "/bin/sh", "-c"]:
+        if len(tokens) != 6:
+            raise SystemExit("unexpected lower-priority launch wrapper")
+        line = tokens[5]
+    lines.append(line)
+path.write_text("\n".join(lines) + "\n")
+PY
+  fi
+}
+
+launch_text_for_execution() {  # <launch-log>
+  local launchlog=$1
+  if [ -f "$launchlog.raw" ]; then cat "$launchlog.raw"; else cat "$launchlog"; fi
+}
+
 run_spawn() {
-  local home=$1 wt=$2 fakebin=$3 launchlog=$4
+  local home=$1 wt=$2 fakebin=$3 launchlog=$4 out status
   shift 4
   : > "$launchlog"
+  rm -f "$launchlog.raw"
   # CLAUDE_CONFIG_DIR is forwarded onto claude launches by fm-spawn, so pin it
   # explicitly (empty by default) instead of leaking the invoking shell's value,
   # which would make launch assertions depend on the developer's environment.
   # A test opts in to the set case via FM_TEST_CLAUDE_CONFIG_DIR.
-  CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
+  out=$(CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
     FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_PANE_LOG="${FM_TEST_PANE_LOG:-}" \
     FM_FAKE_PI_VERSION="${FM_TEST_PI_VERSION:-0.84.0}" \
     FM_FAKE_CURSOR_MODELS="${FM_TEST_CURSOR_MODELS:-}" \
     FM_FAKE_CURSOR_LIST_STATUS="${FM_TEST_CURSOR_LIST_STATUS:-0}" \
     GROK_HOME="$home/grok-home" \
-    fm_test_run_spawn "$home" "$wt" "$fakebin" "$@"
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$@")
+  status=$?
+  normalize_launch_log "$launchlog"
+  printf '%s' "$out"
+  return "$status"
 }
 
 # Ship spawns carry an explicit delivery contract (AGENTS.md section 7); these
@@ -290,6 +329,7 @@ test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
   )
   status=$?
   expect_code 0 "$status" "spawn with relative home overrides should succeed"
+  normalize_launch_log "$LAUNCH_LOG"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$home_real/state/$id.pi-ext.ts'" \
     "relative FM_STATE_OVERRIDE leaked into Pi's cross-process extension path"
@@ -319,6 +359,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   )
   status=$?
   expect_code 0 "$status" "spawn with relative FM_HOME defaults should succeed"
+  normalize_launch_log "$LAUNCH_LOG"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$home_real/state/$relative_id.pi-ext.ts'" \
     "relative FM_HOME leaked into Pi's default cross-process extension path"
@@ -339,6 +380,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   )
   status=$?
   expect_code 0 "$status" "spawn with absolute symlink-spelled FM_HOME defaults should succeed"
+  normalize_launch_log "$LAUNCH_LOG"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$linked_home/state/$absolute_id.pi-ext.ts'" \
     "absolute FM_HOME spelling changed in Pi's default cross-process extension path"
@@ -368,6 +410,7 @@ test_absolute_override_spelling_is_preserved_in_launch_paths() {
   )
   status=$?
   expect_code 0 "$status" "spawn with absolute symlink-spelled overrides should succeed"
+  normalize_launch_log "$LAUNCH_LOG"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$linked_home/state/$id.pi-ext.ts'" \
     "absolute FM_STATE_OVERRIDE spelling changed in Pi's cross-process extension path"
@@ -599,7 +642,7 @@ test_chained_raw_launch_strips_ai_trailer_in_every_step() {
     cd "$WT_DIR" || exit 1
     unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
     fm_git_identity 'Captain Tests' 'captain@example.invalid'
-    bash -c "$launch"
+    bash -c "$(launch_text_for_execution "$LAUNCH_LOG")"
   ) || fail "executing the chained raw launch failed"$'\n'"launch: $launch"
   body=$(git -C "$WT_DIR" log -1 --format=%B)
   assert_contains "$body" "fix: chained raw launch" "the chained launch did not commit"
@@ -843,6 +886,56 @@ test_opencode_threads_model_and_effort_variant() {
   pass "opencode receives --model and the effort as its config's agent variant"
 }
 
+test_opencode_without_effort_keeps_launch_config_unchanged() {
+  local rec id out status launch
+  id=profile-opencode-no-effort-z7a
+  rec=$(make_spawn_case profile-opencode-no-effort opencode "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5)
+  status=$?
+  expect_code 0 "$status" "opencode spawn without an effort axis should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" 'OPENCODE_CONFIG_CONTENT=' \
+    "opencode launch dropped its permission config when no effort was requested"
+  assert_not_contains "$launch" '"agent"' "opencode launch must not invent an effort agent block"
+  assert_grep 'effort=default' "$HOME_DIR/state/$id.meta" "opencode metadata must retain the default effort"
+  pass "opencode without an effort keeps the permission-only launch config"
+}
+
+test_opencode_emits_variant_for_openai_family_effort() {
+  local rec id out status launch
+  id=profile-opencode-openai-effort-z7b
+  rec=$(make_spawn_case profile-opencode-openai-effort opencode "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model openai/gpt-5 --effort high)
+  status=$?
+  expect_code 0 "$status" "opencode spawn with an OpenAI-family effort should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" '"model":"openai/gpt-5","variant":"high"' \
+    "opencode did not emit the supported OpenAI-family variant"
+  assert_grep 'effort=high' "$HOME_DIR/state/$id.meta" "supported effort was not recorded"
+  pass "opencode emits the OpenAI-family effort variant when supported"
+}
+
+test_opencode_omits_variant_when_model_family_lacks_effort() {
+  local rec id out status launch
+  id=profile-opencode-unsupported-effort-z7c
+  rec=$(make_spawn_case profile-opencode-unsupported-effort opencode "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort low)
+  status=$?
+  expect_code 0 "$status" "opencode spawn with an unsupported provider effort should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" '"agent"' "unsupported effort must be omitted from the provider config"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" 'effort=low' "omitted effort must not be recorded as applied"
+  assert_contains "$out" 'effort low omitted for opencode model anthropic/claude-sonnet-4-5' \
+    "spawn must explain why the provider effort was omitted"
+  pass "opencode omits an effort variant the model family does not support"
+}
+
 test_native_effort_validator_keeps_axes_separate() {
   local harness
   for harness in pi pi-signed; do
@@ -1059,7 +1152,7 @@ printf '%s\n' "$@" > "$FM_TEST_ARGV"
 SH
   chmod +x "$FAKEBIN_DIR/pi-signed"
   argv="$CASE_DIR/argv"
-  FM_TEST_ARGV="$argv" PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch" \
+  FM_TEST_ARGV="$argv" PATH="$FAKEBIN_DIR:$PATH" bash -c "$(launch_text_for_execution "$LAUNCH_LOG")" \
     || fail "could not execute the captured pi-signed secondmate launch"
   assert_not_contains "$(cat "$argv")" "$sentinel" \
     "the recorded pi-signed secondmate argv contains charter text"
@@ -1528,7 +1621,7 @@ SH
   assert_not_contains "$(cat "$pane_log")" "LAVISH_AXI_HOST" \
     "an absent configuration changed the host in the destination pane"
   FM_LAVISH_SEEN="$seen" LAVISH_AXI_HOST=destination.example PATH="$FAKEBIN_DIR:$PATH" \
-    bash -c "$launch" || fail "the destination-pane launch command failed"
+    bash -c "$(launch_text_for_execution "$LAUNCH_LOG")" || fail "the destination-pane launch command failed"
   assert_grep 'destination.example' "$seen" \
     "the worker launch did not retain the destination pane's Lavish host"
   pass "absent Lavish configuration preserves the destination environment"
@@ -2020,7 +2113,7 @@ SH
     prompt="$CASE_DIR/prompt"
     brief_content="$CASE_DIR/brief-content"
     FM_ROLE_ARGV="$prompt" FM_ROLE_CONTENT="$brief_content" PATH="$FAKEBIN_DIR:$PATH" \
-      bash -c "$launch" || fail "could not consume $kind launch command"
+      bash -c "$(launch_text_for_execution "$LAUNCH_LOG")" || fail "could not consume $kind launch command"
     # The prompt carries only a path; the harness reads the generated brief from it.
     # An authored role heading must neither suppress nor duplicate the current
     # worker contract; the launch section is its single, superseding owner.
@@ -2067,7 +2160,7 @@ SH
   expect_code 0 "$status" "codex spawn with a distinctive task brief should succeed: $out"
   launch=$(cat "$LAUNCH_LOG")
   argv="$CASE_DIR/argv"
-  FM_TEST_ARGV="$argv" PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch" \
+  FM_TEST_ARGV="$argv" PATH="$FAKEBIN_DIR:$PATH" bash -c "$(launch_text_for_execution "$LAUNCH_LOG")" \
     || fail "could not execute the captured codex launch command"
 
   assert_grep "$sentinel" "$HOME_DIR/data/$id/launch-brief.md" \
@@ -2218,7 +2311,7 @@ test_claude_worker_launch_covers_task_channel_dirs() {
       expect_code 0 "$status" "claude $kind spawn under $mode should succeed"$'\n'"$out"
       launch=$(cat "$LAUNCH_LOG")
 
-      eval_out=$(fm_eval_launch "$launch" "$WT_DIR" "$FAKEBIN_DIR" "FM_FAKE_CLAUDE_REQUIREMENTS=$reqs" 2>&1)
+      eval_out=$(fm_eval_launch "$(launch_text_for_execution "$LAUNCH_LOG")" "$WT_DIR" "$FAKEBIN_DIR" "FM_FAKE_CLAUDE_REQUIREMENTS=$reqs" 2>&1)
       eval_rc=$?
       [ "$eval_rc" -eq 0 ] \
         || fail "claude $kind launch under $mode would hit the outside-read gate"$'\n'"$eval_out"
@@ -2580,7 +2673,35 @@ test_opencode_workspace_flag_refuses_fresh_spawn() {
   pass "a fresh spawn refuses an explicit workspace and routes through the ladder"
 }
 
+test_memory_pressure_defers_fresh_spawn_and_nice_is_applied() {
+  local rec id out status launch
+  id=memory-pressure-z1
+  rec=$(make_spawn_case memory-pressure codex "$id")
+  read_case_record "$rec"
+  cat > "$FAKEBIN_DIR/uname" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' Darwin
+SH
+  chmod +x "$FAKEBIN_DIR/uname"
+
+  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=2 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 75 "$status" "warning memory pressure should defer a fresh worker launch"
+  assert_contains "$out" "deferred $id: macOS memory pressure level=2; task remains queued" "deferral must say that the task remains queued"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a deferred task must not publish worker metadata"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a deferred task must not launch a worker"
+
+  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "normal memory pressure should admit a fresh worker launch"
+  assert_contains "$out" "spawned $id harness=codex" "normal pressure should launch the worker"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$(cat "$LAUNCH_LOG.raw")" "nice -n 10 /bin/sh -c " "worker launch must carry lower scheduling priority"
+  pass "memory pressure defers at warning, admits at normal, and worker launch uses nice +10"
+}
+
 test_launch_brief_text_is_absent_from_recorded_argv
+test_memory_pressure_defers_fresh_spawn_and_nice_is_applied
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_opencode_second_workspace_pins_launch
