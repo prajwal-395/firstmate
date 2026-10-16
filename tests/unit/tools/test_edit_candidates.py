@@ -88,3 +88,51 @@ def test_alternative_plans_rank_same_candidates_differently():
     assert plans["latest"][0] == short_strong["candidate_id"]
     for ordering in plans.values():
         assert ordering[-1] == uncertain["candidate_id"]
+
+
+# ── EDIT-010 consumer: F06 owns speaker/camera mapping ──────────────
+#
+# vep-pl-f06-multicam maps speakers to cameras (`mapped` only when M7
+# links voice to a visible face track; M10 suggestions stay
+# `candidate`). This layer never re-derives that: it consumes
+# `ground_cuts`-shaped rows (each carrying its query `plan`) and only
+# verifies what F06 already decided.
+
+
+def _f06_mapped_rows():
+    return [
+        {"evidence_id": "w1", "plan": "speech_attributed",
+         "measurement_type": "speech.word"},
+        {"evidence_id": "sp1", "plan": "speaker_camera",
+         "measurement_type": "event.speaking_span"},
+        {"evidence_id": "ff1", "plan": "speaker_camera",
+         "measurement_type": "person.face_frame"},
+    ]
+
+
+def test_mapped_speaker_camera_grounds_a_multicam_candidate():
+    candidate = ec.build_candidate(
+        "mc1", 40.0, 65.0, _f06_mapped_rows(),
+        [{"predicate": "speech_present",
+          "evidence_names": ["speech_attributed"], "minimum_rows": 1},
+         {"predicate": "camera_mapped",
+          "evidence_names": ["speaker_camera"], "minimum_rows": 2}])
+    assert candidate["strength"] == "strong"
+
+
+def test_unverified_suggestions_never_verify_a_mapping():
+    rows = [
+        {"evidence_id": "w1", "plan": "speech_attributed",
+         "measurement_type": "speech.word"},
+        {"evidence_id": "lr1", "plan": "speaker_camera_suggestion",
+         "measurement_type": "event.speaking_span"},
+    ]
+    candidate = ec.build_candidate(
+        "mc2", 40.0, 65.0, rows,
+        [{"predicate": "speech_present",
+          "evidence_names": ["speech_attributed"], "minimum_rows": 1},
+         {"predicate": "camera_mapped",
+          "evidence_names": ["speaker_camera"], "minimum_rows": 1}])
+    assert candidate["strength"] == "uncertain"
+    assert any("camera_mapped" in reason
+               for reason in candidate["strength_reasons"])
