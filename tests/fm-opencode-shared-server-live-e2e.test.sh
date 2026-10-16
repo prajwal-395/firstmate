@@ -37,6 +37,7 @@ trap cleanup EXIT
 fail() {
   printf 'not ok - %s: %s\n' "$VERSION" "$1" >&2
   "$REAL_TMUX" -S "$SOCKET" capture-pane -p -t "$TARGET" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 30 >&2
+  [ ! -s "$LAB/send.log" ] || { printf 'last send:\n' >&2; cat "$LAB/send.log" >&2; }
   exit 1
 }
 # shellcheck source=bin/fm-busy-lib.sh
@@ -49,7 +50,7 @@ printf 'on\n' > "$H/config/opencode-shared-server"
 fm_git_worktree "$PROJ" "$WT" ocs-live
 git -C "$WT" config user.name 'OpenCode Shared Server Live Guard'
 git -C "$WT" config user.email ocs-live-guard@example.invalid
-fm_test_spawn_brief "$H" "$ID" "Runtime verification only: compute 12345 plus 67890 using your shell tool and write only the result into answer.txt. Do no other work and do not delegate. Later read and acknowledge Firstmate's instruction inbox when the doorbell arrives."
+fm_test_spawn_brief "$H" "$ID" "Runtime verification only: compute 12345 plus 67890 using your shell tool and write only the result into answer.txt, then stop and end your turn. Do no other work, do not delegate, and do not look for further instructions until a new message arrives."
 fakebin=$(make_spawn_fakebin "$LAB/fake")
 FM_FAKE_LAUNCH_LOG="$LAB/launch.sh" fm_test_run_spawn "$H" "$WT" "$fakebin" "$ID" "$PROJ" \
   --scout --harness opencode --model "$MODEL" > "$LAB/spawn.log" 2>&1 \
@@ -63,7 +64,9 @@ printf '#!/bin/sh\nexec "%s" -S "%s" "$@"\n' "$REAL_TMUX" "$SOCKET" > "$LAB/bin/
 chmod +x "$LAB/bin/tmux"
 export PATH="$LAB/bin:$PATH" FM_HOME="$H" HOME="$H/user-home"
 unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
-"$REAL_TMUX" -S "$SOCKET" new-session -d -s firstmate -n "fm-$ID" -x 140 -y 40 -c "$WT" \
+# Past 120 columns OpenCode 1.19.0 draws its session sidebar on the composer
+# rows, which the composer check reads as pending text for any OpenCode pane.
+"$REAL_TMUX" -S "$SOCKET" new-session -d -s firstmate -n "fm-$ID" -x 120 -y 40 -c "$WT" \
   "/bin/sh '$LAB/launch.sh'; exec /bin/bash --noprofile --norc" || fail 'could not start pane'
 capture() { "$REAL_TMUX" -S "$SOCKET" capture-pane -p -t "$TARGET"; }
 classify() { fm_busy_classify tmux "$TARGET" opencode "$ID" "$H/state"; }
@@ -123,9 +126,10 @@ code=$(printf 'user = "opencode:%s"\n' "$PASSWORD" | curl --config - -s -o /dev/
 [ "$code" = 404 ] || fail "the replaced session still exists on the server (HTTP $code)"
 pass "$VERSION: relaunch reuses the server, retires the old session, and reports busy state for the new one"
 
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit before release failed: $(cat "$LAB/exit.log")"
-"$ROOT/bin/fm-opencode-server.sh" release "$H/state" default "$ID" "$SESSION2" "$WT" \
-  || fail 'the task lease could not be released'
+"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit before cleanup failed: $(cat "$LAB/exit.log")"
+printf 'Live guard report.\n' > "$H/data/$ID/report.md"
+"$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 || fail "teardown failed: $(cat "$LAB/teardown.log")"
 for _ in $(seq 1 40); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.25; done
-! kill -0 "$SERVER_PID" 2>/dev/null || fail 'the server outlived its last lease'
-pass "$VERSION: releasing the last lease stops the shared server"
+! kill -0 "$SERVER_PID" 2>/dev/null || fail 'the server outlived its last worker'
+[ ! -e "$H/state/opencode-server-default.leases/$ID" ] || fail 'teardown left the task lease behind'
+pass "$VERSION: teardown releases the task and stops the shared server once no worker holds it"
