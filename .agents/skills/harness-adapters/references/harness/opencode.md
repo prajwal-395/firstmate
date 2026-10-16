@@ -25,6 +25,18 @@ If the pane shows the exit banner, use the verified resume path above.
 
 The managed model ladder routes free, Codex Plus, then Go, with shared reset records and cross-harness descent owned by `../../../bin/fm-opencode-ladder-lib.sh` and `../../../bin/fm-opencode-descent-lib.sh`.
 
+## Shared-server launch (experiment)
+
+With `config/opencode-shared-server` on, a crewmate or scout attaches to a Firstmate-managed `opencode serve`; `../../../docs/configuration.md` "Shared OpenCode servers" owns the switch and `../../../bin/fm-opencode-server.sh` owns the server lifecycle.
+Verified on 2026-10-16 with OpenCode 1.19.0:
+
+| Fact | Value |
+|---|---|
+| Launch | `opencode attach <url> --dir <worktree> --session <task-session>`; the brief, model, and effort variant ride the first `prompt_async` call, and typed follow-ups stay on the session's model. |
+| Busy state | The same worktree plugin, loaded by the server's instance for that directory; the server caches the plugin module across `/instance/dispose`, so the attached plugin reads its busy generation at event time. |
+| Interrupt and exit | Escape in the attached client aborts the server-side turn; `/exit` closes only the client and the server keeps running. |
+| Resume | A relaunch gets a fresh session and the replaced session is ended on the server. |
+
 ## Busy-queued Enter
 
 While OpenCode 1.18.4 is mid-turn, its composer accepts Enter as a "send when the turn ends" keystroke but does not clear the typed text until the turn finishes.

@@ -2661,6 +2661,113 @@ test_opencode_free_launch_ignores_an_inherited_main_org() {
   pass "a free launch with an inherited main id and no login runs unpinned"
 }
 
+# The shared-server experiment (bin/fm-opencode-server.sh). The fake server
+# is a real process, so each case stops what it started.
+stop_case_servers() {  # <home>
+  local record pid
+  for record in "$1"/state/opencode-server-main "$1"/state/opencode-server-secondary "$1"/state/opencode-server-default; do
+    [ -f "$record" ] || continue
+    pid=$(sed -n 's/^pid=//p' "$record")
+    case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null || true ;; esac
+  done
+}
+
+# server_db_org <home> <profile>: the workspace id the profile's server database is pinned to.
+server_db_org() {
+  local url port db
+  url=$(sed -n 's/^port=//p' "$1/state/opencode-server-$2")
+  port=$url
+  db=$(cat "$CASE_DIR/fake-server/servers/$port.db")
+  [ -n "$db" ] || return 1
+  sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;'
+}
+
+test_opencode_shared_server_attaches_worker_to_its_own_session() {
+  local rec id out status launch
+  id=profile-opencode-shared-z40
+  rec=$(make_spawn_case profile-opencode-shared opencode "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness opencode --model anthropic/claude-sonnet-4-5 --effort high)
+  status=$?
+  stop_case_servers "$HOME_DIR"
+  expect_code 0 "$status" "an attached OpenCode spawn should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "opencode attach 'http://127.0.0.1:" "the worker did not attach to the shared server"
+  assert_contains "$launch" "--dir '$WT_DIR' --session 'ses_fake" "the attached worker lost its worktree or its own session"
+  assert_not_contains "$launch" "--prompt" "an attached worker must not start a standalone runtime"
+  assert_not_contains "$launch" "$(cat "$HOME_DIR/state/opencode-server-default.password")" \
+    "the server password must not appear in the launch command"
+  assert_grep 'opencode_server=default' "$HOME_DIR/state/$id.meta" "the server profile was not recorded"
+  assert_grep 'opencode_server_session=ses_fake' "$HOME_DIR/state/$id.meta" "the task session was not recorded"
+  [ -f "$HOME_DIR/state/opencode-server-default.leases/$id" ] || fail "the task holds no lease on its server"
+  [ "$(jq -r '.model.providerID + "/" + .model.modelID + "|" + .variant + "|" + .parts[0].text' "$CASE_DIR/fake-server/prompt.json")" \
+    = "anthropic/claude-sonnet-4-5|high|Read the brief at $HOME_DIR/data/$id/launch-brief.md and follow it exactly." ] \
+    || fail "the brief did not reach the session with its model and effort: $(cat "$CASE_DIR/fake-server/prompt.json")"
+  pass "an enabled OpenCode worker attaches to the shared server on its own session and receives its brief"
+}
+
+test_opencode_shared_server_falls_back_to_standalone() {
+  local rec id out status launch
+  id=profile-opencode-shared-fallback-z41
+  rec=$(make_spawn_case profile-opencode-shared-fallback opencode "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+  touch "$CASE_DIR/fake-server/serve-fails"
+
+  out=$(FM_OPENCODE_SERVER_START_POLLS=4 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness opencode --model anthropic/claude-sonnet-4-5)
+  status=$?
+  expect_code 0 "$status" "a server that cannot start must leave the standalone launch: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
+  assert_not_contains "$launch" "opencode attach" "a failed server must not leave an attached client"
+  assert_no_grep 'opencode_server' "$HOME_DIR/state/$id.meta" "a standalone fallback must record no server"
+  pass "an OpenCode server that cannot start falls back to the standalone launch"
+}
+
+test_opencode_shared_servers_keep_each_workspace_on_its_own_database() {
+  local rec id_second id_main out status datadir
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "shared-server workspace pins need sqlite3 (absent here; the live guard covers the real path)"
+    return 0
+  }
+  id_second=profile-shared-second-z42
+  id_main=profile-shared-main-z43
+  rec=$(make_spawn_case profile-shared-workspaces opencode "$id_second" "$id_main")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the fixture login could not be built"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id_main" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "a main-workspace attached spawn should succeed: $out"
+  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
+  git -C "$PROJ_DIR" worktree add --quiet -b wt2-shared "$CASE_DIR/wt2" || fail "second worktree could not be created"
+  out=$(run_ship_spawn "$HOME_DIR" "$CASE_DIR/wt2" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id_second" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "a second-workspace attached spawn should succeed: $out"
+  assert_grep 'opencode_server=main' "$HOME_DIR/state/$id_main.meta" "the main task did not ride the main server"
+  assert_grep 'opencode_server=secondary' "$HOME_DIR/state/$id_second.meta" "the second task did not ride the second server"
+  [ "$(server_db_org "$HOME_DIR" main)" = "$DUAL_MAIN_ORG_ID" ] \
+    || { stop_case_servers "$HOME_DIR"; fail "the main server does not run on the main workspace database"; }
+  [ "$(server_db_org "$HOME_DIR" secondary)" = "$DUAL_SECOND_ORG_ID" ] \
+    || { stop_case_servers "$HOME_DIR"; fail "the second server does not run on the second workspace database"; }
+  stop_case_servers "$HOME_DIR"
+  pass "main and second workspace workers each attach to a server on their own workspace database"
+}
+
 test_opencode_workspace_flag_refuses_fresh_spawn() {
   local rec id out status
   id=profile-workspace-flag-z32
@@ -2710,6 +2817,9 @@ test_opencode_second_workspace_pins_launch
 test_opencode_main_workspace_launch_is_unpinned_without_second
 test_opencode_main_workspace_pins_launch_when_second_configured
 test_opencode_main_launch_refuses_when_pin_unprovable
+test_opencode_shared_server_attaches_worker_to_its_own_session
+test_opencode_shared_server_falls_back_to_standalone
+test_opencode_shared_servers_keep_each_workspace_on_its_own_database
 test_opencode_free_launch_ignores_an_inherited_second_workspace
 test_opencode_free_launch_ignores_an_inherited_main_org
 test_opencode_workspace_flag_refuses_fresh_spawn
