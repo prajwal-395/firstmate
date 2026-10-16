@@ -1,0 +1,210 @@
+{
+ "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+ "dimensions": [
+  "quality",
+  "latency",
+  "memory",
+  "cost"
+ ],
+ "format": "ren_intelligence_scorecard/1",
+ "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+ "sources": [],
+ "versions": {
+  "edgetam-coreml-source-verified": {
+   "modalities": {
+    "object_tracking": {
+     "calibration": {
+      "metrics": {},
+      "revision": "18f108ae0",
+      "selection_basis": [
+       "source-verification-only"
+      ]
+     }
+    }
+   },
+   "models": {
+    "code": "facebookresearch/EdgeTAM (Apache-2.0, code and checkpoints)",
+    "exporter": "coreml/export_to_coreml.py in the official repo (image encoder ~9.6MB, prompt encoder ~2MB, mask decoder ~8MB)"
+   },
+   "role": "candidate",
+   "unmeasured": {
+    "object_tracking": [
+     "coreml-conversion",
+     "coreml-execution",
+     "tracking-quality",
+     "identity-continuity",
+     "cold-latency",
+     "warm-latency",
+     "peak-memory",
+     "decode-infer-serialize-split"
+    ]
+   }
+  },
+  "pytorch-sam2.1-hiera-small-lowres-2026-10-16": {
+   "decision": "no-change (PERF-013 calibration point; default untouched)",
+   "license_class": "none (no new model, checkpoint, runtime or dependency)",
+   "modalities": {
+    "object_tracking": {
+     "calibration": {
+      "metrics": {
+       "coverage_480": {
+        "dimension": "quality",
+        "unit": "fraction of 20 frames with >=50% laptop-box coverage",
+        "value": 1.0
+       },
+       "coverage_960": {
+        "dimension": "quality",
+        "unit": "fraction of 20 frames with >=50% laptop-box coverage",
+        "value": 1.0
+       },
+       "mean_box_fill_480": {
+        "dimension": "quality",
+        "unit": "mean mask fill of the laptop box",
+        "value": 0.589
+       },
+       "mean_box_fill_960": {
+        "dimension": "quality",
+        "unit": "mean mask fill of the laptop box",
+        "value": 0.563
+       },
+       "process_peak_rss": {
+        "dimension": "memory",
+        "unit": "GB ru_maxrss (excludes Metal)",
+        "value": 1.03
+       },
+       "warm_480_end_to_end_seconds": {
+        "dimension": "latency",
+        "unit": "seconds per 10 second clip at 2 fps, same-process second run, separate session",
+        "value": 31.21
+       },
+       "warm_960_end_to_end_seconds": {
+        "dimension": "latency",
+        "unit": "seconds per 10 second clip at 2 fps, same-process second run",
+        "value": 33.66
+       }
+      },
+      "revision": "2d566706f",
+      "selection_basis": [
+       "calibration"
+      ]
+     }
+    }
+   },
+   "models": {
+    "tracking": "facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03"
+   },
+   "role": "baseline",
+   "unmeasured": {
+    "object_tracking": [
+     "resolution-speedup (warm deltas inside cross-session load noise; counterbalanced run stopped by the model-run hold)"
+    ]
+   }
+  },
+  "sam3.1-mlx-quantized": {
+   "modalities": {
+    "object_tracking": {
+     "calibration": {
+      "metrics": {},
+      "revision": "18f108ae0",
+      "selection_basis": [
+       "no-complete-run"
+      ]
+     }
+    }
+   },
+   "models": {
+    "prior_full_precision": "mlx-community/sam3.1-bf16@1f6152bb3cb86a13913560e030c8dd34ed493fdc (3.49 GB, removed after the partial PR-2628 attempt per download conditions)",
+    "quantized_interest": "models--mlx-community--sam3-8bit@bcd63fddcd2082f3841c7f25dc67a1bcb9e95dcf (local cache holds the ref only, 4 KiB; weights absent)"
+   },
+   "role": "candidate",
+   "unmeasured": {
+    "object_tracking": [
+     "detection",
+     "segmentation",
+     "multi-object-tracking",
+     "one-model-vs-detector-plus-tracker",
+     "cold-latency",
+     "warm-latency",
+     "peak-memory",
+     "decode-infer-serialize-split"
+    ]
+   }
+  },
+  "sam3.cpp-metal-source-verified": {
+   "modalities": {
+    "object_tracking": {
+     "calibration": {
+      "metrics": {},
+      "revision": "18f108ae0",
+      "selection_basis": [
+       "source-verification-only"
+      ]
+     }
+    }
+   },
+   "models": {
+    "code": "PABannier/sam3.cpp (MIT, code only)",
+    "converters": "convert_sam2_to_ggml.py, convert_sam3_to_ggml.py, convert_edgetam_to_ggml.py",
+    "weights": "official Meta SAM/SAM2/SAM3/EdgeTAM .pt checkpoints under Meta's custom SAM license; license lane to resolve",
+    "zoo": "PABannier/sam3.cpp on Hugging Face (52 GGML files)"
+   },
+   "role": "candidate",
+   "unmeasured": {
+    "object_tracking": [
+     "native-build",
+     "checkpoint-conversion",
+     "metal-throughput",
+     "output-parity",
+     "cold-latency",
+     "warm-latency",
+     "peak-memory",
+     "decode-infer-serialize-split"
+    ]
+   }
+  },
+  "track-model-selective-geometry-2026-10-16": {
+   "decision": "adopt",
+   "decision_basis": "pure track-model code behind existing interfaces; incumbent PyTorch SAM 2.1 path untouched; no adoption, replacement or default change, so no incumbent scorecard contest is owed",
+   "license_class": "none (no new model, checkpoint, runtime or dependency)",
+   "modalities": {
+    "object_tracking": {
+     "calibration": {
+      "metrics": {
+       "discarded_masks_keep_geometry": {
+        "dimension": "quality",
+        "unit": "migration assertions on a maskless segmentation file",
+        "value": 1.0
+       },
+       "fragment_runs_gaps": {
+        "dimension": "quality",
+        "unit": "pure-function unit tests (7 track_fragments cases all passing)",
+        "value": 1.0
+       },
+       "object_ids_stay_clip_local": {
+        "dimension": "quality",
+        "unit": "unit test: same bare id in two clips resolves per file, file-less reference refuses",
+        "value": 1.0
+       }
+      },
+      "revision": "18f108ae0",
+      "selection_basis": [
+       "calibration"
+      ]
+     }
+    }
+   },
+   "models": {
+    "tracking": "unchanged incumbent facebook/sam2.1-hiera-small@ee5bba1d82bb8749febdf90f45e84b687142ba03"
+   },
+   "role": "candidate",
+   "unmeasured": {
+    "object_tracking": [
+     "cold-latency",
+     "warm-latency",
+     "peak-memory",
+     "decode-infer-serialize-split (no model pass in this change; pure functions and migration of hand-made fixtures)"
+    ]
+   }
+  }
+ }
+}

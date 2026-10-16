@@ -217,6 +217,63 @@ def _check_seed_score(value: Any, label: str) -> Optional[float]:
     return number
 
 
+def track_fragments(sample_indices, total_samples: int) -> Dict[str, Any]:
+    """A track's sampled frames as continuous runs and explicit gaps.
+
+    `sample_indices` are the 0-based sample positions carrying this
+    object's geometry (a `TrackedObject.frames` list); `total_samples`
+    is the clip's sample count. Consecutive positions form one run; any
+    position in [0, total_samples) without geometry is a gap, reported
+    with inclusive bounds. An empty index list is one gap over the whole
+    clip - unmeasured, never invisible. Out-of-range or non-integer
+    positions are refused: a fragment report built on frames outside the
+    clip would misplace every gap it names.
+    """
+    try:
+        total = int(total_samples)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"track_fragments needs an integer sample count, "
+            f"got {total_samples!r}")
+    if total <= 0:
+        raise ValueError(
+            f"track_fragments needs a positive sample count, got {total}")
+    seen = set()
+    for position in (sample_indices or []):
+        if not isinstance(position, int) or isinstance(position, bool):
+            raise ValueError(
+                f"track_fragments sample positions must be integers, "
+                f"got {position!r}")
+        if position < 0 or position >= total:
+            raise ValueError(
+                f"track_fragments sample position {position} is outside "
+                f"a {total}-sample clip")
+        seen.add(position)
+    positions = sorted(seen)
+    runs: List[Tuple[int, int]] = []
+    for position in positions:
+        if runs and position == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], position)
+        else:
+            runs.append((position, position))
+    gaps: List[Tuple[int, int]] = []
+    cursor = 0
+    for start, end in runs:
+        if cursor < start:
+            gaps.append((cursor, start - 1))
+        cursor = end + 1
+    if cursor < total:
+        gaps.append((cursor, total - 1))
+    longest = max((end - start + 1 for start, end in runs), default=0)
+    return {
+        "runs": runs,
+        "gaps": gaps,
+        "fragment_count": len(runs),
+        "longest_run": longest,
+        "missing_samples": total - len(positions),
+    }
+
+
 def check_seed_boxes(seed_boxes) -> List[ObjectSeed]:
     """Detector seeds as clean `ObjectSeed`s. None (or an empty list)
     means no detector seeding; a malformed entry is refused, never

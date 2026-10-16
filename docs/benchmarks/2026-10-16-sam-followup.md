@@ -1,0 +1,78 @@
+# SAM follow-up: track-model code + source-verified candidates (2026-10-16)
+
+Follow-up to [2026-10-15-sam-tracking-bakeoff.md](2026-10-15-sam-tracking-bakeoff.md)
+(PR 2628, merged: retain PyTorch SAM 2.1 Hiera Small; reject the tested
+SAM 2.1 MLX implementation for the measured use). Machine-readable:
+[`2026-10-16-sam-followup-track-model.json`](2026-10-16-sam-followup-track-model.json).
+
+No model was loaded for this follow-up: no footage is mounted in this
+worktree (captain MXF absent, prior scratch clips removed), `coremltools`
+is absent, and SAM 3 / 3.1 weights are absent (the 3.49 GB full-precision
+copy was removed per download conditions; the local `sam3-8bit` cache
+holds a ref only). No download was made. A captain hold on heavy model
+runs is now in force; the measurement half waits on it.
+
+## What already existed (not rebuilt)
+
+- Multi-object tracks: face seed plus N detector seeds, or up to
+  `MAX_TRACKED_OBJECTS` blobs, each with time-indexed `frames`,
+  `bboxes` and optional RLE masks (`ObjectSegmenter.segment_clip`).
+- Migration carries track geometry, not masks, into the model; RLE
+  blobs stay in the 1.06 file by reference. Entities carry
+  `"identity_scope": "asset"` (clip-local by construction).
+- Region queries resolve tracks per entity with explicit gaps;
+  unknown names stay absences; visibility observations name gap
+  ticks and missing frames.
+
+## What this follow-up adds (code, no model pass)
+
+- `track_fragments` (`library/tools/analysis/object_segmentation.py`):
+  a track's sampled frames as continuous runs plus explicit gaps
+  (OBJ-016/018). Empty means a whole-clip gap (unmeasured, never
+  invisible); out-of-clip positions refuse.
+- Clip-local IDs pinned: the same bare id in two clips resolves per
+  file; a file-less reference refuses (`test_project_model_masks.py`,
+  OBJ-021).
+- Selective mask storage pinned: a maskless segmentation file still
+  migrates full geometry (samples, visibility, appearance, queries)
+  while the matte path refuses with `UnresolvableMask`
+  (`test_open_vocabulary_objects.py`, OBJ-024/025).
+
+Decision: **adopt** the track-model code (existing interfaces,
+incumbent untouched; no default change, so no incumbent contest owed).
+
+## Source-verified candidates (not measured - research-only)
+
+| Candidate | Source evidence | Blockers | Decision |
+|---|---|---|---|
+| EdgeTAM Core ML | Official repo `facebookresearch/EdgeTAM` (Apache-2.0 code+checkpoints); `coreml/export_to_coreml.py` yields 3 models (encoder ~9.6MB, prompt ~2MB, decoder ~8MB); published 16 FPS on iPhone 15 Pro Max, 22x vs SAM 2 (context, not Ren-measured) | `coremltools` absent locally; no footage; model-run hold | **research-only** |
+| `sam3.cpp` Metal | `PABannier/sam3.cpp` (MIT code); converters + GGML zoo for SAM 2/2.1/3/EdgeTAM; Metal backend; published M4 Pro numbers (e.g. sam2.1-hiera-small-f16 0.9 s/frame, EdgeTAM-f16 0.4 s/frame - context only). Converted weights inherit Meta's SAM checkpoint license (license lane to resolve) | native build + GGML download + footage; model-run hold | **research-only** |
+| SAM 3.1 MLX quantized | Prior full-precision attempt interrupted under memory pressure (PR 2628); 8-bit weights absent | weights + footage + memory; model-run hold | **research-only** |
+| One-model vs detector+tracker; multi-object/occlusion/identity; low-res; selective high-res; memory | track-model code landed to support them | footage; model-run hold; identity labels via agent labellers when firstmate arranges them | **unmeasured** |
+
+## Measured this turn (incumbent, PERF-013 low-res)
+
+Same 20-frame laptop fixture and seed, staged 480-wide clip vs 960-wide,
+fp32 weights with MPS propagation, one model process under
+`objects.segment:inference`:
+
+- 960x540 warm (same-process second run): 33.66 s, 20/20 box coverage,
+  mean box fill 0.563.
+- 480x270 warm (same-process second run, separate session): 31.21 s,
+  20/20 box coverage, mean box fill 0.589.
+- Cold first-in-process runs: 74.20 s and 107.02 s (overnight PR-2628
+  run: 14.25 s) - absolute time is load-dependent; the 20/20 verdict is
+  stable. Process peak RSS ~1.0 GB `ru_maxrss` (excludes Metal).
+
+No coverage loss at 480-wide on this fixture. A resolution speedup is
+NOT established: the warm deltas sit inside cross-session load noise,
+and the counterbalanced same-session run was stopped by the captain's
+second model-run hold before it completed. Machine-readable numbers
+are in `2026-10-16-sam-followup-track-model.json` (`lowres` version).
+
+## Unmeasured work (carried forward)
+
+PERF-008/009/010/011/012/013/014/015/016 measurements, OBJ-017
+(visible/occluded/absent classification), OBJ-019/020 (identity
+recovery, cross-clip re-identification). OBJ-013 holds: nothing was
+replaced.

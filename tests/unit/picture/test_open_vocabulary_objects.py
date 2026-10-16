@@ -46,6 +46,7 @@ import numpy as np
 import pytest
 
 from library.tools import project_model_evidence as evidence
+from library.tools import project_model_masks as masks
 from library.tools import region_query
 from library.tools import source_memory
 from library.tools.analysis import object_segmentation as seg
@@ -403,3 +404,41 @@ def test_continuity_links_scope_each_track(fixture_project):
                    == observations[link["observation_id"]][
                        "payload"]["track_id"]
                    for obs_id in link["supporting_observation_ids"])
+
+
+def test_discarded_masks_keep_geometry_and_refuse_mattes(fixture_project):
+    """OBJ-024/025: dense masks are stored selectively. A segmentation
+    file with every ``masks_rle`` map discarded still migrates the full
+    track geometry - samples, visibility gaps and appearance all read
+    off ``frames``/``bboxes`` - while the matte read path refuses the
+    maskless object instead of inventing pixels."""
+    seg_path = (ProjectLayout(str(fixture_project["project"])).step_dir(
+        "object_segmentation") / "clip_obj_segmentation.json")
+    doc = json.loads(seg_path.read_text(encoding="utf-8"))
+    for obj in doc["objects"]:
+        obj.pop("masks_rle", None)
+    _write(seg_path, doc)
+
+    model, _report = _migrate(fixture_project)
+    samples = _observations_by_modality(model, "object_track_sample")
+    assert len(samples) == (len(LAPTOP_FRAMES) + len(MUG_FRAMES)
+                            + len(BLOB_FRAMES))
+    rows = _observations_by_modality(model, "object_visibility")
+    assert len(rows) == 3
+    mug = next(o for o in rows
+               if o["payload"]["object_id"] == "obj_3")
+    assert mug["payload"]["gaps"] == [{
+        "start_tick": 1500, "end_tick": 2500,
+        "missing_frames": [3, 4]}]
+    laptop = next(o for o in rows
+                  if o["payload"]["object_id"] == "obj_2")
+    assert laptop["payload"]["gaps"] == []
+    appearances = _observations_by_modality(model, "object_appearance")
+    assert len(appearances) == 3
+    assert region_query.object_region_at(
+        model, "laptop", 1.0)["present"] is True
+    with pytest.raises(masks.UnresolvableMask):
+        masks.sam2_track_frames(
+            {"kind": masks.SAM2_RLE_TRACK_KIND,
+             "segmentation_file": str(seg_path),
+             "object_id": "obj_2", "sample_fps": SAMPLE_FPS})

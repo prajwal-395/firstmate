@@ -303,6 +303,64 @@ def test_producer_consumer_drift_every_produced_kind_rasterizes(tmp_path):
     assert len(rasterized.files) == 20
 
 
+def test_same_object_id_in_two_clips_resolves_per_file(tmp_path):
+    """OBJ-021: an object id is clip-local. Two segmentation files both
+    carrying ``obj_1`` resolve through their own file reference, so the
+    same bare id never reunites two clips' objects; a reference naming
+    no file refuses instead of guessing one."""
+    first = tmp_path / "clip_a_segmentation.json"
+    second = tmp_path / "clip_b_segmentation.json"
+    _write(first, {
+        "video_path": "/nonexistent/a.mov",
+        "frame_count": 4,
+        "resolution": [HEIGHT, WIDTH],
+        "sample_fps": SAMPLE_FPS,
+        "objects": [{
+            "object_id": "obj_1",
+            "label": "laptop",
+            "category": "laptop",
+            "frames": [0, 1],
+            "masks_rle": {str(i): encode_rle(mask)
+                          for i, mask in enumerate(_sample_masks()[:2])},
+            "bboxes": {str(i): [0, 0, WIDTH, HEIGHT] for i in (0, 1)},
+            "avg_area_ratio": 0.25,
+        }],
+    })
+    _write(second, {
+        "video_path": "/nonexistent/b.mov",
+        "frame_count": 4,
+        "resolution": [HEIGHT, WIDTH],
+        "sample_fps": SAMPLE_FPS,
+        "objects": [{
+            "object_id": "obj_1",
+            "label": "person",
+            "category": "person",
+            "frames": [2, 3],
+            "masks_rle": {str(i + 2): encode_rle(mask)
+                          for i, mask in enumerate(_sample_masks()[2:])},
+            "bboxes": {str(i): [0, 0, WIDTH, HEIGHT] for i in (2, 3)},
+            "avg_area_ratio": 0.25,
+        }],
+    })
+    rep_a = {"kind": masks.SAM2_RLE_TRACK_KIND,
+             "segmentation_file": str(first),
+             "object_id": "obj_1", "sample_fps": SAMPLE_FPS}
+    rep_b = {"kind": masks.SAM2_RLE_TRACK_KIND,
+             "segmentation_file": str(second),
+             "object_id": "obj_1", "sample_fps": SAMPLE_FPS}
+    width_a, height_a, frames_a = masks.sam2_track_frames(rep_a)
+    width_b, height_b, frames_b = masks.sam2_track_frames(rep_b)
+    assert (width_a, height_a) == (WIDTH, HEIGHT)
+    assert [tick for tick, _blob in frames_a] == [0, 500]
+    assert [tick for tick, _blob in frames_b] == [1000, 1500]
+    assert [blob for _tick, blob in frames_a] != [
+        blob for _tick, blob in frames_b]
+    with pytest.raises(masks.UnresolvableMask):
+        masks.sam2_track_frames({"kind": masks.SAM2_RLE_TRACK_KIND,
+                                 "object_id": "obj_1",
+                                 "sample_fps": SAMPLE_FPS})
+
+
 def test_unknown_mask_kind_still_refuses_with_the_registry_listed(tmp_path):
     """Fail-closed is kept: a kind no producer writes refuses, and the
     refusal lists the registry so the next producer/consumer drift
