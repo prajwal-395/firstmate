@@ -25,7 +25,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
-from library.tools import capability_outputs, intent_model
+from library.tools import capability_outputs, cut_boundaries, intent_model
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.project_layout import Area, ProjectLayout
 
@@ -823,11 +823,284 @@ def _report_anchor(label: str, clip_id: str, enrichment: dict,
     )
 
 
+def _clip_evidence_for_cut_points(
+    ti, prosody_profile=None, action_windows=None,
+) -> dict:
+    """Evidence the temporal index already holds for cut refinement.
+
+    Words, duration, scene boundaries, audio events and motion peaks are
+    read from the temporal index. Optional per-word emphasis is read
+    from step 1.05's measured prosody profile. Measured action intervals
+    arrive via `action_windows` (read from the v3 semantic document by
+    `_action_windows_for_clip`); when absent the key stays absent and
+    the report says unmeasured rather than guessing.
+    """
+    evidence: dict = {}
+    if not isinstance(ti, dict):
+        return evidence
+    try:
+        evidence["clip_duration_seconds"] = float(ti["duration"])
+    except (TypeError, ValueError, KeyError):
+        pass
+    scenes = ti.get("scene_boundaries")
+    if isinstance(scenes, list):
+        evidence["scene_boundaries"] = scenes
+    audio_events: list = []
+    for key in ("audio_events", "sound_events"):
+        entries = ti.get(key)
+        if isinstance(entries, list):
+            audio_events.extend(
+                entry for entry in entries if isinstance(entry, dict))
+    if audio_events or ti.get("audio_events") == [] or ti.get(
+            "sound_events") == []:
+        evidence["audio_events"] = audio_events
+    flow = ti.get("optical_flow_direction")
+    if isinstance(flow, dict) and isinstance(
+            flow.get("motion_peaks"), list):
+        evidence["motion_peaks"] = flow["motion_peaks"]
+    if isinstance(prosody_profile, dict):
+        prosody = prosody_profile.get("prosody")
+        if isinstance(prosody, dict) and isinstance(
+                prosody.get("word_prosody"), list):
+            evidence["prosodic_words"] = prosody["word_prosody"]
+    if action_windows is not None:
+        evidence["action_windows"] = action_windows
+    return evidence
+
+
+def _action_windows_for_clip(semantic_doc) -> list | None:
+    """Measured visual action intervals from the v3 semantic document.
+
+    Reads each window's measured action intervals (with their own bounds
+    and labels), not the window spans or the adapted `blocks` view, which
+    also carries parse sentinels and broad visual summaries. Unparsed
+    windows leave the action evidence unavailable rather than presenting
+    incomplete coverage as exhaustive.
+    """
+    if not isinstance(semantic_doc, dict):
+        return None
+    # The semantic adapter's ``blocks`` view is action-derived editorial
+    # context, but it also contains parse sentinels and historically broad
+    # visual summaries. Cut safety needs the measured action intervals in
+    # the producer's v3 document, with their own bounds and labels.
+    action_windows = semantic_doc.get("actions")
+    if not isinstance(action_windows, list):
+        return None
+    windows = []
+    for window in action_windows:
+        if not isinstance(window, dict):
+            continue
+        if window.get("parse_error"):
+            return None
+        actions = window.get("actions")
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            try:
+                start = float(action["start"])
+                end = float(action["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end <= start:
+                continue
+            windows.append({
+                "start": start,
+                "end": end,
+                "label": action.get("action"),
+                "body_language": action.get("body_language"),
+                "speech_cue": action.get("speech_cue"),
+            })
+    return windows
+
+
+def _refine_cut_points(
+    enrichment: dict, regions: list, ti, label: str, clip_id: str,
+    report: list, prosody_profile=None, action_windows=None,
+    max_pad_head: float | None = None, max_pad_tail: float | None = None,
+    zone_ceiling: float | None = None, zone_capped: bool = False,
+    replace_index: int | None = None,
+) -> dict:
+    """Pad one passage's cut edges into silence and validate them.
+
+    Runs after sentence expansion and stated trims, so it refines the
+    FINAL played bounds. The pad is bounded (half the neighbouring
+    gap, capped) and can never cross into the next passage's words,
+    which is what keeps the overlap claim below reading the refined
+    span. Says what moved and what flagged on stderr and in `report`;
+    validation never refuses - refusal stays with alignment failures.
+    Per-edge `max_pad_*` caps come from the speech-zone fit below;
+    `zone_ceiling`/`zone_capped` only label the row when a cap shrank
+    the pads. Returns the refinement, so the caller can re-run it
+    under a tighter cap.
+    """
+    before = (enrichment["start_time"], enrichment["end_time"])
+    refinement = cut_boundaries.refine_cut(
+        before[0], before[1], regions,
+        _clip_evidence_for_cut_points(
+            ti, prosody_profile, action_windows),
+        max_pad_head=max_pad_head, max_pad_tail=max_pad_tail)
+    enrichment["start_time"] = refinement["source_start"]
+    enrichment["end_time"] = refinement["source_end"]
+    row = {
+        "block": label,
+        "clip_id": clip_id,
+        "source_start_before": before[0],
+        "source_end_before": before[1],
+        "source_start": refinement["source_start"],
+        "source_end": refinement["source_end"],
+        "head_pad_seconds": refinement["head"]["pad_applied"],
+        "tail_pad_seconds": refinement["tail"]["pad_applied"],
+        "head_gap_seconds": refinement["head"].get("gap_seconds"),
+        "tail_gap_seconds": refinement["tail"].get("gap_seconds"),
+        "head_flags": refinement["head"]["flags"],
+        "tail_flags": refinement["tail"]["flags"],
+        "span_flags": refinement["span_flags"],
+        "unmeasured": refinement["unmeasured"],
+    }
+    if zone_capped:
+        row["zone_ceiling"] = zone_ceiling
+        row["zone_capped"] = True
+    if replace_index is None:
+        report.append(row)
+    else:
+        report[replace_index] = row
+    head_pad = refinement["head"]["pad_applied"]
+    tail_pad = refinement["tail"]["pad_applied"]
+    flags = (refinement["head"]["flags"] + refinement["tail"]["flags"]
+             + refinement["span_flags"])
+    if not head_pad and not tail_pad and not flags and not zone_capped:
+        return refinement
+    print(
+        f"  {label}: edit points refined on {clip_id} "
+        f"{before[0]:.3f}-{before[1]:.3f}s to "
+        f"{refinement['source_start']:.3f}-"
+        f"{refinement['source_end']:.3f}s "
+        f"(head pad {head_pad:.3f}s, tail pad {tail_pad:.3f}s"
+        + (f"; flags {','.join(flags)}" if flags else "")
+        + (f"; unmeasured {','.join(refinement['unmeasured'])}"
+           if refinement["unmeasured"] else "")
+        + ("; pads capped to the declared speech ceiling"
+           if zone_capped else "")
+        + ")",
+        file=sys.stderr,
+    )
+    return refinement
+
+
+def _recut_to_capped_pads(
+    job: dict, edit_point_report: list, alignment_report: list,
+    apply_enrichment, max_head: float, max_tail: float,
+    ceiling: float,
+) -> None:
+    """Re-run one passage's refinement from its word-span bounds (F04).
+
+    `job["before"]` is the span the aligner, sentence edges and stated
+    trims produced - the model's numbers. Re-refining from there under
+    tighter per-edge caps can only SHRINK the span, so a sequence the
+    overlap check already passed stays passed. The passage, both
+    reports' rows for it and nothing else move.
+    """
+    enrichment = job["enrichment"]
+    enrichment["start_time"], enrichment["end_time"] = job["before"]
+    _refine_cut_points(
+        enrichment, job["regions"], job["ti"], job["label"],
+        job["clip_id"], edit_point_report,
+        job["prosody_profile"], job["action_windows"],
+        max_pad_head=max_head, max_pad_tail=max_tail,
+        zone_ceiling=ceiling, zone_capped=True,
+        replace_index=job["report_index"])
+    apply_enrichment(job["passage"], enrichment)
+    align_row = None
+    if 0 <= job["align_index"] < len(alignment_report):
+        align_row = alignment_report[job["align_index"]]
+    if align_row is not None and align_row.get("block") == job["label"]:
+        align_row["source_start"] = enrichment["start_time"]
+        align_row["source_end"] = enrichment["end_time"]
+
+
+def _fit_pads_to_speech_ceiling(
+    jobs: list, edit_point_report: list, alignment_report: list,
+    apply_enrichment, ceiling: float,
+) -> None:
+    """Shrink silence pads so the refined total fits the declared ceiling.
+
+    The model chose its passages against this ceiling, and the pads
+    systematically expand what plays: without a cap a valid choice
+    comes back over-long, and the post-bridge retry carries a violation
+    the identical re-answer can never fix - three attempts, then the
+    step fails. Each edge keeps its SHARE of the affordable pad (its
+    full pad scaled by budget over use, floored to the millisecond),
+    so the cap spreads evenly rather than starving one cut; flags are
+    re-measured at the edges that actually ship. When the word spans
+    themselves are already over, every pad is withheld so the refusal
+    below names the model's numbers, which the retry CAN fix. Said on
+    stderr and on the capped rows; a fit that needs no shrink says
+    nothing.
+    """
+    if not jobs:
+        return
+    word_total = sum(
+        job["before"][1] - job["before"][0] for job in jobs)
+    refined_total = sum(
+        job["enrichment"]["end_time"] - job["enrichment"]["start_time"]
+        for job in jobs)
+    if refined_total <= ceiling + 1e-9:
+        return
+    if word_total > ceiling + 1e-9:
+        for job in jobs:
+            _recut_to_capped_pads(
+                job, edit_point_report, alignment_report,
+                apply_enrichment, 0.0, 0.0, ceiling)
+        print(
+            f"  speech pads withheld: word spans total {word_total:.3f}s, "
+            f"already past the declared {ceiling:.3f}s ceiling - the "
+            f"refusal below names the model's numbers, not this step's",
+            file=sys.stderr,
+        )
+        return
+    pad_used = refined_total - word_total
+    if pad_used <= 1e-12:
+        return
+    # One millisecond of the budget is left unspent: pads land on whole
+    # milliseconds and the ceiling check below is exact.
+    budget = max(0.0, ceiling - word_total - 1e-3)
+    factor = budget / pad_used
+    for job in jobs:
+        row = edit_point_report[job["report_index"]]
+        _recut_to_capped_pads(
+            job, edit_point_report, alignment_report,
+            apply_enrichment,
+            int(row["head_pad_seconds"] * factor * 1000) / 1000.0,
+            int(row["tail_pad_seconds"] * factor * 1000) / 1000.0,
+            ceiling)
+    capped_total = sum(
+        job["enrichment"]["end_time"] - job["enrichment"]["start_time"]
+        for job in jobs)
+    if capped_total > ceiling + 1e-9:
+        for job in jobs:
+            _recut_to_capped_pads(
+                job, edit_point_report, alignment_report,
+                apply_enrichment, 0.0, 0.0, ceiling)
+    print(
+        f"  speech pads capped: {refined_total - word_total:.3f}s of pad "
+        f"on {word_total:.3f}s of words would pass the declared "
+        f"{ceiling:.3f}s ceiling - edges keep their share of the "
+        f"{budget:.3f}s that fits",
+        file=sys.stderr,
+    )
+
+
 def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
     audio_index_errors: dict | None = None,
     frame_rate: float | None = None,
+    prosody_analysis: dict | None = None,
+    semantic_analysis_documents=None,
+    clip_catalog=None,
+    speech_ceiling: float | None = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
@@ -840,6 +1113,17 @@ def enrich_speech_sequence(
     speech - rather than failing downstream on a word timing nothing
     can produce. Absent means the run predates the `audio_indices`
     edge, and every audio passage aligns off its index file as before.
+
+    `speech_ceiling` is the declared speech zone's ceiling, when the
+    run declares a target length. The model chose its passages to fit
+    under it, and the silence pads below systematically EXPAND what
+    plays - so without a cap a valid choice comes back over-long and
+    the retry loop carries a violation the same answer can never fix.
+    The pads are therefore shrunk to fit the ceiling the word spans
+    already meet (`_fit_pads_to_speech_ceiling`); when the word spans
+    themselves are over, pads are withheld entirely so the refusal
+    names the model's numbers, not this step's. Absent means the run
+    declares no target, and the pads apply uncapped as before.
     """
     # The passage keys this step reads or forwards. Anything else on a
     # passage is REFUSED, never dropped: an unread key is how a probe's
@@ -867,6 +1151,44 @@ def enrich_speech_sequence(
 
     # Cache loaded temporal indices
     ti_cache = {}
+    prosody_profiles = {}
+    if isinstance(prosody_analysis, dict):
+        profiles = prosody_analysis.get("profiles")
+        if isinstance(profiles, dict):
+            prosody_profiles = profiles
+        elif isinstance(profiles, list):
+            prosody_profiles = {
+                str(profile["clip_id"]): profile
+                for profile in profiles
+                if isinstance(profile, dict) and "clip_id" in profile
+            }
+    semantic_by_clip = {}
+    if semantic_analysis_documents is not None:
+        from library.tools.semantic_index import build_semantic_lookup
+
+        catalog = clip_catalog or []
+        if isinstance(catalog, dict):
+            catalog = list(catalog.values())
+        semantic_by_clip.update(build_semantic_lookup(
+            semantic_analysis_documents, catalog))
+        if isinstance(semantic_analysis_documents, dict):
+            documents = semantic_analysis_documents.get(
+                "semantic_analysis_documents",
+                semantic_analysis_documents.get("semantic_analysis",
+                                                semantic_analysis_documents))
+            if isinstance(documents, dict):
+                documents = [
+                    {**doc, "clip_id": doc.get("clip_id", key)}
+                    for key, doc in documents.items()
+                    if isinstance(doc, dict)
+                ]
+        else:
+            documents = semantic_analysis_documents
+        if isinstance(documents, list):
+            for document in documents:
+                if isinstance(document, dict) and document.get("clip_id"):
+                    semantic_by_clip.setdefault(
+                        str(document["clip_id"]), document)
 
     def load_ti(clip_id):
         if clip_id not in ti_cache:
@@ -891,6 +1213,16 @@ def enrich_speech_sequence(
     # durable half of "never correct silently": the stderr lines are read
     # by whoever is watching the run, this is read by whoever is not.
     alignment_report = []
+
+    # What edit-point refinement (F04) did to every passage, in order:
+    # the silence pad each edge took plus every flag it raised.  Read
+    # beside the alignment_report row for the same block.
+    edit_point_report = []
+
+    # One entry per passage that reached refinement, in order: what the
+    # fit pass below needs to re-cut under a tighter cap (the word-span
+    # bounds, the evidence, and both reports' row indices).
+    refine_jobs = []
 
     def enrich_passage(passage: dict, label: str,
                        prior_claim: tuple | None = None) -> dict:
@@ -1099,6 +1431,27 @@ def enrich_speech_sequence(
             abs(enrichment["start_time"] - start),
             abs(enrichment["end_time"] - end),
         )
+        prosody_profile = prosody_profiles.get(str(clip_id))
+        action_windows = _action_windows_for_clip(
+            semantic_by_clip.get(str(clip_id)))
+        pre_refine_span = (enrichment["start_time"], enrichment["end_time"])
+        _refine_cut_points(
+            enrichment, regions, ti, label, clip_id, edit_point_report,
+            prosody_profile, action_windows)
+        refine_jobs.append({
+            "passage": passage,
+            "enrichment": enrichment,
+            "label": label,
+            "clip_id": clip_id,
+            "regions": regions,
+            "ti": ti,
+            "prosody_profile": prosody_profile,
+            "action_windows": action_windows,
+            "before": pre_refine_span,
+            "report_index": len(edit_point_report) - 1,
+            # The alignment row _report_anchor appends next, below.
+            "align_index": len(alignment_report),
+        })
         enrichment["alignment_method"] = "whisperx_word_alignment"
         # stderr, not stdout: stdout carries this bridge's JSON output.
         print(
@@ -1158,8 +1511,14 @@ def enrich_speech_sequence(
             f"timings:\n  - " + "\n  - ".join(failures)
         )
 
+    if speech_ceiling is not None:
+        _fit_pads_to_speech_ceiling(
+            refine_jobs, edit_point_report, alignment_report,
+            apply_enrichment, speech_ceiling)
+
     result["body_sequence"] = aligned_body
     result["alignment_report"] = alignment_report
+    result["edit_point_report"] = edit_point_report
     return result
 
 
@@ -1218,10 +1577,18 @@ def main():
                 and entry.get("error")):
             audio_index_errors[entry["audio_id"]] = entry["error"]
 
+    from library.tools.duration_targets import get_speech_duration_zone
+    speech_zone = get_speech_duration_zone(data)
+    speech_ceiling = speech_zone[2] if speech_zone is not None else None
+
     enriched = enrich_speech_sequence(
         speech_sequence, ti_dir,
         audio_index_errors=audio_index_errors,
-        frame_rate=data.get("project_fps"))
+        frame_rate=data.get("project_fps"),
+        prosody_analysis=data.get("prosody_analysis"),
+        semantic_analysis_documents=data.get("semantic_analysis_documents"),
+        clip_catalog=data.get("clip_catalog"),
+        speech_ceiling=speech_ceiling)
 
     # Each passage names the beats it serves. The intent model is the
     # structure the passage's content belongs to; a passage naming no

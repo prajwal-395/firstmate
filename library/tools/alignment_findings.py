@@ -72,8 +72,140 @@ ALIGNMENT_LEGEND = {
 }
 
 
+EDIT_POINT_LEGEND = {
+    "head_pad_seconds / tail_pad_seconds":
+        "how far step 2.02 moved each cut edge outward into the "
+        "surrounding silence, in seconds. Bounded (half the gap to the "
+        "nearest excluded word, capped), so a pad can never claim the "
+        "neighbour's speech.",
+    "head_gap_seconds / tail_gap_seconds":
+        "silence between the refined edge and the nearest word the cut "
+        "excluded. Below 0.08s the edge sits against continuous speech.",
+    "head_flags / tail_flags":
+        "what the refined edge landed on or near: hard_cut (gap below "
+        "0.08s), mid_word (inside a word - a stated trim owns that cut), "
+        "action_crossing (inside a measured action window), "
+        "motion_peak_near, audio_event_near, scene_at_cut (the picture "
+        "changes there anyway, so the cut is motivated), "
+        "prosody_peak_near (a measured emphasized word is adjacent).",
+    "span_flags":
+        "truncated_action when a measured action starts inside the cut "
+        "and ends past it - the cut ends mid-action.",
+    "unmeasured":
+        "signals no evidence reached this edge (clip_duration, "
+        "action_windows, motion_peaks, audio_events, scene_boundaries, "
+        "prosody). An unmeasured signal moved no edge and raised no "
+        "flag.",
+    "reading":
+        "These are MEASUREMENTS of the edges the sequence already cut, "
+        "not faults, and the refinement never refuses on any of them. "
+        "Whether a flagged edge still serves the story is the model's "
+        "to decide, which is why it has to be able to see it.",
+}
+
+
 def _rows(report):
     return [r for r in (report or []) if isinstance(r, dict)]
+
+
+def _by_largest_gap(row):
+    largest = row.get("largest_gap_seconds")
+    return -1.0 if largest is None else -float(largest)
+
+
+def edit_point_rows(report):
+    """One row per passage carrying only what cut refinement did.
+
+    Step 2.02's post-bridge writes `edit_point_report` on its own
+    output beside `alignment_report`: the silence pad each edge took,
+    the gap it stopped in, every flag it raised, and what was
+    unmeasured. Every number is a real measurement of the cut edge.
+    A passage the refinement measured nothing for keeps no row here -
+    unlike the alignment view, absence is absence, said by `unmeasured`
+    on the rows that exist.
+    """
+    rows = []
+    for record in _rows(report):
+        rows.append({
+            "block": record.get("block") or "?",
+            "clip_id": record.get("clip_id") or "?",
+            "source_start": record.get("source_start"),
+            "source_end": record.get("source_end"),
+            "head_pad_seconds": record.get("head_pad_seconds"),
+            "tail_pad_seconds": record.get("tail_pad_seconds"),
+            "head_gap_seconds": record.get("head_gap_seconds"),
+            "tail_gap_seconds": record.get("tail_gap_seconds"),
+            "head_flags": record.get("head_flags") or [],
+            "tail_flags": record.get("tail_flags") or [],
+            "span_flags": record.get("span_flags") or [],
+            "unmeasured": record.get("unmeasured") or [],
+        })
+    return rows
+
+
+def attach_edit_points(rows, edit_report):
+    """Merge cut-refinement edge columns into passage rows, by block.
+
+    Rows keep their identity and order; a block the alignment report
+    never measured joins with its inside columns unmeasured rather
+    than being dropped or read as zero. Without an edit-point report
+    the rows pass through untouched, so runs predating it read exactly
+    as before. The re-sort uses passage order's own key, so rows that
+    matched nothing do not move for this reason.
+    """
+    edits = {}
+    for edit_row in edit_point_rows(edit_report):
+        edits.setdefault(edit_row["block"], edit_row)
+    if not edits:
+        return rows
+    merged = []
+    for row in rows:
+        extra = edits.get(row.get("block"))
+        if extra is None:
+            merged.append(row)
+            continue
+        merged.append({
+            **row,
+            "head_pad_seconds": extra["head_pad_seconds"],
+            "tail_pad_seconds": extra["tail_pad_seconds"],
+            "head_gap_seconds": extra["head_gap_seconds"],
+            "tail_gap_seconds": extra["tail_gap_seconds"],
+            "head_flags": extra["head_flags"],
+            "tail_flags": extra["tail_flags"],
+            "span_flags": extra["span_flags"],
+            "unmeasured": extra["unmeasured"],
+        })
+    known = {row.get("block") for row in rows}
+    for block, extra in edits.items():
+        if block in known:
+            continue
+        merged.append({
+            "block": block,
+            "clip_id": extra["clip_id"],
+            "source_start": extra["source_start"],
+            "source_end": extra["source_end"],
+            "duration_seconds": (
+                round(float(extra["source_end"]) - float(extra["source_start"]), 3)
+                if isinstance(extra["source_start"], (int, float))
+                and isinstance(extra["source_end"], (int, float))
+                else None
+            ),
+            "leading_gap_seconds": None,
+            "largest_gap_seconds": None,
+            "voiced_fraction": None,
+            "anchors_considered": None,
+            "event": "unmeasured",
+            "head_pad_seconds": extra["head_pad_seconds"],
+            "tail_pad_seconds": extra["tail_pad_seconds"],
+            "head_gap_seconds": extra["head_gap_seconds"],
+            "tail_gap_seconds": extra["tail_gap_seconds"],
+            "head_flags": extra["head_flags"],
+            "tail_flags": extra["tail_flags"],
+            "span_flags": extra["span_flags"],
+            "unmeasured": extra["unmeasured"],
+        })
+    merged.sort(key=_by_largest_gap)
+    return merged
 
 
 def passage_rows(report):
@@ -105,9 +237,7 @@ def passage_rows(report):
             "anchors_considered": record.get("anchors_considered"),
             "event": record.get("event") or "ok",
         })
-    rows.sort(key=lambda r: (
-        -1.0 if r["largest_gap_seconds"] is None
-        else -float(r["largest_gap_seconds"])))
+    rows.sort(key=_by_largest_gap)
     return rows
 
 

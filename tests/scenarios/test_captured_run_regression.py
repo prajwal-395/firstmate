@@ -365,8 +365,8 @@ def test_passage_is_reanchored_past_the_previous_one(repeated_phrase_index):
         _two_passage_sequence(), repeated_phrase_index)
     first, second = result["body_sequence"]
 
-    assert first["source_end"] == pytest.approx(66.635)
-    assert second["source_start"] == pytest.approx(67.200)
+    assert first["source_end"] == pytest.approx(66.785)
+    assert second["source_start"] == pytest.approx(67.050)
     assert second["source_start"] >= first["source_end"]
     assert [w["word"] for w in second["word_timestamps"][:2]] == \
         ["I'm", "going"]

@@ -159,6 +159,7 @@
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.hook_segment.word_timestamps",
     "-speech_sequence.alignment_report",
+    "-speech_sequence.edit_point_report",
     "view:alignment"
   ],
   "skills": [

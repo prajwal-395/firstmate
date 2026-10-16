@@ -534,12 +534,19 @@ def _spoken_lines(data: dict) -> dict:
 
 
 def _alignment(data: dict) -> dict:
-    """What the aligner measured about each passage's INSIDES.
+    """What the aligner measured about each passage's INSIDES and EDGES.
 
     `speech_sequence.alignment_report` is a real per-passage measurement
     that two steps are routed and both drop by name, and that no gate or
     report has ever opened.  On 001 it recorded a 1.169s silence inside a
     2.982s block - 39% of it - and nothing said so.
+
+    Beside the insides ride the cut edges step 2.02 refined
+    (`edit_point_report`, F04): the silence pad each edge took, the gap
+    it stopped in, and every flag it raised, joined by block. A second
+    reading on a different axis, never the structure either report was
+    rendered from - both raw reports stay dropped by name wherever this
+    view is declared.
 
     It ORDERS and it REPORTS.  No threshold fires on any of these
     numbers, and AGENTS.md section 6's rule that there is no gap
@@ -549,18 +556,24 @@ def _alignment(data: dict) -> dict:
     See library/tools/alignment_findings.py.
     """
     from library.tools.alignment_findings import (
-        ALIGNMENT_LEGEND, passage_rows,
+        ALIGNMENT_LEGEND, EDIT_POINT_LEGEND, attach_edit_points,
+        passage_rows,
     )
 
     sequence = data.get("speech_sequence")
     if isinstance(sequence, dict):
         report = sequence.get("alignment_report")
+        edit_report = sequence.get("edit_point_report")
     else:
         report = None
-    rows = passage_rows(report)
+        edit_report = None
+    rows = attach_edit_points(passage_rows(report), edit_report)
     if not rows:
         return {}
-    return {"alignment": {"legend": ALIGNMENT_LEGEND, "passages": rows}}
+    legend = dict(ALIGNMENT_LEGEND)
+    if any("head_flags" in row for row in rows):
+        legend.update(EDIT_POINT_LEGEND)
+    return {"alignment": {"legend": legend, "passages": rows}}
 
 
 def _stability(data: dict) -> dict:

@@ -33,13 +33,13 @@ SHIPPED_VOICED = 0.368
 CORRECT_ANCHOR = 107.369         # where the passage's text really begins
 BODY_0_PAUSE = 1.121             # a real dramatic beat, and it must stay
 
-# The spans the shipped export placed for the other four passages this
-# clip was cut into.  None of them may move.
+# The aligned word spans, refined outward by the bounded silence pads.
+# The fifth passage is the one whose anchor is corrected separately.
 UNCHANGED_SPANS = {
-    "body_0": (17.666, 20.348),
-    "body_1": (24.171, 26.873),
-    "body_2": (63.135, 66.675),
-    "body_9": (119.234, 121.940),
+    "body_0": (17.516, 20.498),
+    "body_1": (24.021, 27.023),
+    "body_2": (62.985, 66.685),
+    "body_9": (119.084, 122.090),
 }
 
 ORDER = ["body_0", "body_1", "body_2", "body_3", "body_9"]
@@ -150,7 +150,7 @@ def test_only_body_3_moves_completely_and_says_so(index_dir, clip_011,
     }
     for key, span in UNCHANGED_SPANS.items():
         assert spans[key] == span, key
-    assert spans["body_3"] == (107.369, 116.512)
+    assert spans["body_3"] == (107.259, 116.515)
 
     events = {b: e["event"] for b, e in _report(result).items()}
     assert events == {
@@ -335,7 +335,88 @@ def enriched(clip_011, index_dir_2):
 
 def test_the_total_is_read_off_the_aligned_timings(enriched):
     assert pb.total_speech_seconds(enriched["body_sequence"]) == pytest.approx(
-        20.773, abs=0.01)
+        21.946, abs=0.01)
+
+
+def test_refined_edit_points_are_returned_as_a_durable_report(enriched):
+    rows = enriched["edit_point_report"]
+    assert len(rows) == len(enriched["body_sequence"])
+    assert rows[0]["source_start_before"] == pytest.approx(17.666)
+    assert rows[0]["source_start"] == pytest.approx(17.516)
+    assert rows[0]["head_pad_seconds"] == pytest.approx(0.15)
+
+
+def test_measured_prosody_reaches_the_cut_boundary_report(tmp_path):
+    temporal_index = tmp_path / "temporal_index"
+    temporal_index.mkdir()
+    (temporal_index / "clip_voice.json").write_text(json.dumps({
+        "speech_regions": [{
+            "start": 1.0,
+            "end": 1.4,
+            "words": [{"word": "important", "start": 1.0, "end": 1.4}],
+        }],
+    }), encoding="utf-8")
+    sequence = {"body_sequence": [{
+        "clip_id": "clip_voice",
+        "source_start": 1.0,
+        "source_end": 1.4,
+        "text": "important",
+    }]}
+    prosody = {"profiles": {"clip_voice": {"prosody": {
+        "word_prosody": [{
+            "word": "important", "start": 1.0, "end": 1.4,
+            "emphasis": 0.8,
+        }],
+    }}}}
+
+    result = pb.enrich_speech_sequence(
+        sequence, str(temporal_index), prosody_analysis=prosody)
+
+    assert "prosody_peak_near" in result["edit_point_report"][0]["head_flags"]
+
+
+def test_measured_action_interval_reaches_cut_report_not_parent_window(tmp_path):
+    temporal_index = tmp_path / "temporal_index"
+    temporal_index.mkdir()
+    (temporal_index / "clip_action.json").write_text(json.dumps({
+        "speech_regions": [{
+            "start": 1.0,
+            "end": 1.4,
+            "words": [{"word": "turn", "start": 1.0, "end": 1.4}],
+        }],
+    }), encoding="utf-8")
+    sequence = {"body_sequence": [{
+        "clip_id": "clip_action",
+        "source_start": 1.0,
+        "source_end": 1.4,
+        "text": "turn",
+    }]}
+    semantic = [{
+        "clip_id": "clip_action",
+        "analysis_metadata": {"pipeline_version": "v3"},
+        "scene": [],
+        "camera": [],
+        "actions": [{"window": [0.0, 10.0], "actions": [{
+            "start": 0.9, "end": 1.2, "action": "turns toward camera",
+        }]}],
+    }]
+
+    result = pb.enrich_speech_sequence(
+        sequence, str(temporal_index),
+        semantic_analysis_documents=semantic)
+
+    assert "action_crossing" in result["edit_point_report"][0]["head_flags"]
+
+
+def test_semantic_action_windows_without_measured_actions_are_not_actions():
+    doc = {"actions": [{"window": [0.0, 10.0], "actions": []}]}
+    assert pb._action_windows_for_clip(doc) == []
+
+
+def test_semantic_parse_error_leaves_action_windows_unmeasured():
+    doc = {"actions": [{"window": [0.0, 10.0], "parse_error": True,
+                        "actions": []}]}
+    assert pb._action_windows_for_clip(doc) is None
 
 
 # ── The gate, both directions ─────────────────────────────────────────
@@ -569,7 +650,7 @@ def test_a_partial_sentence_head_expands_to_its_boundary_not_the_prior_sentence(
 
     (passage,) = result["body_sequence"]
     assert passage["text"] == "So it's like, yep, your website checks out."
-    assert passage["source_start"] == pytest.approx(12.40)
+    assert passage["source_start"] == pytest.approx(12.26)
     assert passage["source_end"] == pytest.approx(14.44)
     assert [word["word"] for word in passage["word_timestamps"]] == [
         "So", "it's", "like,", "yep,", "your", "website", "checks", "out."
@@ -613,5 +694,88 @@ def test_sentence_expansion_does_not_guess_a_boundary_at_region_start(tmp_path):
     result = pb.enrich_speech_sequence(sequence, str(temporal_index))
 
     (passage,) = result["body_sequence"]
-    assert passage["source_start"] == pytest.approx(12.66)
+    assert passage["source_start"] == pytest.approx(12.64)
     assert passage["text"] == "yep, your website checks out."
+
+
+# ── Silence pads must not break the zone fit the model already met ────
+#
+# Defect (PR 2637 review, golden-monologue scenario): the F04 pads
+# systematically EXPAND what plays, so a choice fitting under the
+# declared speech ceiling came back over it - 7.35s of words plus
+# 0.60s of pad against a 7.5s ceiling - and the post-bridge retry
+# carried a violation the identical re-answer could never fix, failing
+# the step after 3 attempts. The pads shrink to the ceiling the word
+# spans already meet; nothing here weakens the gate itself.
+
+def _pad_fixture(tmp_path):
+    temporal_index = tmp_path / "temporal_index"
+    temporal_index.mkdir()
+    (temporal_index / "clip_pad.json").write_text(json.dumps({
+        "duration": 10.0,
+        "speech_regions": [{
+            "start": 1.0,
+            "end": 3.2,
+            "words": [
+                {"word": "alpha", "start": 1.0, "end": 1.2},
+                {"word": "beta", "start": 2.0, "end": 2.2},
+                {"word": "gamma", "start": 3.0, "end": 3.2},
+            ],
+        }],
+    }), encoding="utf-8")
+    sequence = {"body_sequence": [{
+        "clip_id": "clip_pad",
+        "source_start": 1.0,
+        "source_end": 2.2,
+        "text": "alpha beta",
+    }]}
+    return str(temporal_index), sequence
+
+
+def test_full_pads_push_a_fitting_sequence_over_its_ceiling(tmp_path):
+    """The defect, measured: 1.2s of words plus a 0.15s tail pad."""
+    temporal_index, sequence = _pad_fixture(tmp_path)
+
+    result = pb.enrich_speech_sequence(sequence, temporal_index)
+
+    (passage,) = result["body_sequence"]
+    assert passage["source_end"] == pytest.approx(2.35)
+    assert pb.total_speech_seconds(result["body_sequence"]) == pytest.approx(
+        1.35)
+    assert pb.total_speech_seconds(result["body_sequence"]) > 1.3
+
+
+def test_pads_shrink_to_the_ceiling_the_words_already_meet(tmp_path):
+    temporal_index, sequence = _pad_fixture(tmp_path)
+
+    result = pb.enrich_speech_sequence(
+        sequence, temporal_index, speech_ceiling=1.3)
+
+    (passage,) = result["body_sequence"]
+    total = pb.total_speech_seconds(result["body_sequence"])
+    assert total <= 1.3 + 1e-9
+    (row,) = result["edit_point_report"]
+    assert 0.0 < row["tail_pad_seconds"] < 0.15
+    assert row["zone_capped"] is True
+    assert row["zone_ceiling"] == pytest.approx(1.3)
+    assert row["source_start"] == pytest.approx(passage["source_start"])
+    assert row["source_end"] == pytest.approx(passage["source_end"])
+    (align,) = result["alignment_report"]
+    assert align["source_start"] == pytest.approx(passage["source_start"])
+    assert align["source_end"] == pytest.approx(passage["source_end"])
+
+
+def test_word_spans_over_ceiling_withhold_every_pad(tmp_path):
+    """The refusal below must name the model's numbers, not this step's."""
+    temporal_index, sequence = _pad_fixture(tmp_path)
+
+    result = pb.enrich_speech_sequence(
+        sequence, temporal_index, speech_ceiling=1.1)
+
+    (passage,) = result["body_sequence"]
+    assert passage["source_start"] == pytest.approx(1.0)
+    assert passage["source_end"] == pytest.approx(2.2)
+    (row,) = result["edit_point_report"]
+    assert row["head_pad_seconds"] == pytest.approx(0.0)
+    assert row["tail_pad_seconds"] == pytest.approx(0.0)
+    assert row["zone_capped"] is True

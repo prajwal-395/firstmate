@@ -56,6 +56,16 @@ stated trim still owns its edge; no trim is inferred. If extending a head
 would replay source claimed by the preceding body passage, the step
 refuses with the overlap named instead of laying the speech down twice.
 
+The post-bridge also reports cut edges that cross the measured action
+windows in `view:picture`; unparsed windows stay unmeasured. Temporal-index
+motion peaks, scene changes and sound events, plus step 1.05's per-word
+prosody, are recorded beside each refined edge. These signals identify
+possible continuity or audible discontinuities for review; they do not
+silently override the transcript boundary or a stated trim. The pads
+shrink to fit the declared speech ceiling the word spans already meet -
+a deterministic expansion must never break the fit your passages were
+chosen against - and each edge keeps its share of the pad that fits.
+
 ### What to produce:
 
 **Body sequence**: Ordered list of speech passages forming the narrative arc.

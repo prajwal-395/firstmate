@@ -176,6 +176,7 @@
     "speech_sequence",
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.alignment_report",
+    "-speech_sequence.edit_point_report",
     "music_selection",
     "-music_selection.candidates_evaluated",
     "-music_selection.direction_justification.why_not_forbidden",

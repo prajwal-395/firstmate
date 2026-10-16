@@ -60,10 +60,16 @@ def test_monologue_raw_footage_to_delivered_file(world):
         "Speech", "Music"]
 
     # A-roll plays the three passages, in order, cut where their words are.
+    # F04 refines each cut a bounded step into the surrounding silence
+    # (never into a neighbour's speech), and the 7.5s speech ceiling
+    # leaves 0.149s of pad over the 7.35s of words - 0.037s an edge -
+    # so the second and third cuts sit one frame before their words.
+    # The first has no preceding silence and stays on its word.
     a_roll = timeline.GetItemListInTrack("video", 1)
     assert [item.GetName() for item in a_roll] == ["talk.mov"] * 3
     first_words = [round(start * FPS) for start, _text in recipe.lines]
-    assert [item.GetLeftOffset() for item in a_roll] == first_words
+    assert [item.GetLeftOffset() for item in a_roll] == [
+        first_words[0], first_words[1] - 1, first_words[2] - 1]
     assert rows[("audio", "Speech")] == rows[("video", "A-Roll")], (
         "the speech row plays exactly what the picture row cuts")
 

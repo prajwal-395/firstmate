@@ -455,8 +455,10 @@ HYBRID_MEASUREMENTS = {
             "2.02's aligner measurements of each passage's INSIDES "
             "(alignment_report: leading_gap_seconds, "
             "largest_gap_seconds, voiced_fraction, anchors_considered, "
-            "per passage), routed as `speech_sequence` and shown to you "
-            "as `view:alignment`. Cite only those numbers. The "
+            "per passage) and of its refined cut EDGES "
+            "(edit_point_report: head/tail pads, gaps, edge and span "
+            "flags, per passage), routed as `speech_sequence` and shown "
+            "to you as `view:alignment`. Cite only those numbers. The "
             "`body_sequence` ordering beside them is 2.02's own judgement, "
             "not a measurement of anything."
         ),
