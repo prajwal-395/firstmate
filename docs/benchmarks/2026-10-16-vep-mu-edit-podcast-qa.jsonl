@@ -1,0 +1,38 @@
+{"measurement": "voz_words_lc12", "value": 407, "basis": "da voz --json, LCATL0012 0-150s"}
+{"measurement": "voz_words_lc31", "value": 409, "basis": "da voz --json, LC4931 0-150s"}
+{"measurement": "phrases_lc12", "value": 55, "basis": "phrase_spans over real Voz words"}
+{"measurement": "pause_cuts_lc12", "value": 69, "basis": "pause_center_cuts over real Voz words"}
+{"measurement": "phrases_lc31", "value": 59, "basis": "phrase_spans over real Voz words"}
+{"measurement": "pause_cuts_lc31", "value": 59, "basis": "pause_center_cuts over real Voz words"}
+{"measurement": "turns_lc12", "value": 50, "basis": "Voz sentence spans as turns"}
+{"measurement": "turns_lc31", "value": 54, "basis": "Voz sentence spans as turns"}
+{"measurement": "qa_units_found", "value": 12, "basis": "question_answer_units across the synchronized pair"}
+{"measurement": "qa_unit_0_question", "value": [0.6699999999999999, 6.640000000000001], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_0_answer", "value": [6.96, 8.88], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_1_question", "value": [14.0, 14.95], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_1_answer", "value": [15.75, 29.9699375], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_2_question", "value": [16.07, 29.03], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_2_answer", "value": [30.08, 31.2], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_3_question", "value": [31.28, 32.08], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_3_answer", "value": [32.42, 34.5799375], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_4_question", "value": [32.42, 34.5799375], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_4_answer", "value": [34.64, 36.31], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_5_question", "value": [58.059999999999995, 64.94], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_5_answer", "value": [65.5, 66.12993750000001], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_6_question", "value": [58.300000000000004, 65.4899375], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_6_answer", "value": [65.82, 67.48], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_7_question", "value": [113.50999999999999, 114.47], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_7_answer", "value": [116.82000000000001, 118.0999375], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_8_question", "value": [117.42, 118.3699375], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_8_answer", "value": [118.5, 120.26], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_9_question", "value": [131.43, 132.62993749999998], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_9_answer", "value": [132.93, 133.64993750000002], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_10_question", "value": [131.73000000000002, 132.92993750000002], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_10_answer", "value": [135.03, 135.9899375], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_unit_11_question", "value": [140.8, 141.38000000000002], "basis": "found unit question span (LCATL0012 clock)"}
+{"measurement": "qa_unit_11_answer", "value": [141.97, 142.64000000000001], "basis": "found unit answer span (LC4931 clock)"}
+{"measurement": "qa_best_mean_iou_vs_refedit_b", "value": 0.139, "basis": "mean of question/answer IoU vs refedit-b calibration pair"}
+{"measurement": "qa_best_question_iou", "value": 0.279, "basis": "question span IoU vs LCATL0012 40.24-64.94"}
+{"measurement": "qa_best_answer_iou", "value": 0.0, "basis": "answer span IoU vs LC4931 79.21-102.63"}
+{"measurement": "qa_candidate_strength", "value": "strong", "basis": "build_candidate over the best cross-file unit"}
+{"measurement": "qa_demo_editing_recall", "value": 1.0, "basis": "retrieval-vs-edit split on the found pair"}

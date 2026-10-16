@@ -36,6 +36,12 @@ except where the PR body names a consumer):
   refuses on length mistakes a preference for a requirement.
 - `content_rules`: `speakers_must_interact` (names), plus the
   `require_value_add` and `require_cta` flags.
+- `edit_policy`: EDIT-012 editorial thresholds a project declares
+  instead of hardcoding - `min_phrase_seconds`, `max_qa_gap_seconds`,
+  `min_pause_seconds`, `tech_reject` (off/report/refuse),
+  `candidate_policy` (longest_verified/earliest/latest) and
+  `require_complete_exchange`. Every entry is optional; absence keeps
+  today's behaviour exactly.
 """
 
 import os
@@ -58,6 +64,7 @@ VIDEO_PREF_FIELDS = (
     "subtitle_style",
     "target_length_seconds",
     "content_rules",
+    "edit_policy",
 )
 
 # Explicit engine defaults for a project that declares nothing.
@@ -76,6 +83,24 @@ CONTENT_RULE_FIELDS = (
     "require_value_add",
     "require_cta",
 )
+
+# EDIT-012: the editorial thresholds a project may declare. Every entry
+# optional; absence keeps today's behaviour. `candidate_policy` mirrors
+# `edit_candidates.CANDIDATE_POLICIES` as a literal so this loader stays
+# dependency-free; `test_edit_policy_mirrors_candidate_policies` pins
+# the two spellings together.
+EDIT_POLICY_FIELDS = (
+    "min_phrase_seconds",
+    "max_qa_gap_seconds",
+    "min_pause_seconds",
+    "tech_reject",
+    "candidate_policy",
+    "require_complete_exchange",
+)
+
+EDIT_TECH_REJECT_MODES = ("off", "report", "refuse")
+
+EDIT_CANDIDATE_POLICIES = ("longest_verified", "earliest", "latest")
 
 COLOR_GRADE_KEYS = ("path", "provenance", "cdl_node")
 
@@ -222,6 +247,57 @@ def _check_fields(prefs: dict, where: str) -> Dict[str, Any]:
     if "content_rules" in prefs:
         checked["content_rules"] = _check_content_rules(
             prefs["content_rules"], where)
+    if "edit_policy" in prefs:
+        checked["edit_policy"] = _check_edit_policy(
+            prefs["edit_policy"], where)
+    return checked
+
+
+def _check_edit_policy(value: Any, where: str) -> dict:
+    """The EDIT-012 edit-policy mapping, or a refusal naming it."""
+    if not isinstance(value, dict):
+        raise VideoPreferencesError(
+            f"{where} declares `edit_policy` as "
+            f"{type(value).__name__}, not a mapping.")
+    unknown = sorted(set(value) - set(EDIT_POLICY_FIELDS))
+    if unknown:
+        raise VideoPreferencesError(
+            f"{where} declares `edit_policy` with {unknown}, which "
+            "nothing reads. Known: "
+            "`min_phrase_seconds`, `max_qa_gap_seconds`, "
+            "`min_pause_seconds`, `tech_reject`, `candidate_policy`, "
+            "`require_complete_exchange`.")
+    checked = dict(value)
+    for field in ("min_phrase_seconds", "max_qa_gap_seconds",
+                  "min_pause_seconds"):
+        if field in checked:
+            bound = checked[field]
+            if (isinstance(bound, bool)
+                    or not isinstance(bound, (int, float))
+                    or bound <= 0):
+                raise VideoPreferencesError(
+                    f"{where} declares `edit_policy.{field}` as "
+                    f"{bound!r}, not a positive number of seconds.")
+            checked[field] = float(bound)
+    if "tech_reject" in checked:
+        mode = checked["tech_reject"]
+        if mode not in EDIT_TECH_REJECT_MODES:
+            raise VideoPreferencesError(
+                f"{where} declares `edit_policy.tech_reject` as "
+                f"{mode!r}. Known: {list(EDIT_TECH_REJECT_MODES)}.")
+    if "candidate_policy" in checked:
+        policy = checked["candidate_policy"]
+        if policy not in EDIT_CANDIDATE_POLICIES:
+            raise VideoPreferencesError(
+                f"{where} declares `edit_policy.candidate_policy` as "
+                f"{policy!r}. Known: {list(EDIT_CANDIDATE_POLICIES)}.")
+    if "require_complete_exchange" in checked:
+        flag = checked["require_complete_exchange"]
+        if not isinstance(flag, bool):
+            raise VideoPreferencesError(
+                f"{where} declares `edit_policy."
+                "require_complete_exchange` as "
+                f"{flag!r}, not true or false.")
     return checked
 
 
@@ -439,3 +515,20 @@ def effective_content_rules(
     rules = _merged_or_supplied(
         project_folder, reel, video_preferences).get("content_rules")
     return dict(rules) if isinstance(rules, dict) else None
+
+
+def effective_edit_policy(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[dict]:
+    """The declared EDIT-012 edit policy, or None when none is declared.
+
+    `min_phrase_seconds`, `max_qa_gap_seconds`, `min_pause_seconds`
+    (positive seconds), `tech_reject` (off/report/refuse),
+    `candidate_policy` (longest_verified/earliest/latest),
+    `require_complete_exchange` (bool). Same precedence as the other
+    readers; absence keeps today's behaviour exactly - consumers fall
+    back to their own stated defaults.
+    """
+    policy = _merged_or_supplied(
+        project_folder, reel, video_preferences).get("edit_policy")
+    return dict(policy) if isinstance(policy, dict) else None
