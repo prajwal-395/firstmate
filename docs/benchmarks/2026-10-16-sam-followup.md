@@ -70,6 +70,28 @@ and the counterbalanced same-session run was stopped by the captain's
 second model-run hold before it completed. Machine-readable numbers
 are in `2026-10-16-sam-followup-track-model.json` (`lowres` version).
 
+## Measured this turn (PERF-010 SAM3-8bit, 8-bit quantized MLX)
+
+`mlx-community/sam3-8bit@bcd63fdd...` (~860M params, 1.04 GB), run under
+`semantics.analyse:model_memory`, one process, staged 8 GB abort gate
+(never tripped). Download recorded and removed per conditions (not
+adopted).
+
+- Single still, text prompt `black laptop`: 1 detection, 9.9 s, post-load
+  RSS 0.94 GB.
+- 20-frame video, text prompt on frame 0, multiplex propagation: load
+  7.65 s + propagate 72.48 s (3.6 s/frame), end to end 80.13 s, peak RSS
+  1.74 GB. Masks on 20/20 frames but box coverage **1/20** - frame 0
+  fills 0.546 of the laptop box (matches the incumbent's 0.563), frames
+  1-19 propagate EMPTY masks (0 px, scores ~-2.9): immediate track loss.
+- Box-prompt variant is worse (frame 0: 5 px, score -2.36).
+
+Verdict: **reject for tracking in this measured implementation** (same
+shape as the PR-2628 MLX verdict); single-image text detection works but
+is unadopted. This says nothing about SAM3 itself - only about this
+mlx-vlm video/box path on this fixture. Machine-readable numbers are in
+`2026-10-16-sam-followup-track-model.json` (`sam3-8bit-video` version).
+
 ## Unmeasured work (carried forward)
 
 PERF-008/009/010/011/012/013/014/015/016 measurements, OBJ-017

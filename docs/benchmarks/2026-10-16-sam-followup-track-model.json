@@ -100,33 +100,70 @@
     ]
    }
   },
-  "sam3.1-mlx-quantized": {
+  "sam3-8bit-video-2026-10-16": {
+   "decision": "reject for tracking in this measured implementation; research-only (single-image text detection works, unadopted)",
+   "license_class": "research-only weights, personal-benchmark-only, never shipped; removed after benchmark per download conditions",
    "modalities": {
     "object_tracking": {
      "calibration": {
-      "metrics": {},
-      "revision": "18f108ae0",
+      "metrics": {
+       "measured_run_cost": {
+        "dimension": "cost",
+        "unit": "wall seconds per 10 second clip",
+        "value": 80.13
+       },
+       "process_peak_rss": {
+        "dimension": "memory",
+        "unit": "GB ru_maxrss (excludes Metal)",
+        "value": 1.737162752
+       },
+       "still_detect_detections": {
+        "dimension": "quality",
+        "unit": "detections for black laptop on one still",
+        "value": 1
+       },
+       "still_detect_wall_seconds": {
+        "dimension": "latency",
+        "unit": "seconds, single still",
+        "value": 9.9
+       },
+       "video_coverage": {
+        "dimension": "quality",
+        "unit": "fraction of 20 frames with >=50% laptop-box coverage",
+        "value": 0.05
+       },
+       "video_end_to_end_seconds": {
+        "dimension": "latency",
+        "unit": "seconds per 10 second clip at 2 fps (load 7.65 + propagate 72.48)",
+        "value": 80.13
+       },
+       "video_first_frame_fill": {
+        "dimension": "quality",
+        "unit": "mask fill of the laptop box on the prompt frame",
+        "value": 0.5456
+       },
+       "video_frames_with_mask": {
+        "dimension": "quality",
+        "unit": "frames carrying any mask (all empty past frame 0)",
+        "value": 20
+       }
+      },
+      "revision": "dd3f52543",
       "selection_basis": [
-       "no-complete-run"
+       "calibration"
       ]
      }
     }
    },
    "models": {
-    "prior_full_precision": "mlx-community/sam3.1-bf16@1f6152bb3cb86a13913560e030c8dd34ed493fdc (3.49 GB, removed after the partial PR-2628 attempt per download conditions)",
-    "quantized_interest": "models--mlx-community--sam3-8bit@bcd63fddcd2082f3841c7f25dc67a1bcb9e95dcf (local cache holds the ref only, 4 KiB; weights absent)"
+    "download": "model.safetensors 1038135905 bytes, total 1.04 GB at /private/tmp/vep-mu-sam/models/sam3-8bit/, fetched 2026-10-15, deleted 2026-10-16 (not adopted)",
+    "runtime": "mlx-vlm Sam3VideoPredictor (this venv)",
+    "tracking": "mlx-community/sam3-8bit@bcd63fddcd2082f3841c7f25dc67a1bcb9e95dcf"
    },
    "role": "candidate",
    "unmeasured": {
     "object_tracking": [
-     "detection",
-     "segmentation",
-     "multi-object-tracking",
-     "one-model-vs-detector-plus-tracker",
-     "cold-latency",
-     "warm-latency",
-     "peak-memory",
-     "decode-infer-serialize-split"
+     "prior full-precision sam3.1-bf16 partial run stands as recorded in PR 2628 (interrupted under memory pressure)"
     ]
    }
   },
