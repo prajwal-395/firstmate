@@ -1602,6 +1602,22 @@ ID=${POS[0]:-}
   exit 1
 }
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Fresh ship and scout launches are admitted only while macOS reports normal
+# memory pressure. The task stays in its existing queued backlog row on a
+# deferral, so the ordinary dispatch pass can retry it after pressure clears.
+# Relaunch replacements and persistent secondmates do not consume a new worker
+# slot and are intentionally outside this gate. Unsupported hosts and unreadable
+# sysctl output fail open as specified by the admission contract.
+if [ "$RELAUNCH" -eq 0 ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } &&
+  [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
+  memory_pressure_level=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null || true)
+  case "$memory_pressure_level" in
+    2|4)
+      echo "deferred $ID: macOS memory pressure level=$memory_pressure_level; task remains queued; retry when pressure is normal" >&2
+      exit 75
+      ;;
+  esac
+fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ]; then
   BRANCH="$BRANCH_PREFIX$ID"
   if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
@@ -6456,6 +6472,11 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   fi
   LAUNCH="$LAUNCH_ENV_PREFIX /bin/sh -c $(shell_quote "$LAUNCH")"
 fi
+# Lower scheduling priority for every newly launched worker process tree. This
+# uses ordinary nice priority, not macOS background QoS, so the OS may still
+# schedule the work wherever resources permit while foreground apps stay
+# responsive. It applies equally to fresh launches and replacements.
+LAUNCH="nice -n 10 /bin/sh -c $(shell_quote "$LAUNCH")"
 # Implement the launch-delivery contract in this script's header. The full
 # home-identity hash isolates equal task ids across homes, and the spawn token in
 # the final filename keeps a buffered source line bound to this incarnation.
