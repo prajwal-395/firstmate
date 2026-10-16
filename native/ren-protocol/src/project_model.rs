@@ -239,6 +239,12 @@ pub struct Signal {
     pub samples_ref: Option<String>,
     /// Epistemic qualifier for derived signals; separate from processing status.
     pub estimate_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_resolution: Option<[u32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coverage_intervals: Vec<Interval>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -490,6 +496,18 @@ pub struct EvidenceContract {
     pub producer_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freshness: Option<CoverageFreshness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_stream_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub temporal_coverage: Vec<Interval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

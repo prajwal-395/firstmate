@@ -213,6 +213,12 @@
             }
           ]
         },
+        "coverage_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence_type": {
           "$ref": "#/$defs/EvidenceType"
         },
@@ -248,6 +254,12 @@
             }
           ]
         },
+        "producer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "producer_version": {
           "type": [
             "string",
@@ -273,7 +285,19 @@
           "maxItems": 2,
           "minItems": 2
         },
+        "sampling_method": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_stream_id": {
           "type": [
             "string",
             "null"
@@ -297,6 +321,12 @@
             "null"
           ]
         },
+        "temporal_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Interval"
+          }
+        },
         "uncertainty": {
           "type": [
             "number",
@@ -307,7 +337,13 @@
         "unit": {
           "type": "string"
         },
-        "value": true
+        "value": true,
+        "verified_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false,
       "required": [

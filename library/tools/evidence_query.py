@@ -194,7 +194,7 @@ def _freshness_of(obs: dict[str, Any]) -> str:
 
 def _coverage_of(obs: dict[str, Any]) -> str:
     native = _native_evidence(obs)
-    coverage = (native or {}).get("coverage")
+    coverage = (native or {}).get("coverage_status") or (native or {}).get("coverage")
     if isinstance(coverage, str) and coverage:
         return coverage
     return "unknown"
@@ -1004,7 +1004,7 @@ def _covers_scope(obs: dict[str, Any], scope: dict[str, Any]) -> bool:
     """Whether one record is a measured absence across the scope: native
     coverage complete, zero samples, empty value, and - for a windowed
     scope - an interval covering the window."""
-    if not _is_measured_absence(obs):
+    if not _is_measured_absence(obs) or not _explicit_coverage_spans_scope(obs, scope):
         return False
     if "start_s" not in scope and "end_s" not in scope:
         return True
@@ -1023,12 +1023,50 @@ def _is_measured_absence(obs: dict[str, Any]) -> bool:
     native = _native_evidence(obs)
     if native is None:
         return False
-    if native.get("coverage") != "complete":
+    if (native.get("coverage_status") != "complete"
+            or native.get("coverage") != "complete"
+            or native.get("verified_status") not in ("verified", "not_required")):
         return False
     if native.get("coverage_samples") not in (0, None):
         return False
     value = native.get("value")
     return value in ([], {}, None)
+
+
+def _explicit_coverage_spans_scope(obs: dict[str, Any],
+                                   scope: dict[str, Any]) -> bool:
+    """Only explicit, fresh coverage can establish a negative answer.
+
+    An observation's matching interval is not a coverage claim. Old records
+    without temporal coverage and sparse samples therefore abstain.
+    """
+    native = _native_evidence(obs)
+    intervals = (native or {}).get("temporal_coverage")
+    if not isinstance(intervals, list) or not intervals:
+        return False
+    ticks = _observation_interval(obs)
+    if ticks is None:
+        return False
+    clock_id, record_start, record_end = ticks
+    start = _ticks(scope["start_s"]) if "start_s" in scope else record_start
+    end = _ticks(scope["end_s"]) if "end_s" in scope else record_end
+    ranges = sorted(
+        (row.get("start"), row.get("end"))
+        for row in intervals
+        if isinstance(row, dict) and row.get("clock_id") == clock_id
+        and isinstance(row.get("start"), int)
+        and isinstance(row.get("end"), int)
+        and row["end"] > row["start"])
+    cursor = start
+    for lo, hi in ranges:
+        if hi <= cursor:
+            continue
+        if lo > cursor:
+            return False
+        cursor = max(cursor, hi)
+        if cursor >= end:
+            return True
+    return False
 
 
 def _lane_ran(lane: str, scope: dict[str, Any],

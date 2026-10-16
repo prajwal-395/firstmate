@@ -2066,6 +2066,23 @@ class TestConcurrentSameSlotWrites:
         assert failures == [], f"lanes crashed writing: {failures[:3]}"
 
         final = json.loads(path.read_text(encoding="utf-8"))
-        assert final in payloads, f"slot holds a mixture: {final!r}"
+        assert any(final.get("writer") == payload["writer"]
+                   and final.get("events") == payload["events"]
+                   for payload in payloads), f"slot holds a mixture: {final!r}"
+        source_memory.validate_evidence_envelope(final["evidence_envelope"])
         debris = [p for p in path.parent.iterdir() if p.suffix == ".tmp"]
         assert debris == [], f"temp debris left behind: {debris}"
+
+
+def test_every_source_memory_json_write_carries_valid_envelope(tmp_path):
+    digest = "a" * 64
+    path = tmp_path / "memory" / digest / source_memory.SLOT_SCENES
+    source_memory.write_json(path, {"content_digest": digest,
+                                    "status": "measured",
+                                    "scenes": [{"start": 1.0, "end": 2.0}]})
+    envelope = json.loads(path.read_text(encoding="utf-8"))["evidence_envelope"]
+    source_memory.validate_evidence_envelope(envelope)
+    assert envelope["source_digest"] == digest
+    assert envelope["coverage_intervals"] == [
+        {"start_s": 1.0, "end_s": 2.0}]
+    assert envelope["coverage_status"] == "sampled"

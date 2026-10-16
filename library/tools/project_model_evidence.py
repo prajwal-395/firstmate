@@ -253,7 +253,9 @@ def _prov_id(digest: str, lane: str) -> str:
 class _Builder:
     """Accumulates one Project Model document plus its migration report."""
 
-    def __init__(self, project_id: str) -> None:
+    def __init__(self, project_id: str,
+                 memory_root: Path | None = None) -> None:
+        self.memory_root = memory_root
         self.model: dict[str, Any] = {
             "id": project_id,
             "schema_version": SCHEMA_VERSION,
@@ -286,6 +288,14 @@ class _Builder:
         self.notes: list[str] = []
         self._obs_counter: dict[str, int] = {}
         self._seen_prov: set[str] = set()
+        self._memory_envelopes: dict[tuple[str, str], dict | None] = {}
+
+    def memory_envelope(self, digest: str, lane: str) -> dict | None:
+        key = (digest, lane)
+        if key not in self._memory_envelopes:
+            self._memory_envelopes[key] = source_memory.read_evidence_envelope(
+                digest, lane, self.memory_root)
+        return self._memory_envelopes[key]
 
     def provenance(self, digest: str, lane: str, producer: str,
                    source_file: str | None = None) -> str:
@@ -320,9 +330,75 @@ class _Builder:
         # never an evaluation. Unmapped modalities pass through; the
         # check raises only on a genuine type violation.
         evidence_contract.audit_legacy_observation(modality, payload)
+        envelope = self.memory_envelope(digest, lane)
+        if envelope is not None:
+            payload = {**payload, "source_memory_envelope": envelope}
         if evidence is not None:
-            payload = {**payload, "evidence_contract":
-                       evidence_contract.to_rust_evidence(evidence)}
+            native = evidence_contract.to_rust_evidence(evidence)
+            has_basis = (envelope is not None
+                         or lane not in source_memory.SLOT_BY_LANE)
+            if envelope is None:
+                if lane not in source_memory.SLOT_BY_LANE:
+                    envelope = {
+                        "source_stream_id": _stream_id(digest),
+                        "sampling_method": evidence.method,
+                        "sample_resolution": evidence.sample_resolution,
+                        "coverage_intervals": [{
+                            "clock_id": clock_id,
+                            "start": ticks[0], "end": ticks[1]}],
+                        "coverage_status": evidence.coverage.value,
+                        "verified_status": ("verified" if payload.get("verified")
+                                            else "unverified"),
+                        "producer": producer,
+                        "producer_version": evidence.producer_version or "1",
+                    }
+                else:
+                    envelope = {
+                        "source_stream_id": None,
+                        "sampling_method": None,
+                        "sample_resolution": None,
+                        "coverage_intervals": [],
+                        "coverage_status": "unknown",
+                        "verified_status": "unknown",
+                        "producer": None,
+                        "producer_version": None,
+                    }
+            # Only the spans overlapping this record ride its native
+            # contract; the full lane basis stays in the payload's
+            # source_memory_envelope. Trimming loses no absence claim:
+            # evidence_query only trusts coverage beyond the record's own
+            # window when the record itself already spans the scope.
+            temporal_coverage = []
+            for covered in envelope["coverage_intervals"]:
+                if (isinstance(covered, dict) and covered.get("clock_id")
+                        and isinstance(covered.get("start"), int)
+                        and isinstance(covered.get("end"), int)):
+                    if (covered.get("clock_id") == clock_id
+                            and covered["start"] < ticks[1]
+                            and covered["end"] > ticks[0]):
+                        temporal_coverage.append(covered)
+                elif (isinstance(covered, dict)
+                      and isinstance(covered.get("start_s"), (int, float))
+                      and isinstance(covered.get("end_s"), (int, float))):
+                    covered_ticks = sec_to_ticks(covered["start_s"], covered["end_s"])
+                    if (covered_ticks and covered_ticks[0] < ticks[1]
+                            and covered_ticks[1] > ticks[0]):
+                        temporal_coverage.append({
+                            "clock_id": clock_id, "start": covered_ticks[0],
+                            "end": covered_ticks[1]})
+            native.update({
+                "source_stream_id": envelope["source_stream_id"],
+                "sampling_method": envelope["sampling_method"],
+                "sample_resolution": (envelope["sample_resolution"]
+                                      or evidence.sample_resolution)
+                                      if has_basis else None,
+                "temporal_coverage": temporal_coverage,
+                "coverage_status": envelope["coverage_status"],
+                "verified_status": envelope["verified_status"],
+                "producer": envelope["producer"],
+                "producer_version": envelope["producer_version"],
+            })
+            payload = {**payload, "evidence_contract": native}
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
         obs_id = observation_id or f"obs-{key}-{self._obs_counter[key]:04d}"
@@ -336,9 +412,6 @@ class _Builder:
             "confidence": _confidence(confidence),
             "provenance_id": self.provenance(digest, lane, producer),
         }
-        if evidence is not None:
-            observation["payload"]["evidence_contract"] = (
-                evidence_contract.to_rust_evidence(evidence))
         self.model["observations"].append(observation)
         return obs_id
 
@@ -1507,6 +1580,10 @@ def _materialize_source_signals(builder: _Builder, digest: str,
             "estimate_status": estimate_status,
             "provenance_id": provenance_id,
             "processing_status": "analyzed",
+            "sampling_method": "source_interval_projection",
+            "sample_resolution": None,
+            "coverage_intervals": [{"clock_id": clock_id,
+                                    "start": start, "end": end}],
         })
 
     source_observations = [
@@ -3556,7 +3633,7 @@ def migrate_project_evidence(project_folder: str, *,
     """
     root = Path(memory_root).expanduser() if memory_root else None
     slug = Path(project_folder).name or "project"
-    builder = _Builder(f"project-{slug}")
+    builder = _Builder(f"project-{slug}", root)
     if catalog is None:
         catalog = source_memory.load_catalog(project_folder)
     if not isinstance(catalog, list):

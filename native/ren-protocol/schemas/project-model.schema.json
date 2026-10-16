@@ -823,6 +823,12 @@
             }
           ]
         },
+        "coverage_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "evidence_type": {
           "$ref": "#/$defs/EvidenceType"
         },
@@ -858,6 +864,12 @@
             }
           ]
         },
+        "producer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "producer_version": {
           "type": [
             "string",
@@ -883,7 +895,19 @@
           "maxItems": 2,
           "minItems": 2
         },
+        "sampling_method": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_stream_id": {
           "type": [
             "string",
             "null"
@@ -907,6 +931,12 @@
             "null"
           ]
         },
+        "temporal_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Interval"
+          }
+        },
         "uncertainty": {
           "type": [
             "number",
@@ -917,7 +947,13 @@
         "unit": {
           "type": "string"
         },
-        "value": true
+        "value": true,
+        "verified_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false,
       "required": [
@@ -1826,6 +1862,12 @@
         "asset_id": {
           "type": "string"
         },
+        "coverage_intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Interval"
+          }
+        },
         "estimate_status": {
           "description": "Epistemic qualifier for derived signals; separate from processing status.",
           "type": [
@@ -1851,12 +1893,31 @@
         "sample_clock_id": {
           "type": "string"
         },
+        "sample_resolution": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
         "samples": {
           "type": "array",
           "items": true
         },
         "samples_ref": {
           "description": "Relative artifact reference for samples stored outside the model JSON.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sampling_method": {
           "type": [
             "string",
             "null"

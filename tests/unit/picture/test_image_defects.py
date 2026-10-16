@@ -61,7 +61,10 @@ def test_sampler_profile_has_no_declared_memory_ceiling():
 def test_source_memory_slot_round_trips_under_the_content_digest(tmp_path):
     record = {"content_digest": "fixture-digest", "method": "fixture"}
     source_memory.write_image_defects("fixture-digest", record, tmp_path)
-    assert source_memory.read_image_defects("fixture-digest", tmp_path) == record
+    stored = source_memory.read_image_defects("fixture-digest", tmp_path)
+    assert {key: value for key, value in stored.items()
+            if key != "evidence_envelope"} == record
+    source_memory.validate_evidence_envelope(stored["evidence_envelope"])
 
 
 def test_source_memory_refuses_a_mismatched_digest(tmp_path):

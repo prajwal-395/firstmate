@@ -37,8 +37,19 @@ def _native(measurement_type, value, *, digest, lane, start_tick=0,
         provenance_id=f"prov-{digest}-{lane}",
         coverage=evidence_contract.CoverageKind(coverage),
         coverage_samples=samples, coverage_sample_rate_hz=0.0)
-    return evidence_contract.to_rust_evidence(
+    native = evidence_contract.to_rust_evidence(
         replace(record, freshness=freshness))
+    native.update({
+        "source_stream_id": f"stream-{digest}",
+        "sampling_method": method,
+        "temporal_coverage": [{"clock_id": f"clock-{digest}",
+                               "start": start_tick, "end": end_tick}],
+        "coverage_status": coverage,
+        "verified_status": "verified",
+        "producer": "fixture",
+        "producer_version": "1",
+    })
+    return native
 
 
 def _obs(obs_id, modality, payload, *, digest, start_s=0.0, end_s=20.0,
@@ -125,6 +136,39 @@ def test_measured_absence_is_confidently_absent():
     assert answer["required_missing_lanes"] == []
     assert any(basis["lane"] == "m7"
                for basis in answer["completeness_basis"])
+
+
+def test_sparse_negative_sample_is_inconclusive_not_absent():
+    model = _model(_obs(
+        "obs-sparse-negative", "event_span",
+        {"predicate": "speaking", "spans": []},
+        digest=D2, start_s=0.0, end_s=20.0,
+        native=_native("event.speaking_span", [], digest=D2, lane="m7",
+                       start_tick=0, end_tick=20000, coverage="sampled",
+                       samples=1)))
+    answer = evidence_query.evidence_for(model, _speaking_plan())
+    assert answer["status"] == INCONCLUSIVE
+    assert answer["status"] != CONFIDENTLY_ABSENT
+
+
+def test_legacy_complete_record_without_temporal_coverage_is_inconclusive():
+    # Podcast shape: a pre-envelope migration carries coverage complete
+    # with a zero-sample empty value but no explicit temporal basis, so
+    # it must abstain rather than read as a measured absence.
+    native = _native("event.speaking_span", [], digest=D2, lane="m7",
+                     start_tick=0, end_tick=20000,
+                     coverage="complete", samples=0)
+    native.update({"temporal_coverage": [], "coverage_status": "unknown",
+                   "verified_status": "unknown", "source_stream_id": None,
+                   "sampling_method": None, "producer": None,
+                   "producer_version": None})
+    model = _model(_obs(
+        "obs-legacy-absence", "event_span",
+        {"predicate": "speaking", "spans": []},
+        digest=D2, start_s=0.0, end_s=20.0, native=native))
+    answer = evidence_query.evidence_for(model, _speaking_plan())
+    assert answer["status"] == INCONCLUSIVE
+    assert answer["status"] != CONFIDENTLY_ABSENT
 
 
 def test_absence_from_another_asset_in_same_lane_is_not_confident():

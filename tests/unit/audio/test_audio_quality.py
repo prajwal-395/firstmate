@@ -58,7 +58,10 @@ def test_known_signal_fixture_measures_units_clipping_noise_and_silence(
 
     # The source memory slot persists once, by content identity, and returns
     # the same measurement rather than silently recomputing it.
-    assert source_memory.read_audio_quality(result["content_digest"], memory_root) == result
+    stored = source_memory.read_audio_quality(result["content_digest"], memory_root)
+    assert {key: value for key, value in stored.items()
+            if key != "evidence_envelope"} == result
+    source_memory.validate_evidence_envelope(stored["evidence_envelope"])
     reused = audio_quality.measure_audio_quality(str(source), root=memory_root)
     assert reused == result
 

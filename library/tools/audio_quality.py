@@ -216,7 +216,8 @@ def measure_audio_quality(source_file: str, *, root: Path | None = None,
     if not force:
         cached = source_memory.read_audio_quality(digest, root)
         if cached is not None:
-            return cached
+            return {key: value for key, value in cached.items()
+                    if key != "evidence_envelope"}
     streams = _probe(source_file)
     channels = []
     with tempfile.TemporaryDirectory(prefix="fi12-audio-",

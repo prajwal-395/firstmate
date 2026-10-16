@@ -537,6 +537,12 @@ class EvidenceRecord:
     coverage_level: str | None = None
     producer_version: str | None = None
     freshness: str | None = None
+    source_stream_id: str | None = None
+    sampling_method: str | None = None
+    temporal_coverage: tuple[dict[str, Any], ...] = ()
+    coverage_status: str | None = None
+    verified_status: str | None = None
+    producer: str | None = None
 
     @property
     def certainty(self) -> CertaintyState | None:
@@ -1074,6 +1080,12 @@ def to_rust_evidence(record: EvidenceRecord) -> dict[str, Any]:
         "coverage_level": record.coverage_level,
         "producer_version": record.producer_version,
         "freshness": record.freshness,
+        "source_stream_id": record.source_stream_id,
+        "sampling_method": record.sampling_method,
+        "temporal_coverage": [dict(interval) for interval in record.temporal_coverage],
+        "coverage_status": record.coverage_status,
+        "verified_status": record.verified_status,
+        "producer": record.producer,
     }
     return result
 
@@ -1089,6 +1101,8 @@ RUST_EVIDENCE_KEYS: frozenset[str] = frozenset({
     "certainty", "processing_status", "source_reference",
     "spatial_frame_id", "coordinate_space_id", "references",
     "coverage_scope", "coverage_level", "producer_version", "freshness",
+    "source_stream_id", "sampling_method", "temporal_coverage",
+    "coverage_status", "verified_status", "producer",
 })
 
 

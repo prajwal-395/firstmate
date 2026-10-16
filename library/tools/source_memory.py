@@ -188,6 +188,17 @@ SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships
 SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality.py
 SLOT_IMAGE_DEFECTS = "image_defects.json"        # VI-03 - image_defects.py
 
+SLOT_BY_LANE = {
+    "m0": SLOT_SOURCE, "m1": SLOT_TRANSCRIPT, "m1b": SLOT_SPEAKERS,
+    "m2": SLOT_FRAMES_INDEX, "m3": SLOT_PERSONS, "m3b": SLOT_IDENTITY,
+    "m3c": SLOT_EXPRESSIONS, "m3d": SLOT_REGIONS, "m3e": SLOT_SALIENCY,
+    "m3f": SLOT_REGION_STATS, "m3g": SLOT_DEPTH, "m4": SLOT_SCENES,
+    "vi-09": SLOT_SCENE_CINEMATOGRAPHY, "m5": SLOT_SOUND,
+    "m6": SLOT_CLOCK, "m7": SLOT_EVENTS, "m8": SLOT_VERDICTS,
+    "m9": SLOT_WORLD_MODEL, "m10": SLOT_RELATIONSHIPS,
+    "m11": SLOT_AUDIO_QUALITY, "vi-03": SLOT_IMAGE_DEFECTS,
+}
+
 # No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
 # (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
 # (M2) followed (`extract_iframes`/`build_frames` below), then SLOT_IDENTITY
@@ -769,6 +780,8 @@ def write_json(path: Path, payload: dict) -> None:
     still writing, so the other's rename raised `FileNotFoundError`
     (measured: 95 failures in 200 same-slot writes across 8 threads).
     """
+    payload = _with_evidence_envelope(path, payload)
+    validate_evidence_envelope(payload["evidence_envelope"])
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, staged_name = tempfile.mkstemp(
         dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
@@ -782,6 +795,224 @@ def write_json(path: Path, payload: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _coalesce_coverage_intervals(intervals: list) -> list:
+    """Merge overlapping or near-adjacent coverage spans, fail-closed.
+
+    Point samples harvested from timestamps arrive as 1 ms slivers; spans
+    less than a second apart merge into the continuous pass that produced
+    them. Sparse samples stay separate, and the tail beyond 1024 spans is
+    dropped: truncation understates coverage, so an absence check abstains
+    rather than reasoning from a partial basis.
+    """
+    def _well_formed(row: object) -> bool:
+        return (isinstance(row, dict)
+                and isinstance(row.get("start_s"), (int, float))
+                and isinstance(row.get("end_s"), (int, float))
+                and row["end_s"] > row["start_s"])
+    spans = sorted(
+        (float(row["start_s"]), float(row["end_s"]))
+        for row in intervals if _well_formed(row))
+    malformed = [row for row in intervals if not _well_formed(row)]
+    merged: list = []
+    for start, end in spans:
+        if merged and start <= merged[-1]["end_s"] + 1.0:
+            merged[-1]["end_s"] = max(merged[-1]["end_s"], end)
+        else:
+            merged.append({"start_s": start, "end_s": end})
+    # Malformed rows pass through so the caller's validation still
+    # refuses them; truncation only ever drops well-formed spans.
+    return (merged[:1024] + malformed)
+
+
+def _with_evidence_envelope(path: Path, payload: dict) -> dict:
+    """Stamp every JSON slot write with an additive evidence basis.
+
+    Legacy payload fields remain untouched. Sparse lanes default to sampled;
+    callers must provide explicit complete coverage to authorize absence.
+    """
+    if "evidence_envelope" in payload:
+        return payload
+    digest = payload.get("content_digest") or path.parent.name
+    slot = path.name
+    instrument = payload.get("instrument")
+    producer = payload.get("producer")
+    if not producer and isinstance(instrument, dict):
+        producer = instrument.get("producer") or instrument.get("method")
+    producer = producer or payload.get("method") or f"source_memory:{slot}"
+    producer_version = (payload.get("producer_version")
+                        or (instrument.get("version") if isinstance(instrument, dict) else None)
+                        or payload.get("version") or "1")
+    sample_resolution = payload.get("sample_resolution")
+    if sample_resolution is None:
+        sample_resolution = payload.get("sample_size")
+    if sample_resolution is None:
+        resolution = payload.get("resolution")
+        if (isinstance(resolution, list) and len(resolution) == 2
+                and all(isinstance(value, int) for value in resolution)):
+            sample_resolution = resolution
+        width, height = payload.get("width"), payload.get("height")
+        if isinstance(width, int) and isinstance(height, int):
+            sample_resolution = [width, height]
+    if sample_resolution is not None and (
+            not isinstance(sample_resolution, list) or len(sample_resolution) != 2
+            or any(not isinstance(value, int) or value <= 0
+                   for value in sample_resolution)):
+        raise ValueError("sample_resolution must be null or positive [width, height]")
+    intervals = payload.get("coverage_intervals")
+    if intervals is None:
+        intervals = []
+        for key in ("coverage", "scene_coverage", "sound_coverage",
+                    "music_coverage", "window_coverage"):
+            value = payload.get(key)
+            candidates = value if isinstance(value, list) else [value]
+            for row in candidates:
+                if not isinstance(row, dict):
+                    continue
+                start = row.get("start", row.get("start_seconds", row.get("start_s")))
+                end = row.get("end", row.get("end_seconds", row.get("end_s")))
+                if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end > start:
+                    intervals.append({"start_s": float(start), "end_s": float(end)})
+        if not intervals:
+            pending = [payload]
+            while pending and len(intervals) < 2048:
+                item = pending.pop()
+                if isinstance(item, dict):
+                    if "start" in item and "end" in item:
+                        start, end = item["start"], item["end"]
+                        if (isinstance(start, (int, float))
+                                and isinstance(end, (int, float)) and end > start):
+                            intervals.append({"start_s": float(start),
+                                              "end_s": float(end)})
+                    else:
+                        point = next((item[key] for key in
+                                      ("t", "time", "timestamp", "time_seconds")
+                                      if isinstance(item.get(key), (int, float))), None)
+                        if point is not None and point >= 0:
+                            intervals.append({"start_s": float(point),
+                                              "end_s": float(point) + 0.001})
+                    pending.extend(item.values())
+                elif isinstance(item, list):
+                    pending.extend(item)
+        intervals = list({(round(row["start_s"], 6), round(row["end_s"], 6)): row
+                          for row in intervals}.values())
+    if isinstance(intervals, list):
+        intervals = _coalesce_coverage_intervals(intervals)
+    if not isinstance(intervals, list):
+        raise ValueError("coverage_intervals must be a list")
+    for interval in intervals:
+        if (not isinstance(interval, dict)
+                or not isinstance(interval.get("start_s"), (int, float))
+                or not isinstance(interval.get("end_s"), (int, float))
+                or interval["end_s"] <= interval["start_s"]):
+            raise ValueError("coverage intervals require increasing start_s/end_s")
+    status = str(payload.get("status") or "").lower()
+    coverage_status = payload.get("coverage_status")
+    if coverage_status is None:
+        coverage_status = ("failed" if "fail" in status else
+                           "unavailable" if any(word in status for word in
+                                                ("unavailable", "unmeasured", "not_analyzed")) else
+                           "complete" if intervals and payload.get("coverage_complete") is True else
+                           "sampled" if intervals else "unknown")
+    verified_status = payload.get("verified_status")
+    if verified_status is None:
+        verified_status = "verified" if payload.get("verified") is True else "unverified"
+    stream_groups = []
+    source_record = _load_json(path.parent / SLOT_SOURCE) if path.name != SLOT_SOURCE else None
+    if isinstance(source_record, dict):
+        if slot in {SLOT_TRANSCRIPT, SLOT_SPEAKERS, SLOT_SOUND, SLOT_AUDIO_QUALITY}:
+            stream_groups = source_record.get("audio_streams") or []
+        elif slot not in {SLOT_CLOCK}:
+            stream_groups = source_record.get("video_streams") or []
+        if not stream_groups:
+            stream_groups = (source_record.get("video_streams") or
+                             source_record.get("audio_streams") or [])
+    stream_index = (stream_groups[0].get("index", 0)
+                    if stream_groups and isinstance(stream_groups[0], dict) else 0)
+    stream_id = payload.get("source_stream_id")
+    if not stream_id:
+        stream_id = (f"stream-{digest}" if stream_index == 0
+                     else f"stream-{digest}-{stream_index}")
+    default_methods = {
+        SLOT_SOURCE: "ffprobe-stream-probe",
+        SLOT_TRANSCRIPT: "whole-source-audio-transcription",
+        SLOT_SPEAKERS: "voice-track-diarization",
+        SLOT_FRAMES_INDEX: "decode-keyframes-skip-nonkey",
+        SLOT_PERSONS: "apple-vision-frame-measurement",
+        SLOT_IDENTITY: "face-voice-track-association",
+        SLOT_SCENES: "vlm-scene-pass-and-ffmpeg-boundaries",
+        SLOT_SOUND: "environmental-audio-event-classification",
+        SLOT_CLOCK: "multicamera-clock-estimation",
+        SLOT_EVENTS: "derived-event-spans",
+        SLOT_WORLD_MODEL: "joined-source-memory-view",
+        SLOT_RELATIONSHIPS: "relationship-candidate-detection",
+        SLOT_AUDIO_QUALITY: "audio-quality-measurement",
+        SLOT_IMAGE_DEFECTS: "sampled-image-defect-measurement",
+    }
+    envelope = {
+        "record_version": 1,
+        "source_digest": digest,
+        "producer": str(producer),
+        "producer_version": str(producer_version),
+        "source_stream_id": stream_id,
+        "sampling_method": str(payload.get("sampling_method") or payload.get("method") or
+                                (instrument.get("method") if isinstance(instrument, dict) else None) or
+                                default_methods.get(slot, f"source-memory:{slot}")),
+        "sample_resolution": sample_resolution,
+        "coverage_intervals": intervals,
+        "coverage_status": coverage_status,
+        "confidence_semantics": payload.get("confidence_semantics", "producer_defined"),
+        "verified_status": verified_status,
+        "inputs": payload.get("inputs", []),
+    }
+    return {**payload, "evidence_envelope": envelope}
+
+
+def validate_evidence_envelope(envelope: dict) -> None:
+    required = ("record_version", "source_digest", "producer", "producer_version",
+                "source_stream_id", "sampling_method", "sample_resolution",
+                "coverage_intervals", "coverage_status", "confidence_semantics",
+                "verified_status", "inputs")
+    missing = [key for key in required if key not in envelope]
+    if missing:
+        raise ValueError(f"Source Memory evidence envelope missing {missing}")
+    if not all(isinstance(envelope[key], str) and envelope[key]
+               for key in ("source_digest", "producer", "producer_version",
+                           "source_stream_id", "sampling_method", "coverage_status",
+                           "confidence_semantics", "verified_status")):
+        raise ValueError("Source Memory evidence envelope string fields must be non-empty")
+    if not isinstance(envelope["coverage_intervals"], list) or not isinstance(envelope["inputs"], list):
+        raise ValueError("Source Memory coverage_intervals and inputs must be lists")
+    if envelope["record_version"] != 1:
+        raise ValueError("unsupported Source Memory evidence envelope version")
+    resolution = envelope["sample_resolution"]
+    if resolution is not None and (
+            not isinstance(resolution, list) or len(resolution) != 2
+            or any(not isinstance(value, int) or value <= 0 for value in resolution)):
+        raise ValueError("sample_resolution must be null or positive [width, height]")
+    if envelope["coverage_status"] not in {
+            "complete", "sampled", "inconclusive", "not_yet_analysed",
+            "unavailable", "failed", "unknown"}:
+        raise ValueError("unknown Source Memory coverage_status")
+    for interval in envelope["coverage_intervals"]:
+        if (not isinstance(interval, dict)
+                or not isinstance(interval.get("start_s"), (int, float))
+                or not isinstance(interval.get("end_s"), (int, float))
+                or interval["start_s"] < 0
+                or interval["end_s"] <= interval["start_s"]):
+            raise ValueError("coverage interval must have non-negative increasing seconds")
+
+
+def read_evidence_envelope(content_digest: str, lane: str,
+                           root: Optional[Path] = None) -> Optional[dict]:
+    """Read a slot's envelope; absent envelopes remain legacy/unknown."""
+    slot = SLOT_BY_LANE.get(lane)
+    if slot is None:
+        return None
+    doc = _load_json(source_dir(content_digest, root) / slot)
+    envelope = doc.get("evidence_envelope") if isinstance(doc, dict) else None
+    return envelope if isinstance(envelope, dict) else None
 
 
 def read_m0(content_digest: str,
