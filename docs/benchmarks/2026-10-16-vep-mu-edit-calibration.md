@@ -50,3 +50,34 @@ Resolve execution proof (EDIT-029/030), 2026-10-16:
 | resolve_mechanical_correct | False | edit_render_check: loudness fail (-23.52 vs -14 target); geometry/streams/black/freeze pass |
 | resolve_story_satisfied | True | edit_render_check: required calib-window 5-15s fully covered |
 
+## Blind agent label agreement (round 4)
+
+Two independent agents from different model families labeled the calibration
+packet. The detailed item-level record is
+`2026-10-16-vep-mu-edit-agent-labels-consensus.json`.
+
+| Item | Agreement | Consensus / disposition |
+|---|---:|---|
+| IMG_1808 visible softness and shake | 12/12 bin-property values | All six bins (0-27.77s) are labeled not visibly soft and not shaky. The earlier objective reject was measured over 10-40s, so the different source window must be reconciled before calculating detector accuracy. |
+| Render intent score and defects | 2/2 fields | Both score the one-take window 4/5 and report no black, freeze, or digital-silence defect. |
+| Render speech level | 2/3 agents say no | Third-family tie-break agrees speech is too quiet relative to the programme; the only word is around -33 to -40 dBFS RMS. A/B reported integrated loudness -22.9 LUFS and true peak -7.1 dBTP. |
+| Podcast Q/A units | A/B exact full-unit agreement: 0 | Third-family tie-break finds no complete unit in 0-60 and one complete retake in 60-150: question 77.0-81.3s, answer 81.46-102.37s. |
+| IMG_1808 action phases | A/B exact event-plus-phase-span agreement: 0 | Third-family tie-break supplies six final action spans; see the consensus JSON. B and C identify end-of-clip camera movement, overlapping at 27.0-27.77s. Phase boundaries are approximate to about +/-0.5s. |
+| Podcast visible speaker | A/B 0/9 bins | Third-family tie-break maps the single visible man to left; final bins are left at 60-80, 100-110 and 120-130, otherwise neither. |
+
+The blind packet did not contain the provisional `clip_011` coherent-answer
+moment or a second take for comparison. Neither is scored as an agent consensus
+label. The single-take packet cannot establish a comparative take preference.
+The third-family results are final tie-break labels, not majority votes or
+human labels.
+
+Prediction scoring is limited by the available matching outputs. The IMG_1808
+softness result is not comparable until its source window is reconciled. For
+the render, the agent story score is 4/5 and the measured edit coverage passes;
+the mechanical loudness result fails at -23.52 LUFS against the -14 LUFS target,
+matching the final speech-level label of `no`. A/B agree there are no black,
+freeze, or digital-silence defects; C was not asked to re-evaluate those fields.
+The Q/A, action-phase, and visible-speaker labels are gold examples, but this
+report contains no predictions for those exact packet items, so their model
+accuracy is not scored. `demo_split_editing_recall` above remains a provisional
+slice score because the blind packet did not label its `clip_011` moment.

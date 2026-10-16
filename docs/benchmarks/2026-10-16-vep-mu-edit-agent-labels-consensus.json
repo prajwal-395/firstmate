@@ -1,0 +1,135 @@
+{
+  "benchmark": "docs/benchmarks/2026-10-16-vep-mu-edit-calibration.md",
+  "label_type": "agent labels",
+  "round": 4,
+  "annotators": [
+    {
+      "id": "agent-openai-codex-r4",
+      "family": "OpenAI",
+      "source": "firstmate/data/vep-labels-r1-a/round4/vep-mu-edit/agent-labels-agent-openai-codex.json"
+    },
+    {
+      "id": "labeller-b",
+      "family": "as dispatched by Firstmate; identity intentionally not inferred from the returned artifact",
+      "source": "firstmate/data/vep-labels-r1-b/round4/vep-mu-edit/agent-labels-labeller-b.json"
+    },
+    {
+      "id": "tiebreak-c-anthropic-claude-sonnet-5-5",
+      "family": "Anthropic Claude / Sonnet 5.5",
+      "source": "firstmate/data/vep-tiebreak-r2/work/edit_c.json",
+      "role": "blind third-family tie-breaker"
+    }
+  ],
+  "agreement_and_scoring": {
+    "q1_qa_units": "A/B exact full-unit agreement: 0. Tie-breaker C finds no complete unit in 0-60 and one complete retake in 60-150. B and C agree there is no complete unit in 0-60; the 60-150 boundaries differ, so C resolves the final label.",
+    "q2_actions": "A/B exact event-plus-phase-span agreement: 0. Annotators B and C identify camera movement at the clip end, overlapping at 27.0-27.77s; C supplies the final phase spans for the disputed action inventory.",
+    "q3_bins": "A/B exact agreement: 12/12 bin-property values.",
+    "q4_bins": "A/B exact agreement: 0/9 bins. C supplies the third-family adjudicated labels.",
+    "q5_render": "A/B agree on intent score (4/5) and no listed technical defects (2/2 fields). Speech-level vote is B=no, C=no, A=yes; final label is no."
+  },
+  "agreement": {
+    "q1_qa_units": {
+      "status": "tie-break complete",
+      "summary": "Annotator A returned five units; B returned one long unit in 60-150; C identifies no complete unit in 0-60 and one complete retake in 60-150. C's item-level account says the earlier answer was abandoned and the complete retake question is 77.0-81.3s. Final spans use C's blind tie-break label.",
+      "final": [
+        {
+          "window": "60-150",
+          "question": [77.0, 81.3],
+          "answer": [81.46, 102.37],
+          "question_speaker": "speaker 1",
+          "answer_speaker": "speaker 2",
+          "speaker_basis": "voice",
+          "basis": "third-family blind tie-break"
+        }
+      ],
+      "empty_windows": ["0-60"]
+    },
+    "q2_actions": {
+      "status": "tie-break complete",
+      "summary": "The first-round inventories and phase boundaries differed. C's blind third-family labels resolve the action inventory; phase boundaries are approximate to about +/-0.5s based on 2 fps stills. Annotators B and C identify camera movement at the clip end, with a common overlapping interval of 27.0-27.77s.",
+      "final": [
+        {"verb": "put on and adjust cap", "span": [0.0, 5.5], "preparation": [0.0, 2.0], "execution": [2.0, 5.0], "completion": [5.0, 5.5]},
+        {"verb": "lean toward camera and tilt head", "span": [5.5, 8.0], "preparation": [5.0, 5.5], "execution": [5.5, 7.5], "completion": [7.5, 8.0]},
+        {"verb": "stretch: hands behind head then arms overhead", "span": [8.5, 17.0], "preparation": [8.5, 10.0], "execution": [10.0, 16.0], "completion": [16.0, 17.0]},
+        {"verb": "reach back and fasten seatbelt", "span": [17.5, 21.5], "preparation": [17.5, 18.5], "execution": [18.5, 20.5], "completion": [20.5, 21.5]},
+        {"verb": "hand to chin and mouth (thinking pose)", "span": [24.0, 26.5], "preparation": [24.0, 24.5], "execution": [24.5, 26.0], "completion": [26.0, 26.5]},
+        {"verb": "lower and tilt phone camera toward ceiling", "span": [26.5, 27.77], "preparation": [26.5, 27.0], "execution": [27.0, 27.77], "completion": "none"}
+      ]
+    },
+    "q3_bins": {
+      "status": "agreement",
+      "exact_agreement": "12/12 bin-property values",
+      "consensus": [
+        {"bin": "0-5", "soft": "no", "shaky": "no"},
+        {"bin": "5-10", "soft": "no", "shaky": "no"},
+        {"bin": "10-15", "soft": "no", "shaky": "no"},
+        {"bin": "15-20", "soft": "no", "shaky": "no"},
+        {"bin": "20-25", "soft": "no", "shaky": "no"},
+        {"bin": "25-27.77", "soft": "no", "shaky": "no"}
+      ],
+      "scope": "The packet's 0-27.77s IMG_1808 window only. These visual labels do not replace or validate the separate objective soft-picture measurement."
+    },
+    "q4_bins": {
+      "status": "tie-break complete",
+      "exact_agreement": "0/9 bins",
+      "summary": "A and B disagree in all nine bins. C's blind third-family label identifies one camera angle showing the man, mapped to left; the woman is not visible and her speech is labeled neither.",
+      "final": [
+        {"bin": "60-70", "visible_speaker": "left"},
+        {"bin": "70-80", "visible_speaker": "left"},
+        {"bin": "80-90", "visible_speaker": "neither"},
+        {"bin": "90-100", "visible_speaker": "neither"},
+        {"bin": "100-110", "visible_speaker": "left"},
+        {"bin": "110-120", "visible_speaker": "neither"},
+        {"bin": "120-130", "visible_speaker": "left"},
+        {"bin": "130-140", "visible_speaker": "neither"},
+        {"bin": "140-150", "visible_speaker": "neither"}
+      ]
+    },
+    "q5_render": {
+      "status": "tie-break complete",
+      "exact_agreement": "A/B agree on 2/3 requested fields; 2/3 agents label speech level no",
+      "consensus": {
+        "intent_score_1_5": 4,
+        "defects": []
+      },
+      "disagreement": {
+        "speech_level_ok": {
+          "annotator_a": "yes",
+          "annotator_b": "no",
+          "tie_breaker_c": "no",
+          "final": "no"
+        }
+      },
+      "reported_measurements": {
+        "integrated_lufs": {"annotator_a": -22.9, "annotator_b": -22.9},
+        "true_peak_dbtp": {"annotator_a": -7.1, "annotator_b": -7.1}
+      },
+      "limits": "Annotator A says its speech-level judgment is measurement-based because direct listening was unavailable. B and C both identify speech as too quiet relative to the programme; C cites the word Okay at about -33 to -40 dBFS RMS."
+    }
+  },
+  "requested_calibration_items": {
+    "coherent_answer_clip_011_9.699_12.681": "Neither returned label file provides this specific requested item; no consensus label is assigned.",
+    "better_take_preference": "Neither returned label file compares alternative takes or supplies a take preference. The packet contains one take. No preference label is assigned.",
+    "img_1808_visual_suitability": "The two annotators agree no sampled five-second bin in the packet is visibly soft or shaky."
+  },
+  "prediction_scoring": {
+    "img_1808_soft_picture_reject": {
+      "score": "not comparable",
+      "reason": "Agent labels cover IMG_1808 0-27.77s; the prior objective reject reports a 10-40s window. Reconcile the source interval before calculating detection accuracy."
+    },
+    "render_proof": {
+      "story_score_1_5": 4,
+      "coverage_prediction": "correctly covered",
+      "technical_prediction": "loudness failure confirmed",
+      "technical_measurement": "Resolve QA measured -23.52 LUFS against the -14 LUFS target; final tie-break says speech is not at a comfortable level.",
+      "black_freeze_digital_silence": "A/B report none; the third-family tie-break was not asked to re-evaluate these fields."
+    },
+    "q1_qa_units_q2_actions_q4_visible_speaker": "Gold labels are now recorded, but no matching model predictions for these exact packet items are in this calibration report; perception accuracy is not scored."
+  },
+  "tie_break": {
+    "status": "complete",
+    "request": "firstmate/data/vep-mu-edit/tiebreak-request.md",
+    "response": "firstmate/data/vep-tiebreak-r2/work/edit_c.json",
+    "items": ["q1_qa_units", "q2_actions", "q4_bins", "q5_render.speech_level_ok"]
+  }
+}
