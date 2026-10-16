@@ -86,6 +86,20 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def _mlx_function(name):
+    """Resolve an MLX-VLM function from inside this module.
+
+    Module ``__getattr__`` handles external attribute access only; a bare
+    global reference inside this module does not invoke it. Keep the lazy
+    import while making the inference call sites work in a fresh process.
+    Tests can still replace the module globals with their MLX stubs.
+    """
+    function = globals().get(name)
+    if function is None:
+        function = __getattr__(name)
+    return function
+
+
 if TYPE_CHECKING:
     # Static binding for the lazily imported names above: never
     # executed at runtime (so it loads no mlx), but lets linters and
@@ -830,12 +844,12 @@ class VisionAnalyzer:
         })
         if video or audio:
             prompt = f"<|video|>{prompt}"
-            formatted = apply_chat_template(
+            formatted = _mlx_function("apply_chat_template")(
                 self.proc, self.model.config, prompt, num_images=0,
                 num_audios=1 if audio else 0,
             )
         else:
-            formatted = apply_chat_template(
+            formatted = _mlx_function("apply_chat_template")(
                 self.proc, self.model.config, prompt, num_images=0
             )
 
@@ -843,7 +857,7 @@ class VisionAnalyzer:
         with _semantic_inference_admission():
             with perf_ledger.span("gemma_inference", backend="mlx_vlm",
                                   model=MODEL_ID, calls=1) as cost:
-                r = generate(
+                r = _mlx_function("generate")(
                     self.model, self.proc,
                     prompt=formatted,
                     image=images,
@@ -880,14 +894,14 @@ class VisionAnalyzer:
                 "model_version": self._model_version(self.model),
                 "fallback_causes": [],
             })
-            formatted = apply_chat_template(
+            formatted = _mlx_function("apply_chat_template")(
                 self.proc, self.model.config, prompt,
                 num_images=len(images))
             with _semantic_inference_admission():
                 with perf_ledger.span(
                         "gemma_inference", backend="mlx_vlm",
                         model=MODEL_ID, calls=1) as cost:
-                    result = generate(
+                    result = _mlx_function("generate")(
                         self.model, self.proc, prompt=formatted,
                         image=list(images), max_tokens=max_tokens,
                         temperature=0.1, verbose=False)
@@ -3648,7 +3662,7 @@ class _LazyAnalyzer:
             memory_context.__enter__()
             def load_cached_model():
                 with _huggingface_offline():
-                    return load(MODEL_ID)
+                    return _mlx_function("load")(MODEL_ID)
 
             context = managed_model("gemma-4", load_cached_model)
             entered = False
