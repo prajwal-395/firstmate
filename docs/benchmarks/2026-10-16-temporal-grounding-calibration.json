@@ -1,0 +1,211 @@
+{
+  "adapter_revision": "temporal_grounding_adapters/1",
+  "candidate_revisions": {
+    "TimeLens2-4B": {
+      "base": "Qwen/Qwen3-VL-4B-Instruct",
+      "hf_repo": "MCG-NJU/TimeLens2-4B",
+      "license_class": "research_only",
+      "revision": "f5dbceb56fb3060c16bfb24bb9d84bf8902dc0ac",
+      "revision_verified": "2026-10-16 against the publisher HuggingFace API (repo HEAD sha)",
+      "tensor": "BF16",
+      "publisher_params_bf16": 4826771968,
+      "publisher_used_storage_bytes": 9667433777
+    },
+    "TimePLE-8B": {
+      "base": "Qwen3-VL-8B-Instruct",
+      "code_repo": "https://github.com/KlingAIResearch/TimePLE",
+      "code_revision": "05728f40bb34478811bcf86532e38e6499ce4462",
+      "code_revision_verified": "2026-10-16 against the publisher GitHub API (repo HEAD commit)",
+      "hf_repo": "KlingTeam/TimePLE",
+      "model_revision": "f583ef50ea9fc3498d537ff14438af25d5613d38",
+      "model_revision_verified": "2026-10-16 against the publisher HuggingFace API (repo HEAD sha)",
+      "note": "custom qwen3_vl_timeple architecture; runs through the publisher code repo, not plain transformers",
+      "publisher_params_bf16": 8877450482,
+      "publisher_used_storage_bytes": 17766419728,
+      "license_class": "research_only"
+    }
+  },
+  "corpus_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+  "format": "temporal_grounding_calibration/1",
+  "queries": [
+    {
+      "event_class": "hand_raise",
+      "note": "short gesture (SEM-027)",
+      "prompt_sha256": "75e82dbcc965bd94c4b4ac32af4bdb7bad1da34fb67b292e397ba7d8c4050c77",
+      "query": "the visible person raises a hand",
+      "query_hash": "27918ce4c810",
+      "query_id": "q-hand-raise",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "pointing",
+      "note": "short gesture (SEM-027)",
+      "prompt_sha256": "4705ab3d7b9438d80adb2e84ae17cfbdb325b7ac48f03811175af9c53a44e05a",
+      "query": "the visible person points at something",
+      "query_hash": "ecf37f2704fa",
+      "query_id": "q-pointing",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "nodding",
+      "note": "short gesture (SEM-027)",
+      "prompt_sha256": "7c913d2b939662d8b323e4e9bbd1726fb2c8cd6a735f2ac6259d11ec67a03b1d",
+      "query": "the visible person nods",
+      "query_hash": "b030f5d9cd84",
+      "query_id": "q-nodding",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "head_shake",
+      "note": "temporal opposite of nodding (SEM-030)",
+      "prompt_sha256": "62da8030d7943a32ecaeb680cef54cda9dcdf6a93ea8cab2b1121d337de3c222",
+      "query": "the visible person shakes their head",
+      "query_hash": "efbb1e285fef",
+      "query_id": "q-head-shake",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "waving",
+      "note": "short gesture; repeated instances share repeat_group_id (SEM-027/028)",
+      "prompt_sha256": "0bd8f1998233f6938504c060a1a6d42254deb6d454f97e9be27946c56e74e0b0",
+      "query": "the visible person waves",
+      "query_hash": "f97d67188e8f",
+      "query_id": "q-waving",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "reach",
+      "note": "object action onset (SEM-027)",
+      "prompt_sha256": "f2455f206fff1b225e0476e294950ffa1007ab290469f7800491e76eecd1cae6",
+      "query": "the visible person reaches toward an object",
+      "query_hash": "947f1515a831",
+      "query_id": "q-reach",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "contact",
+      "note": "object action (SEM-027)",
+      "prompt_sha256": "309f71d58a8535da1cdd4c6f363d58917a35fb60e41ab4c1f91c596d7f204fa2",
+      "query": "the visible person makes contact with an object",
+      "query_hash": "cced83eeec0d",
+      "query_id": "q-contact",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "pick_up",
+      "note": "temporal opposite of set_down (SEM-030)",
+      "prompt_sha256": "ff96b7cfd5a34c16569f5b48b5e843086f4c843aa0f48638500fd6e90a9d962d",
+      "query": "the visible person picks up an object",
+      "query_hash": "da87ddb71b13",
+      "query_id": "q-pick-up",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "set_down",
+      "note": "temporal opposite of pick_up (SEM-030)",
+      "prompt_sha256": "5e6e29b08e421bdc7d0b34b6bee44c6458e000caf4720003e39d75b5fee435b1",
+      "query": "the visible person puts down an object",
+      "query_hash": "04cb5adab356",
+      "query_id": "q-set-down",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "opening",
+      "note": "temporal opposite of closing (SEM-030)",
+      "prompt_sha256": "6dd94b8a49c2b6829b43b38f473824396427ada1fc4a6a0e63578025a2b22b7e",
+      "query": "the visible person opens something",
+      "query_hash": "c5f8e6dac487",
+      "query_id": "q-opening",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "closing",
+      "note": "temporal opposite of opening (SEM-030)",
+      "prompt_sha256": "11af852c1da33d24895cf241a436ed685db9bcc3d665ff3d8234d8ffc9ce433d",
+      "query": "the visible person closes something",
+      "query_hash": "0a9d7484a164",
+      "query_id": "q-closing",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "person_enters",
+      "note": "temporal opposite of person_leaves (SEM-030)",
+      "prompt_sha256": "192d09219454cd32d00d5e7e8437275801f514984cc3fc4be63d7306d8eb8022",
+      "query": "a person enters the frame",
+      "query_hash": "230cd56a1836",
+      "query_id": "q-enters",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    },
+    {
+      "event_class": "person_leaves",
+      "note": "temporal opposite of person_enters (SEM-030)",
+      "prompt_sha256": "9e1d26b289fbc3b13de57b35e3037e12feebe2d330f9702d52e189c724a2fd04",
+      "query": "a person leaves the frame",
+      "query_hash": "851002615a48",
+      "query_id": "q-leaves",
+      "sources": [
+        "LCATL0012",
+        "IMG_1816"
+      ]
+    }
+  ],
+  "rules": [
+    "held-out sources (LC4930, IMG_1818) are never queried before the frozen single held-out pass",
+    "ambiguous and partially visible actions are labeled completeness partial/uncertain or as hard negatives (SEM-029)",
+    "incumbent M7/M8 runs the same queries through its geometric predicates; predicate-to-class map is frozen per run"
+  ],
+  "sampling": {
+    "fps": 2.0,
+    "max_pixels": 230400
+  },
+  "sources": [
+    {
+      "duration_seconds": 288.955333,
+      "sha256": "bd5da72f95f6b61fdab451b8fea84a928ad3517290048b0f8a5e494cfa597dff",
+      "source_id": "LCATL0012",
+      "split": "calibration"
+    },
+    {
+      "duration_seconds": 188.578333,
+      "sha256": "4ec8fdef4e8bcc4d2d62b8f0b1319107302d26cfb974c3537254470afd344646",
+      "source_id": "IMG_1816",
+      "split": "calibration"
+    }
+  ]
+}

@@ -136,6 +136,69 @@ def test_reports_proposal_and_verified_quality_separately(
     assert report["proposal_generation"]["seconds"] == pytest.approx(0.03)
     assert report["hard_negative_verifier"]["rejection_rate"] == 1
     assert report["by_event_class"]["pick_up"]["verified"]["recall"] == 0
+    assert report["verified"]["onset_error_mean_seconds"] == pytest.approx(0.2)
+    assert report["verified"]["offset_error_mean_seconds"] == pytest.approx(0.2)
+
+
+def test_reports_repeated_event_recall_and_directional_event_classes(
+    held_out_sample, custodian_manifest
+):
+    source = held_out_sample["sources"][0]
+    second = copy.deepcopy(source["events"][0])
+    second.update(
+        event_id="e1-repeat", start=3.0, end=4.0, repeat_group_id="wave-1",
+        event_class="waving",
+    )
+    first = copy.deepcopy(source["events"][0])
+    first.update(event_class="waving", repeat_group_id="wave-1")
+    source["events"][0] = first
+    source["events"].append(second)
+    source["proposals"].append(
+        {
+            "proposal_id": "p-repeat",
+            "event_class": "waving",
+            "identity_id": "person-1",
+            "start": 3.0,
+            "end": 4.0,
+            "proposal_method": "m7_geometry:hand_raise",
+            "verifier": {"decision": "yes", "seconds": 0.1, "model_id": "test"},
+        }
+    )
+
+    report = evaluate(held_out_sample, corpus_manifest=custodian_manifest)
+
+    assert report["repeated_events"]["group_count"] == 1
+    assert report["repeated_events"]["gold_instances"] == 2
+    assert report["repeated_events"]["proposal_recall"] == 0.5
+    assert report["repeated_events"]["verified_recall"] == 0.5
+    assert report["by_event_class"]["waving"]["proposal"]["recall"] == 0.5
+
+
+def test_scores_boundary_refinement_separately_from_event_detection(
+    held_out_sample, custodian_manifest
+):
+    source = held_out_sample["sources"][0]
+    source["proposals"].append(
+        {
+            "proposal_id": "refined-p1",
+            "event_class": "reach",
+            "identity_id": "person-1",
+            "start": 1.2,
+            "end": 2.8,
+            "proposal_method": "test_refiner",
+            "stage": "boundary_refinement",
+            "refines_proposal_id": "p1",
+            "verifier": {"decision": "not_run", "seconds": None, "model_id": "none"},
+        }
+    )
+
+    report = evaluate(held_out_sample, corpus_manifest=custodian_manifest)
+
+    assert report["event_detection"]["predictions"] == 3
+    assert report["boundary_refinement"]["predictions"] == 1
+    assert report["boundary_refinement"]["temporal_iou_mean"] == 1.0
+    assert report["verified"]["predictions"] == 1
+    assert report["verified_boundary_refinement"]["predictions"] == 0
 
 
 def test_quality_scoring_refuses_non_held_out_split(

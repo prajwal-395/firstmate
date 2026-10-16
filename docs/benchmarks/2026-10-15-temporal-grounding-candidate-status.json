@@ -1,0 +1,180 @@
+{
+  "format": "temporal_grounding_candidate_status/1",
+  "recorded_at": "2026-10-16",
+  "scope": {
+    "allowed_footage": "rights-cleared GEO podcast and Apple 001 only",
+    "calibration_before_held_out": true,
+    "held_out_labels": "not created; no held-out quality claims",
+    "available_machine": "Apple M5, 24 GB unified memory; not an M5 Pro",
+    "agent_label_calibration_status": "Two blind agent passes plus one blind tie-break are available for LCATL0012 and IMG_1816; low agreement leaves 4 adjudicated events, 16 disputes unresolved. Held-out sources remain sealed."
+  },
+  "incumbent": {
+    "id": "M7-geometric-candidates-plus-M8-verifier",
+    "adoption_decision": "retain baseline",
+    "quality_metrics": {
+      "human_labeled_precision": null,
+      "human_labeled_recall": null,
+      "temporal_iou": null,
+      "onset_error_seconds": null,
+      "offset_error_seconds": null,
+      "repeated_event_recall": null,
+      "false_event_proposals": null,
+      "recorded_m8_yes_agreement_proxy_precision_before_filter": 0.077,
+      "recorded_m8_yes_agreement_proxy_precision_after_calibration_filter": 0.333,
+      "recorded_m8_yes_proxy_retention": 1.0,
+      "proxy_positive_mean_boundary_error_seconds": 0.38
+    },
+    "proxy_evidence": "docs/benchmarks/2026-10-15-action-candidate-precision.md; one held-out LC4930 source, stored M8 decisions only, 26 proposals before and 6 after calibration cutoff; not ground truth",
+    "cold_latency_seconds": null,
+    "warm_latency_seconds": null,
+    "peak_memory_bytes": null,
+    "cost_per_source_hour": null,
+    "decode_infer_serialize_seconds": {
+      "decode": null,
+      "infer": null,
+      "serialize": null
+    },
+    "license_class": "existing implementation; model terms tracked separately",
+    "status": "Retain M7/M8. Available local score is limited to a stored-verifier proxy from a different hand-near-mouth query: 2/6 agreement precision and 2/2 positive retention on LC4930 after calibration filter; temporal ground-truth metrics on frozen queries are unmeasured because M7/M8 prediction rows for LCATL0012 and IMG_1816 are absent."
+  },
+  "candidates": [
+    {
+      "id": "TimeLens2-4B",
+      "publisher_revision": "f5dbceb56fb3060c16bfb24bb9d84bf8902dc0ac (MCG-NJU/TimeLens2-4B HEAD sha, verified 2026-10-16 against the publisher API)",
+      "precision": "Q4_K_M GGUF candidate identified; inference compatibility not validated",
+      "quality_metrics": {
+        "temporal_iou": null,
+        "onset_error_seconds": null,
+        "offset_error_seconds": null,
+        "repeated_event_recall": null,
+        "false_event_proposals": null
+      },
+      "cold_latency_seconds": null,
+      "warm_latency_seconds": null,
+      "peak_memory_bytes": null,
+      "cost_per_source_hour": null,
+      "decode_infer_serialize_seconds": {
+        "decode": null,
+        "infer": null,
+        "serialize": null
+      },
+      "license_class": "research_only; exact checkpoint and base-model terms pending vep-mu-license review",
+      "adoption_decision": "research-only",
+      "status": "Not measured. The llama.cpp attempt ran 149.7s without output. Two earlier HF downloads emitted no error and stalled with the cached Q4_K_M blob at 698,667,008 bytes; no published MLX build was found. The steered third resumable hf download ran 139s, emitted no error, and left a 0-byte incomplete model file; it was stopped with SIGTERM before this turn ended. The empty resumable directory and log remain under /tmp/vep-mu-tgrounding-download. All quality, latency, memory, and cost metrics remain null.",
+      "download_attempt": {
+        "quantizer_repo": "mradermacher/TimeLens2-4B-GGUF",
+        "quantizer_revision": "d6e8ab99bea982f8c56fe73284c374b626d6c14e",
+        "upstream_publisher_repo": "MCG-NJU/TimeLens2-4B",
+        "upstream_revision": "f5dbceb56fb3060c16bfb24bb9d84bf8902dc0ac (previously verified in lane record)",
+        "requested_precision": "Q4_K_M GGUF plus Q8_0 multimodal projector",
+        "requested_files": [
+          {
+            "name": "TimeLens2-4B.Q4_K_M.gguf",
+            "publisher_reported_bytes": 2716069952,
+            "downloaded_bytes": 0
+          },
+          {
+            "name": "TimeLens2-4B.mmproj-Q8_0.gguf",
+            "publisher_reported_bytes": 453974272,
+            "downloaded_bytes": 0
+          }
+        ],
+        "temporary_path": "/tmp/vep-mu-tgrounding/TimeLens2-4B-Q4_K_M (removed)",
+        "result": "no model weights retained; no inference result",
+        "retry": {
+          "command": "HF_HUB_ENABLE_HF_TRANSFER=0 hf download mradermacher/TimeLens2-4B-GGUF --revision d6e8ab99bea982f8c56fe73284c374b626d6c14e --include *Q4_K_M* --local-dir /tmp/vep-mu-tgrounding/TimeLens2-4B-Q4_K_M",
+          "resume": "HF CLI default resume behavior used against its Hugging Face cache; preexisting .downloadInProgress blob was 698667008 bytes",
+          "duration_seconds": 132,
+          "free_disk_bytes": 127775133696,
+          "cache_blob_bytes_after": 698667008,
+          "exact_error": "No downloader exception or error text was emitted. Process remained alive without advancing the cached partial blob; manually stopped with SIGTERM after 132 seconds.",
+          "temporary_path": "/tmp/vep-mu-tgrounding/TimeLens2-4B-Q4_K_M (removed)",
+          "incomplete_cache_blob": "~/.cache/huggingface/hub/models--mradermacher--TimeLens2-4B-GGUF/blobs/407df71bcf09131da78ec9dbb029308db680be211a8ca3b612f0ba5f4ccf89da.downloadInProgress (698667008 bytes; removed)",
+          "alternatives_reviewed": [
+            {
+              "type": "MLX",
+              "result": "No published TimeLens2-4B MLX checkpoint found in targeted search."
+            },
+            {
+              "type": "GGUF",
+              "result": "mradermacher/TimeLens2-4B-GGUF is the published quantized build; its model card lists Q2_K through Q8_0 and F16. The retry used Q4_K_M and the matching Q8_0 multimodal projector; download did not progress.",
+              "url": "https://huggingface.co/mradermacher/TimeLens2-4B-GGUF"
+            }
+          ],
+          "third_attempt": {
+            "command": "HF_HUB_ENABLE_HF_TRANSFER=0 hf download mradermacher/TimeLens2-4B-GGUF --revision d6e8ab99bea982f8c56fe73284c374b626d6c14e --include *Q4_K_M* --local-dir /tmp/vep-mu-tgrounding-download/TimeLens2-4B-Q4_K_M",
+            "started_at": "2026-10-16 (after fm steering 004)",
+            "log_path": "/tmp/vep-mu-tgrounding-download/hf-download.log",
+            "resumable": "Hugging Face CLI local-dir download; force-download disabled",
+            "elapsed_seconds_at_snapshot": 139,
+            "incomplete_file_bytes_at_snapshot": 0,
+            "process_status_at_snapshot": "stopped with SIGTERM after 139s without progress; hf-download.log empty; no process left running",
+            "temporary_path": "/tmp/vep-mu-tgrounding-download/TimeLens2-4B-Q4_K_M (empty resumable state retained outside worktree)"
+          }
+        }
+      }
+    },
+    {
+      "id": "TimePLE-8B",
+      "publisher_revision": "code 05728f40bb34478811bcf86532e38e6499ce4462 (KlingAIResearch/TimePLE HEAD, verified 2026-10-16); weights f583ef50ea9fc3498d537ff14438af25d5613d38 (KlingTeam/TimePLE HEAD sha, verified 2026-10-16)",
+      "precision": "not established; no compatible compressed artifact validated",
+      "quality_metrics": {
+        "temporal_iou": null,
+        "onset_error_seconds": null,
+        "offset_error_seconds": null,
+        "repeated_event_recall": null,
+        "false_event_proposals": null
+      },
+      "cold_latency_seconds": null,
+      "warm_latency_seconds": null,
+      "peak_memory_bytes": null,
+      "cost_per_source_hour": null,
+      "decode_infer_serialize_seconds": {
+        "decode": null,
+        "infer": null,
+        "serialize": null
+      },
+      "license_class": "research evaluation candidate; exact checkpoint and base-model terms pending vep-mu-license review",
+      "adoption_decision": "research-only",
+      "status": "Not measured locally. Candidate roster retained for comparison, but no compatible inference run or event predictions are available; custom qwen3_vl_timeple code and its research-only license still require a separate validated run."
+    },
+    {
+      "id": "Pocket-STVG",
+      "publisher_revision": null,
+      "precision": null,
+      "quality_metrics": {
+        "temporal_iou": null,
+        "onset_error_seconds": null,
+        "offset_error_seconds": null,
+        "repeated_event_recall": null,
+        "false_event_proposals": null
+      },
+      "cold_latency_seconds": null,
+      "warm_latency_seconds": null,
+      "peak_memory_bytes": null,
+      "cost_per_source_hour": null,
+      "decode_infer_serialize_seconds": {
+        "decode": null,
+        "infer": null,
+        "serialize": null
+      },
+      "license_class": "unknown; no executable repository or checkpoint identified",
+      "adoption_decision": "conditional fallback",
+      "status": "monitor; no executable model/checkpoint identified as of 2026-10-15"
+    }
+  ],
+  "publisher_sources": [
+    "https://github.com/MCG-NJU/TimeLens2",
+    "https://huggingface.co/MCG-NJU/TimeLens2-4B",
+    "https://github.com/KlingAIResearch/TimePLE",
+    "https://arxiv.org/abs/2609.31135"
+  ],
+  "unmeasured_dimensions": [
+    "Agent-labeled calibration and held-out temporal event accuracy",
+    "M5 Pro benchmark; current machine is Apple M5, not M5 Pro",
+    "Cold and warm latency, peak memory, decode/infer/serialize split and end-to-end cost for every candidate",
+    "Checkpoint license terms and compatible compressed precision for candidate weights (revisions frozen 2026-10-16; license review still with vep-mu-license)",
+    "Pocket-STVG executable implementation and checkpoint",
+    "M7/M8 event-level calibration proposal records for LCATL0012 and IMG_1816"
+  ]
+}

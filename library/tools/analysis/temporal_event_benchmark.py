@@ -41,9 +41,18 @@ import sys
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-EVENT_CLASSES = ("reach", "contact", "pick_up", "use", "set_down")
+# Keep the core vocabulary broad enough to score gestures, object actions and
+# directional opposites. New research labels remain plain strings so adding a
+# class does not require a schema migration; the manifest freezes the actual
+# vocabulary for each benchmark release.
+EVENT_CLASSES = (
+    "reach", "contact", "pick_up", "use", "set_down",
+    "hand_raise", "pointing", "nodding", "head_shake", "waving",
+    "person_enters", "person_leaves", "opening", "closing",
+)
 DECISIONS = ("yes", "no", "abstain", "not_run")
 COMPLETENESS = ("complete", "partial", "uncertain")
+PROPOSAL_STAGES = ("event_detection", "boundary_refinement")
 
 
 def _interval(row, label):
@@ -151,7 +160,15 @@ def _validate(doc, corpus_manifest):
                         )
                     if provenance["review_status"] not in ("reviewed", "adjudicated"):
                         raise ValueError(
-                            f"{sid}/{rid}: human event label must be reviewed or adjudicated"
+                            f"{sid}/{rid}: event label must be reviewed or adjudicated"
+                        )
+                    repeat_group_id = row.get("repeat_group_id")
+                    if repeat_group_id is not None and (
+                        not isinstance(repeat_group_id, str)
+                        or not repeat_group_id.strip()
+                    ):
+                        raise ValueError(
+                            f"{sid}/{rid}: repeat_group_id must be a nonempty string or null"
                         )
                     if any(
                         value is not None and not isinstance(value, str)
@@ -172,6 +189,9 @@ def _validate(doc, corpus_manifest):
                             f"{sid}/{rid}: contact or state-change evidence is required"
                         )
                 if group == "proposals":
+                    stage = row.get("stage", "event_detection")
+                    if stage not in PROPOSAL_STAGES:
+                        raise ValueError(f"{sid}/{rid}: invalid proposal stage")
                     verifier = row["verifier"]
                     if (
                         not isinstance(row["proposal_method"], str)
@@ -195,10 +215,29 @@ def _validate(doc, corpus_manifest):
                         raise ValueError(
                             f"{sid}/{rid}: verifier seconds must be nonnegative or null"
                         )
+                    if stage == "boundary_refinement":
+                        parent_id = row.get("refines_proposal_id")
+                        if not isinstance(parent_id, str) or not parent_id.strip():
+                            raise ValueError(
+                                f"{sid}/{rid}: boundary refinement requires refines_proposal_id"
+                            )
                 if group == "hard_negatives" and (
                     not isinstance(row["reason"], str) or not row["reason"].strip()
                 ):
                     raise ValueError(f"{sid}/{rid}: hard negative requires a reason")
+        proposal_rows = {row["proposal_id"]: row for row in source["proposals"]}
+        for row in source["proposals"]:
+            if row.get("stage", "event_detection") != "boundary_refinement":
+                continue
+            parent = proposal_rows.get(row["refines_proposal_id"])
+            if parent is None or parent.get("stage", "event_detection") != "event_detection":
+                raise ValueError(
+                    f"{sid}/{row['proposal_id']}: parent must be an event-detection proposal"
+                )
+            if parent["event_class"] != row["event_class"]:
+                raise ValueError(
+                    f"{sid}/{row['proposal_id']}: refinement class differs from parent"
+                )
 
 
 def temporal_iou(a, b):
@@ -369,6 +408,8 @@ def _stats(predictions, gold, threshold):
         ((abs(p["start"] - g["start"]) + abs(p["end"] - g["end"])) / 2.0)
         for p, g, _ in matches
     ]
+    onset_errors = [abs(p["start"] - g["start"]) for p, g, _ in matches]
+    offset_errors = [abs(p["end"] - g["end"]) for p, g, _ in matches]
     identities = [
         p.get("identity_id") == g.get("identity_id")
         for p, g, _ in matches
@@ -387,6 +428,14 @@ def _stats(predictions, gold, threshold):
         else None,
         "boundary_error_mean_seconds": statistics.fmean(boundary) if boundary else None,
         "boundary_error_p95_seconds": _percentile(boundary, 0.95),
+        "onset_error_mean_seconds": (
+            statistics.fmean(onset_errors) if onset_errors else None
+        ),
+        "onset_error_p95_seconds": _percentile(onset_errors, 0.95),
+        "offset_error_mean_seconds": (
+            statistics.fmean(offset_errors) if offset_errors else None
+        ),
+        "offset_error_p95_seconds": _percentile(offset_errors, 0.95),
         "identity_accuracy": sum(identities) / len(identities) if identities else None,
         "identity_scored": len(identities),
     }
@@ -411,7 +460,14 @@ def evaluate(doc, iou_threshold=0.5, *, corpus_manifest):
     proposals = [
         {**p, "_source_id": s["source_id"]} for s in sources for p in s["proposals"]
     ]
-    proposal_stats = _stats(proposals, gold, iou_threshold)
+    detection_proposals = [
+        p for p in proposals if p.get("stage", "event_detection") == "event_detection"
+    ]
+    refinement_proposals = [
+        p for p in proposals if p.get("stage") == "boundary_refinement"
+    ]
+    proposal_stats = _stats(detection_proposals, gold, iou_threshold)
+    refinement_stats = _stats(refinement_proposals, gold, iou_threshold)
     methods = {}
     for method in sorted({p["proposal_method"] for p in proposals}):
         method_proposals = [p for p in proposals if p["proposal_method"] == method]
@@ -424,8 +480,37 @@ def evaluate(doc, iou_threshold=0.5, *, corpus_manifest):
                 iou_threshold,
             ),
         }
-    verified = [p for p in proposals if p["verifier"]["decision"] == "yes"]
+    verified = [
+        p for p in detection_proposals if p["verifier"]["decision"] == "yes"
+    ]
+    verified_refinements = [
+        p for p in refinement_proposals if p["verifier"]["decision"] == "yes"
+    ]
     verified_stats = _stats(verified, gold, iou_threshold)
+    repeated_gold = []
+    repeated_keys = {}
+    for event in gold:
+        group = event.get("repeat_group_id")
+        if group is not None:
+            repeated_keys.setdefault(
+                (event["_source_id"], event["event_class"], group), []
+            ).append(event)
+    repeated_gold = [
+        event
+        for group_events in repeated_keys.values()
+        if len(group_events) >= 2
+        for event in group_events
+    ]
+    repeated_recall = (
+        _stats(verified, repeated_gold, iou_threshold)["recall"]
+        if repeated_gold
+        else None
+    )
+    repeated_detection_recall = (
+        _stats(detection_proposals, repeated_gold, iou_threshold)["recall"]
+        if repeated_gold
+        else None
+    )
     no = sum(p["verifier"]["decision"] == "no" for p in proposals)
     abstain = sum(p["verifier"]["decision"] == "abstain" for p in proposals)
     not_run = sum(p["verifier"]["decision"] == "not_run" for p in proposals)
@@ -438,11 +523,15 @@ def evaluate(doc, iou_threshold=0.5, *, corpus_manifest):
     classes = {}
     for cls in EVENT_CLASSES:
         c_gold = [x for x in gold if x["event_class"] == cls]
-        c_prop = [x for x in proposals if x["event_class"] == cls]
+        c_prop = [x for x in detection_proposals if x["event_class"] == cls]
+        c_refinements = [
+            x for x in refinement_proposals if x["event_class"] == cls
+        ]
         c_verified = [x for x in c_prop if x["verifier"]["decision"] == "yes"]
         classes[cls] = {
             "proposal": _stats(c_prop, c_gold, iou_threshold),
             "verified": _stats(c_verified, c_gold, iou_threshold),
+            "boundary_refinement": _stats(c_refinements, c_gold, iou_threshold),
             "completeness": {
                 value: sum(e["completeness"] == value for e in c_gold)
                 for value in COMPLETENESS
@@ -517,8 +606,20 @@ def evaluate(doc, iou_threshold=0.5, *, corpus_manifest):
             ),
         },
         "proposal": proposal_stats,
+        "event_detection": proposal_stats,
+        "boundary_refinement": refinement_stats,
         "proposal_by_method": methods,
         "verified": verified_stats,
+        "verified_boundary_refinement": _stats(
+            verified_refinements, gold, iou_threshold
+        ),
+        "repeated_events": {
+            "group_count": sum(len(rows) >= 2 for rows in repeated_keys.values()),
+            "gold_instances": len(repeated_gold),
+            "proposal_recall": repeated_detection_recall,
+            "verified_recall": repeated_recall,
+            "note": "Repeated instances are scored one-to-one; unmatched duplicates remain false proposals.",
+        },
         "verifier": {
             "yes": len(verified),
             "no": no,

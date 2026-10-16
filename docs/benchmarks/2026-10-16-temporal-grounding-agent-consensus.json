@@ -1,0 +1,259 @@
+{
+  "agreement": [
+    {
+      "adjudicated_match_count": 4,
+      "excluded_freeform_tiebreak_event_classes": [
+        "body_turn_away",
+        "hand_to_collar_or_strap",
+        "hands_clasp_rub",
+        "hands_pressed_together",
+        "hands_spread_or_clap",
+        "head_bow_lean_forward",
+        "head_turn",
+        "look_up_and_away",
+        "look_up_at_mural",
+        "step_back_from_camera"
+      ],
+      "pairwise_agreement": {
+        "a_vs_b": {
+          "boundary_error_mean_seconds": 0.5,
+          "boundary_error_p95_seconds": 0.5,
+          "false_negatives": 4,
+          "false_positives": 5,
+          "gold_events": 6,
+          "identity_accuracy": 1.0,
+          "identity_scored": 2,
+          "offset_error_mean_seconds": 0.5,
+          "offset_error_p95_seconds": 1.0,
+          "onset_error_mean_seconds": 0.5,
+          "onset_error_p95_seconds": 1.0,
+          "precision": 0.2857142857142857,
+          "predictions": 7,
+          "recall": 0.3333333333333333,
+          "temporal_iou_mean": 0.5833333333333333,
+          "true_positives": 2
+        },
+        "agreed_events": 2,
+        "agreement_f1": 0.30769230769230765,
+        "annotators": [
+          "agent-openai-codex-r3a",
+          "labeller-b"
+        ],
+        "b_vs_a": {
+          "boundary_error_mean_seconds": 0.5,
+          "boundary_error_p95_seconds": 0.5,
+          "false_negatives": 5,
+          "false_positives": 4,
+          "gold_events": 7,
+          "identity_accuracy": 1.0,
+          "identity_scored": 2,
+          "offset_error_mean_seconds": 0.5,
+          "offset_error_p95_seconds": 1.0,
+          "onset_error_mean_seconds": 0.5,
+          "onset_error_p95_seconds": 1.0,
+          "precision": 0.3333333333333333,
+          "predictions": 6,
+          "recall": 0.2857142857142857,
+          "temporal_iou_mean": 0.5833333333333333,
+          "true_positives": 2
+        },
+        "class_confusion": [],
+        "iou_threshold": 0.5,
+        "label_origin": "agent",
+        "model_families": [
+          "OpenAI/codex",
+          "opencode muse-spark"
+        ],
+        "pass_a_events": 7,
+        "pass_b_events": 6,
+        "source_id": "IMG_1816"
+      },
+      "source_id": "IMG_1816",
+      "tiebreak_confirmed_count": 2,
+      "unresolved_disputed_count": 7
+    },
+    {
+      "adjudicated_match_count": 0,
+      "excluded_freeform_tiebreak_event_classes": [
+        "hand_sweep_right",
+        "hands_center_gesture",
+        "hands_lower_clasp",
+        "head_lift_from_laptop",
+        "head_turn_to_laptop"
+      ],
+      "pairwise_agreement": {
+        "a_vs_b": {
+          "boundary_error_mean_seconds": null,
+          "boundary_error_p95_seconds": null,
+          "false_negatives": 5,
+          "false_positives": 4,
+          "gold_events": 5,
+          "identity_accuracy": null,
+          "identity_scored": 0,
+          "offset_error_mean_seconds": null,
+          "offset_error_p95_seconds": null,
+          "onset_error_mean_seconds": null,
+          "onset_error_p95_seconds": null,
+          "precision": 0.0,
+          "predictions": 4,
+          "recall": 0.0,
+          "temporal_iou_mean": null,
+          "true_positives": 0
+        },
+        "agreed_events": 0,
+        "agreement_f1": 0.0,
+        "annotators": [
+          "agent-openai-codex-r3a",
+          "labeller-b"
+        ],
+        "b_vs_a": {
+          "boundary_error_mean_seconds": null,
+          "boundary_error_p95_seconds": null,
+          "false_negatives": 4,
+          "false_positives": 5,
+          "gold_events": 4,
+          "identity_accuracy": null,
+          "identity_scored": 0,
+          "offset_error_mean_seconds": null,
+          "offset_error_p95_seconds": null,
+          "onset_error_mean_seconds": null,
+          "onset_error_p95_seconds": null,
+          "precision": 0.0,
+          "predictions": 5,
+          "recall": 0.0,
+          "temporal_iou_mean": null,
+          "true_positives": 0
+        },
+        "class_confusion": [],
+        "iou_threshold": 0.5,
+        "label_origin": "agent",
+        "model_families": [
+          "OpenAI/codex",
+          "opencode muse-spark"
+        ],
+        "pass_a_events": 4,
+        "pass_b_events": 5,
+        "source_id": "LCATL0012"
+      },
+      "source_id": "LCATL0012",
+      "tiebreak_confirmed_count": 0,
+      "unresolved_disputed_count": 9
+    }
+  ],
+  "format": "temporal_grounding_agent_consensus/1",
+  "iou_threshold": 0.5,
+  "label_origin": "agent",
+  "limitations": [
+    "Calibration only; held-out LC4930 and IMG_1818 remain sealed and excluded.",
+    "Free-form tie-break classes were mapped only where the semantics directly matched the fixed benchmark vocabulary; other classes were excluded from event adjudication.",
+    "Low agreement leaves many disputed events unresolved; unresolved events are not forced into the consensus.",
+    "M7/M8 proposal records for these exact calibration sources are absent from the worktree, so event-candidate accuracy is not computable from this artifact."
+  ],
+  "panel_model_families": [
+    "OpenAI/codex",
+    "opencode muse-spark",
+    "anthropic-claude"
+  ],
+  "sources": [
+    {
+      "duration_seconds": 188.578333,
+      "events": [
+        {
+          "completeness": "partial",
+          "contact_evidence": "both hands raised palms-out at chest height in 1fps frames ~8-9; ambiguous with emphasis/wave, recorded here as hand_raise (see waving hard negative)",
+          "end": 9.5,
+          "event_class": "hand_raise",
+          "event_id": "IMG_1816:adjudicated:e1",
+          "identity_id": "person-1",
+          "label_origin": "agent",
+          "provenance": {
+            "annotator_id": "agent-panel:labeller-b+agent-openai-codex-r3a",
+            "evidence_ref": "frame@8s",
+            "panel_iou": 0.6666666666666666,
+            "review_status": "adjudicated"
+          },
+          "repeat_group_id": null,
+          "start": 7.0,
+          "state_change_evidence": null
+        },
+        {
+          "completeness": "partial",
+          "contact_evidence": "hands pressed together (palms meeting) in 1fps frame ~9",
+          "end": 10.0,
+          "event_class": "contact",
+          "event_id": "IMG_1816:adjudicated:e3",
+          "identity_id": "person-1",
+          "label_origin": "agent",
+          "provenance": {
+            "annotator_id": "agent-panel:labeller-b+agent-openai-codex-r3a",
+            "evidence_ref": "frame@9s",
+            "panel_iou": 0.5,
+            "review_status": "adjudicated"
+          },
+          "repeat_group_id": null,
+          "start": 8.5,
+          "state_change_evidence": "hands meet across consecutive frames"
+        },
+        {
+          "completeness": "uncertain",
+          "contact_evidence": "right index finger extended toward camera in 1fps frame ~5; single-frame support",
+          "end": 5.5,
+          "event_class": "pointing",
+          "event_id": "IMG_1816:adjudicated:e2",
+          "identity_id": "person-1",
+          "label_origin": "agent",
+          "provenance": {
+            "annotator_id": "agent-panel:labeller-b+agent-anthropic-claude-sonnet-5-5-tiebreak-r2 tiebreak:agent-anthropic-claude-sonnet-5-5-tiebreak-r2",
+            "evidence_ref": "frame@5s",
+            "panel_iou": 0.75,
+            "review_status": "adjudicated"
+          },
+          "repeat_group_id": null,
+          "start": 4.0,
+          "state_change_evidence": null
+        },
+        {
+          "completeness": "uncertain",
+          "contact_evidence": "open hand raised toward lens, fingers spread partly occluding frame in 1fps frames ~86-87; adjusting camera or gesturing, intent unclear",
+          "end": 87.0,
+          "event_class": "hand_raise",
+          "event_id": "IMG_1816:adjudicated:e5",
+          "identity_id": "person-1",
+          "label_origin": "agent",
+          "provenance": {
+            "annotator_id": "agent-panel:labeller-b+agent-anthropic-claude-sonnet-5-5-tiebreak-r2 tiebreak:agent-anthropic-claude-sonnet-5-5-tiebreak-r2",
+            "evidence_ref": "frame@86s",
+            "panel_iou": 0.5,
+            "review_status": "adjudicated"
+          },
+          "repeat_group_id": null,
+          "start": 85.5,
+          "state_change_evidence": null
+        }
+      ],
+      "hard_negatives": [],
+      "label_origin": "agent",
+      "proposals": [],
+      "source_id": "IMG_1816"
+    },
+    {
+      "duration_seconds": 288.955333,
+      "events": [],
+      "hard_negatives": [],
+      "label_origin": "agent",
+      "proposals": [],
+      "source_id": "LCATL0012"
+    }
+  ],
+  "split": "calibration",
+  "tie_break_class_mapping": {
+    "forearm_rest_on_surface": "contact",
+    "hand_gesture_point": "pointing",
+    "hand_raise_gesture": "hand_raise",
+    "hand_touch_laptop": "contact",
+    "hand_wave_low": "waving",
+    "index_finger_raise": "hand_raise",
+    "open_hands_gesture": "hand_raise",
+    "open_palm_toward_camera": "hand_raise"
+  }
+}

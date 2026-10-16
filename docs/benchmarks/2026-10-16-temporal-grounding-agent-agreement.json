@@ -1,0 +1,141 @@
+{
+  "calibration_sources": [
+    {
+      "a_vs_b": {
+        "boundary_error_mean_seconds": 0.5,
+        "boundary_error_p95_seconds": 0.5,
+        "false_negatives": 4,
+        "false_positives": 5,
+        "gold_events": 6,
+        "identity_accuracy": 1.0,
+        "identity_scored": 2,
+        "offset_error_mean_seconds": 0.5,
+        "offset_error_p95_seconds": 1.0,
+        "onset_error_mean_seconds": 0.5,
+        "onset_error_p95_seconds": 1.0,
+        "precision": 0.2857142857142857,
+        "predictions": 7,
+        "recall": 0.3333333333333333,
+        "temporal_iou_mean": 0.5833333333333333,
+        "true_positives": 2
+      },
+      "agreed_events": 2,
+      "agreement_f1": 0.30769230769230765,
+      "annotators": [
+        "agent-openai-codex-r3a",
+        "labeller-b"
+      ],
+      "b_vs_a": {
+        "boundary_error_mean_seconds": 0.5,
+        "boundary_error_p95_seconds": 0.5,
+        "false_negatives": 5,
+        "false_positives": 4,
+        "gold_events": 7,
+        "identity_accuracy": 1.0,
+        "identity_scored": 2,
+        "offset_error_mean_seconds": 0.5,
+        "offset_error_p95_seconds": 1.0,
+        "onset_error_mean_seconds": 0.5,
+        "onset_error_p95_seconds": 1.0,
+        "precision": 0.3333333333333333,
+        "predictions": 6,
+        "recall": 0.2857142857142857,
+        "temporal_iou_mean": 0.5833333333333333,
+        "true_positives": 2
+      },
+      "class_confusion": [],
+      "iou_threshold": 0.5,
+      "label_origin": "agent",
+      "model_families": [
+        "OpenAI/codex",
+        "opencode muse-spark"
+      ],
+      "pass_a_events": 7,
+      "pass_b_events": 6,
+      "source_id": "IMG_1816"
+    },
+    {
+      "a_vs_b": {
+        "boundary_error_mean_seconds": null,
+        "boundary_error_p95_seconds": null,
+        "false_negatives": 5,
+        "false_positives": 4,
+        "gold_events": 5,
+        "identity_accuracy": null,
+        "identity_scored": 0,
+        "offset_error_mean_seconds": null,
+        "offset_error_p95_seconds": null,
+        "onset_error_mean_seconds": null,
+        "onset_error_p95_seconds": null,
+        "precision": 0.0,
+        "predictions": 4,
+        "recall": 0.0,
+        "temporal_iou_mean": null,
+        "true_positives": 0
+      },
+      "agreed_events": 0,
+      "agreement_f1": 0.0,
+      "annotators": [
+        "agent-openai-codex-r3a",
+        "labeller-b"
+      ],
+      "b_vs_a": {
+        "boundary_error_mean_seconds": null,
+        "boundary_error_p95_seconds": null,
+        "false_negatives": 4,
+        "false_positives": 5,
+        "gold_events": 4,
+        "identity_accuracy": null,
+        "identity_scored": 0,
+        "offset_error_mean_seconds": null,
+        "offset_error_p95_seconds": null,
+        "onset_error_mean_seconds": null,
+        "onset_error_p95_seconds": null,
+        "precision": 0.0,
+        "predictions": 5,
+        "recall": 0.0,
+        "temporal_iou_mean": null,
+        "true_positives": 0
+      },
+      "class_confusion": [],
+      "iou_threshold": 0.5,
+      "label_origin": "agent",
+      "model_families": [
+        "OpenAI/codex",
+        "opencode muse-spark"
+      ],
+      "pass_a_events": 4,
+      "pass_b_events": 5,
+      "source_id": "LCATL0012"
+    }
+  ],
+  "format": "temporal_agent_agreement_report/1",
+  "held_out_sources": "sealed; excluded from agreement and tie-break packet pending first frozen score pass",
+  "iou_threshold": 0.5,
+  "label_origin": "agent",
+  "tie_break": {
+    "annotator_id": "agent-anthropic-claude-sonnet-5-5-tiebreak-r2",
+    "blind_to_prior_annotations": true,
+    "consensus_artifact": "2026-10-16-temporal-grounding-agent-consensus.json",
+    "freeform_class_mapping": "Only direct semantic aliases to the fixed benchmark vocabulary were retained; other tie-break labels were excluded. See consensus artifact.",
+    "held_out_policy": "LC4930 and IMG_1818 remain sealed; no held-out labels or tie-break results were scored.",
+    "model_family": "anthropic-claude",
+    "packet": "blind tie-break packet in firstmate task data; calibration disagreement windows only",
+    "results": {
+      "IMG_1816": {
+        "disputed_events": 9,
+        "initial_agreed_events": 2,
+        "initial_pair_agreement_f1": 0.30769230769230765,
+        "tiebreak_confirmed_events": 2,
+        "unresolved_events": 7
+      },
+      "LCATL0012": {
+        "disputed_events": 9,
+        "initial_agreed_events": 0,
+        "initial_pair_agreement_f1": 0.0,
+        "tiebreak_confirmed_events": 0,
+        "unresolved_events": 9
+      }
+    }
+  }
+}
