@@ -163,6 +163,13 @@ _VALUE_ALIASES = {
     "people": "person", "faces": "face", "persons": "person",
 }
 
+# Scaffolding and vibe words that never name a measurable thing. Any
+# other unmatched alphabetic token is treated as an open-vocabulary
+# object name (the detector tier answers names, never vibes): silently
+# dropping "backpack" while answering "person" would weaken the
+# conjunction without saying so.
+_STOPWORDS = frozenset(["footage", "moment", "part", "clip", "scene", "video", "shot", "shots", "take", "interview", "episode", "podcast", "vlog", "film", "movie", "photo", "picture", "frame", "sequence", "where", "find", "visible", "appears", "appearing", "appear", "screen", "onscreen", "speaker", "speakers", "show", "shows", "showing", "showed", "look", "looks", "looking", "get", "gets", "give", "gives", "cover", "covers", "touch", "touches", "touching", "puts", "put", "make", "makes", "feel", "feels", "seem", "seems", "become", "becomes", "very", "really", "just", "more", "most", "best", "good", "nice", "great", "cool", "warm", "cold", "hot", "beautiful", "pretty", "cinematic", "aesthetic", "lovely", "amazing", "awesome", "stunning", "gorgeous", "vivid", "fast", "slow", "quick", "quickly", "briefly", "long", "short", "big", "small", "large", "tiny", "whole", "entire", "full", "half", "same", "other", "another", "each", "every", "any", "some", "few", "many", "much", "more", "less", "first", "last", "next", "previous", "same", "such", "only", "even", "also", "too", "either", "neither", "not", "never", "always", "often", "sometimes", "usually", "the", "a", "an", "of", "about", "on", "for", "and", "or", "to", "in", "is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "these", "those", "there", "here", "which", "who", "whom", "whose", "what", "when", "how", "why", "my", "your", "his", "her", "their", "our", "me", "him", "them", "us", "we", "you", "i", "he", "she", "they", "do", "does", "did", "done", "have", "has", "had", "having", "with", "without", "from", "into", "over", "under", "again", "once", "twice", "during", "while", "then", "than", "s", "t", "d", "m", "ll", "re", "ve"])
+
 
 class RequirementGraphError(ValueError):
     """A query that cannot be planned without guessing."""
@@ -257,6 +264,7 @@ def parse_query(text: str) -> dict[str, Any]:
         return requirement
 
     lowered = cleaned.lower()
+    topic_spans: list[tuple[int, int]] = []
     negated_spans = [(m.start(), m.end()) for m in re.finditer(
         r"\b(no|without|with no|never|nobody|nothing|isn't|aren't"
         r"|not .*visible|no .*visible)\b", lowered)]
@@ -323,7 +331,35 @@ def parse_query(text: str) -> dict[str, Any]:
         add(RELATIONSHIP, "visible speaker with synchronized dialogue",
             lowered.find("visible"), kind="audio_visual")
 
-    for hit, cue, family in _suppress_overlaps(hits):
+    # Possessive-tolerant action patterns: "covers her mouth" and
+    # "touching his face" are the same candidates as the bare verbs,
+    # which word-boundary cues never match across the possessive.
+    _POSSESSIVE_ACTIONS = (
+        (r"covers?(?:\s+(?:her|his|their|the))?\s+mouth", "hand_to_face"),
+        (r"touch(?:es|ing)?(?:\s+(?:her|his|their|the))?\s+face",
+         "hand_to_face"),
+        ((r"hand\s+(?:to|on|near)\s+(?:(?:her|his|their|the)\s+)?"
+          r"(?:face|mouth)"), "hand_to_face"),
+        (r"picks?(?:\s+(?:it|them|that|this))?\s+up", "pick_up_put_down"),
+        (r"puts?(?:\s+(?:it|them|that|this))?\s+down", "pick_up_put_down"),
+    )
+    possessive_spans: list[tuple[int, int]] = []
+    for pattern, kind in _POSSESSIVE_ACTIONS:
+        for match in re.finditer(pattern, lowered):
+            key = (ACTION, "candidate", kind)
+            if key in seen_keys:
+                possessive_spans.append((match.start(), match.end()))
+                continue
+            seen_keys.add(key)
+            req = add(ACTION, match.group(0), match.start(),
+                      kind="candidate", value=kind)
+            req["negated"] = is_negated(match.start(), match.group(0))
+            possessive_spans.append((match.start(), match.end()))
+
+    for hit, cue, family in _suppress_overlaps(
+            [(hit, cue, family) for hit, cue, family in hits
+             if not any(hit < stop and start < hit + len(cue)
+                        for start, stop in possessive_spans)]):
         if family == SPEECH:
             if cue in ("speaking", "dialogue"):
                 key = (SPEECH, "presence", "")
@@ -341,6 +377,13 @@ def parse_query(text: str) -> dict[str, Any]:
                     seen_keys.add(key)
                     req = add(SPEECH, f"{cue} {topic}", hit,
                               kind="topic", value=topic)
+                    # The topic is spoken about, not a visible object:
+                    # cover its words so the fallback never queries
+                    # the detector for "revenue".
+                    topic_at = lowered.find(topic.lower(), hit + len(cue))
+                    if topic_at >= 0:
+                        topic_spans.append(
+                            (topic_at, topic_at + len(topic)))
                 else:
                     key = (SPEECH, "presence", "")
                     if key in seen_keys:
@@ -392,6 +435,38 @@ def parse_query(text: str) -> dict[str, Any]:
 
     # (OCR was parsed before the scan above.)
 
+    # Open-vocabulary fallback: unmatched content words name visible
+    # things the fixed noun list does not know. Covered spans (every
+    # matched cue plus the OCR anchor and value) never contribute;
+    # stopwords never become queries.
+    covered_spans: list[tuple[int, int]] = list(topic_spans)
+    covered_spans.extend(possessive_spans)
+    for hit, cue, _family in _suppress_overlaps(hits):
+        covered_spans.append((hit, hit + len(cue)))
+    for req in requirements:
+        if req.get("family") == OCR:
+            for part in (req.get("cue", ""), str(req.get("value", ""))):
+                words = part.lower().split()
+                cursor = 0
+                for word in words:
+                    at = lowered.find(word, cursor)
+                    if at >= 0:
+                        covered_spans.append((at, at + len(word)))
+                        cursor = at + len(word)
+    for match in re.finditer(r"[a-z][a-z\-]{2,30}", lowered):
+        word, start = match.group(0), match.start()
+        if any(start < stop and begin < match.end()
+               for begin, stop in covered_spans):
+            continue
+        if word in _STOPWORDS:
+            continue
+        key = (IMAGE, "presence", canonical(word))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        req = add(IMAGE, word, start, kind="presence", value=word)
+        req["negated"] = is_negated(start, word)
+
     if not requirements:
         raise RequirementGraphError(
             "no speech, image, action, relationship, sound, ocr or "
@@ -405,6 +480,8 @@ def parse_query(text: str) -> dict[str, Any]:
         lowered)]
     if order_markers and len(requirements) >= 2:
         ordered_positions = sorted(positions)
+        event_like = {req["id"] for req in requirements
+                      if req["family"] in (ACTION, RELATIONSHIP)}
         for mark_pos, marker in order_markers:
             before = [req_id for pos, req_id in ordered_positions
                       if pos < mark_pos]
@@ -413,7 +490,13 @@ def parse_query(text: str) -> dict[str, Any]:
             if "after" in marker:
                 before, after = after, before
             if before and after:
-                first, second = before[-1], after[0]
+                # An ordering constrains EVENTS ("opens ... then shows"):
+                # prefer the nearest action/relationship requirement on
+                # the before side over a nearer object mention.
+                event_before = [req_id for req_id in before
+                                if req_id in event_like]
+                first = event_before[-1] if event_before else before[-1]
+                second = after[0]
                 if first != second and [first, second] not in order:
                     order.append([first, second])
 

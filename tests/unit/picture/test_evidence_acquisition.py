@@ -259,6 +259,39 @@ def test_ambiguities_name_lane_and_interval():
                      "candidate_id": "cand-1"}]
 
 
+def test_escalation_schedules_heavier_tier_for_open_requirements():
+    plan, _ = _plan_for(
+        "speaker discussing revenue while a chart is visible",
+        {"observations": []})
+    answers = {"req-1": {"status": "present"},
+               "req-2": {"status": "inconclusive"}}
+    second = ea.plan_escalation(plan, answers)
+    assert second["action"] == "refine"
+    assert all(step["producer"] == "segmentation-owlv2-named"
+               for step in second["steps"])
+    assert all(step["requirement_id"] == "req-2"
+               for step in second["steps"])
+    assert second["escalation_round"] is True
+
+
+def test_escalation_is_no_run_when_nothing_is_open():
+    plan, _ = _plan_for(
+        "speaker discussing revenue while a chart is visible",
+        {"observations": []})
+    answers = {"req-1": {"status": "present"},
+               "req-2": {"status": "present"}}
+    assert ea.plan_escalation(plan, answers)["action"] == "no_run"
+
+
+def test_escalation_refuses_lanes_with_no_heavier_tier():
+    plan, _ = _plan_for("where does the speaker discuss revenue",
+                        {"observations": []})
+    second = ea.plan_escalation(
+        plan, {"req-1": {"status": "inconclusive"}})
+    assert second["action"] == "no_run"
+    assert "no heavier tier" in second["refused"][0]["reason"]
+
+
 def test_full_run_lands_cached_evidence_and_requeries():
     model = {"observations": [
         _obs("w1", "m1", "speech_word", "clk", 10000, 20000,

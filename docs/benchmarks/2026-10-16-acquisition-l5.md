@@ -99,11 +99,92 @@ decision), so end-to-end answers-per-second awaits labeled producer
 ledgers in `acquisition_benchmark` format. The planner emits
 `ledger_key` identities compatible with that scorer.
 
+## Live-producer calibration (2026-10-16, follow-up)
+
+Downloads approved with conditions (inbox 001): download only what is
+benchmarked, quantized 4/8-bit for 2B+ models, full precision for
+small ones, delete after unless adopted, record precision,
+research-only weights never shipped. Nothing was downloaded: every
+weight below was already cached (`HF_HUB_OFFLINE=1` enforced it), and
+no Resolve binary was touched. Runner:
+`library/tools/acquisition_l5_live.py`, foreground under the
+`query_refinement` machine lock. Source: Apple 001 IMG_1812 read-only,
+six stills at the EVAL-04 sample times (15-65 s) into outside-worktree
+scratch.
+
+### Machine-measured detector points (this machine)
+
+| Producer | Cold | Warm per frame | Peak RSS | Precision |
+|---|---:|---:|---:|---|
+| Vision nominations (system) | 1.5 s first frame | 1.1-2.7 s (mean 1.6) | 0.03 GB | system, no weights |
+| OWLv2 named queries (cached `google/owlv2-base-patch16-ensemble`) | 42.9-50.2 s (load + infer) | 6.3-12.5 s, iPhone full-res | 0.45-0.52 GB | torch.float32, full precision (small-model rule) |
+
+The catalog keeps its controlled-set planning figures (Vision 1.6 s,
+OWLv2 36.4 s per 10 s window); the reproduction ranges above are now
+annotated on both entries. Cheap-first ordering is unchanged: Vision
+stays the cheapest eligible tier on every lane it covers.
+
+### Live loop: plan, execute, escalate, merge, re-evaluate
+
+Query "footage where backpack and laptop visible" (2.6 min locked
+run): round 1 ran the planned Vision producer per window (1/12 within
+the 1.6 s budget, 11 deferred over budget by 0.1-1.1 s - expected
+single-call variance, each named in its step reason); round 2 ran
+`plan_escalation` output with the OWLv2 producer inside its 36.4 s
+budget (6/12 acquired, 6 deferred with no detections). Ten
+`object.detection` rows merged; requery: backpack PRESENT, laptop
+inconclusive (point samples cannot prove absence - the correct
+non-answer). Backpack windows (45/55/65 s) overlap the EVAL-04
+nominated spans on the same source, cited as consistency, not as a
+new quality claim (detector quality stays owned by vep-mu-detect).
+
+Live ACQ-024: utility 0.0 to 0.5 over 165.7 s of extra inference =
+**0.0030 useful answers per second**. Spent and RSS are measured;
+utility is requirement satisfaction on this query, not a labeled
+recall score.
+
+Two loop defects found and fixed live: producers ran a heavier tier
+than the plan budgeted (now dispatched by planned producer id), and
+selective escalation had no scheduler (new `plan_escalation`:
+second-round steps only for still-open requirements, reusing prior
+windows, ledger-aware, budget-checked).
+
+### Live verification through the verifier path (2026-10-16)
+
+Query "the moment she covers her mouth" parses to a hand_to_face
+verify task (possessive-tolerant patterns added after the first live
+attempt showed "covers her mouth" matching nothing). One span,
+IMG_1808 3.5-5.5 s, statement "touches their face or hair with a
+hand", M2 built into outside-worktree scratch (29 frames, decode
+1.6 s), Gemma 4-bit in-process (server unreachable, loader message
+says ~7 GB resident; load took 99.8 s against its ~6 s claim):
+
+| Item | Measured |
+|---|---|
+| Verdict | yes (frame 2, t=4.835 s: "touching their ears/hair with both hands"), fresh-recorded in scratch, reusable by key |
+| VLM inference | 972.4 s for 4 frames, single sample |
+| CPU peak RSS | 0.41 GB (does not count the ~7 GB unified-memory residency) |
+
+Consistency, not a new quality claim: EVAL-04's bounded checks on the
+same span returned "no" for face-touch/cap-adjust wordings; this
+statement names hair explicitly and the model points at hair. Both can
+hold. The 972 s inference is an order of magnitude above EVAL-04's
+4.6-13.3 s range on the same model - first-inference compilation
+and/or machine contention are suspected but unattributed, so the
+catalog keeps the EVAL-04 figure and this sample is NOT a planning
+number until repeated. The verifier path itself (plan, execute,
+acquire, ledger, refresh untouched per the M8 architecture) is now
+proven live; a repeat that separates load, compile, and steady-state
+inference is the follow-up.
+
 ## What this lane leaves undone
 
-- Live producer execution and measured quality/latency/memory
-  scorecards (blocked on the vep-mu-downloads decision; only then can
-  `verify-bounded-span` and detector tiers run against real footage).
+- Detector quality claims on new labels (owned by vep-mu-detect;
+  their label request is out; this lane cites MU-15/EVAL-04 numbers
+  only).
+- Labeled answers-per-second on podcast / Apple 001 tasks (needs
+  `acquisition_benchmark` task ledgers with gold ids; the planner
+  emits compatible `ledger_key` identities).
 - True useful-answers-per-second on labeled podcast / Apple 001 tasks;
   `marginal_gain_per_second` is implemented and unit-tested but has no
   labeled input yet. No new gold labels were created, so no

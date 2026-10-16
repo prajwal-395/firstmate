@@ -114,7 +114,10 @@ PRODUCER_CATALOG: dict[str, list[dict[str, Any]]] = {
          "registry_implementation": None,
          "license_status": "unresolved", "purposes": ["permitted_research"],
          "measured": True,
-         "note": "measured 0.16 s/frame x 10 frames per 10 s window; "
+         "note": "measured 0.16 s/frame x 10 frames per 10 s window "
+                 "(batched path); single-call reproduction on iPhone "
+                 "frames 1.1-2.7 s/frame, so marginal 1.6 s budget "
+                 "deferrals are expected variance, not failure; "
                  "nominations only, negatives stay not_yet_analysed"},
         {"id": "segmentation-owlv2-named",
          "capability": "visual.detect",
@@ -123,7 +126,10 @@ PRODUCER_CATALOG: dict[str, list[dict[str, Any]]] = {
          "registry_implementation": None,
          "license_status": "unresolved", "purposes": ["permitted_research"],
          "measured": True,
-         "note": "measured 3.64 s/frame x 10 frames per 10 s window"},
+         "note": "measured 3.64 s/frame x 10 frames per 10 s window "
+                 "on the 40-still set; single-frame iPhone reproduction "
+                 "6.3-12.5 s warm, 42.9-50.2 s cold, float32, peak "
+                 "0.45-0.52 GB (this machine, 2026-10-16)"},
     ],
     # M5 sound events: migrated PANNs-scale lookup; no per-window
     # measured point is checked in.
@@ -600,6 +606,118 @@ def _conjunction_windows(
         else:
             merged.append(dict(row))
     return merged
+
+
+def plan_escalation(prior_plan: Mapping[str, Any],
+                      answers_after: Mapping[str, dict[str, Any]], *,
+                      latency_budget_s: float | None = None,
+                      ledger: Mapping[str, Any] | None = None,
+                      ) -> dict[str, Any]:
+    """Second-round steps for requirements the cheap tier left open.
+
+    Selective escalation (ACQ-019) is a new round, not a first-round
+    guess: only requirements still unsatisfied after the previous
+    execution, on lanes whose selection recorded an escalation
+    producer, schedule work. Windows reuse the prior round's intervals
+    for that lane (still the promising set); ledger hits dedup; the
+    latency budget applies to the new round alone.
+    """
+    compiled_by_id = {row["requirement_id"]: row
+                      for row in prior_plan.get("compiled", ())}
+    _TIER_RANK = {TIER_CHEAP: 0, TIER_STANDARD: 1, TIER_HEAVY: 2}
+    prior_windows: dict[str, list[dict[str, float]]] = {}
+    prior_tier: dict[str, int] = {}
+    for step in prior_plan.get("steps") or ():
+        prior_windows.setdefault(step["lane"], [])
+        if step["interval"] not in prior_windows[step["lane"]]:
+            prior_windows[step["lane"]].append(step["interval"])
+        rank = _TIER_RANK.get(step.get("tier"), 0)
+        prior_tier[step["lane"]] = max(prior_tier.get(step["lane"], 0),
+                                       rank)
+
+    lane_of_requirement: dict[str, str] = {}
+    for step in prior_plan.get("steps") or ():
+        lane_of_requirement.setdefault(step["requirement_id"],
+                                       step["lane"])
+
+    steps: list[dict[str, Any]] = []
+    refused: list[dict[str, Any]] = []
+    for req_id, answer in answers_after.items():
+        row = compiled_by_id.get(req_id, {})
+        status = answer.get("status")
+        satisfied = (status == evidence_query.PRESENT if not row.get("negated")
+                     else status == evidence_query.CONFIDENTLY_ABSENT)
+        if satisfied:
+            continue
+        lane = lane_of_requirement.get(req_id)
+        if lane is None:
+            refused.append({"requirement_id": req_id, "lane": None,
+                            "reason": "no prior lane to escalate from"})
+            continue
+        if lane == "verify" or lane not in PRODUCER_CATALOG:
+            refused.append({"requirement_id": req_id, "lane": lane,
+                            "reason": "no stronger producer cataloged "
+                                      "for this lane"})
+            continue
+        stronger = [entry for entry in PRODUCER_CATALOG[lane]
+                    if _TIER_RANK.get(entry["tier"], 0)
+                    > prior_tier.get(lane, 0)]
+        if not stronger:
+            refused.append({"requirement_id": req_id, "lane": lane,
+                            "reason": "the catalog holds no heavier tier "
+                                      "for this lane"})
+            continue
+        picked = min(stronger,
+                     key=lambda item: item["cost_seconds_per_window"])
+        for window in prior_windows.get(lane, ()):
+            key = ledger_key(str(prior_plan.get("source_digest")), lane,
+                             window, picked["id"])
+            if ledger is not None and key in ledger:
+                refused.append({
+                    "requirement_id": req_id, "lane": lane,
+                    "interval": window,
+                    "reason": f"already acquired as {key} (ACQ-014)"})
+                continue
+            steps.append({
+                "requirement_id": req_id, "lane": lane,
+                "catalog_lane": lane,
+                "interval": window, "producer": picked["id"],
+                "capability": picked["capability"], "tier": picked["tier"],
+                "verify_task": False,
+                "cost_budget_seconds": round(
+                    float(picked["cost_seconds_per_window"]), 3),
+                "peak_rss_gb": float(picked["peak_rss_gb"]),
+                "measured_cost": bool(picked["measured"]),
+                "why": (f"{req_id} is still {status} after the "
+                        f"{TIER_CHEAP} tier; {picked['id']} is the "
+                        f"selective escalation ({picked.get('note')})"),
+                "ledger_key": key,
+                "selectivity": 0.0,
+            })
+    estimated = round(sum(row["cost_budget_seconds"] for row in steps), 3)
+    if latency_budget_s is not None and estimated > latency_budget_s:
+        kept, running = [], 0.0
+        for step in steps:
+            if running + step["cost_budget_seconds"] <= latency_budget_s:
+                kept.append(step)
+                running += step["cost_budget_seconds"]
+            else:
+                refused.append({
+                    "requirement_id": step["requirement_id"],
+                    "lane": step["lane"], "interval": step["interval"],
+                    "reason": f"escalation budget {latency_budget_s}s "
+                              f"exhausted after {round(running, 3)}s"})
+        steps, estimated = kept, round(running, 3)
+    return {"schema_version": SCHEMA_VERSION,
+            "action": "refine" if steps else "no_run",
+            "graph_id": prior_plan.get("graph_id"),
+            "source_digest": prior_plan.get("source_digest"),
+            "edition": prior_plan.get("edition"),
+            "purpose": prior_plan.get("purpose"),
+            "fidelity": FIDELITY_EXHAUSTIVE, "escalation_round": True,
+            "steps": steps, "refused": refused,
+            "estimated_cost_seconds": estimated,
+            "latency_budget_s": latency_budget_s}
 
 
 def ledger_key(source_digest: str, lane: str,

@@ -160,3 +160,42 @@ def test_describe_is_compact_and_cites_ids():
     graph = rg.parse_query("footage with no visible people")
     lines = rg.describe(graph)
     assert lines == ["req-1 [image] NOT people"]
+
+
+def test_open_vocabulary_fallback_names_unknown_objects():
+    graph = rg.parse_query(
+        "footage where person and backpack and laptop visible")
+    values = {req.get("value") for req in graph["requirements"]}
+    assert {"person", "backpack", "laptop"} <= values
+    compiled = rg.compile_graph(graph)
+    assert len(compiled["answerable"]) == 3
+
+
+def test_speech_topic_is_not_a_visible_object():
+    graph = rg.parse_query("speaker discussing revenue while a chart is visible")
+    assert len(graph["requirements"]) == 2
+    assert all(req["value"] != "revenue" or req["family"] == "speech"
+               for req in graph["requirements"])
+
+
+def test_framing_modifiers_never_become_object_queries():
+    graph = rg.parse_query(
+        "where does the text read revenue growth appear on screen")
+    assert len(graph["requirements"]) == 1
+    assert graph["requirements"][0]["family"] == "ocr"
+
+
+def test_possessive_action_phrases_map_to_candidate_kinds():
+    graph = rg.parse_query("the moment she covers her mouth")
+    assert len(graph["requirements"]) == 1
+    req = graph["requirements"][0]
+    assert (req["family"], req["kind"], req["value"]) == (
+        "action", "candidate", "hand_to_face")
+    compiled = rg.compile_graph(graph)
+    assert compiled["needs_verification"] == ["req-1"]
+
+
+def test_pickup_sequence_is_one_candidate():
+    graph = rg.parse_query("she picks it up and puts it down")
+    assert len(graph["requirements"]) == 1
+    assert graph["requirements"][0]["value"] == "pick_up_put_down"
