@@ -50,16 +50,22 @@
 # account's own tokens and lives beside it at `config/opencode-main.db` or
 # `config/opencode-second.db`; neither is ever inherited - each home builds
 # its own from its own machine's live console login on the first launch that
-# needs it, then refreshes it on every later pinned launch.
+# needs it, then refreshes it on every later pinned launch. Builders for one
+# config directory serialize on an advisory lock. OpenCode processes never use
+# these shared pins directly: each task receives a private writable database
+# at `state/<task-id>.opencode.db`, seeded from the verified pin and retired
+# with the task by teardown.
 #
 # FRESHNESS. The live login refreshes its token, so a pin copied once would
 # go stale: after a rotation the pinned copy diverges and a secondary
 # launch fails its console fetch or falls back to the auth.json key, which
 # bills the main workspace. The account rows are therefore re-copied from
 # the live database inside one read-only read transaction on every pinned
-# launch, then re-pinned; a pin that will not refresh is discarded and
-# rebuilt. Only the two login tables are read: the live database grows to
-# tens of gigabytes, so a whole-file copy is never taken.
+# launch, then re-pinned; a pin that will not refresh is quarantined and
+# rebuilt. The task copy refreshes only those login rows from the verified
+# pin before relaunch, retaining its session data. Only the two login tables
+# are read from the live database: it grows to tens of gigabytes, so a
+# whole-file copy is never taken.
 #
 # PROOF. Before a launch rides a pin, OPENCODE_DB=<pin> opencode debug
 # config must resolve the opencode provider name to that launch's own
@@ -543,7 +549,7 @@ fm_opencode_main_verify() {  # <db>
 # launch that cannot prove it never starts, with a proved-wrong workspace
 # refused as one and an unreadable workspace reported plainly as the other.
 # Fails closed with the reason on stderr, never printing a workspace id.
-fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
+fm_opencode_workspace_db_build_unlocked() {  # <workspace> <org> [config-dir]
   local workspace=${1:-} org=${2:-} config_dir=${3:-}
   local db live tmp old_umask got_name label infix verify_rc
   label=$(fm_opencode_workspace_label "$workspace") || return 1
@@ -580,9 +586,13 @@ fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
     echo "error: $label OpenCode workspace pin names the live console database; refusing to touch it" >&2
     return 1
   fi
-  # A pin that will not refresh is discarded and rebuilt below.
+  # A pin that will not refresh is quarantined and rebuilt below. Never
+  # truncate the old inode: a reader may still have it open.
   if [ -f "$db" ] && ! fm_opencode_second_refresh "$db" "$live" "$org"; then
-    rm -f "$db"
+    mv "$db" "$db.corrupt.$(date +%s).$$" || {
+      echo "error: $label OpenCode workspace could not quarantine its invalid pin" >&2
+      return 1
+    }
   fi
   if [ ! -f "$db" ]; then
     old_umask=$(umask)
@@ -631,6 +641,64 @@ fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
   fi
   echo "error: $label OpenCode workspace pin could not be verified: the workspace could not be read; refusing the launch" >&2
   return 1
+}
+
+# Run a workspace operation under a per-pin advisory lock. lockf is available
+# on macOS and BSD; flock is the Linux equivalent. Fail closed without either.
+fm_opencode_workspace_locked() {  # <workspace> <config-dir> <function> <args...>
+  local workspace=$1 config_dir=$2 fn=$3 infix lock lib
+  shift 3
+  infix=$(fm_opencode_workspace_infix "$workspace") || return 1
+  [ -d "$config_dir" ] || return 1
+  lock="$config_dir/opencode-$infix.db.lock"
+  lib="$_FM_OPENCODE_SECOND_LIB_DIR/$(basename "${BASH_SOURCE[0]}")"
+  if command -v lockf >/dev/null 2>&1; then
+    lockf -t 120 "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
+  elif command -v flock >/dev/null 2>&1; then
+    flock -w 120 "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
+  else
+    echo "error: OpenCode workspace pin requires lockf or flock for concurrency safety" >&2
+    return 1
+  fi
+}
+
+# fm_opencode_workspace_db_build <workspace> <org> [config-dir]: serialized
+# public entry point. Builders for the same workspace/config directory share
+# one lock and therefore cannot refresh, quarantine, or publish over one
+# another.
+fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
+  local config_dir=${3:-}
+  [ -n "$config_dir" ] || config_dir=$(fm_opencode_second_config_dir) || return 1
+  fm_opencode_workspace_locked "$1" "$config_dir" fm_opencode_workspace_db_build_unlocked "$2" "$config_dir"
+}
+
+# Build and verify the shared pin, then give one task a private writable copy.
+# The private path lives in state and survives relaunches of the same task.
+fm_opencode_workspace_db_for_task_unlocked() {  # <workspace> <org> <config-dir> <task-id> <state-dir>
+  local workspace=$1 org=$2 config_dir=$3 task_id=$4 state_dir=$5 pin private
+  case "$task_id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 1
+  pin=$(fm_opencode_workspace_db_build_unlocked "$workspace" "$org" "$config_dir") || return 1
+  private="$state_dir/$task_id.opencode.db"
+  if [ ! -e "$private" ]; then
+    sqlite3 "$pin" 'PRAGMA wal_checkpoint(TRUNCATE);' >/dev/null 2>&1 || return 1
+    cp "$pin" "$private" || return 1
+    chmod 600 "$private" 2>/dev/null || true
+  else
+    # Preserve this task's session tables while refreshing just the login
+    # rows from the freshly verified shared pin before a relaunch.
+    fm_opencode_login_copy "$pin" "$private" || return 1
+    sqlite3 "$private" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" \
+      >/dev/null 2>&1 || return 1
+  fi
+  fm_opencode_workspace_verify "$private" "$workspace" || return 1
+  printf '%s\n' "$private"
+}
+
+fm_opencode_workspace_db_for_task() {  # <workspace> <org> <config-dir> <task-id> <state-dir>
+  local workspace=$1 org=$2 config_dir=$3 task_id=$4 state_dir=$5
+  fm_opencode_workspace_locked "$workspace" "$config_dir" fm_opencode_workspace_db_for_task_unlocked \
+    "$org" "$config_dir" "$task_id" "$state_dir"
 }
 
 # fm_opencode_second_db [config-dir]: print the pinned database path,

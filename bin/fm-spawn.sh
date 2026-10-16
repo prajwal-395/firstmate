@@ -2883,10 +2883,12 @@ fi
 # proven refuses the launch rather than running unpinned. Without a
 # configured second workspace the main workspace runs exactly as today.
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
-  OPENCODE_SECOND_DB=$(fm_opencode_second_db) || exit 1
+  OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
+  OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || exit 1
 elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
-  OPENCODE_MAIN_DB=$(fm_opencode_main_db) || exit 1
+  OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
+  OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || exit 1
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
