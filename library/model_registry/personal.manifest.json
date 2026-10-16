@@ -1,9 +1,13 @@
 {
   "capabilities": [
+    "audio.classify_event",
     "audio.detect_event",
     "audio.diarize",
     "speech.align",
-    "visual.embed"
+    "visual.depth",
+    "visual.detect",
+    "visual.embed",
+    "visual.segment"
   ],
   "edition": "personal",
   "implementations": [
@@ -350,6 +354,555 @@
         "obligations": [],
         "retrieved_at": null,
         "upstream_url": "https://huggingface.co/laion/clap-htsat-unfused"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "audio.classify_event"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593",
+        "runtime": "Transformers/PyTorch",
+        "version": "f826b80d28226b62986cc218e5cec390b1096902",
+        "weights_hash": null
+      },
+      "component_id": "model.ast_audio_labels",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "ast.audioset",
+      "label": "MIT/ast-finetuned-audioset-10-10-0.4593 model/checkpoint",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/tree/f826b80d28226b62986cc218e5cec390b1096902, https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/blob/f826b80d28226b62986cc218e5cec390b1096902/README.md",
+        "exact_version": "f826b80d28226b62986cc218e5cec390b1096902",
+        "license": "bsd-3-clause",
+        "obligations": [
+          "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Ren loader uses mutable repo ID and does not pass revision; audit SHA is not runtime pin."
+        ],
+        "primary_evidence": {
+          "artifact": "MIT/ast-finetuned-audioset-10-10-0.4593 model/checkpoint",
+          "artifact_id": "ast_audio_labels",
+          "artifact_type": "checkpoint",
+          "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "commercial_use": "Publisher metadata declares BSD-3-Clause; Ren loads floating model ID. Pin exact runtime revision before packaging.",
+          "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Ren loader uses mutable repo ID and does not pass revision; audit SHA is not runtime pin.",
+          "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Publisher metadata at revision f826b80d28226b62986cc218e5cec390b1096902 states license `bsd-3-clause`.",
+            "license: bsd-3-clause"
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/tree/f826b80d28226b62986cc218e5cec390b1096902",
+            "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/blob/f826b80d28226b62986cc218e5cec390b1096902/README.md"
+          ],
+          "exact_revision": "f826b80d28226b62986cc218e5cec390b1096902",
+          "license": "bsd-3-clause",
+          "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "retrieved_at": "2026-10-16T00:40:05Z",
+          "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/sfx_pipeline.py:252-253",
+            "model_id_or_path": "MIT/ast-finetuned-audioset-10-10-0.4593",
+            "revision_behavior": "repo ID, no revision argument; floats"
+          },
+          "status": "conditional",
+          "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+          "upstream_url": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "visual.depth"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small",
+        "runtime": "Transformers/PyTorch",
+        "version": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+        "weights_hash": null
+      },
+      "component_id": "model.depth_v2_small",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "depth_anything_v2.small",
+      "label": "depth-anything/Depth-Anything-V2-Small-hf model/checkpoint",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/tree/5426e4f0f36572d16453bbda7a8389317b1bef99, https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/README.md",
+        "exact_version": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+        "license": "apache-2.0",
+        "obligations": [
+          "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/depth.py:71."
+        ],
+        "primary_evidence": {
+          "artifact": "depth-anything/Depth-Anything-V2-Small-hf model/checkpoint",
+          "artifact_id": "depth_v2_small",
+          "artifact_type": "checkpoint",
+          "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+          "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/depth.py:71.",
+          "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Publisher metadata at revision 5426e4f0f36572d16453bbda7a8389317b1bef99 states license `apache-2.0`.",
+            "license: apache-2.0",
+            "<img src=\"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/depth_anything_overview.jpg\"",
+            "url = 'http://images.cocodataset.org/val2017/000000039769.jpg'",
+            "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\""
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/tree/5426e4f0f36572d16453bbda7a8389317b1bef99",
+            "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/README.md"
+          ],
+          "exact_revision": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+          "license": "apache-2.0",
+          "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/depth.py:71",
+            "model_id_or_path": "depth-anything/Depth-Anything-V2-Small",
+            "revision_behavior": "repo ID only; no revision argument; floats; recorded audited -hf suffixed artifact may not equal this ID"
+          },
+          "status": "conditional",
+          "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+          "upstream_url": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "visual.detect"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/microsoft/Florence-2-base",
+        "runtime": "Transformers/PyTorch",
+        "version": "5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+        "weights_hash": null
+      },
+      "component_id": "model.florence2",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "florence2.base",
+      "label": "microsoft/Florence-2-base model/checkpoint",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/microsoft/Florence-2-base/tree/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac, https://huggingface.co/microsoft/Florence-2-base/blob/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac/README.md",
+        "exact_version": "5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+        "license": "mit",
+        "obligations": [
+          "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:54."
+        ],
+        "primary_evidence": {
+          "artifact": "microsoft/Florence-2-base model/checkpoint",
+          "artifact_id": "florence2",
+          "artifact_type": "checkpoint",
+          "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+          "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:54.",
+          "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Publisher metadata at revision 5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac states license `mit`.",
+            "license: mit",
+            "license_link: https://huggingface.co/microsoft/Florence-2-base/resolve/main/LICENSE",
+            "Florence-2 is an advanced vision foundation model that uses a prompt-based approach to handle a wide range of vision and vision-language tasks.  Florence-2 can interpret simple text prompts to perform tasks like captioning, object detection, and segmentation. It leverages our FLD-5B dataset, containing 5.4 billion annotations across 126 million images, to master multi-task learning. The model's sequence-to-sequence architecture enables it to excel in both zero-shot and fine-tuned settings, proving to be a competitive vision foundation model.",
+            "url = \"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true\"",
+            "url = \"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true\""
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/microsoft/Florence-2-base/tree/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+            "https://huggingface.co/microsoft/Florence-2-base/blob/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac/README.md"
+          ],
+          "exact_revision": "5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+          "license": "mit",
+          "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/open_vocabulary_detect.py:54",
+            "model_id_or_path": "microsoft/Florence-2-base",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "status": "conditional",
+          "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+          "upstream_url": "https://huggingface.co/microsoft/Florence-2-base"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/microsoft/Florence-2-base"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "visual.detect"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/google/owlv2-base-patch16-ensemble",
+        "runtime": "Transformers/PyTorch",
+        "version": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+        "weights_hash": null
+      },
+      "component_id": "model.owlv2",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "owlv2.base_patch16",
+      "label": "google/owlv2-base-patch16-ensemble model/checkpoint",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/google/owlv2-base-patch16-ensemble/tree/cfd3195ba4ea9592eec887ded089f4c08eff231d, https://huggingface.co/google/owlv2-base-patch16-ensemble/blob/cfd3195ba4ea9592eec887ded089f4c08eff231d/README.md",
+        "exact_version": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+        "license": "apache-2.0",
+        "obligations": [
+          "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:55."
+        ],
+        "primary_evidence": {
+          "artifact": "google/owlv2-base-patch16-ensemble model/checkpoint",
+          "artifact_id": "owlv2",
+          "artifact_type": "checkpoint",
+          "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+          "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:55.",
+          "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Publisher metadata at revision cfd3195ba4ea9592eec887ded089f4c08eff231d states license `apache-2.0`.",
+            "license: apache-2.0",
+            "The model uses CLIP as its multi-modal backbone, with a ViT-like Transformer to get visual features and a causal language model to get the text features. To use CLIP for detection, OWL-ViT removes the final token pooling layer of the vision model and attaches a lightweight classification and box head to each transformer output token. Open-vocabulary classification is enabled by replacing the fixed classification layer weights with the class-name embeddings obtained from the text model. The authors first train CLIP from scratch and fine-tune it end-to-end with the classification and box heads on standard detection datasets using a bipartite matching loss. One or multiple text queries per image can be used to perform zero-shot text-conditioned object detection.",
+            "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+            "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, text-conditioned object detection. We also hope it can be used for interdisciplinary studies of the potential impact of such models, especially in areas that commonly require identifying objects whose label is unavailable during training.",
+            "The primary intended users of these models are AI researchers.",
+            "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/google/owlv2-base-patch16-ensemble/tree/cfd3195ba4ea9592eec887ded089f4c08eff231d",
+            "https://huggingface.co/google/owlv2-base-patch16-ensemble/blob/cfd3195ba4ea9592eec887ded089f4c08eff231d/README.md"
+          ],
+          "exact_revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+          "license": "apache-2.0",
+          "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/open_vocabulary_detect.py:55",
+            "model_id_or_path": "google/owlv2-base-patch16-ensemble",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "status": "conditional",
+          "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+          "upstream_url": "https://huggingface.co/google/owlv2-base-patch16-ensemble"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/google/owlv2-base-patch16-ensemble"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "visual.detect"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/IDEA-Research/grounding-dino-tiny",
+        "runtime": "Transformers/PyTorch",
+        "version": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+        "weights_hash": null
+      },
+      "component_id": "model.grounding_dino",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "grounding_dino.tiny",
+      "label": "IDEA-Research/grounding-dino-tiny model/checkpoint",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/IDEA-Research/grounding-dino-tiny/tree/a2bb814dd30d776dcf7e30523b00659f4f141c71, https://huggingface.co/IDEA-Research/grounding-dino-tiny/blob/a2bb814dd30d776dcf7e30523b00659f4f141c71/README.md",
+        "exact_version": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+        "license": "apache-2.0",
+        "obligations": [
+          "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:56."
+        ],
+        "primary_evidence": {
+          "artifact": "IDEA-Research/grounding-dino-tiny model/checkpoint",
+          "artifact_id": "grounding_dino",
+          "artifact_type": "checkpoint",
+          "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+          "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+          "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:56.",
+          "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Publisher metadata at revision a2bb814dd30d776dcf7e30523b00659f4f141c71 states license `apache-2.0`.",
+            "license: apache-2.0",
+            "<img src=\"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grouding_dino_architecture.png\"",
+            "model_id = \"IDEA-Research/grounding-dino-tiny\"",
+            "image_url = \"http://images.cocodataset.org/val2017/000000039769.jpg\""
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/IDEA-Research/grounding-dino-tiny/tree/a2bb814dd30d776dcf7e30523b00659f4f141c71",
+            "https://huggingface.co/IDEA-Research/grounding-dino-tiny/blob/a2bb814dd30d776dcf7e30523b00659f4f141c71/README.md"
+          ],
+          "exact_revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+          "license": "apache-2.0",
+          "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/open_vocabulary_detect.py:56",
+            "model_id_or_path": "IDEA-Research/grounding-dino-tiny",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "status": "conditional",
+          "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+          "upstream_url": "https://huggingface.co/IDEA-Research/grounding-dino-tiny"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/IDEA-Research/grounding-dino-tiny"
+      },
+      "optional_download": true,
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null,
+        "quality": null
+      },
+      "resources": {
+        "memory_gb": null,
+        "resident_memory_gb": null,
+        "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "visual.segment"
+      ],
+      "checkpoint": {
+        "conversion": null,
+        "provider": "https://huggingface.co/facebook/sam2.1-hiera-small",
+        "runtime": "Transformers/PyTorch",
+        "version": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+        "weights_hash": null
+      },
+      "component_id": "model.sam21",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "id": "sam2.1_hiera_small",
+      "label": "SAM 2.1 weights",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/facebook/sam2.1-hiera-small/tree/ee5bba1d82bb8749febdf90f45e84b687142ba03",
+        "exact_version": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+        "license": "apache-2.0",
+        "obligations": [
+          "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+          "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+          "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/object_segmentation.py:27."
+        ],
+        "primary_evidence": {
+          "artifact": "SAM 2.1 weights",
+          "artifact_id": "sam21",
+          "artifact_type": "checkpoint_or_model_artifact",
+          "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+          "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+          "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/object_segmentation.py:27.",
+          "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+          "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+          "evidence_quotes": [
+            "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+            "license: apache-2.0",
+            "The official code is publicly release in this [repo](https://github.com/facebookresearch/segment-anything-2/).",
+            "Refer to the [demo notebooks](https://github.com/facebookresearch/segment-anything-2/tree/main/notebooks) for details."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/facebook/sam2.1-hiera-small/tree/ee5bba1d82bb8749febdf90f45e84b687142ba03"
+          ],
+          "exact_revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+          "license": "apache-2.0",
+          "publisher_api_files": [
+            ".gitattributes",
+            "README.md",
+            "config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "processor_config.json",
+            "sam2.1_hiera_s.yaml",
+            "sam2.1_hiera_small.pt",
+            "video_preprocessor_config.json"
+          ],
+          "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+          "retrieved_at": "2026-10-16T00:39:47Z",
+          "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+          "runtime_loader_map": {
+            "code_location": "library/tools/analysis/object_segmentation.py:27",
+            "model_id_or_path": "facebook/sam2.1-hiera-small",
+            "revision_behavior": "repo ID only; no revision argument; floats"
+          },
+          "status": "conditional",
+          "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+          "upstream_url": "https://huggingface.co/facebook/sam2.1-hiera-small"
+        },
+        "retrieved_at": "2026-10-16",
+        "upstream_url": "https://huggingface.co/facebook/sam2.1-hiera-small"
       },
       "optional_download": true,
       "purposes": [

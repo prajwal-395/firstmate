@@ -9,7 +9,8 @@ license does not cover is refused, never passed through.
 
 Provenance rows already carry ``producer`` and ``producer_version``;
 ``license_context`` is the additive record beside them naming the
-registry implementation, its approval status, the checkpoint revision
+registry implementation, its approval status, the obligations a
+conditional approval carries, the checkpoint revision
 the registry recorded, and the workload purpose the evidence was
 generated under. Reuse under a different purpose re-checks; it never
 inherits the old stamp.
@@ -50,6 +51,7 @@ def implementation_license(implementation_id: str,
                     "editions": list(implementation.get("editions", [])),
                     "purposes": list(implementation.get("purposes", [])),
                     "component_id": implementation.get("component_id"),
+                    "obligations": list(evidence.get("obligations", [])),
                     "checkpoint": checkpoint}
     raise KeyError(f"unrecorded model implementation {implementation_id!r}")
 
@@ -81,6 +83,7 @@ def stamp_license(rows: list[dict[str, Any]], implementation_id: str,
         copy[LICENSE_CONTEXT_KEY] = {
             "implementation_id": implementation_id,
             "approval_status": verdict["approval_status"],
+            "conditions": verdict["obligations"],
             "checkpoint": verdict["checkpoint"],
             "generated_under_purpose": purpose,
         }

@@ -206,14 +206,21 @@ class AcquisitionError(ValueError):
 
 
 def _registry_authorized(implementation_id: str, edition: str,
-                         purpose: str) -> tuple[bool, str]:
-    """Whether the registry authorizes an implementation id."""
+                         purpose: str,
+                         registry: Mapping[str, Any] | None = None
+                         ) -> tuple[bool, str]:
+    """Whether the registry authorizes an implementation id.
+
+    ``registry`` is a test seam: callers pass a fixture so planner
+    behaviour does not depend on live license data. ``None`` reads
+    the versioned registry file, the production path.
+    """
     try:
         if requirement_graph.__name__.startswith("library"):
             from library.tools import model_registry
         else:  # pragma: no cover - import-path variant
             from tools import model_registry
-        registry = model_registry.load_registry()
+        registry = registry if registry is not None else model_registry.load_registry()
         manifest = model_registry.manifest(edition, purpose, registry)
     except (OSError, ValueError) as exc:
         return False, f"model registry unreadable: {exc}"
@@ -231,6 +238,7 @@ def select_producers(missing_lanes: Sequence[str], *,
                      allow_escalation: bool = False,
                      resident_rss_gb: float = 0.0,
                      memory_ceiling_gb: float = 8.0,
+                     registry: Mapping[str, Any] | None = None,
                      ) -> dict[str, dict[str, Any]]:
     """Cheapest eligible producer per missing lane (ACQ-005 to 008).
 
@@ -262,7 +270,7 @@ def select_producers(missing_lanes: Sequence[str], *,
             implementation = entry.get("registry_implementation")
             if implementation:
                 authorized, why = _registry_authorized(
-                    implementation, edition, purpose)
+                    implementation, edition, purpose, registry)
                 entry["registry_note"] = why
                 if not authorized:
                     reasons.append(why)
@@ -377,6 +385,7 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
                      ledger: Mapping[str, Any] | None = None,
                      memory_ceiling_gb: float = 8.0,
                      resident_rss_gb: float = 0.0,
+                     registry: Mapping[str, Any] | None = None,
                      ) -> dict[str, Any]:
     """Plan bounded acquisition for one compiled requirement graph.
 
@@ -463,7 +472,8 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
         edition=edition, purpose=purpose, fidelity=fidelity,
         allow_escalation=allow_escalation,
         resident_rss_gb=resident_rss_gb,
-        memory_ceiling_gb=memory_ceiling_gb)
+        memory_ceiling_gb=memory_ceiling_gb,
+        registry=registry)
 
     steps: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []

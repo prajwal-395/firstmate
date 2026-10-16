@@ -144,9 +144,52 @@ def test_unavailable_producer_defers_without_changing_the_answer():
                for row in report["acquisition"]["steps"])
 
 
+def _registry_with_verifier():
+    """Fixture registry with an authorized (conditional) verifier.
+
+    Planner behaviour must not depend on live license data: the
+    verify producer the catalog names is authorized here with its
+    condition recorded, while the live registry may quarantine it.
+    """
+    return {
+        "schema_version": 1,
+        "capabilities": [
+            {"id": "video.locate_event",
+             "description": "fixture event localization"},
+        ],
+        "implementations": [
+            {
+                "id": "gemma.vision_4_12b_it_4bit",
+                "component_id": "model.gemma_vision",
+                "label": "fixture verifier",
+                "capabilities": ["video.locate_event"],
+                "checkpoint": {
+                    "version": "rev-pinned",
+                    "weights_hash": "sha256:abc",
+                    "provider": "example",
+                    "conversion": None,
+                    "runtime": "mlx",
+                },
+                "license_evidence": {
+                    "upstream_url": "https://example.invalid/verifier",
+                    "exact_version": "rev-pinned",
+                    "retrieved_at": "2026-10-16",
+                    "license": "apache-2.0",
+                    "obligations": ["run the pinned revision"],
+                    "approval_status": "conditional",
+                },
+                "purposes": ["commercial_client", "personal_noncommercial",
+                             "permitted_research"],
+                "editions": ["commercial", "personal"],
+                "qualification": "qualified",
+            },
+        ],
+    }
+
+
 def test_verify_without_verifier_defers_with_reason():
     plan, _ = _plan_for("the person on the left holding the product",
-                        {"observations": []})
+                        {"observations": []}, registry=_registry_with_verifier())
     assert any(step.get("verify_task") for step in plan["steps"])
     report = ea.run_acquisition(
         plan, cached=lambda **kw: None, producers={},
@@ -154,6 +197,17 @@ def test_verify_without_verifier_defers_with_reason():
     assert any(row["status"] == "deferred"
                and "verifier" in row["reason"]
                for row in report["verifications"])
+
+
+def test_verify_lane_refused_without_authorized_producer():
+    # Live license truth (no fixture): the planner refuses the verify
+    # lane by name instead of scheduling an unauthorized producer.
+    # Fail-closed and recorded, never silent.
+    plan, _ = _plan_for("the person on the left holding the product",
+                        {"observations": []})
+    assert not any(step.get("verify_task") for step in plan["steps"])
+    assert any("verify-bounded-span" in row.get("reason", "")
+               for row in plan["refused"])
 
 
 def test_contradictory_evidence_is_named_never_averaged():

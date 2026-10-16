@@ -523,6 +523,72 @@ note        : captain's 2026-10-04 edition decision treats Voz as
               public for now. The vendor's paid-at-scale term remains
               a release obligation if Ren usage crosses that threshold.
 
+component-id : model.ast_audio_labels
+edition      : public
+component   : AST AudioSet class-label model (MIT/ast-finetuned-audioset-10-10-0.4593)
+pin         : f826b80d28226b62986cc218e5cec390b1096902
+source      : https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593
+license     : Apache-2.0 (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Current source-memory component. Qualification remains separate from license status.
+
+component-id : model.depth_v2_small
+edition      : public
+component   : Depth Anything V2 Small checkpoint
+pin         : 5426e4f0f36572d16453bbda7a8389317b1bef99
+source      : https://huggingface.co/depth-anything/Depth-Anything-V2-Small
+license     : Apache-2.0 (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Qualification remains separate from license status.
+
+component-id : model.florence2
+edition      : public
+component   : Microsoft Florence-2 Base
+pin         : 5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac
+source      : https://huggingface.co/microsoft/Florence-2-base
+license     : MIT (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Open-vocabulary detector. Qualification remains separate from license status.
+
+component-id : model.owlv2
+edition      : public
+component   : Google OWLv2 Base Patch16 Ensemble
+pin         : cfd3195ba4ea9592eec887ded089f4c08eff231d
+source      : https://huggingface.co/google/owlv2-base-patch16-ensemble
+license     : Apache-2.0 (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Open-vocabulary detector. Qualification remains separate from license status.
+
+component-id : model.grounding_dino
+edition      : public
+component   : IDEA Research Grounding DINO Tiny
+pin         : a2bb814dd30d776dcf7e30523b00659f4f141c71
+source      : https://huggingface.co/IDEA-Research/grounding-dino-tiny
+license     : Apache-2.0 (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Open-vocabulary detector. Qualification remains separate from license status.
+
+component-id : model.sam21
+edition      : public
+component   : SAM 2.1 Hiera Small checkpoint
+pin         : ee5bba1d82bb8749febdf90f45e84b687142ba03
+source      : https://huggingface.co/facebook/sam2.1-hiera-small
+license     : Apache-2.0 (per publisher record)
+fetched     : downloaded-at-first-use
+commercial  : ok-with-attribution
+hash-verified: no
+note        : Qualification remains separate from license status.
+
 D. SHIPPED FONTS AND ASSETS (in this repo)
 --------------------------------------------------------------
 component-id : asset.montserrat

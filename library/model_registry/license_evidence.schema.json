@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ren.video/schemas/license-evidence-snapshot.schema.json",
+  "title": "Ren primary-source license evidence snapshot",
+  "type": "object",
+  "required": ["schema_version", "records"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_id", "artifact", "artifact_type", "upstream_url", "exact_revision", "retrieved_at", "license", "commercial_use", "redistribution", "attribution", "thresholds", "copyleft", "conditions", "status", "evidence_sources", "evidence_basis"],
+        "properties": {
+          "artifact_id": {"type": "string", "minLength": 1},
+          "artifact": {"type": "string", "minLength": 1},
+          "artifact_type": {"type": "string", "minLength": 1},
+          "upstream_url": {"type": "string", "format": "uri"},
+          "exact_revision": {"type": "string", "minLength": 1},
+          "retrieved_at": {"type": "string", "format": "date-time"},
+          "license": {"type": "string"},
+          "commercial_use": {"type": "string"},
+          "redistribution": {"type": "string"},
+          "attribution": {"type": "string"},
+          "thresholds": {"type": "string"},
+          "copyleft": {"type": "string"},
+          "conditions": {"type": "string"},
+          "status": {"enum": ["approved", "conditional", "research-only", "quarantine", "unresolved"]},
+          "evidence_sources": {"type": "array", "items": {"type": "string", "format": "uri"}},
+          "evidence_basis": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

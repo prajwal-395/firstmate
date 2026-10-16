@@ -1,0 +1,1913 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "artifact_id": "ast_audio_labels",
+      "artifact": "MIT/ast-finetuned-audioset-10-10-0.4593 model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593",
+      "exact_revision": "f826b80d28226b62986cc218e5cec390b1096902",
+      "retrieved_at": "2026-10-16T00:40:05Z",
+      "license": "bsd-3-clause",
+      "commercial_use": "Publisher metadata declares BSD-3-Clause; Ren loads floating model ID. Pin exact runtime revision before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Ren loader uses mutable repo ID and does not pass revision; audit SHA is not runtime pin.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision f826b80d28226b62986cc218e5cec390b1096902 states license `bsd-3-clause`.",
+        "license: bsd-3-clause"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/tree/f826b80d28226b62986cc218e5cec390b1096902",
+        "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/blob/f826b80d28226b62986cc218e5cec390b1096902/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/sfx_pipeline.py:252-253",
+        "model_id_or_path": "MIT/ast-finetuned-audioset-10-10-0.4593",
+        "revision_behavior": "repo ID, no revision argument; floats"
+      }
+    },
+    {
+      "artifact_id": "audio_flamingo_next",
+      "artifact": "Audio Flamingo Next captioner weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf",
+      "exact_revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "other",
+      "commercial_use": "NVIDIA OneWay Noncommercial License; card expressly restricts model to non-commercial research. It also identifies third-party Qwen Research License and OpenAI Terms in dataset generation.",
+      "redistribution": "Only as allowed by NVIDIA noncommercial license; not for Commercial distribution.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `other`.",
+        "license: other",
+        "**This model is for non-commercial research purposes only.**",
+        "License / Terms of Use",
+        "The model is released under the [NVIDIA OneWay Noncommercial License](static/NVIDIA-OneWay-Noncommercial-License_22Mar2022-academic.docx). Portions of the dataset generation are also subject to the [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-3B/blob/main/LICENSE) and OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use)."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf/tree/62aa63a66927f04f8308620f8e4b65696d3ea0a6"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "chat_template.jinja",
+        "config.json",
+        "generation_config.json",
+        "model.safetensors",
+        "processor_config.json",
+        "static/NVIDIA OneWay Noncommercial License_22Mar2022 (academic).docx",
+        "static/NVIDIA-OneWay-Noncommercial-License_22Mar2022-academic.docx",
+        "static/afnext_logo.webp",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/sfx_pipeline.py:168,172,175",
+        "model_id_or_path": "nvidia/audio-flamingo-next-captioner-hf; model path AF_NEXT_MODEL_PATH/default local dir",
+        "revision_behavior": "no model revision enforced"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "beat_this",
+      "artifact": "Beat This! code and checkpoint",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/CPJKU/beat_this",
+      "exact_revision": "package 1.1.0; checkpoint fetched at first use, no exact weight revision",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "MIT stated for code and weights by README",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Project code is MIT, but the exact checkpoint file/version/license and runtime hash are not established. Do not bundle until checkpoint bytes and terms are pinned.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "CPJKU/beat_this repository identifies its source project under the MIT License.",
+        "The installed beat-this==1.1.0 package does not pin the runtime-fetched model bytes to a publisher commit or hash."
+      ],
+      "evidence_sources": [
+        "https://github.com/CPJKU/beat_this/blob/b95c8ab0c58c2d9fcfd40508ae8dffbc05ac4f5c/LICENSE",
+        "https://github.com/CPJKU/beat_this/blob/b95c8ab0c58c2d9fcfd40508ae8dffbc05ac4f5c/README.md"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "caprl_video4b",
+      "artifact": "CapRL-Video-4B weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/internlm/CapRL-Video-4B",
+      "exact_revision": "No immutable artifact revision captured; publisher source checked as described in conditions.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Conflicting metadata: Hub says Apache-2.0; model card says data and code research-only CC BY-NC 4.0.",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "No exact immutable Hub SHA retrieved; publisher page currently accessible.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Hub metadata: \"license: apache-2.0\".",
+        "Official model card: \"data and code are intended and licensed for research use only.\"",
+        "Official model card: \"License: Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/internlm/CapRL-Video-4B"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "clip",
+      "artifact": "CLIP weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/openai/clip-vit-large-patch14",
+      "exact_revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "MIT per OpenAI repository",
+      "commercial_use": "Publisher model card identifies AI researchers as primary intended users and does not declare a weight license in model metadata. The separate OpenAI/CLIP code repository is MIT; weight commercial permission is not established here.",
+      "redistribution": "Unresolved for this checkpoint.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they\u2019re being deployed within.",
+        "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, arbitrary image classification. We also hope it can be used for interdisciplinary studies of the potential impact of such models - the CLIP paper includes a discussion of potential downstream impacts to provide an example for this sort of analysis.",
+        "The primary intended users of these models are AI researchers.",
+        "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models.",
+        "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP\u2019s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "config.json",
+        "flax_model.msgpack",
+        "merges.txt",
+        "model.safetensors",
+        "preprocessor_config.json",
+        "pytorch_model.bin",
+        "special_tokens_map.json",
+        "tf_model.h5",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165",
+        "model_id_or_path": "openai/clip-vit-large-patch14",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_base",
+      "artifact": "depth-anything/DA3-BASE model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3-BASE",
+      "exact_revision": "f4a6c9b3c95e41c82048423d3493a81ec3fa810e",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0",
+      "commercial_use": "Apache-2.0 declared at exact audit revision; conditional on pinning intended runtime artifact and verifying LICENSE.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact checkpoint is an audit snapshot; not a runtime pin.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision f4a6c9b3c95e41c82048423d3493a81ec3fa810e declares license apache-2.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3-BASE/tree/f4a6c9b3c95e41c82048423d3493a81ec3fa810e"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_giant",
+      "artifact": "depth-anything/DA3-GIANT model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3-GIANT",
+      "exact_revision": "7cd62ae9315b9dff094d2d300e4ad012640607dd",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "CC BY-NC 4.0",
+      "commercial_use": "Noncommercial only under CC BY-NC 4.0.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Noncommercial restriction excludes commercial use.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Publisher metadata at revision 7cd62ae9315b9dff094d2d300e4ad012640607dd declares license cc-by-nc-4.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3-GIANT/tree/7cd62ae9315b9dff094d2d300e4ad012640607dd"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_large",
+      "artifact": "depth-anything/DA3-LARGE model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3-LARGE",
+      "exact_revision": "c54c26b16ec04d218e8d584ecf4bce082a9fcc20",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "CC BY-NC 4.0",
+      "commercial_use": "Noncommercial only under CC BY-NC 4.0.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Noncommercial restriction excludes commercial use.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Publisher metadata at revision c54c26b16ec04d218e8d584ecf4bce082a9fcc20 declares license cc-by-nc-4.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3-LARGE/tree/c54c26b16ec04d218e8d584ecf4bce082a9fcc20"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_metric_large",
+      "artifact": "depth-anything/DA3METRIC-LARGE model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3METRIC-LARGE",
+      "exact_revision": "4010e39f3634a45bc60553321fb49fb760bd594e",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0",
+      "commercial_use": "Apache-2.0 declared at exact audit revision; conditional on pinning intended runtime artifact and verifying LICENSE.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact checkpoint is an audit snapshot; not a runtime pin.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 4010e39f3634a45bc60553321fb49fb760bd594e declares license apache-2.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3METRIC-LARGE/tree/4010e39f3634a45bc60553321fb49fb760bd594e"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_nested",
+      "artifact": "depth-anything/DA3NESTED-GIANT-LARGE model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3NESTED-GIANT-LARGE",
+      "exact_revision": "8615eefb62f2db4f8d6ebaa59160086981672829",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "CC BY-NC 4.0",
+      "commercial_use": "Noncommercial only under CC BY-NC 4.0.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Noncommercial restriction excludes commercial use.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Publisher metadata at revision 8615eefb62f2db4f8d6ebaa59160086981672829 declares license cc-by-nc-4.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3NESTED-GIANT-LARGE/tree/8615eefb62f2db4f8d6ebaa59160086981672829"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "da3_small",
+      "artifact": "depth-anything/DA3-SMALL model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/DA3-SMALL",
+      "exact_revision": "e08cab65ca0ec38e7826075418411ab90cab4da3",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0",
+      "commercial_use": "Apache-2.0 declared at exact audit revision; conditional on pinning intended runtime artifact and verifying LICENSE.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact checkpoint is an audit snapshot; not a runtime pin.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision e08cab65ca0ec38e7826075418411ab90cab4da3 declares license apache-2.0."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/DA3-SMALL/tree/e08cab65ca0ec38e7826075418411ab90cab4da3"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "deepfilternet",
+      "artifact": "DeepFilterNet code, binary and weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/Rikorose/DeepFilterNet",
+      "exact_revision": "binary v0.5.6 pinned; weights fetched by binary without independent revision/hash",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "MIT OR Apache-2.0 per upstream",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Binary release is pinned, but model files fetched by it are not independently pinned or hash-verified; weight redistribution and exact associated license need verification.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Official repository provides LICENSE-MIT and LICENSE-APACHE and declares the software dual-licensed MIT OR Apache-2.0.",
+        "The pinned v0.5.6 binary fetches weights on first use; Ren inventory states the weights have no independent revision/hash."
+      ],
+      "evidence_sources": [
+        "https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT",
+        "https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "demucs",
+      "artifact": "Demucs models",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/facebookresearch/demucs",
+      "exact_revision": "model id htdemucs via demucs-infer 4.2.2; exact weights revision not captured",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "MIT per repository/inventory",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Code license does not establish the exact htdemucs model file revision or redistribution permissions; pin and inspect the model artifact.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Official Demucs repository LICENSE identifies MIT for the software.",
+        "The installed demucs-infer==4.2.2 package and htdemucs name do not identify immutable checkpoint bytes/hash in Ren inventory."
+      ],
+      "evidence_sources": [
+        "https://github.com/facebookresearch/demucs/blob/main/LICENSE",
+        "https://github.com/facebookresearch/demucs/blob/main/README.md"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "demucs_mlx",
+      "artifact": "demucs-mlx weights/conversion",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/adefossez/demucs",
+      "exact_revision": "No upstream artifact/revision verified",
+      "retrieved_at": "2026-10-16T00:41:00Z",
+      "license": "No canonical demucs-mlx converter artifact license verified.",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "No canonical demucs-mlx converter artifact or revision established; upstream Demucs is not evidence for an unnamed conversion.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "No identifiable publisher, conversion artifact revision, or operative license was verified for demucs-mlx."
+      ],
+      "evidence_sources": [
+        "https://github.com/search?q=demucs-mlx&type=repositories"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "depth_v2_small",
+      "artifact": "depth-anything/Depth-Anything-V2-Small-hf model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf",
+      "exact_revision": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/depth.py:71.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 5426e4f0f36572d16453bbda7a8389317b1bef99 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "<img src=\"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/depth_anything_overview.jpg\"",
+        "url = 'http://images.cocodataset.org/val2017/000000039769.jpg'",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/tree/5426e4f0f36572d16453bbda7a8389317b1bef99",
+        "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/blob/5426e4f0f36572d16453bbda7a8389317b1bef99/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/depth.py:71",
+        "model_id_or_path": "depth-anything/Depth-Anything-V2-Small",
+        "revision_behavior": "repo ID only; no revision argument; floats; recorded audited -hf suffixed artifact may not equal this ID"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "easyocr_code",
+      "artifact": "EasyOCR source package",
+      "artifact_type": "code",
+      "upstream_url": "https://github.com/JaidedAI/EasyOCR",
+      "exact_revision": "Ren dependency >=1.7; resolved version is in requirements lock, exact lock row not extracted in this pass",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0",
+      "commercial_use": "Allowed under Apache-2.0 subject to license conditions.",
+      "redistribution": "Allowed with license and notice preservation and modification marking where applicable.",
+      "attribution": "Include Apache-2.0 license and copyright notices.",
+      "thresholds": "None identified.",
+      "copyleft": "None identified.",
+      "conditions": "This record covers code only. Detection and recognition checkpoint weights each need their own exact revision/hash and upstream license evidence.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "THIRD_PARTY_NOTICES states Apache-2.0 for code and separately flags per-model weights for audit."
+      ],
+      "evidence_sources": [
+        "https://github.com/JaidedAI/EasyOCR"
+      ],
+      "review_scope": "Software package only.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "easyocr_detection_weights",
+      "artifact": "EasyOCR detection checkpoint(s), e.g. craft_mlt_25k",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://github.com/JaidedAI/EasyOCR",
+      "exact_revision": "Floating auto-downloaded model selection; no exact checkpoint revision/hash recorded",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Unverified per checkpoint",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Unresolved.",
+      "attribution": "Unresolved.",
+      "thresholds": "Unresolved.",
+      "copyleft": "Unresolved.",
+      "conditions": "Code being Apache-2.0 does not establish detector-weight rights. Resolve the actual detector file, checksum, publisher and operative license before distribution.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "EasyOCR README states pretrained models are automatically downloaded and lists distinct detector and recognition model files.",
+        "No exact detector checkpoint/file selection or publisher license statement was established for Ren\u2019s current configuration in this pass."
+      ],
+      "evidence_sources": [
+        "https://github.com/JaidedAI/EasyOCR/blob/master/README.md",
+        "https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE"
+      ],
+      "review_scope": "Detection model weights only; recognition weights require separate record.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "easyocr_recognition_weights",
+      "artifact": "EasyOCR recognition checkpoints",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://github.com/JaidedAI/EasyOCR",
+      "exact_revision": "Floating language/model-selected downloads; no exact checkpoint revisions/hashes recorded",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Unverified per checkpoint",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Unresolved.",
+      "attribution": "Unresolved.",
+      "thresholds": "Unresolved.",
+      "copyleft": "Unresolved.",
+      "conditions": "Enumerate each language\u2019s selected recognition model, publisher, file hash and license; do not infer weight licensing from the code license.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "EasyOCR README documents language-specific recognition model downloads.",
+        "No exact recognition checkpoint selection or publisher license statement was established for Ren\u2019s current language configuration in this pass."
+      ],
+      "evidence_sources": [
+        "https://github.com/JaidedAI/EasyOCR/blob/master/README.md",
+        "https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE"
+      ],
+      "review_scope": "Recognition model weights only.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "ecapa_speechbrain_code",
+      "artifact": "SpeechBrain ECAPA recipe/software",
+      "artifact_type": "code",
+      "upstream_url": "https://github.com/speechbrain/speechbrain",
+      "exact_revision": "SpeechBrain release/revision not pinned as separate code artifact in Ren inventory",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0",
+      "commercial_use": "Permissive code terms allow commercial use subject to Apache obligations; does not establish weight/data rights.",
+      "redistribution": "Allowed subject to Apache-2.0 notice, license, and modification marking requirements.",
+      "attribution": "Preserve copyright, license, NOTICE if present, and state changes.",
+      "thresholds": "None identified.",
+      "copyleft": "None identified.",
+      "conditions": "Code license is Apache-2.0. ECAPA weights are a separate record; VoxCeleb provenance/rightsholder data terms still require resolution.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "SpeechBrain upstream repository is Apache-2.0.",
+        "The Ren runtime pins the ECAPA model repository to commit 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286; the speechbrain software package is separately resolved through the ML environment."
+      ],
+      "evidence_sources": [
+        "https://github.com/speechbrain/speechbrain/blob/develop/LICENSE",
+        "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb/tree/0f99f2d0ebe89ac095bcc5903c4dd8f72b367286"
+      ],
+      "review_scope": "Software only; checkpoint and training data are separate records.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/shared_environment.py:951-955",
+        "model_id_or_path": "speechbrain/spkrec-ecapa-voxceleb",
+        "revision_behavior": "pinned revision 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "edgetam",
+      "artifact": "facebook/EdgeTAM model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/facebook/EdgeTAM",
+      "exact_revision": "14d7ecc48c656b94e5184519f698cd5386c5a2bf",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 metadata; commercial use allowed under Apache terms; verify complete base/backbone terms and exact Ren adoption before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0 metadata; commercial use allowed under Apache terms; verify complete base/backbone terms and exact Ren adoption before packaging.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 14d7ecc48c656b94e5184519f698cd5386c5a2bf states license `apache-2.0`.",
+        "license: apache-2.0",
+        "[\\[\ud83d\udcc2 Github\\]](https://github.com/facebookresearch/EdgeTAM)",
+        "We provide the inference code with local deployment instructions in https://github.com/facebookresearch/EdgeTAM.",
+        "If you find our code useful for your research, please consider citing:"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/facebook/EdgeTAM/tree/14d7ecc48c656b94e5184519f698cd5386c5a2bf",
+        "https://huggingface.co/facebook/EdgeTAM/blob/14d7ecc48c656b94e5184519f698cd5386c5a2bf/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "flexsed",
+      "artifact": "FlexSED weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/Higobeatz/FlexSED",
+      "exact_revision": "No immutable artifact revision captured; publisher source checked as described in conditions.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "No artifact-specific license established.",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "A candidate checkpoint repo exists, but exact publisher SHA and operative LICENSE were not captured.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "No official artifact LICENSE/model-card license or exact model revision was verified in this pass."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Higobeatz/FlexSED"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "florence2",
+      "artifact": "microsoft/Florence-2-base model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/microsoft/Florence-2-base",
+      "exact_revision": "5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "mit",
+      "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:54.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac states license `mit`.",
+        "license: mit",
+        "license_link: https://huggingface.co/microsoft/Florence-2-base/resolve/main/LICENSE",
+        "Florence-2 is an advanced vision foundation model that uses a prompt-based approach to handle a wide range of vision and vision-language tasks.  Florence-2 can interpret simple text prompts to perform tasks like captioning, object detection, and segmentation. It leverages our FLD-5B dataset, containing 5.4 billion annotations across 126 million images, to master multi-task learning. The model's sequence-to-sequence architecture enables it to excel in both zero-shot and fine-tuned settings, proving to be a competitive vision foundation model.",
+        "url = \"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true\"",
+        "url = \"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/microsoft/Florence-2-base/tree/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+        "https://huggingface.co/microsoft/Florence-2-base/blob/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/open_vocabulary_detect.py:54",
+        "model_id_or_path": "microsoft/Florence-2-base",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "fluidaudio",
+      "artifact": "FluidAudio software and models",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/FluidInference/FluidAudio",
+      "exact_revision": "main (candidate; no revision captured)",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0 software",
+      "commercial_use": "Code license is not sufficient to establish checkpoint rights; exact checkpoint revision/terms are unresolved.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Exact upstream source revision is identified, but this repo did not establish a current Ren loader or selected model artifact/revision. Review each weight asset separately.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Official FluidAudio repository identifies package source under Apache-2.0.",
+        "FluidAudio supports multiple optional model assets; source license alone does not establish terms for each selected model/voice artifact."
+      ],
+      "evidence_sources": [
+        "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE",
+        "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/README.md"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "gemma4",
+      "artifact": "Gemma 4 weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit",
+      "exact_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0 on Google HF",
+      "commercial_use": "Google base Gemma 4 model is Apache-2.0; this exact mlx-community conversion exposes no license metadata in Hub API and its README is empty. Conversion terms and provenance remain unverified.",
+      "redistribution": "Unresolved for this converted checkpoint; base license alone does not verify conversion provenance or packaged files.",
+      "attribution": "Apache notice obligations apply if the underlying Google work is redistributed; verify all conversion notices.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Base: google/gemma-4-12B-it at publisher revision 707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7. Conversion: mlx-community revision in exact_revision, no README/license metadata found. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/vision_model.py:23.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Publisher model card/metadata at this revision contains no license declaration."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/mlx-community/gemma-4-12b-it-4bit/tree/73bcf09092aa277861d5a191b989b666f7f32e8f"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "chat_template.jinja",
+        "config.json",
+        "generation_config.json",
+        "model-00001-of-00002.safetensors",
+        "model-00002-of-00002.safetensors",
+        "model.safetensors.index.json",
+        "processor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "library/tools/vision_model.py:23",
+        "model_id_or_path": "mlx-community/gemma-4-12b-it-4bit",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "grounding_dino",
+      "artifact": "IDEA-Research/grounding-dino-tiny model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/IDEA-Research/grounding-dino-tiny",
+      "exact_revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:56.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision a2bb814dd30d776dcf7e30523b00659f4f141c71 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "<img src=\"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/model_doc/grouding_dino_architecture.png\"",
+        "model_id = \"IDEA-Research/grounding-dino-tiny\"",
+        "image_url = \"http://images.cocodataset.org/val2017/000000039769.jpg\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/IDEA-Research/grounding-dino-tiny/tree/a2bb814dd30d776dcf7e30523b00659f4f141c71",
+        "https://huggingface.co/IDEA-Research/grounding-dino-tiny/blob/a2bb814dd30d776dcf7e30523b00659f4f141c71/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/open_vocabulary_detect.py:56",
+        "model_id_or_path": "IDEA-Research/grounding-dino-tiny",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "groundingpi",
+      "artifact": "GroundingPI weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/GroundingPI/GroundingPI",
+      "exact_revision": "No immutable artifact revision captured; publisher source checked as described in conditions.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Model licensing chain includes upstream Kimi K3 terms; GroundingPI repo code is Apache-2.0, model rights inherit upstream Kimi conditions.",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Hub model exists; no exact Hub SHA or complete upstream Kimi K3 license text retrieved.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Official GroundingPI README identifies Kimi K3 as the model base and states model weights are subject to the upstream Kimi K3 License.",
+        "GroundingPI code repository identifies its software as Apache-2.0; that does not grant model-weight rights."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/GroundingPI/GroundingPI"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "gsap_runtime",
+      "artifact": "Vendored GSAP 3.14.2",
+      "artifact_type": "runtime_library",
+      "upstream_url": "https://gsap.com/community/standard-license/",
+      "exact_revision": "3.14.2 per docs/DOWNLOAD_INVENTORY.md and vendored file header",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "GSAP Standard License, version 3.14.2 vendored; current Standard License terms apply as identified by source header.",
+      "commercial_use": "Conditional on legal review that Ren\u2019s commercial video-editing tool/use fits permitted uses and not the restricted no-code animation tool category.",
+      "redistribution": "Commercial use conditional on fit; verify bundling/redistribution terms and whether product is a prohibited visual animation tool.",
+      "attribution": "Include GSAP attribution/license information as required by Standard License.",
+      "thresholds": "Not established in this review.",
+      "copyleft": "None identified.",
+      "conditions": "Check whether Ren\u2019s commercial product fits permitted uses and whether GSAP is redistributed in the commercial package.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Vendored GSAP header identifies version 3.14.2 and links the GSAP Standard License.",
+        "Standard License grants permitted-use rights for websites, web apps and digital interfaces and restricts creation of a competing no-code visual animation tool."
+      ],
+      "evidence_sources": [
+        "https://gsap.com/community/standard-license/"
+      ],
+      "review_scope": "Vendored runtime code.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "insightface_buffalo_l",
+      "artifact": "InsightFace buffalo_l detector and recognizer weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md",
+      "exact_revision": "pack name buffalo_l; floating and no version/hash",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+      "commercial_use": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "The buffalo_l pack name is floating and has no publisher version/hash in the Ren installer. Vendor authorization is required for commercial use; do not include these weights in Commercial.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "InsightFace model-zoo documentation: \"ALL models are available for non-commercial research purposes only.\"",
+        "InsightFace documentation states code MIT does not grant the pretrained model rights; public pretrained models follow the non-commercial research policy."
+      ],
+      "evidence_sources": [
+        "https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md",
+        "https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "meta_pe_core",
+      "artifact": "Meta PE Core / PE-AV weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/facebookresearch/perception_encoder",
+      "exact_revision": "PE-AV-Small dd050762bb9704ae9cd996ca45532a98f81d817e; PE-Core-L14-336 bafb0f76541d399057e980a25947f67acec76575",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Apache-2.0 metadata for PE-AV-Small and PE-Core-L14; distinct exact model artifacts.",
+      "commercial_use": "Apache-2.0 metadata at the recorded exact model revisions; candidate only, not current runtime; verify complete license texts and package exact revision before use.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Family record is split into two audit revisions; no current Ren loader found. Model-specific use must pin one artifact.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata for facebook/pe-av-small declares apache-2.0 at revision dd050762bb9704ae9cd996ca45532a98f81d817e.",
+        "Publisher metadata for facebook/PE-Core-L14-336 declares apache-2.0 at revision bafb0f76541d399057e980a25947f67acec76575."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/facebook/pe-av-small/tree/dd050762bb9704ae9cd996ca45532a98f81d817e",
+        "https://huggingface.co/facebook/PE-Core-L14-336/tree/bafb0f76541d399057e980a25947f67acec76575"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "runtime_loader_map": {
+        "code_location": "candidate only; no current loader found",
+        "model_id_or_path": "facebook/pe-av-small; facebook/PE-Core-L14-336",
+        "revision_behavior": "candidate family audited by Hub SHA; not current Ren runtime"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "minilm",
+      "artifact": "MiniLM weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+      "exact_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+      "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+      "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/footage_query.py:97,352-381.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+        "license: apache-2.0",
+        "| [PAQ](https://github.com/facebookresearch/PAQ) (Question, Answer) pairs | [paper](https://arxiv.org/abs/2102.07033) | 64,371,441 |",
+        "| [Sentence Compression](https://github.com/google-research-datasets/sentence-compression) | [paper](https://www.aclweb.org/anthology/D13-1155/) | 180,000 |",
+        "| [Natural Questions (NQ)](https://ai.google.com/research/NaturalQuestions) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/1455) | 100,231 |"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/tree/1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "1_Pooling/config.json",
+        "README.md",
+        "config.json",
+        "config_sentence_transformers.json",
+        "data_config.json",
+        "model.safetensors",
+        "modules.json",
+        "onnx/model.onnx",
+        "onnx/model_O1.onnx",
+        "onnx/model_O2.onnx",
+        "onnx/model_O3.onnx",
+        "onnx/model_O4.onnx",
+        "onnx/model_qint8_arm64.onnx",
+        "onnx/model_qint8_avx512.onnx",
+        "onnx/model_qint8_avx512_vnni.onnx",
+        "onnx/model_quint8_avx2.onnx",
+        "openvino/openvino_model.bin",
+        "openvino/openvino_model.xml",
+        "openvino/openvino_model_qint8_quantized.bin",
+        "openvino/openvino_model_qint8_quantized.xml",
+        "pytorch_model.bin",
+        "rust_model.ot",
+        "sentence_bert_config.json",
+        "special_tokens_map.json",
+        "tf_model.h5",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "train_script.py",
+        "vocab.txt"
+      ],
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/footage_query.py:97,352-381",
+        "model_id_or_path": "sentence-transformers/all-MiniLM-L6-v2",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "molmo2",
+      "artifact": "allenai/Molmo2-4B model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/allenai/Molmo2-4B",
+      "exact_revision": "042abfa7a38879a376cec03d949eff0aefaa0600",
+      "retrieved_at": "2026-10-16T00:40:05Z",
+      "license": "Apache-2.0 model artifacts; model card separately warns that training datasets include third-party datasets limited to academic/non-commercial research.",
+      "commercial_use": "Unresolved for commercial output/use until dataset-level terms and the exact training-data subset are reconciled with the model card caution.",
+      "redistribution": "Redistribution under Apache alone is not sufficient to resolve data-derived restrictions; no commercial bundle approval.",
+      "attribution": "Apache-2.0 notices plus any applicable source-dataset attribution; exact dataset obligations unresolved.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Apache metadata at exact revision 042abfa7a38879a376cec03d949eff0aefaa0600 conflicts with the card\u2019s third-party dataset noncommercial warning. Need dataset manifest, source licenses, and rights-holder interpretation; no weights fetched.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Model card: \"license: apache-2.0\"",
+        "Model card: \"This model is trained on third party datasets that are subject to academic and non-commercial research use only.\"",
+        "Model card: \"Please review the sources to determine if this model is appropriate for your use case.\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/allenai/Molmo2-4B/tree/042abfa7a38879a376cec03d949eff0aefaa0600",
+        "https://huggingface.co/allenai/Molmo2-4B/blob/042abfa7a38879a376cec03d949eff0aefaa0600/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+      "runtime_loader_map": {
+        "code_location": "candidate only; no Ren loader found",
+        "model_id_or_path": "allenai/Molmo2-4B",
+        "revision_behavior": "not loaded; audit SHA is not a Ren pin"
+      }
+    },
+    {
+      "artifact_id": "molmo2_molmopoint",
+      "artifact": "Molmo2 / MolmoPoint weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/allenai/molmo",
+      "exact_revision": "No exact checkpoint/revision captured",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Additional clearance required ",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "MolmoPoint is a distinct candidate; no exact checkpoint or model-specific license revision established.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Do not treat software/repository license as weight permission."
+      ],
+      "evidence_sources": [
+        "https://github.com/allenai/molmo"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "owlv2",
+      "artifact": "google/owlv2-base-patch16-ensemble model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/google/owlv2-base-patch16-ensemble",
+      "exact_revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Publisher metadata is evidence only for declared license; review dependencies, data and conversion before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/open_vocabulary_detect.py:55.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision cfd3195ba4ea9592eec887ded089f4c08eff231d states license `apache-2.0`.",
+        "license: apache-2.0",
+        "The model uses CLIP as its multi-modal backbone, with a ViT-like Transformer to get visual features and a causal language model to get the text features. To use CLIP for detection, OWL-ViT removes the final token pooling layer of the vision model and attaches a lightweight classification and box head to each transformer output token. Open-vocabulary classification is enabled by replacing the fixed classification layer weights with the class-name embeddings obtained from the text model. The authors first train CLIP from scratch and fine-tune it end-to-end with the classification and box heads on standard detection datasets using a bipartite matching loss. One or multiple text queries per image can be used to perform zero-shot text-conditioned object detection.",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+        "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, text-conditioned object detection. We also hope it can be used for interdisciplinary studies of the potential impact of such models, especially in areas that commonly require identifying objects whose label is unavailable during training.",
+        "The primary intended users of these models are AI researchers.",
+        "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/google/owlv2-base-patch16-ensemble/tree/cfd3195ba4ea9592eec887ded089f4c08eff231d",
+        "https://huggingface.co/google/owlv2-base-patch16-ensemble/blob/cfd3195ba4ea9592eec887ded089f4c08eff231d/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/open_vocabulary_detect.py:55",
+        "model_id_or_path": "google/owlv2-base-patch16-ensemble",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "padcaptioner",
+      "artifact": "PadCaptioner weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/showlab/PadCaptioner",
+      "exact_revision": "No immutable artifact revision captured; publisher source checked as described in conditions.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "No checkpoint license established.",
+      "commercial_use": "Not established; retain outside Commercial pending exact artifact terms.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Official repository is the primary source; no released checkpoint/revision/license established.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Official project repository describes PadCaptioner; no released checkpoint with an artifact-level license/revision was established in this pass."
+      ],
+      "evidence_sources": [
+        "https://github.com/showlab/PadCaptioner"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "paddleocr_vl16",
+      "artifact": "PaddlePaddle/PaddleOCR-VL-1.6 model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6",
+      "exact_revision": "c5630abae1d940eafe0697512a0325494b02ab42",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0; full model dependencies and training-data rights still require review.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0; full model dependencies and training-data rights still require review.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision c5630abae1d940eafe0697512a0325494b02ab42 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "[![License](https://img.shields.io/badge/license-Apache_2.0-green)](./LICENSE)",
+        "> - Real5-OmniDocBench is a brand-new benchmark oriented toward real-world scenarios, which we constructed based on the OmniDocBench v1.5 dataset. The dataset comprises five distinct scenarios: Scanning, Warping, Screen-photography, Illumination, and Skew. For further details, please refer to [Real5-OmniDocBench](https://huggingface.co/datasets/PaddlePaddle/Real5-OmniDocBench)."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6/tree/c5630abae1d940eafe0697512a0325494b02ab42",
+        "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6/blob/c5630abae1d940eafe0697512a0325494b02ab42/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "panns_code",
+      "artifact": "PANNs inference code",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/qiuqiangkong/audioset_tagging_cnn",
+      "exact_revision": "package 0.1.1",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "MIT per THIRD_PARTY_NOTICES.",
+      "commercial_use": "MIT per THIRD_PARTY_NOTICES.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Code license and CC BY 4.0 weight license are tracked separately; carry both notices in any distribution.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Official PANNs source repository provides the inference/training code and its license file.",
+        "PANNs source-code license is separate from the Cnn14 checkpoint license recorded in panns_weights.json."
+      ],
+      "evidence_sources": [
+        "https://github.com/qiuqiangkong/audioset_tagging_cnn/blob/master/LICENSE"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "panns_weights",
+      "artifact": "PANNs Cnn14 checkpoint",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://zenodo.org/records/3987831",
+      "exact_revision": "Zenodo record 3987831; MD5 70539c43c18b6a289b3199c503a82c5a",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "CC BY 4.0",
+      "commercial_use": "CC BY 4.0 permits commercial use with attribution; package only with license/credit/change notices.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Exact Zenodo record and file checksum are identified. CC BY 4.0 attribution and change-marking are required for redistributed adapted material.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Zenodo record 3987831 identifies the deposited Cnn14_DecisionLevelMax_mAP=0.385.pth artifact and declares CC BY 4.0.",
+        "Ren inventory records MD5 70539c43c18b6a289b3199c503a82c5a; the Zenodo checksum is for integrity, not license clearance."
+      ],
+      "evidence_sources": [
+        "https://zenodo.org/records/3987831",
+        "https://zenodo.org/records/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth/content"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "parakeet_conversion",
+      "artifact": "Parakeet conversion artifact (no Ren conversion installed)",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "exact_revision": "Not applicable; no Ren conversion artifact identified",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Conversion inherits original CC BY 4.0",
+      "commercial_use": "Conversion inherits original CC BY 4.0; conversion-specific redistribution must include attribution and change notice.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Ren has no conversion in current inventory; future MLX/CoreML/ONNX exports must be separately recorded."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "parakeet_tdt06b_v3",
+      "artifact": "Parakeet TDT 0.6B v3 checkpoint",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "exact_revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+      "retrieved_at": "2026-10-16T00:40:05Z",
+      "license": "cc-by-4.0",
+      "commercial_use": "Publisher declares CC BY 4.0 and says commercial/non-commercial use is permitted, subject to attribution and license terms.",
+      "redistribution": "Allowed with CC BY 4.0 attribution, license link, and indication of changes.",
+      "attribution": "Attribute NVIDIA, link CC BY 4.0, identify modifications/adaptation.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `cc-by-4.0`.",
+        "license: cc-by-4.0",
+        "This model is ready for commercial/non-commercial use.",
+        "* Released under a **permissive CC BY 4.0 license**",
+        "<span style=\"color:#466f00;\">License/Terms of Use:</span>",
+        "GOVERNING TERMS: Use of this model is governed by the [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/legalcode.en) license."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/tree/541d1f99c6b0c3cd0b11a95167540bb8edefd82b"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".eval_results/open_asr_leaderboard.yaml",
+        ".gitattributes",
+        "README.md",
+        "config.json",
+        "generation_config.json",
+        "model.safetensors",
+        "parakeet-tdt-0.6b-v3.nemo",
+        "parakeet-tdt-0.6b-v3.q8_0.gguf",
+        "plots/asr.png",
+        "processor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "candidate only; no Ren loader found",
+        "model_id_or_path": "nvidia/parakeet-tdt-0.6b-v3",
+        "revision_behavior": "not loaded; audit SHA is not a Ren pin"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "perceptionlm",
+      "artifact": "PerceptionLM weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/facebook/Perception-LM-3B",
+      "exact_revision": "No exact commit SHA captured; model repo current version not pinned.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "fair-noncommercial-research",
+      "commercial_use": "Research/noncommercial only under publisher metadata.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Publisher model page metadata declares fair-noncommercial-research; exact immutable revision was not captured.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Publisher model metadata declares: \"license: fair-noncommercial-research\"."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/facebook/Perception-LM-3B"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "praat_parselmouth",
+      "artifact": "praat-parselmouth Python binding and bundled Praat code",
+      "artifact_type": "runtime_library",
+      "upstream_url": "https://github.com/YannickJadoul/Parselmouth",
+      "exact_revision": "Ren requirement >=0.4.3; resolved release not pinned in requirements floor",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "GPL-3.0-or-later (Parselmouth); embedded Praat dependencies include GPL components",
+      "commercial_use": "Commercial use is possible under GPL if applicable obligations are met; whether Ren distribution/combination complies needs legal analysis.",
+      "redistribution": "Distribution of combined work may trigger corresponding-source, license, and notice obligations; actual linkage/packaging must be analyzed.",
+      "attribution": "Include GPL notices, license texts, and source offer/availability as applicable.",
+      "thresholds": "None identified.",
+      "copyleft": "Strong copyleft. Audit dynamic linking, Python import, package distribution, modifications, and whether Ren ships the dependency; optional install alone does not resolve obligations for engine code importing it.",
+      "conditions": "GPL-3.0-or-later; identify resolved wheel/source release, modifications, linking/bundling and source-offer/notice obligations in Ren distribution.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Parselmouth README: \"Parselmouth is released under the GNU General Public License, version 3 or later.\"",
+        "Parselmouth repository includes Praat source and its license notices; actual obligations depend on Ren\u2019s packaged wheel and distribution/integration boundary."
+      ],
+      "evidence_sources": [
+        "https://github.com/YannickJadoul/Parselmouth/blob/master/README.md",
+        "https://github.com/YannickJadoul/Parselmouth/blob/master/LICENSE"
+      ],
+      "review_scope": "Code/runtime integration; no model weights.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "pyannote_community1",
+      "artifact": "pyannote Community-1 pipeline weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/pyannote/speaker-diarization-community-1",
+      "exact_revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "cc-by-4.0",
+      "commercial_use": "CC BY 4.0 permits commercial use subject to attribution, but access requires acceptance of publisher conditions including contact details.",
+      "redistribution": "Permitted with CC BY 4.0 attribution/license and any applicable access conditions.",
+      "attribution": "Name pyannote authors/pipeline, link CC BY 4.0, include license and changes.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `cc-by-4.0`.",
+        "license: cc-by-4.0",
+        "extra_gated_prompt: \"Your input helps us strengthen the pyannote community and improve our open-source offerings. This pipeline is released under the CC-BY-4.0 license and will always remain freely accessible. By providing your details, you agree that we may email you occasionally with important news about pyannote models, invitations to try premium pipelines, and information about specific services designed for researchers and professionals like you.\"",
+        "We report [diarization error rates](http://pyannote.github.io/pyannote-metrics/reference.html#diarization) (in %) on large collection of academic benchmarks (fully automatic processing, no forgiveness collar, nor skipping overlapping speech).",
+        "This is a feature which is [backported from our latest commercial model](https://www.pyannote.ai/blog/precision-2) that simplifies the reconciliation between fine-grained speaker diarization timestamps and (sometimes not so precise) transcription timestamps.",
+        "title={Wespeaker: A research and production oriented speaker embedding learning toolkit},"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/pyannote/speaker-diarization-community-1/tree/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "config.yaml",
+        "diarization.gif",
+        "embedding/README.md",
+        "embedding/pytorch_model.bin",
+        "plda/README.md",
+        "plda/plda.npz",
+        "plda/xvec_transform.npz",
+        "segmentation/pytorch_model.bin"
+      ],
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "qwen35_4b",
+      "artifact": "Qwen3.5-4B weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/Qwen/Qwen3.5-4B",
+      "exact_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+      "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+      "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+        "license: apache-2.0",
+        "license_link: https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Qwen/Qwen3.5-4B/tree/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "chat_template.jinja",
+        "config.json",
+        "merges.txt",
+        "model.safetensors-00001-of-00002.safetensors",
+        "model.safetensors-00002-of-00002.safetensors",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "video_preprocessor_config.json",
+        "vocab.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "not loaded by current Ren code located in this pass",
+        "model_id_or_path": "Qwen/Qwen3.5-4B",
+        "revision_behavior": "candidate only; not current runtime; audit SHA is not a Ren pin"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "remotion_runtime",
+      "artifact": "Remotion packages and renderer",
+      "artifact_type": "runtime_library",
+      "upstream_url": "https://www.remotion.dev/docs/license",
+      "exact_revision": "Ren uses package-lock.json; inspect remotion-subtitles/package-lock.json for exact versions; upstream license page current as retrieved",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Remotion Company License (source-available, custom terms)",
+      "commercial_use": "Conditional. Free license includes individuals and for-profit organizations up to 3 employees for video creation; Automators pricing applies to automated video products. Confirm Ren qualifies and use class.",
+      "redistribution": "License forbids copying/modifying Remotion code to sell, rent, license, relicense or sublicense a derivative; Ren ships integration/runtime package, distribution review required.",
+      "attribution": "No standard attribution established; comply with Remotion terms.",
+      "thresholds": "Organization size and use class; Automators documented at $0.01/render, $100/month minimum on current pricing page.",
+      "copyleft": "Remotion distributes compiled FFmpeg under GPLv2+; account for its distribution and linked GPL components.",
+      "conditions": "Remotion v4.0.486 package is exact. Determine entity size, commercial automation class and product restrictions under the exact v4 text; include GPLv2+ FFmpeg obligations if distributing Remotion\u2019s FFmpeg build.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "The exact Remotion v4.0.486 LICENSE.md provides a free license to individuals and qualifying for-profit organizations with up to three employees.",
+        "Remotion v4 license conditions restrict using/copying/modifying Remotion to create a competing product or derivative of Remotion.",
+        "Current Remotion licensing page describes paid Automators terms; verify the exact v4.0.486 license text against Ren\u2019s commercial automated video product."
+      ],
+      "evidence_sources": [
+        "https://github.com/remotion-dev/remotion/blob/v4.0.486/LICENSE.md",
+        "https://www.remotion.dev/docs/license/pricing",
+        "https://www.remotion.dev/docs/acknowledgements"
+      ],
+      "review_scope": "Renderer code and packaged runtime; separate from GSAP and bundled FFmpeg.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "rfdetr_large",
+      "artifact": "Roboflow/rf-detr-large model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/Roboflow/rf-detr-large",
+      "exact_revision": "f62f7dd5252b61097cbace33886045816dadbde9",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision f62f7dd5252b61097cbace33886045816dadbde9 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "datasets:",
+        "- **NAS (family-level):** the RF-DETR paper uses weight-sharing neural architecture search over practical accuracy\u2013latency knobs after adapting a shared backbone on the target dataset, so many checkpoints correspond to different subnets without full independent retrains for every point on the frontier.",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+        "These checkpoints are trained on the standard [COCO 2017 object detection dataset](https://cocodataset.org/#home) label space (80 categories) as reflected in `config.id2label`.",
+        "@misc{robinson2026rfdetrneuralarchitecturesearch,"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Roboflow/rf-detr-large/tree/f62f7dd5252b61097cbace33886045816dadbde9",
+        "https://huggingface.co/Roboflow/rf-detr-large/blob/f62f7dd5252b61097cbace33886045816dadbde9/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "rfdetr_medium",
+      "artifact": "Roboflow/rf-detr-medium model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/Roboflow/rf-detr-medium",
+      "exact_revision": "1b5b672408f86dd38e05dd3cf3f2e0834e545a59",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 1b5b672408f86dd38e05dd3cf3f2e0834e545a59 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "datasets:",
+        "- **NAS (family-level):** the RF-DETR paper uses weight-sharing neural architecture search over practical accuracy\u2013latency knobs after adapting a shared backbone on the target dataset, so many checkpoints correspond to different subnets without full independent retrains for every point on the frontier.",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+        "These checkpoints are trained on the standard [COCO 2017 object detection dataset](https://cocodataset.org/#home) label space (80 categories) as reflected in `config.id2label`.",
+        "@misc{robinson2026rfdetrneuralarchitecturesearch,"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Roboflow/rf-detr-medium/tree/1b5b672408f86dd38e05dd3cf3f2e0834e545a59",
+        "https://huggingface.co/Roboflow/rf-detr-medium/blob/1b5b672408f86dd38e05dd3cf3f2e0834e545a59/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "rfdetr_nano",
+      "artifact": "Roboflow/rf-detr-nano model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/Roboflow/rf-detr-nano",
+      "exact_revision": "9f201577d9415f0378084748d27e68586e6b3600",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 9f201577d9415f0378084748d27e68586e6b3600 states license `apache-2.0`.",
+        "license: apache-2.0",
+        "datasets:",
+        "- **NAS (family-level):** the RF-DETR paper uses weight-sharing neural architecture search over practical accuracy\u2013latency knobs after adapting a shared backbone on the target dataset, so many checkpoints correspond to different subnets without full independent retrains for every point on the frontier.",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+        "These checkpoints are trained on the standard [COCO 2017 object detection dataset](https://cocodataset.org/#home) label space (80 categories) as reflected in `config.id2label`.",
+        "@misc{robinson2026rfdetrneuralarchitecturesearch,"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Roboflow/rf-detr-nano/tree/9f201577d9415f0378084748d27e68586e6b3600",
+        "https://huggingface.co/Roboflow/rf-detr-nano/blob/9f201577d9415f0378084748d27e68586e6b3600/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "rfdetr_small",
+      "artifact": "Roboflow/rf-detr-small model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/Roboflow/rf-detr-small",
+      "exact_revision": "3bdc465063270f99769da5a1b4c00c68bd2d439d",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "redistribution": "Subject to exact upstream license; if no license declared, no redistribution clearance established.",
+      "attribution": "Apache-2.0: preserve copyright, license and NOTICE, mark modified files. CC BY 4.0: identify creator, license, link, and changes. NVIDIA custom: redistribute only under its accompanying terms.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "This exact publisher revision was inspected via metadata and model card only; no weights fetched. Audit base model, adapters, tokenizer, training data and conversion separately. Apache-2.0 per publisher metadata; distribution subject to Apache notice and license conditions.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Publisher metadata at revision 3bdc465063270f99769da5a1b4c00c68bd2d439d states license `apache-2.0`.",
+        "license: apache-2.0",
+        "datasets:",
+        "- **NAS (family-level):** the RF-DETR paper uses weight-sharing neural architecture search over practical accuracy\u2013latency knobs after adapting a shared backbone on the target dataset, so many checkpoints correspond to different subnets without full independent retrains for every point on the frontier.",
+        "url = \"http://images.cocodataset.org/val2017/000000039769.jpg\"",
+        "These checkpoints are trained on the standard [COCO 2017 object detection dataset](https://cocodataset.org/#home) label space (80 categories) as reflected in `config.id2label`.",
+        "@misc{robinson2026rfdetrneuralarchitecturesearch,"
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Roboflow/rf-detr-small/tree/3bdc465063270f99769da5a1b4c00c68bd2d439d",
+        "https://huggingface.co/Roboflow/rf-detr-small/blob/3bdc465063270f99769da5a1b4c00c68bd2d439d/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "rfdetr_xl_2xl",
+      "artifact": "RF-DETR XL/2XL weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/roboflow/rf-detr",
+      "exact_revision": "main (candidate family; no per-variant revisions captured)",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Gated or unavailable checkpoint terms; license not established for XL/2XL.",
+      "commercial_use": "Not established; identified conflict, access restriction, or missing artifact-specific license requires resolution before commercial use.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Access refused by publisher API; do not infer XL/2XL terms from Nano-Large Apache variants.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Hugging Face API access to the candidate XL/2XL model repos returned HTTP 401; no public model-card/license text was available in this audit."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/Roboflow/rf-detr-xl",
+        "https://huggingface.co/Roboflow/rf-detr-2xl"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "sam21",
+      "artifact": "SAM 2.1 weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/facebook/sam2.1-hiera-small",
+      "exact_revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+      "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+      "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/analysis/object_segmentation.py:27.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+        "license: apache-2.0",
+        "The official code is publicly release in this [repo](https://github.com/facebookresearch/segment-anything-2/).",
+        "Refer to the [demo notebooks](https://github.com/facebookresearch/segment-anything-2/tree/main/notebooks) for details."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/facebook/sam2.1-hiera-small/tree/ee5bba1d82bb8749febdf90f45e84b687142ba03"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "config.json",
+        "model.safetensors",
+        "preprocessor_config.json",
+        "processor_config.json",
+        "sam2.1_hiera_s.yaml",
+        "sam2.1_hiera_small.pt",
+        "video_preprocessor_config.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "library/tools/analysis/object_segmentation.py:27",
+        "model_id_or_path": "facebook/sam2.1-hiera-small",
+        "revision_behavior": "repo ID only; no revision argument; floats"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "sam3",
+      "artifact": "SAM 3 / 3.1 weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/facebookresearch/sam3",
+      "exact_revision": "main (candidate; no revision captured)",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Custom SAM License; model weights are gated.",
+      "commercial_use": "Not established; identified conflict, access restriction, or missing artifact-specific license requires resolution before commercial use.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Weights are gated and exact checkpoint revision/accepted terms not captured; review AUP and redistribution scope before distribution.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Official SAM3 repository provides a custom SAM License; its use is governed by that license and accompanying acceptable-use policy.",
+        "Official Hugging Face SAM3 model access is gated."
+      ],
+      "evidence_sources": [
+        "https://github.com/facebookresearch/sam3/blob/7f473cfd983d5eb43040ff608f66bff0d7bdcb53/LICENSE",
+        "https://huggingface.co/facebook/sam3"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "runtime_loader_map": {
+        "code_location": "candidate only; no current loader found",
+        "model_id_or_path": "facebookresearch/sam3",
+        "revision_behavior": "gated model; no weight revision available to this audit"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "sam_audio",
+      "artifact": "SAM Audio weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/facebookresearch/sam-audio",
+      "exact_revision": "main (candidate; no revision captured)",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Custom SAM License; not Apache/MIT. Official GitHub LICENSE applies to source; Hugging Face weights are gated.",
+      "commercial_use": "Not established; identified conflict, access restriction, or missing artifact-specific license requires resolution before commercial use.",
+      "redistribution": "No commercial redistribution clearance established.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Gated weights, accepted terms, redistribution grant and all AUP conditions were not available for inspection; no weight SHA.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Official repository LICENSE identifies the governing instrument as the SAM License.",
+        "SAM Audio Hugging Face model access is gated; no public exact checkpoint revision was established in this audit."
+      ],
+      "evidence_sources": [
+        "https://github.com/facebookresearch/sam-audio/blob/bb4c6999d2677c7402360e426afc01ddfad6dce0/LICENSE",
+        "https://huggingface.co/facebook/sam-audio"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "runtime_loader_map": {
+        "code_location": "candidate only; no current loader found",
+        "model_id_or_path": "facebookresearch/sam-audio",
+        "revision_behavior": "gated model; no weight revision available to this audit"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "smolvlm2",
+      "artifact": "SmolVLM2 weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+      "exact_revision": "482adb537c021c86670beed01cd58990d01e72e4",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "apache-2.0",
+      "commercial_use": "Apache-2.0 permits commercial use subject to its terms, but Ren runtime revision is floating; commercial clearance is conditional on pinning the loaded artifact.",
+      "redistribution": "Apache-2.0 permits redistribution subject to license and notice obligations; do not bundle until Ren pins and verifies the exact loaded revision.",
+      "attribution": "Include the upstream Apache-2.0 LICENSE, copyright notices, and NOTICE if present; mark modified files.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Publisher declares Apache-2.0 at the recorded Hub revision, but Ren loads the model by floating repo ID without a revision pin. The audit SHA is not the revision Ren actually loads. Pin runtime resolution before Commercial distribution; preserve LICENSE and check any bundled files.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `apache-2.0`.",
+        "license: apache-2.0",
+        "- **License:** Apache 2.0",
+        "License",
+        "We release the SmolVLM2 checkpoints under the Apache 2.0 license."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/HuggingFaceTB/SmolVLM2-2.2B-Instruct/tree/482adb537c021c86670beed01cd58990d01e72e4"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "README.md",
+        "added_tokens.json",
+        "chat_template.json",
+        "config.json",
+        "generation_config.json",
+        "merges.txt",
+        "model-00001-of-00002.safetensors",
+        "model-00002-of-00002.safetensors",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "processor_config.json",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "not loaded by current Ren code located in this pass",
+        "model_id_or_path": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+        "revision_behavior": "candidate only; not current runtime; audit SHA is not a Ren pin"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "tara",
+      "artifact": "bpiyush/TARA model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/bpiyush/TARA",
+      "exact_revision": "3e7cb730d86ae10da7eb1c85f17e45ece5a5e353",
+      "retrieved_at": "2026-10-16T00:40:05Z",
+      "license": "Apache-2.0 declared for TARA checkpoint; base model and training-data rights need review.",
+      "commercial_use": "Conditional; exact base Tarsier2-7b-0115 and dataset (chirality-in-action) licenses and terms must be verified before commercial packaging.",
+      "redistribution": "Do not redistribute in Commercial until base and training-data terms are verified.",
+      "attribution": "Apache notice obligations apply to TARA where valid; inherited obligations unresolved.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Exact TARA revision recorded; Apache declared. Base checkpoint and training dataset require their own revisioned rights records; no weights downloaded.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "TARA model card: \"license: apache-2.0\"",
+        "TARA model card identifies base dataset/model: \"omni-research/Tarsier2-7b-0115\".",
+        "TARA model card identifies dataset: \"bpiyush/chirality-in-action\"."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/bpiyush/TARA/tree/3e7cb730d86ae10da7eb1c85f17e45ece5a5e353",
+        "https://huggingface.co/bpiyush/TARA/blob/3e7cb730d86ae10da7eb1c85f17e45ece5a5e353/README.md",
+        "https://huggingface.co/omni-research/Tarsier2-7b-0115/tree/343e2a0a48283d6574b9aad042a2ab81a06949a8"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence.",
+      "runtime_loader_map": {
+        "code_location": "candidate only; no Ren loader found",
+        "model_id_or_path": "bpiyush/TARA",
+        "revision_behavior": "not loaded; audit SHA is not a Ren pin"
+      }
+    },
+    {
+      "artifact_id": "tempo",
+      "artifact": "Tempo pretrained weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/search?q=Tempo+video+model&type=repositories",
+      "exact_revision": "No immutable artifact revision captured; publisher source checked as described in conditions.",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Not verified; no canonical publisher artifact/license source identified.",
+      "commercial_use": "Unresolved; there is no exact artifact or primary license evidence in this audit.",
+      "redistribution": "Not cleared.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "No canonical artifact or primary license source identified; record remains unresolved rather than carrying a research-only conclusion.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "No canonical publisher artifact, exact revision, or license text was verified."
+      ],
+      "evidence_sources": [
+        "https://github.com/search?q=Tempo+video+model&type=repositories"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "timelens2",
+      "artifact": "MCG-NJU/TimeLens2-8B-SFT model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/MCG-NJU/TimeLens2-8B-SFT",
+      "exact_revision": "9e836f387fd7c0bb5a55f0ed58b369be77a3fb53",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Conflicting: Hub metadata says Apache-2.0; official project LICENSE at GitHub commit restricts use to academic purposes and excludes commercial/production use.",
+      "commercial_use": "Unresolved; do not use commercially. Official LICENSE governs/contradicts model-card metadata; obtain rights-holder clarification.",
+      "redistribution": "No commercial distribution established; the controlling rights are disputed.",
+      "attribution": "Follow the governing license after conflict resolution; do not rely on Apache metadata alone.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Material conflict between model Hub Apache metadata and official repository LICENSE; upstream repository commit 615e73251796f6217a2c08daa4195f69d3d3945b. No weights downloaded. Clarification required.",
+      "status": "quarantine",
+      "evidence_quotes": [
+        "Hub metadata: license: apache-2.0",
+        "Official TimeLens2 LICENSE, section 2: \"The Dataset and the Model are provided for academic research purposes only.\"",
+        "Official TimeLens2 LICENSE, section 3: \"You may not use the Dataset or the Model for any commercial or production purposes.\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/MCG-NJU/TimeLens2-8B-SFT/tree/9e836f387fd7c0bb5a55f0ed58b369be77a3fb53",
+        "https://github.com/MCG-NJU/TimeLens2/blob/615e73251796f6217a2c08daa4195f69d3d3945b/LICENSE",
+        "https://github.com/MCG-NJU/TimeLens2/blob/615e73251796f6217a2c08daa4195f69d3d3945b/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "videoitg",
+      "artifact": "nvidia/VideoITG-8B model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/nvidia/VideoITG-8B",
+      "exact_revision": "18ab80cbe5d99edb808d657d009b80348313bcce",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "NVIDIA custom model license (NVLICENSE); code license is Apache-2.0, distinct from model weights.",
+      "commercial_use": "Research/non-commercial only: model card identifies research preview as non-commercial; model LICENSE_Model \u00a73.3 limits Work and derivatives to non-commercial use.",
+      "redistribution": "No commercial redistribution established; follow NVIDIA model license for any research distribution.",
+      "attribution": "NVIDIA model-license terms and notices apply; Apache-2.0 applies only to source code.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Model revision 18ab80cbe5d99edb808d657d009b80348313bcce; model-specific terms at official GitHub commit 50a60a822c0e362bfd8747c45ba34e66e9c9d650. No weights fetched.",
+      "status": "research-only",
+      "evidence_quotes": [
+        "Model card: \"This research preview is intended for non-commercial use only.\"",
+        "Model card: \"Code: Apache 2.0 License\" (applies to code, not weights).",
+        "LICENSE_Model \u00a73.3: \"The Work and any derivative works thereof only may be used or intended for use non-commercially.\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/nvidia/VideoITG-8B/tree/18ab80cbe5d99edb808d657d009b80348313bcce",
+        "https://github.com/NVlabs/VideoITG/blob/50a60a822c0e362bfd8747c45ba34e66e9c9d650/LICENSE_Model",
+        "https://github.com/NVlabs/VideoITG/blob/50a60a822c0e362bfd8747c45ba34e66e9c9d650/README.md"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "voxcelebdataset_provenance",
+      "artifact": "VoxCeleb data used in ECAPA training",
+      "artifact_type": "training_data",
+      "upstream_url": "https://www.robots.ox.ac.uk/~vgg/data/voxceleb/",
+      "exact_revision": "Dataset version not identified by Ren inventory or SpeechBrain record",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Unresolved dataset terms / third-party source video rights",
+      "commercial_use": "Not established from reviewed official source; do not infer from SpeechBrain code license or paper access.",
+      "redistribution": "Not established; no redistribution clearance for derived checkpoint established.",
+      "attribution": "Depends on governing dataset and source media terms; unverified.",
+      "thresholds": "None identified.",
+      "copyleft": "Not applicable.",
+      "conditions": "Obtain exact training recipe, VoxCeleb1/2 versions and access terms, source-video rights, any relevant consent/privacy limitations, and licensor clarification on commercial downstream weights.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Official Oxford page is the publisher source for dataset terms; exact applicable terms for the trained ECAPA artifact were not linked in the Ren inventory."
+      ],
+      "evidence_sources": [
+        "https://www.robots.ox.ac.uk/~vgg/data/voxceleb/"
+      ],
+      "review_scope": "Training-data provenance only; no claim that downstream model weights automatically inherit dataset restrictions.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "voz_model",
+      "artifact": "desert-ant-labs/voz model/checkpoint",
+      "artifact_type": "checkpoint",
+      "upstream_url": "https://huggingface.co/desert-ant-labs/voz",
+      "exact_revision": "e11906fe59d1ce9882eb8e82ed59f78bdc8e6153",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "Desert Ant Labs Source-Available License 1.0 for converted/compressed Voz weights; model card states underlying Parakeet weights remain CC BY 4.0.",
+      "commercial_use": "Conditional. Publisher states free use up to 100,000 monthly active devices per SDK and unlimited inference per user; above-threshold and redistribution terms not fully accessible/verified.",
+      "redistribution": "No commercial redistribution approval until complete custom license terms are reviewed.",
+      "attribution": "Preserve Parakeet CC BY attribution/license and identify modifications; Desert Ant source-available license obligations also apply.",
+      "thresholds": "No numeric threshold found in reviewed card unless otherwise noted.",
+      "copyleft": "None indicated by Hub license metadata; code/runtime licensing is separate.",
+      "conditions": "Custom license endpoint returned HTTP 403 during audit. Confirm MA-device counting, scope across products/SDKs, redistribution of converted weights, above-threshold licensing, and continuing-use rights directly with vendor. Underlying Parakeet is CC BY 4.0; dual-license/interface is unresolved.",
+      "status": "unresolved",
+      "evidence_quotes": [
+        "Voz model card: \"Voz is NVIDIA's Parakeet TDT 0.6B v3, converted and compressed ...\"",
+        "Voz model card: \"We converted and compressed Parakeet for Voz and left the weights otherwise unchanged.\"",
+        "Voz model card identifies Desert Ant Labs Source-Available License; commercial license required at scale.",
+        "Desert Ant official organization page: \"Every model is free up to 100k monthly active devices per SDK. Unlimited inference per user.\""
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/desert-ant-labs/voz/tree/e11906fe59d1ce9882eb8e82ed59f78bdc8e6153",
+        "https://github.com/Desert-Ant-Labs",
+        "https://license.desertant.com/1.0"
+      ],
+      "review_scope": "Publisher metadata/model card; code, conversion, runtime and training data require separate records.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "voz_runtime",
+      "artifact": "Desert Ant CLI + Voz runtime",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/Desert-Ant-Labs/desert-ant-cli",
+      "exact_revision": "0.1.1 per THIRD_PARTY_NOTICES; exact source commit not captured",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "CLI MIT",
+      "commercial_use": "CLI MIT; models under Desert Ant Labs source-available license. Redistribution and threshold apply separately.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Code/runtime and model weights have separate terms. Pin the external CLI binary and review its redistribution plus the separate Voz threshold license.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Desert Ant CLI README identifies the CLI source as MIT and distinguishes that from Voz model/source-available terms.",
+        "Ren THIRD_PARTY_NOTICES identifies desert-ant-cli 0.1.1; exact source commit/packaged binary hash was not captured."
+      ],
+      "evidence_sources": [
+        "https://github.com/Desert-Ant-Labs/desert-ant-cli",
+        "https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "wemm_embedding2b",
+      "artifact": "WeMM-Embedding 2B weights",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://huggingface.co/tencent/WeMM-Embedding-2B",
+      "exact_revision": "bbd6cd4bf52cfc6716f752a2df80b2706720bd95",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "other",
+      "commercial_use": "Publisher metadata declares other; commercial use and redistribution are generally permitted subject to that license. Exact revision is pinned here; validate full license text and inherited data/components before Commercial packaging.",
+      "redistribution": "Permitted under the declared license subject to required license/notice and modification terms; package license text with redistributed artifact.",
+      "attribution": "Apache-2.0 or MIT notice/attribution requirements apply as specified by the declared license.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Hugging Face publisher metadata at this revision declares license `other`.",
+        "license: other",
+        "license_name: apache-2.0",
+        "license_link: https://huggingface.co/tencent/WeMM-Embedding-2B/blob/main/LICENSE",
+        "License",
+        "available by Tencent, is licensed under the [Apache License 2.0](https://huggingface.co/tencent/WeMM-Embedding-2B/blob/main/LICENSE)."
+      ],
+      "evidence_sources": [
+        "https://huggingface.co/tencent/WeMM-Embedding-2B/tree/bbd6cd4bf52cfc6716f752a2df80b2706720bd95"
+      ],
+      "review_scope": "Publisher metadata and model card inspected at immutable revision. This does not substitute for separate conversion, base-model, runtime, dataset, or bundled-file records.",
+      "publisher_api_files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "additional_chat_templates/sentence_transformers.jinja",
+        "chat_template.jinja",
+        "config.json",
+        "config_sentence_transformers.json",
+        "embedding_chat_template.jinja",
+        "model.safetensors",
+        "modeling_st_wemm.py",
+        "modeling_wemm_embedding.py",
+        "modules.json",
+        "patch_sglang_video.py",
+        "processor_config.json",
+        "sentence_bert_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "runtime_loader_map": {
+        "code_location": "not loaded by current Ren code located in this pass",
+        "model_id_or_path": "tencent/WeMM-Embedding-2B",
+        "revision_behavior": "candidate only; not current runtime; audit SHA is not a Ren pin"
+      },
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    },
+    {
+      "artifact_id": "yolo26_mlx",
+      "artifact": "YOLO26 MLX code/model",
+      "artifact_type": "checkpoint_or_model_artifact",
+      "upstream_url": "https://github.com/ultralytics/ultralytics",
+      "exact_revision": "No exact MLX fork/conversion or revision established",
+      "retrieved_at": "2026-10-16T00:39:47Z",
+      "license": "AGPL-3.0 / enterprise licensing classification",
+      "commercial_use": "AGPL-3.0 / enterprise licensing classification; use is architecture and distribution dependent.",
+      "redistribution": "Not affirmatively cleared for Ren packaging unless the exact license permits it; see conditions and evidence. For conditional/research-only/quarantine/unresolved records, do not bundle in Commercial.",
+      "attribution": "Required for CC BY 4.0 and Apache-2.0 if distributed; exact notice details require review of the governing license. Otherwise not established.",
+      "thresholds": "None identified in evidence reviewed, except Voz: 100,000 monthly active devices per SDK free tier, per Desert Ant publisher page; confirm counting and exceedance terms with licensor.",
+      "copyleft": "Not applicable to weights unless stated in license; separately assess linked runtime/software records. YOLO26 includes AGPL concern.",
+      "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging.",
+      "status": "conditional",
+      "evidence_quotes": [
+        "Copyleft requires counsel review of linking, modification, distribution, and service model."
+      ],
+      "evidence_sources": [
+        "https://github.com/ultralytics/ultralytics"
+      ],
+      "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
+      "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
+    }
+  ]
+}

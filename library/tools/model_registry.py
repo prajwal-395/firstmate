@@ -15,6 +15,9 @@ from ren import edition
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = ROOT / "library" / "model_registry" / "registry.json"
 SCHEMA_PATH = ROOT / "library" / "model_registry" / "schema.json"
+EVIDENCE_SNAPSHOT_PATH = ROOT / "library" / "model_registry" / "license_evidence.json"
+USER_LICENSES_ENV = "REN_MODEL_LICENSES"
+LICENSE_RECORDS_DIR_ENV = "REN_LICENSE_RECORDS_DIR"
 PURPOSES = {"commercial_client", "personal_noncommercial", "permitted_research"}
 ROUTING_MODES = {"quality_first", "balanced", "fastest_acceptable"}
 
@@ -23,7 +26,12 @@ class ModelRegistryError(ValueError):
     """The model registry is invalid or an edition cannot be authorized."""
 
 
-def load_registry(path: str | Path = REGISTRY_PATH) -> dict[str, Any]:
+def load_registry(path: str | Path | None = None) -> dict[str, Any]:
+    if path is None:
+        import os
+
+        root = Path(os.environ.get("REN_MODEL_REGISTRY_ROOT", ROOT))
+        path = root / "library" / "model_registry" / "registry.json"
     registry = json.loads(Path(path).read_text(encoding="utf-8"))
     validate_registry(registry)
     return registry
@@ -74,13 +82,37 @@ def validate_registry(registry: dict[str, Any]) -> None:
             raise ModelRegistryError(f"{implementation.get('id')}: unknown workload purpose")
         if "commercial_client" in implementation.get("purposes", ()) and evidence.get("approval_status") not in {"approved", "conditional"}:
             raise ModelRegistryError(f"{implementation.get('id')}: license does not authorize commercial workload")
+        runtime_env = implementation.get("runtime_env")
+        if runtime_env is not None:
+            if not runtime_env.get("name"):
+                raise ModelRegistryError(f"{implementation.get('id')}: runtime environment must name its environment")
+            if runtime_env.get("isolated") and not runtime_env.get("requirements"):
+                raise ModelRegistryError(
+                    f"{implementation.get('id')}: isolated runtime environment must record its requirements file")
+        user_license = implementation.get("user_license")
+        if user_license is not None:
+            if not user_license.get("license_name") or not user_license.get("entitlement_env"):
+                raise ModelRegistryError(
+                    f"{implementation.get('id')}: user license slot must name its license and entitlement variable")
 
 
-def _authorized(implementation: dict[str, Any], edition_name: str, purpose: str) -> bool:
+def _authorized(
+    implementation: dict[str, Any],
+    edition_name: str,
+    purpose: str,
+    user_licenses: dict[str, dict[str, str]] | None = None,
+) -> bool:
     evidence = implementation["license_evidence"]
     if edition_name not in implementation["editions"] or purpose not in implementation["purposes"]:
         return False
-    if evidence["approval_status"] == "unresolved":
+    if implementation.get("user_license") is not None:
+        if entitlement_authorizes(implementation, user_licenses) is None:
+            return False
+        if evidence["approval_status"] == "unresolved":
+            return False
+        if evidence["approval_status"] == "rejected":
+            return purpose == "permitted_research"
+    elif evidence["approval_status"] == "unresolved":
         return False
     if purpose == "commercial_client" and evidence["approval_status"] not in {"approved", "conditional"}:
         return False
@@ -89,17 +121,88 @@ def _authorized(implementation: dict[str, Any], edition_name: str, purpose: str)
     return True
 
 
+def user_entitlements(
+    source: str | dict[str, Any] | None = None,
+    registry: dict[str, Any] | None = None,
+) -> dict[str, dict[str, str]]:
+    """Read user-supplied license entitlements; malformed entries refuse.
+
+    The default source is the REN_MODEL_LICENSES environment variable, a
+    JSON object mapping implementation IDs to {"license_name", "key"}
+    records. Unknown implementation IDs refuse rather than being ignored.
+    """
+    import os
+
+    if source is None:
+        raw = os.environ.get(USER_LICENSES_ENV, "")
+        if not raw.strip():
+            return {}
+        source = raw
+    if isinstance(source, dict):
+        data = source
+    else:
+        try:
+            data = json.loads(source)
+        except json.JSONDecodeError as exc:
+            raise ModelRegistryError(f"{USER_LICENSES_ENV} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ModelRegistryError(f"{USER_LICENSES_ENV} must map implementation IDs to entitlement records")
+    entitlements: dict[str, dict[str, str]] = {}
+    for implementation_id, entry in data.items():
+        if not isinstance(entry, dict) or not entry.get("license_name") or not entry.get("key"):
+            raise ModelRegistryError(
+                f"entitlement for {implementation_id!r} must name license_name and a non-empty key")
+        entitlements[implementation_id] = {"license_name": entry["license_name"], "key": entry["key"]}
+    if registry is not None:
+        known = {row["id"] for row in registry.get("implementations", [])}
+        unknown = sorted(set(entitlements) - known)
+        if unknown:
+            raise ModelRegistryError(f"entitlements name unregistered implementations: {unknown}")
+    return entitlements
+
+
+def entitlement_authorizes(
+    implementation: dict[str, Any],
+    user_licenses: dict[str, dict[str, str]] | None,
+) -> str | None:
+    """Return the license name when a user entitlement matches the slot."""
+    slot = implementation.get("user_license")
+    if not slot:
+        return None
+    entry = (user_licenses or {}).get(implementation["id"])
+    if not entry or entry.get("license_name") != slot["license_name"] or not entry.get("key"):
+        return None
+    return slot["license_name"]
+
+
+def isolated_runtime_envs(registry: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    """Map each isolated runtime environment to the implementations needing it."""
+    registry = registry or load_registry()
+    envs: dict[str, list[str]] = {}
+    for item in registry["implementations"]:
+        env = item.get("runtime_env") or {}
+        if env.get("isolated"):
+            envs.setdefault(env["name"], []).append(item["id"])
+    return envs
+
+
 def manifest(edition_name: str, purpose: str, registry: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Build derived manifest; Personal is a superset for identical workload."""
+    """Build derived manifest; Personal is a superset for identical workload.
+
+    A manifest is an eligibility list (license status, edition, workload
+    purpose). Measured qualification gates SELECTION in ``route``, never
+    eligibility here: nothing is qualified before the benchmark lanes run,
+    and an eligibility list that requires qualification is empty.
+    """
     if edition_name not in {"commercial", "personal"}:
         raise ModelRegistryError(f"unknown model edition {edition_name!r}")
     if purpose not in PURPOSES:
         raise ModelRegistryError(f"unknown workload purpose {purpose!r}")
     if registry is None:
-        root = Path(__import__("os").environ.get("REN_MODEL_REGISTRY_ROOT", ROOT))
-        registry = load_registry(root / "library" / "model_registry" / "registry.json")
+        registry = load_registry()
     validate_registry(registry)
-    entries = [item for item in registry["implementations"] if _authorized(item, edition_name, purpose)]
+    entries = [item for item in registry["implementations"]
+               if _authorized(item, edition_name, purpose)]
     caps = sorted({cap for item in entries for cap in item["capabilities"]})
     return {"schema_version": 1, "edition": edition_name, "purpose": purpose,
             "capabilities": caps, "implementations": entries}
@@ -129,6 +232,7 @@ def route(
     override: str | None = None,
     hardware: dict[str, Any] | None = None,
     registry: dict[str, Any] | None = None,
+    user_licenses: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Select a licensed implementation and return a durable decision record.
 
@@ -144,6 +248,7 @@ def route(
         raise ModelRegistryError("quality_floor must be between 0 and 1")
     registry = registry or load_registry()
     validate_registry(registry)
+    entitlements = user_entitlements(None, registry) if user_licenses is None else user_licenses
     hardware = hardware or {}
     edition_name = "commercial" if purpose == "commercial_client" else "personal"
     rejected: list[dict[str, str]] = []
@@ -151,7 +256,7 @@ def route(
     for item in registry["implementations"]:
         if capability not in item["capabilities"]:
             continue
-        reason = _ineligible_reason(item, edition_name, purpose, hardware, quality_floor)
+        reason = _ineligible_reason(item, edition_name, purpose, hardware, quality_floor, entitlements)
         if reason:
             rejected.append({"implementation_id": item["id"], "reason": reason})
             continue
@@ -183,6 +288,8 @@ def route(
         "qualification": selected.get("qualification", "unknown"),
         "rationale": rationale,
         "fallback_chain": [selected["id"], *[item["id"] for item in alternatives]],
+        "runtime_env": selected.get("runtime_env") or {"name": "primary", "isolated": False},
+        "user_license_used": entitlement_authorizes(selected, entitlements),
     }
     return decision
 
@@ -190,6 +297,7 @@ def route(
 def _ineligible_reason(
     implementation: dict[str, Any], edition_name: str, purpose: str,
     hardware: dict[str, Any], quality_floor: float,
+    user_licenses: dict[str, dict[str, str]] | None = None,
 ) -> str | None:
     evidence = implementation["license_evidence"]
     if purpose not in implementation["purposes"]:
@@ -200,6 +308,9 @@ def _ineligible_reason(
         return f"license status is {evidence['approval_status']}"
     if purpose == "commercial_client" and evidence["approval_status"] not in {"approved", "conditional"}:
         return "license evidence does not authorize client work"
+    slot = implementation.get("user_license")
+    if slot is not None and entitlement_authorizes(implementation, user_licenses) is None:
+        return f"a user-supplied {slot['license_name']} license is required"
     if implementation.get("qualification") != "qualified":
         return f"qualification is {implementation.get('qualification', 'unknown')}"
     metrics = implementation.get("qualification_metrics", {})
@@ -245,19 +356,21 @@ def require_implementation(
     purpose: str,
     edition_name: str | None = None,
     registry: dict[str, Any] | None = None,
+    user_licenses: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Authorize a fetch/load/package action against current license evidence."""
     registry = registry or load_registry()
     validate_registry(registry)
+    entitlements = user_entitlements(None, registry) if user_licenses is None else user_licenses
     edition_name = edition_name or (
         "commercial" if purpose == "commercial_client" else "personal")
     item = next((row for row in registry["implementations"]
                  if row["id"] == implementation_id), None)
     if item is None:
         raise ModelRegistryError(f"unknown model implementation {implementation_id!r}")
-    if not _authorized(item, edition_name, purpose):
+    if not _authorized(item, edition_name, purpose, entitlements):
         raise ModelRegistryError(
-            f"cannot {action} model implementation {implementation_id}: "
+            f"cannot {action} model implementation {implementation_id!r}: "
             f"license/purpose {purpose!r} is not authorized "
             f"(status={item['license_evidence']['approval_status']})")
     return item
@@ -269,22 +382,29 @@ def installed_capability_report(
     purpose: str,
     edition_name: str,
     registry: dict[str, Any] | None = None,
+    user_licenses: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Report every implementation as available, missing, blocked, or unqualified."""
     registry = registry or load_registry()
     validate_registry(registry)
+    entitlements = user_entitlements(None, registry) if user_licenses is None else user_licenses
     rows = []
     for item in registry["implementations"]:
         evidence = item["license_evidence"]
-        if not _authorized(item, edition_name, purpose):
+        runtime_env = item.get("runtime_env") or {"name": "primary", "isolated": False}
+        slot = item.get("user_license")
+        if not _authorized(item, edition_name, purpose, entitlements):
             status = "blocked"
-            reason = f"license or workload purpose disallows {purpose}"
-        elif item["qualification"] != "qualified":
-            status = "unqualified"
-            reason = f"qualification is {item['qualification']}"
+            if slot is not None and entitlement_authorizes(item, entitlements) is None:
+                reason = f"requires a user-supplied {slot['license_name']} license"
+            else:
+                reason = f"license or workload purpose disallows {purpose}"
         elif item["component_id"] not in installed_components:
             status = "missing"
             reason = "component is not installed"
+        elif item["qualification"] != "qualified":
+            status = "unqualified"
+            reason = f"qualification is {item['qualification']}"
         else:
             status = "available"
             reason = "qualified component is installed and authorized"
@@ -292,7 +412,9 @@ def installed_capability_report(
                      "component_id": item["component_id"],
                      "capabilities": item["capabilities"],
                      "status": status, "reason": reason,
-                     "license_status": evidence["approval_status"]})
+                     "license_status": evidence["approval_status"],
+                     "runtime_env": runtime_env["name"],
+                     "user_license": slot["license_name"] if slot else None})
     return {"schema_version": 1, "edition": edition_name,
             "purpose": purpose, "implementations": rows}
 
@@ -319,7 +441,10 @@ def notices(registry: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
-def authorize_component(component_id: str, *, action: str, purpose: str) -> None:
+def authorize_component(
+    component_id: str, *, action: str, purpose: str,
+    user_licenses: dict[str, dict[str, str]] | None = None,
+) -> None:
     """Apply model authorization before a model component is fetched or loaded."""
     registry = load_registry()
     candidates = [row for row in registry["implementations"]
@@ -331,7 +456,8 @@ def authorize_component(component_id: str, *, action: str, purpose: str) -> None
     for candidate in candidates:
         try:
             require_implementation(candidate["id"], action=action, purpose=purpose,
-                                   edition_name=edition_name, registry=registry)
+                                   edition_name=edition_name, registry=registry,
+                                   user_licenses=user_licenses)
             return
         except ModelRegistryError as exc:
             failures.append(str(exc))
@@ -340,6 +466,12 @@ def authorize_component(component_id: str, *, action: str, purpose: str) -> None
 
 LICENSE_ARTIFACT_MAP = {
     "audio_flamingo_next": ("audio_flamingo.nvidia_next",),
+    "ast_audio_labels": ("ast.audioset",),
+    "depth_v2_small": ("depth_anything_v2.small",),
+    "florence2": ("florence2.base",),
+    "owlv2": ("owlv2.base_patch16",),
+    "grounding_dino": ("grounding_dino.tiny",),
+    "sam21": ("sam2.1_hiera_small",),
     "clip": ("clip.openai_vit_large_patch14",),
     "deepfilternet": ("deepfilternet.v0_5_6",),
     "gemma4": ("gemma.vision_4_12b_it_4bit",),
@@ -349,26 +481,42 @@ LICENSE_ARTIFACT_MAP = {
 }
 
 
+def _snapshot_records() -> list[dict[str, Any]]:
+    """Read the versioned in-repo license-evidence snapshot.
+
+    The snapshot is the only evidence source product code may read: raw
+    license records live with the vep-mu-license lane outside the repo and
+    are snapshotted in at ingest time, never referenced by path.
+    """
+    snapshot = json.loads(EVIDENCE_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    return snapshot["records"]
+
+
 def ingest_license_records(
     registry: dict[str, Any] | None = None,
     records_dir: str | Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Apply primary-source evidence records to explicitly mapped implementations.
 
-    Records are passed in, never located by product code: the caller
-    supplies the directory holding the license lane's record files, or
-    a directory holding a previously snapshotted set. There is no
-    default records location.
+    With no explicit directory the versioned in-repo snapshot is applied.
+    Pass ``records_dir`` (or set ``REN_LICENSE_RECORDS_DIR``) only when
+    re-ingesting fresh lane records into a new snapshot.
     """
+    import os
+
     if records_dir is None:
-        raise ModelRegistryError(
-            "ingest_license_records requires records_dir: license records "
-            "are passed in, never discovered from a hardcoded location")
+        records_dir = os.environ.get(LICENSE_RECORDS_DIR_ENV)
+    if records_dir is None:
+        records = _snapshot_records()
+        labels = [record["artifact_id"] for record in records]
+    else:
+        paths = sorted(Path(records_dir).glob("*.json"))
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+        labels = [path.name for path in paths]
     registry = registry or load_registry()
     by_id = {row["id"]: row for row in registry["implementations"]}
     unmapped = []
-    for path in sorted(Path(records_dir).glob("*.json")):
-        record = json.loads(path.read_text(encoding="utf-8"))
+    for label, record in zip(labels, records):
         targets = LICENSE_ARTIFACT_MAP.get(record["artifact_id"])
         if targets is None:
             unmapped.append(record["artifact_id"])
@@ -378,7 +526,7 @@ def ingest_license_records(
                   "unresolved": "unresolved"}.get(record["status"])
         if status is None:
             raise ModelRegistryError(
-                f"{path.name}: unsupported license evidence status {record['status']!r}")
+                f"{label}: unsupported license evidence status {record['status']!r}")
         for implementation_id in targets:
             implementation = by_id[implementation_id]
             implementation["license_evidence"].update({
@@ -406,16 +554,14 @@ def unmapped_license_records(
     records_dir: str | Path | None = None,
 ) -> list[str]:
     """Return evidence artifact IDs without an explicit registry mapping."""
-    if records_dir is None:
-        raise ModelRegistryError(
-            "unmapped_license_records requires records_dir: license records "
-            "are passed in, never discovered from a hardcoded location")
     known = set(LICENSE_ARTIFACT_MAP)
-    found = []
-    for path in sorted(Path(records_dir).glob("*.json")):
-        record = json.loads(path.read_text(encoding="utf-8"))
-        if record["artifact_id"] not in known:
-            found.append(record["artifact_id"])
+    if records_dir is None:
+        records = _snapshot_records()
+    else:
+        records = [json.loads(path.read_text(encoding="utf-8"))
+                   for path in sorted(Path(records_dir).glob("*.json"))]
+    found = [record["artifact_id"] for record in records
+             if record["artifact_id"] not in known]
     return found
 
 
@@ -423,7 +569,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("manifests", "notices", "installed-report"))
+    parser.add_argument("command", choices=("manifests", "notices", "installed-report", "runtime-envs"))
     parser.add_argument("--edition", choices=("commercial", "personal"), default="personal")
     parser.add_argument("--purpose", choices=sorted(PURPOSES), default="commercial_client")
     parser.add_argument("--installed-component", action="append", default=[])
@@ -431,6 +577,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "manifests":
         output = edition_manifests()
+    elif args.command == "runtime-envs":
+        output = {"isolated_runtime_envs": isolated_runtime_envs()}
     elif args.command == "notices":
         print(notices(), end="")
         return

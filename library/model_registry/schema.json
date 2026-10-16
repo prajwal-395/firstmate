@@ -55,7 +55,25 @@
         "qualification_metrics": {"type": "object", "properties": {"quality": {"type": ["number", "null"], "minimum": 0, "maximum": 1}, "latency_cold_seconds": {"type": ["number", "null"], "minimum": 0}, "latency_warm_seconds": {"type": ["number", "null"], "minimum": 0}, "peak_memory_gb": {"type": ["number", "null"], "minimum": 0}}, "additionalProperties": false},
         "resources": {"type": "object", "properties": {"runtime_seconds": {"type": ["number", "null"], "minimum": 0}, "memory_gb": {"type": ["number", "null"], "minimum": 0}, "resident_memory_gb": {"type": ["number", "null"], "minimum": 0}}, "additionalProperties": false},
         "hardware": {"type": "object", "properties": {"accelerators": {"type": "array", "items": {"enum": ["ane", "gpu", "cpu"]}}}, "additionalProperties": false},
-        "optional_download": {"type": "boolean"}
+        "optional_download": {"type": "boolean"},
+        "runtime_env": {"$ref": "#/$defs/runtime_env"},
+        "user_license": {"$ref": "#/$defs/user_license"}
+      }
+    },
+    "runtime_env": {
+      "type": "object", "required": ["name", "isolated"], "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "isolated": {"type": "boolean"},
+        "requirements": {"type": ["string", "null"]},
+        "python": {"type": ["string", "null"]}
+      }
+    },
+    "user_license": {
+      "type": ["object", "null"], "required": ["license_name", "entitlement_env"], "additionalProperties": false,
+      "properties": {
+        "license_name": {"type": "string", "minLength": 1},
+        "entitlement_env": {"type": "string", "minLength": 1}
       }
     }
   }
