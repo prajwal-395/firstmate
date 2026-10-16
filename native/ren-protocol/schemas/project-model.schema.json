@@ -595,6 +595,17 @@
         "id": {
           "type": "string"
         },
+        "identity_scope": {
+          "description": "Lane 3: how widely this identity holds. `None` for records\nmigrated before scopes existed, so older documents still decode.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentityScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "kind": {
           "$ref": "#/$defs/EntityKind"
         },
@@ -1175,6 +1186,13 @@
             "type": "string"
           }
         },
+        "track_id": {
+          "description": "Lane 3: the local track this link re-associates. `None` for\nobservation-anchored links written before tracks were named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "uncertainty": {
           "type": [
             "number",
@@ -1201,6 +1219,15 @@
         "method",
         "status",
         "provenance_id"
+      ]
+    },
+    "IdentityScope": {
+      "type": "string",
+      "enum": [
+        "asset",
+        "capture_group",
+        "project",
+        "cross_project"
       ]
     },
     "IdentityStatus": {
@@ -1501,6 +1528,13 @@
             "null"
           ]
         },
+        "local_track_id": {
+          "description": "Lane 3: the tracker's clip-local id, distinct from the durable\nentity id. `None` for tracks migrated before local ids existed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "provenance_id": {
           "type": "string"
         },
@@ -1769,6 +1803,17 @@
         "provenance_id": {
           "type": "string"
         },
+        "relation_class": {
+          "description": "Lane 3: temporal edges are computable from clock-aligned\nintervals; physical edges need spatial/track evidence and stay\ncandidates until verified; semantic edges need\ninterpretation-level support and stay interpreted candidates.\n`None` for relations migrated before classes existed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RelationClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "status": {
           "anyOf": [
             {
@@ -1791,6 +1836,14 @@
         "object_id",
         "interval",
         "provenance_id"
+      ]
+    },
+    "RelationClass": {
+      "type": "string",
+      "enum": [
+        "temporal",
+        "physical",
+        "semantic"
       ]
     },
     "Render": {

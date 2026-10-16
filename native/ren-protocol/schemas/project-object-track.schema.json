@@ -34,6 +34,13 @@
         "null"
       ]
     },
+    "local_track_id": {
+      "description": "Lane 3: the tracker's clip-local id, distinct from the durable\nentity id. `None` for tracks migrated before local ids existed.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "provenance_id": {
       "type": "string"
     },

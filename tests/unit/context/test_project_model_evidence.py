@@ -386,7 +386,11 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
     assert report["counts"]["identity_links"] > 0
     assert report["counts"]["masks"] >= 3
     assert report["counts"]["tracks"] == 3
-    assert report["counts"]["relations"] == 0
+    relations = model["relations"]
+    assert report["counts"]["relations"] == len(relations) == 1
+    assert relations[0]["relation_class"] in {"temporal", "physical"}
+    assert relations[0]["status"] == "candidate"
+    assert relations[0]["evidence_ids"]
     # Read-only proof: not one lane byte changed.
     after = {path: path.read_bytes()
              for path in fixture_project["memory"].rglob("*") if path.is_file()}
@@ -553,6 +557,14 @@ def test_same_looking_object_tracks_keep_separate_scoped_identity(fixture_projec
                   and entity["object_class_id"] == "class-person"}
     assert {"object-clip_001-obj_1", "object-clip_001-obj_2",
             "object-clip_002-obj_1"} <= same_class
+    migrated_tracks = {track["id"]: track for track in model["tracks"]}
+    for object_id in ("obj_1", "obj_2"):
+        entity = next(row for row in model["entities"]
+                      if row["id"] == f"object-clip_001-{object_id}")
+        track = next(row for row in migrated_tracks.values()
+                     if row["entity_id"] == entity["id"])
+        assert entity["identity_scope"] == "asset"
+        assert track["local_track_id"] == f"clip_001/{object_id}"
 
     continuity = [link for link in model["identity_links"]
                   if link["method"] == "sam2_track_continuity"]

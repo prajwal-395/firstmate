@@ -13,8 +13,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from library.tools.project_layout import Area, ProjectLayout
 from library.tools import evidence_contract, project_model_masks
+from library.tools.project_layout import Area, ProjectLayout
 
 PRODUCER = "library.steps.step_1_07_ocr_extraction"
 OCR_TRACK_MASK_KIND = project_model_masks.OCR_POLYGON_TRACK_KIND
@@ -97,6 +97,8 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
         builder.model["entities"].append({
             "id": entity_id, "kind": "other" if category == "text" else "object",
             "label": label, "object_class_id": None,
+            # Lane 3: an OCR/UI track holds for its source asset.
+            "identity_scope": "asset",
         })
     observation_ids = []
     observation_scopes = []
@@ -164,6 +166,8 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
         return False
     builder.model["tracks"].append({
         "id": track_id, "entity_id": entity_id, "clock_id": clock_id,
+        # Lane 3: the OCR tracker's own name, distinct from the entity.
+        "local_track_id": track_key,
         "kind": "ocr_text" if category == "text" else str(track.get("kind", "graphic_candidate")),
         "coverage": "analyzed", "continuity": "sparse OCR/UI samples",
         "provenance_id": provenance_id,

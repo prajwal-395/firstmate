@@ -6,6 +6,17 @@
     "id": {
       "type": "string"
     },
+    "identity_scope": {
+      "description": "Lane 3: how widely this identity holds. `None` for records\nmigrated before scopes existed, so older documents still decode.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IdentityScope"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "kind": {
       "$ref": "#/$defs/EntityKind"
     },
@@ -37,6 +48,15 @@
         "speaker",
         "camera",
         "other"
+      ]
+    },
+    "IdentityScope": {
+      "type": "string",
+      "enum": [
+        "asset",
+        "capture_group",
+        "project",
+        "cross_project"
       ]
     }
   }

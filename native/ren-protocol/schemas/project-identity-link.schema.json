@@ -66,6 +66,13 @@
         "type": "string"
       }
     },
+    "track_id": {
+      "description": "Lane 3: the local track this link re-associates. `None` for\nobservation-anchored links written before tracks were named.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "uncertainty": {
       "type": [
         "number",

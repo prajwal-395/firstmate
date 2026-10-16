@@ -24,7 +24,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-marker-0000000000000002",
@@ -54,7 +55,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-insert-0000000000000003",
@@ -110,7 +112,8 @@
         "kind": "duration_unchanged"
       }
     ],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-retime-0000000000000004",
@@ -136,7 +139,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-segments-0000000000000005",
@@ -171,7 +175,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-track-0000000000000006",
@@ -197,7 +202,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-grade-0000000000000007",
@@ -235,7 +241,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-plan-0000000000000008",
@@ -266,7 +273,8 @@
     ],
     "preconditions": [],
     "postconditions": [],
-    "base_git_sha": ""
+    "base_git_sha": "",
+    "expected_model_revision": null
   },
   {
     "id": "ren-conditions-0000000000000009",
@@ -316,6 +324,7 @@
         }
       }
     ],
-    "base_git_sha": "01755778"
+    "base_git_sha": "01755778",
+    "expected_model_revision": null
   }
 ]

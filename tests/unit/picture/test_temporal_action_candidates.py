@@ -69,6 +69,39 @@ def test_pick_up_put_down_uses_ordered_raise_and_lower_transition():
     assert event["kind"] == "pick_up_put_down"
 
 
+def test_pick_up_candidate_requires_stable_rest_then_lift_and_cites_state_change():
+    model = _model()
+    model["tracks"][0]["samples"] = [
+        {"tick": tick, "geometry": {"bbox_pixels": [400, 400, 500, 500]}}
+        for tick in (1000, 1500, 2000)
+    ] + [
+        {"tick": 2500, "geometry": {"bbox_pixels": [400, 300, 500, 400]}}
+    ]
+    model["observations"] = [
+        {"id": f"object-{index}", "modality": "object_track_sample",
+         "interval": {"clock_id": "clock-1", "start": tick,
+                      "end": tick + 500},
+         "payload": {"track_id": "track-1",
+                     "coordinate_space": "source_pixels_1000x1000"}}
+        for index, tick in enumerate((1000, 1500, 2000, 2500), 1)
+    ] + [
+        {"id": f"pose-{tick}", "modality": "face_frame",
+         "interval": {"clock_id": "clock-1", "start": tick,
+                      "end": tick + 1},
+         "payload": {"hands": [{"joints": {"wrist": [.45, .35, .9]}}]}}
+        for tick in (2000, 2500)
+    ]
+    [event] = candidates_from_model(model, rule="pick_up")
+    assert event["kind"] == "pick_up"
+    assert event["status"] == "candidate"
+    assert event["state_changes"] == [{
+        "entity_id": "obj-1", "property": "motion_state",
+        "from": "at_rest", "to": "lifted",
+        "evidence_ids": ["object-1", "object-2", "object-3",
+                         "object-4", "pose-2000", "pose-2500"],
+    }]
+
+
 def test_hand_object_contact_is_a_measured_candidate_with_phases():
     [event] = candidates_from_model(_model(), rule="hand_object_contact")
     assert event["kind"] == "hand_object_contact"

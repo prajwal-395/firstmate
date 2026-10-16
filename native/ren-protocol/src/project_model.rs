@@ -376,12 +376,24 @@ pub enum EntityKind {
     Other,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityScope {
+    Asset,
+    CaptureGroup,
+    Project,
+    CrossProject,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Entity {
     pub id: EntityId,
     pub kind: EntityKind,
     pub label: Option<String>,
     pub object_class_id: Option<ObjectClassId>,
+    /// Lane 3: how widely this identity holds. `None` for records
+    /// migrated before scopes existed, so older documents still decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_scope: Option<IdentityScope>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -555,6 +567,10 @@ pub struct IdentityLink {
     pub method_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uncertainty: Option<f64>,
+    /// Lane 3: the local track this link re-associates. `None` for
+    /// observation-anchored links written before tracks were named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<TrackId>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -605,6 +621,17 @@ pub struct ObjectTrack {
     pub continuity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<ProcessingStatus>,
+    /// Lane 3: the tracker's clip-local id, distinct from the durable
+    /// entity id. `None` for tracks migrated before local ids existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_track_id: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationClass {
+    Temporal,
+    Physical,
+    Semantic,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -622,6 +649,13 @@ pub struct Relation {
     pub status: Option<VerificationStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certainty: Option<CertaintyState>,
+    /// Lane 3: temporal edges are computable from clock-aligned
+    /// intervals; physical edges need spatial/track evidence and stay
+    /// candidates until verified; semantic edges need
+    /// interpretation-level support and stay interpreted candidates.
+    /// `None` for relations migrated before classes existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation_class: Option<RelationClass>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

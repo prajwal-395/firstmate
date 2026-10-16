@@ -41,6 +41,17 @@
     "provenance_id": {
       "type": "string"
     },
+    "relation_class": {
+      "description": "Lane 3: temporal edges are computable from clock-aligned\nintervals; physical edges need spatial/track evidence and stay\ncandidates until verified; semantic edges need\ninterpretation-level support and stay interpreted candidates.\n`None` for relations migrated before classes existed.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RelationClass"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "status": {
       "anyOf": [
         {
@@ -96,6 +107,14 @@
         "clock_id",
         "start",
         "end"
+      ]
+    },
+    "RelationClass": {
+      "type": "string",
+      "enum": [
+        "temporal",
+        "physical",
+        "semantic"
       ]
     },
     "VerificationStatus": {

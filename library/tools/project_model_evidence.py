@@ -421,7 +421,8 @@ class _Builder:
              supporting_observation_ids: list[str] | None = None,
              contradicting_observation_ids: list[str] | None = None,
              scope: dict[str, Any] | None = None,
-             uncertainty: float | None = None) -> str:
+             uncertainty: float | None = None,
+             track_id: str | None = None) -> str:
         link_id = f"link-{entity_id}-{observation_id}-{method}"
         observation = next((row for row in self.model["observations"]
                             if row["id"] == observation_id), None)
@@ -444,6 +445,8 @@ class _Builder:
                                 "end": interval["end"]},
             "uncertainty": uncertainty,
         }
+        if track_id is not None:
+            link["track_id"] = track_id
         if contradicting_observation_ids:
             link["contradicting_observation_ids"] = contradicting_observation_ids
         self.model["identity_links"].append(link)
@@ -1017,6 +1020,9 @@ def _migrate_identity(builder: _Builder, digest: str, asset_id: str,
             builder.model["entities"].append({
                 "id": speaker_id, "kind": "speaker", "label": None,
                 "object_class_id": None,
+                # Lane 3: a diarized voice track holds for its source
+                # asset until linked to a roster person.
+                "identity_scope": "asset",
             })
         for turn in voice.get("spans") or []:
             start, end = (turn if isinstance(turn, (list, tuple)) and len(turn) == 2
@@ -2278,6 +2284,10 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
                     "evidence_ids": [observation_id],
                     "status": "candidate",
                     "certainty": "inferred",
+                    # Lane 3: owner co-presence is spatial contact
+                    # evidence, so the edge is physical and stays a
+                    # candidate until verified.
+                    "relation_class": "physical",
                 })
 
 
@@ -2797,6 +2807,10 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         builder.model["entities"].append({
             "id": entity_id, "kind": "object", "label": obj.get("label"),
             "object_class_id": class_id,
+            # Lane 3: the 1.06 tracker names instances per clip; the
+            # entity holds for that asset until a re-identification
+            # link promotes it.
+            "identity_scope": "asset",
         })
         clock_id = _clock_id(digest)
         bboxes = obj.get("bboxes") or {}
@@ -2866,6 +2880,9 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
             "id": f"track-{clip_id}-{object_id}",
             "entity_id": entity_id,
             "clock_id": clock_id,
+            # Lane 3: the tracker's clip-local name, distinct from the
+            # durable entity id above.
+            "local_track_id": f"{clip_id}/{object_id}",
             "samples": samples,
             "provenance_id": builder.provenance(
                 digest, "segmentation",
@@ -2886,7 +2903,8 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 "library.steps.step_1_06_object_segmentation",
                 supporting_observation_ids=sample_observation_ids,
                 scope={"clock_id": clock_id,
-                       "start": ticks[0], "end": ticks[1]})
+                       "start": ticks[0], "end": ticks[1]},
+                track_id=f"track-{clip_id}-{object_id}")
         _migrate_object_detection(builder, digest, clock_id, clip_id, obj,
                                   object_id, entity_id, category,
                                   first_t, period)
@@ -3157,6 +3175,9 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
                 builder.model["entities"].append({
                     "id": entity_id, "kind": "object", "label": None,
                     "object_class_id": None,
+                    # Lane 3: a region track with no roster owner is
+                    # an asset-local instance, never a durable person.
+                    "identity_scope": "asset",
                 })
             builder.notes.append(
                 f"{digest[:12]}/{track_id}: region track has no roster "
@@ -3168,6 +3189,9 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
             "id": f"track-region-{digest}-{track_id}",
             "entity_id": entity_id,
             "clock_id": clock_id,
+            # Lane 3: the M3d region tracker's own name for this
+            # instance, distinct from the entity it is assigned to.
+            "local_track_id": track_id,
             "samples": samples,
             "provenance_id": builder.provenance(
                 digest, "m3d", REGION_TRACK_PRODUCER),
@@ -3647,6 +3671,9 @@ def migrate_project_evidence(project_folder: str, *,
             "kind": "person",
             "label": person.get("name"),
             "object_class_id": None,
+            # Lane 3: resolve_person_tracks clusters face embeddings
+            # across sources, so the person holds project-wide.
+            "identity_scope": "project",
         })
     if not catalog:
         builder.notes.append("catalog empty or unreadable; model carries "
@@ -3711,11 +3738,30 @@ def migrate_project_evidence(project_folder: str, *,
     # samples and M3d/MU-15 object tracks have reached the Project Model.
     # They cite those measurements and stay candidates pending L3 review.
     from library.tools.temporal_action_candidates import candidates_from_model
-    for action_rule in ("drink_from_cup", "pick_up_put_down"):
+    for action_rule in ("drink_from_cup", "pick_up_put_down", "pick_up"):
         builder.model["events"].extend(
             candidates_from_model(builder.model, rule=action_rule))
     _migrate_music_signals(builder, project_folder, root)
     _derive_track_motion_events(builder)
+    # Lane 3: persistent identity and physical relations are derived
+    # only after every digest's tracks, faces and hands have reached
+    # the model. Re-association stays candidate without verification
+    # evidence; relation edges cite the observations they rest on.
+    from library.tools.identity_reassociation import reassociate_tracks
+    reassociated = reassociate_tracks(builder.model)
+    builder.model["identity_links"].extend(reassociated["links"])
+    for skipped in reassociated["skipped"]:
+        builder.notes.append(
+            f"re-identification skipped {skipped['earlier']} -> "
+            f"{skipped['later']}: {skipped['reason']}")
+    from library.tools.relation_classes import (
+        derive_physical_relations,
+        derive_temporal_relations,
+    )
+    builder.model["relations"].extend(
+        derive_temporal_relations(builder.model))
+    builder.model["relations"].extend(
+        derive_physical_relations(builder.model))
     from library.tools import cross_modal_grounding
     cross_modal_grounding.apply_project_model(builder.model)
     validate_project_model(builder.model)

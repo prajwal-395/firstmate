@@ -135,6 +135,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # Deterministic hand/object action candidates are materialized by
         # Project Model migration and must invalidate segmentation rows.
         "library/tools/temporal_action_candidates.py",
+        # Lane 3: migration materializes track re-identification and
+        # temporal/physical relation candidates into the model.
+        "library/tools/identity_reassociation.py",
+        "library/tools/relation_classes.py",
         "library/tools/analysis/open_vocabulary_detect.py",
         "library/tools/analyzer_providers.py",
         "library/tools/query_directed_acquisition.py",
@@ -624,6 +628,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # Temporal action candidates are part of the scan's Project Model
         # migration and invalidate scan rows when their rules change.
         "library/tools/temporal_action_candidates.py",
+        # Lane 3 migration adds identity and physical relation records.
+        "library/tools/identity_reassociation.py",
+        "library/tools/relation_classes.py",
         "library/tools/analysis/open_vocabulary_detect.py",
         "library/tools/analyzer_providers.py",
         "library/tools/query_directed_acquisition.py",
@@ -1133,6 +1140,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/project_model_evidence.py",
         # The catalog's Project Model migration materializes these events.
         "library/tools/temporal_action_candidates.py",
+        # Lane 3: migration materializes track re-identification and
+        # temporal/physical relation candidates into the model.
+        "library/tools/identity_reassociation.py",
+        "library/tools/relation_classes.py",
         "library/tools/analysis/open_vocabulary_detect.py",
         "library/tools/analyzer_providers.py",
         "library/tools/query_directed_acquisition.py",
@@ -1631,6 +1642,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/temporal_action_candidates.py",
+        # Lane 3 migration adds identity and physical relation records.
+        "library/tools/identity_reassociation.py",
+        "library/tools/relation_classes.py",
         "library/tools/analysis/open_vocabulary_detect.py",
         "library/tools/analyzer_providers.py",
         "library/tools/query_directed_acquisition.py",
@@ -2131,6 +2145,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/project_model_contract.py",
         "library/tools/project_model_evidence.py",
         "library/tools/temporal_action_candidates.py",
+        # Lane 3 migration adds identity and physical relation records.
+        "library/tools/identity_reassociation.py",
+        "library/tools/relation_classes.py",
         "library/tools/analysis/open_vocabulary_detect.py",
         "library/tools/analyzer_providers.py",
         "library/tools/query_directed_acquisition.py",

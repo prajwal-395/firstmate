@@ -50,6 +50,7 @@ def validate_project_model(model: dict[str, Any]) -> None:
         raise ValueError("confidence must be between 0 and 1")
     observation_ids = {item["id"] for item in model["observations"]}
     entity_ids = {item["id"] for item in model["entities"]}
+    track_ids = {item["id"] for item in model.get("tracks", [])}
     clock_ids = {clock["id"] for clock in model["clocks"]}
     stream_ids = {stream["id"] for stream in model.get("streams", [])}
     policy_rules: dict[str, dict[str, str]] = {}
@@ -152,6 +153,12 @@ def validate_project_model(model: dict[str, Any]) -> None:
         contradicting = link.get("contradicting_observation_ids", [])
         if link.get("verification_status") == "verified" and not (support or link.get("observation_id")):
             raise ValueError("verified identity links require supporting observations")
+        track_id = link.get("track_id")
+        if track_id is not None and track_id not in track_ids:
+            raise ValueError("identity link references unknown track")
+        if (link.get("method") == "reidentification"
+                and link.get("status") == "verified" and not support):
+            raise ValueError("verified re-identification requires supporting observations")
         if support and not set(support) <= observation_ids:
             raise ValueError("identity link references unknown supporting observations")
         if contradicting and not set(contradicting) <= observation_ids:
@@ -162,6 +169,10 @@ def validate_project_model(model: dict[str, Any]) -> None:
         scope = link.get("scope")
         if scope is not None and scope["start"] >= scope["end"]:
             raise ValueError("identity link scope must be a non-empty half-open interval")
+    for item in model.get("entities", []):
+        if item.get("identity_scope") not in (
+                None, "asset", "capture_group", "project", "cross_project"):
+            raise ValueError("entity identity_scope must use the lane 3 vocabulary")
     for relation in model.get("relations", []):
         if relation["interval"]["start"] >= relation["interval"]["end"]:
             raise ValueError("relation intervals must be non-empty and half-open")
@@ -173,6 +184,25 @@ def validate_project_model(model: dict[str, Any]) -> None:
             raise ValueError("relation references unknown observations")
         if relation.get("certainty") not in (None, "observed", "measured", "inferred", "interpreted"):
             raise ValueError("relation certainty must use the canonical epistemic vocabulary")
+        # Lane 3: each relation class carries its own evidence bar.
+        relation_class = relation.get("relation_class")
+        if relation_class not in (None, "temporal", "physical", "semantic"):
+            raise ValueError("relation relation_class must use the lane 3 vocabulary")
+        if relation_class == "temporal":
+            if clock_ids and relation["interval"]["clock_id"] not in clock_ids:
+                raise ValueError("temporal relations require a known clock")
+        elif relation_class == "physical":
+            if not relation.get("evidence_ids"):
+                raise ValueError("physical relations require spatial or track evidence")
+            if relation.get("certainty") == "interpreted":
+                raise ValueError("physical relations are measurements or inferences, never interpretations")
+        elif relation_class == "semantic":
+            if relation.get("certainty") != "interpreted":
+                raise ValueError("semantic relations require interpreted certainty")
+            if not relation.get("evidence_ids"):
+                raise ValueError("semantic relations require interpretation-level support")
+            if relation.get("status") == "verified":
+                raise ValueError("semantic relations stay candidates, never verified")
     for event in model.get("events", []):
         if event["interval"]["start"] >= event["interval"]["end"]:
             raise ValueError("event intervals must be non-empty and half-open")

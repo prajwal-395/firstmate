@@ -15,6 +15,7 @@ from typing import Any
 RULES = {
     "drink_from_cup": {"object_terms": ("cup", "mug"), "needs_mouth": True},
     "pick_up_put_down": {"object_terms": (), "needs_mouth": False},
+    "pick_up": {"object_terms": (), "needs_mouth": False},
     "hand_object_contact": {"object_terms": (), "needs_mouth": False},
     "hand_to_face": {"object_terms": (), "needs_mouth": False},
     "pointing": {"object_terms": (), "needs_mouth": False},
@@ -213,6 +214,144 @@ def _hand_to_face_candidates(face_rows: list[dict[str, Any]], *,
                   key=lambda row: (row["interval"]["start"], row["id"]))
 
 
+def _object_track_hits(track: dict[str, Any], samples: list[dict[str, Any]],
+                         object_rows: dict[tuple[str, int], dict],
+                         by_clock_time: dict[str, list[dict]],
+                         face_times_by_clock: dict[str, list[int]],
+                         track_id: str) -> tuple[str, list, list[dict[str, Any]]]:
+    """Normalised boxes plus hand/mouth proximity for one track's samples."""
+    clock_id = track["clock_id"]
+    samples_with_boxes = []
+    for sample in samples:
+        geometry = sample.get("geometry") or {}
+        box = geometry.get("bbox_pixels")
+        if box is None:
+            continue
+        resolution = [0, 0]
+        # Object observations carry their measured source dimensions.
+        object_row = object_rows.get((track_id, sample["tick"]))
+        dims = str((object_row or {}).get("payload", {}).get(
+            "coordinate_space", ""))
+        try:
+            resolution = [int(dims.rsplit("_", 1)[1].split("x")[0]),
+                          int(dims.rsplit("x", 1)[1])]
+        except (ValueError, IndexError):
+            pass
+        normalized = _normalized_box(box, resolution)
+        if normalized:
+            samples_with_boxes.append((sample, normalized))
+    hits = []
+    for sample, box in samples_with_boxes:
+        tick = sample["tick"]
+        object_row = object_rows.get((track_id, tick))
+        if object_row is None:
+            continue
+        refs = [object_row["id"]]
+        hand_near, mouth_near = False, False
+        face_clock_rows = by_clock_time.get(clock_id, [])
+        center = bisect_left(face_times_by_clock.get(clock_id, []), tick)
+        nearby_faces = [row for row in face_clock_rows[
+            max(0, center - 2):center + 2]
+            if abs(row["interval"]["start"] - tick) <= 500]
+        for face_row in nearby_faces:
+            payload = face_row["payload"]
+            face = payload.get("face") or {}
+            refs.append(face_row["id"])
+            for hand in payload.get("hands") or []:
+                for x, y, confidence in (hand.get("joints") or {}).values():
+                    if confidence >= .35 and _near((x, y), box):
+                        hand_near = True
+                        break
+            lips = face.get("outer_lips") or []
+            if lips and any(_near((x, y), box, .1) for x, y in lips):
+                mouth_near = True
+        hits.append({"sample": sample, "box": box, "refs": refs,
+                     "hand_near": hand_near, "mouth_near": mouth_near})
+    return clock_id, samples_with_boxes, hits
+
+
+def _pick_up_candidates(track_id: str, track: dict[str, Any],
+                        entity: dict[str, Any],
+                        hits: list[dict[str, Any]], *,
+                        rest_min_samples: int = 3,
+                        rest_max_drift: float = .02,
+                        lift_min_drop: float = .03,
+                        max_transition_ticks: int = 4000,
+                        max_sample_gap_ticks: int = 2000) -> list[dict[str, Any]]:
+    """Rest-to-lifted state changes: a still object a hand then raises.
+
+    Coordinates are normalised with y running down the frame, so a lift
+    is a DECREASE in box-centre y. A rest run is consecutive hits whose
+    centres drift no more than ``rest_max_drift``; the lift is the
+    first later hit within ``max_transition_ticks`` whose centre sits
+    at least ``lift_min_drop`` above the rest height, with hand
+    contact on the transition. Candidates only: sparse samples cannot
+    establish the full motion, and the thresholds are uncalibrated
+    until agent labels judge them.
+    """
+    if not hits:
+        return []
+    centers = [((hit["box"][0] + hit["box"][2]) / 2,
+                (hit["box"][1] + hit["box"][3]) / 2)
+               for hit in hits]
+    proposals = []
+    cursor = 0
+    while cursor < len(hits):
+        rest = [cursor]
+        for index in range(cursor + 1, len(hits)):
+            gap = (hits[index]["sample"]["tick"]
+                   - hits[index - 1]["sample"]["tick"])
+            drift = hypot(centers[index][0] - centers[index - 1][0],
+                          centers[index][1] - centers[index - 1][1])
+            if gap > max_sample_gap_ticks or drift > rest_max_drift:
+                break
+            rest.append(index)
+        if len(rest) >= rest_min_samples:
+            rest_y = sum(centers[i][1] for i in rest) / len(rest)
+            rest_end = hits[rest[-1]]["sample"]["tick"]
+            for index in range(rest[-1] + 1, len(hits)):
+                tick = hits[index]["sample"]["tick"]
+                if tick - rest_end > max_transition_ticks:
+                    break
+                transition = hits[rest[-1]:index + 1]
+                if (rest_y - centers[index][1] >= lift_min_drop
+                        and any(row["hand_near"] for row in transition)):
+                    # The initial rest state is established by every
+                    # supporting rest sample, not only the last sample
+                    # immediately before the lift.
+                    refs = sorted({reference for row in hits[rest[0]:index + 1]
+                                   for reference in row["refs"]})
+                    left = hits[rest[0]]["sample"]["tick"]
+                    right = tick + 1
+                    proposals.append({
+                        "id": (f"event-candidate-pick_up-"
+                               f"{track_id}-{left}-{right}"),
+                        "interval": {"clock_id": track["clock_id"],
+                                     "start": left, "end": right},
+                        "kind": "pick_up",
+                        "participant_ids": [entity["id"]],
+                        "status": "candidate", "certainty": "inferred",
+                        "evidence_ids": refs, "confidence": None,
+                        "state_changes": [{
+                            "entity_id": entity["id"],
+                            "property": "motion_state",
+                            "from": "at_rest", "to": "lifted",
+                            "evidence_ids": refs,
+                        }],
+                        "phases": {"preparation": None,
+                                   "execution": {"start": left,
+                                                 "end": right},
+                                   "completion": None},
+                    })
+                    cursor = index + 1
+                    break
+            else:
+                cursor = rest[-1] + 1
+        else:
+            cursor += 1
+    return proposals
+
+
 def candidates_from_model(model: dict[str, Any], *, rule: str = "drink_from_cup",
                           top_k: int | None = None) -> list[dict[str, Any]]:
     """Return typed Project Model Event records supported by measured rows.
@@ -267,55 +406,15 @@ def candidates_from_model(model: dict[str, Any], *, rule: str = "drink_from_cup"
 
     proposals = []
     for track_id, (track, entity, samples) in object_tracks.items():
-        clock_id = track["clock_id"]
-        samples_with_boxes = []
-        for sample in samples:
-            geometry = sample.get("geometry") or {}
-            box = geometry.get("bbox_pixels")
-            if box is None:
-                continue
-            resolution = [0, 0]
-            # Object observations carry their measured source dimensions.
-            object_row = object_rows.get((track_id, sample["tick"]))
-            dims = str((object_row or {}).get("payload", {}).get(
-                "coordinate_space", ""))
-            try:
-                resolution = [int(dims.rsplit("_", 1)[1].split("x")[0]),
-                              int(dims.rsplit("x", 1)[1])]
-            except (ValueError, IndexError):
-                pass
-            normalized = _normalized_box(box, resolution)
-            if normalized:
-                samples_with_boxes.append((sample, normalized))
+        clock_id, samples_with_boxes, hits = _object_track_hits(
+            track, samples, object_rows, by_clock_time,
+            face_times_by_clock, track_id)
         if len(samples_with_boxes) < 2:
             continue
-        hits = []
-        for sample, box in samples_with_boxes:
-            tick = sample["tick"]
-            object_row = object_rows.get((track_id, tick))
-            if object_row is None:
-                continue
-            refs = [object_row["id"]]
-            hand_near, mouth_near = False, False
-            face_clock_rows = by_clock_time.get(clock_id, [])
-            center = bisect_left(face_times_by_clock.get(clock_id, []), tick)
-            nearby_faces = [row for row in face_clock_rows[
-                max(0, center - 2):center + 2]
-                if abs(row["interval"]["start"] - tick) <= 500]
-            for face_row in nearby_faces:
-                payload = face_row["payload"]
-                face = payload.get("face") or {}
-                refs.append(face_row["id"])
-                for hand in payload.get("hands") or []:
-                    for x, y, confidence in (hand.get("joints") or {}).values():
-                        if confidence >= .35 and _near((x, y), box):
-                            hand_near = True
-                            break
-                lips = face.get("outer_lips") or []
-                if lips and any(_near((x, y), box, .1) for x, y in lips):
-                    mouth_near = True
-            hits.append({"sample": sample, "box": box, "refs": refs,
-                         "hand_near": hand_near, "mouth_near": mouth_near})
+        if rule == "pick_up":
+            proposals.extend(
+                _pick_up_candidates(track_id, track, entity, hits))
+            continue
         if rule == "hand_object_contact":
             groups = []
             current = []
