@@ -1,8 +1,9 @@
 # Audio defect benchmark - FI-12 synthetic held-out baseline (EVAL-07)
 
 `library.tools.analysis.audio_defect_benchmark` is the v1 event contract,
-controlled injector and independent event scorer. This report is its first
-held-out quality/cost evidence.
+controlled injector and independent event scorer. This report is its initial
+synthetic held-out quality/cost evidence, before the tonal peak and hum-route
+calibration follow-up documented in `audio-defect-benchmark.md`.
 
 ## Protocol (synthetic defects, true by construction)
 

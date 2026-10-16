@@ -52,6 +52,9 @@ def test_known_signal_fixture_measures_units_clipping_noise_and_silence(
     assert right["intervals"][0]["spectral_centroid_hz"] == pytest.approx(220, abs=2)
     assert right["noise_floor_dbfs"] == pytest.approx(-44.7, abs=2.0)
     assert right["snr_db"] == pytest.approx(35.7, abs=3.0)
+    assert left["intervals"][0]["tonal_peak_hz"] == pytest.approx(440, abs=2)
+    assert left["intervals"][0]["speech_band_energy_fraction"] == pytest.approx(1.0, abs=0.02)
+    assert left["intelligibility_proxies"]["interpretation"].startswith("frequency coverage proxy")
     assert left["silence_intervals"]
     assert left["silence_intervals"][0]["start_seconds"] == pytest.approx(1.0)
     assert result["method"].startswith("ffmpeg-pcm-s16le/48kHz")
@@ -64,6 +67,14 @@ def test_known_signal_fixture_measures_units_clipping_noise_and_silence(
     source_memory.validate_evidence_envelope(stored["evidence_envelope"])
     reused = audio_quality.measure_audio_quality(str(source), root=memory_root)
     assert reused == result
+
+    # A digest match alone cannot return a pre-v2 record that lacks the new
+    # interval proxies; method-version mismatch forces one fresh measurement.
+    stored["method"] = audio_quality.METHOD.replace("FI-12-v2", "FI-12-v1")
+    source_memory.write_audio_quality(result["content_digest"], stored, memory_root)
+    upgraded = audio_quality.measure_audio_quality(str(source), root=memory_root)
+    assert upgraded["method"] == audio_quality.METHOD
+    assert "tonal_peak_hz" in upgraded["channels"][0]["intervals"][0]
 
 
 def test_audio_quality_slot_refuses_digest_mismatch(tmp_path):

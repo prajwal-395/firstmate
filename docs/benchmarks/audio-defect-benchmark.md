@@ -25,7 +25,10 @@ from them.
 The source-separation route is excluded. It is not invoked by the injector or
 scorer. Synthetic event scores measure localization and false alarms under
 controlled perturbations; real-defect labels and correction recommendations
-still require separate human review.
+remain separate. Real-source event labels must be produced by two independent
+blind agent labellers from different model families and a third tie-breaker;
+report inter-labeller agreement and identify them as agent labels, not human
+ground truth.
 
 ## Score input
 
@@ -85,3 +88,46 @@ defective. FI-12's EVAL-07 synthetic control remains the only labeled clean
 false-alarm measurement in this baseline (0.0 alarms/program-hour). The
 calibration pass motivates the inactive-track gate and episode grouping, but
 does not tune thresholds against held-out variants.
+
+## Additional source measurements
+
+FI-12-v2 records a dominant spectral-bin frequency and its fraction of total
+spectral power, plus the share of energy in the 300-3400 Hz speech band for
+each one-second interval. A dominant bin within 2 Hz of 50, 60, 100 or 120 Hz
+with at least 0.55 of interval power produces a `noise_kind: tonal_hum`
+review candidate when the interval is above -55 dBFS. This is a narrowband
+screen, not a mains-hum classifier; off-grid tones, other harmonics and
+diffuse interference can be missed. The speech-band share is a frequency
+coverage proxy, not a word-intelligibility score.
+
+`repeated_speech_candidates` compares exact normalized transcript phrases of
+at least four tokens within 90 seconds. It reports both source spans for
+review. Repeated wording can be intentional; this is not a retake verdict and
+does not modify the source. The CLI accepts source-time transcript rows with
+`--speech-segments-json`; callers pass speech boundaries with `--speech-span`
+to distinguish silence crossing speech from other silence. Cleanup and
+enhancement remain separate from measurement and require an explicit caller.
+
+Music/dialogue masking remains unassessed by this source-only signal path:
+without independently aligned dialogue and music stems, a single-channel
+level or spectrum cannot attribute masking to music. The report preserves
+that abstention instead of inventing a score. `snr_db` is specifically the
+p95-minus-p10 temporal level spread over non-silent 100 ms windows; it is not
+an acoustic speech-to-noise estimate.
+
+The detector change does not alter canonical project or evidence schemas.
+FI-12's method version is included in the source-memory record, and an older
+cached method is recomputed so cached measurements cannot silently omit these
+v2 values. The locked calibration is `test_fi12_v2_hum_calibration_end_to_end`:
+a deterministic 60 s mono 48 kHz fixture (440 + 880 Hz two-tone bed at -37 dBFS
+total RMS, plus a 120 Hz sine at 0.05 peak amplitude from 10-15 s). The v2
+adapter finds the hum at exact boundaries (10-15 s) with 1/1 recall, 1/1
+precision and zero hum false alarms; the v1 adapter has no hum route, so its
+recall on any hum interval is 0 by construction. A verified run through the
+real measurement took 0.93 s (0.93 s per program minute) with peak RSS 147 MB
+(`ru_maxrss` of the measuring Python process; elapsed includes the ffmpeg
+decode and loudnorm pass). The hum onset/offset also trips the pre-existing
+adjacent-window loudness rule, so overall precision against hum-only gold is
+1/3; the test locks that side effect rather than hiding it. This is a
+calibration result, not a held-out or real-footage claim. No model was loaded
+or downloaded; cold/warm model latency and model memory are not applicable.

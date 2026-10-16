@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import tempfile
 import time
 import wave
@@ -213,7 +214,20 @@ def predictions_from_audio_quality(measurement: dict, *, speech_spans=()) -> lis
                                            "end_seconds": end, "method": "FI-12 peak"})
             rms = row["rms_dbfs"]
             flatness = row["spectral_flatness"]
-            if rms is not None and flatness is not None and rms > -50 and flatness >= 0.5:
+            tonal_hz = row.get("tonal_peak_hz")
+            tonal_fraction = row.get("tonal_peak_power_fraction")
+            mains_tone = (tonal_hz is not None and tonal_fraction is not None
+                          and any(abs(float(tonal_hz) - hz) <= 2.0
+                                  for hz in (50.0, 60.0, 100.0, 120.0))
+                          and float(tonal_fraction) >= 0.55)
+            if mains_tone and rms is not None and rms > -55:
+                channel_predictions.append({
+                    "defect": "noise", "noise_kind": "tonal_hum",
+                    "frequency_hz": float(tonal_hz),
+                    "start_seconds": start, "end_seconds": end,
+                    "method": "FI-12 dominant mains-frequency bin",
+                })
+            elif rms is not None and flatness is not None and rms > -50 and flatness >= 0.5:
                 channel_predictions.append({"defect": "noise", "start_seconds": start,
                                            "end_seconds": end, "method": "FI-12 flatness"})
         for earlier, later in zip(channel["intervals"], channel["intervals"][1:]):
@@ -259,7 +273,45 @@ def predictions_from_audio_quality(measurement: dict, *, speech_spans=()) -> lis
     return predictions
 
 
-def problem_report_from_audio_quality(measurement: dict, *, speech_spans=()) -> dict:
+def repeated_speech_candidates(speech_segments: list[dict], *, minimum_tokens: int = 4,
+                               max_gap_seconds: float = 90.0) -> list[dict]:
+    """Find exact repeated transcript phrases as retake review candidates.
+
+    This is lexical evidence only. Repeated wording may be intentional and
+    is never treated as a defect or used to edit the source automatically.
+    """
+    normalized = []
+    for segment in speech_segments:
+        text = segment["text"]
+        start, end = _interval({"start_seconds": segment["start_seconds"],
+                                "end_seconds": segment["end_seconds"]})
+        tokens = re.findall(r"[a-z0-9]+", str(text).casefold())
+        if len(tokens) >= minimum_tokens:
+            normalized.append((start, end, " ".join(tokens), str(text)))
+    normalized.sort(key=lambda row: (row[0], row[1]))
+    candidates = []
+    for index, earlier in enumerate(normalized):
+        for later in normalized[index + 1:]:
+            gap = later[0] - earlier[1]
+            if gap > max_gap_seconds:
+                break
+            if gap < 0:
+                continue
+            if earlier[2] == later[2]:
+                candidates.append({
+                    "earlier": {"start_seconds": earlier[0], "end_seconds": earlier[1],
+                                "text": earlier[3]},
+                    "later": {"start_seconds": later[0], "end_seconds": later[1],
+                              "text": later[3]},
+                    "classification": "measured_candidate",
+                    "reason": "exact normalized transcript phrase repeats",
+                    "editorial_verdict": "review_required",
+                })
+    return candidates
+
+
+def problem_report_from_audio_quality(measurement: dict, *, speech_spans=(),
+                                      speech_segments=()) -> dict:
     """Render measurements as reviewable problems without labelling taste.
 
     These deterministic rules find candidates for human inspection. Only
@@ -279,6 +331,7 @@ def problem_report_from_audio_quality(measurement: dict, *, speech_spans=()) -> 
         "schema": "audio-problem-report/1",
         "measurement_method": measurement["method"],
         "findings": findings,
+        "repeated_speech_candidates": repeated_speech_candidates(speech_segments),
         "editorial_preferences": [],
         "limitations": ([{
             "defect": "music_dialogue_masking",

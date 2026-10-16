@@ -25,7 +25,7 @@ ANALYSIS_RATE_HZ = 48_000
 INTERVAL_SECONDS = 1.0
 SILENCE_THRESHOLD_DBFS = -60.0
 SNR_PERCENTILES = (10.0, 95.0)
-METHOD = "ffmpeg-pcm-s16le/48kHz; BS.1770 via master_loudness._loudnorm_measure; FI-12-v1"
+METHOD = "ffmpeg-pcm-s16le/48kHz; BS.1770 via master_loudness._loudnorm_measure; FI-12-v2"
 
 
 def _run(args: list[str], *, timeout: int = 1800) -> subprocess.CompletedProcess:
@@ -120,6 +120,17 @@ def _measure_channel(wav_path: Path, stream_index: int, channel_index: int) -> d
             power_sum = float(power.sum()) if power.size else 0.0
             centroid = (float(np.dot(frequencies, power) / power_sum)
                         if power_sum else None)
+            # Keep tonal interference distinct from broadband noise. The
+            # dominant-bin ratio is a screening proxy, not a psychoacoustic
+            # hum verdict; the benchmark adapter combines it with mains
+            # frequency bands and reports a review candidate.
+            peak_bin = int(np.argmax(power)) if power.size else 0
+            tonal_peak_hz = float(frequencies[peak_bin]) if power.size else None
+            tonal_peak_fraction = (float(power[peak_bin] / power_sum)
+                                   if power_sum else None)
+            speech_band = (frequencies >= 300.0) & (frequencies <= 3400.0)
+            speech_band_fraction = (float(power[speech_band].sum() / power_sum)
+                                    if power_sum else None)
             positive = spectrum[spectrum > 0]
             flatness = (float(np.exp(np.mean(np.log(positive))) /
                               np.mean(positive)) if positive.size else None)
@@ -129,6 +140,11 @@ def _measure_channel(wav_path: Path, stream_index: int, channel_index: int) -> d
                 "sample_peak_dbfs": None if peak_db is None else round(peak_db, 3),
                 "spectral_centroid_hz": None if centroid is None else round(centroid, 2),
                 "spectral_flatness": None if flatness is None else round(flatness, 6),
+                "tonal_peak_hz": None if tonal_peak_hz is None else round(tonal_peak_hz, 2),
+                "tonal_peak_power_fraction": (None if tonal_peak_fraction is None
+                                              else round(tonal_peak_fraction, 6)),
+                "speech_band_energy_fraction": (None if speech_band_fraction is None
+                                                else round(speech_band_fraction, 6)),
             })
 
             # Silence is resolved at 100 ms, while retained measurement rows
@@ -189,6 +205,13 @@ def _measure_channel(wav_path: Path, stream_index: int, channel_index: int) -> d
         "noise_floor_dbfs": None if noise_floor is None else round(noise_floor, 3),
         "snr_db": None if snr is None else round(snr, 3),
         "snr_method": "p95 minus p10 of non-silent 100 ms RMS levels; temporal contrast estimate",
+        "intelligibility_proxies": {
+            "speech_band_hz": [300, 3400],
+            "speech_band_energy_fraction_by_interval": [
+                row["speech_band_energy_fraction"] for row in interval_rows
+            ],
+            "interpretation": "frequency coverage proxy only; not intelligibility or word recognition",
+        },
         "silence_threshold_dbfs": SILENCE_THRESHOLD_DBFS,
         "silence_intervals": silence_intervals,
         "dynamics": {
@@ -215,7 +238,7 @@ def measure_audio_quality(source_file: str, *, root: Path | None = None,
     digest = str(fingerprint["content_digest"])
     if not force:
         cached = source_memory.read_audio_quality(digest, root)
-        if cached is not None:
+        if cached is not None and cached["method"] == METHOD:
             return {key: value for key, value in cached.items()
                     if key != "evidence_envelope"}
     streams = _probe(source_file)
@@ -255,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="include timestamped screening candidates and review actions")
     parser.add_argument("--speech-span", action="append", default=[], metavar="START:END",
                         help="source-time speech span in seconds; repeatable")
+    parser.add_argument("--speech-segments-json", type=Path,
+                        help="JSON array of source-time transcript segments for repeated-phrase screening")
     args = parser.parse_args(argv)
     speech_spans = []
     for value in args.speech_span:
@@ -274,9 +299,28 @@ def main(argv: list[str] | None = None) -> int:
             problem_report_from_audio_quality,
         )
 
+        speech_segments = []
+        if args.speech_segments_json:
+            speech_segments = json.loads(
+                args.speech_segments_json.read_text(encoding="utf-8"))
+            if not isinstance(speech_segments, list):
+                parser.error("--speech-segments-json must contain a JSON array")
+            for row in speech_segments:
+                try:
+                    start, end = (float(row["start_seconds"]),
+                                  float(row["end_seconds"]))
+                except (KeyError, TypeError, ValueError):
+                    parser.error("--speech-segments-json rows need numeric "
+                                 "start_seconds and end_seconds")
+                if (not isinstance(row.get("text"), str)
+                        or not math.isfinite(start)
+                        or not math.isfinite(end) or start < 0 or end <= start):
+                    parser.error("--speech-segments-json rows need text and "
+                                 "0 <= start_seconds < end_seconds")
         output = {"measurement": record,
                   "problem_report": problem_report_from_audio_quality(
-                      record, speech_spans=speech_spans)}
+                      record, speech_spans=speech_spans,
+                      speech_segments=speech_segments)}
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 

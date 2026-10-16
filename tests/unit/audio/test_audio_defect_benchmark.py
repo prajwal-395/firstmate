@@ -11,6 +11,7 @@ from library.tools.analysis.audio_defect_benchmark import (
     manifest_from_editorial_corpus,
     predictions_from_audio_quality,
     problem_report_from_audio_quality,
+    repeated_speech_candidates,
     score_events,
     validate_manifest,
     write_injected_set,
@@ -138,6 +139,83 @@ def test_fi12_adapter_localizes_supported_events_and_abstains_on_masking():
     assert "music_dialogue_masking" not in {row["defect"] for row in result}
 
 
+def test_fi12_adapter_finds_a_prominent_mains_tone():
+    measurement = {"channels": [{
+        "stream_index": 0, "channel_index": 0, "integrated_lufs": -24,
+        "intervals": [{"start_seconds": 2, "end_seconds": 3,
+                       "sample_peak_dbfs": -10, "rms_dbfs": -24,
+                       "spectral_flatness": 0.03,
+                       "spectral_centroid_hz": 120,
+                       "tonal_peak_hz": 120,
+                       "tonal_peak_power_fraction": 0.61}],
+        "silence_intervals": [],
+    }]}
+    predictions = predictions_from_audio_quality(measurement)
+    hum = [row for row in predictions if row.get("noise_kind") == "tonal_hum"]
+    assert len(hum) == 1
+    assert hum[0]["frequency_hz"] == 120
+
+
+def test_fi12_v2_hum_calibration_end_to_end(tmp_path):
+    """Locked FI-12-v2 tonal-hum calibration through the real measurement.
+
+    Fixture recipe: 60 s mono 48 kHz, two-tone bed (440 + 880 Hz, total RMS
+    -37 dBFS) plus a 120 Hz sine at 0.05 peak amplitude from 10-15 s. The v1
+    adapter has no hum route, so the incumbent comparison is fixed: v1 recall
+    is 0 by construction on any hum interval, v2 must find this one with no
+    hum false alarms. The hum onset/offset also trips the pre-existing
+    adjacent-window loudness rule, so overall precision against hum-only gold
+    is 1/3; that side effect is recorded here, not hidden.
+    """
+    import wave
+
+    import numpy as np
+
+    from library.tools.audio_quality import measure_audio_quality
+
+    rate, duration = 48_000, 60
+    times = np.arange(rate * duration, dtype=np.float64) / rate
+    bed_level = 10.0 ** (-37.0 / 20.0)
+    samples = bed_level / np.sqrt(2.0) * (
+        np.sin(2 * np.pi * 440.0 * times) + np.sin(2 * np.pi * 880.0 * times))
+    samples = samples + 0.05 * np.sin(2 * np.pi * 120.0 * times) * (
+        (times >= 10.0) & (times < 15.0))
+    pcm = np.rint(np.clip(samples, -1.0, 1.0) * 32768.0).clip(
+        -32768, 32767).astype("<i2")
+    fixture = tmp_path / "hum-calibration.wav"
+    with wave.open(str(fixture), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(rate)
+        output.writeframes(pcm.tobytes())
+
+    measurement = measure_audio_quality(str(fixture), root=tmp_path / "memory",
+                                        force=True)
+    predictions = predictions_from_audio_quality(measurement)
+    hum = [row for row in predictions if row.get("noise_kind") == "tonal_hum"]
+    assert len(hum) == 1
+    assert hum[0]["frequency_hz"] == 120
+    assert hum[0]["start_seconds"] == pytest.approx(10, abs=1.05)
+    assert hum[0]["end_seconds"] == pytest.approx(15, abs=1.05)
+
+    hum_only = score_events(
+        [{"defect": "noise", "start_seconds": 10, "end_seconds": 15}],
+        [{"defect": "noise", "start_seconds": hum[0]["start_seconds"],
+          "end_seconds": hum[0]["end_seconds"]}],
+        duration)
+    assert hum_only["by_defect"]["noise"]["recall"] == 1
+    assert hum_only["by_defect"]["noise"]["precision"] == 1
+
+    full = score_events(
+        [{"defect": "noise", "start_seconds": 10, "end_seconds": 15}],
+        [{key: row[key]
+          for key in ("defect", "start_seconds", "end_seconds")}
+         for row in predictions],
+        duration)
+    assert full["overall"]["recall"] == 1
+    assert full["overall"]["precision"] == pytest.approx(1 / 3)
+
+
 def test_fi12_adapter_groups_adjacent_windows_and_ignores_inactive_channel():
     measurement = {"method": "fixture", "channels": [{
         "stream_index": 0, "channel_index": 0,
@@ -190,6 +268,22 @@ def test_problem_report_separates_measured_candidates_from_preferences():
     assert report["summary"]["technical_delivery_checks"] == "not_evaluated_by_this_report"
 
 
+def test_repeated_speech_is_a_review_candidate_not_an_automatic_edit():
+    candidates = repeated_speech_candidates([
+        {"start_seconds": 1, "end_seconds": 4,
+         "text": "We should start with the second example."},
+        {"start_seconds": 12, "end_seconds": 15,
+         "text": "We should start with the second example!"},
+        {"start_seconds": 18, "end_seconds": 20,
+         "text": "That is a different phrase."},
+    ])
+    assert len(candidates) == 1
+    assert candidates[0]["classification"] == "measured_candidate"
+    assert candidates[0]["editorial_verdict"] == "review_required"
+    assert candidates[0]["earlier"]["start_seconds"] == 1
+    assert candidates[0]["later"]["start_seconds"] == 12
+
+
 def test_audio_quality_cli_can_emit_the_problem_report(monkeypatch, capsys):
     import json
 
@@ -211,6 +305,46 @@ def test_audio_quality_cli_can_emit_the_problem_report(monkeypatch, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["measurement"] == measurement
     assert result["problem_report"]["findings"][0]["defect"] == "clipping"
+
+
+def test_audio_quality_cli_passes_source_timed_transcript_segments(
+        monkeypatch, capsys, tmp_path):
+    import json
+
+    from library.tools import audio_quality
+
+    monkeypatch.setattr(audio_quality, "measure_audio_quality",
+                        lambda *args, **kwargs: {"method": "fixture", "channels": []})
+    segments = tmp_path / "speech.json"
+    segments.write_text(json.dumps([{
+        "start_seconds": 1, "end_seconds": 3, "text": "Here is a repeated test phrase."
+    }, {
+        "start_seconds": 8, "end_seconds": 10, "text": "Here is a repeated test phrase."
+    }]), encoding="utf-8")
+    assert audio_quality.main([
+        "source.wav", "--problems", "--speech-segments-json", str(segments)
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert len(result["problem_report"]["repeated_speech_candidates"]) == 1
+
+
+def test_audio_quality_cli_refuses_malformed_transcript_segments(
+        monkeypatch, capsys, tmp_path):
+    import json
+
+    from library.tools import audio_quality
+
+    monkeypatch.setattr(audio_quality, "measure_audio_quality",
+                        lambda *args, **kwargs: {"method": "fixture", "channels": []})
+    segments = tmp_path / "speech.json"
+    segments.write_text(json.dumps([{
+        "start_seconds": 8, "end_seconds": 10,
+    }]), encoding="utf-8")
+    with pytest.raises(SystemExit) as refused:
+        audio_quality.main([
+            "source.wav", "--problems", "--speech-segments-json", str(segments)
+        ])
+    assert refused.value.code == 2
 
 
 def test_event_validation_rejects_out_of_program_and_unknown_defect():
